@@ -7,7 +7,7 @@ Insightful, accurate, and interactive video analytics AI agents enable a range o
 
 ### Software Components
 <div align="center">
-  <img src="deploy/images/vss_architecture.jpg" width="700">
+  <img src="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/raw/main/deploy/images/vss_architecture.jpg" width="700">
 </div>
 
 1. **NIM microservices**: Here are models used in this blueprint:
@@ -45,7 +45,7 @@ Target audience of the blueprint -->
 This API Key (```NVIDIA_API_KEY```) will be used to pull the blueprint container and other models that will be used as part of the blueprint.
 
 <div align="center">
-  <img src="deploy/images/vss_ea_page.png" width="700">
+  <img src="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/raw/main/deploy/images/vss_ea_page.png" width="700">
 </div>
 
 ### Hardware Requirements
