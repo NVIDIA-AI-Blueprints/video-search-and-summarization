@@ -90,7 +90,7 @@ Once approved for Early Access, the [Members page](https://developer.nvidia.com/
 <!-- ### API Definition -->
 
 ### License
-This NVIDIA NIM-AGENT BLUEPRINT is licensed under the [Apache License, Version 2.0.](./LICENSE.md)
+This NVIDIA AI BLUEPRINT is licensed under the [Apache License, Version 2.0.](./LICENSE.md)
 
 
 
