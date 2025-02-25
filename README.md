@@ -86,9 +86,17 @@ Once approved for Early Access, the [Members page](https://developer.nvidia.com/
 - NVIDIA GPU Operator v23.9
 - Helm v3.x
 
-
+### Known CVEs
+|   CVE    | Description |
+|----------|-------------|
+| [CVE-2024-11393](https://github.com/advisories/GHSA-wrfc-pvp9-mr9g) | This impacts the transformers v4.47.0 python package. This impacts the Hugging Face Transformers MaskFormer Model Deserialization and allows remote attackers to execute arbitrary code. User interaction is required to exploit this vulnerability in that the target must visit a malicious page or open a malicious file. However, this does not affect VSS since MaskFormer model is not used in VSS. |
+| [CVE-2024-11392](https://github.com/advisories/GHSA-qxrp-vhvm-j765) | This impacts the transformers v4.47.0 python package. This impacts the Hugging Face Transformers MobileViTV2 Model Deserialization and allows remote attackers to execute arbitrary code. User interaction is required to exploit this vulnerability in that the target must visit a malicious page or open a malicious file. However, this does not affect VSS since MobileViTV2 model is not used in VSS. |
+| [CVE-2024-11394](https://github.com/advisories/GHSA-hxxf-235m-72v3) | This impacts the transformers v4.47.0 python package. This impacts the Hugging Face Transformers Trax Model Deserialization and allows remote attackers to execute arbitrary code. User interaction is required to exploit this vulnerability in that the target must visit a malicious page or open a malicious file. However, this does not affect VSS since Trax model is not used in VSS. |
+	
 ### License
-This NVIDIA AI BLUEPRINT is licensed under the [Apache License, Version 2.0.](./LICENSE.md)
+The code in this repository is licensed under the [Apache License, Version 2.0.](./LICENSE.md)
+
+The software and materials through the Early Access program are governed by the [NVIDIA Software and Model Evaluation License Agreement](https://developer.download.nvidia.com/licenses/nvidia-software-and-model-evaluation-license-agreement-2024.12.12.pdf).
 
 
 
