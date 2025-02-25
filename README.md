@@ -87,8 +87,6 @@ Once approved for Early Access, the [Members page](https://developer.nvidia.com/
 - Helm v3.x
 
 
-<!-- ### API Definition -->
-
 ### License
 This NVIDIA AI BLUEPRINT is licensed under the [Apache License, Version 2.0.](./LICENSE.md)
 
