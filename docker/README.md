@@ -1,8 +1,6 @@
 # VSS Docker Compose Examples 
 
-The `launchables` folder contains a sample docker compose setup for deploying [brev.dev](https://console.brev.dev/launchable) 
-
-For custom deployments, three samples are provided to show different combinations of remote and local models deployments. 
+For custom VSS deployments through docker compose, three samples are provided to show different combinations of remote and local models deployments. 
 
 | Deployment Sample | VLM (VILA-1.5 35B) | LLM (Llama 3.1 70B) | Embedding (llama-3.2-nv-embedqa-1b-v2) | Reranker (llama-3.2-nv-rerankqa-1b-v2) | Minimum GPU Requirement | 
 | ------------------|-----|-----|-----------|----------| --------------- | 
