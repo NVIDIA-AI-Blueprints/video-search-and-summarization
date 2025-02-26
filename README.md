@@ -32,7 +32,7 @@ Insightful, accurate, and interactive video analytics AI agents enable a range o
 <!-- ### Target Audience
 Target audience of the blueprint -->
 
-### Prerequisits
+### Prerequisites
 
 #### NVAIE developer license
 
@@ -50,20 +50,31 @@ This API Key (```NVIDIA_API_KEY```) will be used to pull the blueprint container
 
 ### Hardware Requirements
 
+#### Default helm chart (local models)
 The following Nvidia GPUs are supported:
 - 8 x H100 (80 GB)
+- 4 x H100 (80 gb) (requires helm chart override)
 - 8 x A100 (80 GB)
 - 8 x L40S (48 GB)
 
-500+ GB system memory (for running all models locally)
+500+ GB system memory
+
+#### Remote deployment (some or all models remote)
+The following Nvidia GPUs are supported if remote endpoints are being used:
+
+**All models remote:** A6000, L40s, A100 (40 gb) 
+
+**Local VLM:** A100 (80 gb), H100, H200 (Use remote deployment )
 
 ### Quickstart Guide
 
-#### Docker Compose Deployment
+#### Launchable Deployment
 
-Follow the notebooks in [deploy](deploy/) directory to complete all pre-requisites and deploy the blurpeint.
+Follow the notebook in [deploy](deploy/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in an 8xL040s Crusoe instance.
 - [deploy/1_Deploy_VSS_docker_Crusoe.ipynb](deploy/1_Deploy_VSS_docker_Crusoe.ipynb): This notebook is tailored spacifically for the Crusoe CSP which uses Ephemeral storage.
-- [deploy/1_Deploy_VSS_docker.ipynb](deploy/1_Deploy_VSS_docker.ipynb): This notebook is meant for other CSPs which might also require a driver update.
+
+#### Docker Compose Deployment
+There are also 3 Docker Compose deployments for local and remote deployments
 
 ##### System Requirements
 
@@ -97,6 +108,3 @@ Once approved for Early Access, the [Members page](https://developer.nvidia.com/
 The code in this repository is licensed under the [Apache License, Version 2.0.](./LICENSE.md)
 
 The software and materials through the Early Access program are governed by the [NVIDIA Software and Model Evaluation License Agreement](https://developer.download.nvidia.com/licenses/nvidia-software-and-model-evaluation-license-agreement-2024.12.12.pdf).
-
-
-
