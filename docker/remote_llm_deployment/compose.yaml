@@ -1,0 +1,94 @@
+################################################################################
+# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA Corporation and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA Corporation is strictly prohibited.
+#
+################################################################################
+
+services:
+  via-server:
+    image: ${VIA_IMAGE:-nvcr.io/metropolis/via-dp/via-engine:2.0-dp}
+    runtime: nvidia
+    ports:
+      - "${BACKEND_PORT?}:${BACKEND_PORT?}"
+      - "${FRONTEND_PORT?}:${FRONTEND_PORT?}"
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${CA_RAG_CONFIG:-/dummy}${CA_RAG_CONFIG:+:/opt/nvidia/via/default_config.yaml}"
+      - "${GUARDRAILS_CONFIG:-/dummy}${GUARDRAILS_CONFIG:+:/opt/nvidia/via/guardrails_config}"
+      - "${GRAPH_RAG_PROMPT_CONFIG:-/dummy}${GRAPH_RAG_PROMPT_CONFIG:+:/opt/nvidia/via/warehouse_graph_rag_config.yaml}"
+      - "${EXAMPLE_STREAMS_DIR:-/dummy}${EXAMPLE_STREAMS_DIR:+:/opt/nvidia/via/streams:ro}"
+      - "${MILVUS_DATA_DIR:-/dummy}${MILVUS_DATA_DIR:+:/root/.milvus.io/milvus-server/2.3.5}"
+      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
+      - "${NGC_MODEL_CACHE:-via-ngc-model-cache}:/root/.via/ngc_model_cache"
+      - "${TRT_ENGINE_PATH:-/dummy}${TRT_ENGINE_PATH:+:${TRT_ENGINE_PATH:-}}"
+      - "${GSAM_MODEL_ROOT_DIR:-/dummy}${GSAM_MODEL_ROOT_DIR:+:${GSAM_MODEL_ROOT_DIR:-}}"
+      - "${VIA_SRC_DIR:-/dummy}${VIA_SRC_DIR:+:/opt/nvidia/via:ro}"
+      - "${VIA_LOG_DIR:-/dummy}${VIA_LOG_DIR:+:/tmp/via-logs}"
+      - via-hf-cache:/tmp/huggingface
+    environment:
+      GRAPH_RAG_PROMPT_CONFIG: "${GRAPH_RAG_PROMPT_CONFIG:-}"
+      AZURE_OPENAI_API_KEY: "${AZURE_OPENAI_API_KEY:-}"
+      AZURE_OPENAI_ENDPOINT: "${AZURE_OPENAI_ENDPOINT:-}"
+      BACKEND_PORT: "${BACKEND_PORT?}"
+      DISABLE_CA_RAG: "${DISABLE_CA_RAG:-false}"
+      DISABLE_FRONTEND: "${DISABLE_FRONTEND:-false}"
+      DISABLE_GUARDRAILS: "${DISABLE_GUARDRAILS:-false}"
+      DISABLE_CV_PIPELINE: "${DISABLE_CV_PIPELINE:-false}"
+      FRONTEND_PORT: "${FRONTEND_PORT?}"
+      MILVUS_DB_HOST: "${MILVUS_DB_HOST:-}"
+      MILVUS_DB_PORT: "${MILVUS_DB_PORT:-}"
+      MODEL_PATH: "${MODEL_PATH:-}"
+      NGC_API_KEY: "${NGC_API_KEY:-}"
+      GSAM_MODEL_PATH: "${GSAM_MODEL_PATH:-}"
+      NV_LLMG_CLIENT_ID: "${NV_LLMG_CLIENT_ID:-}"
+      NV_LLMG_CLIENT_SECRET: "${NV_LLMG_CLIENT_SECRET:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_API_VERSION: "${OPENAI_API_VERSION:-}"
+      TRT_ENGINE_PATH: "${TRT_ENGINE_PATH:-}"
+      TRT_LLM_MODE: "${TRT_LLM_MODE:-}"
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: "${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-}"
+      VIA_VLM_API_KEY: "${VIA_VLM_API_KEY:-}"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-openai-compat}"
+      GRAPH_DB_URI: "${GRAPH_DB_URI:-bolt://graph-db:7687}"
+      GRAPH_DB_USERNAME: "${GRAPH_DB_USERNAME}"
+      GRAPH_DB_PASSWORD: "${GRAPH_DB_PASSWORD}"
+      NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
+      FORCE_CA_RAG_RESET: "${FORCE_CA_RAG_RESET:-}"
+      VLM_INPUT_WIDTH: "${VLM_INPUT_WIDTH:-}"
+      VLM_INPUT_HEIGHT: "${VLM_INPUT_HEIGHT:-}"
+      ENABLE_DENSE_CAPTION: "${ENABLE_DENSE_CAPTION:-}"
+      VILA_LORA_PATH: "${VILA_LORA_PATH:-}"
+    depends_on:
+      - graph-db
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+    ipc: host
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  graph-db:
+    restart: always
+    ports: #<host_port>:<container_port>
+      - "${GRAPH_DB_HTTP_PORT:-7474}:7474"
+      - "${GRAPH_DB_BOLT_PORT:-7687}:7687"
+    environment:
+      NEO4J_AUTH: "${GRAPH_DB_USERNAME}/${GRAPH_DB_PASSWORD}"
+      NEO4J_PLUGINS: '["apoc"]'
+    image: neo4j:5.24
+
+volumes:
+  via-hf-cache:
+  via-ngc-model-cache:
