@@ -1,6 +1,6 @@
 # VSS Docker Compose Examples 
 
-For custom VSS deployments through docker compose, three samples are provided to show different combinations of remote and local models deployments. 
+For custom VSS deployments through docker compose, three samples are provided to show different combinations of remote and local model deployments. 
 
 | Deployment Sample | VLM (VILA-1.5 35B) | LLM (Llama 3.1 70B) | Embedding (llama-3.2-nv-embedqa-1b-v2) | Reranker (llama-3.2-nv-rerankqa-1b-v2) | Minimum GPU Requirement | 
 | ------------------|-----|-----|-----------|----------| --------------- | 
