@@ -41,3 +41,13 @@ chat:
   reranker:
     model: "nvidia/llama-3.2-nv-rerankqa-1b-v1"
     base_url: "http://host.docker.internal:9235/v1"
+
+notification:
+  enable: true
+  endpoint: "http://127.0.0.1:60000/via-alert-callback"
+  llm:
+    model: "meta/llama-3.1-70b-instruct"
+    base_url: "http://host.docker.internal:8000/v1"
+    max_tokens: 2048
+    temperature: 0.2
+    top_p: 0.7
