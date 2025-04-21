@@ -54,7 +54,7 @@ This blueprint is designed for ease of setup with extensive configuration option
 
 ## Documentation
 
-For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/index.html).
+For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/latest/index.html).
 
 ## Prerequisites
 
@@ -66,7 +66,7 @@ For detailed instructions and additional information about this blueprint, pleas
 
 ## Hardware Requirements
 
-The platform requirement can vary depending on the configuration and deployment topology used for VSS and dependencies like VLM, LLM, etc. For a list of validated GPU topologies and what configuration to use, see the [supported platforms](https://docs.nvidia.com/vss/content/supported_platforms.html#supported-platforms).
+The platform requirement can vary depending on the configuration and deployment topology used for VSS and dependencies like VLM, LLM, etc. For a list of validated GPU topologies and what configuration to use, see the [supported platforms](https://docs.nvidia.com/vss/latest/content/supported_platforms.html#supported-platforms). 
 
 
 | Deployment Type | VLM | LLM | Embedding (llama-3.2-nv-embedqa-1b-v2) | Reranker (llama-3.2-nv-rerankqa-1b-v2) | Minimum GPU Requirement | 
@@ -84,7 +84,7 @@ The platform requirement can vary depending on the configuration and deployment 
 
 **Ideal for:** Quickly getting started with your own videos without worrying about hardware and software requirements.
 
-Follow the steps from the [documentation](https://docs.nvidia.com/vss/content/cloud_brev.html) and notebook in [deploy](deploy/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in an 8xL040s Crusoe instance.
+Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/content/cloud_brev.html) and notebook in [deploy](deploy/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in an 8xL040s Crusoe instance.
 - [deploy/1_Deploy_VSS_docker_Crusoe.ipynb](deploy/1_Deploy_VSS_docker_Crusoe.ipynb): This notebook is tailored specifically for the Crusoe CSP which uses Ephemeral storage.
 
 ### Docker Compose Deployment
@@ -107,7 +107,7 @@ For custom VSS deployments through Docker Compose, multiple samples are provided
 
 **Ideal for:** Production deployments that need to integrate with other systems. Helm offers advantages such as easy upgrades, rollbacks, and management of complex deployments.
 
-The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.3.0.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/content/run_via.html#) for detailed instructions.
+The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.3.0.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/run_via.html#) for detailed instructions.
 
 #### System Requirements
 
