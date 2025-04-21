@@ -23,7 +23,7 @@ The NVIDIA AI Blueprint for Video Search and Summarization addresses the challen
 
 ## Software Components
 <div align="center">
-  <img src="deploy/images/vss_architecture.png" width="800">
+  <img src="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/raw/main/deploy/images/vss_architecture.png" width="800">
 </div>
 
 1. **NIM microservices**: Here are models used in this blueprint:
