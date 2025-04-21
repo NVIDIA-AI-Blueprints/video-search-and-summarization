@@ -1,0 +1,50 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+---
+name: riva_server
+detail:
+  server_uri: "parakeet-ctc-1.1b-asr:50051"
+  is_nim: true
+  use_ssl: false
+  metadata:
+    function-id: "d8dd4e9b-fbf5-4fb0-9dba-8cf436c8d965"
+    authorization: "Bearer $RIVA_ASR_NIM_API_KEY"  
+
+---
+name: riva_model
+detail:
+  model_name: "parakeet-0.6b-en-US-asr-streaming-asr-bls-ensemble"
+
+---
+name: riva_asr_stream
+detail:
+  encoding: LINEAR_PCM
+  sample_rate_hertz: 16000
+  language_code: "en-US"
+  profanity_filter: true
+  max_alternatives: 1
+  # Enables punctuation if punctuator_model is installed, otherwise keep false.
+  enable_automatic_punctuation: true
+  max_idle_microseconds: 60000000
+
+---
+name: ds_riva_asr_plugin
+detail:
+  final_only: true
+  enable_text_pts: true
+  # Select PTS calculation scheme:
+  #   false - use PTS of latest audio input buffer
+  #   true - use PTS and duration derived from Riva WordInfo start_time and end_time
+  use_riva_pts: true
+  force_final_trailing: false
+
