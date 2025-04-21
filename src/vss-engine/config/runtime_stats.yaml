@@ -1,0 +1,31 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+#Note: The runtime stats are template
+#estimations and does not represent realworld
+#performance of VIA
+#This data is used to auto-select chunk-size based
+#on input video length in the VIA Gradio UI client
+#Note: auto-selection give preference to quick VIA execution (low latency) over accuracy
+#users need to change chunk-size to lower values if needed, for better accuracy
+VIA_runtime_stats:
+  - GPU_in_use: A100
+    Model_ID: openai-compat/GPT-4o
+    average_time_per_chunk: 18.0s
+  - GPU_in_use: H100
+    Model_ID: openai-compat/GPT-4o
+    average_time_per_chunk: 7.9s
+  - GPU_in_use: L40
+    Model_ID: openai-compat/GPT-4o
+    average_time_per_chunk: 16.6s
+  - GPU_in_use: A6000
+    Model_ID: openai-compat/GPT-4o
+    average_time_per_chunk: 16.6s

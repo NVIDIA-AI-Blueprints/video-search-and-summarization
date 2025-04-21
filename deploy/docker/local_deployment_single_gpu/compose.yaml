@@ -1,0 +1,125 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+services:
+  via-server:
+    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.3.0}
+    runtime: nvidia
+    ports:
+      - "${BACKEND_PORT?}:${BACKEND_PORT?}"
+      - "${FRONTEND_PORT?}:${FRONTEND_PORT?}"
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${CA_RAG_CONFIG:-/dummy}${CA_RAG_CONFIG:+:/opt/nvidia/via/default_config.yaml}"
+      - "${GUARDRAILS_CONFIG:-/dummy}${GUARDRAILS_CONFIG:+:/opt/nvidia/via/guardrails_config}"
+      - "${GRAPH_RAG_PROMPT_CONFIG:-/dummy}${GRAPH_RAG_PROMPT_CONFIG:+:/opt/nvidia/via/warehouse_graph_rag_config.yaml}"
+      - "${EXAMPLE_STREAMS_DIR:-/dummy}${EXAMPLE_STREAMS_DIR:+:/opt/nvidia/via/streams:ro}"
+      - "${MILVUS_DATA_DIR:-/dummy}${MILVUS_DATA_DIR:+:/root/.milvus.io/milvus-server/2.3.5}"
+      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
+      - "${NGC_MODEL_CACHE:-via-ngc-model-cache}:/root/.via/ngc_model_cache"
+      - "${TRT_ENGINE_PATH:-/dummy}${TRT_ENGINE_PATH:+:${TRT_ENGINE_PATH:-}}"
+      - "${GSAM_MODEL_ROOT_DIR:-/dummy}${GSAM_MODEL_ROOT_DIR:+:${GSAM_MODEL_ROOT_DIR:-}}"
+      - "${VIA_SRC_DIR:-/dummy}${VIA_SRC_DIR:+:/opt/nvidia/via:ro}"
+      - "${VIA_LOG_DIR:-/dummy}${VIA_LOG_DIR:+:/tmp/via-logs}"
+      - via-hf-cache:/tmp/huggingface
+      - "${CV_PIPELINE_TRACKER_CONFIG:-/dummy}${CV_PIPELINE_TRACKER_CONFIG:+:/opt/nvidia/via/config/default_tracker_config.yml}"
+    environment:
+      GRAPH_RAG_PROMPT_CONFIG: "${GRAPH_RAG_PROMPT_CONFIG:-}"
+      AZURE_OPENAI_API_KEY: "${AZURE_OPENAI_API_KEY:-}"
+      AZURE_OPENAI_ENDPOINT: "${AZURE_OPENAI_ENDPOINT:-}"
+      BACKEND_PORT: "${BACKEND_PORT?}"
+      DISABLE_CA_RAG: "${DISABLE_CA_RAG:-false}"
+      DISABLE_FRONTEND: "${DISABLE_FRONTEND:-false}"
+      DISABLE_GUARDRAILS: "${DISABLE_GUARDRAILS:-false}"
+      DISABLE_CV_PIPELINE: "${DISABLE_CV_PIPELINE:-true}"
+      FRONTEND_PORT: "${FRONTEND_PORT?}"
+      MILVUS_DB_HOST: "${MILVUS_DB_HOST:-}"
+      MILVUS_DB_PORT: "${MILVUS_DB_PORT:-}"
+      MODEL_PATH: "${MODEL_PATH:-}"
+      NGC_API_KEY: "${NGC_API_KEY:-}"
+      GDINO_MODEL_PATH: "${GDINO_MODEL_PATH:-}"
+      NV_LLMG_CLIENT_ID: "${NV_LLMG_CLIENT_ID:-}"
+      NV_LLMG_CLIENT_SECRET: "${NV_LLMG_CLIENT_SECRET:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_API_VERSION: "${OPENAI_API_VERSION:-}"
+      TRT_ENGINE_PATH: "${TRT_ENGINE_PATH:-}"
+      TRT_LLM_MODE: "${TRT_LLM_MODE:-}"
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: "${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-}"
+      VIA_VLM_API_KEY: "${VIA_VLM_API_KEY:-}"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-openai-compat}"
+      GRAPH_DB_URI: "${GRAPH_DB_URI:-bolt://graph-db:7687}"
+      GRAPH_DB_USERNAME: "${GRAPH_DB_USERNAME}"
+      GRAPH_DB_PASSWORD: "${GRAPH_DB_PASSWORD}"
+      NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
+      NUM_GPUS: "${NUM_GPUS:-}"
+      FORCE_CA_RAG_RESET: "${FORCE_CA_RAG_RESET:-}"
+      VLM_INPUT_WIDTH: "${VLM_INPUT_WIDTH:-}"
+      VLM_INPUT_HEIGHT: "${VLM_INPUT_HEIGHT:-}"
+      ENABLE_DENSE_CAPTION: "${ENABLE_DENSE_CAPTION:-}"
+      ENABLE_AUDIO: "${ENABLE_AUDIO:-false}"
+      INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
+      FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
+      RIVA_ASR_SERVER_URI: "${RIVA_ASR_SERVER_URI:-parakeet-ctc-asr}"
+      RIVA_ASR_SERVER_IS_NIM: "${RIVA_ASR_SERVER_IS_NIM:-true}"
+      RIVA_ASR_SERVER_USE_SSL: "${RIVA_ASR_SERVER_USE_SSL:-false}"
+      RIVA_ASR_SERVER_API_KEY: "${RIVA_ASR_SERVER_API_KEY:-}"
+      RIVA_ASR_SERVER_FUNC_ID: "${RIVA_ASR_SERVER_FUNC_ID:-}"
+      RIVA_ASR_GRPC_PORT: "${RIVA_ASR_GRPC_PORT:-50051}"
+      RIVA_ASR_HTTP_PORT: "${RIVA_ASR_HTTP_PORT:-}"
+      ENABLE_RIVA_SERVER_READINESS_CHECK: "${ENABLE_RIVA_SERVER_READINESS_CHECK:-}"
+      RIVA_ASR_MODEL_NAME: "${RIVA_ASR_MODEL_NAME:-}"
+      VILA_LORA_PATH: "${VILA_LORA_PATH:-}"
+      VSS_LOG_LEVEL: "${VSS_LOG_LEVEL:-}"
+      GDINO_INFERENCE_INTERVAL: "${GDINO_INFERENCE_INTERVAL:-}"
+      NUM_CV_CHUNKS_PER_GPU: "${NUM_CV_CHUNKS_PER_GPU:-}"
+      VSS_EXTRA_ARGS: "${VSS_EXTRA_ARGS:-}"
+      VILA_ENGINE_NGC_RESOURCE: "${VILA_ENGINE_NGC_RESOURCE:-}"
+      VILA_FORCE_ENGINE_BUILD: "${VILA_FORCE_ENGINE_BUILD:-false}"
+      NVILA_VIDEO_MAX_TILES: "${NVILA_VIDEO_MAX_TILES:-}"
+      TRT_LLM_MEM_USAGE_FRACTION: "${TRT_LLM_MEM_USAGE_FRACTION:-}"
+      VSS_RTSP_LATENCY: "${VSS_RTSP_LATENCY:-}"
+      VSS_RTSP_TIMEOUT: "${VSS_RTSP_TIMEOUT:-}"
+      CA_RAG_EMBEDDINGS_DIMENSION: "500"
+    depends_on:
+      - graph-db
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+    ipc: host
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      host.docker.internal: host-gateway
+
+  graph-db:
+    restart: always
+    ports: #<host_port>:<container_port>
+      - "${GRAPH_DB_HTTP_PORT:-7474}:7474"
+      - "${GRAPH_DB_BOLT_PORT:-7687}:7687"
+    environment:
+      NEO4J_AUTH: "${GRAPH_DB_USERNAME}/${GRAPH_DB_PASSWORD}"
+      NEO4J_PLUGINS: '["apoc"]'
+    image: neo4j:5.26.4
+
+volumes:
+  via-hf-cache:
+  via-ngc-model-cache:

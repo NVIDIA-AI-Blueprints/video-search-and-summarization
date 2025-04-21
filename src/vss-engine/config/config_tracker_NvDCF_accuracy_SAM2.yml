@@ -1,0 +1,114 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+BaseConfig:
+  minDetectorConfidence: 0.1776906894555444
+TargetManagement:
+  enableBboxUnClipping: 0
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 150
+  minIouDiff4NewTarget: 0.6377957462370714
+  minTrackerConfidence: 0.4228106471344753
+  probationAge: 6
+  maxShadowTrackingAge: 66
+  earlyTerminationAge: 1
+TrajectoryManagement:
+  useUniqueID: 0
+  enableReAssoc: 1
+  minMatchingScore4Overall: 0.4187208885356422
+  minTrackletMatchingScore: 0.1379642243569585
+  minMatchingScore4ReidSimilarity: 0.6264504828945905
+  matchingScoreWeight4TrackletSimilarity: 0.8333568421605965
+  matchingScoreWeight4ReidSimilarity: 0.7576042651854908
+  minTrajectoryLength4Projection: 21
+  prepLength4TrajectoryProjection: 50
+  trajectoryProjectionLength: 11
+  maxAngle4TrackletMatching: 109
+  minSpeedSimilarity4TrackletMatching: 0.05700523714495654
+  minBboxSizeSimilarity4TrackletMatching: 0.9740457170740314
+  maxTrackletMatchingTimeSearchRange: 20
+  trajectoryProjectionProcessNoiseScale: 0.0100
+  trajectoryProjectionMeasurementNoiseScale: 100
+  trackletSpacialSearchRegionScale: 0.2598
+  reidExtractionInterval: 44
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 1
+  checkClassMatch: 1
+  minMatchingScore4Overall: 0.13320628461513911
+  minMatchingScore4SizeSimilarity: 0.30460764082405334
+  minMatchingScore4Iou: 0.034695353383749024
+  minMatchingScore4VisualSimilarity: 0.6047780566021151
+  matchingScoreWeight4VisualSimilarity: 0.8356434743362211
+  matchingScoreWeight4SizeSimilarity: 0.3331468202520101
+  matchingScoreWeight4Iou: 0.4263558035084434
+  tentativeDetectorConfidence: 0.3290811490598109
+  minMatchingScore4TentativeIou: 0.266588023432335
+StateEstimator:
+  stateEstimatorType: 1
+  processNoiseVar4Loc: 6479.956917230647
+  processNoiseVar4Size: 3970.177459509509
+  processNoiseVar4Vel: 7048.462789936002
+  measurementNoiseVar4Detector: 100.00000584166246
+  measurementNoiseVar4Tracker: 3093.39696945057
+VisualTracker:
+  visualTrackerType: 2
+  useColorNames: 1
+  useHog: 1
+  featureImgSizeLevel: 3
+  featureFocusOffsetFactor_y: -0.025824457957923867
+  filterLr: 0.020291824043622106
+  filterChannelWeightsLr: 0.08103743001391947
+  gaussianSigma: 1.5842667623119424
+ReID:
+  reidType: 2
+  useVPICropScaler: 1
+  outputReidTensor: 0
+  batchSize: 100
+  workspaceSize: 1000
+  reidFeatureSize: 256
+  reidHistorySize: 100
+  inferDims: [3, 256, 128]
+  networkMode: 1
+  inputOrder: 0
+  colorFormat: 0
+  offsets: [123.6750, 116.2800, 103.5300]
+  netScaleFactor: 0.01735207
+  keepAspc: 1
+  addFeatureNormalization: 1
+  tltModelKey: nvidia_tao
+  onnxFile: "/tmp/via/data/models/gdino-sam/resnet50_market1501_aicity156.onnx"
+  modelEngineFile: "/tmp/via/data/models/gdino-sam/resnet50_market1501_aicity156.onnx.engine"
+Segmenter:
+  segmenterType: 1
+  outputLabelNum: 1
+  hiddenDim: 256
+  encoderFeatureDim: 64
+  inputOrder: 0
+  inferDims: [3, 1024, 1024]
+  netScaleFactor: 0.01742919389
+  offsets: [123.675, 116.28, 103.53]
+  useVPICropScaler: 1
+  saveFrameViz: 0
+  saveIDMask: 0
+  colorFormat: 0
+  ImageEncoder:
+    batchSize: 1
+    workspaceSize: 5000
+    networkMode: 1
+    onnxFile: "/tmp/via/data/models/gdino-sam/image_encoder.onnx"
+    modelEngineFile: "/tmp/via/data/models/gdino-sam/image_encoder.onnx_b1_gpu0_fp16.engine"
+  MaskDecoder:
+    batchSize: 20
+    workspaceSize: 5000
+    networkMode: 1
+    onnxFile: "/tmp/via/data/models/gdino-sam/mask_decoder.onnx"
+    modelEngineFile: "/tmp/via/data/models/gdino-sam/mask_decoder.onnx_b20_gpu0_fp16.engine"

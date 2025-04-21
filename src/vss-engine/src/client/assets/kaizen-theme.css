@@ -1,0 +1,405 @@
+.tabitem {
+  background-color: var(--block-background-fill);
+}
+
+/*.textlabel_markdown textarea {font-size: 50px !important};*/
+/*.deopdown textarea {font-color: blue !important};*/
+/**
+ * Typography
+ */
+[data-testid="markdown"] h1 {
+  font-size: 32px !important;
+}
+
+[data-testid="markdown"] h2 {
+  font-size: var(--text-xxl) !important;
+}
+
+[data-testid="markdown"] h3 {
+  font-size: var(--text-xl) !important;
+}
+
+[data-testid="markdown"] h4 {
+  font-size: var(--text-sm) !important;
+  opacity: 0.00;
+  text-transform: lowercase;
+}
+
+[data-testid="markdown"] h5 {
+  font-size: var(--text-xl) !important;
+  opacity: 0.5;
+  text-transform: uppercase;
+}
+
+.gradio-container {
+  /* This needs to be !important, otherwise the breakpoint override the container being full width */
+  max-width: 100% !important;
+
+  #aspect-ratio: 16 / 9 !important;
+  /* top | right | bottom | left */
+  padding: 0px 0px 0px 0px !important;
+  /*  padding-top: 16 !important;
+ padding-right: 32 !important;
+  padding-left: 32 !important;
+  padding-bottom: 32 !important;*/
+  #margin: 30px !important;
+  /*background-color: 212121 !important;*/
+
+}
+
+.generating {
+  border-width: 0px !important;
+}
+
+#progress-slider>div {
+  display: none !important;
+}
+
+@keyframes moveStripes {
+  from {
+    background-position: left 0;
+  }
+
+  to {
+    background-position: left 100%;
+  }
+}
+
+@keyframes slide {
+  0% {
+    transform: translate(0);
+  }
+
+  100% {
+    transform: translate(-100%);
+    /* The image width */
+  }
+}
+
+#via-tabs {
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+}
+
+.perf-section-item {
+  min-height: 0px;
+}
+
+#progress-slider>input[type=range]::-webkit-slider-thumb {
+  display: none !important;
+}
+
+/* #progress-slider>input[type=range]::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, white 5%, green 5%, green 10%, white 10%, white 15%, green 15%, green 20%, white 20%, white 25%, green 25%, green 30%, white 30%, white 35%, green 35%, green 40%, white 40%, white 45%, green 45%, green 50%, white 50%, white 55%, green 55%, green 60%, white 60%, white 65%, green 65%, green 70%, white 70%, white 75%, green 75%, green 80%, white 80%, white 85%, green 85%, green 90%, white 90%, white 95%, green 95%, green 100%, white 100%) repeat-x !important;
+  animation: slide 3s linear infinite !important;
+  -webkit-animation: slide 3s linear infinite !important;
+  overflow: hidden;
+} */
+
+#progress-slider>input[type=range]::-moz-range-thumb {
+  display: none !important;
+}
+
+.perf-section {
+  border: 1px solid rgb(216, 216, 216);
+  padding: 10px !important;
+  flex-grow: 1 !important;
+}
+
+
+
+.perf-section-header {
+  font-size: 14px;
+  color: rgb(94, 94, 94);
+  font-weight: bold !important;
+}
+
+
+
+.gpu-metrics-row-item-wrapper {
+  text-align: center !important;
+  justify-content: center !important;
+}
+
+
+
+#response-time-chart > div > div > canvas {
+  width: 100% !important;
+  min-width: 100% !important;
+}
+
+.gradio-container {
+  background-color: #f5f5f5 !important;
+}
+
+.white-background {
+  background-color: #ffffff !important;
+}
+
+input[role="listbox"] {
+  margin: var(--spacing-lg) !important;
+}
+
+#example, #example > div > table > tbody > tr {
+  background-color: #ffffff !important;
+}
+
+#example > .label {
+  font-weight: bold !important;
+  color: rgb(118, 118, 118) !important;
+  font-size: 14px !important;
+}
+
+#video-timeline-container > div, #video-timeline-container > div > div, #video-timeline-container > div > div > div, #video-timeline-container > div > div > * {
+  background-color: #ffffff !important;
+}
+
+.gray-btn {
+  background-color: #767676 !important;
+  border-color: #767676 !important;
+  color: white !important;
+}
+
+.bold-header > button > span , .bold-header > div > span {
+  font-weight: bold !important;
+}
+
+.tab-nav > button {
+  font-weight: bold !important;
+}
+
+.gpu-metrics-row-item {
+  border: 1px solid rgb(216, 216, 216) !important;
+  background-color: #f5f5f5 !important;
+  row-gap: 0px !important;
+  column-gap: 0px !important;
+  flex-grow: 0 !important;
+  min-width: 180px !important;
+}
+
+/* .gpu-metrics-row-item > div {
+  border-color: none !important;
+  border: none !important;
+  text-align: center !important;
+  justify-content: center !important;
+}
+
+.gpu-metrics-row-item > div > div > svg {
+  border-color: none !important;
+  border: none !important;
+  text-align: center !important;
+  justify-content: center !important;
+  margin: auto !important;
+} */
+
+/* .gpu-metrics-row-item > div > div > svg {
+  color: #f5f5f5 !important;
+  background-color: #f5f5f5 !important;
+}
+*/
+.gpu-metrics-row-item > div > div {
+  border-color: none !important;
+  border: none !important;
+  text-align: center !important;
+  justify-content: center !important;
+  padding: 0px !important;
+} 
+.gpu-metrics-row-item > div {
+  border-color: none !important;
+  border: none !important;
+}
+.svg-text-container {
+  border: none !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  background: #f5f5f5 !important;
+  max-width: 160px !important;
+  padding-bottom: 5px !important;
+}
+.svg-text-container svg {
+  margin: 0px !important;
+  background: #f5f5f5 !important;
+}
+.svg-text-container .textbox {
+  margin: 0px !important;
+  text-align: center !important;
+  background-color: #ebecee !important;
+}
+
+#timeline {
+  max-height: 100px !important;
+}
+
+#thumbnail-image {
+  border: none !important;
+  min-height: 90px !important;
+  background: #000000 !important;
+}
+
+.summary-video .container .controls {
+  display: none !important;
+}
+.message-row img {
+  margin: 0px !important;
+}
+
+.avatar-container img {
+  padding: 0px !important;
+}
+#example table tr td:nth-child(n+3) {   display: none; }
+#example table tr th:nth-child(n+3) {   display: none; }
+
+.popup {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  z-index: 100;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  width: auto !important;
+  max-width: 500px;
+  overflow-y: auto;
+  max-height: 90vh;
+}
+.scenario-popup {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  z-index: 100;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  width: auto !important;
+  max-width: 500px;
+  overflow-y: auto;
+  max-height: 90vh;
+  background-color: #ffffff !important;
+  backdrop-filter: none;
+}
+/* Specific selectors for alerts table */
+.alerts-table {
+  overflow-x: auto !important;
+}
+.alerts-table table {
+  min-width: 100% !important;
+}
+.alerts-table table thead {
+  position: sticky !important;
+  top: 0;
+  z-index: 2;
+}
+.alerts-table table th .sort-button {
+  display: none !important;
+}
+/* Column width settings */
+.alerts-table table td:nth-child(1),
+.alerts-table table th:nth-child(1) {
+    width: 20% !important;
+    min-width: 150px !important;
+    white-space: nowrap !important;
+    overflow: auto !important;
+}
+.alerts-table table td:nth-child(2),
+.alerts-table table th:nth-child(2) {
+    width: 60% !important;
+    min-width: 300px !important;
+    white-space: nowrap !important;
+    overflow: auto !important;
+}
+.alerts-table table td:nth-child(1),
+.alerts-table table th:nth-child(1),
+.alerts-table table td:nth-child(2),
+.alerts-table table th:nth-child(2) {
+    position: relative !important;
+}
+.alerts-table table td:nth-child(1) > *,
+.alerts-table table td:nth-child(2) > * {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+}
+.alerts-table table td:nth-child(3),
+.alerts-table table th:nth-child(3) {
+    width: 10% !important;
+    min-width: 50px !important;
+    position: sticky !important;
+    right: 32px;
+    text-align: center !important;
+    cursor: pointer !important;
+    border-left: none !important;
+}
+.alerts-table table td:last-child,
+.alerts-table table th:last-child {
+    width: 10% !important;
+    min-width: 50px !important;
+    position: sticky !important;
+    right: 0;
+    text-align: center !important;
+    cursor: pointer !important;
+    border-left: none !important;
+}
+/* Remove vertical lines before edit and delete columns */
+.alerts-table table td:nth-child(3)::before,
+.alerts-table table th:nth-child(3)::before,
+.alerts-table table td:last-child::before,
+.alerts-table table th:last-child::before {
+    display: none !important;
+}
+.alerts-table table td:nth-child(3),
+.alerts-table table td:last-child {
+    cursor: default !important;
+}
+.alerts-table table td:nth-child(3):not(:empty),
+.alerts-table table td:last-child:not(:empty) {
+    cursor: pointer !important;
+}
+.modal-container {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  background-color: white;
+  padding: 20px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), /* Main shadow */
+              0 6px 20px rgba(0, 0, 0, 0.19); /* Additional shadow for depth */
+  z-index: 1000;
+  /* display: none; */
+  max-width: 90vw; /* Ensure it doesn't exceed screen width */
+  max-height: 90vh; /* Ensure it doesn't exceed screen height */
+  overflow: auto; /* Add scroll if content is too large */
+}
+/* Add styles for dropdown within modal */
+#rag-type-dropdown input[role="listbox"] {
+  margin: var(--spacing-xl) !important;
+}
+#rag-type-dropdown ul {
+  max-height: 200px !important; /* Set a fixed height */
+  bottom: auto !important; /* Remove the conflicting bottom calculation */
+}
+.align-right-row {
+  display: flex;
+  justify-content: flex-end; /* Aligns the button to the right */
+}
+.small-button {
+  width: 100px; /* Set a smaller width for the button */
+  height: 30px; /* Set a smaller height for the button */
+  padding: 5px; /* Adjust padding for a smaller appearance */
+}
+.close-button {
+  position: absolute;
+  top: -10px; /* Adjust top padding as needed */
+  right: -50px; /* Minimal padding from the right */
+  width: 10px; /* Set a smaller width for the close button */
+  height: 10px; /* Set a smaller height for the close button */
+  background: none;
+  border: none;
+  font-size: 16px; /* Adjust font size for the cross sign */
+  cursor: pointer;
+}
+.black-button {
+  background-color: black; /* Set the background color to black */
+  color: white; /* Ensure the text is visible */
+}

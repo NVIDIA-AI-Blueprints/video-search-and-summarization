@@ -1,0 +1,91 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+infer_config {
+  unique_id: 1
+  gpu_ids: [0]
+  max_batch_size: 4
+  backend {
+    triton {
+      model_name: "ensemble_python_gdino"
+      version: 1
+      model_repo {
+        root: "./triton_model_repo/"
+        log_level: 1
+        strict_model_config: true
+        # Triton runtime would reserve 64MB pinned memory
+        pinned_memory_pool_byte_size: 67108864
+        # Triton runtim would reserve 64MB CUDA device memory on GPU 0
+        cuda_device_memory
+        {
+          device: 0, memory_pool_byte_size: 67108864
+        }
+      }
+    }
+    outputs[
+    {
+      name: "labels"
+      max_buffer_bytes: 384000
+    },
+    {
+      name: "scores"
+      max_buffer_bytes: 768000
+    },
+    {
+      name: "boxes"
+      max_buffer_bytes: 3072000
+    }
+    ]
+    output_mem_type: MEMORY_TYPE_CPU
+    disable_warmup: true
+  }
+
+  preprocess {
+    tensor_name: "inputs"
+    #network_format: IMAGE_FORMAT_RGB
+    network_format: MEDIA_FORMAT_NONE
+    #tensor_order: TENSOR_ORDER_NHWC
+    tensor_order: TENSOR_ORDER_LINEAR
+    maintain_aspect_ratio: 1
+    frame_scaling_filter: 1
+    normalize {
+      scale_factor: 0.017507
+      channel_offsets: [123.675,116.280,103.53]
+      #scale_factor: 0.01724
+    }
+  }
+
+  postprocess {
+   # labelfile_path: "../../triton_tao_model_repo/peoplenet_transformer/labels.txt"
+    other {
+	type_name: "person . face . car . bus . backpack . ;0.3"
+	}
+  }
+
+  extra {
+    copy_input_to_host_buffers: false
+    custom_process_funcion: "CreateInferServerCustomProcess"
+  }
+
+  custom_lib {
+    path: "nvdsinferserver_custom_impl_gdino/libnvdstriton_custom_impl_gdino.so"
+  }
+
+}
+input_control {
+  process_mode: PROCESS_MODE_FULL_FRAME
+  interval: 0
+}
+output_control {
+  output_tensor_meta: false
+}
+
