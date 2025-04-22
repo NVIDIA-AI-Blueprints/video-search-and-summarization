@@ -69,7 +69,12 @@ kubectl create secret docker-registry private-reg-secret \
   --docker-password=<password>
 ```
 
+Please also create additional secrets necessary, following the [VSS Helm Quickstart Guide](https://docs.nvidia.com/vss/latest/content/run_via.html#deploy-using-helm).
+
 2. Create a custom values override file (e.g., `my-values.yaml`):
+
+Please make sure to manually replace the ``${NEW_VERSION}`` tag in the file.
+
 ```yaml
 # my-values.yaml
 vss:
@@ -80,7 +85,7 @@ vss:
           # Update to override with custom VSS image
           image:
             repository: <your-registry>/vss-engine
-            tag: ${NEW_VERSION}
+            tag: ${NEW_VERSION} #please manually replace the version tag
   # Add this if using private registry
   imagePullSecrets:
     - name: private-reg-secret
@@ -93,10 +98,16 @@ helm install vss-blueprint nvidia-blueprint-vss-2.3.0.tgz \
     -f my_values.yaml
 ```
 
+Please set ``global.ngcImagePullSecretName`` to NGC secret following documentation [here](https://docs.nvidia.com/vss/latest/content/run_via.html#deploy-using-helm). 
+
+This is necessary to pull docker images from NGC for the various NVIDIA NIMs used by VSS in [the default helm chart deployment topology](https://docs.nvidia.com/vss/latest/content/run_via.html#default-deployment-topology-and-models-in-use).
+
+For more detailed information about Helm deployment and configuration, please refer to the [VSS Helm Quickstart Guide](https://docs.nvidia.com/vss/latest/content/run_via.html#deploy-using-helm).
+
 ## Deploying with Docker Compose
 Export the `VIA_IMAGE` environment variable before deploying VSS to use the new container image.
 ```bash
 export VIA_IMAGE=<your-image>
 ```
 
-For more detailed information about Docker Compose deployment and configuration, please refer to the [VSS Docker Compose Quickstart Guide](https://docs.nvidia.com/vss/content/quickstart_docker.html).
+For more detailed information about Docker Compose deployment and configuration, please refer to the [VSS Docker Compose Quickstart Guide](https://docs.nvidia.com/vss/latest/content/quickstart_docker.html).
