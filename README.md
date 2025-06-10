@@ -56,6 +56,8 @@ This blueprint is designed for ease of setup with extensive configuration option
 
 For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/latest/index.html).
 
+For a more detailed explanation of the project architecture, components, data flow, and guides for advanced customization (like integrating alternative VLMs such as Gemini), please see our [Comprehensive Project Guide](COMPREHENSIVE_README.md).
+
 ## Prerequisites
 
 ### Obtain API Key
