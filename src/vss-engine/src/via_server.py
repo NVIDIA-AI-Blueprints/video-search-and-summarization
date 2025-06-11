@@ -82,6 +82,7 @@ REGISTRY.unregister(GC_COLLECTOR)
 
 TIMESTAMP_PATTERN = r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{3})Z$"
 FILE_NAME_PATTERN = r"^[A-Za-z0-9_.\- ]*$"
+MODEL_NAME_PATTERN = r"^[A-Za-z0-9_.\- / ]*$" 
 PATH_PATTERN = r"^[A-Za-z0-9_.\-/ ]*$"
 DESCRIPTION_PATTERN = r'^[A-Za-z0-9_.\-"\' ,]*$'
 UUID_LENGTH = 36
@@ -320,7 +321,7 @@ class ModelInfo(ViaBaseModel):
 
     id: str = Field(
         description="The model identifier, which can be referenced in the API endpoints.",
-        pattern=FILE_NAME_PATTERN,
+        pattern=MODEL_NAME_PATTERN,
         max_length=2560,
     )
     created: int = Field(
