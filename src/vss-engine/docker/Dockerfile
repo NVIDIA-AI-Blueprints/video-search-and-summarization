@@ -10,10 +10,13 @@
 # its affiliates is strictly prohibited.
 ######################################################################################################
 
-ARG BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.3.0"
+ARG BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.3.1"
 FROM $BASE_IMAGE
 
-RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v0.5.0 /tmp/vss-ctx-rag
+RUN --mount=type=bind,source=binaries/gradio_videotimeline-1.0.2-py3-none-any.whl,target=/tmp/gradio_videotimeline-1.0.2-py3-none-any.whl \
+    pip install --no-deps /tmp/gradio_videotimeline-1.0.2-py3-none-any.whl
+
+RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v0.5.1 /tmp/vss-ctx-rag
 RUN pip install /tmp/vss-ctx-rag --no-deps && \
     rm -rf /tmp/vss-ctx-rag
 

@@ -14,7 +14,6 @@
 import logging
 import logging.handlers
 import os
-import sys
 import time
 
 LOG_COLORS = {
@@ -52,7 +51,7 @@ class LogFormatter(logging.Formatter):
 
 
 term_out = logging.StreamHandler()
-term_out.setLevel(LOG_PERF_LEVEL)
+term_out.setLevel(logging.INFO)
 term_out.setFormatter(LogFormatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(term_out)
 
@@ -64,6 +63,7 @@ logger.addHandler(log_file)
 logger.setLevel(logging.INFO)
 if os.environ.get("VSS_LOG_LEVEL"):
     logger.setLevel(os.environ.get("VSS_LOG_LEVEL").upper())
+    term_out.setLevel(os.environ.get("VSS_LOG_LEVEL").upper())
 
 
 class TimeMeasure:
@@ -71,7 +71,7 @@ class TimeMeasure:
     context manager.
     """
 
-    def __init__(self, string: str, print=True) -> None:
+    def __init__(self, string: str, print=False) -> None:
         """Class constructor
 
         Args:
@@ -83,29 +83,25 @@ class TimeMeasure:
 
     def __enter__(self):
         self._start_time = time.time()
-        logger.debug("[START] " + self._string)
         return self
 
     def __exit__(self, type, value, traceback):
         self._end_time = time.time()
-        logger.debug("[END]   " + self._string)
-        if self._print:
-            exec_time = self._end_time - self._start_time
+        exec_time = self._end_time - self._start_time
+        if logger.level <= LOG_PERF_LEVEL:
             if exec_time > 1:
                 exec_time, unit = exec_time, "sec"
             elif exec_time > 0.001:
                 exec_time, unit = exec_time * 1000.0, "millisec"
             elif exec_time > 1e-6:
                 exec_time, unit = exec_time * 1e6, "usec"
-            logger.log(
-                LOG_PERF_LEVEL,
-                "{:s} execution time = {:.3f} {:s}".format(self._string, exec_time, unit),
+            logger.log(LOG_PERF_LEVEL, "%s execution time = %.3f %s", self._string, exec_time, unit)
+            logger.debug(
+                "%s start=%s end=%s",
+                self._string,
+                str(self._start_time),
+                str(self._end_time),
             )
-            print(
-                "{:s} execution time = {:.3f} {:s}".format(self._string, exec_time, unit),
-                file=sys.stderr,
-            )
-            logger.debug(f"{self._string} start={str(self._start_time)} end={str(self._end_time)}")
 
     @property
     def execution_time(self):

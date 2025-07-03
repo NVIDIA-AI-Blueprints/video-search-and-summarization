@@ -21,7 +21,7 @@ import requests.exceptions
 from via_logger import logger
 
 
-def download_model(ngc_model: str, download_path_prefix: str):
+def download_model(ngc_model: str, download_path_prefix: str, model_type: str = ""):
     """Download a model from NGC
 
     Args:
@@ -42,10 +42,9 @@ def download_model(ngc_model: str, download_path_prefix: str):
         raise Exception(f"{ngc_model} does not look like an NGC model")
 
     # Check if the model is already downloaded
-    model_dir = (
-        os.path.join(download_path_prefix, f"{model_name_full.replace('/', '_')}_{version}")
-        + "_vila-llama-3-8b-lita"
-    )
+    model_dir = os.path.join(download_path_prefix, f"{model_name_full.replace('/', '_')}_{version}")
+    if model_type == "vila-1.5":
+        model_dir = model_dir + "_vila-llama-3-8b-lita"
     if os.path.exists(model_dir):
         logger.info(f"Using model cached at {model_dir}")
         return model_dir

@@ -52,7 +52,8 @@ class NVila:
                         kv_cache_config=tensorrt_llm.bindings.executor.KvCacheConfig(
                             free_gpu_memory_fraction=float(
                                 os.environ.get("TRT_LLM_MEM_USAGE_FRACTION", "") or 0.4
-                            )
+                            ),
+                            enable_block_reuse=False,
                         ),
                     )
         else:

@@ -71,10 +71,10 @@ The platform requirement can vary depending on the configuration and deployment 
 
 | Deployment Type | VLM | LLM | Embedding (llama-3.2-nv-embedqa-1b-v2) | Reranker (llama-3.2-nv-rerankqa-1b-v2) | Minimum GPU Requirement | 
 | ------------------|-----|-----|-----------|----------| --------------- | 
-| Local deployment (Default topology) | Local (VILA 1.5)| Local (Llama 3.1 70B) | Local | Local | 8xH200, 8xH100, 8xA100 (80GB), 8xL40S | 
-| Local deployment (Reduced Compute) | Local (NVILA 15b) | Local (Llama 3.1 70B) | Local | Local | 4xH200, 4xH100, 4xA100 (80GB), 6xL40S |
-| Local deployment (Single GPU) | Local (NVILA 15b) | Local (Llama 3.1 8b low mem mode) | Local | Local | 1xH200, 1xH100, 1xA100 (80GB) |
-| Local VLM deployment | Local | Remote | Remote | Remote | 1xH200, 1xH100, 2xA100 (80GB), 2xL40S |
+| Local deployment (Default topology) | Local (VILA 1.5)| Local (Llama 3.1 70B) | Local | Local | 8xB200, 8xH200, 8xH100, 8xA100 (80GB), 8xL40S | 
+| Local deployment (Reduced Compute) | Local (NVILA 15b) | Local (Llama 3.1 70B) | Local | Local | 4xB200, 4xH200, 4xH100, 4xA100 (80GB), 6xL40S |
+| Local deployment (Single GPU) | Local (NVILA 15b) | Local (Llama 3.1 8b low mem mode) | Local | Local | 1xB200, 1xH200, 1xH100, 1xA100 (80GB) |
+| Local VLM deployment | Local | Remote | Remote | Remote | 1xB200, 1xH200, 1xH100, 2xA100 (80GB), 2xL40S |
 | Complete remote deployment | Remote| Remote | Remote | Remote | Minimum 8GB VRAM GPU | 
 
 
@@ -96,7 +96,7 @@ For custom VSS deployments through Docker Compose, multiple samples are provided
 #### System Requirements
 
 - Ubuntu 22.04
-- NVIDIA driver 535.161.08 (Recommended minimum version)
+- NVIDIA driver 535.161.08 (Recommended minimum version). NVIDIA driver 570.86.15 (for H200). NVIDIA driver 570.133.20 (for B200)
 - CUDA 12.2+ (CUDA driver installed with NVIDIA driver)
 - NVIDIA Container Toolkit 1.13.5+
 - Docker 27.5.1+
@@ -107,12 +107,12 @@ For custom VSS deployments through Docker Compose, multiple samples are provided
 
 **Ideal for:** Production deployments that need to integrate with other systems. Helm offers advantages such as easy upgrades, rollbacks, and management of complex deployments.
 
-The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.3.0.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/run_via.html#) for detailed instructions.
+The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.3.1.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/run_via.html#) for detailed instructions.
 
 #### System Requirements
 
 - Ubuntu 22.04
-- NVIDIA driver 535.183.06 (Recommended minimum version). NVIDIA driver 570.86.15 (for H200)
+- NVIDIA driver 535.183.06 (Recommended minimum version). NVIDIA driver 570.86.15 (for H200). NVIDIA driver 570.133.20 (for B200)
 - CUDA 12.2+ (CUDA driver installed with NVIDIA driver)
 - Kubernetes v1.31.2
 - NVIDIA GPU Operator v23.9 (Recommended minimum version)
@@ -120,23 +120,14 @@ The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.3.0.tgz` file w
 
 ## Known CVEs
 
-VSS Engine 2.3.0 Container has the following known CVEs:
+VSS Engine 2.3.1 Container has the following known CVEs:
 
 |   CVE    | Description |
 |----------|-------------|
-| [CVE-2024-8966](https://github.com/advisories/GHSA-5cpq-9538-jm2j) | This impacts gradio <= 5.22.0 python package, This impacts the file upload functionality of Gradio UI where an attacker can cause Denial-of-Service (DoS) attack by appending a large number of characters to the end of a multipart boundary. This affects the Gradio UI of VSS. |
-| [CVE-2025-32434](https://github.com/advisories/GHSA-53q9-r3pm-6pq6) | This impacts the torch v2.51.0 python package. This impacts loading of saved model weights from a tar file using torch.load()  API which can result in remote code execution in case of malicious weights. The default weights for the models used by VSS are in safetensors format and are not affected by this vulnerability since torch.load() is not used. However, users must ensure safety of the weights if using other formats. |
+|[CVE-2024-8966](https://github.com/advisories/GHSA-5cpq-9538-jm2j)| This impacts gradio <= 5.22.0 python package, This impacts the file upload functionality of Gradio UI where an attacker can cause Denial-of-Service (DoS) attack by appending a large number of characters to the end of a multipart boundary. This does not affect VSS since the underlying root cause is already fixed by having a newer version 0.0.18 of python-multipart which does not have this vulnerability.|
+|[CVE-2025-4565](https://github.com/advisories/GHSA-8qvm-5x2c-j2w7)| This impacts protobuf < 4.25.8 python package, This impacts parsing of untrusted Protocol Buffers data containing an arbitrary number of recursive groups, recursive messages or a series of SGROUP tags leading to unbounded recursions and potential Denial-of-Service when protobuf pure-Python backend is used. This does not affect VSS since python backend of protobuf is not used.|
+|[CVE-2025-3887](https://ubuntu.com/security/CVE-2025-3887)| This impacts GStreamer H.265 codec parser, Malicious malformed streams can cause  stack overflow in H.265 codec parser causing the application to crash. Users must take care that malicious H.265 streams are not added to VSS. This can be remedied by building and installing the GStreamer1.24.2 codec parser library after applying the patch mentioned in https://gstreamer.freedesktop.org/security/sa-2025-0001.html. |
 
-
-VSS Engine 2.3.0 Source Code has the following known CVEs:
-
-|   CVE    | Description |
-|----------|-------------|
-| [CVE-2024-7246](https://nvd.nist.gov/vuln/detail/CVE-2024-7246) | This affects the gRPC python package. It's possible for a gRPC client communicating with a HTTP/2 proxy to poison the HPACK table between the proxy and the backend such that other clients see failed requests. By default, VSS does not use a HTTP/2 proxy.|
-| [CVE-2024-27444](https://github.com/advisories/GHSA-v8vj-cv27-hjv8) | This issue is reported for langchain-milvus 0.1.5 dependency on older langchain version 0.1.5. However, VSS explicitly uses langchain 0.3.3 and hence is not applicable.|
-| [CVE-2024-28088](https://github.com/advisories/GHSA-h59x-p739-982c) | This issue is reported for langchain-milvus 0.1.5 dependency on older langchain version 0.1.5. However, VSS explicitly uses langchain 0.3.3 and hence is not applicable. |
-| [CVE-2024-38459](https://github.com/advisories/GHSA-wmvm-9vqv-5qpp) | This issue is reported for langchain-milvus 0.1.5 dependency on older langchain version 0.1.5. However, VSS explicitly uses langchain 0.3.3 and hence is not applicable. |
-	
 ## License
 The software and materials in this repository are governed by the [NVIDIA Software License Agreement](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/) and the Product-Specific Terms for [NVIDIA AI Products](https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/); except for models which are governed by the [NVIDIA Community Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-community-models-license/).
 

@@ -6,6 +6,7 @@ This guide provides instructions for modifying the VSS Engine source code, build
 
 ```
 vss-engine/
+├── binaries/      # Binaries like whl files
 ├── config/        # Configuration files
 ├── docker/        # Docker build files
 ├── src/           # Source code
@@ -28,6 +29,9 @@ vss-engine/
 
 3. Similarly, config files can be changed in config directory.
 
+4. The video timeline component source is available in ``../video_timeline``. To use a modified version, build the whl file
+   from the source code and copy it to the ``binaries`` directory. If needed, update the whl file name in ``docker/Dockerfile``.
+
 ## Building New Docker Image
 
 1. Set up NGC credentials:
@@ -38,7 +42,7 @@ docker login nvcr.io -u '$oauthtoken' -p $NGC_API_KEY
 
 2. Set the base image and new version:
 ```bash
-export BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.3.0"
+export BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.3.1"
 export NEW_VERSION="x.y.z"  # Replace with your version
 ```
 
@@ -93,7 +97,7 @@ vss:
 
 3. Install/Upgrade using the override values:
 ```bash
-helm install vss-blueprint nvidia-blueprint-vss-2.3.0.tgz \
+helm install vss-blueprint nvidia-blueprint-vss-2.3.1.tgz \
     --set global.ngcImagePullSecretName=ngc-docker-reg-secret \
     -f my_values.yaml
 ```
