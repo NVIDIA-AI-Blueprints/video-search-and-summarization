@@ -9,9 +9,9 @@ This is a locally exeucted model. Run the following command to download the mode
 huggingface-cli download --resume-download --local-dir-use-symlinks False adept/fuyu-8b --local-dir fuyu8b
 ```
 
-### Neva & Phi3v
+### Neva
 
-These models are used as NVIDIA hosted services. Set ``NVIDIA_API_KEY`` env. variable to a valid API Key.
+This model is used as an NVIDIA hosted service. Set ``NVIDIA_API_KEY`` env. variable to a valid API Key.
 
 ## Using a custom model
 

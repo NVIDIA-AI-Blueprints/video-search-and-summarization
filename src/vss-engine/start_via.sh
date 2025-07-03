@@ -44,6 +44,15 @@ export VSS_LOG_LEVEL=$VSS_LOG_LEVEL
 
 ENABLE_NSYS_PROFILER="${ENABLE_NSYS_PROFILER:-false}"
 
+SM_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader -i 0)
+
+# Override TRT_LLM_MODE to fp8 for sm 10.x GPUs when int4_awq is selected
+if [[ $SM_ARCH =~ ^10\. ]] && [[ $TRT_LLM_MODE == "int4_awq" ]]; then
+    echo "Overriding TRT_LLM_MODE from int4_awq to fp8 for compute capability $SM_ARCH"
+    TRT_LLM_MODE="fp8"
+fi
+
+
 if [[ $NUM_GPUS -eq 0 ]]; then
     echo "Error: No GPUs were found"
     exit 1
@@ -59,6 +68,17 @@ pip3 install /opt/nvidia/via/3rdparty_sources/annoy-1.17.3.tar.gz --no-deps --fo
 # Hide gstreamer failed to load warnings
 python3 via-engine/utils.py 2>/dev/null
 python3 src/utils.py 2>/dev/null
+
+FREE_GPU_MEM=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader -i 0 | awk '{print $1}')
+echo "Free GPU memory is $FREE_GPU_MEM MiB"
+
+if [ $FREE_GPU_MEM -lt 40000 ]; then
+    export VSS_DISABLE_DECODER_REUSE="${VSS_DISABLE_DECODER_REUSE:-true}"
+fi
+
+if [ "$VSS_DISABLE_DECODER_REUSE" == "true" ]; then
+    echo "Disabling decoder reuse"
+fi
 
 if [ -z $VLM_BATCH_SIZE ]; then
     GPU_MEM=0
@@ -276,7 +296,7 @@ start_via_server() {
     if [ $ENABLE_NSYS_PROFILER = true ]; then
 	    echo "Profiling with  nsys"
 	    PROFILE_GPU_IDS=$(nvidia-smi --query-gpu=index --format=csv,noheader | paste -sd "," -)
-	    EXE_PREFIX="nsys profile -t cuda,nvtx,osrt --python-backtrace=cuda --show-output=true --force-overwrite=true  --output=via_nsys_logs --gpu-metrics-device=$PROFILE_GPU_IDS --capture-range=cudaProfilerApi --capture-range-end=stop"
+	    EXE_PREFIX="nsys profile -t cuda,nvtx,osrt --python-backtrace=cuda --show-output=true --force-overwrite=true  --output=via_nsys_logs --gpu-metrics-devices=$PROFILE_GPU_IDS --capture-range=cudaProfilerApi --capture-range-end=stop"
     fi
 
     if [ "$MODE" = "release" ]; then
@@ -302,7 +322,9 @@ start_via_server() {
             EXTRA_ARGS+=" --num-vlm-procs 10"
         fi
     fi
-
+    if [ ! -z $VLM_DEFAULT_NUM_FRAMES_PER_CHUNK ]; then
+        EXTRA_ARGS+=" --num-frames-per-chunk $VLM_DEFAULT_NUM_FRAMES_PER_CHUNK"
+    fi
     # Remove any stale logs from previous runs
     if [[ -n "${VIA_LOG_DIR}" && -d "${VIA_LOG_DIR}" ]]; then
         rm -rf "${VIA_LOG_DIR}"/*

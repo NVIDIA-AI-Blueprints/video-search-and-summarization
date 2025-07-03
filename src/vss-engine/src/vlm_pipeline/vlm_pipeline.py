@@ -137,7 +137,8 @@ class DecoderProcess(ViaProcessBase):
             manifest = module_loader.manifest()
             input_spec = manifest.pop("input", None)
             if input_spec:
-                self._nfrms = input_spec.pop("number_of_frames", 1)
+                if not self._nfrms:
+                    self._nfrms = input_spec.pop("number_of_frames", 1)
                 crop_size = input_spec.pop("crop_size", None)
                 if crop_size:
                     self._crop_width = crop_size[0]
@@ -216,13 +217,13 @@ class DecoderProcess(ViaProcessBase):
         elif self._vlm_model_type in [VlmModelType.NVILA]:
             with open(self._model_path + "/config.json") as f:
                 config = json.load(f)
-            if not self._nfrms or self._nfrms > config.get("num_video_frames", 8):
+            if not self._nfrms:
                 self._nfrms = config.get("num_video_frames", 8)
             self._minframes = 1
             self._data_type_int8 = True
 
         elif self._vlm_model_type in [VlmModelType.OPENAI_COMPATIBLE]:
-            if not self._nfrms or self._nfrms > 10:
+            if not self._nfrms:
                 self._nfrms = 10
             self._minframes = 1
             # For OpenAI compatible models, JPEG images are used
@@ -276,10 +277,17 @@ class DecoderProcess(ViaProcessBase):
 
     def _warmup(self):
         chunk = ChunkInfo()
-        chunk.file = "/opt/nvidia/deepstream/deepstream/samples/streams/sample_office.mp4"
+        chunk.file = "/opt/nvidia/via/warmup_streams/its_264.mp4"
         chunk.end_pts = 5000000000
-        for fgetter in self._fgetters:
-            frames, frame_times, audio_frames = fgetter.get_frames(chunk, True)
+        if os.path.exists(chunk.file):
+            for fgetter in self._fgetters:
+                frames, frame_times, audio_frames = fgetter.get_frames(chunk, True)
+
+        chunk.file = "/opt/nvidia/via/warmup_streams/its_265.mp4"
+        if os.path.exists(chunk.file):
+            for fgetter in self._fgetters:
+                frames, frame_times, audio_frames = fgetter.get_frames(chunk, True)
+
         self._output_queue.put(
             {
                 "chunk": chunk,
@@ -299,12 +307,13 @@ class DecoderProcess(ViaProcessBase):
         num_frames_per_chunk,
         vlm_input_width,
         vlm_input_height,
+        video_codec,
         **kwargs,
     ):
         from .video_file_frame_getter import DefaultFrameSelector
 
         decode_start_time = time.time()
-        logger.log(LOG_STATUS_LEVEL, f"Chunk ({chunk}) decode starting")
+        logger.log(LOG_STATUS_LEVEL, "Chunk (%s) decode starting", chunk)
         nvtx_decode_start = nvtx.start_range(message="Decode Process-" + str(chunk), color="blue")
         if num_frames_per_chunk:
             frame_selector = DefaultFrameSelector(num_frames_per_chunk)
@@ -313,17 +322,20 @@ class DecoderProcess(ViaProcessBase):
 
         enable_audio = kwargs["enable_audio"] if "enable_audio" in kwargs else False
 
-        if vlm_input_width or vlm_input_height:
-            fgetter._set_frame_resolution(vlm_input_width, vlm_input_height)
         frames, frame_times, audio_frames = fgetter.get_frames(
-            chunk, True, frame_selector, enable_audio, request_id=kwargs["request_id"]
+            chunk,
+            True,
+            frame_selector,
+            enable_audio,
+            request_id=kwargs["request_id"],
+            frame_width=vlm_input_width,
+            frame_height=vlm_input_height,
+            video_codec=video_codec,
         )
         frame_times = [float("%.2f" % frame_ele) for frame_ele in frame_times]
         nvtx.end_range(nvtx_decode_start)
         self._fgetters.append(fgetter)
-        logger.log(LOG_STATUS_LEVEL, f"Chunk ({chunk}) decoded, frames={len(frames)}")
-        logger.debug(f"Chunk ({chunk}) decoded, frames={len(frames)}")
-        logger.debug(f"decoded{self._minframes} {len(frames)}")
+        logger.log(LOG_STATUS_LEVEL, "Chunk (%s) decoded, frames=%d", chunk, len(frames))
         decode_end_time = time.time()
         if len(frames) >= self._minframes:
             return {
@@ -410,7 +422,7 @@ class DecoderProcess(ViaProcessBase):
                 asr_output += asr_transcript["transcript"] + " "
             transcript = asr_output if len(asr_output) != 0 else None
 
-            logger.log(LOG_STATUS_LEVEL, f"Decoded new chunk ({chunk}), frames={len(frames)}")
+            logger.log(LOG_STATUS_LEVEL, "Decoded new chunk (%s), frames=%d", chunk, len(frames))
             if len(frames) >= self._minframes:
                 self._handle_result(
                     {
@@ -570,7 +582,7 @@ class EmbeddingProcess(ViaProcessBase):
             embed_start_time,
             nvtx_embedding_start,
         ):
-            logger.log(LOG_STATUS_LEVEL, f"Embeddings generated for {chunk[0]}")
+            logger.log(LOG_STATUS_LEVEL, "Embeddings generated for %s", chunk[0])
             nvtx.end_range(nvtx_embedding_start)
             self._emb_helper.save_embeddings(chunk[0], embeddings[0], frame_times[0])
             return {
@@ -715,14 +727,14 @@ class VlmProcess(ViaProcessBase):
 
         if not request_params[0] or not request_params[0].vlm_prompt:
             for chunk_ in chunk:
-                logger.log(LOG_STATUS_LEVEL, f"Skipping VLM response generation for ({chunk_})")
+                logger.log(LOG_STATUS_LEVEL, "Skipping VLM response generation for (%s)", chunk_)
             return
 
         vlm_start_time = time.time()
         nvtx_vlm_process_start = nvtx.start_range(message="VLM Process-" + str(chunk), color="blue")
 
         for chunk_ in chunk:
-            logger.log(LOG_STATUS_LEVEL, f"Generating VLM response for ({chunk_})")
+            logger.log(LOG_STATUS_LEVEL, "Generating VLM response for (%s)", chunk_)
 
         # Model specific context handlers
         if self._vlm_model_type == VlmModelType.VILA_15:
@@ -779,7 +791,10 @@ class VlmProcess(ViaProcessBase):
             nvtx.end_range(nvtx_vlm_process_start)
             for idx, chunk_ in enumerate(chunk):
                 logger.log(
-                    LOG_STATUS_LEVEL, f"VLM response generated for ({chunk_}), {vlm_response[idx]}"
+                    LOG_STATUS_LEVEL,
+                    "VLM response generated for (%s), %s",
+                    chunk_,
+                    vlm_response[idx],
                 )
             return {
                 "chunk": chunk,
@@ -933,13 +948,13 @@ class AsrProcess(ViaProcessBase):
         """Generate ASR response for a chunk (non batching)"""
 
         if not request_params:
-            logger.log(LOG_STATUS_LEVEL, f"Skipping ASR response generation for ({chunk})")
+            logger.log(LOG_STATUS_LEVEL, "Skipping ASR response generation for (%s)", chunk)
             return
 
         asr_start_time = time.time()
         nvtx_asr_process_start = nvtx.start_range(message="ASR Process-" + str(chunk), color="blue")
 
-        logger.log(LOG_STATUS_LEVEL, f"Generating ASR response for ({chunk})")
+        logger.log(LOG_STATUS_LEVEL, "Generating ASR response for (%s)", chunk)
 
         audio_frames = kwargs.pop("audio_frames", None)
         audio_transcript = kwargs.pop("audio_transcript", None)
@@ -984,7 +999,7 @@ class AsrProcess(ViaProcessBase):
             else:
                 transcript = None
 
-            logger.log(LOG_STATUS_LEVEL, f"ASR response generated for ({chunk}), {transcript}")
+            logger.log(LOG_STATUS_LEVEL, "ASR response generated for (%s), %s", chunk, transcript)
 
             return {
                 "chunk": chunk,
@@ -1032,6 +1047,44 @@ class VlmChunkResponse:
     add_doc_start_time = 0
     add_doc_end_time = 0
     frame_times: list[float] = []
+
+    def __str__(self) -> str:
+        """String representation of the chunk response for debugging"""
+        timings = {
+            "decode": (
+                f"{self.decode_start_time:.3f}-{self.decode_end_time:.3f}"
+                if self.decode_start_time and self.decode_end_time
+                else "N/A"
+            ),
+            "embed": (
+                f"{self.embed_start_time:.3f}-{self.embed_end_time:.3f}"
+                if self.embed_start_time and self.embed_end_time
+                else "N/A"
+            ),
+            "vlm": (
+                f"{self.vlm_start_time:.3f}-{self.vlm_end_time:.3f}"
+                if self.vlm_start_time and self.vlm_end_time
+                else "N/A"
+            ),
+            "add_doc": (
+                f"{self.add_doc_start_time:.3f}-{self.add_doc_end_time:.3f}"
+                if self.add_doc_start_time and self.add_doc_end_time
+                else "N/A"
+            ),
+        }
+
+        chunk_info = f"chunk[{self.chunk.chunkIdx}]" if self.chunk else "No chunk"
+        tokens = (
+            f"in:{self.vlm_stats.get('input_tokens', 0)}/out:{self.vlm_stats.get('output_tokens', 0)}"
+            if self.vlm_stats
+            else "N/A"
+        )
+
+        return (
+            f"VlmChunkResponse({chunk_info}, error={bool(self.error)}, "
+            f"timings={timings}, tokens={tokens}, "
+            f"transcript={bool(self.audio_transcript)}, frames={len(self.frame_times)})"
+        )
 
 
 def check_peer_access():
@@ -1133,7 +1186,9 @@ class VlmPipeline:
             # Workaround for some asyncio issue
             def download_thread_func(ngc_model_path, download_prefix, model_path_):
                 try:
-                    model_path = download_model(ngc_model_path, download_prefix)
+                    model_path = download_model(
+                        ngc_model_path, download_prefix, args.vlm_model_type.value
+                    )
                 except Exception as ex:
                     model_path_[1] = ex
                     return
@@ -1539,6 +1594,7 @@ class VlmPipeline:
         vlm_input_height=0,
         enable_audio=False,
         request_id="",
+        video_codec=None,
     ):
         with self._enqueue_lock:
             curr_chunk_counter = self._chunk_counter
@@ -1567,6 +1623,7 @@ class VlmPipeline:
                 vlm_input_height=vlm_input_height,
                 enable_audio=enable_audio,
                 request_id=request_id,
+                video_codec=video_codec,
             )
 
     def add_live_stream(

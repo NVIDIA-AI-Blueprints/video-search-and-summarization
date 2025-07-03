@@ -1295,7 +1295,9 @@ class ViaServer:
             asset_removal_callback=self._remove_asset,
         )
 
-        self._async_executor = ThreadPoolExecutor(max_workers=args.max_live_streams)
+        self._async_executor = ThreadPoolExecutor(
+            max_workers=args.max_live_streams, thread_name_prefix="vss-async-worker"
+        )
 
         # Use FastAPI to implement the REST API
         self._app = FastAPI(
@@ -2244,40 +2246,47 @@ class ViaServer:
                             continue
 
                         # Set the start/end time info for current response.
-                        if req_info.is_live:
-                            media_info = {
-                                "type": "timestamp",
-                                "start_timestamp": resp_list[0].start_timestamp,
-                                "end_timestamp": resp_list[0].end_timestamp,
-                            }
-                        else:
-                            media_info = {
-                                "type": "offset",
-                                "start_offset": int(resp_list[0].start_timestamp),
-                                "end_offset": int(resp_list[0].end_timestamp),
-                            }
-
-                        # Create the response json
-                        response = {
-                            "id": request_id,
-                            "model": model_info.id,
-                            "created": int(req_info.queue_time),
-                            "object": "summarization.progressing",
-                            "media_info": media_info,
-                            "choices": [
-                                {
-                                    "finish_reason": CompletionFinishReason.STOP.value,
-                                    "index": 0,
-                                    "message": {
-                                        "content": resp_list[0].response,
-                                        "role": "assistant",
-                                    },
+                        while resp_list:
+                            if req_info.is_live:
+                                media_info = {
+                                    "type": "timestamp",
+                                    "start_timestamp": resp_list[0].start_timestamp,
+                                    "end_timestamp": resp_list[0].end_timestamp,
                                 }
-                            ],
-                            "usage": None,
-                        }
-                        # Yield to generate a server-sent event
-                        yield json.dumps(response)
+                            else:
+                                media_info = {
+                                    "type": "offset",
+                                    "start_offset": int(resp_list[0].start_timestamp),
+                                    "end_offset": int(resp_list[0].end_timestamp),
+                                }
+
+                            # Create the response json
+                            response = {
+                                "id": request_id,
+                                "model": model_info.id,
+                                "created": int(req_info.queue_time),
+                                "object": "summarization.progressing",
+                                "media_info": media_info,
+                                "choices": [
+                                    {
+                                        "finish_reason": CompletionFinishReason.STOP.value,
+                                        "index": 0,
+                                        "message": {
+                                            "content": resp_list[0].response,
+                                            "role": "assistant",
+                                        },
+                                    }
+                                ],
+                                "usage": None,
+                            }
+                            # Yield to generate a server-sent event
+                            yield json.dumps(response)
+                            try:
+                                req_info, resp_list = self._stream_handler.get_response(
+                                    request_id, 1
+                                )
+                            except ViaException:
+                                break
 
                     # Generate usage data and send as server-sent event if requested
                     if query.stream_options and query.stream_options.include_usage:

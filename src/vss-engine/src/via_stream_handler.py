@@ -32,8 +32,7 @@ from enum import Enum
 from threading import RLock, Thread
 
 import aiohttp
-import cuda
-import cuda.cudart
+import cuda.bindings.runtime as cudart
 import gi
 import jinja2
 import nvtx
@@ -348,7 +347,7 @@ class ViaStreamHandler:
         def __init__(self) -> None:
             """Initialize the VIA Stream Handler metrics.
             Metrics are based on the prometheus client."""
-            self.queries_processed = prom.Counter(
+            self.queries_processed = prom.Gauge(
                 "video_file_queries_processed",
                 "Number of video file queries whose processing is complete",
             )
@@ -362,10 +361,87 @@ class ViaStreamHandler:
                 "Number of live streams whose summaries are being actively generated",
             )
 
+            self.system_uptime = prom.Gauge(
+                "system_uptime_seconds", "Number of seconds the via-server system has been running"
+            )
+
+            self.decode_latency = prom.Histogram(
+                "decode_latency_seconds",
+                "Video decode processing latency in seconds",
+                buckets=[0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0],
+            )
+
+            self.vlm_latency = prom.Histogram(
+                "vlm_latency_seconds",
+                "VLM processing latency in seconds",
+                buckets=[1.0, 3.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0],
+            )
+
+            self.add_doc_latency = prom.Histogram(
+                "add_doc_latency_seconds",
+                "Context manager add_doc processing latency in seconds",
+                buckets=[
+                    0.00005,
+                    0.0001,
+                    0.0005,
+                    0.001,
+                    0.003,
+                    0.01,
+                    0.03,
+                    0.1,
+                    0.3,
+                    1.0,
+                ],
+            )
+
+            self.vlm_input_tokens = prom.Histogram(
+                "vlm_input_tokens_per_chunk",
+                "Number of tokens input to the VLM model per chunk",
+                buckets=[10, 20, 50, 100, 200, 500, 1000, 2000],
+            )
+
+            self.vlm_output_tokens = prom.Histogram(
+                "vlm_output_tokens_per_chunk",
+                "Number of tokens output from the VLM model per chunk",
+                buckets=[10, 20, 50, 100, 200, 500, 1000, 2000],
+            )
+
+            self.e2e_latency_latest = prom.Gauge(
+                "e2e_latency_seconds_latest", "Latest end-to-end latency in seconds"
+            )
+
+            self.vlm_pipeline_latency_latest = prom.Gauge(
+                "vlm_pipeline_latency_seconds_latest",
+                "Latest latency of the VLM pipeline processing in seconds",
+            )
+
+            self.ca_rag_latency_latest = prom.Gauge(
+                "ca_rag_latency_seconds_latest", "Latest CA-RAG processing latency in seconds"
+            )
+
+            self.decode_latency_latest = prom.Gauge(
+                "decode_latency_seconds_latest", "Latest video decode processing latency in seconds"
+            )
+
+            self.vlm_latency_latest = prom.Gauge(
+                "vlm_latency_seconds_latest", "Latest VLM processing latency in seconds"
+            )
+
         def unregister(self):
             prom.REGISTRY.unregister(self.queries_processed)
             prom.REGISTRY.unregister(self.queries_pending)
             prom.REGISTRY.unregister(self.active_live_streams)
+            prom.REGISTRY.unregister(self.system_uptime)
+            prom.REGISTRY.unregister(self.decode_latency)
+            prom.REGISTRY.unregister(self.vlm_latency)
+            prom.REGISTRY.unregister(self.add_doc_latency)
+            prom.REGISTRY.unregister(self.vlm_input_tokens)
+            prom.REGISTRY.unregister(self.vlm_output_tokens)
+            prom.REGISTRY.unregister(self.decode_latency_latest)
+            prom.REGISTRY.unregister(self.vlm_latency_latest)
+            prom.REGISTRY.unregister(self.ca_rag_latency_latest)
+            prom.REGISTRY.unregister(self.e2e_latency_latest)
+            prom.REGISTRY.unregister(self.vlm_pipeline_latency_latest)
 
     def __init__(self, args) -> None:
         """Initialize the VIA Stream Handler"""
@@ -375,8 +451,19 @@ class ViaStreamHandler:
         self._notification_llm_params = None
 
         self._start_time = time.time()
-
         self._metrics = ViaStreamHandler.Metrics()
+
+        # Start a background thread to update the system uptime metric every 10 seconds
+        def update_uptime_metric():
+            while True:
+                uptime = time.time() - self._start_time
+                self._metrics.system_uptime.set(uptime)
+                time.sleep(10)
+
+        uptime_thread = Thread(
+            target=update_uptime_metric, daemon=True, name="via-uptime-metrics-thread"
+        )
+        uptime_thread.start()
 
         self._lock = RLock()
         self._request_info_map: dict[str, RequestInfo] = {}
@@ -486,8 +573,9 @@ class ViaStreamHandler:
         else:
             self._ctx_mgr = None
 
-        if "ENABLE_VIA_HEALTH_EVAL" in os.environ and bool(os.environ["ENABLE_VIA_HEALTH_EVAL"]):
-            self._via_health_eval = True
+        # Fix for proper boolean environment variable handling
+        health_eval_value = os.environ.get("ENABLE_VIA_HEALTH_EVAL", "").lower()
+        self._via_health_eval = health_eval_value in ("true", "1")
 
         logger.info("Initialized VIA Stream Handler")
 
@@ -558,7 +646,9 @@ class ViaStreamHandler:
         self._ca_rag_alert_handler_server = uvicorn.Server(config)
 
         self._ca_rag_alert_handler_thread = Thread(
-            target=self._ca_rag_alert_handler_server.run, daemon=True
+            target=self._ca_rag_alert_handler_server.run,
+            daemon=True,
+            name="via-ca-rag-alert-handler",
         )
         self._ca_rag_alert_handler_thread.start()
 
@@ -629,7 +719,7 @@ class ViaStreamHandler:
                 req_info.end_time = time.time()
                 self.stop_via_gpu_monitor(req_info, chunk_responses)
                 req_info.status = RequestInfo.Status.SUCCESSFUL
-                cuda.cudart.cudaProfilerStop()
+                cudart.cudaProfilerStop()
                 nvtx.end_range(req_info.nvtx_summarization_start)
                 logger.info(
                     "Summary generated for video file request %s,"
@@ -737,6 +827,32 @@ class ViaStreamHandler:
 
     def _on_vlm_chunk_response(self, response: VlmChunkResponse, req_info: RequestInfo):
         """Gather chunks processed by the pipeline and run any further post-processing"""
+        # Per-chunk decode latency
+        if hasattr(response, "decode_start_time") and hasattr(response, "decode_end_time"):
+            if (
+                response.decode_start_time
+                and response.decode_end_time
+                and response.decode_end_time > response.decode_start_time
+            ):
+                decode_latency = response.decode_end_time - response.decode_start_time
+                self._metrics.decode_latency.observe(decode_latency)
+        # Per-chunk VLM latency
+        if hasattr(response, "vlm_start_time") and hasattr(response, "vlm_end_time"):
+            if (
+                response.vlm_start_time
+                and response.vlm_end_time
+                and response.vlm_end_time > response.vlm_start_time
+            ):
+                vlm_latency = response.vlm_end_time - response.vlm_start_time
+                self._metrics.vlm_latency.observe(vlm_latency)
+
+        # Log and observe token usage per chunk if available
+        if hasattr(response, "vlm_stats") and response.vlm_stats:
+            input_tokens = response.vlm_stats.get("input_tokens", 0)
+            output_tokens = response.vlm_stats.get("output_tokens", 0)
+            self._metrics.vlm_input_tokens.observe(input_tokens)
+            self._metrics.vlm_output_tokens.observe(output_tokens)
+
         chunk = response.chunk
         vlm_response = response.vlm_response
         # frame_times = response.frame_times
@@ -834,6 +950,15 @@ class ViaStreamHandler:
                     add_doc_end_time = time.time()
                     response.add_doc_start_time = add_doc_start_time
                     response.add_doc_end_time = add_doc_end_time
+                    # Observe add_doc latency metrics
+                    if (
+                        add_doc_end_time
+                        and add_doc_start_time
+                        and add_doc_end_time > add_doc_start_time
+                    ):
+                        add_doc_latency = add_doc_end_time - add_doc_start_time
+                        self._metrics.add_doc_latency.observe(add_doc_latency)
+
         if req_info.is_live:
             live_stream_id = req_info.assets[0].asset_id
             lsinfo = self._live_stream_info_map[live_stream_id]
@@ -999,7 +1124,10 @@ class ViaStreamHandler:
                 )
                 logger.info("Generating summary for request %s", req_info.request_id)
                 if req_info._health_summary:
-                    req_info._health_summary.vlm_pipeline_latency = cur_time - req_info.start_time
+                    latency = cur_time - req_info.start_time
+                    req_info._health_summary.vlm_pipeline_latency = latency
+                    if latency is not None and latency > 0:
+                        self._metrics.vlm_pipeline_latency_latest.set(latency)
 
             # Queue for getting the aggregated summary
             req_info._output_process_thread_pool.submit(
@@ -1097,6 +1225,11 @@ class ViaStreamHandler:
         else:
             logger.debug("Request does not contain Context Manager")
 
+        paths_string = ";".join([asset.path for asset in req_info.assets])
+        video_codec = None
+        if len(req_info.assets) == 1:
+            video_codec = MediaFileInfo.get_info(req_info.assets[0].path).video_codec
+
         def _on_new_chunk(chunk: ChunkInfo):
             """Callback for when a new chunk is created"""
             if chunk is None:
@@ -1112,6 +1245,7 @@ class ViaStreamHandler:
                 req_info.vlm_input_height,
                 req_info.enable_audio,
                 req_info.request_id,
+                video_codec,
             )
             req_info.chunk_count += 1
 
@@ -1133,11 +1267,10 @@ class ViaStreamHandler:
                     self._on_vlm_chunk_response(vlm_response, req_info)
                 return
 
-        # Create virtual file chunks
-        paths_string = ";".join([asset.path for asset in req_info.assets])
         nvtx_file_split_start = nvtx.start_range(
             message="File Splitting-" + str(req_info.request_id), color="blue"
         )
+        # Create virtual file chunks
         FileSplitter(
             paths_string,
             FileSplitter.SplitMode.SEEK,
@@ -1374,7 +1507,7 @@ class ViaStreamHandler:
             summarize_enable = summarize_enable.get("enable", True)
             if summarize is None:
                 summarize = summarize_enable
-        cuda.cudart.cudaProfilerStart()
+        cudart.cudaProfilerStart()
         if prompt:
             summarization_query = prompt
         else:
@@ -1698,6 +1831,7 @@ class ViaStreamHandler:
                 plot_graph_files["gpu_mem"],
             ]
             req_info._health_summary.e2e_latency = time.time() - req_info.start_time
+            self._metrics.e2e_latency_latest.set(req_info._health_summary.e2e_latency)
 
             def find_extreme(responses, func, value):
                 values = []
@@ -1716,12 +1850,14 @@ class ViaStreamHandler:
                 req_info._health_summary.decode_latency = (
                     max_decode_end_time - min_decode_start_time
                 )
+                self._metrics.decode_latency_latest.set(req_info._health_summary.decode_latency)
                 max_vlm_end_time = find_extreme(chunk_responses, max, "vlm_end_time")
                 min_vlm_embed_start_time = find_extreme(chunk_responses, min, "embed_start_time")
                 if min_vlm_embed_start_time == 0:
                     # embed_start_time unavailable, use vlm_start_time instead
                     min_vlm_embed_start_time = find_extreme(chunk_responses, min, "vlm_start_time")
                 req_info._health_summary.vlm_latency = max_vlm_end_time - min_vlm_embed_start_time
+                self._metrics.vlm_latency_latest.set(req_info._health_summary.vlm_latency)
                 req_info._health_summary.pending_doc_start_time = (
                     req_info.pending_add_doc_start_time
                 )
@@ -1755,6 +1891,7 @@ class ViaStreamHandler:
                 except Exception as e:
                     print("Error:", e)
             req_info._health_summary.ca_rag_latency = req_info._ca_rag_latency
+            self._metrics.ca_rag_latency_latest.set(req_info._health_summary.ca_rag_latency)
             logger.debug(f"_health_summary json: {str(vars(req_info._health_summary))}")
             health_summary_file_name = (
                 "/tmp/via-logs/via_health_summary_" + str(req_info.request_id) + ".json"
@@ -1929,7 +2066,9 @@ class ViaStreamHandler:
         req_info.summary_aggregation_prompt = summary_aggregation_prompt
         req_info.caption_summarization_prompt = caption_summarization_prompt
         req_info.graph_rag_prompt_yaml = graph_rag_prompt_yaml
-        req_info._output_process_thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        req_info._output_process_thread_pool = self._create_named_thread_pool(
+            max_workers=1, prefix=f"vss-processor-{req_info.request_id[:8]}"
+        )
         if self._ctx_mgr:
             summarize_enable = self._ca_rag_config.get("summarization", {})
             summarize_enable = summarize_enable.get("enable", True)
@@ -2669,6 +2808,12 @@ class ViaStreamHandler:
         )
         parser.add_argument(
             "--asset-dir", type=str, help="Directory to store the assets in", default="assets"
+        )
+
+    def _create_named_thread_pool(self, max_workers=1, prefix="via"):
+        """Create a ThreadPoolExecutor with named threads"""
+        return concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix=f"{prefix}-{str(uuid.uuid4())[:8]}"
         )
 
 
