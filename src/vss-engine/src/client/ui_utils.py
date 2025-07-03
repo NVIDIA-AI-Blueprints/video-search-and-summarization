@@ -67,13 +67,20 @@ def get_live_stream_preview_chunks(ls_id):
                     and current_time - mtimes[0][1] <= 20
                     and oldest_file != last_file
                 ):
-                    if (
-                        MediaFileInfo.get_info(mtimes[0][0]).video_duration_nsec < 1000000000 * 12
-                        and MediaFileInfo.get_info(mtimes[1][0]).video_duration_nsec
-                        < 1000000000 * 12
-                    ):
-                        yield oldest_file
-                        last_file = oldest_file
+                    try:
+                        # Try to get video duration info, but handle unsupported file types gracefully
+                        if (
+                            MediaFileInfo.get_info(mtimes[0][0]).video_duration_nsec
+                            < 1000000000 * 12
+                            and MediaFileInfo.get_info(mtimes[1][0]).video_duration_nsec
+                            < 1000000000 * 12
+                        ):
+                            yield oldest_file
+                            last_file = oldest_file
+                    except Exception:
+                        # If MediaFileInfo fails (e.g., unsupported file type), skip this file
+                        # and continue with the next iteration
+                        continue
 
             except (IOError, OSError):
                 yield None
@@ -87,10 +94,8 @@ def get_live_stream_preview_chunks(ls_id):
             except GeneratorExit:
                 return
     finally:
-        try:
-            yield None
-        except GeneratorExit:
-            return
+        # Clean exit without yielding
+        return
 
 
 def get_overlay_live_stream_preview_chunks(ls_id):
@@ -149,10 +154,8 @@ def get_overlay_live_stream_preview_chunks(ls_id):
             except GeneratorExit:
                 return
     finally:
-        try:
-            yield None
-        except GeneratorExit:
-            return
+        # Clean exit without yielding
+        return
 
 
 class RetrieveCache:

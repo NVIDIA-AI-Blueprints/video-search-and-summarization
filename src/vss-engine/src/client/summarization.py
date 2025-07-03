@@ -1307,7 +1307,7 @@ def build_summarization(args, app_cfg, logger_):
                         interactive=True,
                         precision=0,
                         minimum=0,
-                        maximum=10,
+                        maximum=128,
                         value=0,
                         info=("The number of frames to choose from chunk"),
                         elem_classes="white-background",
