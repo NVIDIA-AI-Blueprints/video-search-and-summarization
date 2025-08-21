@@ -1,0 +1,7 @@
+requests
+PyYAML
+ruamel.yaml
+py2neo
+networkx
+matplotlib
+ipython
