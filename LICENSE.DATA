@@ -1,0 +1,60 @@
+NVIDIA ASSET LICENSE 
+
+IMPORTANT NOTICE – PLEASE READ AND AGREE BEFORE USING THE ASSETS.
+
+This license agreement (“Agreement”) is a legal agreement between you, whether an individual or entity ("you”) and NVIDIA Corporation ("NVIDIA") and governs your use of the NVIDIA data provided hereunder (the “ASSETS”). 
+
+This Agreement can be accepted only by an adult of legal age of majority in the country in which the ASSETS is used. If you are under the legal age of majority, you must ask your parent or legal guardian to consent to this Agreement. 
+
+If you don’t have the required age or authority to accept this Agreement or if you don’t accept all the terms and conditions of this Agreement, do not use the ASSETS.
+
+You agree to use the ASSETS only for purposes that are permitted by this Agreement and any applicable law or regulation in the relevant jurisdictions. 
+
+1. License. 
+
+Subject to the terms of this Agreement, NVIDIA grants you a non-exclusive, revocable, non-transferable, non-sublicensable license to use the ASSETS, reproduce the ASSETS and prepare derivative works based on the ASSETS (“Derivative Works”), in each case solely for you to perform a trial or demonstration. The ASSETS include images and other information. The information provided is for example purposes, and may not correspond to actual information regarding the corresponding images.
+
+2. Limitations. 
+
+Your license to use the ASSETS and Derivative Works is restricted as follows: (i) you may not change or remove copyright, watermarks, or other proprietary notices in the ASSETS and Derivative Works, or otherwise attempt to mislead others about the origin of the ASSETS; (ii) you may not sell, rent, sublicense, transfer, distribute, or otherwise make the ASSETS and Derivative Works available to others; and (iii) you may not deploy the ASSETS as part of a commercial product or service or directly or indirectly create, train, test or improve AI models or artificial intelligent systems using the ASSETS, including any architectures, models, or weights."
+
+3. Ownership. 
+
+The ASSETS, including all intellectual property rights, is and will remain the sole and exclusive property of NVIDIA or its licensors. Except as expressly granted in this Agreement, (i) NVIDIA reserves all rights, interests, and remedies in connection with the ASSETS and Derivative Works, and (ii) no other license or right is granted to you by implication, estoppel or otherwise. 
+
+4. Feedback. 
+
+You may, but you are not obligated to, provide suggestions, requests, fixes, modifications, enhancements, or other feedback regarding the ASSETS (collectively, “Feedback”). Feedback, even if designated as confidential by you, will not create any confidentiality obligation for NVIDIA or its affiliates. If you provide Feedback, you hereby grant NVIDIA, its affiliates and its designees a non-exclusive, perpetual, irrevocable, sublicensable, worldwide, royalty-free, fully paid-up and transferable license, under your intellectual property rights, to publicly perform, publicly display, reproduce, use, make, have made, sell, offer for sale, distribute (through multiple tiers of distribution), import, create derivative works of and otherwise commercialize and exploit the Feedback at NVIDIA’s discretion. 
+
+5. Term and Termination. 
+
+This Agreement expires twelve (12) months after the date of initial delivery or download of the ASSET. This Agreement will automatically terminate without notice from NVIDIA if you fail to comply with any of the terms in this Agreement or if you commence or participate in any legal proceeding against NVIDIA with respect to the ASSETS. Additionally, either party may terminate this Agreement at any time with prior written notice to the other party. Upon any termination, you must stop using and destroy all copies of the ASSETS and Derivative Works. Upon written request, you will certify in writing that you have complied with your commitments under this section. All provisions will survive termination, except for the licenses granted to you.
+
+6. Disclaimer of Warranties. 
+
+THE ASSETS ARE PROVIDED BY NVIDIA AS-IS AND WITH ALL FAULTS. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NVIDIA DISCLAIMS ALL WARRANTIES AND REPRESENTATIONS OF ANY KIND, WHETHER EXPRESS, IMPLIED OR STATUTORY, RELATING TO OR ARISING UNDER THIS AGREEMENT, INCLUDING, WITHOUT LIMITATION, THE WARRANTIES OF TITLE, NONINFRINGEMENT, MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, USAGE OF TRADE AND COURSE OF DEALING. 
+
+7. Limitations of Liability. 
+
+7.1 DISCLAIMER. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL NVIDIA BE LIABLE FOR ANY (I) INDIRECT, PUNITIVE, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES, OR (II) DAMAGES FOR THE (A) COST OF PROCURING SUBSTITUTE GOODS OR (B) LOSS OF PROFITS, REVENUES, USE, DATA OR GOODWILL ARISING OUT OF OR RELATED TO THIS AGREEMENT, WHETHER BASED ON BREACH OF CONTRACT, TORT (INCLUDING NEGLIGENCE), STRICT LIABILITY, OR OTHERWISE, AND EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES AND EVEN IF A PARTY’S REMEDIES FAIL THEIR ESSENTIAL PURPOSE.
+7.2 DAMAGES CAP. ADDITIONALLY, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NVIDIA’S TOTAL CUMULATIVE AGGREGATE LIABILITY FOR ANY AND ALL LIABILITIES, OBLIGATIONS OR CLAIMS ARISING OUT OF OR RELATED TO THIS AGREEMENT WILL NOT EXCEED FIVE U.S. DOLLARS (US$5).
+
+8. Governing Law and Jurisdiction. 
+
+This Agreement will be governed in all respects by the laws of the United States and the laws of the State of Delaware, without regard to conflict of laws principles or the United Nations Convention on Contracts for the International Sale of Goods. The state and federal courts residing in Santa Clara County, California will have exclusive jurisdiction over any dispute or claim arising out of or related to this Agreement, and the parties irrevocably consent to personal jurisdiction and venue in those courts; except that either party may apply for injunctive remedies or an equivalent type of urgent legal relief in any jurisdiction. 
+
+9. No Assignment. 
+
+NVIDIA may assign, delegate or transfer its rights or obligations under this Agreement by any means or operation of law. You may not, without NVIDIA’s prior written consent, assign, delegate or transfer any of your rights or obligations under this Agreement by any means or operation of law, and any attempt to do so is null and void.
+
+10. Export. 
+
+The ASSETS are subject to United States export laws and regulations. You agree to comply with all applicable export, import, trade and economic sanctions laws and regulations, including the Export Administration Regulations and Office of Foreign Assets Control regulations. These laws include restrictions on destinations, end-users and end-use. 
+
+11. Entire Agreement. 
+
+Regarding the subject matter of this Agreement, the parties agree that this Agreement constitutes the entire and exclusive agreement between the parties and supersedes all prior and contemporaneous communications. If a court of competent jurisdiction rules that a provision of this Agreement is unenforceable, that provision will be deemed modified to the extent necessary to make it enforceable and the remainder of this Agreement will continue in full force and effect. Any amendment to this Agreement must be in writing and signed by authorized representatives of both parties. 
+
+(v. August 20, 2025)
+
+
