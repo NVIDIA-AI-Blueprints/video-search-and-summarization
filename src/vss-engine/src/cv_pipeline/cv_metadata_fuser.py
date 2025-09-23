@@ -12,6 +12,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -33,6 +34,10 @@ class CVMetadataFuser:
         chunk_start_frame_nums,
         max_object_id,
     ):
+        if len(chunk_start_frame_nums) == 1:
+            # copy file get_json_file_name(request_id, 0) to get_json_file_name(request_id, "fused")
+            shutil.copy(get_json_file_name(request_id, 0), get_json_file_name(request_id, "fused"))
+            return
         if max_object_id < 0:
             print("Warning : max_object_id is less than 0. Assuming no objects in input chunks")
             return

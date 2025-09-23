@@ -26,7 +26,7 @@ show_help() {
     echo "Usage: export the necessary environment variables and run $(basename "$0")"
     echo 
     echo "Required environment variables:"
-    echo "  CHART_NAME                Specify the chart name (default: nvidia-blueprint-vss-2.3.1.tgz)"
+    echo "  CHART_NAME                Specify the chart name (default: nvidia-blueprint-vss-2.4.0.tgz)"
     echo "  HELM_URL                  Specify the helm repository URL (default: https://helm.ngc.nvidia.com/nvidia/blueprint/charts/)"
     echo "  NGC_API_KEY               Specify the NGC API key (mandatory)"
     echo "  LLM_BASE_URL              Specify the LLM base URL (optional)"
@@ -55,7 +55,7 @@ fi
 BASE_DIR=$(dirname "$(realpath "$0")")
 # Set default value if not provided
 if [ -z "$CHART_NAME" ]; then
-    CHART_NAME="nvidia-blueprint-vss-2.3.1.tgz"
+    CHART_NAME="nvidia-blueprint-vss-2.4.0.tgz"
     echo "CHART_NAME is not provided, using default value: $CHART_NAME"
 fi
 if [ -z "$HELM_URL" ]; then
@@ -153,9 +153,9 @@ cat << EOF >> $BASE_DIR/overrides.yaml
         vss:
           env:
           - name: VLM_MODEL_TO_USE
-            value: vila-1.5
+            value: cosmos-reason1
           - name: MODEL_PATH
-            value: ngc:nim/nvidia/vila-1.5-40b:vila-yi-34b-siglip-stage3_1003_video_v8
+            value: ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic
           - name: ENABLE_AUDIO
             value: "true"
           - name: RIVA_ASR_SERVER_URI

@@ -10,9 +10,12 @@
 # its affiliates is strictly prohibited.
 ######################################################################################################
 
+import os
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
+
+from via_logger import logger
 
 
 def get_timestamp_str(ts):
@@ -41,6 +44,14 @@ class ChunkInfo(BaseModel):
     cv_metadata_json_file: str = Field(default="")
     osd_output_video_file: str = Field(default="")
     cached_frames_cv_meta: list = Field(default=[])
+    asset_dir: str = Field(default="")
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+        if name in ["streamId", "chunkIdx"] and self.streamId and self.chunkIdx is not None:
+            logger.debug(f"Setting asset_dir to minio://{self.streamId}/chunk_{self.chunkIdx}")
+            if os.getenv("SAVE_CHUNK_FRAMES_MINIO", "").lower() in ["true", "1"]:
+                super().__setattr__("asset_dir", f"minio://{self.streamId}/chunk_{self.chunkIdx}")
 
     def __repr__(self) -> str:
         if self.file.startswith("rtsp://"):

@@ -71,7 +71,7 @@ else
     exit 1
 fi
 
-export PYTHONPATH="$(dirname $SCRIPT_DIR)/VILA"
+export PYTHONPATH="$(dirname $SCRIPT_DIR)/VILA:$PYTHONPATH"
 
 TMP_CONV_DIR="$(mktemp -d)"
 mkdir -p "${OUTPUT_DIR}"

@@ -1,0 +1,42 @@
+[
+    {
+      "prompt": "Did a worker drop any boxes?",
+      "completion": "Yes, a worker dropped one box."
+    },
+    {
+      "prompt": "Is the worker operating the forklift wearing a safety vest?",
+      "completion": "No"
+    },
+    {
+      "prompt": "When did the forklift first arrive in the scene?",
+      "completion": "Forklift arrived at 60 seconds."
+    },
+    {
+      "prompt": "Did anyone cross the restricted area?",
+      "completion": "Yes, a person in a white shirt crossed the restricted area."
+    },
+    {
+      "prompt": "When did the worker drop the box?",
+      "completion": "6 seconds into the video"
+    },
+    {
+      "prompt": "How many boxes did the worker drop?",
+      "completion": "1"
+    },
+    {
+      "prompt": "Was there any breach of safety protocol?",
+      "completion": "Yes"
+    },
+    {
+      "prompt": "What was the breach of safety protocol?",
+      "completion": "A person crossed the caution tape in the restricted area."
+    },
+    {
+      "prompt": "When did the worker take photos in the warehouse?",
+      "completion": "Worker took photos of the shelfs 190 seconds into the video."
+    },
+    {
+      "prompt": "How many shelves do you see with letters?",
+      "completion": "4 shelves"
+    }
+  ]  

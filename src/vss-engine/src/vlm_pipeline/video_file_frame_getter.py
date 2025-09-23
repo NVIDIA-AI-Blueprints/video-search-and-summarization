@@ -19,6 +19,7 @@ as required by the VLM model.
 
 import ctypes
 import glob
+import io
 import json
 import os
 import re
@@ -30,7 +31,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from threading import Condition, Lock
-from typing import Callable
+from typing import Callable, Optional
 
 import cupy as cp
 import cv2
@@ -50,6 +51,7 @@ import numpy as np
 import pyds
 import riva.client
 import torch
+import torch.nn.functional as F
 import yaml
 from torchvision.transforms import v2
 
@@ -58,6 +60,8 @@ from utils import JsonCVMetadata, MediaFileInfo, get_json_file_name
 from via_logger import TimeMeasure, logger
 
 gi.require_version("Gst", "1.0")
+
+import platform  # noqa: E402
 
 from gi.repository import GLib, Gst  # noqa: E402
 
@@ -447,11 +451,20 @@ class VideoFileFrameGetter:
         self._dump_cached_frames = False
         self._last_video_codec = None
         self._live_stream_chunk_decoded_callback: Callable[
-            [ChunkInfo, torch.Tensor | list[np.ndarray], list[float], list[dict]], None
+            [
+                ChunkInfo,
+                torch.Tensor | list[np.ndarray],  # frames
+                list[float],  # frame_times
+                list[dict],  # transcripts
+                Optional[str],  # error_msg
+                dict,  # kwargs
+            ],
+            None,
         ] = None
         self._first_frame_width = 0
         self._first_frame_height = 0
-        self._got_error = False
+        self._err_msg = None
+        self._err_msg_lock = threading.Lock()
         self._previous_frame_width = 0
         self._previous_frame_height = 0
         self._last_frame_pts = 0
@@ -472,6 +485,7 @@ class VideoFileFrameGetter:
         self._audio_present = False
         self._eos_sent = False
         self._end_pts = None
+        self._start_pts = None
         self._chunk_duration = None
         self._audio_convert = None
         self._audio_resampler = None
@@ -535,6 +549,73 @@ class VideoFileFrameGetter:
 
     def _preprocess(self, frames):
         if frames and not self._enable_jpeg_output:
+            # Handle multi-image scenario where frames may have different dimensions
+            if len(frames) > 1:
+                # Use configured frame resolution if available, otherwise use first frame's dimensions
+                if self._frame_width and self._frame_height:
+                    first_frame = frames[0]
+                    target_height, target_width = first_frame.shape[:2]
+                else:
+                    # Get the first frame's dimensions as target size
+                    first_frame = frames[0]
+                    target_height, target_width = first_frame.shape[:2]
+
+                    # Resize all frames to the same dimensions
+                # Determine if we need to resize and get target dimensions
+                need_resize = False
+                for frame in frames:
+                    frame_height, frame_width = frame.shape[:2]
+                    if (frame_height, frame_width) != (target_height, target_width):
+                        need_resize = True
+                        break
+
+                if need_resize:
+                    # Use torch.nn.functional.interpolate for GPU-accelerated resizing
+                    # Prepare frames for stacking - ensure they're all the same size
+                    processed_frames = []
+                    for frame in frames:
+                        frame_height, frame_width = frame.shape[:2]
+
+                        if (frame_height, frame_width) != (target_height, target_width):
+                            # Determine if frame is HWC or CHW based on shape
+                            if frame.shape[-1] == 3:  # HWC format
+                                # Convert to CHW for interpolation
+                                frame_chw = frame.permute(2, 0, 1).contiguous()
+                                # Convert to float for interpolation
+                                # (interpolate doesn't support Byte tensors)
+                                frame_chw = frame_chw.float()
+                                # Resize using GPU-accelerated interpolation
+                                resized_chw = F.interpolate(
+                                    frame_chw.unsqueeze(0),  # Add batch dimension
+                                    size=(target_height, target_width),
+                                    mode="bilinear",
+                                    align_corners=False,
+                                ).squeeze(
+                                    0
+                                )  # Remove batch dimension
+                                # Convert back to HWC and uint8
+                                resized_frame = resized_chw.permute(1, 2, 0).clamp(0, 255).byte()
+                            else:  # Already CHW format
+                                frame_chw = frame.contiguous()
+                                # Convert to float for interpolation
+                                # (interpolate doesn't support Byte tensors)
+                                frame_chw = frame_chw.float()
+                                resized_frame = (
+                                    F.interpolate(
+                                        frame_chw.unsqueeze(0),
+                                        size=(target_height, target_width),
+                                        mode="bilinear",
+                                        align_corners=False,
+                                    )
+                                    .squeeze(0)
+                                    .clamp(0, 255)
+                                    .byte()
+                                )
+                            processed_frames.append(resized_frame)
+                        else:
+                            processed_frames.append(frame)
+                    frames = processed_frames
+
             frames = torch.stack(frames)
             if not self._data_type_int8:
                 frames = frames.half()
@@ -549,6 +630,94 @@ class VideoFileFrameGetter:
                     [x / (self._rescale_factor) for x in self._image_std],
                 ).half()
         return frames
+
+    def _upload_frame_to_minio(self, data_bytes):
+        try:
+            if not hasattr(self, "_minio_client") or self._minio_client is None:
+                logger.debug("Initializing MinIO client")
+                from urllib.parse import urlparse
+
+                from minio import Minio
+
+                minio_host = os.environ.get("MINIO_HOST")
+                minio_port = os.environ.get("MINIO_PORT")
+                minio_username = os.environ.get("MINIO_USERNAME")
+                minio_password = os.environ.get("MINIO_PASSWORD")
+                minio_uri = os.environ.get("MINIO_URI")
+
+                if not minio_uri and minio_host and minio_port:
+                    minio_uri = f"http://{minio_host}:{minio_port}"
+
+                if not (minio_uri and minio_username and minio_password):
+                    logger.debug("Minio URI or username or password not found")
+                    return
+
+                parsed_uri = urlparse(minio_uri)
+                secure = parsed_uri.scheme == "https"
+                endpoint = parsed_uri.netloc or parsed_uri.path
+                try:
+                    self._minio_client = Minio(
+                        endpoint,
+                        access_key=minio_username,
+                        secret_key=minio_password,
+                        secure=secure,
+                    )
+                except Exception:
+                    self._minio_client = None
+                    logger.debug("Minio client not found")
+                    return
+
+            # Upload buffer to MinIO using put_object
+            try:
+                # Determine bucket and prefix
+                self._minio_bucket = self._current_stream_id
+
+                # Ensure bucket exists
+                try:
+                    if not self._minio_client.bucket_exists(self._minio_bucket):
+                        self._minio_client.make_bucket(self._minio_bucket)
+                except Exception:
+                    pass
+                if not hasattr(self, "_minio_frame_idx"):
+                    self._minio_frame_idx = 0
+                chunk_idx = getattr(self, "_chunkIdx", 0)
+                key = f"chunk_{int(chunk_idx)}/frame_{int(self._minio_frame_idx)}.jpg"
+                bio = io.BytesIO(data_bytes)
+                self._minio_client.put_object(
+                    self._minio_bucket,
+                    key,
+                    bio,
+                    length=len(data_bytes),
+                )
+                logger.info(
+                    f"Frame {self._minio_frame_idx} uploaded to MinIO bucket {self._minio_bucket} at path {key}"  # noqa: E501
+                )
+                self._minio_frame_idx += 1
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    @staticmethod
+    def _image_enc_probe(pad, info, user_data):
+        self = user_data
+        if self._is_warmup:
+            return Gst.PadProbeReturn.OK
+        try:
+            buf = info.get_buffer()
+            if buf is None:
+                return Gst.PadProbeReturn.OK
+            success, mapinfo = buf.map(Gst.MapFlags.READ)
+            if not success:
+                return Gst.PadProbeReturn.OK
+            try:
+                data_bytes = bytes(mapinfo.data)
+            finally:
+                buf.unmap(mapinfo)
+            self._upload_frame_to_minio(data_bytes)
+        except Exception:
+            pass
+        return Gst.PadProbeReturn.OK
 
     def _create_video_from_cached_frames(self, chunk_idx):
         def check_ffmpeg():
@@ -663,8 +832,14 @@ class VideoFileFrameGetter:
                         fs._chunk.osd_output_video_file = osd_output_video_file
                         print(f"OSD output video file: {osd_output_video_file}")
 
+                    with self._err_msg_lock:
+                        err_msg = self._err_msg
                     self._live_stream_chunk_decoded_callback(
-                        fs._chunk, cached_frames, cached_pts, cached_transcripts
+                        fs._chunk,
+                        cached_frames,
+                        cached_pts,
+                        cached_transcripts,
+                        err_msg,
                     )
                     chunks_processed_fs.append(fs)
 
@@ -692,6 +867,7 @@ class VideoFileFrameGetter:
         self._preview_valve = Gst.ElementFactory.make("valve")
         self._preview_valve.set_property("drop-mode", 2)
         preview_convert = Gst.ElementFactory.make("nvvideoconvert")
+        preview_convert.set_property("compute-hw", 1)
         pipeline.add(self._preview_valve)
         pipeline.add(preview_convert)
         preview_queue.link(self._preview_valve)
@@ -785,9 +961,11 @@ class VideoFileFrameGetter:
                         self._audio_end_cv.notify()
 
                     with self._audio_start_cv:
+                        with self._err_msg_lock:
+                            has_error = self._err_msg is not None
                         if (
                             (start_time) > self._live_stream_next_chunk_start_pts
-                            and not self._got_error
+                            and not has_error
                             and not self._stop_stream
                         ):
                             logger.debug("Waiting for next audio chunk start.")
@@ -812,10 +990,12 @@ class VideoFileFrameGetter:
                         self._audio_current_pts = end_time
                         self._audio_end_cv.notify()
 
-            if self._audio_error.is_set() and not self._got_error:
-                self._got_error = True
-                logger.error("ASR error detected, stopping audio processing")
-                break
+            with self._err_msg_lock:
+                if self._audio_error.is_set() and self._err_msg is None:
+                    self._err_msg = "Error in ASR transcript generation."
+                    self._audio_stop.set()
+                    logger.error(self._err_msg)
+                    break
             time.sleep(0.03)
 
         with self._audio_end_cv:
@@ -834,6 +1014,46 @@ class VideoFileFrameGetter:
         # resample -> asr -> appsink -> add text_to cache
         self._is_live = file_or_rtsp.startswith("rtsp://")
         pipeline = self._pipeline if create_source_elems_only else Gst.Pipeline()
+
+        def cb_elem_added(elem, username, password, selff):
+            if "nvv4l2decoder" in elem.get_factory().get_name():
+                elem.set_property("gpu-id", self._gpu_id)
+                elem.set_property("extract-sei-type5-data", True)
+                elem.set_property("sei-uuid", "NVDS_CUSTOMMETA")
+            if "mpeg4videoparse" in elem.get_factory().get_name():
+                elem.set_property("config-interval", -1)
+            if "rtspsrc" == elem.get_factory().get_name():
+                selff._rtspsrc = elem
+                pyds.configure_source_for_ntp_sync(hash(elem))
+                timeout = int(os.environ.get("VSS_RTSP_TIMEOUT", "") or "2000") * 1000
+                latency = int(os.environ.get("VSS_RTSP_LATENCY", "") or "2000")
+                elem.set_property("timeout", timeout)
+                elem.set_property("latency", latency)
+                # Below code need additional review and tests.
+                # Also is a feature - to let users change protocol.
+                # Protocols: Allowed lower transport protocols
+                # Default: 0x00000007, "tcp+udp-mcast+udp"
+                # protocols = int(os.environ.get("VSS_RTSP_PROTOCOLS", "") or "7")
+                # elem.set_property("protocols", protocols)
+
+                if username and password:
+                    elem.set_property("user-id", username)
+                    elem.set_property("user-pw", password)
+
+                if not self._audio_support or not self._enable_audio:
+                    # Ignore audio
+                    elem.connect("select-stream", cb_select_stream)
+
+                # Connect before-send to handle TEARDOWN per:
+                # Unfortunately, going to the NULL state involves going through PAUSED,
+                # so rtspsrc does not know the difference and will send a PAUSE
+                # when you wanted a TEARDOWN. The workaround is to
+                # hook into the before-send signal and return FALSE in this case.
+                # Source: https://gstreamer.freedesktop.org/documentation/rtsp/rtspsrc.html
+                elem.connect("before-send", cb_before_send, selff)
+            if "udpsrc" == elem.get_factory().get_name():
+                logger.debug("udpsrc created")
+                selff._udpsrc = elem
 
         def cb_newpad_decodebin(uridecodebin, uridecodebin_pad, self):
             caps = uridecodebin_pad.get_current_caps()
@@ -884,6 +1104,12 @@ class VideoFileFrameGetter:
                             pipeline.add(self._vdecodebin_h264)
                             self._vdecodebin_h264.set_state(Gst.State.PLAYING)
                             self._vdecodebin_h264.connect("pad-added", cb_newpad_decodebin, self)
+                            self._vdecodebin_h264.connect(
+                                "deep-element-added",
+                                lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
+                                    elem, username, password, selff
+                                ),
+                            )
                         else:
                             pipeline.add(self._vdecodebin_h264)
                             self._vdecodebin_h264.link(self._q1)
@@ -897,6 +1123,12 @@ class VideoFileFrameGetter:
                             pipeline.add(self._vdecodebin_h265)
                             self._vdecodebin_h265.set_state(Gst.State.PLAYING)
                             self._vdecodebin_h265.connect("pad-added", cb_newpad_decodebin, self)
+                            self._vdecodebin_h265.connect(
+                                "deep-element-added",
+                                lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
+                                    elem, username, password, selff
+                                ),
+                            )
                         else:
                             pipeline.add(self._vdecodebin_h265)
                             self._vdecodebin_h265.link(self._q1)
@@ -906,6 +1138,12 @@ class VideoFileFrameGetter:
                         pipeline.add(self._vdecodebin)
                         self._vdecodebin.set_state(Gst.State.PLAYING)
                         self._vdecodebin.connect("pad-added", cb_newpad_decodebin, self)
+                        self._vdecodebin.connect(
+                            "deep-element-added",
+                            lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
+                                elem, username, password, selff
+                            ),
+                        )
                     parsebin_pad.link(self._vdecodebin.get_static_pad("sink"))
 
                 if gstname.find("image") != -1:
@@ -951,17 +1189,89 @@ class VideoFileFrameGetter:
         videoconvert = Gst.ElementFactory.make("nvvideoconvert")
         self._videoconvert = videoconvert
         videoconvert.set_property("nvbuf-memory-type", 2)
+        videoconvert.set_property("compute-hw", 1)
 
         videoconvert.set_property("gpu-id", self._gpu_id)
         pipeline.add(videoconvert)
 
         if self._enable_jpeg_output:
             jpegenc = Gst.ElementFactory.make("nvjpegenc")
+            format = "I420"  # only RGB/I420 supported by nvjpegenc
+            if jpegenc is None:
+                jpegenc = Gst.ElementFactory.make("nvimageenc")
+                format = "RGB"  # only RGB/I420 supported by nvjpegenc
+            if os.getenv("SAVE_CHUNK_FRAMES_MINIO", "false").lower() == "true":
+                enc_src_pad = jpegenc.get_static_pad("src")
+                if enc_src_pad:
+                    enc_src_pad.add_probe(Gst.PadProbeType.BUFFER, self._image_enc_probe, self)
             pipeline.add(jpegenc)
-            format = "RGB"  # only RGB/I420 supported by nvjpegenc
         else:
             format = "GBR" if self._do_preprocess else "RGB"
             pass
+
+        # Add parallel encoding pipeline for saving images to disk
+        self._enable_image_save = os.getenv("SAVE_CHUNK_FRAMES_MINIO", "false").lower() == "true"
+        if self._enable_image_save and self._enable_jpeg_output is False:
+            # Create a tee to split the video stream
+            tee = Gst.ElementFactory.make("tee")
+            tee.set_property("name", "video_tee")
+            pipeline.add(tee)
+
+            # Create encoding branch
+            encode_queue = Gst.ElementFactory.make("queue")
+            pipeline.add(encode_queue)
+
+            # Create video converter for encoding branch
+            encode_videoconvert = Gst.ElementFactory.make("nvvideoconvert")
+            encode_videoconvert.set_property("gpu-id", self._gpu_id)
+            pipeline.add(encode_videoconvert)
+
+            # Create caps filter for encoding format
+            encode_capsfilter = Gst.ElementFactory.make("capsfilter")
+            encode_format = "I420"  # I420 works well with both nvjpegenc and nvimageenc
+            encode_capsfilter.set_property(
+                "caps", Gst.Caps.from_string(f"video/x-raw(memory:NVMM), format={encode_format}")
+            )
+            pipeline.add(encode_capsfilter)
+
+            image_encoder = Gst.ElementFactory.make("nvjpegenc")
+            if image_encoder is None:
+                image_encoder = Gst.ElementFactory.make("nvimageenc")
+
+            if image_encoder is None:
+                logger.warning("NVIDIA encoders not available. Falling back to software encoding.")
+                image_encoder = Gst.ElementFactory.make("jpegenc")
+                encode_capsfilter.set_property(
+                    "caps", Gst.Caps.from_string("video/x-raw, format=I420")
+                )
+
+            pipeline.add(image_encoder)
+            fakesink = Gst.ElementFactory.make("fakesink")
+            fakesink.set_property("async", False)
+            pipeline.add(fakesink)
+
+            # Store elements for later linking and cleanup
+            self._encoding_elements = {
+                "tee": tee,
+                "encode_queue": encode_queue,
+                "encode_videoconvert": encode_videoconvert,
+                "encode_capsfilter": encode_capsfilter,
+                "image_encoder": image_encoder,
+                "fakesink": fakesink,
+            }
+
+            # Link encoding pipeline elements
+            tee.link(encode_queue)
+            encode_queue.link(encode_videoconvert)
+            encode_videoconvert.link(encode_capsfilter)
+            encode_capsfilter.link(image_encoder)
+            image_encoder.link(fakesink)
+
+            enc_src_pad = image_encoder.get_static_pad("src")
+            if enc_src_pad:
+                enc_src_pad.add_probe(Gst.PadProbeType.BUFFER, self._image_enc_probe, self)
+            image_encoder.link(fakesink)
+
         # format = "NV12"
         capsfilter = Gst.ElementFactory.make("capsfilter")
         self._out_caps_filter = capsfilter
@@ -1038,10 +1348,12 @@ class VideoFileFrameGetter:
                 new_chunk = False
                 if buffer.pts >= self._live_stream_next_chunk_start_pts:
                     with self._audio_end_cv:
+                        with self._err_msg_lock:
+                            has_error = self._err_msg is not None
                         if (
                             self._audio_present
                             and self._audio_current_pts < self._live_stream_next_chunk_start_pts
-                            and not self._got_error
+                            and not has_error
                             and not self._stop_stream
                         ):
                             logger.debug(
@@ -1170,9 +1482,11 @@ class VideoFileFrameGetter:
                 self._audio_end_cv.notify()
 
             with self._audio_start_cv:
+                with self._err_msg_lock:
+                    has_error = self._err_msg is not None
                 if (
                     buffer.pts > self._live_stream_next_chunk_start_pts
-                    and not self._got_error
+                    and not has_error
                     and not self._stop_stream
                 ):
                     logger.debug("Wating for next audio chunk start.")
@@ -1318,44 +1632,6 @@ class VideoFileFrameGetter:
                 return False  # Skip sending the PAUSE message
             return True  # Allow sending the message
 
-        def cb_elem_added(elem, username, password, selff):
-            if "nvv4l2decoder" in elem.get_factory().get_name():
-                elem.set_property("gpu-id", self._gpu_id)
-                elem.set_property("extract-sei-type5-data", True)
-                elem.set_property("sei-uuid", "NVDS_CUSTOMMETA")
-            if "rtspsrc" == elem.get_factory().get_name():
-                selff._rtspsrc = elem
-                pyds.configure_source_for_ntp_sync(hash(elem))
-                timeout = int(os.environ.get("VSS_RTSP_TIMEOUT", "") or "2000") * 1000
-                latency = int(os.environ.get("VSS_RTSP_LATENCY", "") or "2000")
-                elem.set_property("timeout", timeout)
-                elem.set_property("latency", latency)
-                # Below code need additional review and tests.
-                # Also is a feature - to let users change protocol.
-                # Protocols: Allowed lower transport protocols
-                # Default: 0x00000007, "tcp+udp-mcast+udp"
-                # protocols = int(os.environ.get("VSS_RTSP_PROTOCOLS", "") or "7")
-                # elem.set_property("protocols", protocols)
-
-                if username and password:
-                    elem.set_property("user-id", username)
-                    elem.set_property("user-pw", password)
-
-                if not self._audio_support or not self._enable_audio:
-                    # Ignore audio
-                    elem.connect("select-stream", cb_select_stream)
-
-                # Connect before-send to handle TEARDOWN per:
-                # Unfortunately, going to the NULL state involves going through PAUSED,
-                # so rtspsrc does not know the difference and will send a PAUSE
-                # when you wanted a TEARDOWN. The workaround is to
-                # hook into the before-send signal and return FALSE in this case.
-                # Source: https://gstreamer.freedesktop.org/documentation/rtsp/rtspsrc.html
-                elem.connect("before-send", cb_before_send, selff)
-            if "udpsrc" == elem.get_factory().get_name():
-                logger.debug("udpsrc created")
-                selff._udpsrc = elem
-
         if uridecodebin:
             uridecodebin.connect(
                 "deep-element-added",
@@ -1439,12 +1715,21 @@ class VideoFileFrameGetter:
 
         qvideoconvert.link(videoconvert)
 
-        videoconvert.link(capsfilter)
-        if self._enable_jpeg_output:
-            capsfilter.link(jpegenc)
-            jpegenc.link(q2)
+        # Connect main pipeline elements, inserting tee if image saving is enabled
+        if self._enable_image_save and hasattr(self, "_encoding_elements"):
+            # Pipeline with tee for parallel encoding: videoconvert -> capsfilter -> tee -> main branch
+            videoconvert.link(capsfilter)
+            capsfilter.link(self._encoding_elements["tee"])
+
+            self._encoding_elements["tee"].link(q2)
         else:
-            capsfilter.link(q2)
+            # Original pipeline without tee
+            videoconvert.link(capsfilter)
+            if self._enable_jpeg_output:
+                capsfilter.link(jpegenc)
+                jpegenc.link(q2)
+            else:
+                capsfilter.link(q2)
 
         q2.link(appsink)
 
@@ -1461,7 +1746,7 @@ class VideoFileFrameGetter:
             # Small overlap in audio chunks so that words are not missed
             audio_overlap = min(self._chunk_duration // 10, 5e9)
 
-            if buffer.pts > self._end_pts + audio_overlap:
+            if buffer.pts > self._end_pts + audio_overlap or buffer.pts < self._start_pts:
                 return Gst.PadProbeReturn.DROP
             else:
                 return Gst.PadProbeReturn.OK
@@ -1499,7 +1784,8 @@ class VideoFileFrameGetter:
             elif t == Gst.MessageType.ERROR:
                 err, debug = message.parse_error()
                 sys.stderr.write("Error: %s: %s\n" % (err, debug))
-                self._got_error = True
+                with self._err_msg_lock:
+                    self._err_msg = f"{err}:{debug}"
                 selff._audio_stop.set()
                 selff._loop.quit()
             return True
@@ -1764,6 +2050,44 @@ class VideoFileFrameGetter:
         self._is_live = file_or_rtsp.startswith("rtsp://")
         pipeline = Gst.Pipeline()
 
+        def cb_elem_added(elem, username, password, selff):
+            if "nvv4l2decoder" in elem.get_factory().get_name():
+                elem.set_property("gpu-id", self._gpu_id)
+                elem.set_property("extract-sei-type5-data", True)
+                elem.set_property("sei-uuid", "NVDS_CUSTOMMETA")
+            if "rtspsrc" == elem.get_factory().get_name():
+                selff._rtspsrc = elem
+                pyds.configure_source_for_ntp_sync(hash(elem))
+                timeout = int(os.environ.get("VSS_RTSP_TIMEOUT", "") or "2000") * 1000
+                latency = int(os.environ.get("VSS_RTSP_LATENCY", "") or "2000")
+                elem.set_property("timeout", timeout)
+                elem.set_property("latency", latency)
+                # Below code need additional review and tests.
+                # Also is a feature - to let users change protocol.
+                # Protocols: Allowed lower transport protocols
+                # Default: 0x00000007, "tcp+udp-mcast+udp"
+                # protocols = int(os.environ.get("VSS_RTSP_PROTOCOLS", "") or "7")
+                # elem.set_property("protocols", protocols)
+
+                if username and password:
+                    elem.set_property("user-id", username)
+                    elem.set_property("user-pw", password)
+
+                if not self._audio_support or not self._enable_audio:
+                    # Ignore audio
+                    elem.connect("select-stream", cb_select_stream)
+
+                # Connect before-send to handle TEARDOWN per:
+                # Unfortunately, going to the NULL state involves going through PAUSED,
+                # so rtspsrc does not know the difference and will send a PAUSE
+                # when you wanted a TEARDOWN. The workaround is to
+                # hook into the before-send signal and return FALSE in this case.
+                # Source: https://gstreamer.freedesktop.org/documentation/rtsp/rtspsrc.html
+                elem.connect("before-send", cb_before_send, selff)
+            if "udpsrc" == elem.get_factory().get_name():
+                logger.debug("udpsrc created")
+                selff._udpsrc = elem
+
         def cb_newpad_decodebin(uridecodebin, uridecodebin_pad, self):
             caps = uridecodebin_pad.get_current_caps()
             gststruct = caps.get_structure(0)
@@ -1809,6 +2133,12 @@ class VideoFileFrameGetter:
                             pipeline.add(self._vdecodebin_h264)
                             self._vdecodebin_h264.set_state(Gst.State.PLAYING)
                             self._vdecodebin_h264.connect("pad-added", cb_newpad_decodebin, self)
+                            self._vdecodebin_h264.connect(
+                                "deep-element-added",
+                                lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
+                                    elem, username, password, selff
+                                ),
+                            )
                         else:
                             pipeline.add(self._vdecodebin_h264)
                             self._vdecodebin_h264.link(self._tee)
@@ -1819,6 +2149,12 @@ class VideoFileFrameGetter:
                             pipeline.add(self._vdecodebin_h265)
                             self._vdecodebin_h265.set_state(Gst.State.PLAYING)
                             self._vdecodebin_h265.connect("pad-added", cb_newpad_decodebin, self)
+                            self._vdecodebin_h265.connect(
+                                "deep-element-added",
+                                lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
+                                    elem, username, password, selff
+                                ),
+                            )
                         else:
                             pipeline.add(self._vdecodebin_h265)
                             self._vdecodebin_h265.link(self._tee)
@@ -1828,6 +2164,12 @@ class VideoFileFrameGetter:
                         pipeline.add(self._vdecodebin)
                         self._vdecodebin.set_state(Gst.State.PLAYING)
                         self._vdecodebin.connect("pad-added", cb_newpad_decodebin, self)
+                        self._vdecodebin.connect(
+                            "deep-element-added",
+                            lambda bin, subbin, elem, username=username, password=password, selff=self: cb_elem_added(  # noqa: E501
+                                elem, username, password, selff
+                            ),
+                        )
                     parsebin_pad.link(self._vdecodebin.get_static_pad("sink"))
 
                 if gstname.find("image") != -1:
@@ -1969,6 +2311,7 @@ class VideoFileFrameGetter:
         nvstreammux.set_property("gpu-id", self._gpu_id)
 
         videoconvert_to_osd = Gst.ElementFactory.make("nvvideoconvert")
+        videoconvert_to_osd.set_property("compute-hw", 1)
         pipeline.add(videoconvert_to_osd)
 
         nvdsosd = Gst.ElementFactory.make("nvdsosd")
@@ -1979,7 +2322,10 @@ class VideoFileFrameGetter:
         # Hence using process mode 0 (CPU)
         # This also requires another nvvideoconvert i.e. videoconvert_to_osd
         # since "process-mode" 0 supports only RGBA output
-        nvdsosd.set_property("process-mode", 0)
+        if platform.machine().lower() == "aarch64":
+            nvdsosd.set_property("process-mode", 1)
+        else:
+            nvdsosd.set_property("process-mode", 0)
 
         q2 = Gst.ElementFactory.make("queue")
         pipeline.add(q2)
@@ -1996,14 +2342,18 @@ class VideoFileFrameGetter:
         videoconvert = Gst.ElementFactory.make("nvvideoconvert")
         self._videoconvert = videoconvert
         videoconvert.set_property("nvbuf-memory-type", 2)
+        videoconvert.set_property("compute-hw", 1)
 
         videoconvert.set_property("gpu-id", self._gpu_id)
         pipeline.add(videoconvert)
 
         if self._enable_jpeg_output:
             jpegenc = Gst.ElementFactory.make("nvjpegenc")
+            format = "I420"  # only RGB/I420 supported by nvjpegenc
+            if jpegenc is None:
+                jpegenc = Gst.ElementFactory.make("nvimageenc")
+                format = "RGB"  # only RGB/I420 supported by nvjpegenc
             pipeline.add(jpegenc)
-            format = "RGB"  # only RGB/I420 supported by nvjpegenc
         else:
             format = "GBR" if self._do_preprocess else "RGB"
             pass
@@ -2101,10 +2451,12 @@ class VideoFileFrameGetter:
                 new_chunk = False
                 if buffer_pts >= self._live_stream_next_chunk_start_pts:
                     with self._audio_end_cv:
+                        with self._err_msg_lock:
+                            has_error = self._err_msg is not None
                         if (
                             self._audio_present
                             and (self._audio_current_pts) < self._live_stream_next_chunk_start_pts
-                            and not self._got_error
+                            and not has_error
                             and not self._stop_stream
                         ):
                             logger.debug(
@@ -2318,44 +2670,6 @@ class VideoFileFrameGetter:
                 return False  # Skip sending the PAUSE message
             return True  # Allow sending the message
 
-        def cb_elem_added(elem, username, password, selff):
-            if "nvv4l2decoder" in elem.get_factory().get_name():
-                elem.set_property("gpu-id", self._gpu_id)
-                elem.set_property("extract-sei-type5-data", True)
-                elem.set_property("sei-uuid", "NVDS_CUSTOMMETA")
-            if "rtspsrc" == elem.get_factory().get_name():
-                selff._rtspsrc = elem
-                pyds.configure_source_for_ntp_sync(hash(elem))
-                timeout = int(os.environ.get("VSS_RTSP_TIMEOUT", "") or "2000") * 1000
-                latency = int(os.environ.get("VSS_RTSP_LATENCY", "") or "2000")
-                elem.set_property("timeout", timeout)
-                elem.set_property("latency", latency)
-                # Below code need additional review and tests.
-                # Also is a feature - to let users change protocol.
-                # Protocols: Allowed lower transport protocols
-                # Default: 0x00000007, "tcp+udp-mcast+udp"
-                # protocols = int(os.environ.get("VSS_RTSP_PROTOCOLS", "") or "7")
-                # elem.set_property("protocols", protocols)
-
-                if username and password:
-                    elem.set_property("user-id", username)
-                    elem.set_property("user-pw", password)
-
-                if not self._audio_support or not self._enable_audio:
-                    # Ignore audio
-                    elem.connect("select-stream", cb_select_stream)
-
-                # Connect before-send to handle TEARDOWN per:
-                # Unfortunately, going to the NULL state involves going through PAUSED,
-                # so rtspsrc does not know the difference and will send a PAUSE
-                # when you wanted a TEARDOWN. The workaround is to
-                # hook into the before-send signal and return FALSE in this case.
-                # Source: https://gstreamer.freedesktop.org/documentation/rtsp/rtspsrc.html
-                elem.connect("before-send", cb_before_send, selff)
-            if "udpsrc" == elem.get_factory().get_name():
-                logger.debug("udpsrc created")
-                selff._udpsrc = elem
-
         if uridecodebin:
             uridecodebin.connect(
                 "deep-element-added",
@@ -2497,7 +2811,7 @@ class VideoFileFrameGetter:
             # Small overlap in audio chunks so that words are not missed
             audio_overlap = min(self._chunk_duration // 10, 5e9)
 
-            if buffer.pts > self._end_pts + audio_overlap:
+            if buffer.pts > self._end_pts + audio_overlap or buffer.pts < self._start_pts:
                 return Gst.PadProbeReturn.DROP
             else:
                 return Gst.PadProbeReturn.OK
@@ -2525,6 +2839,7 @@ class VideoFileFrameGetter:
             pipeline.add(q3)
             videoconvert2 = Gst.ElementFactory.make("nvvideoconvert")
             videoconvert2.set_property("nvbuf-memory-type", 2)
+            videoconvert2.set_property("compute-hw", 1)
             videoconvert2.set_property("interpolation-method", 1)
             pipeline.add(videoconvert2)
             capsfilter1 = Gst.ElementFactory.make("capsfilter")
@@ -2536,6 +2851,7 @@ class VideoFileFrameGetter:
             q4 = Gst.ElementFactory.make("queue")
             pipeline.add(q4)
             videoconvert3 = Gst.ElementFactory.make("nvvideoconvert")
+            videoconvert3.set_property("compute-hw", 1)
             pipeline.add(videoconvert3)
             q5 = Gst.ElementFactory.make("queue")
             pipeline.add(q5)
@@ -2719,7 +3035,7 @@ class VideoFileFrameGetter:
                 f'root: "/tmp/TritonGdino_{self._gpu_id}/' 'triton_model_repo/"',
                 modified_content,
             )
-            logger.debug("Setting GDINO Inference interval to : %d", self._inference_interval)
+            logger.debug("Setting GDINO Inference interval to : %s", str(self._inference_interval))
             modified_content = re.sub(
                 r"interval:\s*0", f"interval: {self._inference_interval}", modified_content
             )
@@ -2794,7 +3110,8 @@ class VideoFileFrameGetter:
             elif t == Gst.MessageType.ERROR:
                 err, debug = message.parse_error()
                 sys.stderr.write("Error: %s: %s\n" % (err, debug))
-                self._got_error = True
+                with self._err_msg_lock:
+                    self._err_msg = f"{err}: {debug}"
                 selff._audio_stop.set()
                 selff._loop.quit()
             return True
@@ -2838,6 +3155,32 @@ class VideoFileFrameGetter:
                         os.path.join(self._cached_frames_dir, f"frame_{frame_pts:08.3f}.jpg")
                     )
 
+    def _clear_pipeline_elements(self):
+        self._vdecodebin_h264 = None
+        self._vdecodebin_h265 = None
+        self._vdecodebin = None
+        self._adecodebin = None
+        self._idecodebin = None
+        self._uridecodebin = None
+        self._filesrc = None
+        self._parsebin = None
+        self._rtspsrc = None
+        self._udpsrc = None
+        self._nvtracker = None
+        self._nvstreammux = None
+        self._q1 = None
+        self._q2 = None
+        self._q3 = None
+        self._q4 = None
+        self._q5 = None
+        self._q6 = None
+        self._tee = None
+        self._splitmuxsink = None
+        self._preview_valve = None
+        self._audio_convert = None
+        self._audio_resampler = None
+        self._audio_appsink = None
+
     def get_frames(
         self,
         chunk: ChunkInfo,
@@ -2866,8 +3209,14 @@ class VideoFileFrameGetter:
         self._enable_audio = enable_audio
         self._eos_sent = False
         self._end_pts = chunk.end_pts
+        self._start_pts = chunk.start_pts
         self._chunk_duration = chunk.end_pts - chunk.start_pts
         self._chunkIdx = chunk.chunkIdx
+        self._current_stream_id = getattr(chunk, "streamId", None)
+        self._minio_frame_idx = 0
+        self._is_warmup = False if request_id else True
+        with self._err_msg_lock:
+            self._err_msg = None
 
         logger.debug("Audio ASR enabled: %d", enable_audio)
 
@@ -2993,9 +3342,12 @@ class VideoFileFrameGetter:
             if old_pipeline:
                 old_pipeline.set_state(Gst.State.NULL)
 
-        if not retain_pipeline:
+        with self._err_msg_lock:
+            has_error = self._err_msg is not None
+        if not retain_pipeline or has_error:
             self._pipeline.set_state(Gst.State.NULL)
             self._pipeline = None
+            self._clear_pipeline_elements()
 
         # Return the cached raw preprocessed frames / jpegs and the corresponding timestamps.
         # Adjust for the PTS offset if any.
@@ -3021,7 +3373,7 @@ class VideoFileFrameGetter:
             self._gpu_id,
         )
         if len(self._cached_frames) == 0:
-            logger.error("No frames found for chunk %s", chunk)
+            logger.warning("No frames found for chunk %s", chunk)
         preprocessed_frames = self._preprocess(self._cached_frames)
         self._cached_frames = None
         self._frame_selector = frame_selector_backup
@@ -3031,7 +3383,14 @@ class VideoFileFrameGetter:
             chunk.cached_frames_cv_meta = self._cached_frames_cv_meta
             self._cached_frames_cv_meta = []
 
-        return preprocessed_frames, self._cached_frames_pts, self._cached_audio_frames
+        with self._err_msg_lock:
+            err_msg = self._err_msg
+        return (
+            preprocessed_frames,
+            self._cached_frames_pts,
+            self._cached_audio_frames,
+            err_msg,
+        )
 
     def dispose_pipeline(self):
         if self._pipeline.set_state(Gst.State.NULL) != Gst.StateChangeReturn.SUCCESS:
@@ -3079,7 +3438,15 @@ class VideoFileFrameGetter:
         live_stream_url: str,
         chunk_duration: int,
         on_chunk_decoded: Callable[
-            [ChunkInfo, torch.Tensor | list[np.ndarray], list[float], list[dict]], None
+            [
+                ChunkInfo,
+                torch.Tensor | list[np.ndarray],  # frames
+                list[float],  # frame_times
+                list[dict],  # transcripts
+                Optional[str],  # error_msg
+                dict,  # kwargs
+            ],
+            None,
         ],
         chunk_overlap_duration=0,
         username="",
@@ -3103,6 +3470,8 @@ class VideoFileFrameGetter:
         self._last_frame_pts = 0
         self._stop_stream = False
         self._enable_audio = enable_audio
+        self._is_warmup = False
+        self._current_stream_id = live_stream_id
 
         if live_stream_id:
             self._live_stream_request_id = live_stream_id
@@ -3110,11 +3479,17 @@ class VideoFileFrameGetter:
             self._live_stream_request_id = str(uuid.uuid4())
         # Rerun the pipeline if it runs into errors like disconnection
         # Stop if pipeline stops with EOS
-        while ((not self._pipeline) or self._got_error) and (not self._stop_stream):
-            if self._got_error:
-                logger.error("Live stream received error. Retrying after 5 seconds")
-                time.sleep(5)
-            self._got_error = False
+        while not self._stop_stream:
+            with self._err_msg_lock:
+                has_error = self._err_msg is not None
+            if not self._pipeline or has_error:
+                with self._err_msg_lock:
+                    if self._err_msg is not None:
+                        logger.error("Live stream received error. Retrying after 5 seconds")
+                        time.sleep(5)
+                        self._err_msg = None
+            else:
+                break
             self._live_stream_next_chunk_start_pts = 0
             self._audio_current_pts = 0
             self._audio_present = False
@@ -3324,7 +3699,7 @@ if __name__ == "__main__":
             chunk_overlap_duration=args.chunk_overlap_duration,
             username=args.username,
             password=args.password,
-            on_chunk_decoded=lambda chunk, frames, frame_times, transcripts: print(
+            on_chunk_decoded=lambda chunk, frames, frame_times, transcripts, error_msg, kwargs: print(
                 f"Picked {len(frames)} frames with times: {frame_times} \
                 for chunk {chunk}\n audio transcripts\n: {transcripts}\n\n\n"
             ),
@@ -3336,7 +3711,7 @@ if __name__ == "__main__":
         chunk.file = args.file_or_rtsp
         chunk.start_pts = args.start_time * 1000000000
         chunk.end_pts = args.end_time * 1000000000 if args.end_time >= 0 else -1
-        frames, frames_pts, audio_frames = frame_getter.get_frames(
+        frames, frames_pts, audio_frames, error = frame_getter.get_frames(
             chunk, enable_audio=args.enable_audio
         )
         print(f"Picked {len(frames)} frames with times: {frames_pts}")

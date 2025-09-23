@@ -116,7 +116,7 @@ class LlavaMetaModel(ABC):
 
         # print(llm_cfg, vision_tower_cfg, mm_projector_cfg); input("DEBUG load_pretrained")
         init_context = [
-            no_init_weights(_enable=True),
+            no_init_weights(),
         ]
         # print("Before Init Context")
         # if hasattr(config, "deepspeed") and "mics" in config.deepspeed:

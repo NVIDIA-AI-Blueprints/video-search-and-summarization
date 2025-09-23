@@ -1,0 +1,113 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+# ============================================================================
+# SIMPLIFIED ALERT AGENT CONFIGURATION
+# ============================================================================
+# This configuration supports the simplified alert processing flow:
+# JSON Input → Entity Building → VSS Video Analysis → Enhanced JSON Output
+
+
+# VST Configuration
+vst_config:
+  # Base URL for general VST APIs already used elsewhere in the codebase
+  # This is overridden by STORAGE_MODULE_ENDPOINT env variable in the docker compose file.
+  base_url: http://storage-ms:30000
+
+  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  storage:
+    # Endpoint to fetch media file path by VST id
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+
+# VSS Agent Configuration - Video Analysis
+vss_agent:
+  base_url: "http://via-server:8000"
+  VSS_IMAGE_ENDPOINT: "/files"
+  VSS_SUMMARIZE_ENDPOINT: "/summarize"
+  VSS_CHAT_ENDPOINT: "/chat/completions"
+  VSS_REVIEW_ALERT_ENDPOINT: "/reviewAlert"
+  #prompts_config_file: "prompts.yaml"           # External file containing prompt templates
+  request_timeout: 240                          # Request timeout in seconds (increased from 60)
+  max_retries: 1                                # Maximum number of retry attempts
+  retry_delay: 1.0                              # Initial retry delay in seconds
+
+  # VSS Connection Retry Configuration
+  connection_retry_interval: 5                  # Initial retry interval in seconds (more frequent)
+  connection_max_retry_interval: 60             # Maximum retry interval in seconds (1 minute)
+  connection_wait_timeout: 300                  # Maximum time to wait for connection (5 minutes)
+  vlm_param_allowlist:
+    - prompt
+    - system_prompt
+    - response_format
+    - max_tokens
+    - temperature
+    - top_p
+    - top_k
+    - seed
+
+
+# Event Bridge Configuration - Choose between kafka and redisStream
+event_bridge:
+  sourceType: "redisStream"                     # or "kafka"
+  sinkType: "redisStream"                       # or "kafka"
+
+  # Redis Streams Configuration
+  redis_source:
+    host: "redis"
+    port: 6379
+    db: 0
+    streams:
+      anomaly_stream: "alert-bridge-input-stream"
+      heartbeat_stream: "alert-bridge-heartbeats-stream"
+    consumer_group: "vlm_agents_group"
+    consumer_config:
+      block_time: 10
+      count: 1
+      batch_size: 1
+
+  redis_sink:
+    host: "redis"
+    port: 6379
+    db: 0
+    streams:
+      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
+      incidents_stream: "alert-bridge-incidents-stream"
+
+
+
+prompt:
+  prefer_payload_prompt: true
+
+# Alert Agent Configuration - Processing Settings
+alert_agent:
+  num_workers: 1                                # Number of worker threads
+  max_allowed_stream_size: 2                    # Maximum stream size in minutes
+  default_stream_interval: 1                    # Default stream interval in minutes
+
+# WebSocket Configuration - Real-time alert broadcasting
+websocket:
+  enabled: true                                 # Enable/disable WebSocket service
+  consumer_group_prefix: "websocket_instance"  # Prefix for consumer groups
+  redis_consumer:
+    block_time: 1000                           # Redis XREAD block time in milliseconds
+    count: 1                                   # Number of messages to read per batch
+    reconnect_delay: 5                         # Seconds to wait before reconnecting on failure
+
+# Logging Configuration
+logging:
+  level: "DEBUG"                                # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL (applies to all components)
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

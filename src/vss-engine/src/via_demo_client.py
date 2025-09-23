@@ -61,6 +61,9 @@ def build_logger(logger_name, logger_filename):
         logging.basicConfig(level=logging.INFO)
     logging.getLogger().handlers[0].setFormatter(formatter)
 
+    # Capture Python warnings
+    logging.captureWarnings(True)
+
     # Redirect stdout and stderr to loggers
     stdout_logger = logging.getLogger("stdout")
     stdout_logger.setLevel(logging.INFO)
@@ -86,6 +89,21 @@ def build_logger(logger_name, logger_filename):
         for name, item in logging.root.manager.loggerDict.items():
             if isinstance(item, logging.Logger):
                 item.addHandler(handler)
+
+        # --- FINE-GRAINED UVICORN CONFIGURATION ---
+        # Get the specific loggers Uvicorn uses
+        uvicorn_error_logger = logging.getLogger("uvicorn.error")
+        uvicorn_access_logger = logging.getLogger("uvicorn.access")
+
+        # Add your file handler to them
+        uvicorn_error_logger.addHandler(handler)
+        uvicorn_access_logger.addHandler(handler)
+
+        # Disable propagation to prevent duplicate logs in the console
+        # Uvicorn's default handlers will still print to console,
+        # and our root logger's console_handler would do it again without this.
+        uvicorn_error_logger.propagate = False
+        uvicorn_access_logger.propagate = False
 
     return logger
 

@@ -1,0 +1,186 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  via-server:
+    image: ${VSS_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0${IS_SBSA:+-sbsa}}
+    networks:
+      - vss-shared-network
+    shm_size: '16gb'
+    runtime: nvidia
+    ports:
+      - "${VSS_BACKEND_PORT:-8000}:${VSS_BACKEND_PORT:-8000}"
+      - "${VSS_FRONTEND_PORT:-9000}:${VSS_FRONTEND_PORT:-9000}"
+    volumes:
+      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
+      - via-ngc-model-cache:/root/.via/ngc_model_cache
+      - via-hf-cache:/tmp/huggingface
+      - "${ALERT_REVIEW_MEDIA_BASE_DIR:-/dummy}${ALERT_REVIEW_MEDIA_BASE_DIR:+:${ALERT_REVIEW_MEDIA_BASE_DIR:-}}"
+
+    environment:
+      BACKEND_PORT: "${VSS_BACKEND_PORT:-8000}"
+      DISABLE_CA_RAG: "true"
+      DISABLE_FRONTEND: "true"
+      DISABLE_GUARDRAILS: "true"
+      DISABLE_CV_PIPELINE: "true"
+      FRONTEND_PORT: "${VSS_FRONTEND_PORT:-9000}"
+      MODEL_PATH: "${MODEL_PATH:-ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic}"
+      VLM_MODEL_TO_USE: "cosmos-reason1"
+      VSS_LOG_LEVEL: "${VSS_LOG_LEVEL:-}"
+      VSS_EXTRA_ARGS: "${VSS_EXTRA_ARGS:-}"
+      VLM_DEFAULT_NUM_FRAMES_PER_CHUNK: "${VLM_DEFAULT_NUM_FRAMES_PER_CHUNK:-}"
+      ALERT_REVIEW_MEDIA_BASE_DIR: "${ALERT_REVIEW_MEDIA_BASE_DIR:-}"
+      VLM_SYSTEM_PROMPT: "You are a helpful assistant. Answer the user's question. "
+      VLM_INPUT_WIDTH: "${VLM_INPUT_WIDTH:-}"
+      VLM_INPUT_HEIGHT: "${VLM_INPUT_HEIGHT:-}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-}"
+      NGC_API_KEY: "${NGC_API_KEY:-}"
+      VLLM_DISABLE_COMPILE_CACHE: "1"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+    ipc: host
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${VSS_BACKEND_PORT:-8000}/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 25
+      start_period: 90s
+
+
+  storage-ms:
+    image: nvcr.io/nvidia/blueprint/vst-storage:2.1.0-25.07.1
+    networks:
+      - vss-shared-network
+    user: "0:0"
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}  # Set to true when needed
+      - CONTAINER_NAME=storage-ms
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - ADAPTOR=storage
+      - NEED_RECORDING=false
+      - NEED_RTSPSERVER=false
+      - NEED_STORAGE=true
+      - NEED_STREAM_MONITORING=false
+      - HTTP_PORT=${STORAGE_HTTP_PORT}
+    volumes:
+      - ${VST_CONFIG_PATH}:/home/vst/vst_release/configs
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${ALERT_REVIEW_MEDIA_BASE_DIR}:/home/vst/vst_release/streamer_videos
+        #container_name: storage-ms
+    ports:
+      - "${STORAGE_HTTP_PORT}:${STORAGE_HTTP_PORT}"
+    restart: on-failure    # Restart only if the container exits with non-zero status
+
+#  Redis service - default (no profile)
+  redis:
+    image: redis/redis-stack-server:7.2.0-v9
+      #container_name: redis
+    networks:
+      - vss-shared-network
+    ports:
+      - "6379:6379"
+    # Remove custom command to let Redis Stack load all modules automatically
+    # command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Alert bridge service - runs with either profile
+  alert-bridge:
+    image: nvcr.io/nvidia/blueprint/alert-bridge:0.19.0-multiarch
+    networks:
+      - vss-shared-network
+    #image: alert-bridge:test10
+    user: "0:0"
+    environment:
+      - FASTAPI_PORT=${FASTAPI_PORT:-9080}
+      - ALERT_REVIEW_MEDIA_BASE_DIR=${ALERT_REVIEW_MEDIA_BASE_DIR:-}
+      - STORAGE_MODULE_ENDPOINT=http://storage-ms:${STORAGE_HTTP_PORT}
+      - VSS_BASE_URL=http://via-server:${VSS_BACKEND_PORT:-8000}
+
+    volumes:
+      - ${ALERT_BRIDGE_CONFIG_FILE:-./config.yaml}:/app/config.yaml
+
+
+        #container_name: alert-bridge
+    depends_on:
+      redis:
+        condition: service_healthy
+      via-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    ports:
+      - 9080:9080
+
+  alert-inspector-ui:
+    image: ${ALERT_INSPECTOR_UI_IMAGE:-nvcr.io/nvidia/blueprint/vss-alert-inspector-ui:2.4.0}
+    networks:
+      - vss-shared-network
+    volumes:
+      - "${ALERT_REVIEW_MEDIA_BASE_DIR:-/dummy}${ALERT_REVIEW_MEDIA_BASE_DIR:+:${ALERT_REVIEW_MEDIA_BASE_DIR:-}}"
+    environment:
+      - BACKEND_IP=${BACKEND_IP:-via-server}
+      - BACKEND_PORT=${VSS_BACKEND_PORT:-8000}
+      - GRADIO_SERVER=0.0.0.0
+      - ALERT_BRIDGE_BASE_URL=ws://alert-bridge:9080
+    ports:
+      - 7860:7860
+      - 8500:8500
+    stdin_open: true
+    tty: true
+    depends_on:
+      alert-bridge:
+        condition: service_healthy
+
+  api-gateway:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    networks:
+      - vss-shared-network
+    container_name: api-gateway
+    ports:
+      - "8080:80"
+    depends_on:
+      - via-server
+      - storage-ms
+      - alert-bridge
+      - alert-inspector-ui
+
+
+volumes:
+  via-hf-cache:
+  via-ngc-model-cache:
+  redis_data:
+
+networks:
+  vss-shared-network:
+    external: true
+

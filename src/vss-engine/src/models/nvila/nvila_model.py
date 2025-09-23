@@ -20,6 +20,7 @@ import sys
 import numpy
 import torch
 from filelock import FileLock
+from packaging.version import parse as parse_version
 from PIL import Image
 
 from via_logger import TimeMeasure
@@ -40,8 +41,14 @@ class NVila:
             # TRT Model
             with TimeMeasure("VILA TRT model load"):
                 # Load the TRT model
-                import tensorrt_llm.bindings
-                from tensorrt_llm._torch import LLM
+                import tensorrt_llm
+
+                if parse_version(
+                    parse_version(tensorrt_llm.__version__).base_version
+                ) >= parse_version("1.0.0"):
+                    from tensorrt_llm import LLM
+                else:
+                    from tensorrt_llm._torch.llm import LLM
 
                 if "NVILA_VIDEO_MAX_TILES" not in os.environ:
                     os.environ["NVILA_VIDEO_MAX_TILES"] = "4"
@@ -49,12 +56,12 @@ class NVila:
                 with FileLock(model_path + "/.lock"):
                     self._llm = LLM(
                         model=model_path,
-                        kv_cache_config=tensorrt_llm.bindings.executor.KvCacheConfig(
-                            free_gpu_memory_fraction=float(
+                        kv_cache_config={
+                            "free_gpu_memory_fraction": float(
                                 os.environ.get("TRT_LLM_MEM_USAGE_FRACTION", "") or 0.4
                             ),
-                            enable_block_reuse=False,
-                        ),
+                            "enable_block_reuse": False,
+                        },
                     )
         else:
             sys.path.append(os.path.dirname(__file__) + "/VILA")
@@ -99,13 +106,21 @@ class NVila:
                     t = int(match)
                     if t >= len(video_frames_times):
                         result = result.replace(f"<t{t}>", f"<{video_frames_times[-1]}>")
-        return [result], [{"input_tokens": 0, "output_tokens": output.outputs[0].length}]
+        return [result], [
+            {
+                "input_tokens": len(output.prompt_token_ids),
+                "output_tokens": output.outputs[0].length,
+            }
+        ]
 
     def can_enqueue_requests(self):
         return len(self._inflight_req_ids) < self._max_batch_size
 
     def warmup(self):
-        self.generate("Say Hi", [torch.ones(100, 100, 3).cuda()])
+        if self._use_trt:
+            ret = self.generate("Say Hi", [torch.ones(100, 100, 3).cuda()])
+            if isinstance(ret, concurrent.futures.Future):
+                ret.result()
 
     @property
     def num_time_tokens(self):
@@ -149,6 +164,8 @@ class NVila:
             generation_config.pop("seed")
         else:
             seed = 1
+
+        generation_config.pop("system_prompt", "")
 
         # Set the seed
         random.seed(seed)

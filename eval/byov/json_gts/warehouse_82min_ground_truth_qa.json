@@ -1,0 +1,71 @@
+[
+    {
+      "prompt": "Describe the worker that takes out the phone.",
+      "completion": "Worker wearing yellow hardhat."
+    },
+    {
+      "prompt": "List all actions of the worker with yellow hard hat",
+      "completion": "1. Takes out his phone and looks at it, before putting it back into his pocket (10:18) 2. Picks up two boxes off the floor and carries them away (4341:4353) 3. Aligns the boxes evenly and moves them to the side of the crate (4387:4396) 4. Moves the boxes on top of the crates (4408:4415)"
+    },
+    {
+      "prompt": "Describe the action of the worker in grey t-shirt",
+      "completion": "The worker in the grey t-shirt is seen driving the forklift towards the shelves, lifting a box, placing it safely on a shelf, and then returning to his original position."
+    },
+    {
+      "prompt": "What were the three workers doing at the beginning of the shift?",
+      "completion": "They were chitchatting with each other while standing on the warehouse floor."
+    },
+    {
+      "prompt": "Who entered the frame and stood behind the workers, noting something down on his phone?",
+      "completion": "A person wearing a white sweater."
+    },
+    {
+      "prompt": "What was the person wearing a blue shirt and jeans doing when they entered the frame?",
+      "completion": "They were carrying boxes with a forklift and put them down."
+    },
+    {
+      "prompt": "Who arrived driving a forklift?",
+      "completion": "A person wearing a black cap."
+    },
+    {
+      "prompt": "What did the person wearing a black cap do with the boxes?",
+      "completion": "They picked up the boxes and drove away with the forklift."
+    },
+    {
+      "prompt": "What were the three workers doing in the middle of an aisle?",
+      "completion": "They were talking to each other."
+    },
+    {
+      "prompt": "Who placed a box on top of the robotic unit?",
+      "completion": "A lady wearing a sweater and a pair of jeans."
+    },
+    {
+      "prompt": "What did the man in the white sweater do with the box on the robotic unit?",
+      "completion": "He re-positioned it back on top of the robotic unit."
+    },
+    {
+      "prompt": "What was the person in the white sweater doing when they reappeared with another person?",
+      "completion": "They were counting 1, 2, 3, looking at the floor."
+    },
+    {
+      "prompt": "Who was the person in the white sweater giving instructions to?",
+      "completion": "The people on the left side of the frame."
+    },
+    {
+      "prompt": "What happened to the box that the robotic unit was carrying?",
+      "completion": "It fell off the robotic unit as it tried to move."
+    },
+    {
+      "prompt": "What was the woman operating the robotic unit doing when it suddenly moved?",
+      "completion": "She got startled."
+    },
+    {
+      "prompt": "What was the man in the white shirt doing with the boxes on the robotic unit?",
+      "completion": "He moved them to another place manually."
+    },
+    {
+      "prompt": "Who brought in a forklift machine into the frame and placed it in the middle?",
+      "completion": "The man with the cap."
+    }
+  ]
+  

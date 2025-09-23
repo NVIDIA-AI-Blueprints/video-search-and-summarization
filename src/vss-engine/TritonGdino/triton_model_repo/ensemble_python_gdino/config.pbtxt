@@ -12,7 +12,7 @@
 
 name: "ensemble_python_gdino"
 platform: "ensemble"
-max_batch_size: 16
+max_batch_size: 8
 input [
   {
     name: "inputs"
