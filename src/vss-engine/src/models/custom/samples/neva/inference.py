@@ -23,7 +23,13 @@ class Inference:
         self.endpoint = "https://ai.api.nvidia.com/v1/vlm/nvidia/neva-22b"
         self.api_key = os.environ.get("NVIDIA_API_KEY")
 
-    def generate(self, prompt: str, input: torch.Tensor | list[np.ndarray], configs: Dict):
+    def generate(
+        self,
+        prompt: str,
+        input: torch.Tensor | list[np.ndarray],
+        configs: Dict,
+        video_frames_times: list,
+    ):
         # one frame processed once
         assert len(input) == 1
         image = input[0]

@@ -19,12 +19,14 @@ from logging import Logger
 import aiohttp
 import gradio as gr
 import pkg_resources
-import yaml
+from pyaml_env import parse_config
 
 from .ui_utils import (
     RetrieveCache,
     get_live_stream_preview_chunks,
     get_overlay_live_stream_preview_chunks,
+    validate_camera_id,
+    validate_question,
 )
 
 pipeline_args = None
@@ -51,18 +53,34 @@ CHATBOT_AVATAR_ICON.write(
 CHATBOT_AVATAR_ICON.flush()
 
 
+def get_tool_llm_param(ca_rag_config, function_name, param_name, default_value):
+    """Get LLM parameter from tool that function references."""
+    try:
+        # Get the tool that this function references for LLM operations
+        functions = ca_rag_config.get("functions", {})
+        llm_tool_name = functions.get(function_name, {}).get("tools", {}).get("llm", "openai_llm")
+
+        # Return the parameter value from the tool
+        tools = ca_rag_config.get("tools", {})
+        tool_params = tools.get(llm_tool_name, {}).get("params", {})
+        return tool_params.get(param_name, default_value)
+    except Exception:
+        return default_value
+
+
 def get_default_prompts():
     try:
-        with open(os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")) as f:
-            ca_rag_config = yaml.safe_load(f)
-            prompts = ca_rag_config["summarization"]["prompts"]
-            return (
-                prompts["caption"],
-                prompts["caption_summarization"],
-                prompts["summary_aggregation"],
-                "/opt/nvidia/via/warehouse_graph_rag_config.yaml",
-            )
-    except Exception:
+        ca_rag_config = parse_config(
+            os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")
+        )
+        prompts = ca_rag_config["functions"]["summarization"]["params"]["prompts"]
+        return (
+            prompts["caption"],
+            prompts["caption_summarization"],
+            prompts["summary_aggregation"],
+        )
+    except Exception as e:
+        logger.error(f"Error loading default prompts: {str(e)}")
         return "", "", "", None
 
 
@@ -73,9 +91,11 @@ async def summarize_response_async(session: aiohttp.ClientSession, req_json, vid
 
         yield (
             gr.update(interactive=False),  # video, , , , ,
+            gr.update(interactive=False),  # camera_id, , , , ,
             gr.update(interactive=False),  # username, , , , ,
             gr.update(interactive=False),  # password, , , , ,
             gr.update(interactive=False),  # upload_button
+            gr.update(interactive=False),  # summarize_checkbox
             gr.update(interactive=False),  # enable_chat
             gr.update(interactive=enable_chat),  # ask_button
             gr.update(interactive=enable_chat),  # question_textbox
@@ -107,7 +127,6 @@ async def summarize_response_async(session: aiohttp.ClientSession, req_json, vid
             gr.update(interactive=False),  # notification_max_tokens
             gr.update(interactive=False),  # summarize_batch_size
             gr.update(interactive=False),  # rag_batch_size
-            gr.update(interactive=False),  # rag_type
             gr.update(interactive=False),  # rag_top_k
             gr.update(interactive=False),  # active_live_streams
             gr.update(interactive=False),  # refresh_list_button
@@ -140,7 +159,7 @@ async def summarize_response_async(session: aiohttp.ClientSession, req_json, vid
                 break
             line = line.decode("utf-8")
             if not line.startswith("data: "):
-                yield [gr.update()] * 43
+                yield [gr.update()] * 44
                 continue
 
             data = line.strip()[6:]
@@ -187,9 +206,11 @@ async def summarize_response_async(session: aiohttp.ClientSession, req_json, vid
 
             yield (
                 gr.update(interactive=False),  # video, , , , ,
+                gr.update(interactive=False),  # camera_id, , , , ,
                 gr.update(interactive=False),  # username, , , , ,
                 gr.update(interactive=False),  # password, , , , ,
                 gr.update(interactive=False),  # upload_button
+                gr.update(interactive=False),  # summarize_checkbox
                 gr.update(interactive=False),  # enable_chat
                 gr.update(interactive=enable_chat),  # ask_button
                 gr.update(interactive=enable_chat),  # question_textbox
@@ -221,7 +242,6 @@ async def summarize_response_async(session: aiohttp.ClientSession, req_json, vid
                 gr.update(interactive=False),  # notification_max_tokens
                 gr.update(interactive=False),  # summarize_batch_size
                 gr.update(interactive=False),  # rag_batch_size
-                gr.update(interactive=False),  # rag_type
                 gr.update(interactive=False),  # rag_top_k
                 gr.update(interactive=False),  # active_live_streams
                 gr.update(interactive=False),  # refresh_list_button
@@ -231,14 +251,17 @@ async def summarize_response_async(session: aiohttp.ClientSession, req_json, vid
                 gr.update(interactive=False),  # enable_audio
             )
 
+    # Stream ends / disconnected
     yield (
         gr.update(interactive=True),  # video, , , , ,
+        gr.update(interactive=True),  # camera_id, , , , ,
         gr.update(interactive=True),  # username, , , , ,
         gr.update(interactive=True),  # password, , , , ,
-        gr.update(interactive=True),  # upload_button
+        gr.update(interactive=False),  # upload_button
+        gr.update(interactive=True),  # summarize_checkbox
         gr.update(interactive=True),  # enable_chat
-        gr.update(interactive=enable_chat),  # ask_button
-        gr.update(interactive=enable_chat),  # question_textbox
+        gr.update(interactive=False),  # ask_button
+        gr.update(interactive=False),  # question_textbox
         video_id,  # stream_id
         output_summaries,  # output_response
         output_alerts,  # output_alerts
@@ -267,7 +290,6 @@ async def summarize_response_async(session: aiohttp.ClientSession, req_json, vid
         gr.update(interactive=True),  # notification_max_tokens
         gr.update(interactive=True),  # summarize_batch_size
         gr.update(interactive=True),  # rag_batch_size
-        gr.update(interactive=True),  # rag_type
         gr.update(interactive=True),  # rag_top_k
         gr.update(
             interactive=False, choices=[], value="< Click Refresh List to fetch active streams >"
@@ -290,9 +312,11 @@ async def gradio_reset(stream_id, request: gr.Request):
 
     return (
         gr.update(value=None, interactive=True),  # video,
+        gr.update(value=None, interactive=True),  # camera_id, , , , ,
         gr.update(value=None, interactive=True),  # username, , , , ,
         gr.update(value=None, interactive=True),  # password, , , , ,
         gr.update(interactive=False),  # upload_button,
+        gr.update(interactive=True, value=True),  # summarize_checkbox
         gr.update(interactive=True),  # enable_chat
         gr.update(interactive=False),  # ask_button
         gr.update(interactive=False),  # reset_chat_button
@@ -326,7 +350,6 @@ async def gradio_reset(stream_id, request: gr.Request):
         gr.update(interactive=True),  # notification_max_tokens
         gr.update(interactive=True),  # summarize_batch_size
         gr.update(interactive=True),  # rag_batch_size
-        gr.update(interactive=True),  # rag_type
         gr.update(interactive=True),  # rag_top_k
         await refresh_active_stream_list(),  # active_live_streams,
         gr.update(interactive=True),  # refresh_list_button,
@@ -367,7 +390,7 @@ async def ask_question(
     logger.debug(f"Question: {question_textbox}")
     session: aiohttp.ClientSession = appConfig["session"]
     # ask_button.interactive = False
-    question = question_textbox
+    question = question_textbox.strip()
     video_id = media_ids
     reset_chat_triggered = True
     if not question:
@@ -443,6 +466,7 @@ async def ask_question(
 
 async def add_rtsp_stream(
     video,
+    camera_id,
     username,
     password,
     temperature,
@@ -464,7 +488,6 @@ async def add_rtsp_stream(
     notification_max_tokens,
     summarize_batch_size,
     rag_batch_size,
-    rag_type,
     rag_top_k,
     chunk_size,
     summary_duration,
@@ -472,6 +495,7 @@ async def add_rtsp_stream(
     summary_prompt,
     caption_summarization_prompt,
     summary_aggregation_prompt,
+    summarize_checkbox,
     enable_chat,
     enable_cv_metadata,
     cv_pipeline_prompt,
@@ -481,10 +505,11 @@ async def add_rtsp_stream(
     request: gr.Request,
 ):
     logger.info(f"upload_imgorvideo. ip: {request.client.host}")
+
     if not video:
         yield [
             gr.update(),
-        ] * 45
+        ] * 46
         return
     elif video:
         video_id = ""
@@ -498,6 +523,7 @@ async def add_rtsp_stream(
 
             req_json = {
                 "liveStreamUrl": video.strip(),
+                "camera_id": camera_id,
                 "username": username,
                 "password": password,
                 "description": "Added from Gradio UI",
@@ -510,6 +536,7 @@ async def add_rtsp_stream(
 
             req_json = {
                 "id": video_id,
+                "camera_id": camera_id,
                 "model": model,
                 "chunk_duration": chunk_size,
                 "summary_duration": summary_duration,
@@ -519,6 +546,7 @@ async def add_rtsp_stream(
                 "top_p": top_p,
                 "top_k": top_k,
                 "stream": True,
+                "summarize": summarize_checkbox,
                 "enable_chat": enable_chat,
                 "stream_options": {"include_usage": True},
                 "num_frames_per_chunk": num_frames_per_chunk,
@@ -535,7 +563,6 @@ async def add_rtsp_stream(
                 "notification_max_tokens": notification_max_tokens,
                 "summarize_batch_size": summarize_batch_size,
                 "rag_batch_size": rag_batch_size,
-                "rag_type": rag_type,
                 "rag_top_k": rag_top_k,
                 "enable_cv_metadata": enable_cv_metadata,
                 "enable_audio": enable_audio,
@@ -583,7 +610,7 @@ async def add_rtsp_stream(
 
             yield [
                 gr.update(),
-            ] * 43 + [
+            ] * 44 + [
                 video_id
             ] + [gr.update(interactive=True)]
 
@@ -597,9 +624,11 @@ async def add_rtsp_stream(
         except Exception as ex:
             yield (
                 gr.update(interactive=True),  # video, , , , ,
+                gr.update(interactive=True),  # camera_id, , , , ,
                 gr.update(interactive=True),  # username, , , , ,
                 gr.update(interactive=True),  # password, , , , ,
                 gr.update(interactive=True),  # upload_button
+                gr.update(interactive=True),  # summarize_checkbox
                 gr.update(interactive=True),  # enable_chat
                 gr.update(interactive=enable_chat),  # ask_button
                 gr.update(interactive=enable_chat),  # question_textbox
@@ -631,7 +660,6 @@ async def add_rtsp_stream(
                 gr.update(interactive=True),  # notification_max_tokens
                 gr.update(interactive=True),  # summarize_batch_size
                 gr.update(interactive=True),  # rag_batch_size
-                gr.update(interactive=True),  # rag_type
                 gr.update(interactive=True),  # rag_top_k
                 gr.update(interactive=True),  # active_live_streams
                 gr.update(interactive=True),  # refresh_list_button
@@ -694,6 +722,7 @@ async def on_url_changed(video):
 
 async def reconnect_live_stream(
     video_id,
+    camera_id,
     temperature,
     top_p,
     top_k,
@@ -713,7 +742,6 @@ async def reconnect_live_stream(
     notification_max_tokens,
     summarize_batch_size,
     rag_batch_size,
-    rag_type,
     rag_top_k,
     chunk_size,
     summary_duration,
@@ -721,6 +749,7 @@ async def reconnect_live_stream(
     summary_prompt,
     caption_summarization_prompt,
     summary_aggregation_prompt,
+    summarize_checkbox,
     enable_chat,
     enable_cv_metadata,
     cv_pipeline_prompt,
@@ -728,10 +757,11 @@ async def reconnect_live_stream(
     clear,
     enable_chat_history,
 ):
+
     if not video_id:
         yield [
             gr.update(),
-        ] * 45
+        ] * 46
         return
 
     session: aiohttp.ClientSession = appConfig["session"]
@@ -743,6 +773,7 @@ async def reconnect_live_stream(
 
     req_json = {
         "id": video_id,
+        "camera_id": camera_id,
         "model": model,
         "chunk_duration": chunk_size,
         "summary_duration": summary_duration,
@@ -752,6 +783,7 @@ async def reconnect_live_stream(
         "top_p": top_p,
         "top_k": top_k,
         "stream": True,
+        "summarize": summarize_checkbox,
         "enable_chat": enable_chat,
         "stream_options": {"include_usage": True},
         "num_frames_per_chunk": num_frames_per_chunk,
@@ -768,7 +800,6 @@ async def reconnect_live_stream(
         "notification_max_tokens": notification_max_tokens,
         "summarize_batch_size": summarize_batch_size,
         "rag_batch_size": rag_batch_size,
-        "rag_type": rag_type,
         "rag_top_k": rag_top_k,
         "enable_cv_metadata": enable_cv_metadata,
         "enable_audio": enable_audio,
@@ -814,7 +845,7 @@ async def reconnect_live_stream(
 
     yield [
         gr.update(),
-    ] * 44 + [video_id]
+    ] * 45 + [video_id]
 
     try:
         async for response in summarize_response_async(session, req_json, video_id, enable_chat):
@@ -824,9 +855,11 @@ async def reconnect_live_stream(
     except Exception as ex:
         yield (
             gr.update(interactive=False),  # video, , , , ,
+            gr.update(interactive=False),  # camera_id, , , , ,
             gr.update(interactive=False),  # username, , , , ,
             gr.update(interactive=False),  # password, , , , ,
             gr.update(interactive=False),  # upload_button
+            gr.update(interactive=False),  # summarize_checkbox
             gr.update(interactive=False),  # enable_chat
             gr.update(interactive=enable_chat),  # ask_button
             gr.update(interactive=enable_chat),  # question_textbox
@@ -858,7 +891,6 @@ async def reconnect_live_stream(
             gr.update(interactive=False),  # notification_max_tokens
             gr.update(interactive=False),  # summarize_batch_size
             gr.update(interactive=False),  # rag_batch_size
-            gr.update(interactive=False),  # rag_type
             gr.update(interactive=False),  # rag_top_k
             gr.update(interactive=False),  # active_live_streams
             gr.update(interactive=False),  # refresh_list_button
@@ -884,6 +916,12 @@ def disable_clear():
     return gr.update(interactive=False)  # Disable the button
 
 
+async def enable_chat_selected(enable_chat):
+    """Handle enable_chat checkbox change to control enable_chat_history."""
+    logger.debug("Enable chat state updated to {}", enable_chat)
+    return gr.update(value=False if not enable_chat else True, interactive=enable_chat)
+
+
 def build_rtsp_stream(args, app_cfg, logger_):
     global appConfig, logger, pipeline_args
     appConfig = app_cfg
@@ -894,11 +932,11 @@ def build_rtsp_stream(args, app_cfg, logger_):
         default_prompt,
         default_caption_summarization_prompt,
         default_summary_aggregation_prompt,
-        _,
     ) = get_default_prompts()
 
-    with open(os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")) as f:
-        ca_rag_config = yaml.safe_load(f)
+    ca_rag_config = parse_config(
+        os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")
+    )
 
     stream_id = gr.State("")
     popup_visible = gr.State(False)
@@ -962,6 +1000,15 @@ def build_rtsp_stream(args, app_cfg, logger_):
                 container=True,
                 elem_classes="white-background",
             )
+            camera_id = gr.Textbox(
+                label="Camera ID (Optional)",
+                info=(
+                    "Can be used in the prompt to identify the video; "
+                    "prefix with 'camera_' or 'video_'"
+                ),
+                show_label=True,
+                visible=True,
+            )
             with gr.Accordion(
                 label="RTSP Credentials",
                 elem_classes="white-background",
@@ -1003,43 +1050,47 @@ def build_rtsp_stream(args, app_cfg, logger_):
                             elem_classes=["white-background", "bold-header"],
                         )
                     with gr.Accordion(
-                        label="PROMPT (OPTIONAL)",
+                        label="PROMPT",
                         elem_classes=["white-background", "bold-header"],
                         open=True,
                     ):
                         summary_prompt = gr.TextArea(
-                            label="PROMPT (OPTIONAL)",
+                            label="PROMPT",
                             elem_classes=["white-background", "bold-header"],
                             lines=3,
                             max_lines=3,
                             value=default_prompt,
                             show_label=False,
+                            placeholder="Enter a prompt for video analysis (required)",
                         )
+
                     with gr.Accordion(
-                        label="CAPTION SUMMARIZATION PROMPT (OPTIONAL)",
+                        label="CAPTION SUMMARIZATION PROMPT",
                         elem_classes=["white-background", "bold-header"],
-                        open=False,
+                        open=True,
                     ):
                         caption_summarization_prompt = gr.TextArea(
-                            label="CAPTION SUMMARIZATION PROMPT (OPTIONAL)",
+                            label="CAPTION SUMMARIZATION PROMPT",
                             elem_classes=["white-background", "bold-header"],
                             lines=3,
                             max_lines=3,
                             value=default_caption_summarization_prompt,
                             show_label=False,
+                            placeholder="Enter caption summarization prompt (required)",
                         )
                     with gr.Accordion(
-                        label="SUMMARY AGGREGATION PROMPT (OPTIONAL)",
+                        label="SUMMARY AGGREGATION PROMPT",
                         elem_classes=["white-background", "bold-header"],
-                        open=False,
+                        open=True,
                     ):
                         summary_aggregation_prompt = gr.TextArea(
-                            label="SUMMARY AGGREGATION PROMPT (OPTIONAL)",
+                            label="SUMMARY AGGREGATION PROMPT",
                             elem_classes=["white-background", "bold-header"],
                             lines=3,
                             max_lines=3,
                             value=default_summary_aggregation_prompt,
                             show_label=False,
+                            placeholder="Enter summary aggregation prompt (required)",
                         )
 
                     with gr.Accordion(
@@ -1047,9 +1098,13 @@ def build_rtsp_stream(args, app_cfg, logger_):
                         elem_classes=["white-background", "bold-header"],
                         open=True,
                     ):
+                        summarize_checkbox = gr.Checkbox(value=True, label="Enable Summarization")
+
                         enable_chat = gr.Checkbox(value=False, label="Enable chat for the stream")
 
-                        enable_chat_history = gr.Checkbox(value=True, label="Enable chat history")
+                        enable_chat_history = gr.Checkbox(
+                            value=False, label="Enable chat history", interactive=False
+                        )
 
                         enable_audio = gr.Checkbox(
                             value=False,
@@ -1481,7 +1536,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     summarize_top_p = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["summarization"]["llm"]["top_p"],
+                        value=get_tool_llm_param(ca_rag_config, "summarization", "top_p", 0.7),
                         interactive=True,
                         label="Summarize Top P",
                         step=0.05,
@@ -1494,7 +1549,9 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     summarize_temperature = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["summarization"]["llm"]["temperature"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "summarization", "temperature", 0.5
+                        ),
                         interactive=True,
                         label="Summarize Temperature",
                         step=0.05,
@@ -1507,7 +1564,9 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     summarize_max_tokens = gr.Slider(
                         minimum=1,
                         maximum=10240,
-                        value=ca_rag_config["summarization"]["llm"]["max_tokens"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "summarization", "max_tokens", 2048
+                        ),
                         interactive=True,
                         label="Summarize Max Tokens",
                         step=1,
@@ -1518,7 +1577,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     chat_top_p = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["chat"]["llm"]["top_p"],
+                        value=get_tool_llm_param(ca_rag_config, "retriever_function", "top_p", 0.7),
                         interactive=True,
                         label="Chat Top P",
                         step=0.05,
@@ -1531,7 +1590,9 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     chat_temperature = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["chat"]["llm"]["temperature"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "retriever_function", "temperature", 0.5
+                        ),
                         interactive=True,
                         label="Chat Temperature",
                         step=0.05,
@@ -1544,7 +1605,9 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     chat_max_tokens = gr.Slider(
                         minimum=1,
                         maximum=10240,
-                        value=ca_rag_config["chat"]["llm"]["max_tokens"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "retriever_function", "max_tokens", 2048
+                        ),
                         interactive=True,
                         label="Chat Max Tokens",
                         step=1,
@@ -1555,7 +1618,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     notification_top_p = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["notification"]["llm"]["top_p"],
+                        value=get_tool_llm_param(ca_rag_config, "notification", "top_p", 0.7),
                         interactive=True,
                         label="Notification Top P",
                         step=0.05,
@@ -1568,7 +1631,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     notification_temperature = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["notification"]["llm"]["temperature"],
+                        value=get_tool_llm_param(ca_rag_config, "notification", "temperature", 0.5),
                         interactive=True,
                         label="Notification Temperature",
                         step=0.05,
@@ -1581,7 +1644,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
                     notification_max_tokens = gr.Slider(
                         minimum=1,
                         maximum=10240,
-                        value=ca_rag_config["notification"]["llm"]["max_tokens"],
+                        value=get_tool_llm_param(ca_rag_config, "notification", "max_tokens", 2048),
                         interactive=True,
                         label="Notification Max Tokens",
                         step=1,
@@ -1595,19 +1658,11 @@ def build_rtsp_stream(args, app_cfg, logger_):
                         precision=0,
                         minimum=1,
                         maximum=1024,
-                        value=ca_rag_config["summarization"]["params"]["batch_size"],
+                        value=ca_rag_config["functions"]["summarization"]["params"]["batch_size"],
                         info=("Batch size for summarization."),
                         elem_classes="white-background",
                     )
-                    rag_type = gr.Dropdown(
-                        label="RAG Type",
-                        choices=["vector-rag", "graph-rag"],
-                        value=ca_rag_config["chat"]["rag"],
-                        interactive=True,
-                        info=("Type of RAG to use."),
-                        elem_classes="white-background",
-                        elem_id="rag-type-dropdown",
-                    )
+
                 with gr.Row():
                     rag_batch_size = gr.Number(
                         label="RAG Batch Size",
@@ -1615,7 +1670,9 @@ def build_rtsp_stream(args, app_cfg, logger_):
                         precision=0,
                         minimum=1,
                         maximum=1024,
-                        value=ca_rag_config["chat"]["params"]["batch_size"],
+                        value=ca_rag_config["functions"]["ingestion_function"]["params"][
+                            "batch_size"
+                        ],
                         info=("Batch size for RAG processing."),
                         elem_classes="white-background",
                     )
@@ -1625,7 +1682,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
                         precision=0,
                         minimum=1,
                         maximum=1024,
-                        value=ca_rag_config["chat"]["params"]["top_k"],
+                        value=ca_rag_config["functions"]["retriever_function"]["params"]["top_k"],
                         info=(
                             "The number of highest probability vocabulary "
                             "tokens to keep for RAG top-k-filtering."
@@ -1653,15 +1710,6 @@ def build_rtsp_stream(args, app_cfg, logger_):
     video.change(on_url_changed, inputs=[video], outputs=[upload_button])
     video.change(on_url_changed, inputs=[video], outputs=[add_alert_btn])
 
-    # Add event handler for rag_type changes
-    def update_chat_history_checkbox(selected_rag_type):
-        is_graph_rag = selected_rag_type == "graph-rag"
-        return gr.update(value=is_graph_rag, interactive=is_graph_rag)
-
-    rag_type.change(
-        fn=update_chat_history_checkbox, inputs=[rag_type], outputs=[enable_chat_history]
-    )
-
     # Retreive stream settings from cache file
     # and update the UI with the stream settings
     cache_stream_settings = RetrieveCache(logger=logger)
@@ -1669,6 +1717,8 @@ def build_rtsp_stream(args, app_cfg, logger_):
         cache_stream_settings.retreive_UI_updates,
         inputs=[active_live_streams],
         outputs=[
+            summarize_checkbox,
+            camera_id,
             enable_chat,
             chunk_size,
             summary_duration,
@@ -1694,7 +1744,6 @@ def build_rtsp_stream(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             enable_cv_metadata,
             cv_pipeline_prompt,
@@ -1705,11 +1754,14 @@ def build_rtsp_stream(args, app_cfg, logger_):
     )
 
     def summary_duration_n_chunk_size(summary_duration, chunk_size):
+        # Skip validation for "Till EOS" (summary_duration = -1)
+        if int(summary_duration) == -1:
+            return
         if int(summary_duration) < int(chunk_size):
             raise gr.Error("Summary duration must be greater than chunk size")
         if int(summary_duration) % int(chunk_size) != 0:
             raise gr.Error("Summary duration must be a multiple of chunk size")
-        return True
+        return
 
     upload_button.click(
         lambda enable_chat, request: (
@@ -1718,14 +1770,19 @@ def build_rtsp_stream(args, app_cfg, logger_):
         ),
         inputs=[ask_button, question_textbox],
         outputs=[ask_button, question_textbox],
-    ).success(
+    ).then(
         summary_duration_n_chunk_size,
         inputs=[summary_duration, chunk_size],
         outputs=[],
-    ).then(
+    ).success(
+        validate_camera_id,
+        inputs=[camera_id],
+        outputs=[],
+    ).success(
         add_rtsp_stream,
         inputs=[
             video,
+            camera_id,
             username,
             password,
             temperature,
@@ -1747,7 +1804,6 @@ def build_rtsp_stream(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             chunk_size,
             summary_duration,
@@ -1755,6 +1811,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
             summary_prompt,
             caption_summarization_prompt,
             summary_aggregation_prompt,
+            summarize_checkbox,
             enable_chat,
             enable_cv_metadata,
             cv_pipeline_prompt,
@@ -1764,9 +1821,11 @@ def build_rtsp_stream(args, app_cfg, logger_):
         ],
         outputs=[
             video,
+            camera_id,
             username,
             password,
             upload_button,
+            summarize_checkbox,
             enable_chat,
             ask_button,
             question_textbox,
@@ -1798,7 +1857,6 @@ def build_rtsp_stream(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             active_live_streams,
             refresh_list_button,
@@ -1826,6 +1884,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
         fn=reconnect_live_stream,
         inputs=[
             active_live_streams,
+            camera_id,
             temperature,
             top_p,
             top_k,
@@ -1845,7 +1904,6 @@ def build_rtsp_stream(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             chunk_size,
             summary_duration,
@@ -1853,6 +1911,7 @@ def build_rtsp_stream(args, app_cfg, logger_):
             summary_prompt,
             caption_summarization_prompt,
             summary_aggregation_prompt,
+            summarize_checkbox,
             enable_chat,
             enable_cv_metadata,
             cv_pipeline_prompt,
@@ -1862,9 +1921,11 @@ def build_rtsp_stream(args, app_cfg, logger_):
         ],
         outputs=[
             video,
+            camera_id,
             username,
             password,
             upload_button,
+            summarize_checkbox,
             enable_chat,
             ask_button,
             question_textbox,
@@ -1896,7 +1957,6 @@ def build_rtsp_stream(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             active_live_streams,
             refresh_list_button,
@@ -2003,6 +2063,10 @@ def build_rtsp_stream(args, app_cfg, logger_):
     )
 
     ask_button.click(
+        validate_question,
+        inputs=[question_textbox],
+        outputs=[],
+    ).success(
         ask_question,
         inputs=[
             question_textbox,
@@ -2030,6 +2094,8 @@ def build_rtsp_stream(args, app_cfg, logger_):
     enable_cv_metadata.change(
         update_set_marks_interactivity, inputs=[enable_cv_metadata], outputs=[set_marks_tab]
     )
+
+    enable_chat.change(enable_chat_selected, inputs=[enable_chat], outputs=[enable_chat_history])
 
     reset_chat_button.click(
         ask_question,
@@ -2064,9 +2130,11 @@ def build_rtsp_stream(args, app_cfg, logger_):
         [stream_id],
         [
             video,
+            camera_id,
             username,
             password,
             upload_button,
+            summarize_checkbox,
             enable_chat,
             ask_button,
             reset_chat_button,
@@ -2100,7 +2168,6 @@ def build_rtsp_stream(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             active_live_streams,
             refresh_list_button,

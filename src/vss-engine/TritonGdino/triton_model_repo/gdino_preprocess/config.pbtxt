@@ -13,7 +13,7 @@
 
 name: "gdino_preprocess"
 backend: "python"
-max_batch_size: 16
+max_batch_size: 8
 input [
 {
     name: "PROMPT"

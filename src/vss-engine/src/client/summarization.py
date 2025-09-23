@@ -22,10 +22,12 @@ from pathlib import Path
 import aiohttp
 import gradio as gr
 import pkg_resources
-import yaml
 from gradio_videotimeline import VideoTimeline
+from pyaml_env import parse_config
 
 from utils import MediaFileInfo
+
+from .ui_utils import validate_camera_id, validate_question
 
 STANDALONE_MODE = True
 pipeline_args = None
@@ -57,18 +59,34 @@ def LINE():
     return sys._getframe(1).f_lineno
 
 
+def get_tool_llm_param(ca_rag_config, function_name, param_name, default_value):
+    """Get LLM parameter from tool that function references."""
+    try:
+        # Get the tool that this function references for LLM operations
+        functions = ca_rag_config.get("functions", {})
+        llm_tool_name = functions.get(function_name, {}).get("tools", {}).get("llm", "openai_llm")
+
+        # Return the parameter value from the tool
+        tools = ca_rag_config.get("tools", {})
+        tool_params = tools.get(llm_tool_name, {}).get("params", {})
+        return tool_params.get(param_name, default_value)
+    except Exception:
+        return default_value
+
+
 def get_default_prompts():
     try:
-        with open(os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")) as f:
-            ca_rag_config = yaml.safe_load(f)
-            prompts = ca_rag_config["summarization"]["prompts"]
-            return (
-                prompts["caption"],
-                prompts["caption_summarization"],
-                prompts["summary_aggregation"],
-                # "/opt/nvidia/via/warehouse_graph_rag_config.yaml",
-            )
-    except Exception:
+        ca_rag_config = parse_config(
+            os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")
+        )
+        prompts = ca_rag_config["functions"]["summarization"]["params"]["prompts"]
+        return (
+            prompts["caption"],
+            prompts["caption_summarization"],
+            prompts["summary_aggregation"],
+        )
+    except Exception as e:
+        logger.error(f"Error loading default prompts: {str(e)}")
         return "", "", "", None
 
 
@@ -97,6 +115,7 @@ async def remove_all_media(session: aiohttp.ClientSession, media_ids):
 
 async def add_assets(
     gr_video,
+    camera_id,
     chatbot,
     image_mode,
     dc_json_path,
@@ -152,6 +171,7 @@ async def add_assets(
                 url,
                 data={
                     "filename": media_path,
+                    "camera_id": camera_id,
                     "purpose": "vision",
                     "media_type": "video",
                 },
@@ -233,6 +253,7 @@ async def close_asset(chatbot, question_textbox, video, media_ids, image_mode):
     chatbot = []
     yield (
         chatbot,
+        gr.update(interactive=False, value=""),  # camera_id, , , , ,
         gr.update(interactive=False, value=""),  # question_textbox
         gr.update(interactive=False),  # ask_button
         gr.update(interactive=False),  # reset_chat_button
@@ -242,6 +263,7 @@ async def close_asset(chatbot, question_textbox, video, media_ids, image_mode):
             interactive=False,
             value=f"Select/Upload {'image(s)' if image_mode else 'video'} to summarize",
         ),  # summarize_button
+        gr.update(interactive=True, value=True),  # summarize_checkbox
         gr.update(interactive=True),  # chat_button
         None,  # output_alerts
         gr.update(value=[[""] * 4] * 10, headers=column_names),  # alerts_table,
@@ -268,7 +290,6 @@ async def close_asset(chatbot, question_textbox, video, media_ids, image_mode):
         gr.update(interactive=True, value=2048),  # notification_max_tokens
         gr.update(interactive=True, value=6),  # summarize_batch_size
         gr.update(interactive=True, value=1),  # rag_batch_size
-        gr.update(interactive=True, value="graph-rag"),  # rag_type
         gr.update(interactive=True, value=5),  # rag_top_k
         gr.update(value=None),  # display_image
         [[]],  # Reset table_state to initial empty state
@@ -323,7 +344,7 @@ async def ask_question(
     logger.debug(f"Question: {question_textbox}")
     session: aiohttp.ClientSession = appConfig["session"]
     # ask_button.interactive = False
-    question = question_textbox
+    question = question_textbox.strip()
     video_id = media_ids
     reset_chat_triggered = True
     ribbon_value = None
@@ -447,10 +468,9 @@ async def summarize(
     notification_max_tokens,
     summarize_batch_size,
     rag_batch_size,
-    rag_type,
     rag_top_k,
     request: gr.Request,
-    summarize=None,
+    summarize=True,
     enable_chat=True,
     alerts_table=None,
     enable_cv_metadata=False,
@@ -460,9 +480,9 @@ async def summarize(
     cv_pipeline_prompt="",
     enable_audio=False,
     enable_chat_history=True,
-    graph_rag_prompt_yaml=None,
 ):
     logger.info(f"summarize. ip: {request.client.host}")
+
     if gr_video is None:
         yield (
             [
@@ -512,20 +532,16 @@ async def summarize(
             "notification_max_tokens": notification_max_tokens,
             "summarize_batch_size": summarize_batch_size,
             "rag_batch_size": rag_batch_size,
-            "rag_type": rag_type,
             "rag_top_k": rag_top_k,
         }
+        logger.debug(f"req_json: {req_json}")
         if summary_prompt:
             req_json["prompt"] = summary_prompt
         if caption_summarization_prompt:
             req_json["caption_summarization_prompt"] = caption_summarization_prompt
         if summary_aggregation_prompt:
             req_json["summary_aggregation_prompt"] = summary_aggregation_prompt
-        # if graph_rag_prompt_yaml:
-        #     with open(graph_rag_prompt_yaml, "r") as f:
-        #         yaml_data = yaml.safe_load(f)
-        #     string_data = yaml.dump(yaml_data, default_flow_style=False)
-        #     req_json["graph_rag_prompt_yaml"] = string_data
+        req_json["summarize"] = summarize
         req_json["enable_chat"] = enable_chat
         req_json["enable_chat_history"] = enable_chat_history
         req_json["enable_cv_metadata"] = enable_cv_metadata
@@ -785,6 +801,9 @@ async def chat_checkbox_selected(chat_checkbox):
         gr.update(visible=chat_checkbox),
         gr.update(visible=chat_checkbox),
         gr.update(visible=chat_checkbox),
+        gr.update(
+            value=False if not chat_checkbox else True, interactive=chat_checkbox
+        ),  # chat_history_checkbox
     )
 
 
@@ -823,9 +842,6 @@ def get_example_details(f):
     if Path(str(f) + ".dc.json").exists():
         dc_path = str(f) + ".dc.json"
 
-    # if Path(str(f) + ".graph_rag.yaml").exists():
-    #     graph_rag_prompt_yaml = str(f) + ".graph_rag.yaml"
-
     # set default
     cv_pipeline_prompt = "person . forklift . robot . fire . spill"
 
@@ -846,7 +862,6 @@ def get_example_details(f):
         caption_summarization_prompt,
         summary_aggregation_prompt,
         cv_pipeline_prompt,
-        # graph_rag_prompt_yaml,
     )
 
 
@@ -869,11 +884,11 @@ def build_summarization(args, app_cfg, logger_):
         default_prompt,
         default_caption_summarization_prompt,
         default_summary_aggregation_prompt,
-        # default_graph_rag_yaml,
     ) = get_default_prompts()
 
-    with open(os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")) as f:
-        ca_rag_config = yaml.safe_load(f)
+    ca_rag_config = parse_config(
+        os.environ.get("CA_RAG_CONFIG", "/opt/nvidia/via/default_config.yaml")
+    )
 
     media_ids = gr.State("")
     response_obj = gr.State(None)
@@ -888,9 +903,19 @@ def build_summarization(args, app_cfg, logger_):
                     sources=["upload"],
                     show_download_button=False,
                 )
+                camera_id = gr.Textbox(
+                    label="Video ID (Optional)",
+                    info=(
+                        "Can be used in the prompt to identify the video; "
+                        "prefix with 'camera_' or 'video_'"
+                    ),
+                    show_label=True,
+                    visible=True,
+                )
             else:
                 video = gr.Gallery(show_label=False, type="filepath")
                 chunk_size = gr.State(0)
+                camera_id = gr.Textbox(visible=False)  # Adding for consistency in image mode
             display_image = gr.Image(visible=False, type="filepath")
 
             stream_name = gr.Textbox(show_label=False, visible=False)
@@ -909,49 +934,48 @@ def build_summarization(args, app_cfg, logger_):
                             elem_classes=["white-background", "bold-header"],
                         )
                     with gr.Accordion(
-                        label="PROMPT (OPTIONAL)",
+                        label="PROMPT",
                         elem_classes=["white-background", "bold-header"],
                         open=True,
                     ):
                         summary_prompt = gr.TextArea(
-                            label="PROMPT (OPTIONAL)",
+                            label="PROMPT",
                             elem_classes=["white-background", "bold-header"],
                             lines=3,
                             max_lines=3,
                             value=default_prompt,
                             show_label=False,
+                            placeholder="Enter a prompt for video analysis (required)",
                         )
+
                     with gr.Accordion(
-                        label="CAPTION SUMMARIZATION PROMPT (OPTIONAL)",
+                        label="CAPTION SUMMARIZATION PROMPT",
                         elem_classes=["white-background", "bold-header"],
-                        open=False,
+                        open=True,
                     ):
                         caption_summarization_prompt = gr.TextArea(
-                            label="CAPTION SUMMARIZATION PROMPT (OPTIONAL)",
+                            label="CAPTION SUMMARIZATION PROMPT",
                             elem_classes=["white-background", "bold-header"],
                             lines=3,
                             max_lines=3,
                             value=default_caption_summarization_prompt,
                             show_label=False,
+                            placeholder="Enter caption summarization prompt (required)",
                         )
                     with gr.Accordion(
-                        label="SUMMARY AGGREGATION PROMPT (OPTIONAL)",
+                        label="SUMMARY AGGREGATION PROMPT",
                         elem_classes=["white-background", "bold-header"],
-                        open=False,
+                        open=True,
                     ):
                         summary_aggregation_prompt = gr.TextArea(
-                            label="SUMMARY AGGREGATION PROMPT (OPTIONAL)",
+                            label="SUMMARY AGGREGATION PROMPT",
                             elem_classes=["white-background", "bold-header"],
                             lines=3,
                             max_lines=3,
                             value=default_summary_aggregation_prompt,
                             show_label=False,
+                            placeholder="Enter summary aggregation prompt (required)",
                         )
-                    # with gr.Row():
-                    #     gr.Markdown("## Upload GraphRAG Prompt config yaml file")
-                    #     graph_rag_prompt_yaml = gr.File(
-                    #         type="filepath", file_count="single", value=default_graph_rag_yaml
-                    #     )  # , file_types=['.yaml', '.yml'])
 
                     with gr.Row(equal_height=True):
                         gr.Markdown(dummy_mr, visible=True)
@@ -961,6 +985,8 @@ def build_summarization(args, app_cfg, logger_):
                         elem_classes=["white-background", "bold-header"],
                         open=True,
                     ):
+                        summarize_checkbox = gr.Checkbox(value=True, label="Enable Summarization")
+
                         chat_checkbox = gr.Checkbox(value=True, label="Enable Chat for the file")
 
                         chat_history_checkbox = gr.Checkbox(value=True, label="Enable chat history")
@@ -1417,7 +1443,7 @@ def build_summarization(args, app_cfg, logger_):
                     summarize_top_p = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["summarization"]["llm"]["top_p"],
+                        value=get_tool_llm_param(ca_rag_config, "summarization", "top_p", 0.7),
                         interactive=True,
                         label="Summarize Top P",
                         step=0.05,
@@ -1430,7 +1456,9 @@ def build_summarization(args, app_cfg, logger_):
                     summarize_temperature = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["summarization"]["llm"]["temperature"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "summarization", "temperature", 0.5
+                        ),
                         interactive=True,
                         label="Summarize Temperature",
                         step=0.05,
@@ -1443,7 +1471,9 @@ def build_summarization(args, app_cfg, logger_):
                     summarize_max_tokens = gr.Slider(
                         minimum=1,
                         maximum=10240,
-                        value=ca_rag_config["summarization"]["llm"]["max_tokens"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "summarization", "max_tokens", 2048
+                        ),
                         interactive=True,
                         label="Summarize Max Tokens",
                         step=1,
@@ -1454,7 +1484,7 @@ def build_summarization(args, app_cfg, logger_):
                     chat_top_p = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["chat"]["llm"]["top_p"],
+                        value=get_tool_llm_param(ca_rag_config, "retriever_function", "top_p", 0.7),
                         interactive=True,
                         label="Chat Top P",
                         step=0.05,
@@ -1467,7 +1497,9 @@ def build_summarization(args, app_cfg, logger_):
                     chat_temperature = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["chat"]["llm"]["temperature"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "retriever_function", "temperature", 0.5
+                        ),
                         interactive=True,
                         label="Chat Temperature",
                         step=0.05,
@@ -1480,7 +1512,9 @@ def build_summarization(args, app_cfg, logger_):
                     chat_max_tokens = gr.Slider(
                         minimum=1,
                         maximum=10240,
-                        value=ca_rag_config["chat"]["llm"]["max_tokens"],
+                        value=get_tool_llm_param(
+                            ca_rag_config, "retriever_function", "max_tokens", 2048
+                        ),
                         interactive=True,
                         label="Chat Max Tokens",
                         step=1,
@@ -1491,7 +1525,7 @@ def build_summarization(args, app_cfg, logger_):
                     notification_top_p = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["notification"]["llm"]["top_p"],
+                        value=get_tool_llm_param(ca_rag_config, "notification", "top_p", 0.7),
                         interactive=True,
                         label="Notification Top P",
                         step=0.05,
@@ -1504,7 +1538,7 @@ def build_summarization(args, app_cfg, logger_):
                     notification_temperature = gr.Slider(
                         minimum=0,
                         maximum=1,
-                        value=ca_rag_config["notification"]["llm"]["temperature"],
+                        value=get_tool_llm_param(ca_rag_config, "notification", "temperature", 0.5),
                         interactive=True,
                         label="Notification Temperature",
                         step=0.05,
@@ -1517,7 +1551,7 @@ def build_summarization(args, app_cfg, logger_):
                     notification_max_tokens = gr.Slider(
                         minimum=1,
                         maximum=10240,
-                        value=ca_rag_config["notification"]["llm"]["max_tokens"],
+                        value=get_tool_llm_param(ca_rag_config, "notification", "max_tokens", 2048),
                         interactive=True,
                         label="Notification Max Tokens",
                         step=1,
@@ -1531,19 +1565,11 @@ def build_summarization(args, app_cfg, logger_):
                         precision=0,
                         minimum=1,
                         maximum=1024,
-                        value=ca_rag_config["summarization"]["params"]["batch_size"],
+                        value=ca_rag_config["functions"]["summarization"]["params"]["batch_size"],
                         info=("Batch size for summarization."),
                         elem_classes="white-background",
                     )
-                    rag_type = gr.Dropdown(
-                        label="RAG Type",
-                        choices=["vector-rag", "graph-rag"],
-                        value=ca_rag_config["chat"]["rag"],
-                        interactive=True,
-                        info=("Type of RAG to use."),
-                        elem_classes="white-background",
-                        elem_id="rag-type-dropdown",
-                    )
+
                 with gr.Row():
                     rag_batch_size = gr.Number(
                         label="RAG Batch Size",
@@ -1551,7 +1577,9 @@ def build_summarization(args, app_cfg, logger_):
                         precision=0,
                         minimum=1,
                         maximum=1024,
-                        value=ca_rag_config["chat"]["params"]["batch_size"],
+                        value=ca_rag_config["functions"]["ingestion_function"]["params"][
+                            "batch_size"
+                        ],
                         info=("Batch size for RAG processing."),
                         elem_classes="white-background",
                     )
@@ -1561,7 +1589,7 @@ def build_summarization(args, app_cfg, logger_):
                         precision=0,
                         minimum=1,
                         maximum=1024,
-                        value=ca_rag_config["chat"]["params"]["top_k"],
+                        value=ca_rag_config["functions"]["retriever_function"]["params"]["top_k"],
                         info=(
                             "The number of highest probability vocabulary "
                             "tokens to keep for RAG top-k-filtering."
@@ -1618,16 +1646,11 @@ def build_summarization(args, app_cfg, logger_):
         outputs=[popup_container, popup_visible],
     )
 
-    # Add event handler for rag_type changes
-    def update_chat_history_checkbox(selected_rag_type):
-        is_graph_rag = selected_rag_type == "graph-rag"
-        return gr.update(value=is_graph_rag, interactive=is_graph_rag)
-
-    rag_type.change(
-        fn=update_chat_history_checkbox, inputs=[rag_type], outputs=[chat_history_checkbox]
-    )
-
     ask_button.click(
+        validate_question,
+        inputs=[question_textbox],
+        outputs=[],
+    ).success(
         ask_question,
         inputs=[
             question_textbox,
@@ -1690,9 +1713,14 @@ def build_summarization(args, app_cfg, logger_):
     )
 
     summarize_button.click(
+        validate_camera_id,
+        inputs=[camera_id],
+        outputs=[],
+    ).success(
         add_assets,
         inputs=[
             video,
+            camera_id,
             chatbot,
             gr.State(args.image_mode),
             dc_json_path,
@@ -1702,6 +1730,7 @@ def build_summarization(args, app_cfg, logger_):
             media_ids,
             response_obj,
             summarize_button,
+            summarize_checkbox,
             chat_checkbox,
             video,
             temperature,
@@ -1730,7 +1759,6 @@ def build_summarization(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             timeline,
             timeline_accordion,
@@ -1764,9 +1792,8 @@ def build_summarization(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
-            gr.State(True),  # summarize
+            summarize_checkbox,  # summarize
             chat_checkbox,  # enable_chat
             alerts_table,
             enable_cv_metadata,
@@ -1781,6 +1808,7 @@ def build_summarization(args, app_cfg, logger_):
             chatbot,
             output_alerts,
             summarize_button,
+            summarize_checkbox,
             chat_checkbox,
             video,
             temperature,
@@ -1809,17 +1837,16 @@ def build_summarization(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
         ],
         show_progress=False,
     ).then(
         lambda chat_checkbox: (
             gr.update(interactive=False),
-            gr.update(interactive=chat_checkbox),
-            gr.update(interactive=chat_checkbox),
-            gr.update(interactive=chat_checkbox),
             gr.update(interactive=True),
+            gr.update(interactive=chat_checkbox),
+            gr.update(interactive=chat_checkbox),
+            gr.update(interactive=chat_checkbox),
             gr.update(interactive=True),
             gr.update(interactive=True),
             gr.update(interactive=True),
@@ -1847,6 +1874,7 @@ def build_summarization(args, app_cfg, logger_):
         inputs=[chat_checkbox],
         outputs=[
             chat_checkbox,
+            summarize_checkbox,
             ask_button,
             reset_chat_button,
             question_textbox,
@@ -1872,7 +1900,6 @@ def build_summarization(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
         ],
     )
@@ -1886,6 +1913,7 @@ def build_summarization(args, app_cfg, logger_):
             question_textbox,
             generate_highlight,
             generate_scenario_highlight,
+            chat_history_checkbox,
         ],
     )
 
@@ -1926,12 +1954,14 @@ def build_summarization(args, app_cfg, logger_):
         inputs=[chatbot, question_textbox, video, media_ids, gr.State(args.image_mode)],
         outputs=[
             chatbot,
+            camera_id,
             question_textbox,
             ask_button,
             reset_chat_button,
             close_asset_button,
             video,
             summarize_button,
+            summarize_checkbox,
             chat_checkbox,
             output_alerts,
             alerts_table,
@@ -1958,7 +1988,6 @@ def build_summarization(args, app_cfg, logger_):
             notification_max_tokens,
             summarize_batch_size,
             rag_batch_size,
-            rag_type,
             rag_top_k,
             display_image,
             table_state,

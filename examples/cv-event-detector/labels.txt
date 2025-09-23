@@ -1,0 +1,5 @@
+background
+bicycle
+car
+person
+road_sign

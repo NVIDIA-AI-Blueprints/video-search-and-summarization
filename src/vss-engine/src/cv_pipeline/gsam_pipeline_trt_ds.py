@@ -380,7 +380,6 @@ class GSAMPipeline:
         #    nvurisrcbin.set_property("filter-start-time", self._chunk.start_pts)
         # if self._chunk.end_pts >= 0:
         #    nvurisrcbin.set_property("filter-end-time", self._chunk.end_pts)
-        pipeline.add(nvurisrcbin)
         nvstreammux = Gst.ElementFactory.make("nvstreammux")
         pipeline.add(nvstreammux)
         nvstreammux.set_property("width", self._pipeline_width)

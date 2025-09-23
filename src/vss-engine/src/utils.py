@@ -633,6 +633,8 @@ class StreamSettingsCache:
             "summary_aggregation_prompt",
             "cv_pipeline_prompt",
             "tools",
+            "summarize",
+            "camera_id",
         }
 
         # Extract only the required fields and remove None values
@@ -641,3 +643,39 @@ class StreamSettingsCache:
         }
 
         return filtered_dict
+
+
+def validate_required_prompts(
+    summary_prompt, caption_summarization_prompt, summary_aggregation_prompt, pipeline_args
+):
+    """
+    Validate that required prompts are provided based on CA-RAG configuration.
+
+    Args:
+        summary_prompt: The main prompt for video analysis
+        caption_summarization_prompt: The caption summarization prompt
+        summary_aggregation_prompt: The summary aggregation prompt
+        pipeline_args: Pipeline arguments containing CA-RAG configuration
+
+    Returns:
+        list: List of validation error messages (empty if validation passes)
+    """
+    validation_errors = []
+
+    # Main prompt is always required
+    if not summary_prompt or summary_prompt.strip() == "":
+        validation_errors.append("VLM prompt is required")
+
+    # Check if CA-RAG is enabled and validate CA-RAG specific prompts
+    ca_rag_enabled = not getattr(pipeline_args, "disable_ca_rag", False)
+    if ca_rag_enabled:
+        if not caption_summarization_prompt or caption_summarization_prompt.strip() == "":
+            validation_errors.append(
+                "Caption summarization prompt is required when CA-RAG is enabled"
+            )
+        if not summary_aggregation_prompt or summary_aggregation_prompt.strip() == "":
+            validation_errors.append(
+                "Summary aggregation prompt is required when CA-RAG is enabled"
+            )
+
+    return validation_errors

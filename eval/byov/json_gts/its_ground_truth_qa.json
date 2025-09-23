@@ -1,0 +1,58 @@
+[
+  {
+    "prompt": "When does the first car appear in the video?",
+    "completion": "A black car arrives at the intersection between 10 and 12 seconds. "
+  },
+  {
+    "prompt": "What time is the red fire department truck present in the video?",
+    "completion": "The red fire department truck is present between 27 and 49 seconds"
+  },
+  {
+    "prompt": "Were there any car crashes or vehicle collisions?",
+    "completion": "Yes, at 80 seconds two cars collided "
+  },
+  {
+    "prompt": "Did any police cars respond to the collision?",
+    "completion": "Yes, one police car arrived at 92 seconds and came to a stop near the collided vehicles at 100 seconds"
+  },
+  {
+    "prompt": "Did a firetruck respond to the collision?",
+    "completion": "Yes, a fire truck arrived at 110 seconds and then made its way towards the collided vehicles."
+  },
+  {
+    "prompt": "How long did it take for the police car to respond to the crash?",
+    "completion": "The vehicles collided at 80 seconds into the video. The police car arrived around 95 seconds into the video. It took the police car 15 seconds to respond to the crash."
+  },
+  {
+    "prompt": "How long did it take the fire truck to respond to the crash?",
+    "completion": "The vehicles collided 80 seconds into the video. The fire truck arrived at approximately 110 seconds. The fire truck took 30 seconds to respond to the crash. "
+  },
+  {
+    "prompt": "Did an ambulance respond to the crash?",
+    "completion": "No, an ambulance did not respond to the crash."
+  },
+  {
+    "prompt": "What vehicles were involved in the crash?",
+    "completion": "A red SUV and a yellow sedan, possibly a sports car, were the two vehicles that collided."
+  },
+  {
+    "prompt": "Were there any pedestrians near the car crash?",
+    "completion": "No pedestrians were present near the car crash."
+  },
+  {
+    "prompt": "What is shown in the video?",
+    "completion": "The video is from a traffic camera placed above a four-way intersection. It shows the flow of traffic throughout the intersection."
+  },
+  {
+    "prompt": "What time is it in the video?",
+    "completion": "It appears to be either late evening or early morning."
+  },
+  {
+    "prompt": "Are there any obstructions in the road like a fallen tree?",
+    "completion": "There are no fallen trees or obstructions other than the collision that blocks the road temporarily."
+  },
+  {
+    "prompt": "What time did the collision occur?",
+    "completion": "The cars collided at 80.0 seconds."
+  }
+]

@@ -1,0 +1,115 @@
+BaseConfig:
+  minDetectorConfidence: 0.1776906894555444
+DataAssociator:
+  associationMatcherType: 1
+  checkClassMatch: 1
+  dataAssociatorType: 0
+  matchingScoreWeight4Iou: 0.4263558035084434
+  matchingScoreWeight4SizeSimilarity: 0.3331468202520101
+  matchingScoreWeight4VisualSimilarity: 0.8356434743362211
+  minMatchingScore4Iou: 0.034695353383749024
+  minMatchingScore4Overall: 0.13320628461513911
+  minMatchingScore4SizeSimilarity: 0.30460764082405334
+  minMatchingScore4TentativeIou: 0.266588023432335
+  minMatchingScore4VisualSimilarity: 0.6047780566021151
+  tentativeDetectorConfidence: 0.3290811490598109
+ReID:
+  addFeatureNormalization: 1
+  batchSize: 100
+  colorFormat: 0
+  inferDims:
+  - 3
+  - 256
+  - 128
+  inputOrder: 0
+  keepAspc: 1
+  modelEngineFile: /root/.via/ngc_model_cache//cv_pipeline_models/resnet50_market1501_aicity156.onnx.engine
+  netScaleFactor: 0.01735207
+  networkMode: 1
+  offsets:
+  - 123.675
+  - 116.28
+  - 103.53
+  onnxFile: /root/.via/ngc_model_cache/nvidia_tao_reidentificationnet_deployable_v1.2/resnet50_market1501_aicity156.onnx
+  outputReidTensor: 0
+  reidFeatureSize: 256
+  reidHistorySize: 100
+  reidType: 2
+  tltModelKey: nvidia_tao
+  useVPICropScaler: 1
+  workspaceSize: 1000
+Segmenter:
+  ImageEncoder:
+    batchSize: 1
+    modelEngineFile: /root/.via/ngc_model_cache//cv_pipeline_models/image_encoder.onnx_b1_gpu0_fp16.engine
+    networkMode: 1
+    onnxFile: /root/.via/ngc_model_cache/3rdparty_meta_sam2_base_plus/image_encoder.onnx
+    workspaceSize: 5000
+  MaskDecoder:
+    batchSize: 20
+    modelEngineFile: /root/.via/ngc_model_cache//cv_pipeline_models/mask_decoder.onnx_b20_gpu0_fp16.engine
+    networkMode: 1
+    onnxFile: /root/.via/ngc_model_cache/3rdparty_meta_sam2_base_plus/mask_decoder.onnx
+    workspaceSize: 5000
+  colorFormat: 0
+  encoderFeatureDim: 64
+  hiddenDim: 256
+  inferDims:
+  - 3
+  - 1024
+  - 1024
+  inputOrder: 0
+  netScaleFactor: 0.01742919389
+  offsets:
+  - 123.675
+  - 116.28
+  - 103.53
+  outputLabelNum: 1
+  saveFrameViz: 0
+  saveIDMask: 0
+  segmenterType: 1
+  useVPICropScaler: 1
+StateEstimator:
+  measurementNoiseVar4Detector: 100.00000584166246
+  measurementNoiseVar4Tracker: 3093.39696945057
+  processNoiseVar4Loc: 6479.956917230647
+  processNoiseVar4Size: 3970.177459509509
+  processNoiseVar4Vel: 7048.462789936002
+  stateEstimatorType: 1
+TargetManagement:
+  earlyTerminationAge: 1
+  enableBboxUnClipping: 0
+  maxShadowTrackingAge: 66
+  maxTargetsPerStream: 150
+  minIouDiff4NewTarget: 0.6377957462370714
+  minTrackerConfidence: 0.4228106471344753
+  preserveStreamUpdateOrder: 0
+  probationAge: 6
+TrajectoryManagement:
+  enableReAssoc: 1
+  matchingScoreWeight4ReidSimilarity: 0.7576042651854908
+  matchingScoreWeight4TrackletSimilarity: 0.8333568421605965
+  maxAngle4TrackletMatching: 109
+  maxTrackletMatchingTimeSearchRange: 20
+  minBboxSizeSimilarity4TrackletMatching: 0.9740457170740314
+  minMatchingScore4Overall: 0.4187208885356422
+  minMatchingScore4ReidSimilarity: 0.6264504828945905
+  minSpeedSimilarity4TrackletMatching: 0.05700523714495654
+  minTrackletMatchingScore: 0.1379642243569585
+  minTrajectoryLength4Projection: 21
+  prepLength4TrajectoryProjection: 50
+  reidExtractionInterval: 44
+  trackletSpacialSearchRegionScale: 0.2598
+  trajectoryProjectionLength: 11
+  trajectoryProjectionMeasurementNoiseScale: 100
+  trajectoryProjectionProcessNoiseScale: 0.01
+  useUniqueID: 0
+VisualTracker:
+  featureFocusOffsetFactor_y: -0.025824457957923867
+  featureImgSizeLevel: 3
+  filterChannelWeightsLr: 0.08103743001391947
+  filterLr: 0.020291824043622106
+  gaussianSigma: 1.5842667623119424
+  useColorNames: 1
+  useHog: 1
+  visualTrackerType: 2

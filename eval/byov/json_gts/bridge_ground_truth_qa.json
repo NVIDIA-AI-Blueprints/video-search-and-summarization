@@ -1,0 +1,34 @@
+[
+    {
+      "prompt": "When do you first see the rust on the bridge?",
+      "completion": "The corrosion on the bridge was first seen at 30 seconds into the video"
+    },
+    {
+      "prompt": "Is the bridge in good condition?",
+      "completion": "No, the bridge is old and has signs of rust. The supporting walls also look old."
+    },
+    {
+      "prompt": "Where is the rust most concentrated?",
+      "completion": "Rust is mostly concentrated around the joints and connections of the beams."
+    },
+    {
+      "prompt": "Where is the graffiti located?",
+      "completion": "The graffiti is located on the underside of the bridge."
+    },
+    {
+      "prompt": "Are there any people on the bridge?",
+      "completion": "No, there are no signs of any people on the bridge."
+    },
+    {
+      "prompt": "At what time do you see the graffiti?",
+      "completion": "Graffiti was first seen 90 seconds into the video at the underside of the bridge."
+    },
+    {
+      "prompt": "Describe the surroundings of the bridge.",
+      "completion": "The bridge is surrounded by lush green vegetation. There is a small stream flowing below the bridge."
+    },
+    {
+      "prompt": "Is the top part of the bridge rusted?",
+      "completion": "Yes, the top part of the bridge appears to have rust on the metal components."
+    }
+  ]  

@@ -285,10 +285,12 @@ class CVPipeline:
                 #    raise Exception(f"Error in running command {command}")
 
         threads = []
+        update_gdino_model_script = os.path.join(os.path.dirname(__file__), "update_gdino_model.py")
         engine_creation_commands = [
             (
-                "/usr/src/tensorrt/bin/trtexec "
-                f"--onnx={gdino_model_file_path} "
+                f"python3 {update_gdino_model_script} {gdino_model_file_path} /tmp/gdino_model.onnx "
+                "&& /usr/src/tensorrt/bin/trtexec "
+                f"--onnx=/tmp/gdino_model.onnx "
                 "--minShapes=inputs:1x3x544x960,input_ids:1x256,attention_mask:1x256,"
                 "position_ids:1x256,token_type_ids:1x256,text_token_mask:1x256x256 "
                 "--optShapes=inputs:4x3x544x960,input_ids:4x256,attention_mask:4x256,"
@@ -590,6 +592,7 @@ class CVPipeline:
         on_process_cv_pipeline_done: Callable[[str], None],
         text_prompt: [],
         output_file: None,
+        camera_id: str = "",
     ):
         caption = text_prompt
         caption = caption.lower()
@@ -619,6 +622,7 @@ class CVPipeline:
         req_info.is_gsam = True
         req_info.gsam_output_file = self.output_file
         req_info.stream_id = str(uuid.uuid4())
+        req_info.camera_id = camera_id
         req_info.start_time = time.time()
         self._request_info_map[req_info.request_id] = req_info
 

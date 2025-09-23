@@ -321,6 +321,11 @@ class CompOpenAIModel:
                     ],
                 }
             ]
+            if "system_prompt" in generation_config and generation_config["system_prompt"]:
+                messages.insert(
+                    0, {"role": "system", "content": generation_config["system_prompt"]}
+                )
+
             if self._nvSecretConfigured:
                 from models.openai_compat.internal.util import get_nv_oauth_token
 

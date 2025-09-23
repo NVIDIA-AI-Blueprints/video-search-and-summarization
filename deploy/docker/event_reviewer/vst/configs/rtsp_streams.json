@@ -1,0 +1,67 @@
+{
+    "streams":
+    [
+        {
+            "enabled":false,
+            "stream_in":"rtsp://admin:nvidia123@10.24.217.246:554/cam/realmonitor?channel=1&subtype=0&unicast=true&proto=Onvif",
+            "name":"Amcrest"
+        },
+        {
+            "enabled":false,
+            "stream_in":"rtsp://vst-streamer-deployment-svc:8554/tokkio_sample_clip.mkv",
+            "name":"Sample_input"
+        },
+        {
+            "enabled":false,
+            "stream_in":"udp",
+            "name":"Tokkio_Avatar",
+            "video":
+            {
+                "port":30031,
+                "codec":"h264",
+                "framerate":30
+            },
+            "audio":
+            {
+                "enabled":true,
+                "port":30032,
+                "codec":"pcm",
+                "sample_rate_Hz":44100,
+                "bits_per_sample":32
+            }
+        }
+    ],
+    "Nvstreamer":
+    [
+        {
+            "enabled": true,
+            "endpoint": "localhost:31000",
+            "api": "/api/v1/sensor/streams",
+            "max_stream_count": 100
+        },
+        {
+            "enabled": true,
+            "endpoint": "localhost:31001",
+            "api": "/api/v1/sensor/streams",
+            "max_stream_count": 100
+        },
+        {
+            "enabled": true,
+            "endpoint": "localhost:31002",
+            "api": "/api/v1/sensor/streams",
+            "max_stream_count": 100
+        },
+        {
+            "enabled": true,
+            "endpoint": "localhost:31003",
+            "api": "/api/v1/sensor/streams",
+            "max_stream_count": 100
+        },
+        {
+            "enabled": true,
+            "endpoint": "localhost:31004",
+            "api": "/api/v1/sensor/streams",
+            "max_stream_count": 100
+        }
+    ]
+}

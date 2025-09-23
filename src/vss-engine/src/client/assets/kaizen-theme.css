@@ -372,10 +372,10 @@ input[role="listbox"] {
   overflow: auto; /* Add scroll if content is too large */
 }
 /* Add styles for dropdown within modal */
-#rag-type-dropdown input[role="listbox"] {
+.rag-type-dropdown input[role="listbox"] {
   margin: var(--spacing-xl) !important;
 }
-#rag-type-dropdown ul {
+.rag-type-dropdown ul {
   max-height: 200px !important; /* Set a fixed height */
   bottom: auto !important; /* Remove the conflicting bottom calculation */
 }

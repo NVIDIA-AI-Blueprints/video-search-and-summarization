@@ -12,7 +12,7 @@
 
 name: "gdino_trt"
 platform: "tensorrt_plan"
-max_batch_size: 16
+max_batch_size: 8
 input [
 {
     name: "inputs"
@@ -73,3 +73,8 @@ instance_group [
 
 parameters: { key: "FORCE_CPU_ONLY_INPUT_TENSORS" value: {string_value:"no"}}
 
+optimization {
+  cuda {
+    graphs: true
+  }
+}

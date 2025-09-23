@@ -10,15 +10,22 @@
 # its affiliates is strictly prohibited.
 ######################################################################################################
 
-ARG BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.3.1"
+ARG BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.4.0"
 FROM $BASE_IMAGE
 
 RUN --mount=type=bind,source=binaries/gradio_videotimeline-1.0.2-py3-none-any.whl,target=/tmp/gradio_videotimeline-1.0.2-py3-none-any.whl \
     pip install --no-deps /tmp/gradio_videotimeline-1.0.2-py3-none-any.whl
 
-RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v0.5.1 /tmp/vss-ctx-rag
+
+RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v1.0.0 /tmp/vss-ctx-rag
+ARG TARGETARCH
 RUN pip install /tmp/vss-ctx-rag --no-deps && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        pip install python-arango==8.1.6 nx-arangodb==1.3.0 cuml-cu12==25.4.0 cupy-cuda12x==13.4.1 nx-cugraph-cu12==25.4.0 langchain-arangodb==1.2.0 && \
+        pip install /tmp/vss-ctx-rag/packages/vss_ctx_rag_arango --no-deps; \
+    fi && \
     rm -rf /tmp/vss-ctx-rag
+
 
 RUN mkdir -p /opt/nvidia/TritonGdino/triton_model_repo
 COPY TritonGdino/triton_model_repo/ /opt/nvidia/TritonGdino/triton_model_repo
@@ -44,7 +51,6 @@ COPY config/overrides/overrides_cv_accuracy_mode.yaml /opt/nvidia/via/config/ove
 COPY start_via.sh /opt/nvidia/via/
 #To allow helm chart start script to copy updated config:
 RUN chmod -R 777 /opt/nvidia/via/guardrails_config/
-COPY NVIDIA_Software_and_Model_Evaluation_License_Agreement.pdf /opt/nvidia/via/
 ENV PATH=$PATH:/opt/nvidia/via/
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/tritonserver/lib/
 

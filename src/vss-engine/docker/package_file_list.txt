@@ -217,6 +217,10 @@ models/vila15/trt_helper/quantize.py
 models/vila15/vila15_context.py
 models/vila15/vila15_embedding_generator.py
 models/vila15/vila15_model.py
+models/cosmos_reason1/__init__.py
+models/cosmos_reason1/cosmos_reason1_context.py
+models/cosmos_reason1/cosmos_reason1_model.py
+otel_helper.py
 utils.py
 via_client_cli.py
 via_demo_client.py
@@ -225,6 +229,7 @@ via_health_eval.py
 via_logger.py
 via_server.py
 via_stream_handler.py
+vss_api_models.py
 vlm_pipeline/__init__.py
 vlm_pipeline/embedding_helper.py
 vlm_pipeline/ngc_model_downloader.py
@@ -237,6 +242,7 @@ cv_pipeline/cv_pipeline.py
 cv_pipeline/FPS.py
 cv_pipeline/gsam_model_trt.py
 cv_pipeline/gsam_pipeline_trt_ds.py
+cv_pipeline/update_gdino_model.py
 trt_inference/__init__.py
 trt_inference/data_loader.py
 trt_inference/gdino_inferencer.py

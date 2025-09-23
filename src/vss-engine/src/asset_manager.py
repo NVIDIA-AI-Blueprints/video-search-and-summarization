@@ -43,6 +43,8 @@ class Asset:
         username="",
         password="",
         description="",
+        video_fps=None,
+        camera_id="",
     ) -> None:
         """Asset constructor.
 
@@ -57,6 +59,8 @@ class Asset:
             username (optional): Username to access the live stream. Defaults to "".
             password (optional): Password to access the live stream. Defaults to "".
             description (optional): Description of the asset (live-stream only). Defaults to "".
+            video_fps (optional): Cached video FPS. Defaults to None.
+            camera_id (optional): Camera ID to be used for the asset. Defaults to "".
         """
         self._asset_id = asset_id
         self._filename = fileName
@@ -68,6 +72,8 @@ class Asset:
         self._description = description
         self._username = username
         self._password = password
+        self._video_fps = video_fps
+        self._camera_id = camera_id
 
     @classmethod
     def fromdir(cls, asset_dir):
@@ -84,6 +90,8 @@ class Asset:
                 password=info["password"],
                 description=info["description"],
                 asset_dir=asset_dir,
+                video_fps=info.get("video_fps", None),
+                camera_id=info.get("camera_id", ""),
             )
 
     @property
@@ -131,6 +139,11 @@ class Asset:
         """Storage directory for the asset"""
         return self._asset_dir
 
+    @property
+    def camera_id(self):
+        """Camera ID to be used for the asset"""
+        return self._camera_id
+
     def lock(self):
         """Lock the asset. Asset cannot be deleted if in use."""
         self._use_count += 1
@@ -148,6 +161,30 @@ class Asset:
     def is_live(self):
         """Boolean indicating if the asset is a live stream."""
         return self.path.startswith("rtsp://")
+
+    @property
+    def video_fps(self):
+        """Cached video FPS."""
+        return self._video_fps
+
+    def update_video_fps(self, fps: float):
+        """Update the cached video FPS and save to info.json.
+
+        Args:
+            fps: Video frames per second
+        """
+        self._video_fps = fps
+
+        # Update the info.json file
+        info_path = os.path.join(self._asset_dir, "info.json")
+        if os.path.exists(info_path):
+            with open(info_path, "r") as f:
+                info = json.load(f)
+
+            info["video_fps"] = fps
+
+            with open(info_path, "w") as f:
+                json.dump(info, f)
 
 
 class AssetManager:
@@ -185,7 +222,7 @@ class AssetManager:
             self._age_out_thread = Thread(target=self._age_out_thread_func, daemon=True)
             self._age_out_thread.start()
 
-    async def save_file(self, file, file_name, purpose: str, media_type: str):
+    async def save_file(self, file, file_name, purpose: str, media_type: str, camera_id: str):
         """Save the uploaded as a file.
 
         Args:
@@ -193,7 +230,7 @@ class AssetManager:
             file_name: Name of the file.
             purpose: Purpose of the file.
             media_type: Media type (video/image) of the file.
-
+            camera_id: Camera ID to be used for the file.
         Returns:
             A unique id for the asset.
         """
@@ -257,6 +294,8 @@ class AssetManager:
                     "username": "",
                     "password": "",
                     "description": "",
+                    "video_fps": None,
+                    "camera_id": camera_id,
                 },
                 f,
             )
@@ -270,14 +309,15 @@ class AssetManager:
 
         return asset_id
 
-    def add_file(self, file_path, purpose, media_type, reuse_asset=False):
+    def add_file(self, file_path, purpose, media_type, camera_id="", reuse_asset=False):
         """Add a file already on the file system as a path.
 
         Args:
             file_path: Path of the file to add.
             purpose: Purpose of the file.
             media_type: Media type (video/image) of the file.
-
+            camera_id: Camera ID to be used for the file.
+            reuse_asset: Whether to reuse an existing asset.
         Returns:
             A unique id for the asset.
         """
@@ -313,6 +353,8 @@ class AssetManager:
                     "username": "",
                     "password": "",
                     "description": "",
+                    "video_fps": None,
+                    "camera_id": camera_id,
                 },
                 f,
             )
@@ -324,7 +366,7 @@ class AssetManager:
         )
         return asset_id
 
-    def add_live_stream(self, url: str, description="", username="", password=""):
+    def add_live_stream(self, url: str, description="", username="", password="", camera_id=""):
         """Add a live stream.
 
         Args:
@@ -332,7 +374,7 @@ class AssetManager:
             description (optional): Description of the live stream. Defaults to "".
             username (optional): Username to access the stream. Defaults to "".
             password (optional): Password to access the stream. Defaults to "".
-
+            camera_id (optional): Camera ID to be used for the live stream. Defaults to "".
         Returns:
             A unique id for the asset.
         """
@@ -359,6 +401,8 @@ class AssetManager:
                     "username": username,
                     "password": password,
                     "description": description,
+                    "video_fps": None,
+                    "camera_id": camera_id,
                 },
                 f,
             )

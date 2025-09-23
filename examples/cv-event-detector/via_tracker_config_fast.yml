@@ -1,0 +1,90 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+BaseConfig:
+  minDetectorConfidence: 0.1630084739998828
+TargetManagement:
+  enableBboxUnClipping: 0
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 150
+  minIouDiff4NewTarget: 0.8176422840795657
+  minTrackerConfidence: 0.19878939278068558
+  probationAge: 6
+  maxShadowTrackingAge: 39
+  earlyTerminationAge: 1
+TrajectoryManagement:
+  useUniqueID: 0
+  enableReAssoc: 1
+  minMatchingScore4Overall: 0.23583585666333318
+  minTrackletMatchingScore: 0.09979720773093673
+  minMatchingScore4ReidSimilarity: 0.24582563724796622
+  matchingScoreWeight4TrackletSimilarity: 0.23836654600118312
+  matchingScoreWeight4ReidSimilarity: 0.7200658660519842
+  minTrajectoryLength4Projection: 37
+  prepLength4TrajectoryProjection: 50
+  trajectoryProjectionLength: 43
+  maxAngle4TrackletMatching: 142
+  minSpeedSimilarity4TrackletMatching: 0.0023058182326161298
+  minBboxSizeSimilarity4TrackletMatching: 0.18214484831006444
+  maxTrackletMatchingTimeSearchRange: 20
+  trajectoryProjectionProcessNoiseScale: 0.0100
+  trajectoryProjectionMeasurementNoiseScale: 100
+  trackletSpacialSearchRegionScale: 0.2598
+  reidExtractionInterval: 19
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 1
+  checkClassMatch: 1
+  minMatchingScore4Overall: 0.06843005365443096
+  minMatchingScore4SizeSimilarity: 0.2929323932012989
+  minMatchingScore4Iou: 0.29413058985254187
+  minMatchingScore4VisualSimilarity: 0.42453250143328114
+  matchingScoreWeight4VisualSimilarity: 0.7092410997389017
+  matchingScoreWeight4SizeSimilarity: 0.4463422634549605
+  matchingScoreWeight4Iou: 0.46547889321000563
+  tentativeDetectorConfidence: 0.1721247313806944
+  minMatchingScore4TentativeIou: 0.45510391462097216
+StateEstimator:
+  stateEstimatorType: 1
+  processNoiseVar4Loc: 6533.099736052837
+  processNoiseVar4Size: 6415.121729390737
+  processNoiseVar4Vel: 2798.795011988113
+  measurementNoiseVar4Detector: 100.00000584166246
+  measurementNoiseVar4Tracker: 4988.392688178733
+VisualTracker:
+  visualTrackerType: 2
+  useColorNames: 1
+  useHog: 1
+  featureImgSizeLevel: 3
+  featureFocusOffsetFactor_y: -0.15647586556568632
+  filterLr: 0.13560657062953396
+  filterChannelWeightsLr: 0.07701879646606641
+  gaussianSigma: 1.497826153095461
+ReID:
+  reidType: 2
+  useVPICropScaler: 1
+  outputReidTensor: 0
+  batchSize: 100
+  workspaceSize: 1000
+  reidFeatureSize: 256
+  reidHistorySize: 100
+  inferDims: [3, 256, 128]
+  networkMode: 1
+  inputOrder: 0
+  colorFormat: 0
+  offsets: [123.6750, 116.2800, 103.5300]
+  netScaleFactor: 0.01735207
+  keepAspc: 1
+  addFeatureNormalization: 1
+  tltModelKey: nvidia_tao
+  tltEncodedModel: /root/.via/ngc_model_cache/cv_models/resnet50_market1501.etlt 
+  modelEngineFile: : /root/.via/ngc_model_cache/cv_models/resnet50_market1501.etlt_b100_gpu0_fp16.engine
+

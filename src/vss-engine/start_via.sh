@@ -14,7 +14,6 @@
 ASSET_STORAGE_DIR="${ASSET_STORAGE_DIR:-/tmp/assets}"
 
 CA_RAG_CONFIG="${CA_RAG_CONFIG:-/opt/nvidia/via/default_config.yaml}"
-GRAPH_RAG_PROMPT_CONFIG="${GRAPH_RAG_PROMPT_CONFIG:-/opt/nvidia/via/warehouse_graph_rag_config.yaml}"
 CV_PIPELINE_TRACKER_CONFIG="${CV_PIPELINE_TRACKER_CONFIG:-/opt/nvidia/via/config/default_tracker_config.yml}"
 
 DISABLE_CA_RAG=${DISABLE_CA_RAG:-false}
@@ -23,12 +22,7 @@ DISABLE_GUARDRAILS=${DISABLE_GUARDRAILS:-false}
 DISABLE_CV_PIPELINE=${DISABLE_CV_PIPELINE:-true}
 
 MILVUS_DB_HOST="${MILVUS_DB_HOST:-127.0.0.1}"
-
-if [ -z $MILVUS_DB_PORT ]; then
-MILVUS_DB_PORT=$((19530 + RANDOM % 100))
-fi
-# Assigning to itself for sake of completion.
-MILVUS_DATA_DIR=${MILVUS_DATA_DIR}
+MILVUS_DB_PORT="${MILVUS_DB_PORT:-19530}"
 
 MODE="${MODE:-release}"
 
@@ -46,10 +40,12 @@ ENABLE_NSYS_PROFILER="${ENABLE_NSYS_PROFILER:-false}"
 
 SM_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader -i 0)
 
-# Override TRT_LLM_MODE to fp8 for sm 10.x GPUs when int4_awq is selected
-if [[ $SM_ARCH =~ ^10\. ]] && [[ $TRT_LLM_MODE == "int4_awq" ]]; then
-    echo "Overriding TRT_LLM_MODE from int4_awq to fp8 for compute capability $SM_ARCH"
-    TRT_LLM_MODE="fp8"
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+
+# Override TRT_LLM_MODE to fp16 for sm 10.x GPUs when int4_awq is selected
+if [[ $SM_ARCH =~ ^10\. ]] && [[ $TRT_LLM_MODE != "fp16" ]]; then
+    echo "Overriding TRT_LLM_MODE from $TRT_LLM_MODE to fp16 for compute capability $SM_ARCH"
+    TRT_LLM_MODE="fp16"
 fi
 
 
@@ -57,6 +53,7 @@ if [[ $NUM_GPUS -eq 0 ]]; then
     echo "Error: No GPUs were found"
     exit 1
 fi
+
 
 NUM_NVDEC_ENGINES=$(nvdec_get_count)
 echo "GPU has $NUM_NVDEC_ENGINES decode engines"
@@ -80,13 +77,25 @@ if [ "$VSS_DISABLE_DECODER_REUSE" == "true" ]; then
     echo "Disabling decoder reuse"
 fi
 
-if [ -z $VLM_BATCH_SIZE ]; then
-    GPU_MEM=0
-    if [[ $NUM_GPUS -gt 0 ]]; then
-        GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}')
-    fi
-    echo "Total GPU memory is $GPU_MEM MiB per GPU"
+GPU_MEM=0
+if [[ $NUM_GPUS -gt 0 ]]; then
+    GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}')
+fi
+if [[ $GPU_MEM == *"N/A"* ]]; then
+    # Get total system memory in MiB if GPU memory is N/A
+    GPU_MEM=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+fi
+echo "Total GPU memory is $GPU_MEM MiB per GPU"
 
+if [[ $GPU_MEM -le 50000 ]]; then
+    if [[ -z "${VLLM_GPU_MEMORY_UTILIZATION}" ]]; then
+        export VLLM_GPU_MEMORY_UTILIZATION=0.7
+        echo "Setting VLLM_GPU_MEMORY_UTILIZATION to 0.7 (GPU mem <= 50GB)"
+    fi
+fi
+
+
+if [ -z $VLM_BATCH_SIZE ]; then
     if [[ $TRT_LLM_MODE == "fp16" ]]; then
         if [[ $GPU_MEM -gt 80000 ]]; then
             VLM_BATCH_SIZE=16
@@ -96,7 +105,7 @@ if [ -z $VLM_BATCH_SIZE ]; then
             VLM_BATCH_SIZE=1
         fi
     else
-        if [[ $GPU_MEM -gt 80000 ]]; then
+        if [[ "$GPU_MEM" == *"N/A"* || $GPU_MEM -gt 80000 ]]; then
             VLM_BATCH_SIZE=128
         elif [[ $GPU_MEM -gt 46000 ]]; then
             VLM_BATCH_SIZE=16
@@ -107,6 +116,19 @@ if [ -z $VLM_BATCH_SIZE ]; then
     echo "Auto-selecting VLM Batch Size to $VLM_BATCH_SIZE"
 else
     echo "Using VLM Batch Size $VLM_BATCH_SIZE"
+fi
+
+# Check CUDA SM arch version and set TRT_LLM_ATTN_BACKEND accordingly
+if nvidia-smi --query-gpu=compute_cap --format=csv,noheader | grep -q "12.1"; then
+    export TRT_LLM_ATTN_BACKEND="FLASHINFER"
+fi
+
+# For aarch64 platforms, set NUM_CV_CHUNKS_PER_GPU to 1
+if [[ $(uname -m) == "aarch64" ]]; then
+    if [[ -n "$NUM_CV_CHUNKS_PER_GPU" ]] && [[ "$NUM_CV_CHUNKS_PER_GPU" != "1" ]]; then
+        echo "Overriding NUM_CV_CHUNKS_PER_GPU to 1 for aarch64 platform"
+    fi
+    export NUM_CV_CHUNKS_PER_GPU=1
 fi
 
 mkdir -p /tmp/via-logs/
@@ -158,53 +180,6 @@ start_demo_client() {
     done
 }
 
-check_milvus() {
-    while true; do
-        python3 << END_PYTHON
-from pymilvus import connections
-import sys
-try:
-    connections.connect("default", host="$MILVUS_DB_HOST", port="$MILVUS_DB_PORT")
-except:
-    sys.exit(-1)
-END_PYTHON
-        if [ $? -eq 0 ]; then
-            break
-        fi
-        echo "Waiting for milvus server to start..."
-        sleep 1
-    done
-    echo "Milvus server started."
-}
-
-start_milvus() {
-    # Stop milvus if already running
-    PROCESS=$(ps -e | grep milvus | grep -v grep | awk '{print $1}')
-    if [ -n "$PROCESS" ]; then
-        echo "Stopping milvus server..."
-        kill -9 $PROCESS
-        echo "Milvus server stopped"
-    fi
-    if [ $DISABLE_CA_RAG = false ] && [ $MILVUS_DB_HOST == "127.0.0.1" ]; then
-        echo "Running milvus server"
-        # Start milvus_server
-        if [[ -z "$MILVUS_DATA_DIR" ]]; then
-            milvus-server --proxy-port $MILVUS_DB_PORT &
-        else
-            echo "Milvus data dir moved to " $MILVUS_DATA_DIR
-            milvus-server --proxy-port $MILVUS_DB_PORT --data $MILVUS_DATA_DIR &
-        fi
-        process_pid=$!
-        if [ $? -eq 0 ]; then
-            echo $process_pid >> "$PID_FILE"
-            check_milvus
-        else
-            echo "Failed to start milvus-server"
-            exit 1
-        fi
-    fi
-}
-
 check_via_process_status() {
     process_pid=$!
     if [ $? -eq 0 ]; then
@@ -227,6 +202,9 @@ check_via_process_status() {
 }
 
 start_cuda_mps_server() {
+    if [ "$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader)" = "12.1" ]; then
+        return
+    fi
     nvidia-cuda-mps-control -f >/dev/null 2>&1 &
     echo $! >> "$PID_FILE"
     sleep 2
@@ -277,6 +255,10 @@ configure_riva_asr_service() {
 }
 
 start_via_server() {
+    if [ $VLM_MODEL_TO_USE == "custom" ] && [ -f "$MODEL_PATH/install_prerequisites.sh" ]; then
+        echo "Found prerequisites script for custom model. Installing dependencies..."
+        bash "$MODEL_PATH/install_prerequisites.sh"
+    fi
     EXTRA_ARGS="$VSS_EXTRA_ARGS"
     if [ $DISABLE_GUARDRAILS = true ]; then
         EXTRA_ARGS+=" --disable-guardrails"
@@ -289,9 +271,6 @@ start_via_server() {
     fi
     if [ $DISABLE_CA_RAG = true ]; then
         EXTRA_ARGS+=" --disable-ca-rag"
-    else
-        # Start via_server
-        EXTRA_ARGS+=" --milvus-db-port $MILVUS_DB_PORT --milvus-db-host $MILVUS_DB_HOST"
     fi
     if [ $ENABLE_NSYS_PROFILER = true ]; then
 	    echo "Profiling with  nsys"
@@ -334,7 +313,6 @@ start_via_server() {
     TRANSFORMERS_VERBOSITY=error $EXE_PREFIX $EXE --port $BACKEND_PORT \
         --model-path "$MODEL_PATH" --num-gpus $NUM_GPUS \
         --vlm-batch-size $VLM_BATCH_SIZE --ca-rag-config $CA_RAG_CONFIG \
-        --graph-rag-prompt-config $GRAPH_RAG_PROMPT_CONFIG \
         --asset-dir $ASSET_STORAGE_DIR --num-decoders-per-gpu $(( NUM_NVDEC_ENGINES + 1)) \
         --trt-llm-mode $TRT_LLM_MODE $EXTRA_ARGS &
     check_via_process_status
@@ -351,11 +329,6 @@ start_processes() {
         exit 1
     fi
 
-    if [ $DISABLE_CA_RAG = true ]; then
-        echo "Disabling CA RAG, Also disabling milvus"
-        ENABLE_MILVUS=false
-    fi
-
     if [ "$INSTALL_PROPRIETARY_CODECS" = true ]; then
         if ! command -v ffmpeg_for_overlay_video >/dev/null 2>&1; then
             echo "Installing additional multimedia packages"
@@ -366,8 +339,6 @@ start_processes() {
     if [ "$ENABLE_AUDIO" = true ]; then
         configure_riva_asr_service
     fi
-
-    start_milvus
 
     start_cuda_mps_server
 

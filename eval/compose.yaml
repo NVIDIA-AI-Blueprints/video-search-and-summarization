@@ -1,0 +1,204 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+services:
+
+  byov:
+    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.3.1}
+    networks:
+      - byov_network
+    runtime: nvidia
+    working_dir: /opt/nvidia/via/via-engine
+    command: bash -c "pip install --no-cache-dir -r /opt/nvidia/via/via-engine/eval/byov/requirements_byov.txt"
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${EXAMPLE_STREAMS_DIR:-/dummy}${EXAMPLE_STREAMS_DIR:+:/opt/nvidia/via/streams:ro}"
+      - "${MILVUS_DATA_DIR:-/dummy}${MILVUS_DATA_DIR:+:/root/.milvus.io/milvus-server/2.3.5}"
+      - "${NGC_MODEL_CACHE:-via-ngc-model-cache}:/root/.via/ngc_model_cache"
+      - "${TRT_ENGINE_PATH:-/dummy}${TRT_ENGINE_PATH:+:${TRT_ENGINE_PATH:-}}"
+      - "${GSAM_MODEL_ROOT_DIR:-/dummy}${GSAM_MODEL_ROOT_DIR:+:${GSAM_MODEL_ROOT_DIR:-}}"
+      - "${VIA_SRC_DIR:-/dummy}${VIA_SRC_DIR:+:/opt/nvidia/via:ro}"
+      - "${PATH_TO_REPO}/via-logs:/tmp/via-logs"
+      - "${PATH_TO_REPO}/eval/logs:/opt/nvidia/via/via-engine/logs"
+      - via-hf-cache:/tmp/huggingface
+      - "${PATH_TO_REPO}/src/vss-engine/:/opt/nvidia/via/via-engine" #comment this out if you want to mount only the tests directory, and use the src code from the image
+      - "${PATH_TO_REPO}/eval:/opt/nvidia/via/via-engine/eval"
+      - "${MEDIA_DIRECTORY_PATH:-/dummy}:/opt/nvidia/via/streams/additional/" 
+      - "${CV_PIPELINE_TRACKER_CONFIG:-/dummy}${CV_PIPELINE_TRACKER_CONFIG:+:/opt/nvidia/via/config/default_tracker_config.yml}"
+      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
+      - "${MODEL_ROOT_DIR2:-/dummy}${MODEL_ROOT_DIR2:+:${MODEL_ROOT_DIR2:-}}"
+      - "${MODEL_ROOT_DIR3:-/dummy}${MODEL_ROOT_DIR3:+:${MODEL_ROOT_DIR3:-}}"
+      - "${MODEL_ROOT_DIR4:-/dummy}${MODEL_ROOT_DIR4:+:${MODEL_ROOT_DIR4:-}}"
+      - "${MODEL_ROOT_DIR5:-/dummy}${MODEL_ROOT_DIR5:+:${MODEL_ROOT_DIR5:-}}"
+      # Mount RIVA ASR config for audio support
+      - "${PATH_TO_REPO}/src/vss-engine/config/riva_asr_grpc_conf.yaml:/tmp/via/riva_asr_grpc_conf.yaml:ro"
+
+    environment:
+      # Copy all relevant env vars from via-server
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      NGC_API_KEY: ${NGC_API_KEY:-}
+
+      MILVUS_DB_HOST: "${MILVUS_DB_HOST:-milvus-standalone}"
+      MILVUS_DB_PORT: ${MILVUS_DB_PORT:-19530}
+
+      ARANGO_DB_HOST: "${ARANGO_DB_HOST:-}"
+      ARANGO_DB_PORT: "${ARANGO_DB_PORT:-}"
+      MINIO_HOST: "${MINIO_HOST:-minio}"
+      MINIO_PORT: "${MINIO_PORT:-39000}"
+      MINIO_USERNAME: "${MINIO_USERNAME:-minio}"
+      MINIO_PASSWORD: "${MINIO_PASSWORD:-minio123}"
+      
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: ${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-gpt-4o}
+      VIA_VLM_ENDPOINT: ${VIA_VLM_ENDPOINT:-https://api.openai.com/v1/}
+      ENABLE_VIA_HEALTH_EVAL: "True"
+      GRAPH_DB_BOLT_PORT: "${GRAPH_DB_BOLT_PORT:-7687}"
+      GRAPH_DB_HOST: "${GRAPH_DB_HOST:-graph-db}"
+      GRAPH_DB_USERNAME: "${GRAPH_DB_USERNAME}"
+      GRAPH_DB_PASSWORD: "${GRAPH_DB_PASSWORD}"
+      FRONTEND_PORT: "${FRONTEND_PORT:-8000}"
+      BACKEND_PORT: "${BACKEND_PORT:-39101}"
+      PATH_TO_REPO: ${PATH_TO_REPO}
+
+      VSS_CACHE_VIDEO_EMBEDS: "${VSS_CACHE_VIDEO_EMBEDS:-false}"
+      SAVE_CHUNK_FRAMES: "${SAVE_CHUNK_FRAMES:-false}"
+      SAVE_CHUNK_FRAMES_MINIO: "${SAVE_CHUNK_FRAMES_MINIO:-false}"
+      VLM_DEFAULT_NUM_FRAMES_PER_CHUNK: "${VLM_DEFAULT_NUM_FRAMES_PER_CHUNK:-}"
+      APP_VECTORSTORE_URL: "${APP_VECTORSTORE_URL:-}"
+      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
+      ALERT_REVIEW_MEDIA_BASE_DIR: "${ALERT_REVIEW_MEDIA_BASE_DIR:-}"
+      ALERT_REVIEW_SKIP_GUARDRAILS: "${ALERT_REVIEW_SKIP_GUARDRAILS:-true}"
+      VLM_SYSTEM_PROMPT: "${VLM_SYSTEM_PROMPT:-}"
+      COSMOS_REASON1_USE_VLLM: "${COSMOS_REASON1_USE_VLLM:-}"
+
+      # Audio/RIVA ASR Configuration (add these for audio support)
+      RIVA_ASR_NIM_API_KEY: "${RIVA_ASR_NIM_API_KEY:-}"
+      RIVA_ASR_SERVER_URI: "${RIVA_ASR_SERVER_URI:-parakeet-ctc-1.1b-asr}"
+      RIVA_ASR_SERVER_IS_NIM: "${RIVA_ASR_SERVER_IS_NIM:-true}"
+      RIVA_ASR_SERVER_USE_SSL: "${RIVA_ASR_SERVER_USE_SSL:-false}"
+      RIVA_ASR_SERVER_API_KEY: "${RIVA_ASR_SERVER_API_KEY:-}"
+      RIVA_ASR_SERVER_FUNC_ID: "${RIVA_ASR_SERVER_FUNC_ID:-}"
+      RIVA_ASR_GRPC_PORT: "${RIVA_ASR_GRPC_PORT:-50051}"
+
+    depends_on:
+      milvus-standalone:
+        condition: service_healthy
+      graph-db:
+        condition: service_started
+      arango-db:
+        condition: service_started
+      minio:
+        condition: service_started
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+    ipc: host
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      host.docker.internal: host-gateway
+
+
+  graph-db:
+    restart: always
+    ports: #<host_port>:<container_port>
+      - "${GRAPH_DB_HTTP_PORT:-7474}:${GRAPH_DB_HTTP_PORT:-7474}"
+      - "${GRAPH_DB_BOLT_PORT:-7687}:${GRAPH_DB_BOLT_PORT:-7687}"
+    environment:
+      NEO4J_AUTH: "${GRAPH_DB_USERNAME}/${GRAPH_DB_PASSWORD}"
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_server_bolt_listen__address: "0.0.0.0:${GRAPH_DB_BOLT_PORT:-7687}"
+      NEO4J_server_http_listen__address: "0.0.0.0:${GRAPH_DB_HTTP_PORT:-7474}"
+    image: neo4j:5.26.4
+    networks:
+      - byov_network
+
+  arango-db:
+    image: arangodb/arangodb:3.12.4
+    networks:
+      - byov_network
+    environment:
+      - ARANGO_DB_USERNAME=${ARANGO_DB_USERNAME}
+      - ARANGO_ROOT_PASSWORD=${ARANGO_DB_PASSWORD}
+    ports:
+      - "${ARANGO_DB_PORT:-38529}:${ARANGO_DB_PORT:-38529}"
+    command: ["arangod", "--experimental-vector-index", "--server.endpoint", "http://0.0.0.0:${ARANGO_DB_PORT:-38529}"]
+
+  minio:
+    networks:
+      - byov_network
+    image: minio/minio:latest
+    ports:
+      - "${MINIO_PORT:-39000}:${MINIO_PORT:-39000}"
+      - "${MINIO_WEBUI_PORT:-39101}:${MINIO_WEBUI_PORT:-39101}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    volumes:
+      - minio-data:/data
+    command: server /data --address ":${MINIO_PORT:-39000}" --console-address ":${MINIO_WEBUI_PORT:-39101}"
+    restart: unless-stopped
+
+
+
+  milvus-standalone:
+    image: milvusdb/milvus:v2.5.4
+    networks:
+      - byov_network
+    command: |
+      sh -c "
+      cat <<EOF > /milvus/configs/embedEtcd.yaml
+      listen-client-urls: http://0.0.0.0:2379
+      advertise-client-urls: http://0.0.0.0:2379
+      quota-backend-bytes: 4294967296
+      auto-compaction-mode: revision
+      EOF
+      cat <<EOF >  /milvus/configs/user.yaml
+      log:
+        level: error
+      proxy:
+        port: ${MILVUS_DB_GRPC_PORT:-19530}
+      EOF
+      milvus run standalone
+      "
+    environment:
+      - ETCD_USE_EMBED=true
+      - ETCD_DATA_DIR=/var/lib/milvus/etcd
+      - ETCD_CONFIG_PATH=/milvus/configs/embedEtcd.yaml
+      - COMMON_STORAGETYPE=local
+      - METRICS_PORT=${MILVUS_DB_HTTP_PORT:-9091}
+    ports:
+      - "${MILVUS_DB_HTTP_PORT:-9091}:${MILVUS_DB_HTTP_PORT:-9091}"
+      - "${MILVUS_DB_GRPC_PORT:-19530}:${MILVUS_DB_GRPC_PORT:-19530}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${MILVUS_DB_HTTP_PORT:-9091}/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 90s
+
+
+
+
+volumes:
+  via-hf-cache:
+  via-ngc-model-cache:
+  minio-data:
+  prometheus-data:
+
+networks:
+  default:
+  byov_network:
+    driver: bridge

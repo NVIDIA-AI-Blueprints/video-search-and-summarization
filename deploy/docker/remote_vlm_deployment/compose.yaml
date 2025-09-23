@@ -17,7 +17,7 @@
 
 services:
   via-server:
-    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.3.1}
+    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0}
     shm_size: '16gb'
     runtime: nvidia
     ports:
@@ -26,8 +26,8 @@ services:
     volumes:
       - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
       - "${CA_RAG_CONFIG:-/dummy}${CA_RAG_CONFIG:+:/opt/nvidia/via/default_config.yaml}"
+      - "${PROMPT_CONFIG:-/dummy}${PROMPT_CONFIG:+:/opt/nvidia/via/prompt_config.yaml}"
       - "${GUARDRAILS_CONFIG:-/dummy}${GUARDRAILS_CONFIG:+:/opt/nvidia/via/guardrails_config}"
-      - "${GRAPH_RAG_PROMPT_CONFIG:-/dummy}${GRAPH_RAG_PROMPT_CONFIG:+:/opt/nvidia/via/warehouse_graph_rag_config.yaml}"
       - "${EXAMPLE_STREAMS_DIR:-/dummy}${EXAMPLE_STREAMS_DIR:+:/opt/nvidia/via/streams:ro}"
       - "${MILVUS_DATA_DIR:-/dummy}${MILVUS_DATA_DIR:+:/root/.milvus.io/milvus-server/2.3.5}"
       - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
@@ -38,8 +38,9 @@ services:
       - "${VIA_LOG_DIR:-/dummy}${VIA_LOG_DIR:+:/tmp/via-logs}"
       - via-hf-cache:/tmp/huggingface
       - "${CV_PIPELINE_TRACKER_CONFIG:-/dummy}${CV_PIPELINE_TRACKER_CONFIG:+:/opt/nvidia/via/config/default_tracker_config.yml}"
+      - "${ALERT_REVIEW_MEDIA_BASE_DIR:-/dummy}${ALERT_REVIEW_MEDIA_BASE_DIR:+:${ALERT_REVIEW_MEDIA_BASE_DIR:-}}"
+
     environment:
-      GRAPH_RAG_PROMPT_CONFIG: "${GRAPH_RAG_PROMPT_CONFIG:-}"
       AZURE_OPENAI_API_KEY: "${AZURE_OPENAI_API_KEY:-}"
       AZURE_OPENAI_ENDPOINT: "${AZURE_OPENAI_ENDPOINT:-}"
       BACKEND_PORT: "${BACKEND_PORT?}"
@@ -48,16 +49,16 @@ services:
       DISABLE_GUARDRAILS: "${DISABLE_GUARDRAILS:-false}"
       DISABLE_CV_PIPELINE: "${DISABLE_CV_PIPELINE:-true}"
       FRONTEND_PORT: "${FRONTEND_PORT?}"
-      MILVUS_DB_HOST: "${MILVUS_DB_HOST:-}"
-      MILVUS_DB_PORT: "${MILVUS_DB_PORT:-}"
+      MILVUS_DB_HOST: "${MILVUS_DB_HOST:-milvus-standalone}"
+      MILVUS_DB_GRPC_PORT: "${MILVUS_DB_GRPC_PORT:-19530}"
       MODEL_PATH: "${MODEL_PATH:-}"
       NGC_API_KEY: "${NGC_API_KEY:-}"
       GDINO_MODEL_PATH: "${GDINO_MODEL_PATH:-}"
       NV_LLMG_CLIENT_ID: "${NV_LLMG_CLIENT_ID:-}"
       NV_LLMG_CLIENT_SECRET: "${NV_LLMG_CLIENT_SECRET:-}"
-      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
       NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-NOAPIKEYSET}"
       OPENAI_API_VERSION: "${OPENAI_API_VERSION:-}"
       TRT_ENGINE_PATH: "${TRT_ENGINE_PATH:-}"
       TRT_LLM_MODE: "${TRT_LLM_MODE:-}"
@@ -65,9 +66,11 @@ services:
       VIA_VLM_API_KEY: "${VIA_VLM_API_KEY:-}"
       VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
       VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-openai-compat}"
-      GRAPH_DB_URI: "${GRAPH_DB_URI:-bolt://graph-db:7687}"
+      GRAPH_DB_HOST: "${GRAPH_DB_HOST:-graph-db}"
       GRAPH_DB_USERNAME: "${GRAPH_DB_USERNAME}"
       GRAPH_DB_PASSWORD: "${GRAPH_DB_PASSWORD}"
+      GRAPH_DB_HTTP_PORT: "${GRAPH_DB_HTTP_PORT:-7474}"
+      GRAPH_DB_BOLT_PORT: "${GRAPH_DB_BOLT_PORT:-7687}"
       NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
       NUM_GPUS: "${NUM_GPUS:-}"
       FORCE_CA_RAG_RESET: "${FORCE_CA_RAG_RESET:-}"
@@ -98,9 +101,44 @@ services:
       VSS_RTSP_LATENCY: "${VSS_RTSP_LATENCY:-}"
       VSS_RTSP_TIMEOUT: "${VSS_RTSP_TIMEOUT:-}"
       MAX_RAILS_INSTANCES: "${MAX_RAILS_INSTANCES:-}"
+      ARANGO_DB_USERNAME: "${ARANGO_DB_USERNAME}"
+      ARANGO_DB_PASSWORD: "${ARANGO_DB_PASSWORD}"
+      ARANGO_DB_HOST: "${ARANGO_DB_HOST:-arango-db}"
+      ARANGO_DB_PORT: "${ARANGO_DB_PORT:-8529}"
+      MINIO_HOST: "${MINIO_HOST:-minio}"
+      MINIO_PORT: "${MINIO_PORT:-9000}"
+      MINIO_USERNAME: "${MINIO_USERNAME:-minio}"
+      MINIO_PASSWORD: "${MINIO_PASSWORD:-minio123}"
+      VSS_CACHE_VIDEO_EMBEDS: "${VSS_CACHE_VIDEO_EMBEDS:-false}"
+      SAVE_CHUNK_FRAMES: "${SAVE_CHUNK_FRAMES:-false}"
+      SAVE_CHUNK_FRAMES_MINIO: "${SAVE_CHUNK_FRAMES_MINIO:-false}"
       VLM_DEFAULT_NUM_FRAMES_PER_CHUNK: "${VLM_DEFAULT_NUM_FRAMES_PER_CHUNK:-}"
+      APP_VECTORSTORE_URL: "${APP_VECTORSTORE_URL:-}"
+      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
+      ALERT_REVIEW_MEDIA_BASE_DIR: "${ALERT_REVIEW_MEDIA_BASE_DIR:-}"
+      ALERT_REVIEW_SKIP_GUARDRAILS: "${ALERT_REVIEW_SKIP_GUARDRAILS:-true}"
+      VLM_SYSTEM_PROMPT: "${VLM_SYSTEM_PROMPT:-}"
+      ALERT_REVIEW_DEFAULT_VLM_SYSTEM_PROMPT: "${ALERT_REVIEW_DEFAULT_VLM_SYSTEM_PROMPT:-}"
+      # OpenTelemetry Configuration (Full VIA Engine)
+      ENABLE_VIA_HEALTH_EVAL: "${ENABLE_VIA_HEALTH_EVAL:-false}"
+      VIA_ENABLE_OTEL: "${VIA_ENABLE_OTEL:-false}"
+      VIA_OTEL_ENDPOINT: "${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}"
+      VIA_OTEL_EXPORTER: "${VIA_OTEL_EXPORTER:-console}"
+      VIA_CTX_RAG_ENABLE_OTEL: "${VIA_CTX_RAG_ENABLE_OTEL:-false}"
+      VIA_CTX_RAG_EXPORTER: "${VIA_OTEL_EXPORTER:-console}"
+      VIA_CTX_RAG_OTEL_ENDPOINT: "${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}"
+      ES_PORT: "${ES_PORT:-9200}"
+      ES_TRANSPORT_PORT: "${ES_TRANSPORT_PORT:-9300}"
+      ES_HOST: "${ES_HOST:-elasticsearch}"
     depends_on:
-      - graph-db
+      milvus-standalone:
+        condition: service_healthy
+      graph-db:
+        condition: service_started
+      arango-db:
+        condition: service_started
+      minio:
+        condition: service_started
     ulimits:
       memlock:
         soft: -1
@@ -115,13 +153,134 @@ services:
   graph-db:
     restart: always
     ports: #<host_port>:<container_port>
-      - "${GRAPH_DB_HTTP_PORT:-7474}:7474"
-      - "${GRAPH_DB_BOLT_PORT:-7687}:7687"
+      - "${GRAPH_DB_HTTP_PORT:-7474}:${GRAPH_DB_HTTP_PORT:-7474}"
+      - "${GRAPH_DB_BOLT_PORT:-7687}:${GRAPH_DB_BOLT_PORT:-7687}"
     environment:
       NEO4J_AUTH: "${GRAPH_DB_USERNAME}/${GRAPH_DB_PASSWORD}"
       NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_server_bolt_listen__address: "0.0.0.0:${GRAPH_DB_BOLT_PORT:-7687}"
+      NEO4J_server_http_listen__address: "0.0.0.0:${GRAPH_DB_HTTP_PORT:-7474}"
     image: neo4j:5.26.4
+
+  arango-db:
+    image: arangodb/arangodb:3.12.4
+    environment:
+      - ARANGO_DB_USERNAME=${ARANGO_DB_USERNAME}
+      - ARANGO_ROOT_PASSWORD=${ARANGO_DB_PASSWORD}
+    ports:
+      - "${ARANGO_DB_PORT:-8529}:${ARANGO_DB_PORT:-8529}"
+    command: ["arangod", "--experimental-vector-index", "--server.endpoint", "http://0.0.0.0:${ARANGO_DB_PORT:-8529}"]
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "${MINIO_PORT:-9000}:${MINIO_PORT:-9000}"
+      - "${MINIO_WEBUI_PORT:-9001}:${MINIO_WEBUI_PORT:-9001}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+    volumes:
+      - minio-data:/data
+    command: server /data --address ":${MINIO_PORT:-9000}" --console-address ":${MINIO_WEBUI_PORT:-9001}"
+    restart: unless-stopped
+
+  milvus-standalone:
+    image: milvusdb/milvus:v2.5.4
+    command: |
+      sh -c "
+      cat <<EOF > /milvus/configs/embedEtcd.yaml
+      listen-client-urls: http://0.0.0.0:2379
+      advertise-client-urls: http://0.0.0.0:2379
+      quota-backend-bytes: 4294967296
+      auto-compaction-mode: revision
+      EOF
+      cat <<EOF >  /milvus/configs/user.yaml
+      log:
+        level: error
+      proxy:
+        port: ${MILVUS_DB_GRPC_PORT:-19530}
+      EOF
+      milvus run standalone
+      "
+    environment:
+      - ETCD_USE_EMBED=true
+      - ETCD_DATA_DIR=/var/lib/milvus/etcd
+      - ETCD_CONFIG_PATH=/milvus/configs/embedEtcd.yaml
+      - COMMON_STORAGETYPE=local
+      - METRICS_PORT=${MILVUS_DB_HTTP_PORT:-9091}
+    ports:
+      - "${MILVUS_DB_HTTP_PORT:-9091}:${MILVUS_DB_HTTP_PORT:-9091}"
+      - "${MILVUS_DB_GRPC_PORT:-19530}:${MILVUS_DB_GRPC_PORT:-19530}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${MILVUS_DB_HTTP_PORT:-9091}/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 90s
+
+  elasticsearch:
+    image: elasticsearch:9.1.2
+    ports:
+      - "${ES_PORT:-9200}:${ES_PORT:-9200}"
+      - "${ES_TRANSPORT_PORT:-9300}:${ES_TRANSPORT_PORT:-9300}"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    mem_limit: ${ES_MEM_LIMIT:-6442450944}
+
+  # OpenTelemetry Collector - Collects and exports OTEL metrics/traces
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./docker/deploy/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8889:8889"   # Prometheus metrics export
+    restart: unless-stopped
+    depends_on:
+      - jaeger
+    profiles:
+      - perf-profiling
+
+  # Prometheus - Metrics collection and storage for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/deploy/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=2d'
+    restart: unless-stopped
+    depends_on:
+      - otel-collector
+    profiles:
+      - perf-profiling
+
+  # Jaeger - Distributed tracing system
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger collector HTTP
+      - "4319:4317"    # OTLP gRPC
+      - "4320:4318"    # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+    profiles:
+      - perf-profiling
 
 volumes:
   via-hf-cache:
   via-ngc-model-cache:
+  minio-data:
+  prometheus-data:

@@ -1,0 +1,75 @@
+{
+	"vst":
+	[
+		{
+			"enabled":true,
+			"id":"044bc643-33c5-479a-b988-10d0bbc4e05c",
+			"name":"onvif",
+			"type":"vst",
+			"need_stream_monitoring": true,
+			"need_rtsp_server": true,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/onvif_client.so",
+			"discovery_adaptor_lib_path":"prebuilts/arch/onvif_discovery.so"
+		},
+		{
+			"enabled":false,
+			"id":"780bd844-5d1c-11ee-8c99-0242ac120002",
+			"name":"remote",
+			"type":"vst",
+			"need_stream_monitoring": true,
+			"need_rtsp_server": true,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/libremotedevice.so"
+		},
+		{
+			"enabled":false,
+			"id":"640c3667-81e6-460f-b926-b8008a130dba",
+			"name":"streamer",
+			"type":"streamer",
+			"need_rtsp_server": true,
+			"need_stream_monitoring": false,
+			"need_recording": false,
+			"need_storage_management": false,
+			"control_adaptor_lib_path":"prebuilts/arch/liblocalstreams.so",
+			"discovery_adaptor_lib_path":"prebuilts/arch/libsensordata.so"
+		},
+		{
+			"enabled":false,
+			"id":"ff2d66fa-ce1f-45ce-8e9d-328f319ca17b",
+			"name":"native",
+			"type":"vst",
+			"need_rtsp_server": true,
+			"need_stream_monitoring": false,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/libnativesensors_control.so",
+			"discovery_adaptor_lib_path":"prebuilts/arch/libnativesensors_discovery.so"
+		},
+		{
+			"enabled":false,
+			"id":"6cdec7d7-0f30-450c-a78a-756c3e132fd3",
+			"name":"vst_rtsp",
+			"type":"vst",
+			"need_stream_monitoring": true,
+			"need_rtsp_server": true,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/rtsp_streams.so"
+		},
+		{
+			"enabled":false,
+			"id":"b42cf1ba-1ccf-4bac-979e-a4e28bd98044",
+			"name":"test_vms",
+			"type":"vst",
+			"need_stream_monitoring": true,
+			"need_rtsp_server": true,
+			"need_recording": true,
+			"need_storage_management": true,
+			"control_adaptor_lib_path":"prebuilts/arch/test_control.so",
+			"discovery_adaptor_lib_path":"prebuilts/arch/test_discovery.so"
+		}
+	]
+}
