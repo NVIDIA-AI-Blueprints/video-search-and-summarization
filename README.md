@@ -97,28 +97,30 @@ For custom VSS deployments through Docker Compose, multiple samples are provided
 #### System Requirements (x86 systems)
 
 - Ubuntu 22.04
-- NVIDIA driver 535.161.08 (Recommended minimum version). NVIDIA driver 570.86.15 (for H200). NVIDIA driver 570.133.20 (for B200 and RTX Pro 6000 Blackwell)
-- CUDA 12.2+ (CUDA driver installed with NVIDIA driver)
+- NVIDIA driver 580.65.06 (Recommended minimum version)
+- CUDA 13.0+ (CUDA driver installed with NVIDIA driver)
 - NVIDIA Container Toolkit 1.13.5+
 - Docker 27.5.1+
 - Docker Compose 2.32.4
 
+Please refer to [Prerequisites section here for more information](https://docs.nvidia.com/vss/latest/content/prereqs_x86.html#prerequisites).
+
 #### System Requirements (NVIDIA Jetson Thor)
 
-Please refer to [NVIDIA Jetson Thor Setup Instructions](https://docs.nvidia.com/vss/latest/content/quickstart.html#nvidia-jetson-thor-setup-instructions).
+Please refer to [NVIDIA Jetson Thor Setup Instructions](https://docs.nvidia.com/vss/latest/content/prereqs_thor.html).
 
 
 ### Helm Chart Deployment
 
 **Ideal for:** Production deployments that need to integrate with other systems. Helm offers advantages such as easy upgrades, rollbacks, and management of complex deployments.
 
-The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.4.0.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/run_via.html#) for detailed instructions.
+The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.4.0.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/vss_dep_helm.html#) for detailed instructions.
 
 #### System Requirements
 
 - Ubuntu 22.04
-- NVIDIA driver 535.183.06 (Recommended minimum version). NVIDIA driver 570.86.15 (for H200). NVIDIA driver 570.133.20 (for B200 and RTX Pro 6000 Blackwell)
-- CUDA 12.2+ (CUDA driver installed with NVIDIA driver)
+- NVIDIA driver 580.65.06 (Recommended minimum version)
+- CUDA 13.0+ (CUDA driver installed with NVIDIA driver)
 - Kubernetes v1.31.2
 - NVIDIA GPU Operator v23.9 (Recommended minimum version)
 - Helm v3.x
