@@ -1,0 +1,83 @@
+# Entity Management Default Values Configuration
+#
+# This file contains all default values for VSS and VLM parameters.
+# Operators can modify these values to tune system behavior without code changes.
+
+# Schema version and metadata
+schema:
+  version: "2.0.0"
+  last_updated: "2025-07-01"
+  description: "Default values for Alert Bridge VSS processing"
+
+vlm_params:
+  dummy: true
+
+# VSS (Video Semantic Search) Parameter Defaults
+vss_params:
+  chunk_duration: 60
+  chunk_overlap_duration: 10
+  cv_metadata_overlay: false
+  num_frames_per_chunk: 8
+  enable_reasoning: false
+  do_verification: false
+  debug: false
+  vlm_params:
+    prompt: null
+    system_prompt: null
+    response_format:
+      type: "text"
+    max_tokens: 512
+    temperature: 0.2
+    top_p: 1.0
+    top_k: 100
+    seed: 10
+
+# Top-level request field defaults (optional fields only)
+request_defaults:
+  confidence: 0.92
+  meta_labels: []
+  stream_name: null
+  cv_metadata_path: null
+
+# Validation configuration
+validation:
+  continue_on_validation_error: true
+  max_validation_errors_per_batch: 10
+  log_validation_stats: true
+  log_applied_defaults: false
+
+# Constraint definitions (used for validation)
+constraints:
+  vss_params:
+    chunk_duration:
+      min: 1
+      max: 300
+    chunk_overlap_duration:
+      min: 0
+      max: 60
+    num_frames_per_chunk:
+      min: 1
+      max: 32
+
+# Field validation rules
+field_validation:
+  required_fields:
+    - id
+    - version
+    - "@timestamp"
+    - sensor_id
+    - video_path
+    - alert
+    - event
+    - vss_params
+  required_nested_fields:
+    alert:
+      - severity
+      - status
+      - type
+      - description
+    event:
+      - type
+      - description
+    vss_params:
+      - vlm_params

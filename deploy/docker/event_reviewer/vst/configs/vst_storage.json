@@ -1,0 +1,5 @@
+{
+	"data_path": "./vst_data/",
+	"video_path": "./vst_video/",
+	"total_video_storage_size_MB": 1000000
+}

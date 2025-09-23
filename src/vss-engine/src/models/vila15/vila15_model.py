@@ -274,6 +274,8 @@ class Vila15:
         else:
             seed = 1
 
+        system_prompt = generation_config.pop("system_prompt", "") or ""
+
         # Set the seed
         random.seed(seed)
         numpy.random.seed(seed)
@@ -315,7 +317,7 @@ class Vila15:
                 + " : "
                 + string_of_times
                 + "."
-                + "Make sure the answer contain correct timestamps.<|im_end|>"
+                + f"Make sure the answer contain correct timestamps. {system_prompt} <|im_end|>"
             )
 
         if prompt_template_with_timestamp:

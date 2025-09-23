@@ -1,0 +1,22 @@
+# Additional dependencies for BYOV Testing that are not in the base image
+# The base image already has: langchain, langchain-openai, langchain-core, 
+# neo4j, pandas, numpy, matplotlib, PyYAML, requests, tqdm, openai, nvtx
+
+
+# Web and API dependencies
+sse-starlette
+sseclient-py
+
+# Data processing
+openpyxl
+xlsxwriter
+
+# Visualization
+seaborn
+
+# Async and concurrency
+asyncio-mqtt
+
+# JSON and data handling
+jsonpatch
+

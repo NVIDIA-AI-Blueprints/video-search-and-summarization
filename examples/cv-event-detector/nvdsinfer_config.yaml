@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+class-attrs-all:
+  pre-cluster-threshold: 0.5
+property:
+  cluster-mode: 4
+  gie-unique-id: 1
+  custom-lib-path: tao_post_processor/libnvds_infercustomparser_tao.so
+  data-format: channels_first
+  infer-dims: 3;544;960
+  maintain-aspect-ratio: 1
+  model-color-format: 0
+  symmetric-padding: 1
+  # std: 1
+  net-scale-factor: 0.00392156863
+  network-mode: 2
+  network-type: 0
+  num-detected-classes: 5
+  onnx-file:  /tmp/via/data/models/resnet50_trafficamnet_rtdetr.onnx
+  model-engine-file: /tmp/via/data/models/resnet50_trafficamnet_rtdetr.onnx_b4_gpu0_fp16.engine
+  parse-bbox-func-name: NvDsInferParseCustomDDETRTAO
+  workspace-size: 1048576
+  labelfile-path: labels.txt

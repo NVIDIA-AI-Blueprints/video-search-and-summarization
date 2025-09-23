@@ -10,13 +10,17 @@
 # its affiliates is strictly prohibited.
 ######################################################################################################
 
+import logging
 import os
+import re
 import time
 from logging import Logger
 
 import gradio as gr
 
 from utils import MediaFileInfo, StreamSettingsCache
+
+CAMERA_ID_PATTERN = r"^(?:camera_(\d+)|video_(\d+)|default)?$"
 
 
 def get_live_stream_preview_chunks(ls_id):
@@ -189,6 +193,8 @@ class RetrieveCache:
 
         # Map settings to Gradio updates
         updates = [
+            gr.update(value=id_settings.get("summarize", True), interactive=True),  # summarize
+            gr.update(value=id_settings.get("camera_id", ""), interactive=True),  # camera_id
             gr.update(value=id_settings.get("enable_chat", False), interactive=True),  # enable_chat
             gr.update(value=id_settings.get("chunk_duration", 10), interactive=True),  # chunk_size
             gr.update(
@@ -246,9 +252,6 @@ class RetrieveCache:
             gr.update(
                 value=id_settings.get("rag_batch_size", 100), interactive=True
             ),  # rag_batch_size
-            gr.update(
-                value=id_settings.get("rag_type", "vector-rag"), interactive=True
-            ),  # rag_type
             gr.update(value=id_settings.get("rag_top_k", 10), interactive=True),  # rag_top_k
             gr.update(
                 value=id_settings.get("enable_cv_metadata", False), interactive=True
@@ -266,3 +269,32 @@ class RetrieveCache:
         ]
 
         return updates
+
+
+def validate_camera_id(camera_id_value, logger: Logger = None):
+    """Validate camera_id against the required pattern."""
+    if camera_id_value and not re.match(CAMERA_ID_PATTERN, camera_id_value):
+        if not logger:
+            logger = logging.getLogger(__name__)
+        logger.error(
+            "Invalid Video ID format. Must be 'camera_' or 'video_' "
+            "followed by a number (e.g., 'camera_1')."
+        )
+        raise gr.Error(
+            (
+                "Invalid Video ID format. Must be 'camera_' or 'video_' "
+                "followed by a number (e.g., 'camera_1')."
+            ),
+            print_exception=False,
+        )
+    return
+
+
+def validate_question(question_textbox, logger: Logger = None):
+    """Validate question textbox"""
+    if not question_textbox.strip():
+        if not logger:
+            logger = logging.getLogger(__name__)
+        logger.error("Question must be a valid string.")
+        raise gr.Error("Question must be a valid string.", print_exception=False)
+    return

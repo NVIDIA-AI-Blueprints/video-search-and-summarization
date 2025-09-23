@@ -21,7 +21,6 @@ fi
 CONFIGS_DIR="$1"
 OUT_DIR="$2"
 
-cp "$CONFIGS_DIR/config.yaml" "$OUT_DIR/default_config.yaml"
 cp "$CONFIGS_DIR/runtime_stats.yaml" "$OUT_DIR/default_runtime_stats.yaml"
 cp -r "$CONFIGS_DIR/guardrails" "$OUT_DIR/guardrails_config"
 cp "$CONFIGS_DIR/riva_asr_grpc_conf.yaml" "$OUT_DIR/riva_asr_grpc_conf.yaml"

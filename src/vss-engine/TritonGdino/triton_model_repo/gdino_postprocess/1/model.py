@@ -48,10 +48,10 @@ def post_process(pred_logits, pred_boxes, pos_maps, target_sizes, device="cuda",
         if pos_maps[label_ind].sum() != 0:
             pos_maps[label_ind] = pos_maps[label_ind] / pos_maps[label_ind].sum()
 
-    pos_maps = pos_maps.to(device)  # Move pos_maps to GPU
+    pos_maps = pos_maps.to(device).cuda()  # Move pos_maps to GPU
 
     # prob_to_label = torch.matmul(prob_to_token, pos_maps.T)
-    prob_to_label = prob_to_token @ pos_maps.T
+    prob_to_label = prob_to_token.cuda() @ pos_maps.T
 
     prob = prob_to_label
 
@@ -74,7 +74,7 @@ def post_process(pred_logits, pred_boxes, pos_maps, target_sizes, device="cuda",
     )
 
     # Take corresponding topk boxes
-    boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).expand(-1, -1, 4))
+    boxes = torch.gather(boxes.cuda(), 1, topk_boxes.cuda().unsqueeze(-1).expand(-1, -1, 4))
 
     boxes = boxes * target_sizes[:, None, :].to(device)
     # Clamp bounding box coordinates

@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+
+  nv-cv-event-detector:
+    image: ${NV_CV_EVENT_DETECTOR_IMAGE:-nvcr.io/nvidia/blueprint/nv-cv-event-detector:2.4.0${IS_SBSA:+-sbsa}}
+    networks:
+      - vss-shared-network
+    shm_size: '16gb'
+    runtime: nvidia
+    ports:
+      - "${NV_CV_EVENT_DETECTOR_API_PORT:-23491}:${NV_CV_EVENT_DETECTOR_API_PORT:-23491}"
+    entrypoint: ["/opt/nvidia/nv-cv-event-detector/start_nv_cv_event_detector.sh"]
+
+    volumes:
+      - via-ngc-model-cache:/root/.via/ngc_model_cache
+      - via-hf-cache:/tmp/huggingface
+      - "${ALERT_REVIEW_MEDIA_BASE_DIR:-/dummy}${ALERT_REVIEW_MEDIA_BASE_DIR:+:${ALERT_REVIEW_MEDIA_BASE_DIR:-}}"
+      - cv-input-dir:/tmp
+
+    environment:
+      NV_CV_EVENT_DETECTOR_API_PORT: ${NV_CV_EVENT_DETECTOR_API_PORT:-23491}
+      INSTALL_PROPRIETARY_CODECS: "true"
+      USE_GDINO: "${USE_GDINO:-true}"
+      DISABLE_SOM_OVERLAY: "${DISABLE_SOM_OVERLAY:-false}"
+      USE_TRACKER_CONFIG: "${USE_TRACKER_CONFIG:-/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml}"
+      CLIP_CACHE_PRE_EV_TIME: "${CLIP_CACHE_PRE_EV_TIME:-5}" #5s
+      CLIP_CACHE_POST_EV_TIME: "${CLIP_CACHE_POST_EV_TIME:-20}" #25s
+      ENABLE_FILE_STREAMING_MODE: "${ENABLE_FILE_STREAMING_MODE:-false}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-}"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+    ipc: host
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${NV_CV_EVENT_DETECTOR_API_PORT:-23491}/health"]
+      interval: 30s
+      timeout: 20s
+      retries: 50
+      start_period: 90s
+
+
+
+  cv-ui:
+    image: ${CV_UI_IMAGE:-nvcr.io/nvidia/blueprint/nv-cv-event-detector-ui:2.4.0}
+    networks:
+      - vss-shared-network
+    volumes:
+      - "${ALERT_REVIEW_MEDIA_BASE_DIR:-/dummy}${ALERT_REVIEW_MEDIA_BASE_DIR:+:${ALERT_REVIEW_MEDIA_BASE_DIR:-}}"
+      - cv-input-dir:/tmp
+    environment:
+      - BACKEND_IP=via-server
+      - BACKEND_PORT=${VSS_BACKEND_PORT:-8000}
+      - NV_CV_EVENT_DETECTOR_API_URL=${NV_CV_EVENT_DETECTOR_API_URL:-http://nv-cv-event-detector:${NV_CV_EVENT_DETECTOR_API_PORT:-23491}}
+      - NV_VST_API_URL=http://api-gateway:80/api/storage
+      - NV_ENABLE_VST=${NV_ENABLE_VST:-true}
+      - NV_ENABLE_ALERTBRIDGE=${NV_ENABLE_ALERTBRIDGE:-true}
+      - NV_ALERTBRIDGE_API_BASE=http://api-gateway:80/api/alertbridge
+      - FILTERED_CLIP_PATH=${ALERT_REVIEW_MEDIA_BASE_DIR?}
+      - NV_SERIALIZE_ALERT_VERIFICATION=${NV_SERIALIZE_ALERT_VERIFICATION:-false}
+    runtime: nvidia
+    ports:
+      - 7862:7862
+    stdin_open: true
+    tty: true
+    depends_on:
+      nv-cv-event-detector:
+        condition: service_healthy
+
+
+
+
+volumes:
+  cv-input-dir:
+  via-ngc-model-cache:
+  via-hf-cache:
+
+networks:
+  vss-shared-network:
+    external: true
+
+

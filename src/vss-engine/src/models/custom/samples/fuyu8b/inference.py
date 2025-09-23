@@ -24,7 +24,7 @@ class Inference:
         self.processor = FuyuProcessor.from_pretrained(self.model_path)
         self.model = FuyuForCausalLM.from_pretrained(self.model_path, device_map=DEVICE)
 
-    def generate(self, prompt: str, input: torch.tensor, configs: Dict):
+    def generate(self, prompt: str, input: torch.tensor, configs: Dict, video_frames_times: list):
         assert input.dim() == 4
         images = list(torch.unbind(input, dim=0))
         prompt = "These are images from the same video. " + prompt
