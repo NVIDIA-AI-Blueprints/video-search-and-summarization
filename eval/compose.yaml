@@ -13,7 +13,7 @@
 services:
 
   byov:
-    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.3.1}
+    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0}
     networks:
       - byov_network
     runtime: nvidia
