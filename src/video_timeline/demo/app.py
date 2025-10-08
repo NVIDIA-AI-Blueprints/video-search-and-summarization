@@ -12,7 +12,7 @@ import gradio as gr
 from gradio_videotimeline import VideoTimeline
 
 example = {
-    "video": "https://github.com/gradio-app/gradio/raw/main/demo/video_component/files/world.mp4",
+    "video": "https://github.com/gradio-app/gradio/raw/refs/tags/gradio@5.11.0/demo/video_component/files/world.mp4",
     "subtitles": None,
     'timestamps': [2, 5, 10, 15, 20, 28],
     'marker_labels': ['Aa', 'Bb', 'Cc', 'Dd', 'Ee', 'Ff'],
