@@ -75,9 +75,9 @@ The platform requirement can vary depending on the configuration and deployment 
 | ------------------|-----|-----|-----------|----------| --------------- | 
 | Local deployment (Default topology) | Local (Cosmos Reason1 7B)| Local (Llama 3.1 70B) | Local | Local | 8xB200, 8xH200, 8xH100, 8xA100 (80GB), 8xL40S, 8xRTX PRO 6000 Blackwell |
 | Local deployment (Reduced Compute) | Local (Cosmos Reason1 7B) | Local (Llama 3.1 70B) | Local | Local | 4xB200, 4xH200, 4xH100, 4xA100 (80GB), 6xL40S, 4xRTX PRO 6000 Blackwell |
-| Local deployment (Single GPU) | Local (Cosmos Reason1 7B) | Local (Llama 3.1 8b low mem mode) | Local | Local | 1xB200, 1xH200, 1xH100, 1xA100 (80GB), 1xRTX PRO 6000 Blackwell |
-| Local VLM deployment | Local(Cosmos Reason1 7B) | Remote | Remote | Remote | 1xB200, 1xH200, 1xH100, 2xA100 (80GB), 1xL40S, 1xRTX PRO 6000 Blackwell, Jetson Thor |
-| Complete remote deployment | Remote| Remote | Remote | Remote | Minimum 8GB VRAM GPU, Jetson Thor |
+| Local deployment (Single GPU) | Local (Cosmos Reason1 7B) | Local (Llama 3.1 8b low mem mode) | Local | Local | 1xB200, 1xH200, 1xH100, 1xA100 (80GB), 1xRTX PRO 6000 Blackwell, DGX Spark |
+| Local VLM deployment | Local(Cosmos Reason1 7B) | Remote | Remote | Remote | 1xB200, 1xH200, 1xH100, 2xA100 (80GB), 1xL40S, 1xRTX PRO 6000 Blackwell, Jetson Thor, DGX Spark |
+| Complete remote deployment | Remote| Remote | Remote | Remote | Minimum 8GB VRAM GPU, Jetson Thor, DGX Spark |
 
 
 ## Quickstart Guide
@@ -109,6 +109,10 @@ Please refer to [Prerequisites section here for more information](https://docs.n
 #### System Requirements (NVIDIA Jetson Thor)
 
 Please refer to [NVIDIA Jetson Thor Setup Instructions](https://docs.nvidia.com/vss/latest/content/prereqs_thor.html).
+
+#### System Requirements (NVIDIA DGX Spark)
+
+Please refer to [NVIDIA DGX Spark Setup Instructions](https://docs.nvidia.com/vss/latest/content/prereqs_dgx_spark.html).
 
 
 ### Helm Chart Deployment

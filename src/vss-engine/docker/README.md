@@ -26,6 +26,9 @@ docker login nvcr.io -u '$oauthtoken' -p $NGC_API_KEY
 ```bash
 export BASE_IMG_NAME="nvcr.io/nvidia/blueprint/vss-engine-base:2.4.0"
 
+# For DGX Spark
+# export BASE_IMG_NAME="nvcr.io/nvidia/blueprint/vss-engine-base:2.4.0-sbsa"
+
 DOCKER_BUILDKIT=1 docker build --network host --progress=plain --build-arg "BASE_IMAGE=$BASE_IMG_NAME" -t vss-engine:<image_tag> -f Dockerfile ..
 ```
 
