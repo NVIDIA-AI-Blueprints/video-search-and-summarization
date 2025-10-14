@@ -101,6 +101,7 @@ functions:
       image: false
       cot: false
       top_k: 5
+      #disable_entity_extraction: True  # uncomment this line for DGX Spark
     tools:
       llm: chat_llm
       db: graph_db
