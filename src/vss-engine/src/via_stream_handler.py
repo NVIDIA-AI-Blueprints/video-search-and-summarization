@@ -2716,12 +2716,9 @@ class ViaStreamHandler:
         with self._lock:
             self._alert_info_map[ainfo.alert_id] = ainfo
 
-        current_config = deepcopy(self._ca_rag_config)
-        current_config["context_manager"]["uuid"] = req_info.stream_id
-        current_config["functions"]["notification"]["params"]["events"] = self.get_event_list(
-            liveStreamId
-        )
-        req_info._ctx_mgr.configure(current_config)
+        if req_info._ctx_mgr:
+            ca_rag_config = self.update_ca_rag_config(req_info)
+            req_info._ctx_mgr.configure(ca_rag_config)
 
         return ainfo
 
@@ -2739,12 +2736,9 @@ class ViaStreamHandler:
 
         if lsinfo.req_info:
             if lsinfo.req_info[0]._ctx_mgr:
-                current_config = deepcopy(self._ca_rag_config)
-                current_config["context_manager"]["uuid"] = lsinfo.req_info[0].stream_id
-                current_config["functions"]["notification"]["params"]["events"] = (
-                    self.get_event_list(liveStreamId)
-                )
-                lsinfo.req_info[0]._ctx_mgr.configure(current_config)
+                req_info = lsinfo.req_info[0]
+                ca_rag_config = self.update_ca_rag_config(req_info)
+                req_info._ctx_mgr.configure(ca_rag_config)
         logger.info("Removed alert %s for live stream %s", alert_id, lsinfo.asset.asset_id)
 
     def live_stream_alerts(self):
@@ -2821,12 +2815,9 @@ class ViaStreamHandler:
         with self._lock:
             self._alert_info_map[ainfo.alert_id] = ainfo
 
-        current_config = deepcopy(self._ca_rag_config)
-        current_config["context_manager"]["uuid"] = req_info.stream_id
-        current_config["functions"]["notification"]["params"]["events"] = self.get_event_list(
-            assetId
-        )
-        req_info._ctx_mgr.configure(current_config)
+        if req_info._ctx_mgr:
+            ca_rag_config = self.update_ca_rag_config(req_info)
+            req_info._ctx_mgr.configure(ca_rag_config)
 
         return ainfo
 
@@ -2843,12 +2834,8 @@ class ViaStreamHandler:
             req_info = self._request_info_map[requestId]
 
         if req_info._ctx_mgr:
-            current_config = deepcopy(self._ca_rag_config)
-            current_config["context_manager"]["uuid"] = req_info.stream_id
-            current_config["functions"]["notification"]["params"]["events"] = self.get_event_list(
-                ainfo.liveStreamId
-            )
-            req_info._ctx_mgr.configure(current_config)
+            ca_rag_config = self.update_ca_rag_config(req_info)
+            req_info._ctx_mgr.configure(ca_rag_config)
         logger.info("Removed alert %s for live stream %s", alert_id, req_info.assets[0].asset_id)
 
     def stop(self, force=False):
@@ -3542,6 +3529,9 @@ class ViaStreamHandler:
             req_info.delete_external_collection,
         )
 
+        event_list = self.get_event_list(req_info.stream_id)
+        if event_list:
+            ca_rag_config["functions"]["notification"]["params"]["events"] = event_list
         return ca_rag_config
 
     def _get_request_fps(self, req_info: RequestInfo) -> float:

@@ -17,7 +17,7 @@
 
 services:
   via-server:
-    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0}
+    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0${IS_SBSA:+-sbsa}}
     shm_size: '16gb'
     runtime: nvidia
     ports:
@@ -119,6 +119,7 @@ services:
       ALERT_REVIEW_SKIP_GUARDRAILS: "${ALERT_REVIEW_SKIP_GUARDRAILS:-true}"
       VLM_SYSTEM_PROMPT: "${VLM_SYSTEM_PROMPT:-}"
       ALERT_REVIEW_DEFAULT_VLM_SYSTEM_PROMPT: "${ALERT_REVIEW_DEFAULT_VLM_SYSTEM_PROMPT:-}"
+      VLLM_GPU_MEMORY_UTILIZATION: "${VLLM_GPU_MEMORY_UTILIZATION:-}"
       # OpenTelemetry Configuration (Full VIA Engine)
       ENABLE_VIA_HEALTH_EVAL: "${ENABLE_VIA_HEALTH_EVAL:-false}"
       VIA_ENABLE_OTEL: "${VIA_ENABLE_OTEL:-false}"

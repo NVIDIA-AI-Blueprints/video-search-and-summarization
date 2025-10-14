@@ -17,7 +17,7 @@ RUN --mount=type=bind,source=binaries/gradio_videotimeline-1.0.2-py3-none-any.wh
     pip install --no-deps /tmp/gradio_videotimeline-1.0.2-py3-none-any.whl
 
 
-RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v1.0.0 /tmp/vss-ctx-rag
+RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v1.0.1 /tmp/vss-ctx-rag
 ARG TARGETARCH
 RUN pip install /tmp/vss-ctx-rag --no-deps && \
     if [ "$TARGETARCH" = "amd64" ]; then \

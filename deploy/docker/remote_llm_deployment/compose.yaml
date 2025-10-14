@@ -17,7 +17,7 @@
 
 services:
   via-server:
-    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0}
+    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0${IS_SBSA:+-sbsa}}
     shm_size: '16gb'
     runtime: nvidia
     ports:
