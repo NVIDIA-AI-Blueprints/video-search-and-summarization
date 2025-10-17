@@ -1,0 +1,328 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+# VSS Sample Performance Test Configuration
+# This file demonstrates all benchmark modes using videos available in the VSS container
+
+# Global test settings
+global:
+  # VSS backend URL for the API (can be overridden by VIA_BACKEND env var)
+  vss_backend: "http://localhost:8000"
+
+  # Output directory for test results
+  output_dir: "vss-sample-perf-report"
+
+  # GPU configuration
+  vlm_gpus: [0, 1]  # Adjust based on your system
+  llm_gpus: [2, 3]  # Adjust based on your system
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+
+  # /summarize API parameters
+  summarize_api_params:
+    temperature: 0.7
+    max_tokens: 150
+    enable_chat: true
+    enable_chat_history: false
+    enable_audio: false
+    summarize: true
+    enable_cv_metadata: false
+    cv_pipeline_prompt: "person;0.5"
+
+  # /chat/completions API parameters
+  chat_api_params:
+    temperature: 0.7
+    max_tokens: 150
+    top_p: 1.0
+    top_k: 100
+    seed: 1
+
+  # /generate_vlm_captions API parameters
+  vlm_captions_params:
+    temperature: 0.7
+    max_tokens: 150
+
+  # /reviewAlert API parameters
+  alert_review_params:
+    temperature: 0.4
+    max_tokens: 1
+    top_p: 0.9
+    top_k: 40
+    seed: 42
+    chunk_duration: 60
+    chunk_overlap_duration: 5
+    # Use VSS default value
+    # num_frames_per_chunk: 10
+
+  # Default prompts
+  prompts:
+    caption: "Describe the key events in this video with timestamps."
+    caption_summarization: "Summarize the captions chronologically."
+    summary_aggregation: "Aggregate summaries into a comprehensive report."
+
+  # Default chat questions
+  chat_questions:
+    - "What are the main events in this video?"
+    - "Are there any safety concerns visible?"
+    - "What is the overall condition or situation?"
+
+# Test scenarios
+test_scenarios:
+
+  # Mode 1: Single File Mode - Testing each video type with chat
+  single_file_test:
+    description: "Demo single file processing with VSS sample videos"
+    benchmark_mode: "single_file"
+    iterations: 2
+    videos:
+      # Traffic monitoring video
+      - filepath: "/opt/nvidia/via/streams/its.mp4"
+        chunk_sizes: [10, 15]
+        prompts:
+          caption: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Start each event description with a start and end time stamp of the event."
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+          summary_aggregation: "Based on the available information, generate a traffic report that is organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+        chat_questions:
+          - "Were there any traffic violations?"
+          - "What types of vehicles were observed?"
+          - "Were there any emergency vehicles present?"
+          - "Was traffic flow normal or obstructed?"
+
+      # Bridge inspection video
+      - filepath: "/opt/nvidia/via/streams/bridge.mp4"
+        chunk_sizes: [10]
+        prompts:
+          caption: "You are a bridge inspection system. Describe the condition of the bridge in the provided video. Start each event description with a start and end time stamp of the event"
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+          summary_aggregation: "Based on the available information, generate a summary that describes the condition of the bridge. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+        chat_questions:
+          - "What is the overall condition of the bridge?"
+          - "Are there any visible signs of damage or wear?"
+          - "What type of bridge structure is this?"
+          - "Are there any safety concerns?"
+
+      # Warehouse monitoring video
+      - filepath: "/opt/nvidia/via/streams/warehouse.mp4"
+        chunk_sizes: [10]
+        prompts:
+          caption: "You are a warehouse monitoring system. Describe the events in this warehouse and look for any anomalies. Start each sentence with start and end timestamp of the event."
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+          summary_aggregation: "Based on the available information, generate a summary that captures the important events in the video. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+        chat_questions:
+          - "Were there any safety violations?"
+          - "Did any workers drop boxes or equipment?"
+          - "Was proper PPE being worn?"
+          - "Were there any operational inefficiencies?"
+
+      # Conference/presentation video
+      - filepath: "/opt/nvidia/via/streams/Jensen_AI_Summit_India_2024_clip.mp4"
+        chunk_sizes: [20]
+        prompts:
+          caption: "Write a concise and clear dense caption for the provided NVIDIA AI Summit video, focusing on the technologies and products."
+          caption_summarization: "You should summarize the following events of a conference. The output should be in bullet points with timestamps. Do not return anything else except the bullet points."
+          summary_aggregation: "Based on the available information, generate a summary that captures the important events in the video. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+        chat_questions:
+          - "What AI technologies were discussed?"
+          - "What NVIDIA products were mentioned?"
+          - "What were the key announcements?"
+          - "Who were the speakers?"
+
+  # Mode 2: File Burst Mode - Testing concurrent processing
+  file_burst_test:
+    description: "Demo concurrent file processing with varying loads"
+    benchmark_mode: "file_burst"
+    summarize_api_params:
+      enable_chat: false
+    videos:
+      # Short video for higher concurrency testing
+      - filepath: "/opt/nvidia/via/streams/its.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8]
+        # target_latency_seconds: 60.0
+        # target_latency_tolerance: 5.0
+        prompts:
+          caption: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Start each event description with a start and end time stamp of the event."
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+          summary_aggregation: "Based on the available information, generate a traffic report that is organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+
+      # Medium video for moderate concurrency
+      - filepath: "/opt/nvidia/via/streams/bridge.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4]
+        prompts:
+          caption: "You are a bridge inspection system. Describe the condition of the bridge in the provided video. Start each event description with a start and end time stamp of the event"
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+          summary_aggregation: "Based on the available information, generate a summary that describes the condition of the bridge. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+
+      # Longer video for lower concurrency
+      - filepath: "/opt/nvidia/via/streams/warehouse.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2]
+        prompts:
+          caption: "You are a warehouse monitoring system. Describe the events in this warehouse and look for any anomalies. Start each sentence with start and end timestamp of the event."
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+          summary_aggregation: "Based on the available information, generate a summary that captures the important events in the video. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+
+      # Conference video for diverse content testing
+      - filepath: "/opt/nvidia/via/streams/Jensen_AI_Summit_India_2024_clip.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 3]
+        prompts:
+          caption: "Write a concise and clear dense caption for the provided NVIDIA AI Summit video, focusing on the technologies and products."
+          caption_summarization: "You should summarize the following events of a conference. The output should be in bullet points with timestamps. Do not return anything else except the bullet points."
+          summary_aggregation: "Based on the available information, generate a summary that captures the important events in the video. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+
+  # Mode 3: Max Live Streams Mode - Testing stream capacity
+  # Note: These use hypothetical RTSP URLs for demonstration
+  # In production, replace with actual RTSP stream URLs and corresponding captions
+  max_live_streams_test:
+    description: "Demo maximum concurrent live streams capacity"
+    benchmark_mode: "max_live_streams"
+    summarize_api_params:
+      enable_chat: false
+      # vlm_input_width: 756   # 4K VLM input width
+      # vlm_input_height: 392  # 4K VLM input height
+    videos:
+      # Traffic monitoring stream
+      - name: "traffic_cam_1"
+        rtsp_url: "rtsp://localhost:8554/traffic/cam1"  # Replace with actual RTSP URL
+        chunk_sizes: [10]
+        latency_threshold_seconds: 12
+        summary_duration: 30
+        initial_stream_count: 3
+        chunk_overlap_duration: 2
+        stability_check_interval: 60  # Seconds between stability checks (default: 60)
+        prompts:
+          caption: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Start each event description with a start and end time stamp of the event."
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+
+      # Warehouse monitoring stream
+      - name: "warehouse_cam_1"
+        rtsp_url: "rtsp://localhost:8554/warehouse/cam1"  # Replace with actual RTSP URL
+        chunk_sizes: [15]
+        latency_threshold_seconds: 20
+        summary_duration: 60
+        initial_stream_count: 2
+        prompts:
+          caption: "You are a warehouse monitoring system. Describe the events in this warehouse and look for any anomalies. Start each sentence with start and end timestamp of the event."
+          summary_aggregation: "Based on the available information, generate a summary that captures the important events in the video. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+
+  # Mode 4: Alert Review Burst Mode - Testing alert processing
+  alert_review_test:
+    description: "Demo alert review API performance"
+    benchmark_mode: "alert_review_burst"
+    videos:
+      # Traffic alerts
+      - filepath: "/opt/nvidia/via/streams/its.mp4"
+        concurrency_levels: [1, 2, 4]
+        alert_prompts:
+          - "Is there a traffic collision?"
+          - "Are vehicles following traffic rules?"
+          - "Is there an emergency vehicle present?"
+          - "Is traffic flow obstructed?"
+          - "Are pedestrians crossing safely?"
+        system_prompt: "You are a traffic monitoring AI. Answer questions about traffic safety and violations. Respond with YES or NO only."
+
+      # Warehouse safety alerts
+      - filepath: "/opt/nvidia/via/streams/warehouse.mp4"
+        concurrency_levels: [1, 2]
+        alert_prompts:
+          - "Did a worker drop any boxes?"
+          - "Is proper PPE being worn?"
+          - "Is there a forklift safety violation?"
+          - "Are workers in restricted areas?"
+          - "Is there any equipment malfunction?"
+          - "Are safety protocols being followed?"
+        system_prompt: "You are a warehouse safety monitor. Answer questions about safety violations and incidents. Respond with YES or NO only."
+        target_latency_seconds: 45.0
+
+      # Infrastructure alerts with detailed response
+      - filepath: "/opt/nvidia/via/streams/bridge.mp4"
+        concurrency_levels: [1, 2]
+        alert_prompts:
+          - "Are there visible cracks in the bridge?"
+          - "Is there structural damage?"
+          - "Are support structures intact?"
+          - "Is there unusual vibration or movement?"
+        system_prompt: "You are a bridge inspection AI. Answer questions about structural integrity. Respond with detailed response."
+        alert_review_params:
+          max_tokens: 1024
+          # enable_reasoning: true
+
+  # Mode 5: VLM Captions Burst Test
+  vlm_captions_burst_test:
+    description: "Test VLM caption generation performance with concurrent requests"
+    benchmark_mode: "vlm_captions_burst"
+    # VLM-specific prompts (different from summarization prompts)
+    vlm_prompts:
+      prompt: "Write a concise and clear dense caption for the provided warehouse video, focusing on irregular or hazardous events such as boxes falling, workers not wearing PPE, workers falling, workers taking photographs, workers chitchatting, forklift stuck, etc. Start and end each sentence with a time stamp."
+      system_prompt: "You are a warehouse safety monitoring assistant that provides detailed video captions."
+    videos:
+      - filepath: "/opt/nvidia/via/streams/warehouse.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4]
+        # Example: Override VLM captions API params
+        vlm_captions_params:
+          temperature: 0.5
+          max_tokens: 100
+        target_latency_seconds: 60.0
+        target_latency_tolerance: 5.0
+
+  # Mode 6: Chat Completions Burst Test
+  chat_completions_burst_test:
+    description: "Test chat/completions API performance with concurrent queries"
+    benchmark_mode: "chat_completions_burst"
+    iterations: 3
+    ingestion_wait_seconds: 3  # Wait time after ingestion before starting queries
+
+    # Ingestion configuration (summarization disabled, chat enabled)
+    summarize_api_params:
+      summarize: false
+      enable_chat: true
+      enable_chat_history: true
+
+    # List of questions to query during the test
+    chat_questions:
+      - "Did a worker drop any boxes?"
+      - "Is the worker operating the forklift wearing a safety vest?"
+      - "When did the forklift first arrive in the scene?"
+      - "Did anyone cross the restricted area?"
+      - "When did the worker drop the box?"
+      - "How many boxes did the worker drop?"
+      - "Was there any breach of safety protocol?"
+      - "What was the breach of safety protocol?"
+      - "When did the worker take photos in the warehouse?"
+      - "How many shelves do you see with letters?"
+
+    videos:
+      - filepath: "/opt/nvidia/via/streams/warehouse_82min.mp4"
+        prompts:
+          caption: "You are a warehouse monitoring system. Describe the events in this warehouse and look for any anomalies. Start each sentence with start and end timestamp of the event."
+          caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+          summary_aggregation: "Based on the available information, generate a summary that captures the important events in the video. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8, 16, 32, 64]
+        # Example: Override chat API params for this video
+        chat_api_params:
+          temperature: 0.5
+          max_tokens: 1024
+          top_p: 0.9
+          top_k: 40
+          seed: 42
