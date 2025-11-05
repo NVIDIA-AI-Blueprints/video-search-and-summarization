@@ -17,11 +17,11 @@ cd examples/cv-event-detector
 ```
 
 ```sh
-#For X86
+#For X86 & Thor
 ALERT_REVIEW_MEDIA_BASE_DIR=/tmp/alert-media-dir docker compose -f compose.yaml up -d
 
-# For Thor
-IS_AARCH64=1 ALERT_REVIEW_MEDIA_BASE_DIR=/tmp/alert-media-dir docker compose -f compose.yaml up -d
+# For DGX Spark
+IS_SBSA=1 ALERT_REVIEW_MEDIA_BASE_DIR=/tmp/alert-media-dir docker compose -f compose.yaml up -d
 ```
 
 > **NOTE:** Make sure the `ALERT_REVIEW_MEDIA_BASE_DIR` is the same as used for VSS event  deployment.
