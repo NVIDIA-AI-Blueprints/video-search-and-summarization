@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AI-powered workplace safety monitoring for SMBs. Real-time detection of safety violations, PPE compliance, and hazard prevention.">
+    <title>SafeWatch AI - AI-Powered Workplace Safety Monitoring</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .feature-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .pulse-animation {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+
+        .hero-image {
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600"><rect fill="%23667eea" width="800" height="600"/><circle cx="400" cy="300" r="150" fill="%23764ba2" opacity="0.3"/><circle cx="250" cy="400" r="100" fill="%23ffffff" opacity="0.1"/><circle cx="550" cy="200" r="120" fill="%23ffffff" opacity="0.1"/></svg>') center/cover;
+        }
+
+        .success-message {
+            display: none;
+        }
+
+        .success-message.show {
+            display: block;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm fixed w-full top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <i class="fas fa-shield-alt text-3xl gradient-text mr-3"></i>
+                    <span class="text-2xl font-bold gradient-text">SafeWatch AI</span>
+                </div>
+                <div class="hidden md:flex space-x-8">
+                    <a href="#features" class="text-gray-700 hover:text-purple-600 transition">Features</a>
+                    <a href="#how-it-works" class="text-gray-700 hover:text-purple-600 transition">How It Works</a>
+                    <a href="#pricing" class="text-gray-700 hover:text-purple-600 transition">Pricing</a>
+                    <a href="#waitlist" class="gradient-bg text-white px-6 py-2 rounded-lg hover:opacity-90 transition">Join Waitlist</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="pt-24 pb-16 gradient-bg text-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+                <div>
+                    <div class="inline-block bg-white bg-opacity-20 rounded-full px-4 py-2 mb-6">
+                        <span class="text-sm font-semibold">🚀 Now in Early Access</span>
+                    </div>
+                    <h1 class="text-5xl md:text-6xl font-bold mb-6 leading-tight">
+                        AI-Powered Safety Monitoring for Your Workplace
+                    </h1>
+                    <p class="text-xl mb-8 text-purple-100">
+                        Detect safety violations in real-time. Monitor PPE compliance. Prevent incidents before they happen.
+                        All powered by advanced computer vision AI.
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <a href="#waitlist" class="bg-white text-purple-600 px-8 py-4 rounded-lg font-semibold hover:shadow-xl transition text-center">
+                            Join the Waitlist
+                        </a>
+                        <a href="#how-it-works" class="border-2 border-white px-8 py-4 rounded-lg font-semibold hover:bg-white hover:text-purple-600 transition text-center">
+                            See How It Works
+                        </a>
+                    </div>
+                    <div class="mt-8 flex items-center gap-6 text-sm">
+                        <div class="flex items-center">
+                            <i class="fas fa-check-circle mr-2"></i>
+                            <span>No credit card required</span>
+                        </div>
+                        <div class="flex items-center">
+                            <i class="fas fa-check-circle mr-2"></i>
+                            <span>Setup in minutes</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="relative">
+                    <div class="hero-image rounded-2xl shadow-2xl h-96 flex items-center justify-center">
+                        <div class="text-center">
+                            <i class="fas fa-video text-8xl text-white opacity-80 pulse-animation"></i>
+                            <p class="mt-4 text-xl font-semibold">Real-Time Safety Detection</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="py-12 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+                <div>
+                    <div class="text-4xl font-bold gradient-text">98%</div>
+                    <div class="text-gray-600 mt-2">Detection Accuracy</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold gradient-text">24/7</div>
+                    <div class="text-gray-600 mt-2">Continuous Monitoring</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold gradient-text">&lt;2s</div>
+                    <div class="text-gray-600 mt-2">Alert Response Time</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold gradient-text">50+</div>
+                    <div class="text-gray-600 mt-2">Safety Rules</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 bg-gray-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold text-gray-900 mb-4">Everything You Need for Workplace Safety</h2>
+                <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+                    Our AI analyzes video feeds in real-time to identify safety hazards and compliance issues before they become incidents
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Feature 1 -->
+                <div class="feature-card bg-white p-8 rounded-xl shadow-lg">
+                    <div class="w-16 h-16 gradient-bg rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-hard-hat text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">PPE Compliance</h3>
+                    <p class="text-gray-600 mb-4">
+                        Automatically detect missing hard hats, safety vests, gloves, and other protective equipment.
+                        Get instant alerts when workers enter hazardous areas without proper gear.
+                    </p>
+                    <ul class="space-y-2">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Hard hat detection</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Safety vest monitoring</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Glove compliance</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="feature-card bg-white p-8 rounded-xl shadow-lg">
+                    <div class="w-16 h-16 gradient-bg rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-exclamation-triangle text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">Hazard Detection</h3>
+                    <p class="text-gray-600 mb-4">
+                        Identify unsafe behaviors, equipment violations, and potential hazards in real-time.
+                        Prevent accidents before they happen with proactive monitoring.
+                    </p>
+                    <ul class="space-y-2">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Forklift safety zones</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Slip/trip/fall detection</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Equipment damage alerts</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="feature-card bg-white p-8 rounded-xl shadow-lg">
+                    <div class="w-16 h-16 gradient-bg rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-chart-line text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">Compliance Reports</h3>
+                    <p class="text-gray-600 mb-4">
+                        Generate OSHA-compliant reports automatically. Track incidents, trends, and improvements
+                        with comprehensive analytics and audit trails.
+                    </p>
+                    <ul class="space-y-2">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Automated OSHA reports</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Incident trend analysis</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Video evidence storage</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="feature-card bg-white p-8 rounded-xl shadow-lg">
+                    <div class="w-16 h-16 gradient-bg rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-bell text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">Real-Time Alerts</h3>
+                    <p class="text-gray-600 mb-4">
+                        Receive instant notifications via SMS, email, or webhook when safety violations occur.
+                        Set custom rules and escalation workflows.
+                    </p>
+                    <ul class="space-y-2">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">SMS & email notifications</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Custom alert rules</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Escalation workflows</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="feature-card bg-white p-8 rounded-xl shadow-lg">
+                    <div class="w-16 h-16 gradient-bg rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-video text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">Multi-Camera Support</h3>
+                    <p class="text-gray-600 mb-4">
+                        Connect unlimited RTSP cameras and monitor multiple sites from a single dashboard.
+                        Works with your existing security camera infrastructure.
+                    </p>
+                    <ul class="space-y-2">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">RTSP stream support</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Multi-site management</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Cloud & on-premise</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="feature-card bg-white p-8 rounded-xl shadow-lg">
+                    <div class="w-16 h-16 gradient-bg rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-brain text-3xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">AI-Powered Insights</h3>
+                    <p class="text-gray-600 mb-4">
+                        Ask questions about your safety footage in natural language. Get intelligent summaries
+                        and insights powered by advanced vision-language models.
+                    </p>
+                    <ul class="space-y-2">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Natural language queries</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Automated summaries</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                            <span class="text-gray-600">Temporal reasoning</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section id="how-it-works" class="py-20 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold text-gray-900 mb-4">How SafeWatch AI Works</h2>
+                <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+                    Get up and running in minutes with our simple 3-step process
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-12">
+                <div class="text-center">
+                    <div class="w-20 h-20 gradient-bg rounded-full flex items-center justify-center mx-auto mb-6">
+                        <span class="text-3xl font-bold text-white">1</span>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">Connect Your Cameras</h3>
+                    <p class="text-gray-600">
+                        Simply provide your RTSP camera URLs or upload video files. Works with any standard security camera system.
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-20 h-20 gradient-bg rounded-full flex items-center justify-center mx-auto mb-6">
+                        <span class="text-3xl font-bold text-white">2</span>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">Configure Safety Rules</h3>
+                    <p class="text-gray-600">
+                        Set up custom alert rules for your specific workplace. Define hazard zones, PPE requirements, and notification preferences.
+                    </p>
+                </div>
+
+                <div class="text-center">
+                    <div class="w-20 h-20 gradient-bg rounded-full flex items-center justify-center mx-auto mb-6">
+                        <span class="text-3xl font-bold text-white">3</span>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4">Monitor & Prevent</h3>
+                    <p class="text-gray-600">
+                        Our AI monitors 24/7 and sends instant alerts when violations occur. Review incidents and generate compliance reports.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="py-20 bg-gray-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl font-bold text-gray-900 mb-4">Simple, Transparent Pricing</h2>
+                <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+                    Choose the plan that fits your business size and needs
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <!-- Starter -->
+                <div class="bg-white rounded-2xl shadow-lg p-8 border-2 border-gray-200">
+                    <h3 class="text-2xl font-bold mb-2">Starter</h3>
+                    <p class="text-gray-600 mb-6">Perfect for small businesses</p>
+                    <div class="mb-6">
+                        <span class="text-5xl font-bold">$99</span>
+                        <span class="text-gray-600">/month</span>
+                    </div>
+                    <ul class="space-y-4 mb-8">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>1 site location</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>4 cameras</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>100 hours/month</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Email alerts</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>7-day video retention</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Basic reports</span>
+                        </li>
+                    </ul>
+                    <a href="#waitlist" class="block w-full text-center border-2 border-purple-600 text-purple-600 px-6 py-3 rounded-lg font-semibold hover:bg-purple-50 transition">
+                        Join Waitlist
+                    </a>
+                </div>
+
+                <!-- Pro -->
+                <div class="bg-white rounded-2xl shadow-2xl p-8 border-4 border-purple-600 relative transform md:scale-105">
+                    <div class="absolute -top-4 left-1/2 transform -translate-x-1/2">
+                        <span class="gradient-bg text-white px-4 py-1 rounded-full text-sm font-semibold">Most Popular</span>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-2">Pro</h3>
+                    <p class="text-gray-600 mb-6">For growing operations</p>
+                    <div class="mb-6">
+                        <span class="text-5xl font-bold gradient-text">$499</span>
+                        <span class="text-gray-600">/month</span>
+                    </div>
+                    <ul class="space-y-4 mb-8">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>5 site locations</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>25 cameras</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>500 hours/month</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>SMS + Email + Webhooks</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>30-day video retention</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Advanced analytics</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Priority support</span>
+                        </li>
+                    </ul>
+                    <a href="#waitlist" class="block w-full text-center gradient-bg text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition">
+                        Join Waitlist
+                    </a>
+                </div>
+
+                <!-- Enterprise -->
+                <div class="bg-white rounded-2xl shadow-lg p-8 border-2 border-gray-200">
+                    <h3 class="text-2xl font-bold mb-2">Enterprise</h3>
+                    <p class="text-gray-600 mb-6">For large organizations</p>
+                    <div class="mb-6">
+                        <span class="text-5xl font-bold">Custom</span>
+                    </div>
+                    <ul class="space-y-4 mb-8">
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Unlimited sites</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Unlimited cameras</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Unlimited processing</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>All notification channels</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Custom video retention</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>Dedicated GPU cluster</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>24/7 dedicated support</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fas fa-check text-green-500 mr-3 mt-1"></i>
+                            <span>On-premise deployment</span>
+                        </li>
+                    </ul>
+                    <a href="#waitlist" class="block w-full text-center border-2 border-purple-600 text-purple-600 px-6 py-3 rounded-lg font-semibold hover:bg-purple-50 transition">
+                        Contact Sales
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Waitlist Section -->
+    <section id="waitlist" class="py-20 bg-white">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="gradient-bg rounded-3xl p-12 text-white text-center">
+                <h2 class="text-4xl font-bold mb-4">Join the Waitlist</h2>
+                <p class="text-xl mb-8 text-purple-100">
+                    Be among the first to experience AI-powered workplace safety monitoring.
+                    Early access members get 3 months free!
+                </p>
+
+                <form id="waitlist-form" class="max-w-md mx-auto">
+                    <div class="space-y-4">
+                        <input
+                            type="text"
+                            id="name"
+                            name="name"
+                            placeholder="Your Name"
+                            required
+                            class="w-full px-6 py-4 rounded-lg text-gray-900 focus:outline-none focus:ring-4 focus:ring-purple-300"
+                        >
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            placeholder="Your Email"
+                            required
+                            class="w-full px-6 py-4 rounded-lg text-gray-900 focus:outline-none focus:ring-4 focus:ring-purple-300"
+                        >
+                        <input
+                            type="text"
+                            id="company"
+                            name="company"
+                            placeholder="Company Name (Optional)"
+                            class="w-full px-6 py-4 rounded-lg text-gray-900 focus:outline-none focus:ring-4 focus:ring-purple-300"
+                        >
+                        <select
+                            id="industry"
+                            name="industry"
+                            class="w-full px-6 py-4 rounded-lg text-gray-900 focus:outline-none focus:ring-4 focus:ring-purple-300"
+                        >
+                            <option value="">Select Industry (Optional)</option>
+                            <option value="warehouse">Warehouse & Logistics</option>
+                            <option value="manufacturing">Manufacturing</option>
+                            <option value="construction">Construction</option>
+                            <option value="retail">Retail</option>
+                            <option value="healthcare">Healthcare</option>
+                            <option value="other">Other</option>
+                        </select>
+                        <button
+                            type="submit"
+                            class="w-full bg-white text-purple-600 px-8 py-4 rounded-lg font-bold hover:shadow-xl transition"
+                        >
+                            Join the Waitlist →
+                        </button>
+                    </div>
+                </form>
+
+                <div id="success-message" class="success-message mt-6 bg-green-500 text-white px-6 py-4 rounded-lg">
+                    <i class="fas fa-check-circle mr-2"></i>
+                    <strong>Success!</strong> You've been added to the waitlist. Check your email for next steps!
+                </div>
+
+                <div id="error-message" class="success-message mt-6 bg-red-500 text-white px-6 py-4 rounded-lg">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    <strong>Error:</strong> <span id="error-text">Something went wrong. Please try again.</span>
+                </div>
+
+                <p class="mt-6 text-sm text-purple-100">
+                    By joining, you agree to receive updates about SafeWatch AI. Unsubscribe anytime.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 text-white py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid md:grid-cols-4 gap-8">
+                <div>
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-shield-alt text-2xl text-purple-400 mr-2"></i>
+                        <span class="text-xl font-bold">SafeWatch AI</span>
+                    </div>
+                    <p class="text-gray-400">
+                        AI-powered workplace safety monitoring for the modern enterprise.
+                    </p>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-4">Product</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#features" class="hover:text-white transition">Features</a></li>
+                        <li><a href="#pricing" class="hover:text-white transition">Pricing</a></li>
+                        <li><a href="#how-it-works" class="hover:text-white transition">How It Works</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-4">Company</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#" class="hover:text-white transition">About</a></li>
+                        <li><a href="#" class="hover:text-white transition">Blog</a></li>
+                        <li><a href="#" class="hover:text-white transition">Contact</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-4">Legal</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#" class="hover:text-white transition">Privacy Policy</a></li>
+                        <li><a href="#" class="hover:text-white transition">Terms of Service</a></li>
+                        <li><a href="#" class="hover:text-white transition">Security</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
+                <p>&copy; 2024 SafeWatch AI. All rights reserved. Powered by NVIDIA AI Technology.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="static/js/app.js"></script>
+</body>
+</html>
