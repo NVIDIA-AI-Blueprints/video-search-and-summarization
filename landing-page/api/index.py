@@ -1,28 +1,36 @@
 """
-SafeWatch AI Landing Page Server
-Simple FastAPI server to handle waitlist form submissions
+SafeWatch AI Landing Page - Vercel Serverless API
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
-import json
 import os
+import json
 from datetime import datetime
-import csv
+import boto3
+from botocore.exceptions import ClientError
 
-app = FastAPI(title="SafeWatch AI Landing Page")
+app = FastAPI(title="SafeWatch AI API")
 
-# Data storage file
-WAITLIST_FILE = "waitlist_submissions.json"
-CSV_FILE = "waitlist_submissions.csv"
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Email configuration
+# Environment variables
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@safewatch-ai.com")
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "hello@safewatch-ai.com")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+
+# Use Vercel KV or DynamoDB for data storage in production
+# For now, we'll use a simple JSON approach with proper error handling
 
 
 class WaitlistSubmission(BaseModel):
@@ -48,45 +56,10 @@ class WaitlistSubmission(BaseModel):
         return v
 
 
-def save_to_json(submission: dict):
-    """Save submission to JSON file"""
-    submissions = []
-
-    # Load existing submissions
-    if os.path.exists(WAITLIST_FILE):
-        try:
-            with open(WAITLIST_FILE, 'r') as f:
-                submissions = json.load(f)
-        except json.JSONDecodeError:
-            submissions = []
-
-    # Add new submission
-    submissions.append(submission)
-
-    # Save back to file
-    with open(WAITLIST_FILE, 'w') as f:
-        json.dump(submissions, f, indent=2)
-
-
-def save_to_csv(submission: dict):
-    """Save submission to CSV file"""
-    file_exists = os.path.exists(CSV_FILE)
-
-    with open(CSV_FILE, 'a', newline='') as f:
-        fieldnames = ['timestamp', 'name', 'email', 'company', 'industry']
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-
-        # Write header if file is new
-        if not file_exists:
-            writer.writeheader()
-
-        writer.writerow(submission)
-
-
-def send_email(to_email: str, subject: str, html_content: str):
+def send_email_sendgrid(to_email: str, subject: str, html_content: str):
     """Send email using SendGrid"""
     if not SENDGRID_API_KEY:
-        print("⚠️  SendGrid API key not configured. Set SENDGRID_API_KEY environment variable to enable emails.")
+        print("SendGrid API key not configured, skipping email")
         return False
 
     try:
@@ -103,14 +76,29 @@ def send_email(to_email: str, subject: str, html_content: str):
         )
 
         response = sg.send(message)
-        print(f"✅ Email sent to {to_email} - Status: {response.status_code}")
         return response.status_code in [200, 201, 202]
 
-    except ImportError:
-        print("⚠️  SendGrid not installed. Run: pip install sendgrid")
-        return False
     except Exception as e:
-        print(f"❌ Error sending email: {e}")
+        print(f"Error sending email via SendGrid: {e}")
+        return False
+
+
+def send_email_ses(to_email: str, subject: str, html_content: str):
+    """Send email using AWS SES (fallback option)"""
+    try:
+        ses_client = boto3.client('ses', region_name=AWS_REGION)
+
+        response = ses_client.send_email(
+            Source=FROM_EMAIL,
+            Destination={'ToAddresses': [to_email]},
+            Message={
+                'Subject': {'Data': subject},
+                'Body': {'Html': {'Data': html_content}}
+            }
+        )
+        return True
+    except Exception as e:
+        print(f"Error sending email via SES: {e}")
         return False
 
 
@@ -215,7 +203,9 @@ def send_welcome_email(name: str, email: str):
     </html>
     """
 
-    send_email(email, subject, html_content)
+    # Try SendGrid first, fallback to SES
+    if not send_email_sendgrid(email, subject, html_content):
+        send_email_ses(email, subject, html_content)
 
 
 def send_admin_notification(submission: dict):
@@ -281,7 +271,13 @@ def send_admin_notification(submission: dict):
     </html>
     """
 
-    send_email(ADMIN_EMAIL, subject, html_content)
+    if not send_email_sendgrid(ADMIN_EMAIL, subject, html_content):
+        send_email_ses(ADMIN_EMAIL, subject, html_content)
+
+
+# Simple in-memory storage for Vercel (for demo)
+# In production, use Vercel KV, Redis, or database
+_waitlist_cache = []
 
 
 @app.post("/api/waitlist")
@@ -290,26 +286,17 @@ async def join_waitlist(submission: WaitlistSubmission):
     Handle waitlist form submissions
     """
     try:
-        # Convert to dict
         submission_dict = submission.model_dump()
 
-        # Check for duplicate email
-        if os.path.exists(WAITLIST_FILE):
-            with open(WAITLIST_FILE, 'r') as f:
-                try:
-                    existing = json.load(f)
-                    emails = [s['email'] for s in existing]
-                    if submission.email in emails:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="This email is already on the waitlist"
-                        )
-                except json.JSONDecodeError:
-                    pass
+        # Check for duplicate email (in-memory for demo)
+        if any(s['email'] == submission.email for s in _waitlist_cache):
+            raise HTTPException(
+                status_code=400,
+                detail="This email is already on the waitlist"
+            )
 
-        # Save to both JSON and CSV
-        save_to_json(submission_dict)
-        save_to_csv(submission_dict)
+        # Store submission (in production, use proper database)
+        _waitlist_cache.append(submission_dict)
 
         # Send welcome email to user
         try:
@@ -332,6 +319,7 @@ async def join_waitlist(submission: WaitlistSubmission):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error processing submission: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process submission: {str(e)}"
@@ -341,30 +329,21 @@ async def join_waitlist(submission: WaitlistSubmission):
 @app.get("/api/waitlist/stats")
 async def get_waitlist_stats():
     """
-    Get basic waitlist statistics (for admin use)
+    Get basic waitlist statistics
     """
-    if not os.path.exists(WAITLIST_FILE):
-        return {
-            "total_submissions": 0,
-            "industries": {}
-        }
-
     try:
-        with open(WAITLIST_FILE, 'r') as f:
-            submissions = json.load(f)
-
         # Count by industry
         industries = {}
-        for sub in submissions:
+        for sub in _waitlist_cache:
             industry = sub.get('industry', 'Not specified')
             if not industry:
                 industry = 'Not specified'
             industries[industry] = industries.get(industry, 0) + 1
 
         return {
-            "total_submissions": len(submissions),
+            "total_submissions": len(_waitlist_cache),
             "industries": industries,
-            "latest_submission": submissions[-1]['timestamp'] if submissions else None
+            "latest_submission": _waitlist_cache[-1]['timestamp'] if _waitlist_cache else None
         }
 
     except Exception as e:
@@ -374,35 +353,17 @@ async def get_waitlist_stats():
         )
 
 
-# Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
-@app.get("/")
-async def read_root():
-    """Serve the landing page"""
-    return FileResponse("index.html")
-
-
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "environment": "vercel",
+        "email_configured": bool(SENDGRID_API_KEY)
+    }
 
 
-if __name__ == "__main__":
-    import uvicorn
-
-    print("=" * 60)
-    print("SafeWatch AI Landing Page Server")
-    print("=" * 60)
-    print(f"Server starting at: http://localhost:8080")
-    print(f"Waitlist data will be saved to: {WAITLIST_FILE}")
-    print("=" * 60)
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8080,
-        log_level="info"
-    )
+# Vercel serverless handler
+from mangum import Mangum
+handler = Mangum(app)
