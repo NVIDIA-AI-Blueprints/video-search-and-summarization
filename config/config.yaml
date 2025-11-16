@@ -1,0 +1,89 @@
+# config/config.yaml
+# Top-level config for edge node
+
+device:
+  # Unique identifier for the edge device
+  device_id: "thor-mini-001"
+  # Tenant or customer ID
+  tenant_id: "acme"
+  # Physical location of the device
+  location: "warehouse-1"
+  # Number of days to keep local clips before deletion
+  keep_local_days: 7
+  # Maximum disk usage percentage before stopping ingestion
+  max_disk_usage_percent: 85
+
+network:
+  # MQTT broker address
+  mqtt_broker: "mqtt.example.com"
+  # MQTT broker port
+  mqtt_port: 8883
+  # Use TLS for MQTT connection
+  mqtt_tls: true
+  # Prefix for all published MQTT topics
+  mqtt_topic_prefix: "vss/alerts"
+  # Base URL for the central API server
+  api_base: "http://localhost:5000"
+  # Timeout for API requests in seconds
+  api_timeout_seconds: 15
+  # Use mutual TLS (mTLS) for API authentication
+  use_mtls: false
+  # Paths to client certificates for mTLS
+  cert_paths:
+    client_cert: "/etc/vss/certs/client.crt"
+    client_key: "/etc/vss/certs/client.key"
+    ca_cert: "/etc/vss/certs/ca.crt"
+
+nvr_list:
+  # List of Network Video Recorders (NVRs) to monitor
+  - name: "nvr-1"
+    host: "10.0.1.10"
+    onvif_port: 80
+    username: "admin"
+    password: "pass"
+    # Template for direct RTSP connection if ONVIF fails.
+    # Placeholders: {username}, {password}, {host}, {index}
+    camera_rtsp_template: "rtsp://{username}:{password}@{host}:554/stream{index}"
+    cameras:
+      - id: "cam-01"
+        index: 1
+        label: "Gate A"
+      - id: "cam-02"
+        index: 2
+        label: "Gate B"
+  - name: "nvr-2"
+    host: "10.0.1.11"
+    onvif_port: 80
+    username: "admin"
+    password: "pass"
+    camera_rtsp_template: "rtsp://{username}:{password}@{host}:554/stream{index}"
+    cameras:
+      - id: "cam-03"
+        index: 1
+        label: "Warehouse"
+
+ingest:
+  # Duration of each video chunk in seconds
+  chunk_seconds: 10
+  # Maximum number of local clips to store
+  max_local_clips: 1000
+
+upload:
+  # API endpoint for requesting a presigned upload URL
+  presigned_endpoint: "/api/v1/upload-request"
+  # API endpoint for posting event metadata
+  metadata_endpoint: "/api/v1/metadata"
+  # API endpoint for notifying central server of upload completion
+  upload_complete_endpoint: "/api/v1/upload-complete"
+  # Maximum number of retries for failed uploads
+  max_retries: 10
+  # Initial backoff time in seconds for retries
+  retry_backoff_seconds: 5
+
+sync:
+  # API endpoint for polling model/training packages
+  packages_endpoint: "/api/v1/training-packages"
+  # API endpoint for polling knowledge base manifest
+  kb_manifest_endpoint: "/api/v1/knowledge/manifest"
+  # Interval in seconds to poll for updates
+  poll_interval_seconds: 300

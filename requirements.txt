@@ -1,0 +1,18 @@
+# Core Dependencies
+pyyaml
+pydantic
+jsonschema
+requests
+sqlalchemy
+paho-mqtt
+
+# Web/API Services
+fastapi
+uvicorn[standard]
+
+# Video/CV Dependencies
+ffmpeg-python
+opencv-python
+
+# ONVIF (using zeep as a dependency for python-onvif/onvif-py which were hard to install)
+zeep

@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Edge Node Configuration Schema",
+  "type": "object",
+  "properties": {
+    "device": {
+      "type": "object",
+      "properties": {
+        "device_id": {"type": "string", "description": "Unique identifier for the edge device."},
+        "tenant_id": {"type": "string", "description": "Tenant or customer ID."},
+        "location": {"type": "string", "description": "Physical location of the device."},
+        "keep_local_days": {"type": "integer", "minimum": 1, "description": "Number of days to keep local clips before deletion."},
+        "max_disk_usage_percent": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Maximum disk usage percentage before stopping ingestion."}
+      },
+      "required": ["device_id", "tenant_id", "location", "keep_local_days", "max_disk_usage_percent"],
+      "additionalProperties": false
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "mqtt_broker": {"type": "string", "description": "MQTT broker address."},
+        "mqtt_port": {"type": "integer", "minimum": 1, "maximum": 65535, "description": "MQTT broker port."},
+        "mqtt_tls": {"type": "boolean", "description": "Use TLS for MQTT connection."},
+        "mqtt_topic_prefix": {"type": "string", "description": "Prefix for all published MQTT topics."},
+        "api_base": {"type": "string", "format": "uri", "description": "Base URL for the central API server."},
+        "api_timeout_seconds": {"type": "integer", "minimum": 1, "description": "Timeout for API requests in seconds."},
+        "use_mtls": {"type": "boolean", "description": "Use mutual TLS (mTLS) for API authentication."},
+        "cert_paths": {
+          "type": "object",
+          "properties": {
+            "client_cert": {"type": "string", "description": "Path to client certificate."},
+            "client_key": {"type": "string", "description": "Path to client key."},
+            "ca_cert": {"type": "string", "description": "Path to CA certificate."}
+          },
+          "required": ["client_cert", "client_key", "ca_cert"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["mqtt_broker", "mqtt_port", "mqtt_tls", "mqtt_topic_prefix", "api_base", "api_timeout_seconds", "use_mtls", "cert_paths"],
+      "additionalProperties": false
+    },
+    "nvr_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "description": "Name of the NVR."},
+          "host": {"type": "string", "description": "IP address or hostname of the NVR."},
+          "onvif_port": {"type": "integer", "minimum": 1, "maximum": 65535, "description": "ONVIF port."},
+          "username": {"type": "string", "description": "Username for NVR access."},
+          "password": {"type": "string", "description": "Password for NVR access."},
+          "camera_rtsp_template": {"type": "string", "description": "RTSP template for direct connection."},
+          "cameras": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string", "description": "Unique camera ID."},
+                "index": {"type": "integer", "minimum": 1, "description": "Camera index in the NVR."},
+                "label": {"type": "string", "description": "Human-readable label for the camera."}
+              },
+              "required": ["id", "index", "label"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["name", "host", "onvif_port", "username", "password", "camera_rtsp_template", "cameras"],
+        "additionalProperties": false
+      }
+    },
+    "ingest": {
+      "type": "object",
+      "properties": {
+        "chunk_seconds": {"type": "integer", "minimum": 1, "description": "Duration of each video chunk in seconds."},
+        "max_local_clips": {"type": "integer", "minimum": 1, "description": "Maximum number of local clips to store."}
+      },
+      "required": ["chunk_seconds", "max_local_clips"],
+      "additionalProperties": false
+    },
+    "upload": {
+      "type": "object",
+      "properties": {
+        "presigned_endpoint": {"type": "string", "description": "API endpoint for requesting a presigned upload URL."},
+        "metadata_endpoint": {"type": "string", "description": "API endpoint for posting event metadata."},
+        "upload_complete_endpoint": {"type": "string", "description": "API endpoint for notifying central server of upload completion."},
+        "max_retries": {"type": "integer", "minimum": 0, "description": "Maximum number of retries for failed uploads."},
+        "retry_backoff_seconds": {"type": "integer", "minimum": 1, "description": "Initial backoff time in seconds for retries."}
+      },
+      "required": ["presigned_endpoint", "metadata_endpoint", "upload_complete_endpoint", "max_retries", "retry_backoff_seconds"],
+      "additionalProperties": false
+    },
+    "sync": {
+      "type": "object",
+      "properties": {
+        "packages_endpoint": {"type": "string", "description": "API endpoint for polling model/training packages."},
+        "kb_manifest_endpoint": {"type": "string", "description": "API endpoint for polling knowledge base manifest."},
+        "poll_interval_seconds": {"type": "integer", "minimum": 1, "description": "Interval in seconds to poll for updates."}
+      },
+      "required": ["packages_endpoint", "kb_manifest_endpoint", "poll_interval_seconds"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["device", "network", "nvr_list", "ingest", "upload", "sync"],
+  "additionalProperties": false
+}

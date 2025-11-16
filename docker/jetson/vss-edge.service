@@ -1,0 +1,31 @@
+# /etc/systemd/system/vss-edge.service
+# Sample systemd unit file to run the VSS Edge Node Docker Compose stack
+
+[Unit]
+Description=VSS Edge Node Services (Docker Compose)
+Requires=docker.service
+After=docker.service
+
+[Service]
+# User and Group to run the service as (e.g., 'ubuntu' or 'root')
+# User=ubuntu
+# Group=ubuntu
+
+# Set the working directory to the location of the docker-compose.yaml file
+WorkingDirectory=/home/ubuntu/video-search-and-summarization/docker/jetson
+
+# Command to bring up the services
+ExecStart=/usr/local/bin/docker-compose -f docker-compose.yaml up --build --detach
+
+# Command to bring down the services on stop/restart
+ExecStop=/usr/local/bin/docker-compose -f docker-compose.yaml down
+
+# Restart the service if it fails
+Restart=always
+RestartSec=5
+
+# Ensure the environment variables are set for the services
+Environment=VSS_CONFIG_PATH=/etc/vss/config.yaml
+
+[Install]
+WantedBy=multi-user.target

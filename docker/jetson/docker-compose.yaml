@@ -1,0 +1,126 @@
+version: '3.8'
+
+# NOTE: This compose file is configured for a Jetson device (ARM64) and assumes
+# the use of an NVIDIA base image (e.g., nvcr.io/nvidia/l4t-base) in the Dockerfile.
+# It also assumes the host system has the necessary device mounts for GPU access.
+
+services:
+  # --- vss_cv: Computer Vision Service (REST API) ---
+  vss_cv:
+    build:
+      context: ../..
+      dockerfile: edge_node/Dockerfile
+    image: vss-edge-cv:latest
+    container_name: vss_cv
+    command: uvicorn edge_node.services.vss_cv:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    volumes:
+      - /etc/vss:/etc/vss:ro # Mount config and certs
+      - /opt/vss/models:/opt/vss/models # Mount models
+    environment:
+      - VSS_CONFIG_PATH=/etc/vss/config.yaml
+    # Required for GPU access on Jetson
+    runtime: nvidia
+    restart: always
+
+  # --- vss_aggregator: Event Builder and Local DB API ---
+  vss_aggregator:
+    build:
+      context: ../..
+      dockerfile: edge_node/Dockerfile
+    image: vss-edge-aggregator:latest
+    container_name: vss_aggregator
+    command: uvicorn edge_node.services.vss_aggregator:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+    volumes:
+      - /etc/vss:/etc/vss:ro
+      - /var/lib/vss:/var/lib/vss # Mount DB and clips
+    environment:
+      - VSS_CONFIG_PATH=/etc/vss/config.yaml
+    restart: always
+
+  # --- vss_ingest: RTSP Ingestion and Chunking ---
+  vss_ingest:
+    build:
+      context: ../..
+      dockerfile: edge_node/Dockerfile
+    image: vss-edge-ingest:latest
+    container_name: vss_ingest
+    # NOTE: vss_ingest is a long-running worker, not a simple uvicorn app.
+    # It needs to be started as a Python script.
+    command: python3 edge_node.services.vss_ingest.py
+    volumes:
+      - /etc/vss:/etc/vss:ro
+      - /var/lib/vss:/var/lib/vss
+    environment:
+      - VSS_CONFIG_PATH=/etc/vss/config.yaml
+    # Requires access to host network for RTSP streams
+    network_mode: host
+    restart: always
+
+  # --- vss_uploader: Presigned Upload Worker ---
+  vss_uploader:
+    build:
+      context: ../..
+      dockerfile: edge_node/Dockerfile
+    image: vss-edge-uploader:latest
+    container_name: vss_uploader
+    command: python3 edge_node.services.vss_uploader.py
+    volumes:
+      - /etc/vss:/etc/vss:ro
+      - /var/lib/vss:/var/lib/vss
+    environment:
+      - VSS_CONFIG_PATH=/etc/vss/config.yaml
+    restart: always
+
+  # --- vss_mqtt: MQTT Client (Alerts + Heartbeat) ---
+  vss_mqtt:
+    build:
+      context: ../..
+      dockerfile: edge_node/Dockerfile
+    image: vss-edge-mqtt:latest
+    container_name: vss_mqtt
+    command: python3 edge_node.services.vss_mqtt.py
+    volumes:
+      - /etc/vss:/etc/vss:ro
+    environment:
+      - VSS_CONFIG_PATH=/etc/vss/config.yaml
+    restart: always
+
+  # --- vss_sync: Training & KB Polling ---
+  vss_sync:
+    build:
+      context: ../..
+      dockerfile: edge_node/Dockerfile
+    image: vss-edge-sync:latest
+    container_name: vss_sync
+    command: python3 edge_node.services.vss_sync.py
+    volumes:
+      - /etc/vss:/etc/vss:ro
+      - /opt/vss/models:/opt/vss/models
+      - /var/lib/vss:/var/lib/vss
+    environment:
+      - VSS_CONFIG_PATH=/etc/vss/config.yaml
+    restart: always
+
+  # --- vss_watchdog: Health Checks and Auto-Restart ---
+  vss_watchdog:
+    build:
+      context: ../..
+      dockerfile: edge_node/Dockerfile
+    image: vss-edge-watchdog:latest
+    container_name: vss_watchdog
+    command: uvicorn edge_node.services.vss_watchdog:app --host 0.0.0.0 --port 8003
+    ports:
+      - "8003:8003"
+    volumes:
+      - /etc/vss:/etc/vss:ro
+    environment:
+      - VSS_CONFIG_PATH=/etc/vss/config.yaml
+    restart: always
+    # The watchdog needs to communicate with other services on their ports
+    depends_on:
+      - vss_cv
+      - vss_aggregator
