@@ -35,9 +35,9 @@ python3 -m venv ../videotimeline-env
 source ../videotimeline-env/bin/activate
 ```
 
-4. Install Gradio 5.11.0 dependency
+4. Install Gradio 5.49.1 dependency
 ```bash
-pip3 install gradio==5.11.0
+pip3 install gradio==5.49.1
 ```
 
 5. Install other dependencies using Gradio CLI

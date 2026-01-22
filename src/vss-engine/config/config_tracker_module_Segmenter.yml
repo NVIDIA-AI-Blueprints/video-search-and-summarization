@@ -1,0 +1,66 @@
+####################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+####################################################################################################
+
+# NOTE: This file only provides segmentation module information for config_tracker_MaskTracker.yml.
+# It CANNOT be used as an independent multi-object tracker.
+# Visit https://github.com/NVIDIA-AI-IOT/sam2-onnx-tensorrt to download and prepare SAM2 models for TensorRT.
+# Below networks support SAM2 memory modules for video tracking. To disable memory and use per frame segmentation only,
+# comment out MemoryAttention and MemoryEncoder. MaskDecoder batch size can be increased to 20 to improve performance for that use case.
+
+# [Segmentation Network Info]
+outputLabelNum: 1    # Number of output labels for segmentation
+hiddenDim: 256    # Hidden dimension size
+encoderFeatureDim: 64    # Encoder feature dimension
+inferDims: [3, 1024, 1024]    # Segmentation network input dimension CHW or HWC based on inputOrder
+
+# [Input Preprocessing]
+inputOrder: 0    # Input order among { NCHW=0, NHWC=1 }
+colorFormat: 0    # Segmentation network input color format among {RGB=0, BGR=1 }
+offsets: [123.6750, 116.2800, 103.5300]    # Array of values to be subtracted from each input channel, with length equal to number of channels
+netScaleFactor: 0.0174    # Scaling factor for segmentation network input after substracting offsets
+useVPICropScaler: 1    # Use VPI for image cropping and rescaling
+
+# [Memory Management]
+updateMemBankPrompt: 1    # Whether to update memory bank prompt
+minIouDiff4MemoryUpdate: 0.3196    # Minimum IOU difference for memory update
+minMemoryUpdateConfidence: 0.0089    # Minimum confidence for memory update
+maskMemoryUpdateInterval: 1    # Interval for mask memory update
+minIouPrevFrame4ProgBbox: 0.0053    # Minimum IOU with previous frame for progressive bbox
+minPromptUpdateConfidence: 0.4960    # Minimum confidence for prompt update
+numConditionalMem: 1    # Number of conditional memory entries
+
+# [Paths and Names]
+ImageEncoder:
+  batchSize: 1    # Batch size of image encoder network
+  workspaceSize: 5000    # Workspace size to be used by image encoder engine, in MB
+  networkMode: 1    # Image encoder network inference precision mode among {fp32=0, fp16=1, int8=2 }
+  onnxFile: "/tmp/via/data/models/gdino-sam/image_encoder.onnx"    # ONNX model path for image encoder
+  modelEngineFile: "/tmp/via/data/models/gdino-sam/image_encoder.onnx_b1_gpu0_fp16.engine"    # Engine file path for image encoder
+MaskDecoder:
+  batchSize: 1    # Batch size of mask decoder network, max value is 20
+  workspaceSize: 5000    # Workspace size to be used by mask decoder engine, in MB
+  networkMode: 1    # Mask decoder network inference precision mode among {fp32=0, fp16=1, int8=2 }
+  onnxFile: "/tmp/via/data/models/gdino-sam/mask_decoder.onnx"    # ONNX model path for mask decoder
+  modelEngineFile: "/tmp/via/data/models/gdino-sam/mask_decoder.onnx_b1_gpu0_fp16.engine"    # Engine file path for mask decoder, max batch size is b20
+MemoryAttention:
+  batchSize: 1    # Batch size of memory attention network
+  workspaceSize: 1000    # Workspace size to be used by memory attention engine, in MB
+  networkMode: 1    # Memory attention network inference precision mode among {fp32=0, fp16=1, int8=2 }
+  onnxFile: "/tmp/via/data/models/gdino-sam/memory_attention.onnx"    # ONNX model path for memory attention
+  modelEngineFile: "/tmp/via/data/models/gdino-sam/memory_attention.onnx_b1_gpu0_fp16.engine"    # Engine file path for memory attention
+  builderOptimizationLevel: 5    # TensorRT builder optimization level
+MemoryEncoder:
+  batchSize: 1    # Batch size of memory encoder network
+  workspaceSize: 5000    # Workspace size to be used by memory encoder engine, in MB
+  networkMode: 1    # Memory encoder network inference precision mode among {fp32=0, fp16=1, int8=2 }
+  onnxFile: "/tmp/via/data/models/gdino-sam/memory_encoder.onnx"    # ONNX model path for memory encoder
+  modelEngineFile: "/tmp/via/data/models/gdino-sam/memory_encoder.onnx_b1_gpu0_fp16.engine"    # Engine file path for memory encoder

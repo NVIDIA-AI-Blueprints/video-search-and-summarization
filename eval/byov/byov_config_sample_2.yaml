@@ -16,10 +16,10 @@ LLM_Judge_Model: gpt-4o #or llama-3.1-70b-instruct
 VSS_Configurations:
 
   - Config_1:
-    VLM_Configurations:  #nvila, vila-1.5, openai-compat, eagle2-9b, or custom
+    VLM_Configurations:  #openai-compat, eagle2-9b, or custom
       model: openai-compat #model name
       model_path:  #model path, using defaults from byov_main.py if not set
-      VLM_batch_size: #only applicable for vila-1.5 and nvila
+      VLM_batch_size:
       frames_per_chunk:
       temperature: 0.4
       top_p: 1
@@ -38,32 +38,10 @@ VSS_Configurations:
       guardrail_config_file: #guardrail config file name (must be in the eval directory)
 
   - Config_2:
-    VLM_Configurations:  #nvila, vila-1.5, openai-compat, eagle2-9b, or custom
-      model: nvila #model name
-      model_path: ngc:nvidia/tao/nvila-highres:nvila-lite-15b-highres-lita #model path, using defaults from byov_main.py if not set
-      VLM_batch_size: #only applicable for vila-1.5 and nvila
-      frames_per_chunk:
-      temperature: 0.4
-      top_p: 1
-      top_k: 100
-      max_new_tokens: 100
-      seed: 1
-      #edit below if using openai-compat
-      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: #gpt-4o #FIX ME - change VLM model on remote endpoint
-      VIA_VLM_ENDPOINT: #FIX ME - change url to point to remote VLM endpoint. Can be any VLM with an openAI compatible API.
-      AZURE_OPENAI_ENDPOINT: #FIX ME - change url to point to remote VLM endpoint for Azure OpenAI endpoints.
-
-    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
-
-    Guardrail_Configurations:
-      enable: False
-      guardrail_config_file: #guardrail config file name (must be in the eval directory)
-
-  - Config_3:
-    VLM_Configurations:  #nvila, vila-1.5, openai-compat, eagle2-9b, or custom
+    VLM_Configurations:  #openai-compat, eagle2-9b, or custom
       model: openai-compat #model name
       model_path: #model path, using defaults from byov_main.py if not set
-      VLM_batch_size: #only applicable for vila-1.5 and nvila
+      VLM_batch_size:
       frames_per_chunk:
       temperature: 0.4
       top_p: 1

@@ -14,16 +14,13 @@ Follow the official VSS documentation to deploy locally:
 - **x86 platforms**: [x86 Installation Guide](https://docs.nvidia.com/vss/latest/content/x86_setup.html)
 - **ARM platforms** (Jetson Thor, DGX Spark): [ARM Installation Guide](https://docs.nvidia.com/vss/latest/content/arm_setup.html)
 
-1. **Deploy VSS with Health Evaluation enabled:**
-   Set the `ENABLE_VIA_HEALTH_EVAL` environment variable to `true` during deployment.
-
-2. **Set the backend URL:**
+1. **Set the backend URL:**
    ```bash
    export VIA_BACKEND=http://localhost:<port>
    ```
-   Replace `<port>` with the actual port from your deployment (typically 8000 for local, or the NodePort/LoadBalancer port for Helm).
+   Replace `<port>` with the actual port from your deployment (typically 8000 for local, or the NodePort/LoadBalancer port for Helm). See the [VSS API Reference](https://docs.nvidia.com/vss/latest/content/vss_dep_helm.html#launch-vss-ui) for details.
 
-3. **Configure GPU assignment:**
+2. **Configure GPU assignment:**
    Edit your benchmark configuration file (e.g., `vss_sample_config.yaml`) to specify which GPUs are assigned to VLM and LLM workloads:
    ```yaml
      vlm_gpus: [0, 1]  # GPU indices for VLM processing
@@ -31,7 +28,7 @@ Follow the official VSS documentation to deploy locally:
    ```
    Adjust the GPU indices based on your system's available GPUs. The benchmark will monitor these GPUs during test execution.
 
-4. **Configure GPU monitoring (optional):**
+3. **Configure GPU monitoring (optional):**
    GPU monitoring is enabled by default but can be configured or disabled:
    ```yaml
    gpu_monitoring:
@@ -171,7 +168,7 @@ max_live_streams_test:
 
 ### 4. Alert Review Burst Mode (`alert_review_burst`)
 
-This mode benchmarks the `/reviewAlert` API by sending multiple concurrent alert verification requests with randomly selected prompts from a configured list. The benchmark tests various concurrency levels to measure how many alerts can be processed simultaneously while tracking latency, success rates, and verification accuracy (true/false positives). Like file burst mode, it performs binary search to automatically find the optimal concurrency level for a target average latency (configurable, default 60 seconds). Each alert review request includes VLM parameters (prompt, temperature, max_tokens) and VSS parameters (chunk duration, frames per chunk, reasoning/verification settings) to simulate real alert processing scenarios.
+This mode benchmarks the `/reviewAlert` API by sending multiple concurrent alert verification requests with randomly selected prompts from a configured list. The benchmark tests various concurrency levels to measure how many alerts can be processed simultaneously while tracking latency, success rates, and verification accuracy (true/false positives). Like file burst mode, it performs binary search to automatically find the optimal concurrency level for a target average latency (configurable, default 60 seconds). Each alert review request includes VLM parameters (prompt, temperature, max_tokens) and optional VSS parameters (frames per chunk, CV metadata overlay, reasoning/verification settings) to simulate real alert processing scenarios.
 
 **Mode-specific parameters:**
 - `videos`: List of video configurations

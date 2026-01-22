@@ -34,6 +34,40 @@ from vlm_captions_benchmark import VlmCaptionsBenchmark
 # Setup module-level logger
 logger = logging.getLogger(__name__)
 
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter that adds color coding to log levels"""
+
+    # ANSI color codes
+    COLORS = {
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
+    }
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+
+    def format(self, record):
+        # Save original levelname
+        original_levelname = record.levelname
+
+        # Add color to levelname
+        if record.levelname in self.COLORS:
+            record.levelname = (
+                f"{self.BOLD}{self.COLORS[record.levelname]}{record.levelname}{self.RESET}"
+            )
+
+        # Format the message
+        result = super().format(record)
+
+        # Restore original levelname
+        record.levelname = original_levelname
+
+        return result
+
+
 # Benchmark registry mapping benchmark modes to implementation classes
 BENCHMARK_REGISTRY = {
     "single_file": SingleFileBenchmark,
@@ -259,8 +293,11 @@ def main():
   # Run specific test scenario
   python vss_perf_benchmark.py --scenario single_file_test
 
-  # Run with custom config and scenario
-  python vss_perf_benchmark.py --config my_config.yaml --scenario file_burst_test
+  # Run multiple test scenarios
+  python vss_perf_benchmark.py --scenario single_file_test file_burst_test
+
+  # Run with custom config and scenarios
+  python vss_perf_benchmark.py --config my_config.yaml --scenario scenario1 scenario2
         """,
     )
     parser.add_argument(
@@ -272,7 +309,9 @@ def main():
     parser.add_argument(
         "--scenario",
         type=str,
-        help="Test scenario to run (if not specified, runs all scenarios in config)",
+        nargs="+",
+        help="Test scenario(s) to run. Can specify multiple: --scenario scenario1 scenario2 "
+        "(if not specified, runs all scenarios in config)",
     )
     parser.add_argument(
         "--list-scenarios", action="store_true", help="List available test scenarios and exit"
@@ -286,11 +325,15 @@ def main():
 
     args = parser.parse_args()
 
-    # Configure logging
+    # Configure logging with color coding
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(ColoredFormatter("%(asctime)s - %(levelname)s - %(message)s"))
+    console_handler.setLevel(logging.DEBUG if args.debug else logging.INFO)
+
     logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.INFO,
+        level=logging.DEBUG,  # Root logger at DEBUG so file gets everything
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler()],
+        handlers=[console_handler],
     )
 
     # List benchmark modes if requested
@@ -333,14 +376,31 @@ def main():
     logger.info(f"Using VSS backend: {base_url}")
     logger.info(f"Output directory: {output_base_dir}")
 
+    # Setup file logging
+    os.makedirs(output_base_dir, exist_ok=True)
+    log_file_path = os.path.join(output_base_dir, "vss_perf_benchmark_log.txt")
+    file_handler = logging.FileHandler(log_file_path, mode="w")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+
+    # Add to root logger so all loggers inherit it
+    root_logger = logging.getLogger()
+    root_logger.addHandler(file_handler)
+
+    logger.info(f"Benchmark logs will be saved to: {log_file_path}")
+
     # Determine scenarios to run
     scenarios_to_run = {}
     if args.scenario:
-        if args.scenario not in config["test_scenarios"]:
-            logger.error(f"Error: Scenario '{args.scenario}' not found in configuration")
+        # Validate all specified scenarios exist
+        invalid_scenarios = [s for s in args.scenario if s not in config["test_scenarios"]]
+        if invalid_scenarios:
+            logger.error(f"Error: Scenario(s) not found in configuration: {invalid_scenarios}")
             logger.error("Available scenarios: %s", list(config["test_scenarios"].keys()))
             sys.exit(1)
-        scenarios_to_run[args.scenario] = config["test_scenarios"][args.scenario]
+        # Add all specified scenarios
+        for scenario_name in args.scenario:
+            scenarios_to_run[scenario_name] = config["test_scenarios"][scenario_name]
     else:
         scenarios_to_run = config["test_scenarios"]
 
@@ -393,6 +453,7 @@ def main():
 
     logger.info("")
     logger.debug(f"Individual scenario results available in: {output_base_dir}")
+    logger.info(f"Detailed benchmark logs saved to: {log_file_path}")
     logger.info("")
     logger.info("Generated reports:")
     for result in scenario_results:

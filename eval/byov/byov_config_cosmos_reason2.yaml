@@ -1,0 +1,125 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+LLM_Judge_Model: gpt-4o #or llama-3.1-70b-instruct
+
+
+VSS_Configurations:
+
+  - Config_1:
+    VLM_Configurations:
+      model: cosmos-reason2
+      model_path: git:https://huggingface.co/nvidia/Cosmos-Reason2-8b-1224 #CR2 latest checkpoint
+      VLM_batch_size:
+      frames_per_chunk: #sets to default based on model
+      temperature: 0.4
+      top_p: 1
+      top_k: 100
+      max_new_tokens: 100
+      seed: 1
+    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
+
+    Guardrail_Configurations:
+      enable: False
+      guardrail_config_file: #guardrail config file name (must be in the eval directory)
+
+  - Config_2:
+    VLM_Configurations:
+      model: cosmos-reason2
+      model_path: ngc:nvstaging/nim/cosmos-reason-2-8b:hf-v2 #CR2 earlier checkpoint
+      VLM_batch_size:
+      frames_per_chunk: #sets to default based on model
+      temperature: 0.4
+      top_p: 1
+      top_k: 100
+      max_new_tokens: 100
+      seed: 1
+    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
+
+    Guardrail_Configurations:
+      enable: False
+      guardrail_config_file: #guardrail config file name (must be in the eval directory)
+
+  - Config_3:
+    VLM_Configurations:
+      model: openai-compat
+      model_path: #using defaults for GPT-4o
+      VLM_batch_size:
+      frames_per_chunk: #sets to default based on model
+      temperature: 0.4
+      top_p: 1
+      top_k: 100
+      max_new_tokens: 100
+      seed: 1
+      #OpenAI-specific settings
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: gpt-4o
+      VIA_VLM_ENDPOINT: https://api.openai.com/v1
+      AZURE_OPENAI_ENDPOINT: #default is None
+    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
+
+    Guardrail_Configurations:
+      enable: False
+      guardrail_config_file: #guardrail config file name (must be in the eval directory)
+
+videos:
+  - video_id: "its"
+    video_file_name: "its.mp4"
+    chunk_size: 10 #chunk size in seconds
+    summary_gt: "its_ground_truth_summary.json" #name for summary ground truth file
+    dc_gt:  #name for dense caption ground truth file
+    qa_gt: "its_ground_truth_qa.json" #name for question & answer ground truth file
+    prompts:
+      caption: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Start each event description with a start and end time stamp of the event."
+      caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+      summary_aggregation: "Based on the available information, generate a traffic report that is organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+    enable_audio: False
+    enable_cv: False
+
+  - video_id: "warehouse"
+    video_file_name: "warehouse.mp4"
+    chunk_size: 10 #chunk size in seconds
+    summary_gt: "warehouse_ground_truth_summary.json" #name for summary ground truth file
+    dc_gt:  #name for dense caption ground truth file
+    qa_gt: "warehouse_ground_truth_qa.json" #name for question & answer ground truth file
+    prompts:
+      caption: "Write a concise and clear dense caption for the provided warehouse video, focusing on irregular or hazardous events such as boxes falling, workers not wearing PPE, workers falling, workers taking photographs, workers chitchatting, forklift stuck, etc. Start and end each sentence with a time stamp."
+      caption_summarization: "You should summarize the following events of a warehouse in the format start_time:end_time:caption. For start_time and end_time use . to separate seconds, minutes, hours. If during a time segment only regular activities happen, then ignore them, else note any irregular activities in detail. The output should be bullet points in the format start_time:end_time: detailed_event_description. Don't return anything else except the bullet points."
+      summary_aggregation: "You are a warehouse monitoring system. Given the caption in the form start_time:end_time: caption, Aggregate the following captions in the format start_time:end_time:event_description. If the event_description is the same as another event_description, aggregate the captions in the format start_time1:end_time1,...,start_timek:end_timek:event_description. If any two adjacent end_time1 and start_time2 is within a few tenths of a second, merge the captions in the format start_time1:end_time2. The output should only contain bullet points.  Cluster the output into Unsafe Behavior, Operational Inefficiencies, Potential Equipment Damage and Unauthorized Personnel"
+    enable_audio: False
+    enable_cv: False
+
+  - video_id: "warehouse_82min"
+    video_file_name: "warehouse_82min.mp4"
+    chunk_size: 60 #chunk size in seconds
+    summary_gt: "warehouse_82min_ground_truth_summary.json" #name for summary ground truth file
+    dc_gt: "warehouse_82min_ground_truth_dc.json" #name for dense caption ground truth file
+    qa_gt: "warehouse_82min_ground_truth_qa.json" #name for question & answer ground truth file
+    prompts:
+      caption: "Write a concise and clear dense caption for the provided warehouse video, focusing on irregular or hazardous events such as boxes falling, workers not wearing PPE, workers falling, workers taking photographs, workers chitchatting, forklift stuck, etc. Start and end each sentence with a time stamp."
+      caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+      summary_aggregation: "Based on the available information, generate a traffic report that is organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to read and understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+    enable_audio: False
+    enable_cv: False
+
+  - video_id: "bridge"
+    video_file_name: "bridge.mp4"
+    chunk_size: 10 #chunk size in seconds
+    summary_gt: "bridge_ground_truth_summary.json" #name for summary ground truth file
+    dc_gt:  #name for dense caption ground truth file
+    qa_gt: "bridge_ground_truth_qa.json" #name for question & answer ground truth file
+    prompts:
+      caption: "You are a bridge inspection system. Describe the condition of the bridge in the provided video. Start each event description with a start and end time stamp of the event"
+      caption_summarization: "You will be given captions from sequential clips of a video. Aggregate captions in the format start_time:end_time:caption based on whether captions are related to one another or create a continuous scene."
+      summary_aggregation: "Based on the available information, generate a summary that describes the condition of the bridge. The summary should be organized chronologically and in logical sections. This should be a concise, yet descriptive summary of all the important events. The format should be intuitive and easy for a user to understand what happened. Format the output in Markdown so it can be displayed nicely. Timestamps are in seconds so please format them as SS.SSS"
+    enable_audio: False
+    enable_cv: False
+

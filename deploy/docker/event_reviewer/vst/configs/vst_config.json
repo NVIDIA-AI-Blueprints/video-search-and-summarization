@@ -166,7 +166,7 @@
 	},
 	"notifications":
 	{
-		"enable_notification": true,
+		"enable_notification": false,
 		"enable_notification_consumer": false,
 		"use_message_broker" : "redis",
 		"use_message_broker_consumer" : "kafka",

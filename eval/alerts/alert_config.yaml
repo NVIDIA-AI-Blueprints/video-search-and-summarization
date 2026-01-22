@@ -1,0 +1,55 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+LLM_Judge_Model: gpt-4o #or llama-3.1-70b-instruct
+clip_directory: /opt/nvidia/via/streams/additional/ #change if needed
+
+VSS_Configurations:
+  - Config_1:
+    VLM_Configurations: 
+      model: #cosmos-reason1, openai-compat, or custom
+      model_path: #model path, using defaults from byov_main.py if not set
+      VLM_batch_size:
+      frames_per_chunk: #sets to default based on model
+      VLM_INPUT_WIDTH: #VLM input width in pixels, sets VLM_INPUT_WIDTH environment variable
+      VLM_INPUT_HEIGHT: #VLM input height in pixels, sets VLM_INPUT_HEIGHT environment variable
+      #edit below if using openai-compat
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: #for example, "gpt-4o" 
+      VIA_VLM_ENDPOINT: #for gpt models, use "https://api.openai.com/v1", otherwise change url to point to remote VLM endpoint. Can be any VLM with an openAI compatible API.
+      AZURE_OPENAI_ENDPOINT: #default is None, change url to point to remote VLM endpoint for Azure OpenAI endpoints.
+      VLM_SYSTEM_PROMPT: "You are a helpful assistant. Answer the user's question based on the video."
+      vlmParams:
+        temperature: 0.4
+        top_p: 0.9
+        max_tokens: 50
+        top_k: 50
+        seed: 42
+    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the tests directory)
+
+    Guardrail_Configurations:
+      enable: False
+      guardrail_config_file: #guardrail config file name (must be in the tests directory)
+
+Clips:
+  # Jaywalking clips
+  - name: jaywalking_clip1
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/drive_sim_jaywalking_1080p_2025-08-21T22-06-26.672061Z_clip_1.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there a road in the video?"
+        expected_verification: true
+      - query: "Jaywalking is when a person walks on the road but not on the white striped crosswalk. Did a person jaywalk on the road?"
+        expected_verification: true
+    chat_queries:
+      - query: "If there was a person jaywalking on the road (walking on the road but not on the white striped crosswalk), what was the ID number of the person jaywalking?"
+        expected_answer: "0"

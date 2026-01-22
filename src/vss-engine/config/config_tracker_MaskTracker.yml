@@ -1,0 +1,75 @@
+####################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+####################################################################################################
+
+# NOTE: Segmentation related use cases and parameters can be set in config_tracker_module_Segmenter.yml
+# Visit https://github.com/NVIDIA-AI-IOT/sam2-onnx-tensorrt to download and prepare SAM2 models for TensorRT.
+# SAM2 models are NOT packaged in DeepStream SDK.
+
+BaseConfig:
+  minDetectorConfidence: 0.3529    # If the confidence of a detector bbox is lower than this, then it won't be considered for tracking
+
+TargetManagement:
+  enableBboxUnClipping: 1    # In case the bbox is likely to be clipped by image border, unclip bbox
+  preserveStreamUpdateOrder: 0    # When assigning new target ids, preserve input streams' order to keep target ids in a deterministic order over multuple runs
+  maxTargetsPerStream: 150    # Max number of targets to track per stream. Recommended to set >10. Note: this value should account for the targets being tracked in shadow mode as well. Max value depends on the GPU memory capacity
+
+  # [Creation & Termination Policy]
+  minIouDiff4NewTarget: 0.7608    # If the IOU between the newly detected object and any of the existing targets is higher than this threshold, this newly detected object will be discarded.
+  minTrackerConfidence: 0.6223    # If the confidence of an object tracker is lower than this on the fly, then it will be tracked in shadow mode. Valid Range: [0.0, 1.0]
+  probationAge: 4    # If the target's age exceeds this, the target will be considered to be valid.
+  maxShadowTrackingAge: 84    # Max length of shadow tracking. If the shadowTrackingAge exceeds this limit, the tracker will be terminated.
+  earlyTerminationAge: 1    # If the shadowTrackingAge reaches this threshold while in TENTATIVE period, the target will be terminated prematurely.
+
+DataAssociator:
+  dataAssociatorType: 0    # the type of data associator among { DEFAULT= 0 }
+  associationMatcherType: 1    # the type of matching algorithm among { GREEDY=0, CASCADED=1 }
+  checkClassMatch: 1    # If checked, only the same-class objects are associated with each other. Default: true
+
+  # [Association Metric: Thresholds for valid candidates]
+  minMatchingScore4Overall: 0.0293    # Min total score
+  minMatchingScore4SizeSimilarity: 0.1047    # Min bbox size similarity score
+  minMatchingScore4Iou: 0.0437   # Min IOU score
+  minMatchingScore4VisualSimilarity: 0 # Visual tracker is disabled
+
+  # [Association Metric: Weights]
+  matchingScoreWeight4SizeSimilarity: 0.2410    # Weight for the Size-similarity score
+  matchingScoreWeight4Iou: 0.8590    # Weight for the IOU score
+  matchingScoreWeight4VisualSimilarity: 0 # Visual tracker is disabled
+
+  # [Association Metric: Tentative detections] only uses iou similarity for tentative detections
+  tentativeDetectorConfidence: 0.1866    # If a detection's confidence is lower than this but higher than minDetectorConfidence, then it's considered as a tentative detection
+  minMatchingScore4TentativeIou: 0.3660    # Min iou threshold to match targets and tentative detection
+
+TrajectoryManagement:
+  useUniqueID: 0    # Use 64-bit long Unique ID when assignining tracker ID. Default is [true]
+  enableReAssoc: 0 # disable re-association, since Segmenter can track through occlusion
+
+StateEstimator:
+  stateEstimatorType: 1    # the type of state estimator among { DUMMY=0, SIMPLE=1, REGULAR=2 }
+
+  # [Dynamics Modeling]
+  processNoiseVar4Loc: 2856.7104    # Process noise variance for bbox center
+  processNoiseVar4Size: 8157.1946   # Process noise variance for bbox size
+  processNoiseVar4Vel: 2602.8703    # Process noise variance for velocity
+  measurementNoiseVar4Detector: 0.1000   # Measurement noise variance for detector's detection
+  measurementNoiseVar4Tracker: 8.6695    # Measurement noise variance for tracker's localization
+
+ReID:
+  reidType: 0 # dummy reid
+
+VisualTracker:
+  visualTrackerType: 0 # dummy visual tracker
+
+Segmenter:
+  segmenterType: 1    # the type of segmenter among { DUMMY=0, SAM2=1 }
+  segmenterConfigPath: "/opt/nvidia/via/config/config_tracker_module_Segmenter.yml" # segmenter config path
+

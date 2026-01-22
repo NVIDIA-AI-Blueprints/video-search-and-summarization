@@ -29,7 +29,7 @@ The NVIDIA AI Blueprint for Video Search and Summarization addresses the challen
 
 1. **NIM microservices**: Here are models used in this blueprint:
 
-    - [Cosmos-Reason1-7B](https://build.nvidia.com/nvidia/cosmos-reason1-7b)
+    - [Cosmos-Reason2-8B](https://build.nvidia.com/nvidia/cosmos-reason2-8b)
     - [meta / llama-3.1-70b-instruct](https://build.nvidia.com/meta/llama-3_1-70b-instruct)
     - [llama-3_2-nv-embedqa-1b-v2](https://build.nvidia.com/nvidia/llama-3_2-nv-embedqa-1b-v2)
     - [llama-3_2-nv-rerankqa-1b-v2](https://build.nvidia.com/nvidia/llama-3_2-nv-rerankqa-1b-v2)
@@ -73,11 +73,11 @@ The platform requirement can vary depending on the configuration and deployment 
 
 | Deployment Type | VLM | LLM | Embedding (llama-3.2-nv-embedqa-1b-v2) | Reranker (llama-3.2-nv-rerankqa-1b-v2) | Minimum GPU Requirement | 
 | ------------------|-----|-----|-----------|----------| --------------- | 
-| Local deployment (Default topology) | Local (Cosmos Reason1 7B)| Local (Llama 3.1 70B) | Local | Local | 8xB200, 8xH200, 8xH100, 8xA100 (80GB), 8xL40S, 8xRTX PRO 6000 Blackwell |
-| Local deployment (Reduced Compute) | Local (Cosmos Reason1 7B) | Local (Llama 3.1 70B) | Local | Local | 4xB200, 4xH200, 4xH100, 4xA100 (80GB), 6xL40S, 4xRTX PRO 6000 Blackwell |
-| Local deployment (Single GPU) | Local (Cosmos Reason1 7B) | Local (Llama 3.1 8b low mem mode) | Local | Local | 1xB200, 1xH200, 1xH100, 1xA100 (80GB), 1xRTX PRO 6000 Blackwell, DGX Spark |
-| Local VLM deployment | Local(Cosmos Reason1 7B) | Remote | Remote | Remote | 1xB200, 1xH200, 1xH100, 2xA100 (80GB), 1xL40S, 1xRTX PRO 6000 Blackwell, Jetson Thor, DGX Spark |
-| Complete remote deployment | Remote| Remote | Remote | Remote | Minimum 8GB VRAM GPU, Jetson Thor, DGX Spark |
+| Local deployment (Default topology) | Local (Cosmos Reason2 8B)| Local (Llama 3.1 70B) | Local | Local | 8xB200, 8xH200, 8xH100, 8xA100 (80GB), 8xL40S, 8xRTX PRO 6000 Blackwell |
+| Local deployment (Reduced Compute) | Local (Cosmos Reason2 8B) | Local (Llama 3.1 70B) | Local | Local | 4xB200, 4xH200, 4xH100, 4xA100 (80GB), 6xL40S, 4xRTX PRO 6000 Blackwell |
+| Local deployment (Single GPU) | Local (Cosmos Reason2 8B) | Local (Llama 3.1 8b low mem mode) | Local | Local | 1xB200, 1xH200, 1xH100, 1xA100 (80GB), 1xRTX PRO 6000 Blackwell, DGX Spark, GH200, GB200 |
+| Local VLM deployment | Local(Cosmos Reason2 8B) | Remote | Remote | Remote | 1xB200, 1xH200, 1xH100, 2xA100 (80GB), 1xL40S, 1xRTX PRO 6000 Blackwell, Jetson Thor, DGX Spark, GH200, GB200 |
+| Complete remote deployment | Remote| Remote | Remote | Remote | Minimum 8GB VRAM GPU, Jetson Thor, DGX Spark, GH200, GB200 |
 
 
 ## Quickstart Guide
@@ -86,7 +86,7 @@ The platform requirement can vary depending on the configuration and deployment 
 
 **Ideal for:** Quickly getting started with your own videos without worrying about hardware and software requirements.
 
-Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/content/cloud_brev.html) and notebook in [deploy](deploy/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in an 8xL040s Crusoe instance.
+Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/content/cloud_brev.html) and notebook in [deploy](deploy/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in an 8xL40s Crusoe instance.
 - [deploy/1_Deploy_VSS_docker_Crusoe.ipynb](deploy/1_Deploy_VSS_docker_Crusoe.ipynb): This notebook is tailored specifically for the Crusoe CSP which uses Ephemeral storage.
 
 ### Docker Compose Deployment
@@ -119,7 +119,7 @@ Please refer to [NVIDIA DGX Spark Setup Instructions](https://docs.nvidia.com/vs
 
 **Ideal for:** Production deployments that need to integrate with other systems. Helm offers advantages such as easy upgrades, rollbacks, and management of complex deployments.
 
-The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.4.0.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/vss_dep_helm.html#) for detailed instructions.
+The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.4.1.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/vss_dep_helm.html#) for detailed instructions.
 
 #### System Requirements
 
@@ -134,13 +134,18 @@ The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.4.0.tgz` file w
 
 ## Known CVEs
 
-VSS Engine 2.4.0 Container has the following known CVEs:
+VSS Engine 2.4.1 Container has the following known CVEs:
 
 |   CVE    | Description |
 |----------|-------------|
-|[CVE-2024-8966](https://github.com/advisories/GHSA-5cpq-9538-jm2j)| This impacts gradio <= 5.22.0 python package, This impacts the file upload functionality of Gradio UI where an attacker can cause Denial-of-Service (DoS) attack by appending a large number of characters to the end of a multipart boundary. This does not affect VSS since the underlying root cause is already fixed by having a newer version 0.0.18 of python-multipart which does not have this vulnerability.|
-|[CVE-2025-4565](https://github.com/advisories/GHSA-8qvm-5x2c-j2w7)| This impacts protobuf < 4.25.8 python package, This impacts parsing of untrusted Protocol Buffers data containing an arbitrary number of recursive groups, recursive messages or a series of SGROUP tags leading to unbounded recursions and potential Denial-of-Service when protobuf pure-Python backend is used. This does not affect VSS since python backend of protobuf is not used.|
+|[GHSA-58pv-8j8x-9vj2](https://github.com/jaraco/jaraco.context/security/advisories/GHSA-58pv-8j8x-9vj2)| This impacts jaraco.context < 6.1.0 python package. This does not affect VSS since it does not install user provided python packages. |
+|[CVE-2025-69223](https://github.com/advisories/GHSA-6mq8-rvhq-8wgg)| This impacts aiohttp < 3.13.3 python package. This does not affect VSS since it gets included as a private package inside ray and ray is not used by VSS. |
+|[GHSA-f83h-ghpp-7wcc](https://github.com/advisories/GHSA-f83h-ghpp-7wcc)| This impacts pdfminer.six < 20251230 python package. This does not affect VSS since it does not implement PDF parsing. |
+|[CVE-2025-68973](https://nvd.nist.gov/vuln/detail/CVE-2025-68973)| This impacts gnupg < 2.4.8. This does not affect VSS since it does not implement GPG encryption. |
+|[GHSA-mcmc-2m55-j8jj](https://github.com/advisories/GHSA-mcmc-2m55-j8jj) [GHSA-mrw7-hf4f-83pf](https://github.com/advisories/GHSA-mrw7-hf4f-83pf) [CVE-2025-62372](https://github.com/advisories/GHSA-pmqf-x6x8-p7qw)| This impacts vLLM < 0.11.1 python package. This does not affect VSS since it does not support user provided embeddings. |
+|[CVE-2026-21441](https://github.com/advisories/GHSA-38jv-5279-wg99)| This affects urllib3 < 2.6.3 python package. This does not affect VSS since it does not access user provided URLs at runtime. |
 |[CVE-2025-3887](https://ubuntu.com/security/CVE-2025-3887)| This impacts GStreamer H.265 codec parser, Malicious malformed streams can cause  stack overflow in H.265 codec parser causing the application to crash. Users must take care that malicious H.265 streams are not added to VSS. This can be remedied by building and installing the GStreamer1.24.2 codec parser library after applying the patch mentioned in https://gstreamer.freedesktop.org/security/sa-2025-0001.html. |
+|[GHSA-rcfx-77hg-w2wv](https://github.com/advisories/GHSA-rcfx-77hg-w2wv)| This impacts fastmcp < 2.14.0 python package. This does not affect VSS since it already used an updated version of MCP SDK. |
 
 ## License
 Refer to [LICENSE](LICENSE)

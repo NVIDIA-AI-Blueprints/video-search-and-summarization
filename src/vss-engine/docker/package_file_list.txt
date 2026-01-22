@@ -31,7 +31,6 @@ models/custom/samples/fuyu8b/manifest.yaml
 models/custom/samples/neva/inference.py
 models/custom/samples/neva/manifest.yaml
 models/openai_compat/openai_compat_model.py
-models/openai_compat/internal/util.py
 models/nvila/VILA/llava/model/apply_delta.py
 models/nvila/VILA/llava/model/configuration_llava.py
 models/nvila/VILA/llava/model/qlinear_te.py
@@ -217,9 +216,9 @@ models/vila15/trt_helper/quantize.py
 models/vila15/vila15_context.py
 models/vila15/vila15_embedding_generator.py
 models/vila15/vila15_model.py
-models/cosmos_reason1/__init__.py
-models/cosmos_reason1/cosmos_reason1_context.py
-models/cosmos_reason1/cosmos_reason1_model.py
+models/vllm_compatible/__init__.py
+models/vllm_compatible/vllm_compatible_context.py
+models/vllm_compatible/vllm_compatible_model.py
 otel_helper.py
 utils.py
 via_client_cli.py

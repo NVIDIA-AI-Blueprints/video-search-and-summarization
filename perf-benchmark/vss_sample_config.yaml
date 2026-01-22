@@ -66,10 +66,11 @@ global:
     top_p: 0.9
     top_k: 40
     seed: 42
-    chunk_duration: 60
-    chunk_overlap_duration: 5
-    # Use VSS default value
+    # Optional VSS parameters (uncomment to override defaults):
     # num_frames_per_chunk: 10
+    # cv_metadata_overlay: false
+    # enable_reasoning: false
+    # debug: false
 
   # Default prompts
   prompts:

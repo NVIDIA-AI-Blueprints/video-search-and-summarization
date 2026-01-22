@@ -67,6 +67,9 @@ from gi.repository import GLib, Gst  # noqa: E402
 
 Gst.init(None)
 
+asr_grpc_keep_alive_interval = int(os.environ.get("ASR_GRPC_KEEP_ALIVE_INTERVAL_MS", "3000"))
+asr_grpc_keep_alive_timeout = int(os.environ.get("ASR_GRPC_KEEP_ALIVE_TIMEOUT_MS", "120000"))
+
 if os.environ.get("FORCE_SW_AV1_DECODER", "false") == "true":
     av1dec = Gst.ElementFactory.find("av1dec")
     if av1dec:
@@ -229,6 +232,7 @@ class AudioChunkIterator:
         """
         self._audio_frames_queue = audio_frames_queue
         self._audio_stop = audio_stop
+        self._idle_counter_ms = 0
 
     def close(self) -> None:
         """Clean up resources."""
@@ -255,6 +259,7 @@ class AudioChunkIterator:
         if not self._audio_frames_queue.empty():
             audio_frame = self._audio_frames_queue.get()
             if audio_frame is not None and audio_frame["audio"] is not None:
+                self._idle_counter_ms = 0
                 return audio_frame["audio"].tobytes()
 
         if self._audio_stop.is_set():
@@ -263,7 +268,16 @@ class AudioChunkIterator:
 
         # No frames available, wait briefly and retry
         time.sleep(0.03)
-        return self.__next__()
+        self._idle_counter_ms = self._idle_counter_ms + 30
+        # Send a dummy audio data every ASR_GRPC_KEEP_ALIVE_INTERVAL_MS till
+        # ASR_GRPC_KEEP_ALIVE_TIMEOUT_MS min to avoid GRPC timeout in case of overloaded systems.
+        if ((self._idle_counter_ms % asr_grpc_keep_alive_interval) == 0) and (
+            self._idle_counter_ms <= asr_grpc_keep_alive_timeout
+        ):
+            logger.debug("Sending dummy audio data to avoid GRPC timeout")
+            return bytes(4)
+        else:
+            return self.__next__()
 
 
 def streaming_audio_asr(
@@ -887,7 +901,7 @@ class VideoFileFrameGetter:
         splitmuxsink = Gst.ElementFactory.make("splitmuxsink")
         splitmuxsink.set_property("muxer-factory", "mpegtsmux")
         splitmuxsink.set_property("max-size-time", 10 * 1000000000)
-        # os.makedirs(f"/tmp/assets/{self._live_stream_request_id}", exist_ok=True)
+        os.makedirs(f"/tmp/assets/{self._live_stream_request_id}", exist_ok=True)
         splitmuxsink.set_property(
             "location",
             f"/tmp/assets/{self._live_stream_request_id}/{self._live_stream_request_id}_%d.ts",
@@ -1431,7 +1445,7 @@ class VideoFileFrameGetter:
             _, mapinfo = buffer.map(Gst.MapFlags.READ)
             if self._enable_jpeg_output:
                 # Buffer contains JPEG image, add to cache as is
-                image_tensor = np.frombuffer(mapinfo.data, dtype=np.uint8)
+                image_tensor = np.frombuffer(mapinfo.data, dtype=np.uint8).copy()
             else:
                 # Buffer contains raw frame
 
@@ -1511,7 +1525,7 @@ class VideoFileFrameGetter:
         def add_audio_to_cache(buffer):
             # Probe callback to add audio samples to cache
             _, mapinfo = buffer.map(Gst.MapFlags.READ)
-            audio_tensor = np.frombuffer(mapinfo.data, dtype=np.int16)
+            audio_tensor = np.frombuffer(mapinfo.data, dtype=np.int16).copy()
             # logger.debug(
             #     "New audio buffer, buffer.pts: %d, duration: %d", buffer.pts, buffer.duration
             # )
@@ -2206,7 +2220,7 @@ class VideoFileFrameGetter:
         def add_audio_to_cache(buffer):
             # Probe callback to add audio samples to cache
             _, mapinfo = buffer.map(Gst.MapFlags.READ)
-            audio_tensor = np.frombuffer(mapinfo.data, dtype=np.int16)
+            audio_tensor = np.frombuffer(mapinfo.data, dtype=np.int16).copy()
             # logger.debug(
             #     "New audio buffer, buffer.pts: %d, duration: %d", buffer.pts, buffer.duration
             # )
@@ -2566,7 +2580,7 @@ class VideoFileFrameGetter:
             _, mapinfo = buffer.map(Gst.MapFlags.READ)
             if self._enable_jpeg_output:
                 # Buffer contains JPEG image, add to cache as is
-                image_tensor = np.frombuffer(mapinfo.data, dtype=np.uint8)
+                image_tensor = np.frombuffer(mapinfo.data, dtype=np.uint8).copy()
             else:
                 # Buffer contains raw frame
 

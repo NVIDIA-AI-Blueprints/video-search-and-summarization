@@ -281,7 +281,7 @@ class ModelInfo(ViaBaseModel):
 
     id: str = Field(
         description="The model identifier, which can be referenced in the API endpoints.",
-        pattern=FILE_NAME_PATTERN,
+        pattern=ANY_CHAR_PATTERN,
         max_length=2560,
     )
     created: int = Field(
@@ -490,9 +490,9 @@ class SummarizationQuery(ViaBaseModel):
     )
     model: str = Field(
         description="Model to use for this query.",
-        examples=["vila-1.5", "nvila", "llava-1.5"],
-        max_length=256,
-        pattern=FILE_NAME_PATTERN,
+        examples=["cosmos-reason1"],
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
     )
     api_type: str = Field(
         description="API used to access model.",
@@ -529,7 +529,7 @@ class SummarizationQuery(ViaBaseModel):
         default=None,
         examples=[512],
         ge=1,
-        le=1024,
+        le=10240,
         description="The maximum number of tokens to generate in any given call.",
         json_schema_extra={"format": "int32"},
     )
@@ -951,9 +951,9 @@ class ChatCompletionQuery(ViaBaseModel):
     )
     model: str = Field(
         description="Model to use for this query.",
-        examples=["vila-1.5"],
-        max_length=256,
-        pattern=FILE_NAME_PATTERN,
+        examples=["cosmos-reason1"],
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
     )
     api_type: str = Field(
         description="API used to access model.",
@@ -984,7 +984,7 @@ class ChatCompletionQuery(ViaBaseModel):
         default=None,
         examples=[512],
         ge=1,
-        le=1024,
+        le=10240,
         description="The maximum number of tokens to generate in any given call.",
         json_schema_extra={"format": "int32"},
     )
@@ -1173,9 +1173,9 @@ class CompletionResponse(ViaBaseModel):
     )
     model: str = Field(
         description="The model used for the chat completion/summarization.",
-        examples=["vila-1.5"],
-        max_length=256,
-        pattern=FILE_NAME_PATTERN,
+        examples=["cosmos-reason1"],
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
     )
     media_info: MediaInfoTimeStamp | MediaInfoOffset = Field(
         description="Part of the file / live-stream for which this response is applicable."
@@ -1233,9 +1233,9 @@ class VlmCaptionsCompletionResponse(ViaBaseModel):
     )
     model: str = Field(
         description="The model used for the VLM captions generation.",
-        examples=["vila-1.5"],
-        max_length=256,
-        pattern=FILE_NAME_PATTERN,
+        examples=["cosmos-reason1"],
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
     )
     media_info: MediaInfoTimeStamp | MediaInfoOffset = Field(
         description="Part of the file / live-stream for which this response is applicable."
@@ -1481,7 +1481,7 @@ class VlmParams(ViaBaseModel):
         default=None,
         examples=[512],
         ge=1,
-        le=1024,
+        le=10240,
         description="The maximum number of tokens to generate in any given call.",
         json_schema_extra={"format": "int32"},
     )
@@ -1549,6 +1549,22 @@ class VssParams(ViaBaseModel):
         description="Number of frames per chunk to use for the VLM",
         ge=0,
         le=256,
+        json_schema_extra={"format": "int32"},
+    )
+    vlm_input_width: int = Field(
+        default=0,
+        examples=[756, 1036, 1512],
+        description="VLM Input Width for visual token budget control. Set 0 to use default.",
+        ge=0,
+        le=4096,
+        json_schema_extra={"format": "int32"},
+    )
+    vlm_input_height: int = Field(
+        default=0,
+        examples=[392, 588, 840],
+        description="VLM Input Height for visual token budget control. Set 0 to use default.",
+        ge=0,
+        le=4096,
         json_schema_extra={"format": "int32"},
     )
     cv_metadata_overlay: bool = Field(
@@ -1931,9 +1947,9 @@ class VlmQuery(ViaBaseModel):
     )
     model: str = Field(
         description="Model to use for this query.",
-        examples=["vila-1.5", "nvila", "llava-1.5"],
-        max_length=256,
-        pattern=FILE_NAME_PATTERN,
+        examples=["cosmos-reason1"],
+        max_length=1024,
+        pattern=ANY_CHAR_PATTERN,
     )
     api_type: str = Field(
         description="API used to access model.",
@@ -1970,7 +1986,7 @@ class VlmQuery(ViaBaseModel):
         default=None,
         examples=[512],
         ge=1,
-        le=1024,
+        le=10240,
         description="The maximum number of tokens to generate in any given call.",
         json_schema_extra={"format": "int32"},
     )

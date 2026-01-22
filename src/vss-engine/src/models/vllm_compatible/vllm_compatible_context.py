@@ -11,16 +11,16 @@
 ######################################################################################################
 
 
-from .cosmos_reason1_model import CosmosReason1
+from .vllm_compatible_model import VllmCompatibleModel
 
 
-class CosmosReason1Context:
+class VllmCompatibleContext:
     """Cosmos Reason1 Model Conversation context.
 
     This helps maintain conversation context for different chunks/files while
     not having to reload the actual model."""
 
-    def __init__(self, model: CosmosReason1) -> None:
+    def __init__(self, model: VllmCompatibleModel) -> None:
         """CosmosReason1Context constructor
 
         Args:

@@ -17,10 +17,13 @@ cd examples/cv-event-detector
 ```
 
 ```sh
-#For X86 & Thor
+#For X86
 ALERT_REVIEW_MEDIA_BASE_DIR=/tmp/alert-media-dir docker compose -f compose.yaml up -d
 
-# For DGX Spark
+#For Thor
+ALERT_REVIEW_MEDIA_BASE_DIR=/tmp/alert-media-dir docker compose -f compose.yaml -f compose.thor.yaml up -d
+
+# For DGX Spark & GH200 / GB200 SBSA platforms
 IS_SBSA=1 ALERT_REVIEW_MEDIA_BASE_DIR=/tmp/alert-media-dir docker compose -f compose.yaml up -d
 ```
 
@@ -52,6 +55,9 @@ export NVIDIA_VISIBLE_DEVICES=0,1,2,3
 # Setting custom model for VLM
 export MODEL_ROOT_DIR=/path/to/your/model
 export MODEL_PATH=/path/to/your/model
+
+# Set VLM_MODEL environment variable to use cosmos-reason1 prompts for sample videos
+export VLM_MODEL=cosmos-reason1
 ```
 
 ## Computer Vision Pipeline Manager UI

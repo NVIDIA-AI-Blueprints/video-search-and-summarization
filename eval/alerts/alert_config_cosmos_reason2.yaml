@@ -1,0 +1,291 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+# property and proprietary rights in and to this material, related
+# documentation and any modifications thereto. Any use, reproduction,
+# disclosure or distribution of this material and related documentation
+# without an express license agreement from NVIDIA CORPORATION or
+# its affiliates is strictly prohibited.
+######################################################################################################
+
+LLM_Judge_Model: gpt-4o #or llama-3.1-70b-instruct
+clip_directory: /opt/nvidia/via/streams/additional/ #change if needed
+
+VSS_Configurations:
+  - Config_1:
+    VLM_Configurations: 
+      model: cosmos-reason2
+      model_path: git:https://huggingface.co/nvidia/Cosmos-Reason2-8b-1224 #CR2 latest checkpoint
+      VLM_batch_size:
+      frames_per_chunk: #sets to default based on model
+      VLM_INPUT_WIDTH: #VLM input width in pixels, sets VLM_INPUT_WIDTH environment variable
+      VLM_INPUT_HEIGHT: #VLM input height in pixels, sets VLM_INPUT_HEIGHT environment variable
+      #VLM_SYSTEM_PROMPT: "You are a helpful assistant. Answer the user's question based on the video."
+      vlmParams:
+        temperature: 0.4
+        top_p: 1
+        max_tokens: 100
+        top_k: 100
+        seed: 1
+    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
+
+    Guardrail_Configurations:
+      enable: False
+      guardrail_config_file: #guardrail config file name (must be in the eval directory)
+
+  - Config_2:
+    VLM_Configurations: 
+      model: cosmos-reason2
+      model_path: ngc:nvstaging/nim/cosmos-reason-2-8b:hf-v2 #CR2 earlier checkpoint
+      VLM_batch_size:
+      frames_per_chunk: #sets to default based on model
+      VLM_INPUT_WIDTH: #VLM input width in pixels, sets VLM_INPUT_WIDTH environment variable
+      VLM_INPUT_HEIGHT: #VLM input height in pixels, sets VLM_INPUT_HEIGHT environment variable
+      #VLM_SYSTEM_PROMPT: "You are a helpful assistant. Answer the user's question based on the video."
+      vlmParams:
+        temperature: 0.4
+        top_p: 1
+        max_tokens: 100
+        top_k: 100
+        seed: 1
+    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
+
+    Guardrail_Configurations:
+      enable: False
+      guardrail_config_file: #guardrail config file name (must be in the eval directory)
+
+  - Config_3:
+    VLM_Configurations: 
+      model: openai-compat
+      model_path: #using defaults for GPT-4o
+      VLM_batch_size:
+      frames_per_chunk: #sets to default based on model
+      VLM_INPUT_WIDTH: #VLM input width in pixels, sets VLM_INPUT_WIDTH environment variable
+      VLM_INPUT_HEIGHT: #VLM input height in pixels, sets VLM_INPUT_HEIGHT environment variable
+      #OpenAI-specific settings
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: gpt-4o
+      VIA_VLM_ENDPOINT: https://api.openai.com/v1
+      AZURE_OPENAI_ENDPOINT: #default is None
+      VLM_SYSTEM_PROMPT: "You are a helpful assistant. Answer the user's question based on the video."
+      vlmParams:
+        temperature: 0.4
+        top_p: 1
+        max_tokens: 100
+        top_k: 100
+        seed: 1
+    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
+
+    Guardrail_Configurations:
+      enable: False
+      guardrail_config_file: #guardrail config file name (must be in the eval directory)
+
+Clips:
+  # Jaywalking clips
+  - name: jaywalking_clip1_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/drive_sim_jaywalking_1080p_2025-08-21T22-06-26.672061Z_clip_1.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Respond Yes if there is a person walking on the road."
+        expected_verification: true
+      - query: "Jaywalking is when a person walks on the road but not on the white striped crosswalk. Did a person jaywalk on the road?"
+        expected_verification: true
+    chat_queries:
+      - query: "If there was a person jaywalking on the road (walking on the road but not on the white striped crosswalk), what was the ID number of the person jaywalking?"
+        expected_answer: "0"
+  
+  - name: jaywalking_clip2_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/drive_sim_jaywalking_1080p_2025-08-21T22-06-26.672061Z_clip_2.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Respond Yes if there is a person walking on the road."
+        expected_verification: true
+      - query: "Jaywalking is when a person walks on the road but not on the white striped crosswalk. Did a person jaywalk on the road?"
+        expected_verification: false
+    chat_queries:
+      - query: "If there was a person jaywalking on the road (walking on the road but not on the white striped crosswalk), what was the ID number of the person jaywalking?"
+        expected_answer: "No one jaywalked on the road. The person with ID 1 crossed on the crosswalk."
+
+  # Warehouse ladder clips
+  - name: warehouse_ladder_clip1_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/warehouse_ladder_safety_1080p_2025-08-21T22-10-41.766281Z_clip_1.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there at least one person in the video?"
+        expected_verification: true
+      - query: "Is anyone on the ladder without a hardhat and safety vest?"
+        expected_verification: false
+    chat_queries:
+      - query: "If there was a person on the ladder without a hardhat and safety vest, what was the ID number of the person?"
+        expected_answer: "No one was on the ladder without a hardhat and safety vest."
+  
+  - name: warehouse_ladder_clip2_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/warehouse_ladder_safety_1080p_2025-08-21T22-10-41.766281Z_clip_2.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there at least one person in the video?"
+        expected_verification: true
+      - query: "Is anyone on the ladder without a hardhat and safety vest?"
+        expected_verification: true
+    chat_queries:
+      - query: "If there was a person on the ladder without a hardhat and safety vest, what was the ID number of the person?"
+        expected_answer: "The ID of the person is 1"
+  
+  # Conveyor belt clips
+  - name: conveyorbelt_clip1_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/conveyor_belt_inspection_sdg_1080p_2025-08-21T22-04-14.241883Z_clip_1.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "You are a warehouse conveyor belt inspection system. You must inspect the cardboard box on the conveyor belt to look for signs of physical damage. Physical damage includes but is not limited to: 1) Crumpling 2) Tearing 3) Dents 4) Creases 5) Open boxes. The box should be in near perfect condition. Does one of the cardboard boxes in the video show signs of physical damage?"
+        expected_verification: false
+  
+  - name: conveyorbelt_clip2_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/conveyor_belt_inspection_sdg_1080p_2025-08-21T22-04-14.241883Z_clip_2.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "You are a warehouse conveyor belt inspection system. You must inspect the cardboard box on the conveyor belt to look for signs of physical damage. Physical damage includes but is not limited to: 1) Crumpling 2) Tearing 3) Dents 4) Creases 5) Open boxes. The box should be in near perfect condition. Does one of the cardboard boxes in the video show signs of physical damage?"
+        expected_verification: false 
+    chat_queries:
+      - query: "If there was a cardboard box with signs of physical damage (such as crumpling, tearing, dents, creases, or open boxes), what was the ID number of the box?"
+        expected_answer: "No boxes showed signs of physical damage."
+
+  - name: conveyorbelt_clip3_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/conveyor_belt_inspection_sdg_1080p_2025-08-21T22-04-14.241883Z_clip_3.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "You are a warehouse conveyor belt inspection system. You must inspect the cardboard box on the conveyor belt to look for signs of physical damage. Physical damage includes but is not limited to: 1) Crumpling 2) Tearing 3) Dents 4) Creases 5) Open boxes. The box should be in near perfect condition. Does one of the cardboard boxes in the video show signs of physical damage?"
+        expected_verification: true
+    chat_queries:
+      - query: "If there was a cardboard box with signs of physical damage (such as crumpling, tearing, dents, creases, or open boxes), what was the ID number of the box?"
+        expected_answer: "Yes one of the boxes is crumpled and its flaps are open. The box's ID is 5."
+  
+  - name: conveyorbelt_clip4_cv
+    iterations: 1
+    clip: "verifyAlerts_cv_overlay/conveyor_belt_inspection_sdg_1080p_2025-08-21T22-04-14.241883Z_clip_4.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "You are a warehouse conveyor belt inspection system. You must inspect the cardboard box on the conveyor belt to look for signs of physical damage. Physical damage includes but is not limited to: 1) Crumpling 2) Tearing 3) Dents 4) Creases 5) Open boxes. The box should be in near perfect condition. Does one of the cardboard boxes in the video show signs of physical damage?"
+        expected_verification: false
+    chat_queries:
+      - query: "If there was a cardboard box with signs of physical damage (such as crumpling, tearing, dents, creases, or open boxes), what was the ID number of the box?"
+        expected_answer: "No boxes in the video showed signs of physical damage."
+
+  # Jaywalking clips (raw videos without CV overlay)
+  - name: jaywalking_clip1
+    iterations: 1
+    clip: "verifyAlerts_raw/jaywalking_clip1.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there a person walking on the road?"
+        expected_verification: true
+      - query: "Jaywalking is when a person walks on the road but not on the white striped crosswalk. Did a person jaywalk on the road?"
+        expected_verification: true
+    chat_queries:
+      - query: "Describe what you see in the video. Are there any people walking on the road?"
+        expected_answer: "Yes, there is a person walking on the road. He is not using the crosswalk."
+  
+  - name: jaywalking_clip2
+    iterations: 1
+    clip: "verifyAlerts_raw/jaywalking_clip2.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there a person walking on the road?"
+        expected_verification: true
+      - query: "Jaywalking is when a person walks on the road but not on the white striped crosswalk. Did a person jaywalk on the road?"
+        expected_verification: false
+    chat_queries:
+      - query: "Describe what you see in the video. Are there any people walking on the road?"
+        expected_answer: "Yes, there is a person walking on the road, but they are using the crosswalk."
+
+  - name: jaywalking_clip3
+    iterations: 1
+    clip: "verifyAlerts_raw/jaywalking_clip3.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there a person walking on the road?"
+        expected_verification: false
+      - query: "Jaywalking is when a person walks on the road but not on the white striped crosswalk. Did a person jaywalk on the road?"
+        expected_verification: false
+    chat_queries:
+      - query: "Describe what you see in the video. Are there any people walking on the road?"
+        expected_answer: "No one is walking on the road."
+
+  # Warehouse ladder clips (raw videos without CV overlay)
+  - name: warehouse_ladder_clip1
+    iterations: 1
+    clip: "verifyAlerts_raw/warehouse_ladder_clip1.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there at least one person in the video?"
+        expected_verification: true
+      - query: "Is anyone on the ladder without a hardhat and safety vest?"
+        expected_verification: false
+    chat_queries:
+      - query: "Describe the safety equipment you see in the video. Are people wearing proper safety gear?"
+        expected_answer: "Yes, the person in the video is wearing proper safety equipment including a hardhat and safety vest."
+
+  - name: warehouse_ladder_clip2
+    iterations: 1
+    clip: "verifyAlerts_raw/warehouse_ladder_clip2.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there at least one person in the video?"
+        expected_verification: false
+      - query: "Is anyone on the ladder without a hardhat and safety vest?"
+        expected_verification: false
+
+  - name: warehouse_ladder_clip3
+    iterations: 1
+    clip: "verifyAlerts_raw/warehouse_ladder_clip3.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "Is there at least one person in the video?"
+        expected_verification: true
+      - query: "Is anyone on the ladder without a hardhat and safety vest?"
+        expected_verification: true
+    chat_queries:
+      - query: "Describe the safety equipment you see in the video. Are people wearing proper safety gear?"
+        expected_answer: "No, there is a person on the ladder without proper safety equipment."
+
+  # Conveyor belt clips (raw videos without CV overlay)
+  - name: conveyorbelt_clip1
+    iterations: 1
+    clip: "verifyAlerts_raw/conveyorbelt_clip1.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "You are a warehouse conveyor belt inspection system. You must inspect the cardboard box on the conveyor belt to look for signs of physical damage. Physical damage includes but is not limited to: 1) Crumpling 2) Tearing 3) Dents 4) Creases 5) Open boxes. The box should be in near perfect condition. Does one of the cardboard boxes in the video show signs of physical damage?"
+        expected_verification: false
+    chat_queries:
+      - query: "Describe the condition of the cardboard boxes on the conveyor belt. Do they appear to be in good condition?"
+        expected_answer: "Yes, the cardboard boxes appear to be in good condition without visible damage."
+
+  - name: conveyorbelt_clip2
+    iterations: 1
+    clip: "verifyAlerts_raw/conveyorbelt_clip2.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "You are a warehouse conveyor belt inspection system. You must inspect the cardboard box on the conveyor belt to look for signs of physical damage. Physical damage includes but is not limited to: 1) Crumpling 2) Tearing 3) Dents 4) Creases 5) Open boxes. The box should be in near perfect condition. Does one of the cardboard boxes in the video show signs of physical damage?"
+        expected_verification: true
+    chat_queries:
+      - query: "Describe the condition of the cardboard boxes on the conveyor belt. Do they appear to be in good condition?"
+        expected_answer: "No, one of the cardboard boxes appears crumpled."
+
+  - name: conveyorbelt_clip3
+    iterations: 1
+    clip: "verifyAlerts_raw/conveyorbelt_clip3.mp4"
+    cv_metadata:
+    alert_queries:
+      - query: "You are a warehouse conveyor belt inspection system. You must inspect the cardboard box on the conveyor belt to look for signs of physical damage. Physical damage includes but is not limited to: 1) Crumpling 2) Tearing 3) Dents 4) Creases 5) Open boxes. The box should be in near perfect condition. Does one of the cardboard boxes in the video show signs of physical damage?"
+        expected_verification: false
+    chat_queries:
+      - query: "Describe the condition of the cardboard boxes on the conveyor belt. Do they appear to be in good condition?"
+        expected_answer: "Yes, the cardboard boxes appear to be in good condition without visible damage."
+

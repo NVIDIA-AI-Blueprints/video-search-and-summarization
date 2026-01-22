@@ -189,6 +189,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                         model_name,
                         stream_id,
                         stream_num,
+                        test_case_dir,
                     )
                     active_futures.append(future)
                     self.logger.info(f"Launched stream {stream_num}")
@@ -254,6 +255,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 model_name,
                                 stream_id,
                                 current_stream_count,
+                                test_case_dir,
                             )
                             active_futures.append(future)
                             self.logger.info(
@@ -359,6 +361,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
         request_data = {
             "liveStreamUrl": video_config["rtsp_url"],
             "description": f"Test stream {stream_num}",
+            "camera_id": f"camera_{stream_num}",
         }
 
         self.logger.debug(
@@ -378,8 +381,13 @@ class LiveStreamsBenchmark(BenchmarkBase):
         model_name: str,
         stream_id: str,
         stream_num: int,
+        test_case_dir: str,
     ):
         """Monitor latency for a specific stream using SSE"""
+        # Create stream-specific directory for dumping responses
+        stream_dir = os.path.join(test_case_dir, f"stream_{stream_num}")
+        os.makedirs(stream_dir, exist_ok=True)
+
         try:
             # Get summarize params
             params = self._merge_with_defaults(
@@ -477,70 +485,93 @@ class LiveStreamsBenchmark(BenchmarkBase):
             # Process SSE events
             client = sseclient.SSEClient(response)
             self.logger.debug(f"Processing SSE events for stream {stream_num}")
-            for event in client.events():
-                data = event.data.strip()
-                self.logger.debug(f"Stream {stream_num} received SSE event: {data[:200]}...")
 
-                if data == "[DONE]":
-                    self.logger.debug(f"Stream {stream_num} received [DONE] event")
-                    break
+            # Open file for dumping all events
+            events_file = os.path.join(stream_dir, "sse_events.jsonl")
+            event_count = 0
 
-                try:
-                    result = json.loads(data)
-                    self.logger.debug(f"Stream {stream_num} parsed JSON event successfully")
+            with open(events_file, "w") as f:
+                for event in client.events():
+                    data = event.data.strip()
+                    event_count += 1
 
-                    # Print summary content when available
-                    if result.get("choices"):
-                        choice = result["choices"][0]
-                        if choice.get("finish_reason") == "stop":
-                            summary_content = choice["message"]["content"]
-                            self.logger.debug("")
-                            self.logger.debug(f"=== Stream {stream_num} Summary ===")
-                            self.logger.debug(f"Summary: {summary_content}")
+                    # Write event to file
+                    f.write(data + "\n")
+                    f.flush()
 
-                            # Print additional info if available
-                            if result.get("usage"):
-                                usage = result["usage"]
-                                if usage.get("total_chunks_processed"):
-                                    self.logger.debug(
-                                        f"Chunks processed: {usage['total_chunks_processed']}"
-                                    )
-                                if usage.get("query_processing_time"):
-                                    self.logger.debug(
-                                        f"Processing time: {usage['query_processing_time']:.2f}s"
-                                    )
-                            self.logger.debug("=" * 40)
+                    self.logger.debug(
+                        f"Stream {stream_num} received SSE event #{event_count}: {data[:200]}..."
+                    )
 
-                        elif choice.get("finish_reason") == "tool_calls":
-                            self.logger.info(
-                                f"Stream {stream_num} Alert: "
-                                f"{choice['message']['tool_calls'][0]['alert']['name']}"
-                            )
-                            alert = choice["message"]["tool_calls"][0]["alert"]
+                    if data == "[DONE]":
+                        self.logger.debug(f"Stream {stream_num} received [DONE] event")
+                        break
+
+                    try:
+                        result = json.loads(data)
+                        self.logger.debug(f"Stream {stream_num} parsed JSON event successfully")
+
+                        # Print summary content when available
+                        if result.get("choices"):
+                            choice = result["choices"][0]
+                            if choice.get("finish_reason") == "stop":
+                                summary_content = choice["message"]["content"]
+                                self.logger.debug("")
+                                self.logger.debug(f"=== Stream {stream_num} Summary ===")
+                                self.logger.debug(f"Summary: {summary_content}")
+
+                                # Print additional info if available
+                                if result.get("usage"):
+                                    usage = result["usage"]
+                                    if usage.get("total_chunks_processed"):
+                                        self.logger.debug(
+                                            f"Chunks processed: {usage['total_chunks_processed']}"
+                                        )
+                                    if usage.get("query_processing_time"):
+                                        self.logger.debug(
+                                            f"Processing time: {usage['query_processing_time']:.2f}s"
+                                        )
+                                self.logger.debug("=" * 40)
+
+                            elif choice.get("finish_reason") == "tool_calls":
+                                self.logger.info(
+                                    f"Stream {stream_num} Alert: "
+                                    f"{choice['message']['tool_calls'][0]['alert']['name']}"
+                                )
+                                alert = choice["message"]["tool_calls"][0]["alert"]
+                                self.logger.debug(
+                                    f"Alert Details: {alert['detectedEvents']} - {alert['details']}"
+                                )
+
+                        # Track latency from timestamp events
+                        if result.get("media_info", {}).get("type") == "timestamp":
+                            end_timestamp = result["media_info"]["end_timestamp"]
                             self.logger.debug(
-                                f"Alert Details: {alert['detectedEvents']} - {alert['details']}"
+                                f"Stream {stream_num} processing timestamp event: {end_timestamp}"
+                            )
+                            dt = datetime.strptime(end_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+                                tzinfo=timezone.utc
+                            )
+                            current_time = datetime.now(timezone.utc)
+                            latency = (current_time - dt).total_seconds()
+
+                            self.latency_tracker.record_latency(latency, stream_id)
+                            self.logger.debug(
+                                f"Stream {stream_num} recorded latency: {latency:.2f}s"
                             )
 
-                    # Track latency from timestamp events
-                    if result.get("media_info", {}).get("type") == "timestamp":
-                        end_timestamp = result["media_info"]["end_timestamp"]
-                        self.logger.debug(
-                            f"Stream {stream_num} processing timestamp event: {end_timestamp}"
+                    except json.JSONDecodeError:
+                        continue
+                    except Exception as e:
+                        self.logger.error(
+                            f"Error processing stream event for stream {stream_num}: {e}"
                         )
-                        dt = datetime.strptime(end_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
-                            tzinfo=timezone.utc
-                        )
-                        current_time = datetime.now(timezone.utc)
-                        latency = (current_time - dt).total_seconds()
+                        continue
 
-                        self.latency_tracker.record_latency(latency, stream_id)
-                        self.logger.debug(f"Stream {stream_num} recorded latency: {latency:.2f}s")
-
-                except json.JSONDecodeError:
-                    continue
-                except Exception as e:
-                    self.logger.error(f"Error processing stream event for stream {stream_num}: {e}")
-                    continue
+            # Log summary of events received
+            self.logger.info(
+                f"Stream {stream_num} received {event_count} total SSE events, saved to {events_file}"
+            )
 
         except Exception as e:
             self.logger.error(f"Error monitoring stream {stream_num}: {e}")

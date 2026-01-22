@@ -34,7 +34,7 @@ from langchain.evaluation import load_evaluator
 from langchain_openai import ChatOpenAI
 from sse_starlette.sse import AppStatus
 
-from common import ViaTestServer, chat, summarize
+from common import ViaTestServer, chat, summarize, build_vss_model_args
 from scripts.get_summary_qa_results_into_xlsx import (
     create_excel_report,
     process_results,
@@ -54,7 +54,7 @@ except RuntimeError:
 
 # Get test configurations
 def get_test_configs():
-    """Load test configurations from the byov config file, grouped by model"""
+    """Load test configurations from the byov config file, grouped by unique config name"""
     config_file = os.getenv(
         "BYOV_CONFIG_FILE", "/opt/nvidia/via/via-engine/eval/byov/byov_config.yaml"
     )
@@ -63,110 +63,83 @@ def get_test_configs():
     videos = parser.get_videos()
     vss_configs = parser.get_vss_configs()
 
-    # Group by VLM model first, then by video
+    # Create unique name for each config: model-name + path-suffix + index
     model_groups = {}
+    config_name_counts = {}  # Track config name usage for unique indexing
+    
     for i, vss_config in enumerate(vss_configs):
         vlm_name = vss_config["VLM_Configurations"]["model"]
-        if vlm_name not in model_groups:
-            model_groups[vlm_name] = {
-                "vlm_config": vss_config,
-                "config_name": f"Config_{i}",
-                "videos": [],
-            }
-
-        # Add all videos for this model
+        model_path = vss_config["VLM_Configurations"].get("model_path", "")
+        
+        # Extract meaningful identifier from model path
+        if model_path:
+            # Handle git URLs: extract last part after final /
+            if "git:" in model_path or "huggingface.co" in model_path:
+                # For git URLs, get the last part (e.g., "Cosmos-Reason2-8B-1208")
+                path_parts = model_path.split('/')[-1]
+                # Get last 5-10 chars depending on content
+                if len(path_parts) >= 10:
+                    path_suffix = path_parts[-10:]
+                else:
+                    path_suffix = path_parts[-5:] if len(path_parts) >= 5 else path_parts
+            elif "ngc:" in model_path:
+                # For NGC paths like "ngc:nvstaging/nim/cosmos-reason-2-8b:hf-v2"
+                # Extract the tag/version after the last ":"
+                if ":" in model_path.split('/')[-1]:
+                    path_suffix = model_path.split(':')[-1]
+                else:
+                    path_suffix = model_path.split('/')[-1][-5:]
+            else:
+                # Default: last 5 characters of the path
+                path_suffix = model_path.rstrip('/').split('/')[-1][-5:]
+            
+            # Clean up special characters for readability
+            path_suffix = path_suffix.replace(':', '').replace('-', '_')
+        else:
+            # No model path specified
+            path_suffix = "default"
+        
+        # Create base name
+        base_name = f"{vlm_name}_{path_suffix}"
+        
+        # Add index if this base name has been used before
+        if base_name in config_name_counts:
+            config_name_counts[base_name] += 1
+            unique_name = f"{base_name}_{config_name_counts[base_name]}"
+        else:
+            config_name_counts[base_name] = 1
+            unique_name = base_name
+        
+        # Store config with unique name
+        model_groups[unique_name] = {
+            "vlm_config": vss_config,
+            "config_name": unique_name,
+            "videos": [],
+        }
+        
+        # Add all videos for this config
         for video in videos:
-            model_groups[vlm_name]["videos"].append(video)
+            model_groups[unique_name]["videos"].append(video)
 
     return model_groups
 
 
 def build_model_args(vss_config, video_config, ca_rag_config):
     """Build model arguments string based on VLM configuration"""
-    model_args = ""
-
     # Extract the VLM configuration from the VSS config
     vlm_config = vss_config["VLM_Configurations"]
-
-    if vlm_config["model"] == "nvila":
-        model_args += " --vlm-model-type nvila"
-        if vlm_config.get("model_path") is None:
-            model_args += " --model-path ngc:nvidia/tao/nvila-highres:nvila-lite-15b-highres-lita"
-        else:
-            model_args += f" --model-path {vlm_config['model_path']}"
-        if vlm_config.get("VLM_batch_size") is not None:
-            model_args += f" --vlm-batch-size {vlm_config['VLM_batch_size']}"
-
-    elif vlm_config["model"] == "vila-1.5":
-        model_args += " --vlm-model-type vila-1.5"
-        if vlm_config.get("model_path") is not None:
-            model_args += f" --model-path {vlm_config['model_path']}"
-        else:
-            model_args += (
-                " --model-path ngc:nim/nvidia/vila-1.5-40b:vila-yi-34b-siglip-stage3_1003_video_v8"
-            )
-        if vlm_config.get("VLM_batch_size") is not None:
-            model_args += f" --vlm-batch-size {vlm_config['VLM_batch_size']}"
-
-    elif vlm_config["model"] == "openai-compat":
-        model_args += " --vlm-model-type openai-compat"
-
-    elif vlm_config["model"] == "cosmos-reason1":
-        model_args += " --vlm-model-type cosmos-reason1"
-        if vlm_config.get("model_path") is not None:
-            model_args += f" --model-path {vlm_config['model_path']}"
-        os.environ["COSMOS_REASON1_USE_VLLM"] = "1"
-        os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
-        os.environ["VLLM_USE_PYTORCH_CUDA_GRAPH"] = "0"
-        os.environ["VLLM_DISABLE_CUSTOM_ALL_REDUCE"] = "1"
-
-    elif vlm_config["model"] == "custom":
-        model_args += f" --model-path {vlm_config['model_path']}"
-    else:
-        pytest.fail(f"Invalid model type: {vlm_config['model']}")
-
-    # Set OpenAI-compat environment variables
-    if vlm_config.get("VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME") is not None:
-        os.environ["VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME"] = vlm_config[
-            "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME"
-        ]
-    if vlm_config.get("VIA_VLM_ENDPOINT") is not None:
-        os.environ["VIA_VLM_ENDPOINT"] = vlm_config["VIA_VLM_ENDPOINT"]
-    if vlm_config.get("AZURE_OPENAI_ENDPOINT") is not None:
-        os.environ["AZURE_OPENAI_ENDPOINT"] = vlm_config["AZURE_OPENAI_ENDPOINT"]
-
-    # set the VLM input dimensions
-    if vlm_config.get("VLM_INPUT_WIDTH") is not None:
-        os.environ["VLM_INPUT_WIDTH"] = str(vlm_config["VLM_INPUT_WIDTH"])
-    if vlm_config.get("VLM_INPUT_HEIGHT") is not None:
-        os.environ["VLM_INPUT_HEIGHT"] = str(vlm_config["VLM_INPUT_HEIGHT"])
-
-    # CA-RAG configuration
-    if ca_rag_config is not None:
-        if os.path.exists(f"./eval/byov/{ca_rag_config}"):
-            model_args += f" --ca-rag-config ./eval/byov/{ca_rag_config}"
-        else:
-            model_args += f" --ca-rag-config {ca_rag_config}"
-    else:
-        model_args += " --disable-ca-rag "
-
-    # Guardrail configuration
     guardrail_config = vss_config.get("Guardrail_Configurations", {})
-    if guardrail_config.get("enable", False) is True:
-        if guardrail_config.get("guardrail_config_file") is not None:
-            model_args += f" --guardrail-config {guardrail_config['guardrail_config_file']}"
-    else:
-        model_args += " --disable-guardrails "
-
-    if video_config.get("enable_cv", True) is False:
-        model_args += " --disable-cv-pipeline"
-
-    if video_config.get("enable_audio", False) is True:
-        model_args += " --enable-audio"
-
-    if vlm_config.get("frames_per_chunk") is not None:
-        model_args += f" --num-frames-per-chunk {vlm_config['frames_per_chunk']}"
-
+    
+    # Use common function to build model args
+    model_args = build_vss_model_args(
+        vlm_config=vlm_config,
+        enable_ca_rag=(ca_rag_config is not None),
+        ca_rag_config=ca_rag_config,
+        guardrail_config=guardrail_config,
+        enable_cv=video_config.get("enable_cv", True),
+        enable_audio=video_config.get("enable_audio", False)
+    )
+    
     return model_args
 
 

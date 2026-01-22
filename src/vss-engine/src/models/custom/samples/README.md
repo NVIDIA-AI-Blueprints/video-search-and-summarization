@@ -6,12 +6,8 @@
 
 This is a locally exeucted model. Run the following command to download the model weights:
 ```sh
-huggingface-cli download --resume-download --local-dir-use-symlinks False adept/fuyu-8b --local-dir fuyu8b
+hf download adept/fuyu-8b --local-dir fuyu8b
 ```
-
-### Neva
-
-This model is used as an NVIDIA hosted service. Set ``NVIDIA_API_KEY`` env. variable to a valid API Key.
 
 ## Using a custom model
 

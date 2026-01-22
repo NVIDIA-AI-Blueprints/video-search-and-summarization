@@ -8,11 +8,14 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+import os
 import gradio as gr
 from gradio_videotimeline import VideoTimeline
 
+MEDIA_DIR = os.path.join(os.path.dirname(__file__), "media")
+
 example = {
-    "video": "https://github.com/gradio-app/gradio/raw/refs/tags/gradio@5.11.0/demo/video_component/files/world.mp4",
+    "video": os.path.join(MEDIA_DIR, "world.mp4"),
     "subtitles": None,
     'timestamps': [2, 5, 10, 15, 20, 28],
     'marker_labels': ['Aa', 'Bb', 'Cc', 'Dd', 'Ee', 'Ff'],
@@ -30,4 +33,4 @@ with gr.Blocks() as demo:
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_name="0.0.0.0", server_port=7860)

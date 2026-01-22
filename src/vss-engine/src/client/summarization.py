@@ -566,9 +566,14 @@ async def summarize(
             )
         else:
             output_alerts = ""
-        collected_alerts = alerts_table[
-            alerts_table.apply(lambda row: not row.eq("").any(), axis=1)
-        ].to_csv(sep=":", index=False, columns=column_names[:-2], header=False, lineterminator=";")
+        # Set column names from the UI headers to match expected column names
+        alerts_table.columns = column_names
+        # Filter non-empty rows and select only the first two columns
+        filtered_alerts = alerts_table[alerts_table.apply(lambda row: not row.eq("").any(), axis=1)]
+        # Select only the first two columns before converting to CSV
+        collected_alerts = filtered_alerts.iloc[:, :2].to_csv(
+            sep=":", index=False, header=False, lineterminator=";"
+        )
         logger.debug(f"Collected alerts: {collected_alerts}")
         for alert in collected_alerts.split(";"):
             alert = alert.strip()
@@ -1408,7 +1413,7 @@ def build_summarization(args, app_cfg, logger_):
                 with gr.Row():
                     max_new_tokens = gr.Slider(
                         minimum=1,
-                        maximum=1024,
+                        maximum=20480,
                         value=512,
                         interactive=True,
                         label="Max Tokens",

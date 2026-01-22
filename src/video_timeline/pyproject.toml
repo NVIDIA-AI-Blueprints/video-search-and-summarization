@@ -18,7 +18,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gradio_videotimeline"
-version = "1.0.2"
+version = "1.1.0"
 description = "Video component to show event summary"
 readme = "README.md"
 license = "apache-2.0"
@@ -26,7 +26,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Anish Kumar", email = "aniskumar@nvidia.com" }]
 keywords = ["gradio-custom-component", "gradio-template-Video", "Video Event Summary", "Video Timeline"]
 # Add dependencies here
-dependencies = ["gradio>=4.0,<6.0"]
+dependencies = ["gradio>=5.49.1,<6.0"]
 classifiers = [
   'Development Status :: 3 - Alpha',
   'Operating System :: OS Independent',

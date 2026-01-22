@@ -17,9 +17,9 @@ VSS_Configurations:
 
   - Config_1:
     VLM_Configurations:
-      model: cosmos-reason1 #nvila, openai-compat, cosmos-reason1, or custom
+      model: cosmos-reason1 #openai-compat, cosmos-reason1, or custom
       model_path: ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic #model path
-      VLM_batch_size:  #only applicable for vila-1.5 and nvila
+      VLM_batch_size:
       frames_per_chunk: #sets to default based on model
       temperature: 0.4
       top_p: 1
@@ -28,28 +28,6 @@ VSS_Configurations:
       seed: 1
       #edit below if using openai-compat
       VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: #for example, "gpt-4o"
-      VIA_VLM_ENDPOINT: #for gpt models, use "https://api.openai.com/v1", otherwise change url to point to remote VLM endpoint. Can be any VLM with an openAI compatible API.
-      AZURE_OPENAI_ENDPOINT: #default is None, change url to point to remote VLM endpoint for Azure OpenAI endpoints.
-
-    CA_RAG_CONFIG: ca_rag_config.yaml #ca rag config file name (must be in the eval directory)
-
-    Guardrail_Configurations:
-      enable: False
-      guardrail_config_file: #guardrail config file name (must be in the eval directory)
-  
-  - Config_2:
-    VLM_Configurations: 
-      model: nvila #nvila, openai-compat, cosmos-reason1, or custom
-      model_path: ngc:nvidia/tao/nvila-highres:nvila-lite-15b-highres-lita #model path, using defaults from byov_main.py if not set
-      VLM_batch_size: #only applicable for vila-1.5 and nvila
-      frames_per_chunk:
-      temperature: 0.4
-      top_p: 1
-      top_k: 100
-      max_new_tokens: 100
-      seed: 1
-      #edit below if using openai-compat  
-      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: #for example, "gpt-4o" 
       VIA_VLM_ENDPOINT: #for gpt models, use "https://api.openai.com/v1", otherwise change url to point to remote VLM endpoint. Can be any VLM with an openAI compatible API.
       AZURE_OPENAI_ENDPOINT: #default is None, change url to point to remote VLM endpoint for Azure OpenAI endpoints.
 

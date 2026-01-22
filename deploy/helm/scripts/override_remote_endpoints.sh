@@ -26,7 +26,7 @@ show_help() {
     echo "Usage: export the necessary environment variables and run $(basename "$0")"
     echo 
     echo "Required environment variables:"
-    echo "  CHART_NAME                Specify the chart name (default: nvidia-blueprint-vss-2.4.0.tgz)"
+    echo "  CHART_NAME                Specify the chart name (default: nvidia-blueprint-vss-2.4.1.tgz)"
     echo "  HELM_URL                  Specify the helm repository URL (default: https://helm.ngc.nvidia.com/nvidia/blueprint/charts/)"
     echo "  NGC_API_KEY               Specify the NGC API key (mandatory)"
     echo "  LLM_BASE_URL              Specify the LLM base URL (optional)"
@@ -55,7 +55,7 @@ fi
 BASE_DIR=$(dirname "$(realpath "$0")")
 # Set default value if not provided
 if [ -z "$CHART_NAME" ]; then
-    CHART_NAME="nvidia-blueprint-vss-2.4.0.tgz"
+    CHART_NAME="nvidia-blueprint-vss-2.4.1.tgz"
     echo "CHART_NAME is not provided, using default value: $CHART_NAME"
 fi
 if [ -z "$HELM_URL" ]; then
@@ -87,7 +87,7 @@ vss:
         - -c 
         - until nc -z -w 2 milvus-milvus-deployment-milvus-service 19530; do echo 
           waiting for milvus; sleep 2; done 
-        image: busybox:1.28 
+        image: busybox:1.37 
         imagePullPolicy: IfNotPresent 
         name: check-milvus-up 
       - command: 
@@ -95,7 +95,7 @@ vss:
         - -c 
         - until nc -z -w 2 neo-4-j-service 7687; do echo waiting for neo4j; sleep 
           2; done 
-        image: busybox:1.28 
+        image: busybox:1.37 
         imagePullPolicy: IfNotPresent 
         name: check-neo4j-up 
 
@@ -153,9 +153,9 @@ cat << EOF >> $BASE_DIR/overrides.yaml
         vss:
           env:
           - name: VLM_MODEL_TO_USE
-            value: cosmos-reason1
+            value: cosmos-reason2
           - name: MODEL_PATH
-            value: ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic
+            value: git:https://huggingface.co/nvidia/Cosmos-Reason2-8B
           - name: ENABLE_AUDIO
             value: "true"
           - name: RIVA_ASR_SERVER_URI
