@@ -34,7 +34,9 @@
 .gradio-container {
   /* This needs to be !important, otherwise the breakpoint override the container being full width */
   max-width: 100% !important;
-
+  width: 100% !important;
+  margin: 0 !important;
+  
   #aspect-ratio: 16 / 9 !important;
   /* top | right | bottom | left */
   padding: 0px 0px 0px 0px !important;
@@ -42,9 +44,35 @@
  padding-right: 32 !important;
   padding-left: 32 !important;
   padding-bottom: 32 !important;*/
-  #margin: 30px !important;
   /*background-color: 212121 !important;*/
 
+}
+
+/* Override Gradio's .app padding that creates margins */
+.app {
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+/* Override Gradio's responsive media queries that limit max-width */
+@media (min-width: 640px) {
+  .fillable:not(.fill_width) {
+    max-width: 100% !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .fillable:not(.fill_width) {
+    max-width: 100% !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .fillable:not(.fill_width) {
+    max-width: 100% !important;
+  }
 }
 
 .generating {

@@ -42,7 +42,7 @@ docker login nvcr.io -u '$oauthtoken' -p $NGC_API_KEY
 
 2. Set the base image and new version:
 ```bash
-export BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.4.0"
+export BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.4.1"
 export NEW_VERSION="x.y.z"  # Replace with your version
 ```
 
@@ -97,7 +97,7 @@ vss:
 
 3. Install/Upgrade using the override values:
 ```bash
-helm install vss-blueprint nvidia-blueprint-vss-2.4.0.tgz \
+helm install vss-blueprint nvidia-blueprint-vss-2.4.1.tgz \
     --set global.ngcImagePullSecretName=ngc-docker-reg-secret \
     -f my_values.yaml
 ```

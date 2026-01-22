@@ -377,19 +377,22 @@ class AlertReviewBenchmark(BenchmarkBase):
             # Build VSS parameters
             vss_params = {
                 "vlm_params": vlm_params,
-                "chunk_duration": params["chunk_duration"],
-                "chunk_overlap_duration": params["chunk_overlap_duration"],
-                "num_frames_per_chunk": params["num_frames_per_chunk"],
                 "do_verification": params["do_verification"],
             }
 
             # Add optional VSS parameters if user configured them
+            if "num_frames_per_chunk" in params:
+                vss_params["num_frames_per_chunk"] = params["num_frames_per_chunk"]
             if "cv_metadata_overlay" in params:
                 vss_params["cv_metadata_overlay"] = params["cv_metadata_overlay"]
             if "enable_reasoning" in params:
                 vss_params["enable_reasoning"] = params["enable_reasoning"]
             if "debug" in params:
                 vss_params["debug"] = params["debug"]
+            if "vlm_input_width" in params:
+                vss_params["vlm_input_width"] = params["vlm_input_width"]
+            if "vlm_input_height" in params:
+                vss_params["vlm_input_height"] = params["vlm_input_height"]
 
             # Build request payload following alert_inspector format
             request_data = {
@@ -491,7 +494,7 @@ class AlertReviewBenchmark(BenchmarkBase):
 
         # Use binary search to find optimal concurrency for target average latency
         tolerance = video_config.get("target_latency_tolerance", 5.0)
-        max_concurrency = 500
+        max_concurrency = 2048
 
         # Calculate initial estimate using linear interpolation
         throughput_factors = []
@@ -592,6 +595,12 @@ class AlertReviewBenchmark(BenchmarkBase):
 
         if abs(current_latency - target_latency) <= tolerance:
             self.logger.info(f"Linear estimation achieved target within tolerance ({tolerance}s)")
+        elif current_concurrency == 1 and current_latency > target_latency:
+            # Already at minimum concurrency but still exceeding target - can't improve
+            self.logger.warning(
+                f"Cannot achieve target latency {target_latency}s: minimum concurrency (1) "
+                f"already produces {current_latency:.2f}s latency"
+            )
         else:
             # Phase 2: Binary search to optimize around target
             self.logger.debug("Starting binary search optimization around target latency")
@@ -604,16 +613,16 @@ class AlertReviewBenchmark(BenchmarkBase):
                 # We overshot, so set bounds around the last two tests
                 if len(all_test_results) >= 2:
                     prev_result = all_test_results[-2]
-                    low = prev_result.get("concurrency_level", current_concurrency // 2)
+                    low = max(1, prev_result.get("concurrency_level", current_concurrency // 2))
                 else:
-                    low = current_concurrency // 2
+                    low = max(1, current_concurrency // 2)
                 high = current_concurrency
 
             binary_iteration = 1
 
             while abs(current_latency - target_latency) > tolerance:
-                # Calculate midpoint
-                next_concurrency = (low + high) // 2
+                # Calculate midpoint (ensure at least 1)
+                next_concurrency = max(1, (low + high) // 2)
 
                 # Ensure we don't test the same concurrency twice
                 if next_concurrency == current_concurrency or any(

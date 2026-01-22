@@ -17,7 +17,7 @@
 
 services:
   via-server:
-    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0${IS_SBSA:+-sbsa}}
+    image: ${VIA_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.1${IS_SBSA:+-sbsa}}
     shm_size: '16gb'
     runtime: nvidia
     ports:
@@ -53,6 +53,7 @@ services:
       MILVUS_DB_GRPC_PORT: "${MILVUS_DB_GRPC_PORT:-19530}"
       MODEL_PATH: "${MODEL_PATH:-}"
       NGC_API_KEY: "${NGC_API_KEY:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
       GDINO_MODEL_PATH: "${GDINO_MODEL_PATH:-}"
       NV_LLMG_CLIENT_ID: "${NV_LLMG_CLIENT_ID:-}"
       NV_LLMG_CLIENT_SECRET: "${NV_LLMG_CLIENT_SECRET:-}"
@@ -161,10 +162,10 @@ services:
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_server_bolt_listen__address: "0.0.0.0:${GRAPH_DB_BOLT_PORT:-7687}"
       NEO4J_server_http_listen__address: "0.0.0.0:${GRAPH_DB_HTTP_PORT:-7474}"
-    image: neo4j:5.26.4
+    image: neo4j:5.26.16
 
   arango-db:
-    image: arangodb/arangodb:3.12.4
+    image: arangodb:3.12.6
     environment:
       - ARANGO_DB_USERNAME=${ARANGO_DB_USERNAME}
       - ARANGO_ROOT_PASSWORD=${ARANGO_DB_PASSWORD}
@@ -173,7 +174,7 @@ services:
     command: ["arangod", "--experimental-vector-index", "--server.endpoint", "http://0.0.0.0:${ARANGO_DB_PORT:-8529}"]
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     ports:
       - "${MINIO_PORT:-9000}:${MINIO_PORT:-9000}"
       - "${MINIO_WEBUI_PORT:-9001}:${MINIO_WEBUI_PORT:-9001}"
@@ -186,7 +187,7 @@ services:
     restart: unless-stopped
 
   milvus-standalone:
-    image: milvusdb/milvus:v2.5.4
+    image: milvusdb/milvus:v2.6.5
     command: |
       sh -c "
       cat <<EOF > /milvus/configs/embedEtcd.yaml
@@ -204,6 +205,7 @@ services:
       milvus run standalone
       "
     environment:
+      - DEPLOY_MODE=STANDALONE
       - ETCD_USE_EMBED=true
       - ETCD_DATA_DIR=/var/lib/milvus/etcd
       - ETCD_CONFIG_PATH=/milvus/configs/embedEtcd.yaml
@@ -220,7 +222,7 @@ services:
       start_period: 90s
 
   elasticsearch:
-    image: elasticsearch:9.1.2
+    image: elasticsearch:9.2.1
     ports:
       - "${ES_PORT:-9200}:${ES_PORT:-9200}"
       - "${ES_TRANSPORT_PORT:-9300}:${ES_TRANSPORT_PORT:-9300}"

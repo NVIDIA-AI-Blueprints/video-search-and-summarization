@@ -11,6 +11,11 @@
 # its affiliates is strictly prohibited.
 ######################################################################################################
 
+# Source .env file if it exists and SKIP_ENV_FILE is not set
+if [ -z "$SKIP_ENV_FILE" ] && [ -f .env ]; then
+    source .env
+fi
+
 ASSET_STORAGE_DIR="${ASSET_STORAGE_DIR:-/tmp/assets}"
 
 CA_RAG_CONFIG="${CA_RAG_CONFIG:-/opt/nvidia/via/default_config.yaml}"
@@ -34,6 +39,7 @@ EXAMPLE_STREAMS_DIR="${EXAMPLE_STREAMS_DIR:-/opt/nvidia/via/streams}"
 
 VLM_MODEL_TO_USE="${VLM_MODEL_TO_USE:-openai-compat}"
 export VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME="${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-gpt-4o}"
+export VIA_VLM_ENDPOINT="${VIA_VLM_ENDPOINT:-}"
 export VSS_LOG_LEVEL=$VSS_LOG_LEVEL
 
 ENABLE_NSYS_PROFILER="${ENABLE_NSYS_PROFILER:-false}"
@@ -71,10 +77,18 @@ echo "Free GPU memory is $FREE_GPU_MEM MiB"
 
 if [ $FREE_GPU_MEM -lt 40000 ]; then
     export VSS_DISABLE_DECODER_REUSE="${VSS_DISABLE_DECODER_REUSE:-true}"
+else
+    export VSS_DISABLE_DECODER_REUSE="${VSS_DISABLE_DECODER_REUSE:-false}"
 fi
 
 if [ "$VSS_DISABLE_DECODER_REUSE" == "true" ]; then
     echo "Disabling decoder reuse"
+fi
+
+if [ -f /etc/nv_tegra_release ]; then
+    if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
+        export LD_LIBRARY_PATH="/opt/nvidia/via/lib:${LD_LIBRARY_PATH}"
+    fi
 fi
 
 GPU_MEM=0
@@ -334,6 +348,10 @@ start_processes() {
             echo "Installing additional multimedia packages"
             bash user_additional_install.sh
         fi
+    fi
+    if [ "$APPLY_GSTREAMER_RTSP_FIX" = true ]; then
+        echo "Applying Gstreamer RTSP fix"
+        bash /opt/nvidia/deepstream/deepstream/update_rtpmanager.sh
     fi
 
     if [ "$ENABLE_AUDIO" = true ]; then

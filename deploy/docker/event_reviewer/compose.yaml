@@ -15,7 +15,7 @@
 
 services:
   via-server:
-    image: ${VSS_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.0${IS_SBSA:+-sbsa}}
+    image: ${VSS_IMAGE:-nvcr.io/nvidia/blueprint/vss-engine:2.4.1${IS_SBSA:+-sbsa}}
     networks:
       - vss-shared-network
     shm_size: '16gb'
@@ -36,8 +36,10 @@ services:
       DISABLE_GUARDRAILS: "true"
       DISABLE_CV_PIPELINE: "true"
       FRONTEND_PORT: "${VSS_FRONTEND_PORT:-9000}"
-      MODEL_PATH: "${MODEL_PATH:-ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic}"
-      VLM_MODEL_TO_USE: "cosmos-reason1"
+      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Reason2-8B}"
+      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-cosmos-reason2}"
+      VLLM_GPU_MEMORY_UTILIZATION: "${VLLM_GPU_MEMORY_UTILIZATION:-}"
+      VLM_MAX_MODEL_LEN: "${VLM_MAX_MODEL_LEN:-}"
       VSS_LOG_LEVEL: "${VSS_LOG_LEVEL:-}"
       VSS_EXTRA_ARGS: "${VSS_EXTRA_ARGS:-}"
       VLM_DEFAULT_NUM_FRAMES_PER_CHUNK: "${VLM_DEFAULT_NUM_FRAMES_PER_CHUNK:-}"
@@ -47,7 +49,7 @@ services:
       VLM_INPUT_HEIGHT: "${VLM_INPUT_HEIGHT:-}"
       NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-}"
       NGC_API_KEY: "${NGC_API_KEY:-}"
-      VLLM_DISABLE_COMPILE_CACHE: "1"
+      HF_TOKEN: "${HF_TOKEN:-}"
     ulimits:
       memlock:
         soft: -1
@@ -63,7 +65,7 @@ services:
 
 
   storage-ms:
-    image: nvcr.io/nvidia/blueprint/vst-storage:2.1.0-25.07.1
+    image: ${VST_IMAGE:-nvcr.io/nvidia/blueprint/vst-storage:2.1.0-25.11.1.1}
     networks:
       - vss-shared-network
     user: "0:0"
@@ -140,7 +142,7 @@ services:
       - 9080:9080
 
   alert-inspector-ui:
-    image: ${ALERT_INSPECTOR_UI_IMAGE:-nvcr.io/nvidia/blueprint/vss-alert-inspector-ui:2.4.0}
+    image: ${ALERT_INSPECTOR_UI_IMAGE:-nvcr.io/nvidia/blueprint/vss-alert-inspector-ui:2.4.1}
     networks:
       - vss-shared-network
     volumes:

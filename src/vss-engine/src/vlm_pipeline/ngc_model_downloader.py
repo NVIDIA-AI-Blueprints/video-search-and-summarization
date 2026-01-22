@@ -112,13 +112,27 @@ def download_model_git(git_url: str, download_path_prefix: str):
     # user requested path.
     with TemporaryDirectory() as td:
         try:
+            if git_url.startswith("https://huggingface.co/") or git_url.startswith(
+                "https://hf.co/"
+            ):
+                run_cmd = [
+                    "hf",
+                    "download",
+                    git_url.replace("https://huggingface.co/", "").replace("https://hf.co/", ""),
+                    "--local-dir",
+                    td,
+                ]
+            else:
+                run_cmd = ["git", "clone", git_url, td]
             subprocess.run(
-                ["git", "clone", git_url, td],
+                run_cmd,
                 check=True,
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            subprocess.run(["rm", "-rf", td + "/.git"], check=True, stdin=subprocess.DEVNULL)
+            git_dir = os.path.join(td, ".git")
+            if os.path.exists(git_dir):
+                shutil.rmtree(git_dir, ignore_errors=True)
         except Exception:
             raise Exception(f"Failed to download model {model_name} from {git_url}") from None
         os.makedirs(download_path_prefix, exist_ok=True)

@@ -52,6 +52,8 @@ class VlmModelType(Enum):
     NVILA = "nvila"
     OPENAI_COMPATIBLE = "openai-compat"  # Any OpenAI API compatible on NIM/OpenAI/Azure-OpenAI
     COSMOS_REASON1 = "cosmos-reason1"
+    COSMOS_REASON2 = "cosmos-reason2"
+    VLLM_COMPATIBLE = "vllm-compatible"
 
     def __str__(self):
         return self.value
@@ -231,16 +233,35 @@ class DecoderProcess(ViaProcessBase):
             self._minframes = 1
             self._data_type_int8 = True
 
-        elif self._vlm_model_type in [VlmModelType.COSMOS_REASON1]:
+        elif self._vlm_model_type in [
+            VlmModelType.COSMOS_REASON1,
+            VlmModelType.VLLM_COMPATIBLE,
+        ]:
             with open(self._model_path + "/config.json") as f:
                 config = json.load(f)
             if not self._nfrms:
                 self._nfrms = config.get("num_video_frames", 20)
             self._minframes = 1
             self._data_type_int8 = True
-            # 2K vision tokens
-            self._width = 532
-            self._height = 280
+            if self._vlm_model_type == VlmModelType.COSMOS_REASON1:
+                # 2K vision tokens
+                self._width = 532
+                self._height = 280
+            if self._vlm_model_type == VlmModelType.VLLM_COMPATIBLE:
+                # 2K vision tokens.
+                self._width = 532
+                self._height = 280
+
+        elif self._vlm_model_type == VlmModelType.COSMOS_REASON2:
+            with open(self._model_path + "/config.json") as f:
+                config = json.load(f)
+            if not self._nfrms:
+                self._nfrms = config.get("num_video_frames", 20)
+            self._minframes = 1
+            self._data_type_int8 = True
+            # 9K vision tokens
+            self._width = 1312
+            self._height = 736
 
         elif self._vlm_model_type in [VlmModelType.OPENAI_COMPATIBLE]:
             if not self._nfrms:
@@ -525,7 +546,11 @@ class DecoderProcess(ViaProcessBase):
         """Decode a chunk and return selected frames as raw frames / JPEG images"""
         if self._vlm_model_type == VlmModelType.NVILA:
             return self._file_thread_pool.submit(self._decode_chunk, self._fgetters.pop(), **kwargs)
-        elif self._vlm_model_type == VlmModelType.COSMOS_REASON1:
+        elif self._vlm_model_type in [
+            VlmModelType.COSMOS_REASON1,
+            VlmModelType.COSMOS_REASON2,
+            VlmModelType.VLLM_COMPATIBLE,
+        ]:
             return self._file_thread_pool.submit(self._decode_chunk, self._fgetters.pop(), **kwargs)
         else:
             return self._thread_pool.submit(self._decode_chunk, self._fgetters.pop(), **kwargs)
@@ -725,6 +750,7 @@ class VlmProcess(ViaProcessBase):
             if self._model.TRTLLM_EXECUTOR_INFLIGHT_BATCHING:
                 self._batch_size = 1
         elif self._vlm_model_type == VlmModelType.NVILA:
+            from models.nvila.nvila_context import NVilaContext
             from models.nvila.nvila_model import NVila
 
             self._model = NVila(
@@ -735,31 +761,47 @@ class VlmProcess(ViaProcessBase):
                 async_output=True,
             )
             self._batch_size = 1
+            self._ctx = NVilaContext(self._model)
 
-        elif self._vlm_model_type == VlmModelType.COSMOS_REASON1:
-            from models.cosmos_reason1.cosmos_reason1_model import CosmosReason1
+        elif self._vlm_model_type in [
+            VlmModelType.COSMOS_REASON1,
+            VlmModelType.COSMOS_REASON2,
+            VlmModelType.VLLM_COMPATIBLE,
+        ]:
+            from models.vllm_compatible.vllm_compatible_context import (
+                VllmCompatibleContext,
+            )
+            from models.vllm_compatible.vllm_compatible_model import VllmCompatibleModel
 
-            self._model = CosmosReason1(
+            self._model = VllmCompatibleModel(
                 self._model_path,
                 use_trt=self._use_trt,
                 trt_engine_dir=self._trt_engine_dir,
                 max_batch_size=self._batch_size,
                 async_output=True,
+                vlm_model_type=self._vlm_model_type.value,
             )
             self._batch_size = 1
 
+            self._ctx = VllmCompatibleContext(self._model)
+
         elif self._vlm_model_type == VlmModelType.OPENAI_COMPATIBLE:
+            from models.common.model_context_frame_input import ModelContextFrameInput
             from models.openai_compat.openai_compat_model import CompOpenAIModel
 
-            self._model = CompOpenAIModel(True)
+            self._model = CompOpenAIModel()
             self._batch_size = 1
+            self._ctx = ModelContextFrameInput(self._model)
         elif self._vlm_model_type is None:
             loader = CustomModuleLoader(self._model_path)
             self._model = loader.load_model()
             self._batch_size = 1
+            self._ctx = CustomModelContext(self._model)
         return True
 
     def _deinitialize(self):
+        if hasattr(self._model, "shutdown"):
+            self._model.shutdown()
         self._model = None
 
     def _supports_batching(self):
@@ -780,6 +822,8 @@ class VlmProcess(ViaProcessBase):
             self._vlm_model_type == VlmModelType.VILA_15
             or self._vlm_model_type == VlmModelType.NVILA
             or self._vlm_model_type == VlmModelType.COSMOS_REASON1
+            or self._vlm_model_type == VlmModelType.COSMOS_REASON2
+            or self._vlm_model_type == VlmModelType.VLLM_COMPATIBLE
         ) and not self._model.can_enqueue_requests()
 
     def _warmup(self):
@@ -806,23 +850,7 @@ class VlmProcess(ViaProcessBase):
         if self._vlm_model_type == VlmModelType.VILA_15:
             from models.vila15.vila15_context import Vila15Context
 
-            ctx = Vila15Context(self._model)
-        elif self._vlm_model_type == VlmModelType.NVILA:
-            from models.nvila.nvila_context import NVilaContext
-
-            ctx = NVilaContext(self._model)
-        elif self._vlm_model_type == VlmModelType.COSMOS_REASON1:
-            from models.cosmos_reason1.cosmos_reason1_context import (
-                CosmosReason1Context,
-            )
-
-            ctx = CosmosReason1Context(self._model)
-        elif self._vlm_model_type == VlmModelType.OPENAI_COMPATIBLE:
-            from models.common.model_context_frame_input import ModelContextFrameInput
-
-            ctx = ModelContextFrameInput(self._model)
-        elif self._vlm_model_type is None:
-            ctx = CustomModelContext(self._model)
+            self._ctx = Vila15Context(self._model)
 
         embeds = []
         frame_times = []
@@ -830,6 +858,8 @@ class VlmProcess(ViaProcessBase):
             (self._vlm_model_type is not None or self._model.get_embedding_generator() is not None)
             and self._vlm_model_type != VlmModelType.NVILA
             and self._vlm_model_type != VlmModelType.COSMOS_REASON1
+            and self._vlm_model_type != VlmModelType.COSMOS_REASON2
+            and self._vlm_model_type != VlmModelType.VLLM_COMPATIBLE
         ):
             # Model supports explicit embeddings, fetch the embedding for each chunk
             # in the input batch
@@ -841,7 +871,7 @@ class VlmProcess(ViaProcessBase):
         frames = kwargs.pop("frames", None)
         frame_times = kwargs.pop("frame_times", frame_times)
         # Set the video embeddings on the context class along with time information
-        ctx.set_video_embeds(chunk, embeds, frames, frame_times)
+        self._ctx.set_video_embeds(chunk, embeds, frames, frame_times)
 
         decode_only = kwargs.pop("decode_only", [False])[0]
         if decode_only:
@@ -850,7 +880,7 @@ class VlmProcess(ViaProcessBase):
                 [{"input_tokens": 0, "output_tokens": 0}],
             )
         else:
-            vlm_response_stats = ctx.ask(
+            vlm_response_stats = self._ctx.ask(
                 request_params[0].vlm_prompt,
                 generation_config=request_params[0].vlm_generation_config,
                 chunk=chunk,
@@ -1252,6 +1282,8 @@ class VlmPipeline:
         elif (
             args.vlm_model_type != VlmModelType.NVILA
             and args.vlm_model_type != VlmModelType.COSMOS_REASON1
+            and args.vlm_model_type != VlmModelType.COSMOS_REASON2
+            and args.vlm_model_type != VlmModelType.VLLM_COMPATIBLE
         ):
             self._have_emb_gen = True
 
@@ -1262,6 +1294,8 @@ class VlmPipeline:
         if (
             args.vlm_model_type == VlmModelType.NVILA
             or args.vlm_model_type == VlmModelType.COSMOS_REASON1
+            or args.vlm_model_type == VlmModelType.COSMOS_REASON2
+            or args.vlm_model_type == VlmModelType.VLLM_COMPATIBLE
         ) and not have_peer_access:
             self._vlm_q = None
             self._vlm_q_lock = None
@@ -1282,9 +1316,18 @@ class VlmPipeline:
         self._enqueue_lock = Lock()
 
         if args.vlm_model_type == VlmModelType.OPENAI_COMPATIBLE:
+            from openai import PermissionDeniedError
+
             from models.openai_compat.openai_compat_model import CompOpenAIModel
 
-            CompOpenAIModel()
+            try:
+                CompOpenAIModel(True)
+            except PermissionDeniedError:
+                raise Exception(
+                    "Failed to connect to the model. Please check if the API key is valid."
+                ) from None
+            except Exception as e:
+                raise Exception("Error connecting to model") from e
 
         # Model path is required for locally executed models like VILA
         if args.vlm_model_type != VlmModelType.OPENAI_COMPATIBLE and not args.model_path:
@@ -1445,6 +1488,8 @@ class VlmPipeline:
         if FORCE_TRT and (
             args.vlm_model_type == VlmModelType.NVILA
             or args.vlm_model_type == VlmModelType.COSMOS_REASON1
+            or args.vlm_model_type == VlmModelType.COSMOS_REASON2
+            or args.vlm_model_type == VlmModelType.VLLM_COMPATIBLE
         ):
             args.use_trt = True
 
@@ -1708,10 +1753,16 @@ class VlmPipeline:
             from models.nvila.nvila_model import NVila
 
             id, api_type, owned_by = NVila.get_model_info()
-        elif self._args.vlm_model_type == VlmModelType.COSMOS_REASON1:
-            from models.cosmos_reason1.cosmos_reason1_model import CosmosReason1
+        elif self._args.vlm_model_type in [
+            VlmModelType.COSMOS_REASON1,
+            VlmModelType.COSMOS_REASON2,
+            VlmModelType.VLLM_COMPATIBLE,
+        ]:
+            from models.vllm_compatible.vllm_compatible_model import VllmCompatibleModel
 
-            id, api_type, owned_by = CosmosReason1.get_model_info()
+            id, api_type, owned_by = VllmCompatibleModel.get_model_info(
+                self._args.vlm_model_type, self._args.model_path
+            )
         else:
             id = os.path.basename(os.path.abspath(self._args.model_path))
             api_type = "internal"
@@ -1865,7 +1916,9 @@ class VlmPipeline:
         parser.add_argument(
             "--vlm-model-type",
             type=VlmModelType,
-            choices=list(VlmModelType),
+            choices=[
+                v for v in VlmModelType if v not in (VlmModelType.VILA_15, VlmModelType.NVILA)
+            ],
             default=None,
             help="Vision Language Model to use",
         )

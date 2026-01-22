@@ -1,60 +1,54 @@
-NVIDIA ASSET LICENSE 
+NVIDIA SAMPLE DATA LICENSE FOR EVALUATION
 
-IMPORTANT NOTICE – PLEASE READ AND AGREE BEFORE USING THE ASSETS.
+IMPORTANT NOTICE – PLEASE READ AND AGREE BEFORE USING THE SAMPLE DATASET.
 
-This license agreement (“Agreement”) is a legal agreement between you, whether an individual or entity ("you”) and NVIDIA Corporation ("NVIDIA") and governs your use of the NVIDIA data provided hereunder (the “ASSETS”). 
+This NVIDIA Sample Data License for Evaluation (“Agreement”) is a legal agreement between you, whether an individual or entity ("you”) and NVIDIA Corporation ("NVIDIA") and governs your use of the NVIDIA Sample Dataset, which may include video, image and audio files provided under this Agreement (the “Sample Dataset”).
 
-This Agreement can be accepted only by an adult of legal age of majority in the country in which the ASSETS is used. If you are under the legal age of majority, you must ask your parent or legal guardian to consent to this Agreement. 
+This Agreement can be accepted only by an adult of legal age of majority in the country in which the Sample Dataset is used. If you do not have the required age or authority to accept this Agreement or if you don’t accept all the terms and conditions of this Agreement, do not use the Sample Dataset.
 
-If you don’t have the required age or authority to accept this Agreement or if you don’t accept all the terms and conditions of this Agreement, do not use the ASSETS.
+You agree to use the Sample Dataset only for purposes that are permitted by this Agreement and any applicable law or regulation in the relevant jurisdictions. 
 
-You agree to use the ASSETS only for purposes that are permitted by this Agreement and any applicable law or regulation in the relevant jurisdictions. 
+1. License. Subject to the terms of this Agreement, NVIDIA grants you a limited, non-exclusive, revocable, non-transferable, non-sublicensable license to internally (a) use and reproduce the Sample Dataset, and (b) modify and create derivative works of the Sample Dataset (“Derivative Works”), in both cases solely to evaluate and test NVIDIA technologies (“Purpose”) and consistent with the limitations in Section 2 below.
 
-1. License. 
+2. Limitations. Your license to use the Sample Dataset and Derivative Works is restricted. Except as expressly permitted in Section 1 above, you may not: 
+(a) use the Sample Dataset or Derivative Works for any purpose other than the Purpose; 
+(b) change or remove copyright or other proprietary notices in the Sample Dataset and Derivative Works; 
+(c) sell, rent, sublicense, transfer, distribute, offer or otherwise make the Sample Dataset and Derivative Works available to others;
+(d) bypass, disable, or circumvent any technology limitation, encryption, security, digital rights management or authentication mechanism relating to the Sample Dataset or Derivative Works;
+(e) use the Sample Dataset or Derivative Works or assist or facilitate using the Sample Dataset or Derivative Works:
+(i) in any manner inconsistent with NVIDIA’s Trustworthy AI Terms available at https://www.nvidia.com/en-us/agreements/trustworthy-ai/terms/;
+(ii) to identify or attempt to identify any individual in the Sample Dataset or Derivative Works or combine it with any other dataset to profile or attempt to profile any individual in the Sample Dataset or Derivative Works, or de-anonymize or attempt to de-anonymize any Sample Dataset or Derivative Works; 
+(iii) to generate likeness of the appearance or voice in the Sample Dataset or otherwise to generate digital replicas of individuals in the Sample Dataset, provided that regenerating the original audio-visual content of the Sample Dataset for the Purpose will not constitute a violation of this restriction;
+(iv) to infer, measure, detect or otherwise label the race, ethnicity, gender, age or health (or any other sensitive attributes) of individuals in the Sample Dataset or Derivative Works or perform any biometric processing; 
+(v) to develop or evaluate any identity recognition technology; 
+(vi) in violation of any applicable law or regulation in relevant jurisdictions; 
+(vii) in any fraudulent, false, misleading or deceptive manner or practice; 
+(viii) in connection with defamatory, obscene, pornographic, vulgar or offensive activities or content; 
+(ix) to promote discrimination, bigotry, racism, hatred, harassment or harm against any individual or group; 
+(x) to be violent or threatening or promote violence or actions that are threatening to any other person; or 
+(xi) to promote illegal activities.
 
-Subject to the terms of this Agreement, NVIDIA grants you a non-exclusive, revocable, non-transferable, non-sublicensable license to use the ASSETS, reproduce the ASSETS and prepare derivative works based on the ASSETS (“Derivative Works”), in each case solely for you to perform a trial or demonstration. The ASSETS include images and other information. The information provided is for example purposes, and may not correspond to actual information regarding the corresponding images.
+3. Ownership. The Sample Dataset, including all intellectual property rights, are and will remain the sole and exclusive property of NVIDIA or its licensors. Except as expressly granted in this Agreement, (a) NVIDIA reserves all rights, interests, and remedies in connection with the Sample Dataset, and (b) no other license or right is granted to you by implication, estoppel or otherwise.
 
-2. Limitations. 
+4. Requests for Deletion or Correction. Upon NVIDIA’s request, you will cooperate with NVIDIA to honor any data subject request for deletion or correction of the Sample Dataset. If requested by NVIDIA, you will delete all copies and cease use of any Sample Dataset and provide reasonably requested information to verify your compliance with the terms of this Agreement. 
 
-Your license to use the ASSETS and Derivative Works is restricted as follows: (i) you may not change or remove copyright, watermarks, or other proprietary notices in the ASSETS and Derivative Works, or otherwise attempt to mislead others about the origin of the ASSETS; (ii) you may not sell, rent, sublicense, transfer, distribute, or otherwise make the ASSETS and Derivative Works available to others; and (iii) you may not deploy the ASSETS as part of a commercial product or service or directly or indirectly create, train, test or improve AI models or artificial intelligent systems using the ASSETS, including any architectures, models, or weights."
+5. Feedback. You may, but you are not obligated to, provide suggestions, requests, fixes, modifications, enhancements, or other feedback regarding the Sample Dataset (collectively, “Feedback”). Feedback, even if designated as confidential by you, will not create any confidentiality obligation for NVIDIA or its affiliates. If you provide Feedback, you hereby grant NVIDIA, its affiliates and its designees a non-exclusive, perpetual, irrevocable, sublicensable, worldwide, royalty-free, fully paid-up and transferable license, under your intellectual property rights, to publicly perform, publicly display, reproduce, use, make, have made, sell, offer for sale, distribute (through multiple tiers of distribution), import, create derivative works of and otherwise commercialize and exploit the Feedback at NVIDIA’s discretion. 
 
-3. Ownership. 
+6. Term and Termination. This Agreement will automatically terminate without notice from NVIDIA if you fail to comply with any of the terms in this Agreement or if you commence or participate in any legal proceeding against NVIDIA with respect to the Sample Dataset. Additionally, NVIDIA may terminate this Agreement at any time with prior written notice. Upon any termination, you must immediately stop using and destroy all copies of the Sample Dataset and Derivative Works. Upon written request, you will certify in writing that you have complied with your commitments under this section. All provisions will survive termination, except for the licenses granted to you.
 
-The ASSETS, including all intellectual property rights, is and will remain the sole and exclusive property of NVIDIA or its licensors. Except as expressly granted in this Agreement, (i) NVIDIA reserves all rights, interests, and remedies in connection with the ASSETS and Derivative Works, and (ii) no other license or right is granted to you by implication, estoppel or otherwise. 
+7. Disclaimer of Warranties. THE SAMPLE DATASET IS PROVIDED BY NVIDIA AS-IS AND WITH ALL FAULTS. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NVIDIA DISCLAIMS ALL WARRANTIES AND REPRESENTATIONS OF ANY KIND, WHETHER EXPRESS, IMPLIED OR STATUTORY, RELATING TO OR ARISING UNDER THIS AGREEMENT, INCLUDING, WITHOUT LIMITATION, THE WARRANTIES OF TITLE, NONINFRINGEMENT, MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, USAGE OF TRADE AND COURSE OF DEALING. 
 
-4. Feedback. 
+8. Limitations of Liability. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT AND UNDER NO LEGAL THEORY, WHETHER IN TORT (INCLUDING NEGLIGENCE), CONTRACT, OR OTHERWISE, WILL NVIDIA BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES OF ANY TYPE ARISING OUT OF OR AS A RESULT OF THIS AGREEMENT OR THE USE OR INABILITY TO USE THE SAMPLE DATASET (INCLUDING BUT NOT LIMITED TO DAMAGES FOR LOSS OF GOODWILL, WORK STOPPAGE, COMPUTER FAILURE OR MALFUNCTION, OR ANY AND ALL OTHER DAMAGES OR LOSSES), EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
-You may, but you are not obligated to, provide suggestions, requests, fixes, modifications, enhancements, or other feedback regarding the ASSETS (collectively, “Feedback”). Feedback, even if designated as confidential by you, will not create any confidentiality obligation for NVIDIA or its affiliates. If you provide Feedback, you hereby grant NVIDIA, its affiliates and its designees a non-exclusive, perpetual, irrevocable, sublicensable, worldwide, royalty-free, fully paid-up and transferable license, under your intellectual property rights, to publicly perform, publicly display, reproduce, use, make, have made, sell, offer for sale, distribute (through multiple tiers of distribution), import, create derivative works of and otherwise commercialize and exploit the Feedback at NVIDIA’s discretion. 
+9. Indemnity. You will indemnify and hold harmless NVIDIA, its affiliates, their employees, officers, directors and agents (“Indemnified Parties”) and, at NVIDIA’s election, defend the Indemnified Parties from all third-party claims or lawsuits, costs, damages, expenses, liabilities, including attorney’s fees, arising out of or in connection with your use of the Sample Dataset.
 
-5. Term and Termination. 
+10. Governing Law and Jurisdiction. This Agreement will be governed in all respects by the laws of the United States and the laws of the State of Delaware, without regard to conflict of laws principles or the United Nations Convention on Contracts for the International Sale of Goods. The state and federal courts residing in Santa Clara County, California will have exclusive jurisdiction over any dispute or claim arising out of or related to this Agreement, and the parties irrevocably consent to personal jurisdiction and venue in those courts; except that either party may apply for injunctive remedies or an equivalent type of urgent legal relief in any jurisdiction. 
 
-This Agreement expires twelve (12) months after the date of initial delivery or download of the ASSET. This Agreement will automatically terminate without notice from NVIDIA if you fail to comply with any of the terms in this Agreement or if you commence or participate in any legal proceeding against NVIDIA with respect to the ASSETS. Additionally, either party may terminate this Agreement at any time with prior written notice to the other party. Upon any termination, you must stop using and destroy all copies of the ASSETS and Derivative Works. Upon written request, you will certify in writing that you have complied with your commitments under this section. All provisions will survive termination, except for the licenses granted to you.
+11. No Assignment. NVIDIA may assign, delegate or transfer its rights or obligations under this Agreement by any means or operation of law. You may not, without NVIDIA’s prior written consent, assign, delegate or transfer any of your rights or obligations under this Agreement by any means or operation of law, and any attempt to do so is null and void.
 
-6. Disclaimer of Warranties. 
+12. Trade Compliance. You agree to comply with all applicable export, import, trade and economic sanctions laws and regulations, as amended, including without limitation the Export Administration Regulations and Office of Foreign Assets Control regulations. These laws include restrictions on destinations, end-users and end-use.
 
-THE ASSETS ARE PROVIDED BY NVIDIA AS-IS AND WITH ALL FAULTS. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NVIDIA DISCLAIMS ALL WARRANTIES AND REPRESENTATIONS OF ANY KIND, WHETHER EXPRESS, IMPLIED OR STATUTORY, RELATING TO OR ARISING UNDER THIS AGREEMENT, INCLUDING, WITHOUT LIMITATION, THE WARRANTIES OF TITLE, NONINFRINGEMENT, MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, USAGE OF TRADE AND COURSE OF DEALING. 
+13. Entire Agreement. Regarding the subject matter of this Agreement, the parties agree that this Agreement constitutes the entire and exclusive agreement between the parties and supersedes all prior and contemporaneous communications. If a court of competent jurisdiction rules that a provision of this Agreement is unenforceable, that provision will be deemed modified to the extent necessary to make it enforceable and the remainder of this Agreement will continue in full force and effect. Any amendment to this Agreement must be in writing and signed by authorized representatives of both parties.
 
-7. Limitations of Liability. 
-
-7.1 DISCLAIMER. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL NVIDIA BE LIABLE FOR ANY (I) INDIRECT, PUNITIVE, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES, OR (II) DAMAGES FOR THE (A) COST OF PROCURING SUBSTITUTE GOODS OR (B) LOSS OF PROFITS, REVENUES, USE, DATA OR GOODWILL ARISING OUT OF OR RELATED TO THIS AGREEMENT, WHETHER BASED ON BREACH OF CONTRACT, TORT (INCLUDING NEGLIGENCE), STRICT LIABILITY, OR OTHERWISE, AND EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES AND EVEN IF A PARTY’S REMEDIES FAIL THEIR ESSENTIAL PURPOSE.
-7.2 DAMAGES CAP. ADDITIONALLY, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NVIDIA’S TOTAL CUMULATIVE AGGREGATE LIABILITY FOR ANY AND ALL LIABILITIES, OBLIGATIONS OR CLAIMS ARISING OUT OF OR RELATED TO THIS AGREEMENT WILL NOT EXCEED FIVE U.S. DOLLARS (US$5).
-
-8. Governing Law and Jurisdiction. 
-
-This Agreement will be governed in all respects by the laws of the United States and the laws of the State of Delaware, without regard to conflict of laws principles or the United Nations Convention on Contracts for the International Sale of Goods. The state and federal courts residing in Santa Clara County, California will have exclusive jurisdiction over any dispute or claim arising out of or related to this Agreement, and the parties irrevocably consent to personal jurisdiction and venue in those courts; except that either party may apply for injunctive remedies or an equivalent type of urgent legal relief in any jurisdiction. 
-
-9. No Assignment. 
-
-NVIDIA may assign, delegate or transfer its rights or obligations under this Agreement by any means or operation of law. You may not, without NVIDIA’s prior written consent, assign, delegate or transfer any of your rights or obligations under this Agreement by any means or operation of law, and any attempt to do so is null and void.
-
-10. Export. 
-
-The ASSETS are subject to United States export laws and regulations. You agree to comply with all applicable export, import, trade and economic sanctions laws and regulations, including the Export Administration Regulations and Office of Foreign Assets Control regulations. These laws include restrictions on destinations, end-users and end-use. 
-
-11. Entire Agreement. 
-
-Regarding the subject matter of this Agreement, the parties agree that this Agreement constitutes the entire and exclusive agreement between the parties and supersedes all prior and contemporaneous communications. If a court of competent jurisdiction rules that a provision of this Agreement is unenforceable, that provision will be deemed modified to the extent necessary to make it enforceable and the remainder of this Agreement will continue in full force and effect. Any amendment to this Agreement must be in writing and signed by authorized representatives of both parties. 
-
-(v. August 20, 2025)
-
+(v. Jan. 16, 2026)
 

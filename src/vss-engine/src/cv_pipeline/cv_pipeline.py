@@ -150,6 +150,8 @@ class CVPipeline:
         self._processed_chunk_queue_watcher_thread = None
         self._metadatafusion_thread = None
 
+        print("CV pipeline args: ", args)
+
         gdino_model_path = (
             os.getenv("GDINO_MODEL_PATH", "")
             or "ngc:nvidia/tao/grounding_dino:grounding_dino_swin_tiny_commercial_deployable_v1.0"
@@ -161,10 +163,8 @@ class CVPipeline:
         )  # can be ngc or user provided path
         reid_model_file_path = ""  # should point to the onnx file
 
-        sam2_model_path = "3rdparty_meta_sam2_base_plus"
-        sam2_image_encoder_file_path, sam2_mask_decoder_file_path = self.get_sam2_model_files_paths(
-            args.tracker_config
-        )
+        sam2_model_path = "3rdparty_meta_sam2_large"
+        sam2_model_file_path_dict = self.get_sam2_model_files_paths(args.tracker_config)
 
         # one folder where all cv models are saved
         cv_models_path = f"{NGC_MODEL_CACHE}/cv_pipeline_models"
@@ -240,11 +240,19 @@ class CVPipeline:
 
         logger.info(f"CV pipeline reid_model_file_path: {reid_model_file_path}")
 
-        if True:  # sam2_image_encoder_file_path is None or sam2_mask_decoder_file_path is None:
-            custom_cmd = f"cd {os.path.dirname(__file__)}/../../3rdparty/SAM2Export/; \
-                    python3 batched_export_onnx.py {os.path.join(NGC_MODEL_CACHE, sam2_model_path)}"
-
-            logger.info(f"custom_cmd: {custom_cmd}")
+        if True:
+            model_type = "large"
+            custom_cmd = (
+                f"cd /opt/nvidia/via/3rdparty/sam2-onnx-tensorrt/; "
+                f'[ ! -d "env_sam" ] && python3 -m virtualenv env_sam; '
+                f". env_sam/bin/activate; "
+                f"pip3 install -e .; "
+                f"cd checkpoints; bash download_ckpts.sh; cd ..; "
+                f"mkdir -p checkpoints/{model_type}; "
+                f"python3 export_sam2_onnx.py --model {model_type}; "
+                f"deactivate; "
+                f"mv checkpoints/{model_type}/*.onnx {os.path.join(NGC_MODEL_CACHE, sam2_model_path)}"
+            )
 
             model_path_ = ["", ""]
             download_thread = Thread(
@@ -255,10 +263,14 @@ class CVPipeline:
             download_thread.join()
             if model_path_[1]:
                 raise model_path_[1] from None
-            if sam2_image_encoder_file_path is None:
-                sam2_image_encoder_file_path = f"{model_path_[0]}/image_encoder.onnx"
-            if sam2_mask_decoder_file_path is None:
-                sam2_mask_decoder_file_path = f"{model_path_[0]}/mask_decoder.onnx"
+            for model_name in ["ImageEncoder", "MaskDecoder", "MemoryEncoder", "MemoryAttention"]:
+                if (
+                    model_name not in sam2_model_file_path_dict
+                    or sam2_model_file_path_dict[model_name] is None
+                ):
+                    sam2_model_file_path_dict[model_name] = (
+                        f"{model_path_[0]}/{re.sub(r'(?<!^)(?=[A-Z])', '_', model_name).lower()}.onnx"
+                    )
 
         gdino_engine_name = os.getenv("DETECTOR_ENGINE_NAME", "") or "swin.fp16.engine"
         # gdino_onnx_name = os.getenv("DETECTOR_ONNX_NAME", "") or "swin.onnx"
@@ -302,14 +314,27 @@ class CVPipeline:
                 " /opt/nvidia/TritonGdino/triton_model_repo/gdino_trt/1/model.plan"
             ),
             f"/usr/src/tensorrt/bin/trtexec \
-                --onnx={sam2_image_encoder_file_path} --fp16 \
-              --saveEngine={cv_models_path}/image_encoder.onnx_b1_gpu0_fp16.engine",
+                --onnx={sam2_model_file_path_dict['ImageEncoder']} --fp16 \
+                --saveEngine={cv_models_path}/image_encoder.onnx_b1_gpu0_fp16.engine",
             f"/usr/src/tensorrt/bin/trtexec \
-                --onnx={sam2_mask_decoder_file_path}  \
-              --minShapes=point_coords:1x1x2,point_labels:1x1  \
-                --optShapes=point_coords:10x2x2,point_labels:10x2 \
-              --maxShapes=point_coords:20x2x2,point_labels:20x2 \
-              --saveEngine={cv_models_path}/mask_decoder.onnx_b20_gpu0_fp16.engine",
+                --onnx={sam2_model_file_path_dict['MaskDecoder']} --fp16 \
+                --minShapes=point_coords:1x1x2,point_labels:1x1,image_embed:1x256x64x64 \
+                --optShapes=point_coords:1x2x2,point_labels:1x2,image_embed:1x256x64x64 \
+                --maxShapes=point_coords:1x2x2,point_labels:1x2,image_embed:1x256x64x64 \
+                --saveEngine={cv_models_path}/mask_decoder.onnx_b1_gpu0_fp16.engine",
+            f"/usr/src/tensorrt/bin/trtexec \
+                --onnx={sam2_model_file_path_dict['MemoryAttention']} --fp16 \
+                --minShapes=memory_0:1x1x256,memory_1:1x1x64x64x64,memory_pos_embed:1x4100x64 \
+                --optShapes=memory_0:1x16x256,memory_1:1x7x64x64x64,memory_pos_embed:1x28736x64 \
+                --maxShapes=memory_0:1x16x256,memory_1:1x7x64x64x64,memory_pos_embed:1x28736x64 \
+                --builderOptimizationLevel=5 \
+                --saveEngine={cv_models_path}/memory_attention.onnx_b1_gpu0_fp16.engine",
+            f"/usr/src/tensorrt/bin/trtexec \
+                --onnx={sam2_model_file_path_dict['MemoryEncoder']} --fp16 \
+                --minShapes=mask_for_mem:1x1x1024x1024,occ_logit:1x1 \
+                --optShapes=mask_for_mem:1x1x1024x1024,occ_logit:1x1 \
+                --maxShapes=mask_for_mem:1x1x1024x1024,occ_logit:1x1 \
+                --saveEngine={cv_models_path}/memory_encoder.onnx_b1_gpu0_fp16.engine",
             f"/usr/src/tensorrt/bin/trtexec \
             --onnx={reid_model_file_path} \
             --saveEngine={cv_models_path}/resnet50_market1501_aicity156.onnx.engine \
@@ -336,55 +361,45 @@ class CVPipeline:
         default_reid_engine_path = (
             "/tmp/via/data/models/gdino-sam/resnet50_market1501_aicity156.onnx.engine"
         )
-        default_image_encoder_engine_path = (
-            "/tmp/via/data/models/gdino-sam/image_encoder.onnx_b1_gpu0_fp16.engine"
-        )
-        default_mask_decoder_engine_path = (
-            "/tmp/via/data/models/gdino-sam/mask_decoder.onnx_b20_gpu0_fp16.engine"
-        )
 
         with open(args.tracker_config) as f:
             input_config = yaml.safe_load(f)
 
-        if (
-            input_config.get("Segmenter", {}).get("ImageEncoder", {}).get("modelEngineFile")
-            is not None
-        ):
-            image_encoder_engine_path = input_config["Segmenter"]["ImageEncoder"]["modelEngineFile"]
-            if image_encoder_engine_path == default_image_encoder_engine_path:
-                input_config["Segmenter"]["ImageEncoder"][
-                    "modelEngineFile"
-                ] = f"{cv_models_path}/image_encoder.onnx_b1_gpu0_fp16.engine"
-            else:
-                if not os.path.exists(image_encoder_engine_path):
-                    logger.warning(
-                        "Image encoder engine file does not exist : "
-                        + image_encoder_engine_path
-                        + " Using default engine file"
+        if input_config.get("Segmenter", {}).get("segmenterConfigPath") is not None:
+            segmenter_config_path = input_config["Segmenter"]["segmenterConfigPath"]
+            with open(segmenter_config_path) as f:
+                segmenter_config = yaml.safe_load(f)
+            for model_name, onnx_name in [
+                ("ImageEncoder", "image_encoder.onnx"),
+                ("MaskDecoder", "mask_decoder.onnx"),
+                ("MemoryEncoder", "memory_encoder.onnx"),
+                ("MemoryAttention", "memory_attention.onnx"),
+            ]:
+                if segmenter_config.get(model_name) is not None:
+                    model_engine_path = segmenter_config[model_name]["modelEngineFile"]
+                    default_model_engine_path = (
+                        "/tmp/via/data/models/gdino-sam/" + onnx_name + "_b1_gpu0_fp16.engine"
                     )
-                    input_config["Segmenter"]["ImageEncoder"][
-                        "modelEngineFile"
-                    ] = f"{cv_models_path}/image_encoder.onnx_b1_gpu0_fp16.engine"
 
-        if (
-            input_config.get("Segmenter", {}).get("MaskDecoder", {}).get("modelEngineFile")
-            is not None
-        ):
-            mask_decoder_engine_path = input_config["Segmenter"]["MaskDecoder"]["modelEngineFile"]
-            if mask_decoder_engine_path == default_mask_decoder_engine_path:
-                input_config["Segmenter"]["MaskDecoder"][
-                    "modelEngineFile"
-                ] = f"{cv_models_path}/mask_decoder.onnx_b20_gpu0_fp16.engine"
-            else:
-                if not os.path.exists(mask_decoder_engine_path):
-                    logger.warning(
-                        "Mask decoder engine file does not exist : "
-                        + mask_decoder_engine_path
-                        + " Using default engine file"
-                    )
-                    input_config["Segmenter"]["MaskDecoder"][
-                        "modelEngineFile"
-                    ] = f"{cv_models_path}/mask_decoder.onnx_b20_gpu0_fp16.engine"
+                    if model_engine_path == default_model_engine_path:
+                        segmenter_config[model_name][
+                            "modelEngineFile"
+                        ] = f"{cv_models_path}/{onnx_name}_b1_gpu0_fp16.engine"
+                    else:
+                        if not os.path.exists(model_engine_path):
+                            logger.warning(
+                                "Model engine file does not exist : "
+                                + model_engine_path
+                                + " Using default engine file"
+                            )
+                            segmenter_config[model_name][
+                                "modelEngineFile"
+                            ] = f"{cv_models_path}/{onnx_name}_b1_gpu0_fp16.engine"
+
+            segmenter_config_path = "/tmp/config_tracker_module_Segmenter.yml"
+            with open(segmenter_config_path, "w") as f:
+                yaml.dump(segmenter_config, f)
+            input_config["Segmenter"]["segmenterConfigPath"] = segmenter_config_path
 
         if input_config.get("ReID", {}).get("modelEngineFile") is not None:
             reid_engine_path = input_config["ReID"]["modelEngineFile"]
@@ -481,18 +496,26 @@ class CVPipeline:
         return reid_model_path_ngc
 
     def get_sam2_model_files_paths(self, tracker_config):
-        sam2_image_encoder_file_path = None
-        sam2_mask_decoder_file_path = None
+        sam2_model_file_path_dict = {}
         with open(tracker_config) as f:
             input_config = yaml.safe_load(f)
-        if input_config.get("Segmenter", {}).get("ImageEncoder", {}).get("onnxFile") is not None:
-            if os.path.exists(input_config["Segmenter"]["ImageEncoder"]["onnxFile"]):
-                sam2_image_encoder_file_path = input_config["Segmenter"]["ImageEncoder"]["onnxFile"]
-
-        if input_config.get("Segmenter", {}).get("MaskDecoder", {}).get("onnxFile") is not None:
-            if os.path.exists(input_config["Segmenter"]["MaskDecoder"]["onnxFile"]):
-                sam2_mask_decoder_file_path = input_config["Segmenter"]["MaskDecoder"]["onnxFile"]
-        return sam2_image_encoder_file_path, sam2_mask_decoder_file_path
+        if input_config.get("Segmenter", {}).get("segmenterConfigPath") is not None:
+            if os.path.exists(input_config["Segmenter"]["segmenterConfigPath"]):
+                segmenter_config_path = input_config["Segmenter"]["segmenterConfigPath"]
+                with open(segmenter_config_path) as f:
+                    segmenter_config = yaml.safe_load(f)
+                for model_name in [
+                    "ImageEncoder",
+                    "MaskDecoder",
+                    "MemoryEncoder",
+                    "MemoryAttention",
+                ]:
+                    if segmenter_config.get(model_name, {}).get("onnxFile") is not None:
+                        if os.path.exists(segmenter_config[model_name]["onnxFile"]):
+                            sam2_model_file_path_dict[model_name] = segmenter_config[model_name][
+                                "onnxFile"
+                            ]
+        return sam2_model_file_path_dict
 
     def _watch_processed_chunk_queue(self):
         while not self._processed_chunk_queue_watcher_stop_event.is_set():
@@ -691,7 +714,7 @@ class CVPipeline:
         parser.add_argument(
             "--tracker-config",
             type=str,
-            default="config/config_tracker_NvDCF_accuracy_SAM2.yml",
+            default="config/config_tracker_MaskTracker.yml",
             help="Tracker config file",
         )
         parser.add_argument(

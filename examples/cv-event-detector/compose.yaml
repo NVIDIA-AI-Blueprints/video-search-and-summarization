@@ -30,6 +30,7 @@ services:
       - via-hf-cache:/tmp/huggingface
       - "${ALERT_REVIEW_MEDIA_BASE_DIR:-/dummy}${ALERT_REVIEW_MEDIA_BASE_DIR:+:${ALERT_REVIEW_MEDIA_BASE_DIR:-}}"
       - cv-input-dir:/tmp
+      - ./gdinoconfig_grpc.txt:/opt/nvidia/nv-cv-event-detector/gdinoconfig_grpc.txt
 
     environment:
       NV_CV_EVENT_DETECTOR_API_PORT: ${NV_CV_EVENT_DETECTOR_API_PORT:-23491}
@@ -41,10 +42,14 @@ services:
       CLIP_CACHE_POST_EV_TIME: "${CLIP_CACHE_POST_EV_TIME:-20}" #25s
       ENABLE_FILE_STREAMING_MODE: "${ENABLE_FILE_STREAMING_MODE:-false}"
       NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-}"
+      LD_LIBRARY_PATH: "/opt/nvidia/deepstream/deepstream/lib:/opt/tritonserver/lib/"
     ulimits:
       memlock:
         soft: -1
         hard: -1
+      nofile:
+        soft: 65535
+        hard: 65535
       stack: 67108864
     ipc: host
     healthcheck:
@@ -57,7 +62,7 @@ services:
 
 
   cv-ui:
-    image: ${CV_UI_IMAGE:-nvcr.io/nvidia/blueprint/nv-cv-event-detector-ui:2.4.0}
+    image: ${CV_UI_IMAGE:-nvcr.io/nvidia/blueprint/nv-cv-event-detector-ui:2.4.1}
     networks:
       - vss-shared-network
     volumes:
@@ -73,6 +78,7 @@ services:
       - NV_ALERTBRIDGE_API_BASE=http://api-gateway:80/api/alertbridge
       - FILTERED_CLIP_PATH=${ALERT_REVIEW_MEDIA_BASE_DIR?}
       - NV_SERIALIZE_ALERT_VERIFICATION=${NV_SERIALIZE_ALERT_VERIFICATION:-false}
+      - VLM_MODEL=${VLM_MODEL:-cosmos-reason2}
     runtime: nvidia
     ports:
       - 7862:7862

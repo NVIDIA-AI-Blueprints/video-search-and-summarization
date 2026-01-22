@@ -48,7 +48,4 @@ alert_review_params:
   temperature: 0.4
   max_tokens: 1
   # VSS parameters
-  chunk_duration: 60
-  chunk_overlap_duration: 5
-  num_frames_per_chunk: 10
   do_verification: true

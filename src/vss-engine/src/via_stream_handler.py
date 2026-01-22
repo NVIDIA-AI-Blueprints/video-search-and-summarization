@@ -58,6 +58,8 @@ from vss_api_models import (
 ALERT_CALLBACK_PORT = 60000
 MAX_MILVUS_STRING_LEN = 65535
 
+ALERT_REVIEW_SKIP_GUARDRAILS = os.environ.get("ALERT_REVIEW_SKIP_GUARDRAILS", "true") == "true"
+
 
 class AlertInfo:
     """Store information for an alert"""
@@ -186,6 +188,7 @@ class RequestInfo:
         self.custom_metadata = None
         self.delete_external_collection = False
         self.error_message = ""
+        self.media_file_info: MediaFileInfo = None
 
 
 class DCSerializer:
@@ -1349,12 +1352,13 @@ class ViaStreamHandler:
                 if not req_info.alert_review:
                     logger.info("Generating summary for request %s", req_info.request_id)
 
-                if req_info._health_summary:
-                    latency = cur_time - req_info.start_time
-                    req_info._health_summary.vlm_pipeline_latency = latency
+                # Always update vlm_pipeline_latency metric (decoupled from health eval)
+                latency = cur_time - req_info.start_time
+                if latency is not None and latency > 0:
+                    self._metrics.vlm_pipeline_latency_latest.set(latency)
 
-                    if latency is not None and latency > 0:
-                        self._metrics.vlm_pipeline_latency_latest.set(latency)
+                if req_info._health_summary:
+                    req_info._health_summary.vlm_pipeline_latency = latency
 
                 if req_info.vlm_pipeline_span:
                     try:
@@ -1407,9 +1411,8 @@ class ViaStreamHandler:
         paths_string = ";".join([asset.path for asset in req_info.assets])
         video_codec = None
         if len(req_info.assets) == 1:
-            media_info = MediaFileInfo.get_info(req_info.assets[0].path)
-            video_codec = media_info.video_codec
-            req_info.video_fps = float(media_info.video_fps)
+            video_codec = req_info.media_file_info.video_codec
+            req_info.video_fps = float(req_info.media_file_info.video_fps)
 
         # Set start/end times if not specified by user
         if not req_info.start_timestamp:
@@ -1501,6 +1504,7 @@ class ViaStreamHandler:
             start_pts=int(req_info.start_timestamp * 1e9),
             end_pts=int(req_info.end_timestamp * 1e9),
             sliding_window_overlap_sec=req_info.chunk_overlap_duration,
+            media_file_info=req_info.media_file_info,
             on_new_chunk=lambda chunk: _on_new_chunk(chunk, saved_responses),
         ).split()
         nvtx.end_range(nvtx_file_split_start)
@@ -1512,6 +1516,7 @@ class ViaStreamHandler:
             req_info.end_time = time.time()
             req_info.response = []
             self._finalize_stream_fps_tracking(req_info)
+            req_info.status_event.set()
         req_info.nvtx_vlm_start = nvtx.start_range(
             message="VLM Pipeline-" + str(req_info.request_id), color="green"
         )
@@ -1701,6 +1706,8 @@ class ViaStreamHandler:
         if not query.prompt:
             query.prompt = self.default_caption_prompt
 
+        if self._args.vlm_model_type == VlmModelType.COSMOS_REASON2:
+            query.prompt = query.prompt + ". Make sure the answer contain correct timestamps."
         if query.enable_cv_metadata and self._args.vlm_model_type == VlmModelType.COSMOS_REASON1:
             # Enable reasoning for Cosmos Reason1 to extract SoM metadata
             if os.environ.get("VSS_FORCE_CR1_REASONING_FOR_CV_METADATA", "true").lower() in [
@@ -1744,8 +1751,9 @@ class ViaStreamHandler:
             )
 
         try:
+            media_file_info = MediaFileInfo.get_info(assets[0].path)
             # Get file duration
-            file_duration = MediaFileInfo.get_info(assets[0].path).video_duration_nsec
+            file_duration = media_file_info.video_duration_nsec
         except gi.repository.GLib.GError as ex:
             raise ViaException(ex.message, "FailedRequest", 400)
 
@@ -1793,6 +1801,7 @@ class ViaStreamHandler:
         # Create a RequestInfo object and populate it
         req_info = RequestInfo()
         req_info.file = assets[0].path
+        req_info.media_file_info = media_file_info
         req_info.chunk_size = query.chunk_duration
         req_info.is_summarization = is_summarization
         req_info.vlm_request_params.vlm_prompt = query.prompt
@@ -2131,6 +2140,37 @@ class ViaStreamHandler:
             req_info._health_summary.vlm_batch_size = self._args.vlm_batch_size
 
     def stop_via_gpu_monitor(self, req_info, chunk_responses: list[VlmChunkResponse]):
+        def find_extreme(responses, func, value):
+            values = []
+            for response in responses:
+                if hasattr(response, value):
+                    attr_value = getattr(response, value)
+                    if attr_value is not None:
+                        values.append(attr_value)
+            if not values:
+                return 0
+            return func(values)
+
+        # Always update Prometheus metrics (decoupled from health eval)
+        e2e_latency = time.time() - req_info.start_time if req_info.start_time else 0
+        self._metrics.e2e_latency_latest.set(e2e_latency)
+        self._metrics.ca_rag_latency_latest.set(req_info._ca_rag_latency)
+
+        if chunk_responses:
+            max_decode_end_time = find_extreme(chunk_responses, max, "decode_end_time")
+            min_decode_start_time = find_extreme(chunk_responses, min, "decode_start_time")
+            decode_latency = max_decode_end_time - min_decode_start_time
+            self._metrics.decode_latency_latest.set(decode_latency)
+
+            max_vlm_end_time = find_extreme(chunk_responses, max, "vlm_end_time")
+            min_vlm_embed_start_time = find_extreme(chunk_responses, min, "embed_start_time")
+            if min_vlm_embed_start_time == 0:
+                # embed_start_time unavailable, use vlm_start_time instead
+                min_vlm_embed_start_time = find_extreme(chunk_responses, min, "vlm_start_time")
+            vlm_latency = max_vlm_end_time - min_vlm_embed_start_time
+            self._metrics.vlm_latency_latest.set(vlm_latency)
+
+        # GPU monitoring and health summary only when health eval is enabled
         if self._via_health_eval and req_info._monitor is not None:
             logger.info(f"Stopping GPUMonitor for request {req_info.request_id}")
             plot_graph_file = "/tmp/via-logs/via_plot_nvdec_" + str(req_info.request_id) + ".png"
@@ -2145,28 +2185,10 @@ class ViaStreamHandler:
                 plot_graph_files["gpu"],
                 plot_graph_files["gpu_mem"],
             ]
-            req_info._health_summary.e2e_latency = time.time() - req_info.start_time
-
-            self._metrics.e2e_latency_latest.set(req_info._health_summary.e2e_latency)
-
-            def find_extreme(responses, func, value):
-                values = []
-                for response in responses:
-                    if hasattr(response, value):
-                        attr_value = getattr(response, value)
-                        if attr_value is not None:
-                            values.append(attr_value)
-                if not values:
-                    return 0
-                return func(values)
+            req_info._health_summary.e2e_latency = e2e_latency
 
             if chunk_responses:
-                max_decode_end_time = find_extreme(chunk_responses, max, "decode_end_time")
-                min_decode_start_time = find_extreme(chunk_responses, min, "decode_start_time")
-                req_info._health_summary.decode_latency = (
-                    max_decode_end_time - min_decode_start_time
-                )
-                self._metrics.decode_latency_latest.set(req_info._health_summary.decode_latency)
+                req_info._health_summary.decode_latency = decode_latency
 
                 create_historical_span(
                     "Total Decode Latency",
@@ -2175,12 +2197,7 @@ class ViaStreamHandler:
                     {"operation": "decode"},
                 )
 
-                max_vlm_end_time = find_extreme(chunk_responses, max, "vlm_end_time")
-                min_vlm_embed_start_time = find_extreme(chunk_responses, min, "embed_start_time")
-                if min_vlm_embed_start_time == 0:
-                    # embed_start_time unavailable, use vlm_start_time instead
-                    min_vlm_embed_start_time = find_extreme(chunk_responses, min, "vlm_start_time")
-                req_info._health_summary.vlm_latency = max_vlm_end_time - min_vlm_embed_start_time
+                req_info._health_summary.vlm_latency = vlm_latency
 
                 create_historical_span(
                     "Total VLM Latency",
@@ -2189,7 +2206,6 @@ class ViaStreamHandler:
                     {"operation": "vlm"},
                 )
 
-                self._metrics.vlm_latency_latest.set(req_info._health_summary.vlm_latency)
                 req_info._health_summary.pending_doc_start_time = (
                     req_info.pending_add_doc_start_time
                 )
@@ -2237,7 +2253,6 @@ class ViaStreamHandler:
                     logger.info(f"Failed to end e2e OTEL span: {e}")
 
             req_info._health_summary.ca_rag_latency = req_info._ca_rag_latency
-            self._metrics.ca_rag_latency_latest.set(req_info._health_summary.ca_rag_latency)
             logger.debug(f"_health_summary json: {str(vars(req_info._health_summary))}")
             health_summary_file_name = (
                 "/tmp/via-logs/via_health_summary_" + str(req_info.request_id) + ".json"
@@ -2349,6 +2364,8 @@ class ViaStreamHandler:
         # prompt specified as argument to the app
         if not query.prompt:
             query.prompt = self.default_caption_prompt
+        if self._args.vlm_model_type == VlmModelType.COSMOS_REASON2:
+            query.prompt = query.prompt + ". Make sure the answer contain correct timestamps."
 
         # Run guardrails on the user supplied prompt
         self._check_rails(query.prompt)
@@ -2841,12 +2858,40 @@ class ViaStreamHandler:
     def stop(self, force=False):
         """Stop the VIA Stream Handler"""
         logger.info("Stopping VIA Stream Handler")
+
+        lsinfo_to_be_removed = list(self._live_stream_info_map.values())
+        for lsinfo in lsinfo_to_be_removed:
+            self.remove_rtsp_stream(lsinfo.asset)
+
         if hasattr(self, "_vlm_pipeline") and self._vlm_pipeline is not None:
             self._vlm_pipeline.stop(force)
 
         self._metrics.unregister()
 
         self._ctx_mgr = None
+
+        self._ca_rag_alert_handler_server.should_exit = True
+        self._ca_rag_alert_handler_server = None
+
+        if self._cv_pipeline:
+            self._cv_pipeline.stop(force)
+
+        for ctx_mgr in self._ctx_mgr_pool:
+            try:
+                ctx_mgr.process.terminate()
+            except Exception as e:
+                logger.error(
+                    f"Error shutting down context manager for request {ctx_mgr._process_index}: {e}"
+                )
+
+        for req_info in self._request_info_map.values():
+            if req_info._ctx_mgr:
+                try:
+                    req_info._ctx_mgr.process.terminate()
+                except Exception as e:
+                    logger.error(
+                        f"Error shutting down context manager for request {req_info._ctx_mgr._process_index}: {e}"  # noqa: E501
+                    )
 
         logger.info("Stopped VIA Stream Handler")
 
@@ -2922,7 +2967,7 @@ class ViaStreamHandler:
                 req_info.progress,
                 len(req_info.response),
             )
-            req_info.status_event.wait(timeout=1)
+            req_info.status_event.wait(timeout=5)
 
     def get_models_info(self):
         return self._vlm_pipeline.get_models_info()
@@ -3165,6 +3210,12 @@ class ViaStreamHandler:
             query.temperature = review_alert_request.vss_params.vlm_params.temperature
         if review_alert_request.vss_params.vlm_params.seed is not None:
             query.seed = review_alert_request.vss_params.vlm_params.seed
+        if review_alert_request.vss_params.num_frames_per_chunk:
+            query.num_frames_per_chunk = review_alert_request.vss_params.num_frames_per_chunk
+        if review_alert_request.vss_params.vlm_input_width:
+            query.vlm_input_width = review_alert_request.vss_params.vlm_input_width
+        if review_alert_request.vss_params.vlm_input_height:
+            query.vlm_input_height = review_alert_request.vss_params.vlm_input_height
 
         if (
             review_alert_request.cv_metadata_path
@@ -3186,7 +3237,7 @@ class ViaStreamHandler:
                 if review_alert_request.vss_params.cv_metadata_overlay
                 else ""
             ),
-            skip_guardrails=os.environ.get("ALERT_REVIEW_SKIP_GUARDRAILS", "true") == "true",
+            skip_guardrails=ALERT_REVIEW_SKIP_GUARDRAILS,
             skip_ca_rag=True,
         )
 
@@ -3206,6 +3257,9 @@ class ViaStreamHandler:
             parsed_chunk_responses.append((chunk.chunk, chunk.vlm_response))
             # get words from chunk.vlm_response and check if any of them are "yes" or "true"
             import string
+
+            if not chunk.vlm_response:
+                chunk.vlm_response = ""
 
             words = [word.strip(string.punctuation) for word in chunk.vlm_response.split()]
             if any(word.lower() in ["yes", "true"] for word in words):

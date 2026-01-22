@@ -4,7 +4,7 @@ requests>=2.28.0
 pyyaml>=6.0
 python-dotenv>=0.19.0
 sseclient-py>=1.7.0
-urllib3>=1.26.0
+urllib3==2.6.1
 pynvml>=11.5.0
 matplotlib>=3.5.0
 numpy>=1.21.0

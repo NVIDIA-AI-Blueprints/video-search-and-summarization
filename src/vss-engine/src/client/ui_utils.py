@@ -99,7 +99,7 @@ def get_live_stream_preview_chunks(ls_id):
                 return
     finally:
         # Clean exit without yielding
-        return
+        pass
 
 
 def get_overlay_live_stream_preview_chunks(ls_id):
@@ -159,7 +159,7 @@ def get_overlay_live_stream_preview_chunks(ls_id):
                 return
     finally:
         # Clean exit without yielding
-        return
+        pass
 
 
 class RetrieveCache:

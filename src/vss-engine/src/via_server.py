@@ -13,10 +13,6 @@
 
 Translates between requests/responses and ViaStreamHandler and AssetManager methods."""
 
-from via_stream_handler import (  # isort:skip
-    RequestInfo,
-    ViaStreamHandler,
-)
 
 import argparse
 import asyncio
@@ -52,13 +48,6 @@ from pydantic import Field
 from sse_starlette.sse import EventSourceResponse
 
 from asset_manager import Asset, AssetManager
-from utils import (
-    MediaFileInfo,
-    StreamSettingsCache,
-    get_available_gpus,
-    get_avg_time_per_chunk,
-    validate_required_prompts,
-)
 from via_exception import ViaException
 from via_logger import LOG_PERF_LEVEL, TimeMeasure, logger
 from vss_api_models import (
@@ -159,6 +148,8 @@ def add_common_error_responses(errors=[]):
 
 class ViaServer:
     def __init__(self, args) -> None:
+        from utils import StreamSettingsCache
+
         self._args = args
 
         self._asset_manager = AssetManager(
@@ -241,6 +232,8 @@ class ViaServer:
         return True
 
     def run(self):
+        from via_stream_handler import ViaStreamHandler
+
         # Initialize OpenTelemetry if enabled (optional)
         try:
             from otel_helper import init_otel
@@ -264,8 +257,11 @@ class ViaServer:
         self._server = None
 
         self._stream_handler.stop()
+        self._async_executor.shutdown(wait=True)
 
     def _setup_routes(self):
+        from via_stream_handler import RequestInfo
+
         # Mount the ASGI app exposed by prometheus client as a FastAPI endpoint.
         @self._app.get(
             f"{API_PREFIX}/metrics",
@@ -352,6 +348,8 @@ class ViaServer:
                 ),
             ] = "default",
         ) -> AddFileInfoResponse:
+
+            from utils import MediaFileInfo
 
             logger.info(
                 "Received add video file request - purpose %s,"
@@ -569,6 +567,8 @@ class ViaServer:
             tags=["Live Stream"],
         )
         async def add_live_stream(query: AddLiveStream) -> AddLiveStreamResponse:
+            from utils import MediaFileInfo
+
             url = GstRtsp.RTSPUrl()
             result, url = GstRtsp.rtsp_url_parse(query.liveStreamUrl)
             if url and result == GstRtsp.RTSPResult.OK:
@@ -778,6 +778,7 @@ class ViaServer:
             tags=["Summarization"],
         )
         async def summarize(query: SummarizationQuery, request: Request) -> CompletionResponse:
+            from utils import validate_required_prompts
 
             videoIdListUUID = query.id_list
             videoIdList = [str(uuid_obj) for uuid_obj in videoIdListUUID]
@@ -1919,6 +1920,8 @@ class ViaServer:
         async def recommended_config(
             query: RecommendedConfig, request: Request
         ) -> RecommendedConfigResponse:
+            from utils import get_available_gpus, get_avg_time_per_chunk
+
             def round_up(s):
                 """
                 Rounds up a string representation of a number to an integer.
@@ -2335,6 +2338,8 @@ class ViaServer:
 
     @staticmethod
     def populate_argument_parser(parser: argparse.ArgumentParser):
+        from via_stream_handler import ViaStreamHandler
+
         ViaStreamHandler.populate_argument_parser(parser)
 
         parser.add_argument("--host", type=str, help="Address to run server on", default="0.0.0.0")

@@ -10,14 +10,14 @@
 # its affiliates is strictly prohibited.
 ######################################################################################################
 
-ARG BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.4.0"
+ARG BASE_IMAGE="nvcr.io/nvidia/blueprint/vss-engine-base:2.4.1"
 FROM $BASE_IMAGE
 
-RUN --mount=type=bind,source=binaries/gradio_videotimeline-1.0.2-py3-none-any.whl,target=/tmp/gradio_videotimeline-1.0.2-py3-none-any.whl \
-    pip install --no-deps /tmp/gradio_videotimeline-1.0.2-py3-none-any.whl
+RUN --mount=type=bind,source=binaries/gradio_videotimeline-1.1.0-py3-none-any.whl,target=/tmp/gradio_videotimeline-1.1.0-py3-none-any.whl \
+    pip install --no-deps /tmp/gradio_videotimeline-1.1.0-py3-none-any.whl
 
 
-RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v1.0.1 /tmp/vss-ctx-rag
+RUN git clone https://github.com/NVIDIA/context-aware-rag.git -b v1.0.2 /tmp/vss-ctx-rag
 ARG TARGETARCH
 RUN pip install /tmp/vss-ctx-rag --no-deps && \
     if [ "$TARGETARCH" = "amd64" ]; then \
@@ -45,7 +45,8 @@ RUN --mount=type=bind,source=config,target=/tmp/via-src/config \
 #Copy tracker and metadata fusion config files
 COPY config/MOT_EVAL_config_fusion.yml /opt/nvidia/via/config/
 COPY config/config_tracker_NvDCF_accuracy_interval1.yml /opt/nvidia/via/config/default_tracker_config.yml
-COPY config/config_tracker_NvDCF_accuracy_SAM2.yml /opt/nvidia/via/config/config_tracker_NvDCF_accuracy_SAM2.yml
+COPY config/config_tracker_MaskTracker.yml /opt/nvidia/via/config/config_tracker_MaskTracker.yml
+COPY config/config_tracker_module_Segmenter.yml /opt/nvidia/via/config/config_tracker_module_Segmenter.yml
 COPY config/overrides/overrides_cv_accuracy_mode.yaml /opt/nvidia/via/config/overrides/overrides_cv_accuracy_mode.yaml
 
 COPY start_via.sh /opt/nvidia/via/
@@ -53,6 +54,10 @@ COPY start_via.sh /opt/nvidia/via/
 RUN chmod -R 777 /opt/nvidia/via/guardrails_config/
 ENV PATH=$PATH:/opt/nvidia/via/
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/tritonserver/lib/
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/tritonserver/backends/fil/
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.12/dist-packages/libcuvs/lib64/
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.12/dist-packages/libcugraph/lib64/
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.12/dist-packages/libraft/lib64/
 
 
 WORKDIR /opt/nvidia/via/

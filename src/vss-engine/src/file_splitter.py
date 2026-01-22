@@ -72,6 +72,7 @@ class FileSplitter:
         output_file_prefix="",
         username="",
         password="",
+        media_file_info: MediaFileInfo = None,
     ) -> None:
         """FileSplitter constructor.
 
@@ -105,6 +106,7 @@ class FileSplitter:
         self._got_error = False
         self._username = username
         self._password = password
+        self._media_file_info = media_file_info
 
     def split(self):
         """Split the stream
@@ -117,9 +119,12 @@ class FileSplitter:
         self._last_pts_offset = 0
         self._last_chunkidx = 0
         with TimeMeasure("File Split"):
-            media_file_info = (
-                MediaFileInfo.get_info(self._stream) if ";" not in self._stream else None
-            )
+            if self._media_file_info is None:
+                media_file_info = (
+                    MediaFileInfo.get_info(self._stream) if ";" not in self._stream else None
+                )
+            else:
+                media_file_info = self._media_file_info
             if self._split_mode == self.SplitMode.SEEK:
                 # "seek" mode. File is not actually split.
                 # Chunks are generated with start/end time in the original file.

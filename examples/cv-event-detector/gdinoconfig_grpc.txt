@@ -46,6 +46,7 @@ infer_config {
     tensor_order: TENSOR_ORDER_LINEAR
     maintain_aspect_ratio: 1
     frame_scaling_filter: 1
+    frame_scaling_hw: 1
     normalize {
       scale_factor: 0.017507
       channel_offsets: [123.675,116.280,103.53]

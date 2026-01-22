@@ -18,6 +18,7 @@ import csv
 import json
 import os
 import random
+import re
 import threading
 import time
 
@@ -25,6 +26,58 @@ import requests
 import sseclient
 
 from via_server import ViaServer
+
+
+def sanitize_model_path(model_path):
+    """
+    Remove credentials (username:password@) from model paths to avoid exposing sensitive information.
+    
+    Args:
+        model_path (str): Model path that may contain credentials
+        
+    Returns:
+        str: Sanitized model path with credentials removed
+        
+    Examples:
+        >>> sanitize_model_path("git:https://user:pass@huggingface.co/model")
+        'git:https://huggingface.co/model'
+        >>> sanitize_model_path("https://user:token@example.com/repo")
+        'https://example.com/repo'
+        >>> sanitize_model_path("ngc:nvidia/model:tag")
+        'ngc:nvidia/model:tag'
+    """
+    if not model_path:
+        return model_path
+    
+    # Pattern to match credentials in URLs: protocol://username:password@domain
+    # This handles git:https://, https://, http://, etc.
+    pattern = r'((?:git:)?https?://)([^:@]+:[^@]+@)'
+    
+    # Replace with just the protocol part
+    sanitized = re.sub(pattern, r'\1', model_path)
+    
+    return sanitized
+
+
+def sanitize_config(config):
+    """
+    Sanitize a configuration dictionary by removing credentials from model paths.
+    
+    Args:
+        config (dict): Configuration dictionary that may contain model_path with credentials
+        
+    Returns:
+        dict: Deep copy of config with sanitized model paths
+    """
+    sanitized = copy.deepcopy(config)
+    
+    # Sanitize VLM_Configurations.model_path if it exists
+    if "VLM_Configurations" in sanitized:
+        vlm_config = sanitized["VLM_Configurations"]
+        if "model_path" in vlm_config and vlm_config["model_path"]:
+            vlm_config["model_path"] = sanitize_model_path(vlm_config["model_path"])
+    
+    return sanitized
 
 
 class ViaTestServer:
@@ -340,6 +393,196 @@ def alert(t, req_json):
     Returns:
         dict: Result of the alert verification
     """
-    resp = t.post("/verifyAlert", json=req_json)
+    resp = t.post("/reviewAlert", json=req_json)
     assert resp.status_code == 200
     return resp.json()
+
+
+def generate_vlm_captions(t, req_json):
+    resp = t.post("/generate_vlm_captions", json=req_json, stream=False)
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def build_vss_model_args(vlm_config, enable_ca_rag=False, ca_rag_config=None, 
+                         guardrail_config=None, enable_cv=True, enable_audio=False):
+    """
+    Build VSS model arguments from VLM configuration.
+    
+    Common function used by both alert_eval.py and test_byov.py to avoid duplication.
+    
+    Args:
+        vlm_config (dict): VLM configuration containing model type, path, etc.
+        enable_ca_rag (bool): Whether to enable CA-RAG
+        ca_rag_config (str): Path to CA-RAG config file
+        guardrail_config (dict): Guardrail configuration
+        enable_cv (bool): Whether to enable CV pipeline
+        enable_audio (bool): Whether to enable audio processing
+        
+    Returns:
+        str: Command-line arguments string for VSS server
+    """
+    import os
+    
+    model_args = ""
+    
+    # VLM model type configuration
+    if vlm_config.get("model") == "nvila":
+        model_args += " --vlm-model-type nvila"
+        if vlm_config.get("model_path") is None:
+            model_args += " --model-path ngc:nvidia/tao/nvila-highres:nvila-lite-15b-highres-lita"
+        else:
+            model_args += f" --model-path {vlm_config.get('model_path')}"
+        if vlm_config.get("VLM_batch_size") is not None:
+            model_args += f" --vlm-batch-size {vlm_config.get('VLM_batch_size')}"
+            
+    elif vlm_config.get("model") == "vila-1.5":
+        model_args += " --vlm-model-type vila-1.5"
+        if vlm_config.get("model_path") is not None:
+            model_args += f" --model-path {vlm_config.get('model_path')}"
+        else:
+            model_args += " --model-path ngc:nim/nvidia/vila-1.5-40b:vila-yi-34b-siglip-stage3_1003_video_v8"
+        if vlm_config.get("VLM_batch_size") is not None:
+            model_args += f" --vlm-batch-size {vlm_config.get('VLM_batch_size')}"
+            
+    elif vlm_config.get("model") == "openai-compat":
+        model_args += " --vlm-model-type openai-compat"
+        
+    elif vlm_config.get("model") in ("cosmos-reason1", "cosmos-reason2"):
+        model_args += f" --vlm-model-type {vlm_config.get('model')}"
+        if vlm_config.get("model_path") is not None:
+            model_args += f" --model-path {vlm_config.get('model_path')}"
+        os.environ["COSMOS_REASON1_USE_VLLM"] = "1"
+        os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+        os.environ["VLLM_USE_PYTORCH_CUDA_GRAPH"] = "0"
+        os.environ["VLLM_DISABLE_CUSTOM_ALL_REDUCE"] = "1"
+        
+    elif vlm_config.get("model") == "custom":
+        model_args += f" --model-path {vlm_config.get('model_path')}"
+        
+    elif vlm_config.get("model") in ("vllm-compatible", "vllm-compat"):
+        model_args += " --vlm-model-type vllm-compatible"
+        model_args += f" --model-path {vlm_config.get('model_path')}"
+        
+    elif vlm_config.get("model_path") is not None:
+        # For models with model_path and unknown model type
+        print(f"Unknown model type, forcing run by setting model path to {vlm_config.get('model_path')}")
+        model_args += f" --model-path {vlm_config.get('model_path')}"
+    else:
+        raise ValueError(f"Invalid model type: {vlm_config.get('model')}")
+    
+    # Set OpenAI-compat environment variables
+    if vlm_config.get("VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME") is not None:
+        os.environ["VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME"] = vlm_config["VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME"]
+    if vlm_config.get("VIA_VLM_ENDPOINT") is not None:
+        os.environ["VIA_VLM_ENDPOINT"] = vlm_config["VIA_VLM_ENDPOINT"]
+    if vlm_config.get("AZURE_OPENAI_ENDPOINT") is not None:
+        os.environ["AZURE_OPENAI_ENDPOINT"] = vlm_config["AZURE_OPENAI_ENDPOINT"]
+    
+    # Set VLM system prompt
+    if vlm_config.get("VLM_SYSTEM_PROMPT") is not None:
+        os.environ["VLM_SYSTEM_PROMPT"] = vlm_config["VLM_SYSTEM_PROMPT"]
+    
+    # Set VLM input resolution
+    if vlm_config.get("VLM_INPUT_WIDTH") is not None:
+        os.environ["VLM_INPUT_WIDTH"] = str(vlm_config["VLM_INPUT_WIDTH"])
+    if vlm_config.get("VLM_INPUT_HEIGHT") is not None:
+        os.environ["VLM_INPUT_HEIGHT"] = str(vlm_config["VLM_INPUT_HEIGHT"])
+    
+    # Frames per chunk
+    if vlm_config.get("frames_per_chunk") is not None:
+        model_args += f" --num-frames-per-chunk {vlm_config.get('frames_per_chunk')}"
+    
+    # CA-RAG configuration
+    if enable_ca_rag and ca_rag_config:
+        if os.path.exists(f"./eval/byov/{ca_rag_config}"):
+            model_args += f" --ca-rag-config ./eval/byov/{ca_rag_config}"
+        elif os.path.exists(ca_rag_config):
+            model_args += f" --ca-rag-config {ca_rag_config}"
+        else:
+            model_args += " --disable-ca-rag"
+    else:
+        model_args += " --disable-ca-rag"
+    
+    # Guardrail configuration
+    if guardrail_config and guardrail_config.get("enable", False):
+        if guardrail_config.get("guardrail_config_file"):
+            model_args += f" --guardrail-config {guardrail_config['guardrail_config_file']}"
+    else:
+        model_args += " --disable-guardrails"
+    
+    # CV pipeline
+    if not enable_cv:
+        model_args += " --disable-cv-pipeline"
+    
+    # Audio
+    if enable_audio:
+        model_args += " --enable-audio"
+    
+    return model_args
+
+
+def create_eval_log_directory(req_ids, test_case_id, config_name, test_type="alert"):
+    """
+    Create directory and organize health eval logs for a test case.
+    
+    Common function to organize logs for both alert_eval and byov tests.
+    
+    Args:
+        req_ids (str or list): Request ID(s) from the API calls. Can be a single string or list of strings.
+        test_case_id (str): Unique test case identifier
+        config_name (str): Configuration name
+        test_type (str): Type of test ("alert" or "byov")
+        
+    Returns:
+        str: Path to the created directory
+    """
+    import glob
+    import shutil
+    
+    # Handle single req_id or list of req_ids
+    if isinstance(req_ids, str):
+        req_ids = [req_ids]
+    elif req_ids is None:
+        req_ids = []
+    
+    # Create the directory structure
+    dir_path = f"logs/accuracy/{test_type}/{config_name}/{test_case_id}"
+    print(f"Creating log directory: {dir_path}")
+    os.makedirs(dir_path, exist_ok=True)
+    
+    # Files to copy (common logs)
+    files_to_copy = [
+        "/tmp/via-logs/via_engine.log",
+        "/tmp/via-logs/via_ctx_rag.log",
+    ]
+    
+    for file in files_to_copy:
+        try:
+            shutil.copy(file, dir_path)
+        except FileNotFoundError:
+            print(f"File not found: {file}; Skipping;")
+        except IOError as e:
+            print(f"Error copying file {file}: {e}; Skipping;")
+    
+    # Copy health eval logs for all request IDs
+    # This includes: health summaries (JSON), GPU usage (CSV), plots (PNG)
+    total_files_copied = 0
+    for req_id in req_ids:
+        wildcard_files = glob.glob(f"/tmp/via-logs/*{req_id}*")
+        for file in wildcard_files:
+            try:
+                dest_file = os.path.join(dir_path, os.path.basename(file))
+                shutil.copy(file, dest_file)
+                file_type = "JSON" if file.endswith('.json') else "CSV" if file.endswith('.csv') else "PNG" if file.endswith('.png') else "other"
+                print(f"Copied {file_type}: {os.path.basename(file)}")
+                total_files_copied += 1
+            except (FileNotFoundError, IOError) as e:
+                print(f"Error copying file {file}: {e}")
+    
+    if total_files_copied > 0:
+        print(f"Total files copied for {len(req_ids)} request(s): {total_files_copied}")
+    else:
+        print(f"Warning: No health eval files found for request IDs: {req_ids}")
+    
+    return dir_path
