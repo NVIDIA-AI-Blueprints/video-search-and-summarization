@@ -126,7 +126,6 @@ services:
       VIA_ENABLE_OTEL: "${VIA_ENABLE_OTEL:-false}"
       VIA_OTEL_ENDPOINT: "${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}"
       VIA_OTEL_EXPORTER: "${VIA_OTEL_EXPORTER:-console}"
-      VIA_CTX_RAG_ENABLE_OTEL: "${VIA_CTX_RAG_ENABLE_OTEL:-false}"
       VIA_CTX_RAG_EXPORTER: "${VIA_OTEL_EXPORTER:-console}"
       VIA_CTX_RAG_OTEL_ENDPOINT: "${VIA_OTEL_ENDPOINT:-http://otel-collector:4318}"
       ES_PORT: "${ES_PORT:-9200}"
@@ -236,7 +235,7 @@ services:
     image: otel/opentelemetry-collector-contrib:latest
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
-      - ./docker/deploy/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
     ports:
       - "4317:4317"   # OTLP gRPC receiver
       - "4318:4318"   # OTLP HTTP receiver
@@ -253,7 +252,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./docker/deploy/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'

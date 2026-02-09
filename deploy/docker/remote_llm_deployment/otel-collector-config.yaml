@@ -1,0 +1,48 @@
+################################################################################
+# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA Corporation and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA Corporation is strictly prohibited.
+#
+################################################################################
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  # Export to console for immediate viewing
+  debug:
+    verbosity: detailed
+  
+  # Export to Prometheus (integrate with existing setup)
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+  
+  # Export traces to Jaeger via OTLP gRPC  
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp/jaeger]
+    
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, prometheus] 
