@@ -1658,6 +1658,13 @@ class ReviewAlertEventInfo(ViaBaseModel):
             "Vehicle detected in pedestrian zone",
         ],
     )
+    confidence: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Detection confidence score from the CV pipeline",
+        examples=[0.95, 0.87, 0.72],
+    )
 
 
 class ReviewAlertDebugInfo(ViaBaseModel):
