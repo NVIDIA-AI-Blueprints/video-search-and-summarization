@@ -1,0 +1,6 @@
+{
+    "perception-2d": {
+      "provisioning_address": "localhost:9000",
+      "process_type": "docker"
+    }
+}

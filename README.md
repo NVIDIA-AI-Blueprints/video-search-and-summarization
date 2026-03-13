@@ -3,6 +3,7 @@
 ### Table of Contents
 - [Overview](#overview)
 - [Use Case / Problem Description](#use-case--problem-description)
+- [Agent Workflows](#agent-workflows)
 - [Software Components](#software-components)
 - [Target Audience](#target-audience)
 - [Repository Structure Overview](#repository-structure-overview)
@@ -10,53 +11,64 @@
 - [Prerequisites](#prerequisites)
 - [Hardware Requirements](#hardware-requirements)
 - [Quickstart Guide](#quickstart-guide)
-- [Known CVEs](#known-cves)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Overview
 This repository is what powers the [build experience](https://build.nvidia.com/nvidia/video-search-and-summarization), showcasing video search and summarization agent with NVIDIA NIM microservices.
 
-Insightful, accurate, and interactive video analytics AI agents enable a range of industries to make better decisions faster. These AI agents are given tasks through natural language and can perform complex operations like video summarization and visual question-answering, unlocking entirely new application possibilities. The NVIDIA AI Blueprint makes it easy to get started building and customizing video analytics AI agents for video search and summarization — all powered by generative AI, vision language models (VLMs) like Cosmos Nemotron VLMs, large language models (LLMs) like Llama Nemotron LLMs, NVIDIA NeMo Retriever, and NVIDIA NIM.
+Insightful, accurate, and interactive video analytics AI agents enable a range of industries to make better decisions faster. These AI agents are given tasks through natural language and can perform complex operations like video summarization and visual question-answering, unlocking entirely new application possibilities. The NVIDIA AI Blueprint makes it easy to get started building and customizing video analytics AI agents for video search and summarization — all powered by generative AI, vision language models (VLMs) like Cosmos Nemotron VLMs, large language models (LLMs) like Llama Nemotron LLMs,d NVIDIA NIM.
 
 ## Use Case / Problem Description
 
-The NVIDIA AI Blueprint for Video Search and Summarization addresses the challenge of efficiently analyzing and summarizing large volumes of video data. This can be used to create vision AI agents, that can be applied to a multitude of use cases such as monitoring smart spaces, warehouse automation, and SOP validation. This is important where quick and accurate video analysis can lead to better decision-making and enhanced operational efficiency.
+The NVIDIA AI Blueprint for Video Search and Summarization addresses the challenge of deploying visual agents capable of interacting with large volumes of video data, both stored and streamed. This can be used to create vision AI agents, that can be applied to a multitude of use cases such as monitoring smart spaces, warehouse automation, and SOP validation. This is important where quick and accurate video analysis can lead to better decision-making and enhanced operational efficiency.
+
+## Agent Workflows
+We provide multiple reference [Agent Workflows](https://docs.nvidia.com/vss/3.1.0/adding-workflows.html) which demonstrate how the individual components can be leveraged by an agent:
+
+| Workflow | Description |
+|----------|-------------|
+| [Q&A and Report Generation (Quickstart)](https://docs.nvidia.com/vss/3.1.0/quickstart.html) | Video retrieval, VLM-based Q&A, and report generation on short video clips |
+| [Alert Verification](https://docs.nvidia.com/vss/3.1.0/agent-workflow-alert-verification.html) | Realtime processing of videos using perception (object detection, tracking) and behavior analytics to generate alerts, which are subsequently verified with VLM to reduce false positives |
+| [Real-Time Alerts](https://docs.nvidia.com/vss/3.1.0/agent-workflow-rt-alert.html) | Continuous processing of video streams through VLM for anomaly detection |
+| [Video Search](https://docs.nvidia.com/vss/3.1.0/agent-workflow-search.html) | Natural language search across video archives using video embeddings (alpha) |
+| [Long Video Summarization](https://docs.nvidia.com/vss/3.1.0/agent-workflow-lvs.html) | Analysis and summarization of extended video recordings through chunking and aggregation of dense captions |
 
 ## Software Components
 <div align="center">
-  <img src="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/raw/main/deploy/images/vss_architecture.png" width="800">
+  <img src="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/raw/main/assets/vss-architecture.png" width="800">
 </div>
 
 1. **NIM microservices**: Here are models used in this blueprint:
 
     - [Cosmos-Reason2-8B](https://build.nvidia.com/nvidia/cosmos-reason2-8b)
-    - [meta / llama-3.1-70b-instruct](https://build.nvidia.com/meta/llama-3_1-70b-instruct)
-    - [llama-3_2-nv-embedqa-1b-v2](https://build.nvidia.com/nvidia/llama-3_2-nv-embedqa-1b-v2)
-    - [llama-3_2-nv-rerankqa-1b-v2](https://build.nvidia.com/nvidia/llama-3_2-nv-rerankqa-1b-v2)
+    - [NVIDIA Nemotron-Nano-9B-v2](https://build.nvidia.com/nvidia/nvidia-nemotron-nano-9b-v2)
 
-2. **Ingestion Pipeline**: 
+2. **Real-time video intelligence**: The Real-Time Video Intelligence layer extracts rich visual features, semantic embeddings, and contextual understanding from video data in real-time, publishing results to a message broker for downstream analytics and agentic workflows. It provides three core microservices for processing video streams.  
 
-    The process involves decoding video segments (chunks) generated by the stream handler, selecting frames, and using a vision-language model (VLM) along with a caption prompt to generate detailed captions for each chunk. A computer vision pipeline enhances video analysis by providing detailed metadata on objects. In parallel, the audio is extracted and a transcription is generated. These dense captions, along with audio transcripts and CV metadata are then indexed into vector and graph databases for use in the Context-Aware Retrieval-Augmented Generation workflow.
+3. **Downstream analytics**: The Downstream Analytics layer processes and enriches the metadata streams generated by real-time video intelligence microservices, transforming raw detections into actionable insights and verified alerts.
 
-3. **CA-RAG module**:
-
-    The Context-Aware Retrieval-Augmented Generation (CA-RAG) module leverages both Vector RAG and Graph-RAG as primary sources for video understanding. This module is utilized in key features such as summarization, Q&A, and sending alerts. During the Q&A workflow, the CA-RAG module extracts relevant context from the vector database and graph database to enhance temporal reasoning, anomaly detection, multi-hop reasoning, and scalability. This approach offers deeper contextual understanding and efficient management of extensive video data. Additionally, the context manager effectively maintains its working context by efficiently using both short-term memory, such as chat history, and long-term memory resources like vector and graph databases, as needed.
+4. **Agent and offline processing**: The top-level agent leverages the Model Context Protocol (MCP) to access video analytics data, incident records, and vision processing capabilities through a unified tool interface. It integrates multiple vision-based tools including video understanding with Vision Language Models (VLMs), semantic video search using embeddings, long video summarization for extended footage analysis, and video snapshot/clip retrieval. 
 
 ## Target Audience
 This blueprint is designed for ease of setup with extensive configuration options, requiring technical expertise. It is intended for:
 
 1. **Video Analysts and IT Engineers:** Professionals focused on analyzing video data and ensuring efficient processing and summarization. The blueprint offers 1-click deployment steps, easy-to-manage configurations, and plug-and-play models, making it accessible for early developers.
 
-2. **GenAI Developers / Machine Learning Engineers:** Experts who need to customize the blueprint for specific use cases. This includes modifying the RAG pipeline for unique datasets and fine-tuning LLMs as needed. For advanced users, the blueprint provides detailed configuration options and custom deployment possibilities, enabling extensive customization and optimization.
+2. **GenAI Developers / Machine Learning Engineers:** Experts who need to customize the blueprint for specific use cases. This includes modifying the pipelines for unique datasets and fine-tuning LLMs as needed. For advanced users, the blueprint provides detailed configuration options and custom deployment possibilities, enabling extensive customization and optimization.
 
 ## Repository Structure Overview
-- `deploy/`: Contains scripts for docker compose and helm chart deployment, along with notebook for Brev launchable deployment.
-- `src/`: Source code for the video search and summarization agent.
-- `examples/`: Training notebooks for using VSS and usecase examples.
+
+| Directory | Description |
+|-----------|-------------|
+| `agent/` | Video search and summarization agent (Python). Contains `src/vss_agents/` (tools, agents, APIs, embeddings, evaluators, video analytics), `tests/`, `stubs/`, `docker/`, and `3rdparty/`. See [agent/README.md](agent/README.md). |
+| `deployments/` | Deployment configs and Docker Compose: NIM model configs (`nim/`), developer workflows (`developer-workflow/` — dev-profile-base, dev-profile-search, dev-profile-alerts, dev-profile-lvs), foundational services, LVS, RTVI, VLM-as-verifier, VST, and root `compose.yml`. |
+| `scripts/` | Deployment and patch scripts, including the Brev launchable notebook (`deploy_vss_launchable.ipynb`) and dev-profile / patch scripts. |
+| `ui/` | Frontend monorepo (Next.js, Turbo): `apps/` (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui) and shared `packages/`. See [ui/README.md](ui/README.md). |
 
 ## Documentation
 
-For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/latest/index.html).
+For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/3.1.0/index.html).
 
 ## Prerequisites
 
@@ -68,17 +80,7 @@ For detailed instructions and additional information about this blueprint, pleas
 
 ## Hardware Requirements
 
-The platform requirement can vary depending on the configuration and deployment topology used for VSS and dependencies like VLM, LLM, etc. For a list of validated GPU topologies and what configuration to use, see the [supported platforms](https://docs.nvidia.com/vss/latest/content/supported_platforms.html#supported-platforms). 
-
-
-| Deployment Type | VLM | LLM | Embedding (llama-3.2-nv-embedqa-1b-v2) | Reranker (llama-3.2-nv-rerankqa-1b-v2) | Minimum GPU Requirement | 
-| ------------------|-----|-----|-----------|----------| --------------- | 
-| Local deployment (Default topology) | Local (Cosmos Reason2 8B)| Local (Llama 3.1 70B) | Local | Local | 8xB200, 8xH200, 8xH100, 8xA100 (80GB), 8xL40S, 8xRTX PRO 6000 Blackwell |
-| Local deployment (Reduced Compute) | Local (Cosmos Reason2 8B) | Local (Llama 3.1 70B) | Local | Local | 4xB200, 4xH200, 4xH100, 4xA100 (80GB), 6xL40S, 4xRTX PRO 6000 Blackwell |
-| Local deployment (Single GPU) | Local (Cosmos Reason2 8B) | Local (Llama 3.1 8b low mem mode) | Local | Local | 1xB200, 1xH200, 1xH100, 1xA100 (80GB), 1xRTX PRO 6000 Blackwell, DGX Spark, GH200, GB200 |
-| Local VLM deployment | Local(Cosmos Reason2 8B) | Remote | Remote | Remote | 1xB200, 1xH200, 1xH100, 2xA100 (80GB), 1xL40S, 1xRTX PRO 6000 Blackwell, Jetson Thor, DGX Spark, GH200, GB200 |
-| Complete remote deployment | Remote| Remote | Remote | Remote | Minimum 8GB VRAM GPU, Jetson Thor, DGX Spark, GH200, GB200 |
-
+The platform requirement can vary depending on the configuration and deployment topology used for VSS and dependencies like VLM, LLM, etc. For a list of validated GPU topologies and what configuration to use, see the [GPU requirements](https://docs.nvidia.com/vss/3.1.0/prerequisites.html#development-profile-gpu-requirements).
 
 ## Quickstart Guide
 
@@ -86,66 +88,37 @@ The platform requirement can vary depending on the configuration and deployment 
 
 **Ideal for:** Quickly getting started with your own videos without worrying about hardware and software requirements.
 
-Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/content/cloud_brev.html) and notebook in [deploy](deploy/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in an 8xL40s Crusoe instance.
-- [deploy/1_Deploy_VSS_docker_Crusoe.ipynb](deploy/1_Deploy_VSS_docker_Crusoe.ipynb): This notebook is tailored specifically for the Crusoe CSP which uses Ephemeral storage.
+Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [scripts](scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
+- [scripts/deploy_vss_launchable.ipynb](scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
 
 ### Docker Compose Deployment
 
-**Ideal for:** Development phase where you need to run VSS locally, test different models, and experiment with various deployment configurations. This method offers greater flexibility for debugging each component.
-
-For custom VSS deployments through Docker Compose, multiple samples are provided to show different combinations of remote and local model deployments. The `/deploy/docker` directory contains a README with all the details. [Link to README](deploy/docker/README.md)
-
-#### System Requirements (x86 systems)
-
-- Ubuntu 22.04
-- NVIDIA driver 580.65.06 (Recommended minimum version)
-- CUDA 13.0+ (CUDA driver installed with NVIDIA driver)
-- NVIDIA Container Toolkit 1.13.5+
-- Docker 27.5.1+
-- Docker Compose 2.32.4
-
-Please refer to [Prerequisites section here for more information](https://docs.nvidia.com/vss/latest/content/prereqs_x86.html#prerequisites).
-
-#### System Requirements (NVIDIA Jetson Thor)
-
-Please refer to [NVIDIA Jetson Thor Setup Instructions](https://docs.nvidia.com/vss/latest/content/prereqs_thor.html).
-
-#### System Requirements (NVIDIA DGX Spark)
-
-Please refer to [NVIDIA DGX Spark Setup Instructions](https://docs.nvidia.com/vss/latest/content/prereqs_dgx_spark.html).
-
-
-### Helm Chart Deployment
-
-**Ideal for:** Production deployments that need to integrate with other systems. Helm offers advantages such as easy upgrades, rollbacks, and management of complex deployments.
-
-The `/deploy/helm/` directory contains a `nvidia-blueprint-vss-2.4.1.tgz` file which can be used to spin up VSS. Refer to the [documentation here](https://docs.nvidia.com/vss/latest/content/vss_dep_helm.html#) for detailed instructions.
+**Ideal for:** Deploying a VSS agent on your own hardware or bare metal cloud instance.
 
 #### System Requirements
 
-- Ubuntu 22.04
-- NVIDIA driver 580.65.06 (Recommended minimum version)
-- CUDA 13.0+ (CUDA driver installed with NVIDIA driver)
-- Kubernetes v1.31.2
-- NVIDIA GPU Operator v23.9 (Recommended minimum version)
-- Helm v3.x
+- OS:
+    - x86 hosts: Ubuntu 22.04 or Ubuntu 24.04
+    - DGX-SPARK: DGX OS 7.4.0
+    - IGX-THOR: Jetson Linux BSP (Rel 38.5)
+    - AGX-THOR: Jetson Linux BSP (Rel 38.4)
+- NVIDIA Driver:
+    - 580.105.08 (x86 hosts with Ubuntu 24.04)
+    - 580.65.06 (x86 hosts with Ubuntu 22.04)
+    - 580.95.05 (DGX-SPARK)
+    - 580.00 (IGX-THOR and AGX-THOR)
+- NVIDIA Container Toolkit: 1.17.8+
+- Docker: 27.2.0+
+- Docker Compose: v2.29.0+
+- NGC CLI: 4.10.0+
 
->**NOTE**: Helm deployments are supported only for x86 platforms.
+Please refer to [Prerequisites section here for installation details](https://docs.nvidia.com/vss/3.1.0/prerequisites.html).
 
-## Known CVEs
 
-VSS Engine 2.4.1 Container has the following known CVEs:
+## Contributing
 
-|   CVE    | Description |
-|----------|-------------|
-|[GHSA-58pv-8j8x-9vj2](https://github.com/jaraco/jaraco.context/security/advisories/GHSA-58pv-8j8x-9vj2)| This impacts jaraco.context < 6.1.0 python package. This does not affect VSS since it does not install user provided python packages. |
-|[CVE-2025-69223](https://github.com/advisories/GHSA-6mq8-rvhq-8wgg)| This impacts aiohttp < 3.13.3 python package. This does not affect VSS since it gets included as a private package inside ray and ray is not used by VSS. |
-|[GHSA-f83h-ghpp-7wcc](https://github.com/advisories/GHSA-f83h-ghpp-7wcc)| This impacts pdfminer.six < 20251230 python package. This does not affect VSS since it does not implement PDF parsing. |
-|[CVE-2025-68973](https://nvd.nist.gov/vuln/detail/CVE-2025-68973)| This impacts gnupg < 2.4.8. This does not affect VSS since it does not implement GPG encryption. |
-|[GHSA-mcmc-2m55-j8jj](https://github.com/advisories/GHSA-mcmc-2m55-j8jj) [GHSA-mrw7-hf4f-83pf](https://github.com/advisories/GHSA-mrw7-hf4f-83pf) [CVE-2025-62372](https://github.com/advisories/GHSA-pmqf-x6x8-p7qw)| This impacts vLLM < 0.11.1 python package. This does not affect VSS since it does not support user provided embeddings. |
-|[CVE-2026-21441](https://github.com/advisories/GHSA-38jv-5279-wg99)| This affects urllib3 < 2.6.3 python package. This does not affect VSS since it does not access user provided URLs at runtime. |
-|[CVE-2025-3887](https://ubuntu.com/security/CVE-2025-3887)| This impacts GStreamer H.265 codec parser, Malicious malformed streams can cause  stack overflow in H.265 codec parser causing the application to crash. Users must take care that malicious H.265 streams are not added to VSS. This can be remedied by building and installing the GStreamer1.24.2 codec parser library after applying the patch mentioned in https://gstreamer.freedesktop.org/security/sa-2025-0001.html. |
-|[GHSA-rcfx-77hg-w2wv](https://github.com/advisories/GHSA-rcfx-77hg-w2wv)| This impacts fastmcp < 2.14.0 python package. This does not affect VSS since it already used an updated version of MCP SDK. |
+This project is currently in early access and not accepting contributions. Once made generally available, this project will accept contributions.
+
 
 ## License
 Refer to [LICENSE](LICENSE)

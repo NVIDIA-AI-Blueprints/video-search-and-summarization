@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  qwen3-vl-8b-instruct:
+    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    command: python3 -m vllm.entrypoints.openai.api_server --model
+      Qwen/Qwen3-VL-8B-Instruct --trust-remote-code --tensor-parallel-size
+      1 --gpu-memory-utilization 0.85 --port 8000
+    container_name: qwen3-vl-8b-instruct
+    profiles:
+    - vlm_local_qwen3-vl-8b-instruct
+    runtime: nvidia
+    shm_size: 32gb
+    ports:
+     - ${VLM_PORT:-30082}:8000
+    environment:
+      NGC_API_KEY: "${NGC_CLI_API_KEY}"
+    env_file:
+      - ${MDX_SAMPLE_APPS_DIR}/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}.env
+      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/nim/fallback-override.env}
+    volumes:
+      - qwen3_vl_8b_instruct_cache:/opt/nim/.cache
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${VLM_DEVICE_ID:-0}"
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/health; else elapsed=0; while ! curl -fs http://localhost:8000/health > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/health; fi']
+      interval: 60s
+      timeout: 650s
+      retries: 2
+
+  qwen3-vl-8b-instruct-shared-gpu:
+    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    command: python3 -m vllm.entrypoints.openai.api_server --model
+      Qwen/Qwen3-VL-8B-Instruct --trust-remote-code --tensor-parallel-size
+      1 --gpu-memory-utilization 0.4 --port 8000 --max-model-len 32768
+    container_name: qwen3-vl-8b-instruct-shared-gpu
+    profiles:
+    - vlm_local_shared_qwen3-vl-8b-instruct
+    runtime: nvidia
+    shm_size: 32gb
+    ports:
+     - ${VLM_PORT:-30082}:8000
+    environment:
+      NGC_API_KEY: "${NGC_CLI_API_KEY}"
+    env_file:
+      - ${MDX_SAMPLE_APPS_DIR}/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/nim/fallback-override.env}
+    volumes:
+      - qwen3_vl_8b_instruct_cache:/opt/nim/.cache
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${SHARED_LLM_VLM_DEVICE_ID:-${VLM_DEVICE_ID:-0}}"
+    restart: always
+
+    healthcheck:
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/health; else elapsed=0; while ! curl -fs http://localhost:8000/health > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/health; fi']
+      interval: 60s
+      timeout: 650s
+      retries: 2
+volumes:
+  qwen3_vl_8b_instruct_cache:

@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ============================================================================
+# SIMPLIFIED ALERT AGENT CONFIGURATION
+# ============================================================================
+# This configuration supports the simplified alert processing flow:
+# JSON Input → Entity Building → VSS Video Analysis → Enhanced JSON Output
+
+# Base directory for media used during alert review (optional)
+# If set, components can resolve relative media paths against this base dir
+ALERT_REVIEW_MEDIA_BASE_DIR: ""
+
+# VST Configuration
+vst_config:
+  recording_check_max_attempts: 3
+  # Base URL for general VST APIs already used elsewhere in the codebase
+  base_url: "http://localhost:30888"
+  sensor_list_endpoint: "/vst/api/v1/sensor/streams"
+  add_overlay: false
+  segment_anchor: "end"          # enable end-anchored window
+  segment_duration_seconds: 10   # M (already used today)
+
+  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  storage:
+    base_url: "http://localhost:30888"
+    # Endpoint to fetch media file path by VST id
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+# General Kafka Configuration - Message Processing
+kafka:
+  bootstrap_servers: "localhost:9092"
+  group_id: 'kafka-incidents-dumper'
+           # Output topic for incidents
+  max_poll_records: 10                          # Process one record at a time (immediate processing)
+  auto_offset_reset: 'latest'
+  enable_auto_commit: false
+  max_poll_interval_ms: 600000                  # Reduced to 5 minutes
+  session_timeout_ms: 45000
+  heartbeat_interval_ms: 15000
+  poll_timeout: 5                             # Kafka consumer poll wait timeout in milliseconds
+  message_type: "Incident"  # Protobuf message type: "Behavior" or "Incident"
+  enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"     # Not currently used will be removed in the next version
+  incidents_topic: "alert-bridge-incidents" # Not currently used will be removed in the next version
+
+#VLM Configuration
+vlm:
+  base_url: ${VLM_BASE_URL}/v1
+  model: "${VLM_NAME}"
+  max_tokens: 4096
+  # Beware that these parameters need to be set in accordance with the VLM max context window
+  min_pixels: 1568
+  max_pixels: 8388608
+  enable_sampling: true
+  sampling_fps: 4
+  request_timeout: 60
+  use_vlm_media_defaults: true
+
+# Event Bridge Configuration - Choose between kafka and redisStream
+event_bridge:
+  sourceType: "kafka"                     # redisStream or "kafka"
+  sinkType: "kafka"                       # redisStream or "kafka"
+
+  kafka_source:
+    group_id: 'alert-bridge-vlm-group'
+    topics:
+      incident: 'mdx-incidents'
+
+  # Redis Streams Configuration
+  redis_source:
+    host: "localhost"
+    port: 6379
+    db: 0
+    dedup_ttl_seconds: 5
+    protect_confirmed_verdicts:
+      enabled: true
+      ttl_seconds: 600
+    # End time delta filter: blocks incidents unless end time changed significantly
+    end_time_delta_filter:
+      enabled: true
+      threshold_seconds: 3
+      ttl_seconds: 3600
+    # Categories listed here will retain the incident end timestamp when building the dedup key.
+    # Any category not listed will omit the end timestamp for deduplication purposes.
+    end_time_in_dedup_key_categories: []
+    streams:
+      anomaly_stream: "alert-bridge-input-stream"
+      heartbeat_stream: "alert-bridge-heartbeats-stream"
+    consumer_group: "vlm_agents_group"
+    consumer_config:
+      block_time: 10
+      count: 1
+      batch_size: 1
+
+  redis_sink:
+    host: "localhost"
+    port: 6379
+    db: 0
+    streams:
+      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
+      incidents_stream: "alert-bridge-incidents-stream"
+
+prompt:
+  prefer_payload_prompt: false
+  override_prompts_on_start: true
+
+# Alert Type Configuration
+alert_type_config_file: "alert_type_config.json"
+
+# Alert Agent Configuration - Processing Settings
+alert_agent:
+  num_workers: 10                                # Number of worker threads
+  max_allowed_stream_size: 2                    # Maximum stream size in minutes
+  default_stream_interval: 1                    # Default stream interval in minutes
+  vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
+  include_latency_info: false
+
+elastic:
+  enabled: true
+  hosts:
+    - http://localhost:9200
+
+vlm_enhanced_sink:
+  incident:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-incidents"
+  alert:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-alerts"
+# vlm_enhanced_sink:
+#   incident:
+#     type: "kafka"
+#     kafka:
+#       topic: "mdx-vlm-incidents"
+#       message_type: "incident"
+#       key_field: "id"
+#   alert:
+#     type: "kafka"
+#     kafka:
+#       topic: "mdx-vlm-alerts"
+#       message_type: "alert"
+#       key_field: "id"
+
+# vlm_enhanced_incident_sink:
+#   type: "kafka"
+#   kafka:
+#     topic: "mdx-vlm-incidents"
+#     message_type: "incident"
+#     key_field: "id"
+
+logging:
+  level: "INFO"                                 # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL (applies to all components)
+  format: "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
+  third_party_level: "WARNING"                  # Level for urllib3/httpcore/httpx/elasticsearch, etc.

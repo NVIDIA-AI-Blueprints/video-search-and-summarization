@@ -1,0 +1,353 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: fastapi
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: DEV-LVS-vss-agent-${VSS_AGENT_VERSION}
+        # Uncomment the following to enable Weave experiment tracking:
+        # weave:
+        #   _type: weave
+        #   project: ${WEAVE_PROJECT}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 60
+    max_fps: 2  # for CR1, max fps is 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_clip
+    time_format: offset
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${HOST_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    system_prompt: |
+      You are a monitoring system analyzing video footage.
+      Your task is to describe the events in the video in detail or answer the user's question about the video.
+        IMPORTANT:
+        - You must respond only in English and in plain text.
+        - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.
+        - Timestamp must be in pts format, seconds since the start of the video.
+        - Always provide a direct answer to the question asked.
+        - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.
+
+
+  vst_video_duration:
+    _type: vst.duration
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_snapshot:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_video_list:
+    _type: vst.video_list
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  lvs_video_understanding:
+    _type: lvs_video_understanding
+    lvs_backend_url: ${LVS_BACKEND_URL}
+    model: ${VLM_NAME}
+    video_url_tool: vst_video_clip
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${HOST_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    # Connection and timeout configuration
+    conn_timeout_ms: 5000
+    read_timeout_ms: 600000
+    # Video processing parameters for better event detection
+    chunk_duration: 10  # Split video into 10-second chunks (0 = entire video in one request)
+    num_frames_per_chunk: 20  # Sample 20 frames per chunk
+    # HITL Templates (shown each for each query to the user during interaction)
+    hitl_scenario_template: |
+      Scenario (REQUIRED):
+      Please provide a scenario description for the video analysis.
+
+      Example: "traffic monitoring", "warehouse monitoring"
+
+      Enter your scenario or press Submit to keep current value:
+    hitl_events_template: |
+      Events (REQUIRED):
+      Please provide a comma-separated list of events to detect.
+
+      Examples:
+      - accident, pedestrian crossing, vehicle crossing, traffic violation
+      - boxes falling, accident, forklift stuck, workers not wearing PPE, person entering restricted area
+
+      Enter events (comma-separated) or press Submit to keep current value:
+    hitl_objects_template: |
+      Objects of Interest (OPTIONAL):
+      Please provide a comma-separated list of objects to focus on, or write "skip" to skip.
+
+      Examples:
+      - cars, trucks, pedestrians
+      - forklifts, pallets, workers
+
+      Enter objects (comma-separated), "skip" to skip or press Submit to keep current value:
+    hitl_confirmation_template: |
+      Please review the above configuration that will be sent for video analysis.
+
+      **Options:**
+      - Press Submit (empty) → Confirm and proceed with video analysis
+      - Type `/redo` → Modify parameters
+      - Type `/cancel` → Cancel analysis
+
+      Enter your choice or press Submit to proceed:
+    # Default values
+    default_scenario: "traffic monitoring"
+    default_events:
+    - accident
+    - pedestrian crossing
+    - vehicle crossing
+    - traffic violation
+
+  video_report_gen:
+    _type: video_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    video_understanding_tool: video_understanding
+    lvs_video_understanding_tool: lvs_video_understanding
+    video_url_tool: vst_video_clip
+    picture_url_tool: vst_snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vlm_prompt: |
+      Describe in detail what is happening in this video,
+      including all visible people, vehicles, equipments, objects,
+      actions, and environmental conditions.
+      OUTPUT REQUIREMENTS:
+      [timestamp-timestamp] Description of what is happening.
+      EXAMPLE:
+      [0.0s-4.0s] <description of the first event>
+      [4.0s-12.0s] <description of the second event>
+
+  report_agent:
+    _type: report_agent
+    log_level: INFO
+    # No Video Analytics MCP tools configured = Video(uploaded) Report mode
+    video_report_tool: video_report_gen
+
+llms:
+  # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
+  nim_llm:
+    _type: nim
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  openai_llm:
+    _type: openai
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
+  nim_vlm:
+    _type: nim
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  openai_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    temperature: 0.0
+    max_tokens: 4096
+
+  vllm_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  # --- Others ---
+  eval_llm_judge:
+    _type: nim
+    model_name: ${EVAL_LLM_JUDGE_NAME}
+    base_url: ${EVAL_LLM_JUDGE_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+workflow:
+  _type: top_agent
+  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  log_level: INFO
+  max_iterations: 30
+  llm_reasoning: false
+  planning_enabled: true
+  tool_names:
+  - video_understanding
+  - vst_video_clip
+  - vst_snapshot
+  - vst_video_list
+  - vst_video_duration
+  subagent_names:
+  - report_agent
+  # yamllint disable rule:line-length
+  prompt: |
+    You are a routing agent for a video surveillance system. Your job is to route requests to the correct tool.
+    ## Routing Rules:
+      **vst_video_list** -
+      - Videos can be added/removed from the backend system. dont rely on previous conversations for questions about available videos.
+      - If user ask to show a video not in the list from previous interactions, call this tool to verify if the video is available then call the appropriate tool to show the video or snapshot.
+      - Examples: "What videos are available?", "List all available videos" "list sensors"
+      **report_agent**
+      - Only call report_agent when user mentions "report" in the question.
+      - Don't use the report from previous interactions.
+      - Examples: "Generate a report for, "Create an analysis report", "Generate a report using long video summarization", "Generate a report using lvs"
+      **video_understanding** - For any question about short videos or quick queries for a video clip.
+      - Use when video is less than 1 minute.
+      - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
+      - Do NOT use when user asks to "generate a report"
+      **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
+      - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
+      **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp.
+      - CRITICAL: Always call vst_snapshot to get the URL even though the snapshot for the same video and at the same timestamp has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_snapshot.
+    ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
+
+
+  tool_call_prompt: |
+    - ALWAYS include ALL required parameters when calling tools
+    - If a tool call fails with a validation error, RETRY IMMEDIATELY: Fix the error and call the tool again with correct parameters.
+    - Error Handling: if a tool fails more than 3 times, just return a summarized error message. Do not endlessly try again.
+
+  response_format_prompt: |
+    - Do not include phrases like "I should", "Let me", "The user".
+    - Convert json to markdown format.
+      - EXCEPTION: For queries about listing sensors, output sensors as plain text, NOT as code blocks or markdown code.
+    - Wrap urls in html tags. CRITICAL: ONLY do this when a url is EXACTLY the one returned from a tool call or the url is EXACTLY the same as one from the conversation history. NEVER generate urls yourself. NEVER modify an existing url to create a new url (e.g. changing timestamps, IDs, or any part of the url). If you need a url that wasn't returned by a tool call, you MUST call the appropriate tool to get it. Examples:
+      <video src="video_url" alt="Video Name">Video Name</video>
+      <image src="image_url" alt="Image Name">Image Name</image>
+  postprocessing:
+    enabled: true
+    validation_order:
+    - [url_validator]
+    validators:
+      url_validator:
+        internal_ip: ${HOST_IP}
+        timeout: 10.0
+        # Template variable: {issues} - list of failed URLs
+        feedback_template: |
+          The following URLs are not accessible: {issues}
+          You have a hallucinated URL in the response, consider removing it or calling the appropriate tool to fetch the correct URL.
+        # yamllint enable rule:line-length
+
+eval:
+  general:
+    workflow_alias: ${WEAVE_WORKFLOW_ALIAS}
+    output_dir: ${EVAL_DIR}/results
+    dataset:
+      _type: json
+      file_path: ${EVAL_DIR}/dataset.json
+      structure:
+        question_key: "query"
+
+  evaluators:
+    trajectory_evaluator:
+      _type: customized_trajectory_evaluator
+      llm_name: eval_llm_judge
+      track_agent_selected_tools_only: true
+      max_retries: 2
+      custom_prompt_template: |
+        You are an expert evaluator assessing an AI agent's performance on tool calling.
+
+        Question: {question}
+
+        Available Tools and Their Schemas:
+        {tool_schemas}
+
+        Agent's Actions and Tool Calls:
+        {agent_trajectory}
+
+        Agent's Final Answer:
+        {answer}
+
+        Reference/Expected Output:
+        {reference}
+
+        Evaluation Criteria:
+        1. **Tool Selection**: Did the agent select the appropriate tools for the task?
+        2. **Parameter Accuracy**: Were tool parameters correct according to the tool schemas above?
+        Check that all parameters match the expected types, required fields, and descriptions.
+        3. **Data Retrieval**: Did the agent successfully retrieve the necessary data? Sometimes the
+        data is not available, that should not be considered as a failure. As long as the tools are
+        called correctly, it should be considered as a success.
+        4. **Completeness**: Did the agent gather all required information to answer the question?
+        5. **Efficiency**: Did the agent avoid unnecessary or redundant tool calls?
+
+        IMPORTANT NOTES:
+
+        1. VLM Failure: The report_agent always will fail on VLM analysis. This is EXPECTED and
+           should NOT be considered a failure. As long as the correct tools are called, it should
+           be considered as a success and should be scored 1.0.
+
+        2. LLM Model Names in Trajectory: Some trajectory steps have tool names equal to LLM model names. These are NOT
+           actual tool calls. They are INTERNAL REASONING STEPS showing which LLM is thinking.
+
+           **CRITICAL: When evaluating tool selection, COMPLETELY IGNORE any steps where the tool
+           name is an LLM model name. Only evaluate steps where actual function tools are called.**
+
+        Scoring Guidelines:
+        - 1.0: Perfect execution - all criteria met, accurate answer
+        - 0.8-0.9: Excellent - minor issues but correct answer
+        - 0.6-0.7: Good - some issues but mostly correct
+        - 0.4-0.5: Fair - significant issues, partially correct
+        - 0.0-0.3: Poor - major issues, incorrect or incomplete answer
+
+        Think through your evaluation carefully, then output only a single number (your score from
+        0.0 to 1.0).

@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Dockerfile specifically for Kafka health check
+# Uses Confluent Kafka image with all Kafka tools
+
+FROM confluentinc/cp-kafka:8.1.1
+
+# Install jq in a user-writable location with architecture detection
+RUN mkdir -p /home/appuser/jqbin && \
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        JQ_URL="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    curl -L -o /home/appuser/jqbin/jq "$JQ_URL" && \
+    chmod +x /home/appuser/jqbin/jq
+
+# Copy Kafka health check script
+COPY --chmod=755 ./broker-health-check/scripts/check-kafka-health.sh /scripts/check-kafka-health.sh
+
+USER appuser
+
+# Direct entrypoint to Kafka health check script
+ENTRYPOINT ["/scripts/check-kafka-health.sh"]

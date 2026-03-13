@@ -1,0 +1,70 @@
+/* SPDX-License-Identifier: MIT */
+/* Custom rsuite theme - Light mode darker */
+:root {
+  /* Light mode - darker backgrounds */
+  /* --rs-bg-card: #e5e5e5;
+  --rs-bg-overlay: #d4d4d4;
+  --rs-bg-well: #e5e5e5;
+  --rs-bg-active: #d4d4d4; */
+  
+  /* Input backgrounds */
+  /* --rs-input-bg: #e5e5e5;
+  --rs-input-focus-border: #a3a3a3; */
+  
+  /* Dropdown backgrounds */
+  /* --rs-dropdown-bg: #e5e5e5;
+  --rs-dropdown-item-bg-hover: #d4d4d4;
+  --rs-dropdown-item-bg-active: #a3a3a3; */
+  
+  /* Button */
+  --rs-btn-default-bg: #d4d4d4;
+  --rs-btn-default-hover-bg: #a3a3a3;
+}
+
+/* Dark mode - keep or adjust as needed */
+.rs-theme-dark {
+  --rs-bg-card: #262626;
+  --rs-bg-overlay: #171717;
+  --rs-bg-well: #262626;
+  --rs-bg-active: #404040;
+  
+  /* --rs-input-bg: #262626;
+  --rs-input-focus-border: #525252; */
+  
+  --rs-dropdown-bg: #262626;
+  --rs-dropdown-item-bg-hover: #404040;
+  --rs-dropdown-item-bg-active: #525252;
+  
+  --rs-btn-default-bg: rgb(107 114 128);
+  --rs-btn-default-hover-bg: rgb(75 85 99);
+}
+
+/* Alternative: Direct class overrides */
+/* .rs-dropdown-menu {
+  background-color: var(--rs-dropdown-bg);
+}
+
+.rs-dropdown-item:hover {
+  background-color: var(--rs-dropdown-item-bg-hover);
+}
+
+.rs-input {
+  background-color: var(--rs-input-bg);
+}
+
+.rs-input-group {
+  background-color: var(--rs-input-bg);
+}
+
+.rs-btn-default {
+  background-color: var(--rs-btn-default-bg);
+}
+
+.rs-btn-default:hover {
+  background-color: var(--rs-btn-default-hover-bg);
+} */
+
+/* Increase z-index for DatePicker/CheckPicker popup to appear above Filters popover (FILTER_POPOVER_Z_INDEX = 10600) */
+.rs-picker-popup {
+  z-index: 10700 !important;
+}
