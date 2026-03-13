@@ -1,0 +1,153 @@
+Third-Party Software Licenses
+================================================================================
+
+This file contains the licenses and attributions for third-party Docker
+container images pulled at runtime as part of the deployments (e.g. when
+running developer profiles via scripts/dev-profile.sh or docker compose).
+
+================================================================================
+
+1. alpine:3.23.2
+   Image: alpine:3.23.2
+   License: BSD-2-Clause (Docker image packaging); image may contain
+            components under other licenses (e.g. musl, BusyBox).
+   Registry: https://hub.docker.com/_/alpine
+   Source: https://github.com/docker-library/official-images/blob/master/library/alpine
+   License URL: https://gitlab.alpinelinux.org/alpine/docker-abuild/-/blob/master/LICENSE.md
+   Full License Text:
+
+   See: https://gitlab.alpinelinux.org/alpine/docker-abuild/-/blob/master/LICENSE.md
+   Alpine Linux: https://alpinelinux.org/
+
+
+2. arizephoenix/phoenix:version-8.12.1
+   Image: arizephoenix/phoenix:version-8.12.1
+   License: Elastic License 2.0 (ELv2)
+   Registry: https://hub.docker.com/r/arizephoenix/phoenix
+   Source: https://github.com/Arize-ai/phoenix
+   License URL: https://github.com/Arize-ai/phoenix/blob/main/LICENSE
+   Description: Phoenix observability and evaluation framework (Arize).
+   Full License Text:
+
+   See: https://github.com/Arize-ai/phoenix/blob/main/LICENSE
+   See also: https://arize.com/docs/phoenix/self-hosting/license
+
+
+3. confluentinc/cp-kafka:8.1.1
+   Image: confluentinc/cp-kafka:8.1.1
+   License: Apache License 2.0; some components under Confluent Community
+            License. See Confluent Platform license documentation.
+   Registry: https://hub.docker.com/r/confluentinc/cp-kafka
+   Source: https://github.com/confluentinc/common (and Confluent Platform)
+   License URL: https://www.confluent.io/confluent-community-license/
+   Description: Confluent Platform Kafka.
+   Full License Text:
+
+   See: https://www.confluent.io/confluent-community-license/
+   See: https://docs.confluent.io/platform/current/installation/license.html
+
+
+4. docker.elastic.co/elasticsearch/elasticsearch:9.3.0
+   Image: docker.elastic.co/elasticsearch/elasticsearch:9.3.0
+   License: Elastic License 2.0 (ELv2)
+   Registry: https://docker.elastic.co
+   Source: https://github.com/elastic/elasticsearch
+   License URL: https://www.elastic.co/licensing/elastic-license
+   Full License Text:
+
+   See: https://www.elastic.co/licensing/elastic-license
+
+
+5. docker.elastic.co/kibana/kibana:9.3.0
+   Image: docker.elastic.co/kibana/kibana:9.3.0
+   License: Elastic License 2.0 (ELv2)
+   Registry: https://docker.elastic.co
+   Source: https://github.com/elastic/kibana
+   License URL: https://www.elastic.co/licensing/elastic-license
+   Full License Text:
+
+   See: https://www.elastic.co/licensing/elastic-license
+
+
+6. docker.elastic.co/logstash/logstash:9.3.0
+   Image: docker.elastic.co/logstash/logstash:9.3.0
+   License: Elastic License 2.0 (ELv2)
+   Registry: https://docker.elastic.co
+   Source: https://github.com/elastic/logstash
+   License URL: https://www.elastic.co/licensing/elastic-license
+   Full License Text:
+
+   See: https://www.elastic.co/licensing/elastic-license
+
+
+7. docker.io/alpine/curl:8.12.1
+   Image: docker.io/alpine/curl:8.12.1
+   License: MIT (image packaging); image contains Alpine Linux (see alpine
+            above) and curl (curl license).
+   Registry: https://hub.docker.com/r/alpine/curl
+   Source: https://gitlab.alpinelinux.org/alpine/docker-abuild
+   License URL: https://curl.se/docs/copyright.html (curl)
+   Full License Text:
+
+   See: https://gitlab.alpinelinux.org/alpine/docker-abuild/-/blob/master/LICENSE.md
+   curl: https://curl.se/docs/copyright.html
+
+
+8. postgres:17.6-alpine
+   Image: postgres:17.6-alpine
+   License: PostgreSQL License (BSD-style).
+   Registry: https://hub.docker.com/_/postgres
+   Source: https://github.com/docker-library/postgres
+   License URL: https://www.postgresql.org/about/licence/
+   Full License Text:
+
+   See: https://www.postgresql.org/about/licence/
+
+
+9. redis:8.2.2-alpine
+   Image: redis:8.2.2-alpine
+   License: Redis 8 is available under a tri-license: Redis Source Available
+            License v2 (RSALv2), SSPL v1, or AGPL v3. See Redis licensing.
+   Registry: https://hub.docker.com/_/redis
+   Source: https://github.com/docker-library/redis
+   License URL: https://redis.io/legal/licenses
+   Full License Text:
+
+   See: https://redis.io/legal/licenses
+
+
+================================================================================
+
+Full License Texts / References:
+
+Apache License 2.0:
+   See: https://www.apache.org/licenses/LICENSE-2.0
+
+BSD-2-Clause:
+   See: https://opensource.org/licenses/BSD-2-Clause
+
+BSD-3-Clause:
+   See: https://opensource.org/licenses/BSD-3-Clause
+
+Confluent Community License:
+   See: https://www.confluent.io/confluent-community-license/
+
+curl License:
+   See: https://curl.se/docs/copyright.html
+
+Elastic License 2.0:
+   See: https://www.elastic.co/licensing/elastic-license
+
+GNU General Public License v2.0:
+   See: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+MIT License:
+   See: https://opensource.org/licenses/MIT
+
+PostgreSQL License:
+   See: https://www.postgresql.org/about/licence/
+
+Redis (RSALv2 / SSPL v1 / AGPL v3):
+   See: https://redis.io/legal/licenses
+
+================================================================================

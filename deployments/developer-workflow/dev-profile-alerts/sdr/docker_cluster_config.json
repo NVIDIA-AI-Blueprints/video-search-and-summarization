@@ -1,0 +1,6 @@
+{
+  "mdx-ds-01": {
+    "provisioning_address": "localhost:9010",
+    "process_type": "docker"
+  }
+}

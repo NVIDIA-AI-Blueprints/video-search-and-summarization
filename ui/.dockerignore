@@ -1,0 +1,50 @@
+Dockerfile
+**/.gitignore
+.git
+**/*.md
+.idea
+**/.turbo/
+**/.turbo/**
+.vscode
+.vscode/**
+**/*.env*
+.env*
+**/.env*
+**/node_modules/
+**/node_modules/**
+.github/
+.github/**
+
+# Build artifacts
+**/lib/
+**/lib/**
+**/dist/
+**/dist/**
+**/build/
+**/build/**
+**/*.tsbuildinfo
+**/.next/
+**/.next/**
+**/out/
+**/out/**
+**/.swc/
+**/.swc/**
+**/coverage/
+**/coverage/**
+
+# OS files
+**/.DS_Store
+**/Thumbs.db
+
+# Editor files
+**/*.swp
+**/*.swo
+**/*~
+
+# Test files
+**/*.test.js
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.js
+**/*.spec.ts
+**/*.spec.tsx

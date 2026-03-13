@@ -1,0 +1,162 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Docker Compose for RTVI VLM microservice
+
+services:
+  rtvi-vlm:
+    # for release, change this to the versioned image from the registry
+    image: nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.1.0}
+    container_name: rtvi-vlm
+    user: "1001:1001"
+    shm_size: '16gb'
+    runtime: nvidia
+    profiles:
+    - bp_developer_alerts_2d_vlm
+    - bp_developer_alerts_2d_cv_IGX-THOR
+    - bp_developer_base_2d_IGX-THOR
+    - bp_developer_alerts_2d_cv_AGX-THOR
+    - bp_developer_base_2d_AGX-THOR
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - capabilities:
+            - gpu
+            driver: nvidia
+            device_ids:
+            - "${RT_VLM_DEVICE_ID:-0}"
+    ports:
+      - "${RTVI_VLM_PORT?}:8000"
+
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-NOAPIKEYSET}"
+      OPENAI_API_VERSION: "${OPENAI_API_VERSION:-}"
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: "${RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-}"
+      VIA_VLM_ENDPOINT: "${RTVI_VLM_ENDPOINT:-}"
+      VIA_VLM_API_KEY: "${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
+      VLM_BATCH_SIZE: "${RTVI_VLM_BATCH_SIZE:-}"
+      VLM_INPUT_WIDTH: "${RTVI_VLM_INPUT_WIDTH:-}"
+      VLM_INPUT_HEIGHT: "${RTVI_VLM_INPUT_HEIGHT:-}"
+      VSS_NUM_GPUS_PER_VLM_PROC: "${RTVI_VLM_NUM_GPUS_PER_VLM_PROC:-}"
+      VLLM_GPU_MEMORY_UTILIZATION: "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-}"
+      VLLM_IGNORE_EOS: "${RTVI_VLLM_IGNORE_EOS:-false}"
+      VLLM_MAX_NUM_SEQS: "${RTVI_VLLM_MAX_NUM_SEQS:-256}"
+      VLLM_MAX_NUM_BATCHED_TOKENS: "${RTVI_VLLM_MAX_NUM_BATCHED_TOKENS:-5120}"
+      VLM_MAX_MODEL_LEN: "${RTVI_VLM_MAX_MODEL_LEN:-32768}"
+      VLLM_NUM_SCHEDULER_STEPS: "${RTVI_VLLM_NUM_SCHEDULER_STEPS:-8}"
+      VLLM_ENABLE_PREFIX_CACHING: "${RTVI_VLLM_ENABLE_PREFIX_CACHING:-true}"
+      VLLM_DISABLE_MM_PREPROCESSOR_CACHE: "${RTVI_VLLM_DISABLE_MM_PREPROCESSOR_CACHE:-false}"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${RTVI_VLM_GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
+      VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
+      MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:hf-1208}"
+      MODEL_IMPLEMENTATION_PATH: "${RTVI_VLM_MODEL_IMPLEMENTATION_PATH:-}"
+      NUM_VLM_PROCS: "${RTVI_VLM_NUM_VLM_PROCS:-}"
+      NUM_GPUS: "${RTVI_VLM_NUM_GPUS:-}"
+      VLM_SYSTEM_PROMPT: "${RTVI_VLM_SYSTEM_PROMPT:-}"
+      VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK: "${RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK:-}"
+      NVIDIA_VISIBLE_DEVICES: "${RTVI_VLM_NVIDIA_VISIBLE_DEVICES:-all}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
+      LOG_LEVEL: "${RTVI_VLM_LOG_LEVEL:-INFO}"
+      # Install proprietary codecs (e.g., AAC, MP3, H.264) for extended audio/video format support
+      # Set to "true" to enable installation of additional multimedia packages at container startup
+      # Handled by: /opt/nvidia/rtvi/start_rtvi_vlm.sh
+      INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
+      # Force software AV1 decoder instead of hardware decoder
+      # Set to "true" for platforms where hardware AV1 decoding is not supported
+      # Handled by: video_file_frame_getter.py (GStreamer decoder configuration)
+      FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
+      RTVI_RTSP_LATENCY: "${RTVI_VLM_RTSP_LATENCY:-}"
+      RTVI_RTSP_TIMEOUT: "${RTVI_VLM_RTSP_TIMEOUT:-}"
+      RTVI_RTSP_RECONNECTION_INTERVAL: "${RTVI_VLM_RTSP_RECONNECTION_INTERVAL:-5}"
+      RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_VLM_RTSP_RECONNECTION_WINDOW:-60}"
+      RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_VLM_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
+      ENABLE_OTEL_MONITORING: "${RTVI_VLM_ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
+      OTEL_RESOURCE_ATTRIBUTES: "${RTVI_VLM_OTEL_RESOURCE_ATTRIBUTES:-}"
+      OTEL_TRACES_EXPORTER: "${RTVI_VLM_OTEL_TRACES_EXPORTER:-otlp}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${RTVI_VLM_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
+      OTEL_METRIC_EXPORT_INTERVAL: "${RTVI_VLM_OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
+      KAFKA_ENABLED: "${RTVI_VLM_KAFKA_ENABLED:-true}"
+      KAFKA_TOPIC: "${RTVI_VLM_KAFKA_TOPIC:-vision-llm-messages}"
+      KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-vision-llm-events-incidents}"
+      ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-vision-llm-errors}"
+
+      KAFKA_BOOTSTRAP_SERVERS: ${HOST_IP}:9092
+      NGC_API_KEY: "${RTVI_VLM_API_KEY:-${NGC_CLI_API_KEY:-}}"
+      RTVI_EXTRA_ARGS: "${RTVI_EXTRA_ARGS:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_DB: "${REDIS_DB:-0}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      VSS_SKIP_INPUT_MEDIA_VERIFICATION: "${VSS_SKIP_INPUT_MEDIA_VERIFICATION:-}"
+      RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT: "${RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT:-}"
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${RTVI_VLM_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
+      - ${MDX_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
+      - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
+      - "${RTVI_VLM_LOG_DIR:-/dummy}${RTVI_VLM_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+      nofile:
+        soft: 65535
+        hard: 65535
+
+    ipc: host
+    stdin_open: true
+    tty: true
+
+    extra_hosts:
+      host.docker.internal: host-gateway
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+    restart: unless-stopped
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
+      cosmos-reason1-7b:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct-shared-gpu:
+        condition: service_healthy
+        required: false
+
+volumes:
+  rtvi-hf-cache:
+  rtvi-ngc-model-cache:
