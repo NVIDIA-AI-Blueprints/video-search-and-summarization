@@ -1,0 +1,165 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+worker_processes auto;
+error_log stderr info;
+pid /tmp/nginx/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    client_body_temp_path /tmp/nginx/client-body;
+    proxy_temp_path       /tmp/nginx/proxy;
+    fastcgi_temp_path     /tmp/nginx/fastcgi;
+    uwsgi_temp_path       /tmp/nginx/uwsgi;
+    scgi_temp_path        /tmp/nginx/scgi;
+
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format detailed '$remote_addr [$time_local] "$request" '
+                       '$status $body_bytes_sent '
+                       'rt:$request_time ut:$upstream_response_time '
+                       'up:$upstream_addr';
+    access_log /dev/stdout detailed;
+
+    # Large uploads (videos)
+    client_max_body_size 0;
+
+    # WebSocket upgrade map
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+
+    server {
+        listen ${PROXY_PORT};
+
+        # --- Agent: WebSocket ---
+        location = /websocket {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+
+        # --- Agent: REST API ---
+        location /api/v1/ {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300s;
+            proxy_buffering off;
+            proxy_request_buffering off;
+        }
+
+        # --- Agent: Chat streaming ---
+        location /chat/ {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300s;
+            proxy_buffering off;
+        }
+
+        # --- Agent: Static files (reports) ---
+        location /static/ {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_http_version 1.1;
+        }
+
+        # --- Agent: Health ---
+        location = /health {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_http_version 1.1;
+        }
+
+        # --- VST: All /vst/ paths ---
+        location /vst/ {
+            proxy_pass http://127.0.0.1:30888;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            proxy_buffering off;
+            proxy_request_buffering off;
+
+            # Rewrite raw VST URLs in response bodies to relative proxy paths.
+            # VST returns http://HOST_IP:30888/vst/... URLs in JSON — browsers block
+            # these as Mixed Content when the page is served over HTTPS (e.g. Brev).
+            # Rewriting to /vst/ lets the browser resolve against the current origin.
+            # Match includes /vst/ to avoid doubling the prefix — VST paths already
+            # start with /vst/, and the proxy location is also /vst/.
+            sub_filter_types application/json text/plain;
+            sub_filter_once off;
+            proxy_set_header Accept-Encoding "";
+            sub_filter "http://${VST_SUB_FILTER_HOST}:30888/vst/" "/vst/";
+            sub_filter "http://${VST_SUB_FILTER_EXTERNAL}:30888/vst/" "/vst/";
+        }
+
+        # --- MDX: Incidents API ---
+        location = /incidents {
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_http_version 1.1;
+        }
+
+        # --- MDX: Health ---
+        location = /livez {
+            proxy_pass http://127.0.0.1:8081;
+            proxy_http_version 1.1;
+        }
+
+        # --- UI: Default fallback ---
+        location / {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+
+            # Prevent stale UI assets after profile switches
+            proxy_hide_header Cache-Control;
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+            add_header Pragma "no-cache";
+        }
+    }
+}

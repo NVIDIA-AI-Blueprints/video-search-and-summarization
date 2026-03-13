@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+functions:
+  vst_sensor_list:
+    _type: vst.sensor_list
+    vst_internal_url: http://${HOST_IP}:30888
+
+function_groups:
+  video_analytics:
+    _type: video_analytics
+    es_url: "http://${HOST_IP}:9200"
+    index_prefix: "mdx-"
+    vlm_verified: true
+    vst_sensor_list_tool: vst_sensor_list
+    embedding_model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    include:
+    - get_incident
+    - get_incidents
+    - get_sensor_ids
+    - get_places
+    - get_fov_histogram
+    - get_average_speeds
+    - analyze
+
+llms:
+  nim_llm:
+    _type: nim
+    model_name: meta/llama-3.1-70b-instruct
+    temperature: 0.0
+    max_tokens: 1024
+
+
+# dummy workflow required to start MCP server
+workflow:
+  _type: react_agent
+  tool_names: [video_analytics]
+  llm_name: nim_llm
+  verbose: true
+  parse_agent_response_max_retries: 3

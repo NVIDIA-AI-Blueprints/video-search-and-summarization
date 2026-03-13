@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Docker Compose for RTVI Embed microservice
+
+services:
+  rtvi-embed:
+    # for release, change this to the versioned image from the registry
+    image: nvcr.io/nvidia/vss-core/vss-rt-embed:3.1.0
+    container_name: rtvi-embed
+    user: "1001:1001"
+    profiles: ["bp_developer_search_2d"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - capabilities:
+            - gpu
+            driver: nvidia
+            device_ids:
+            - "${RT_EMBED_DEVICE_ID:-0}"
+    ports:
+      - "${RTVI_EMBED_PORT?}:8000"
+
+    environment:
+      MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"
+      MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1}"
+      MODEL_REPOSITORY_SCRIPT_PATH: "${MODEL_REPOSITORY_SCRIPT_PATH:-/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py}"
+      NGC_API_KEY: "${NGC_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
+      NVIDIA_VISIBLE_DEVICES: "${RTVI_EMBED_NVIDIA_VISIBLE_DEVICES:-all}"
+      NUM_VLM_PROCS: "${RTVI_EMBED_NUM_VLM_PROCS:-}"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      NUM_GPUS: "${RTVI_EMBED_NUM_GPUS:-}"
+      INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
+      FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
+      LOG_LEVEL: "${RTVI_EMBED_LOG_LEVEL:-INFO}"
+      RTVI_RTSP_LATENCY: "${RTVI_EMBED_RTSP_LATENCY:-}"
+      RTVI_RTSP_TIMEOUT: "${RTVI_EMBED_RTSP_TIMEOUT:-}"
+      RTVI_RTSP_RECONNECTION_INTERVAL: "${RTVI_EMBED_RTSP_RECONNECTION_INTERVAL:-5}"
+      RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_EMBED_RTSP_RECONNECTION_WINDOW:-60}"
+      RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_EMBED_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
+      ENABLE_OTEL_MONITORING: "${RTVI_EMBED_ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
+      OTEL_RESOURCE_ATTRIBUTES: "${RTVI_EMBED_OTEL_RESOURCE_ATTRIBUTES:-}"
+      OTEL_TRACES_EXPORTER: "${RTVI_EMBED_OTEL_TRACES_EXPORTER:-otlp}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${RTVI_EMBED_OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}"
+      OTEL_METRIC_EXPORT_INTERVAL: "${RTVI_EMBED_OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
+      KAFKA_ENABLED: "${RTVI_EMBED_KAFKA_ENABLED:-false}"
+      KAFKA_TOPIC: "${RTVI_EMBED_KAFKA_TOPIC:-vision-embed-messages}"
+      ERROR_MESSAGE_TOPIC: "${RTVI_EMBED_ERROR_MESSAGE_TOPIC:-vision-embed-errors}"
+      KAFKA_BOOTSTRAP_SERVERS: ${HOST_IP}:9092
+      HF_TOKEN: "${HF_TOKEN:-}"
+      ENABLE_REDIS_ERROR_MESSAGES: "${ENABLE_REDIS_ERROR_MESSAGES:-false}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_DB: "${REDIS_DB:-0}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      ASSET_DOWNLOAD_TOTAL_TIMEOUT: "${ASSET_DOWNLOAD_TOTAL_TIMEOUT:-300}"
+      ASSET_DOWNLOAD_CONNECT_TIMEOUT: "${ASSET_DOWNLOAD_CONNECT_TIMEOUT:-10}"
+      ENABLE_REQUEST_PROFILING: "${ENABLE_REQUEST_PROFILING:-false}"
+
+
+
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
+      - "${RTVI_EMBED_LOG_DIR:-/dummy}${RTVI_EMBED_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
+      - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
+      - ${MDX_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
+      - rtvi-triton-model-repo:/tmp/triton_model_repo
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+      nofile:
+        soft: 65535
+        hard: 65535
+
+    ipc: host
+    stdin_open: true
+    tty: true
+
+    extra_hosts:
+      host.docker.internal: host-gateway
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1200s
+    restart: unless-stopped
+
+volumes:
+  rtvi-hf-cache:
+  rtvi-ngc-model-cache:
+  rtvi-triton-model-repo:

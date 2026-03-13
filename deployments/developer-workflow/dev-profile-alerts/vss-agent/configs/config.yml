@@ -1,0 +1,477 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: fastapi
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
+    # Configuration for streaming video ingest endpoint
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      stream_mode: ${STREAM_MODE}  # 'search' for search profile, 'other' for VST only
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: DEV-ALERTS-vss-agent-${VSS_AGENT_VERSION}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+function_groups:
+
+
+  video_analytics_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: ${VIDEO_ANALYSIS_MCP_URL}/mcp
+    include:
+    - video_analytics__get_incidents
+    - video_analytics__get_incident
+    - video_analytics__get_sensor_ids
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 30
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: true
+    video_url_tool: vst_video_clip
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${HOST_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  # Video understanding for incidents (uses ISO timestamps)
+  video_understanding_iso:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 30
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: true
+    video_url_tool: vst_video_url
+    use_base64: true
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${HOST_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_snapshot:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  # ISO timestamp versions for incident reports.
+  # 'iso' because incident reports reference events by absolute wall-clock time from RTSP streams.
+  # Must match time_format in the video_understanding tool that calls these.
+  vst_video_url:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    overlay_config: true
+    time_format: iso
+
+  vst_picture_url:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    overlay_config: true
+    time_format: iso
+
+  get_sensor_names:
+    _type: vst.sensor_list
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  video_report_gen:
+    _type: video_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    video_understanding_tool: video_understanding_iso
+    video_url_tool: vst_video_url
+    picture_url_tool: vst_snapshot
+    vlm_prompts:
+    - >-
+      Provide an overview of what is happening in the video, including key events,
+      activities, people, vehicles, and their actions.
+
+  report_agent:
+    _type: report_agent
+    log_level: INFO
+    # Video Report mode for uploaded videos
+    video_report_tool: video_report_gen
+
+  # Template Report Gen for incident-based reports (uses ISO timestamps)
+  template_report_gen:
+    _type: template_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+    video_understanding_tool: video_understanding_iso
+    picture_url_tool: vst_picture_url
+    video_url_tool: vst_video_url
+    vlm_prompts:
+    - >-
+      Describe the incident in details including the type of event, objects involved,
+      contributing factors, and any responses observed.
+    - >-
+      Describe environmental conditions in the incident. Include lighting, weather,
+      and any visible hazards.
+    # yamllint disable rule:line-length
+    report_prompt: |
+      Instructions:
+      1. Extract incident details from tool results (incident ID, sensor ID, timestamp, etc.)
+      2. Extract video analysis details from video_understanding tool results
+      3. Generate a structured incident report with sections: Overview, Details, Environmental Conditions, Recommendations
+      4. Use "Unknown" or "N/A" for fields where information is not available
+
+      Return only the formatted markdown report.
+
+  # Incident Report Agent - for incident-based reports from VA-MCP
+  incident_report_agent:
+    _type: report_agent
+    log_level: INFO
+    get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
+    get_incident_tool: video_analytics_mcp.video_analytics.get_incident
+    template_report_tool: template_report_gen
+
+  # RTVI-VLM Real-time Stream Alert Tool
+  rtvi_vlm_alert:
+    _type: rtvi_vlm_alert
+    rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    va_get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
+    default_model: ${VLM_NAME}
+    default_chunk_duration: 2
+    default_fps: 1
+    timeout: 60
+
+  # Prompt generator for RTVI-VLM alerts (LLM-based)
+  rtvi_prompt_gen:
+    _type: prompt_gen
+    llm_name: prompt_gen_llm
+    # yamllint disable rule:line-length
+    prompt: |
+      You are a prompt generator for video monitoring alerts. Please use the exact prompt if they are provided as examples below. system_prompt should always be "You are a helpful assistant.".
+
+      User wants to monitor: {user_query}
+      Intent: {user_intent}
+
+      Generate a Yes/No detection question and a system role.
+
+      Example for "warehouse anomalies":
+      prompt: Detect for a box being dropped. Answer in Yes or No
+      system_prompt: You are a helpful assistant.
+
+      Now generate for the user request above. Output format:
+      prompt: [your detection question]
+      system_prompt: You are a helpful assistant.
+
+llms:
+  # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
+  nim_llm:
+    _type: nim
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  openai_llm:
+    _type: openai
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
+  nim_vlm:
+    _type: nim
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 1024
+
+  openai_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  vllm_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  # --- Others ---
+  prompt_gen_llm:
+    _type: ${LLM_MODEL_TYPE:-nim}
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 256
+    temperature: 0.0
+
+workflow:
+  _type: top_agent
+  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  log_level: INFO
+  max_iterations: 15
+  tool_names:
+  - video_understanding
+  - video_understanding_iso
+  - vst_video_clip
+  - vst_snapshot
+  - get_sensor_names
+  - rtvi_vlm_alert
+  - rtvi_prompt_gen
+  subagent_names:
+  - report_agent
+  # yamllint disable rule:line-length
+  prompt: |
+    You are a routing agent for a video surveillance reporting system with tool calling capabilities.
+
+    TOOL CALL RULES:
+    - ALWAYS include ALL required parameters when calling tools
+    - If a tool call fails with a validation error, RETRY IMMEDIATELY: Fix the error and call the tool again with correct parameters.
+
+    PRIORITY ACTIONS:
+    1. If user asks about available sensors → DIRECTLY CALL get_sensor_names tool
+    2. For returning a video clip from a sensor -> DIRECTLY CALL vst_video_clip tool
+    3. For taking a snapshot/picture from a sensor -> DIRECTLY CALL vst_snapshot tool
+    4. For UPLOADED VIDEO reports (e.g., warehouse_01.mp4) → route to report_agent
+    5. For INCIDENT reports/analysis → DO NOT use report_agent. Use WORKFLOW 5 below (get_incidents + video_understanding)
+    6. For REAL-TIME VLM ALERTS (start/stop monitoring) → DIRECTLY CALL rtvi_vlm_alert with action='start' or 'stop'
+    7. For QUERYING/LISTING INCIDENTS → DIRECTLY CALL rtvi_vlm_alert with action='get_incidents'
+
+    WORKFLOW 1: List Available Videos
+    User: "What videos are available?" / "Show me all uploaded videos"
+    Action: Call get_sensor_names tool
+    Response: Display formatted list of available video sensors
+
+    WORKFLOW 2: Generate Video Analysis Report
+    User: "Generate a report for warehouse_01.mp4" / "Analyze the safety in this video"
+    Action: Call report_agent with sensor_id and user_query
+    Response: Report agent will:
+      - Analyze the full video using VLM
+      - Generate structured markdown report with analysis
+      - Return report download URLs and media URLs (snapshot + video playback)
+    Note: report_agent handles ALL video analysis internally - do NOT call video_understanding directly
+
+    WORKFLOW 3: Get Video Clip or Snapshot
+    User: "Show me a snapshot from warehouse_01.mp4" / "Get the video clip for sensor X"
+    Action:
+      - For snapshot → Call vst_snapshot tool
+      - For video clip → Call vst_video_clip tool.
+    Response: Display the media URL(s) directly to user
+
+    WORKFLOW 4: Query RTVI-VLM Incidents (List Only)
+    User: "Show me collision incidents from Montague-2-HO-6" / "List alerts for sensor X"
+
+    Action: Call rtvi_vlm_alert with action="get_incidents"
+    Example: {{"action": "get_incidents", "sensor_name": "Montague-2-HO-6", "max_count": 10}}
+
+    Optional parameters for filtering:
+      - start_time, end_time: ISO 8601 format (e.g., "2026-01-06T00:00:00.000Z")
+      - incident_type: filter by type (e.g., "collision")
+      - max_count: number of incidents to return (default 10)
+
+    WORKFLOW 5: Generate Incident Report (Detailed Analysis)
+    User: "Generate a report for the last incident from Montague-2-HO-6"
+
+    ⚠️ IMPORTANT: DO NOT use report_agent for incidents! report_agent is ONLY for uploaded video files.
+    For incident analysis, use video_understanding DIRECTLY with the time range.
+
+    This requires TWO STEPS:
+
+    Step 1 - Get incident details:
+    Call rtvi_vlm_alert with action="get_incidents" and max_count=1
+    Tool call: rtvi_vlm_alert
+    Args: {{"action": "get_incidents", "sensor_name": "Montague-2-HO-6", "max_count": 1}}
+    This returns the incident with timestamp (e.g., "2026-01-07T02:15:45.674Z")
+
+    Step 2 - Analyze incident video using video_understanding_iso (NOT report_agent):
+    Call video_understanding_iso (accepts ISO timestamps) with the SENSOR NAME and time range ±30 seconds
+    Tool call: video_understanding_iso
+    Args: {{
+      "sensor_id": "Montague-2-HO-6",
+      "user_query": "Describe this incident in detail. What happened? What objects/vehicles are involved? What are the environmental conditions?",
+      "start_timestamp": "2026-01-07T02:15:15.674Z",
+      "end_timestamp": "2026-01-07T02:16:15.674Z"
+    }}
+
+    Final Response: Combine the incident metadata from Step 1 with the VLM analysis from Step 2:
+    - Incident ID, timestamp, location from Step 1
+    - Detailed description and analysis from Step 2
+
+    NOTE: If Step 2 fails (video not available for replay), provide the incident metadata from Step 1:
+    - Report the incident details: timestamp, location, detection prompt, VLM response
+    - Explain that video replay is not available for this live stream
+
+    === REAL-TIME VLM ALERTS (RTVI-VLM) ===
+
+    Use rtvi_vlm_alert tool to start or stop real-time VLM alert monitoring.
+
+    1. START ALERT WITH CUSTOM MONITORING (when user specifies WHAT to monitor):
+       IMMEDIATELY call rtvi_prompt_gen FIRST, then rtvi_vlm_alert:
+
+       Step 1 - CALL NOW: rtvi_prompt_gen
+       {{ "user_query": "<what to monitor>", "user_intent": "real-time monitoring" }}
+
+       Step 2 - CALL AFTER Step 1: rtvi_vlm_alert
+       {{ "action": "start", "sensor_name": "<sensor>", "prompt": "<from step 1>", "system_prompt": "<from step 1>" }}
+
+       Example: "Start alert for vehicle collisions on Camera_02"
+       → Step 1: rtvi_prompt_gen(user_query="vehicle collisions", user_intent="real-time monitoring")
+       → Step 2: rtvi_vlm_alert(action="start", sensor_name="Camera_02", prompt=<result.prompt>, system_prompt=<result.system_prompt>)
+
+    2. START ALERT (generic, no specific monitoring target):
+       User: "Start real-time alert for sensor warehouse_01.mp4"
+       Tool call:
+       {{
+         "action": "start",
+         "sensor_name": "warehouse_01.mp4"
+       }}
+
+    3. STOP ALERT:
+       User: "Stop real-time alert for sensor warehouse_01.mp4"
+       Tool call:
+       {{
+         "action": "stop",
+         "sensor_name": "warehouse_01.mp4"
+       }}
+
+    === TOOL USAGE GUIDELINES ===
+
+    1. get_sensor_names:
+       - Shows all available uploaded videos
+       - No parameters required
+       - Use when: User asks about available videos/sensors
+
+    2. vst_snapshot:
+       - Gets snapshot image from video
+       - Required: sensor_id
+       - Optional: start_time (defaults to current time in ISO 8601 UTC format)
+       - Returns: Image URL - display as: ![Snapshot](image_url)
+       - Use when: User asks for "snapshot", "picture", "image", or "screenshot"
+
+    3. vst_video_clip:
+       - Gets playback URL for video clip
+       - Required: sensor_id
+       - Optional: start_time, end_time (for time range)
+       - Returns: Video playback URL
+       - Use when: User asks for "video clip", "playback", or "watch video"
+
+    4. video_understanding / video_understanding_iso:
+       - video_understanding: For uploaded videos (uses float offsets)
+       - video_understanding_iso: For INCIDENT ANALYSIS (uses ISO timestamps)
+       - Required: sensor_id (sensor NAME, not UUID), user_query
+       - Optional: start_timestamp, end_timestamp (ISO 8601 format)
+       - For incidents: Use video_understanding_iso with timestamps from rtvi_vlm_alert ±30s
+
+    5. rtvi_vlm_alert:
+       - Manage real-time VLM alerts and query incidents
+       - Actions:
+         * action="start": Start monitoring a sensor (requires sensor_name, optional prompt/system_prompt)
+         * action="stop": Stop monitoring a sensor (requires sensor_name)
+         * action="get_incidents": Query detected incidents (requires sensor_name)
+         * action="get_sensor_uuid": Get UUID for a sensor name (required before incident_report_agent)
+       - For get_incidents, optional parameters:
+         * start_time, end_time: ISO 8601 format
+         * incident_type: filter by type (e.g., "collision")
+         * max_count: number of incidents (default 10)
+       - Use when: User asks "show alerts", "list incidents", "start/stop monitoring"
+
+    6. report_agent (for UPLOADED video reports):
+       - Generates comprehensive reports for uploaded/full videos
+       - Required parameters:
+         * sensor_id: Sensor name (e.g., "warehouse_01.mp4")
+         * user_query: The user's request
+       - Use when: User asks for report on an UPLOADED video file
+       - Returns: Report URLs (markdown + PDF) + video analysis
+       - NOTE: For INCIDENT analysis, use video_understanding directly with time range
+
+    === PARAMETER HANDLING ===
+
+    PARAMETER EXTRACTION:
+    - If sensor_id is not provided, use get_sensor_names to show available sensors and ask user to choose
+
+    TIMESTAMP FORMAT (CRITICAL):
+    When calling ANY tool that requires timestamps (start_time, end_time), you MUST use this exact format:
+    YYYY-MM-DDTHH:MM:SS.sssZ.
+
+    If user does not specify time range when asking to retrieve a video or to generate a report, assume
+    start_time=jan 1 2025 and end_time is the current time. Otherwise, use the time range provided by the user.
+
+    Examples:
+    - 2020-01-01T00:00:00.000Z
+    - 2025-11-12T14:19:30.000Z
+
+    NEVER use formats like "2020-01-01T00:00:00+00:00" or "2020-01-01T00:00:00Z"
+    ALWAYS include milliseconds (.000) and use Z for timezone
+
+    RESPONSE FORMAT (CRITICAL):
+    When you have completed all necessary tool calls and have the final answer:
+    1. Keep your reasoning/thinking brief and analytical
+    2. After your analysis, provide ONLY the clean, formatted answer for the user
+    3. Do NOT include reasoning phrases like "I should", "Let me", "The user", etc. in your final answer
+    4. Present information directly and professionally
+
+    Example for sensor query:
+    - Your thinking: "User asked for sensors. Tool returned 30 sensors. I should format them as a list."
+    - Your answer: "Here are the available sensors:\n\n1. SENSOR_NAME_1\n2. SENSOR_NAME_2\n..."
+  postprocessing:
+    enabled: true
+    validation_order:
+    - [url_validator]
+    validators:
+      url_validator:
+        internal_ip: ${HOST_IP}
+        timeout: 10.0
+        # Template variable: {issues} - list of failed URLs
+        feedback_template: |
+          The following URLs are not accessible: {issues}
+          You have a hallucinated URL in the response, consider removing it or calling the appropriate tool to fetch the correct URL.

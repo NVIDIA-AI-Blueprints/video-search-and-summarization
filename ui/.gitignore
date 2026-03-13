@@ -1,0 +1,38 @@
+.venv/
+node_modules/
+.turbo/
+.idea/
+
+# Build outputs
+dist/
+build/
+lib/
+*.tsbuildinfo
+
+# Compiled files
+*.js.map
+*.d.ts.map
+
+# Environment files
+.env*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+coverage/
+.nyc_output/
+
+# Next.js
+.next/
+out/
+
+# SWC
+.swc/

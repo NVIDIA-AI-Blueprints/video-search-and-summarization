@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  vss-proxy:
+    image: nginx:1.27-alpine
+    profiles:
+    - "bp_developer_base_2d_proxy"
+    - "bp_developer_search_2d_proxy"
+    - "bp_developer_lvs_2d_proxy"
+    - "bp_developer_alerts_2d_cv_proxy"
+    - "bp_developer_alerts_2d_vlm_proxy"
+    container_name: vss-proxy
+    network_mode: host
+    restart: always
+    environment:
+      PROXY_PORT: ${PROXY_PORT:-7777}
+      VST_SUB_FILTER_HOST: ${HOST_IP:-_DISABLED_}
+      VST_SUB_FILTER_EXTERNAL: ${EXTERNAL_IP:-_DISABLED_}
+    volumes:
+      - ${MDX_SAMPLE_APPS_DIR}/proxy/nginx.conf.template:/etc/nginx/nginx.conf.template:ro
+    command:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /tmp/nginx
+        envsubst '$$PROXY_PORT $$VST_SUB_FILTER_HOST $$VST_SUB_FILTER_EXTERNAL' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+        exec nginx -g 'daemon off;'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:${PROXY_PORT:-7777}/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s

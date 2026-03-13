@@ -1,0 +1,150 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  lvs-server:
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-long-video-summarization:3.1.0}
+    container_name: lvs-server
+
+    profiles: ["bp_developer_lvs_2d"]
+
+    # GPU configuration
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['${GPU_DEVICES:-0}']
+              capabilities: [gpu]
+
+    network_mode: host
+
+    # Volume mounts
+    volumes:
+      # Mount config.yaml and set CA_RAG_CONFIG_PATH to this location
+      - $MDX_SAMPLE_APPS_DIR/lvs/configs/config.yaml:/app/config.yaml:ro
+      # Optional: Mount model cache directory if MODEL_ROOT_DIR is set
+      - ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
+
+    # Environment variables from .env file plus config path
+    environment:
+      # Config file path - points to mounted config.yaml
+      - CA_RAG_CONFIG=/app/config.yaml
+
+      # Database configuration
+      - MILVUS_DB_HOST=${MILVUS_DB_HOST}
+      - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT}
+      - ES_HOST=${ES_HOST}
+      - ES_PORT=${ES_PORT}
+      - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
+
+      # LLM configuration
+      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
+      - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
+      - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
+      - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
+      - VIA_VLM_API_KEY=${OPENAI_API_KEY:-${VIA_VLM_API_KEY:-not-used}}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+
+      # Embedding configuration
+      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE}
+      - LVS_EMB_MODEL_NAME=${LVS_EMB_MODEL_NAME}
+      - LVS_EMB_BASE_URL=${LVS_EMB_BASE_URL}
+
+      # Port configuration
+      - BACKEND_PORT=${BACKEND_PORT:-38111}
+      - LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
+      - FRONTEND_PORT=${FRONTEND_PORT:-38113}
+
+      # Model cache directory
+      - MODEL_ROOT_DIR=${MODEL_ROOT_DIR:-/tmp/model_cache}
+
+      # NGC model cache directory
+      - NGC_MODEL_CACHE=${MODEL_ROOT_DIR:-/tmp/model_cache}
+
+      # Default Save Events to Elasticsearch
+      - LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=${LVS_DISABLE_DB_RESET_ON_REQUEST_DONE:-true}
+
+      # VLM configuration
+      - VLM_INPUT_WIDTH=${VLM_INPUT_WIDTH:-1312}
+      - VLM_INPUT_HEIGHT=${VLM_INPUT_HEIGHT:-736}
+
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+
+    # Alternative: Load all variables from .env file
+    env_file:
+      - $MDX_SAMPLE_APPS_DIR/lvs/.env
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-38111}/v1/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: always
+    depends_on:
+      nvidia-nemotron-nano-9b-v2:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-fp8:
+        condition: service_healthy
+        required: false
+      nemotron-3-nano:
+        condition: service_healthy
+        required: false
+      llama-3.3-nemotron-super-49b-v1.5:
+        condition: service_healthy
+        required: false
+      gpt-oss-20b:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-shared-gpu:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
+        condition: service_healthy
+        required: false
+      nemotron-3-nano-shared-gpu:
+        condition: service_healthy
+        required: false
+      llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
+        condition: service_healthy
+        required: false
+      gpt-oss-20b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct-shared-gpu:
+        condition: service_healthy
+        required: false
+
+    # Network mode: bridge (default) to enable port mapping
+    # To use host network instead (ignores port mapping), uncomment:
+    # network_mode: host
+
