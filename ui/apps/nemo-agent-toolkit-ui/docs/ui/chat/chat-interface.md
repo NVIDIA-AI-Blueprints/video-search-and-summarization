@@ -61,9 +61,9 @@ The chat interface provides real-time conversational interaction with AI agents 
 - Markdown rendering with syntax highlighting
 
 ## Source Links
-- [components/Chat/Chat.tsx](../../../components/Chat/Chat.tsx)
-- [components/Chat/ChatInput.tsx](../../../components/Chat/ChatInput.tsx)
-- [components/Chat/ChatMessage.tsx](../../../components/Chat/ChatMessage.tsx)
-- [components/Chat/ChatHeader.tsx](../../../components/Chat/ChatHeader.tsx)
-- [components/Chat/ChatLoader.tsx](../../../components/Chat/ChatLoader.tsx)
-- [components/Chat/ChatInteractionMessage.tsx](../../../components/Chat/ChatInteractionMessage.tsx)
+- [components/Chat/Chat.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chat/Chat.tsx)
+- [components/Chat/ChatInput.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chat/ChatInput.tsx)
+- [components/Chat/ChatMessage.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chat/ChatMessage.tsx)
+- [components/Chat/ChatHeader.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chat/ChatHeader.tsx)
+- [components/Chat/ChatLoader.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chat/ChatLoader.tsx)
+- [components/Chat/ChatInteractionMessage.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chat/ChatInteractionMessage.tsx)

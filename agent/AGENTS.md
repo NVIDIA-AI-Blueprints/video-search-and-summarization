@@ -3,7 +3,7 @@
 ## Project Overview
 
 NVIDIA VSS Agent — video search, summarization, and incident analysis built on
-[NVIDIA AIQ Toolkit](https://docs.nvidia.com/ai-enterprise/aiq-toolkit/latest/).
+[NVIDIA AIQ Toolkit](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html).
 
 **Tech stack:** Python 3.13, NAT framework (nvidia-nat), LangChain/LangGraph, FastAPI,
 Pydantic v2, OpenCV, xhtml2pdf. Package manager: `uv`. Linter/formatter: Ruff. Type checker: Mypy.

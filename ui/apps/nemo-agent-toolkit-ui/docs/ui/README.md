@@ -14,10 +14,10 @@ This directory contains comprehensive documentation for the NeMo Agent toolkit U
 ### Component Documentation
 Each component directory contains a README.md with detailed behavior and integration information:
 
-- **[Chat Components](../../components/Chat/README.md)** - Core chat functionality and message handling
-- **[Chatbar Components](../../components/Chatbar/README.md)** - Conversation management and organization
-- **[Sidebar Components](../../components/Sidebar/README.md)** - Generic sidebar layout and controls
-- **[Folder Components](../../components/Folder/README.md)** - Collapsible organization containers
+- **[Chat Components](../../../../packages/nemo-agent-toolkit-ui/components/Chat/README.md)** - Core chat functionality and message handling
+- **[Chatbar Components](../../../../packages/nemo-agent-toolkit-ui/components/Chatbar/README.md)** - Conversation management and organization
+- **[Sidebar Components](../../../../packages/nemo-agent-toolkit-ui/components/Sidebar/README.md)** - Generic sidebar layout and controls
+- **[Folder Components](../../../../packages/nemo-agent-toolkit-ui/components/Folder/README.md)** - Collapsible organization containers
 
 ## Key Features
 - **Real-time Chat Streaming** via WebSocket connections and HTTP streaming
