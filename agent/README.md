@@ -18,7 +18,7 @@
 # NVIDIA VSS Agent
 
 AI-powered video search, summarization, and incident analysis agent built on
-[NVIDIA AIQ Toolkit](https://docs.nvidia.com/ai-enterprise/aiq-toolkit/latest/).
+[NVIDIA AIQ Toolkit](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html).
 
 For deployment instructions (Docker Compose, Helm, cloud), refer to the
 [repository root](../README.md) and [`deployments/`](../deployments/).
@@ -232,3 +232,4 @@ uv run mypy src/vss_agents/
 ## License
 
 [Apache-2.0](LICENSE.md). Third-party licenses: [LICENSE-3rd-party.txt](LICENSE-3rd-party.txt).
+

@@ -67,10 +67,10 @@ The sidebar provides conversation navigation, organization through folders, and 
 - Data persisted across browser sessions
 
 ## Source Links
-- [components/Chatbar/Chatbar.tsx](../../../components/Chatbar/Chatbar.tsx)
-- [components/Chatbar/components/Conversations.tsx](../../../components/Chatbar/components/Conversations.tsx)
-- [components/Chatbar/components/ChatFolders.tsx](../../../components/Chatbar/components/ChatFolders.tsx)
-- [components/Chatbar/components/Conversation.tsx](../../../components/Chatbar/components/Conversation.tsx)
-- [components/Chatbar/components/ChatbarSettings.tsx](../../../components/Chatbar/components/ChatbarSettings.tsx)
-- [components/Sidebar/Sidebar.tsx](../../../components/Sidebar/Sidebar.tsx)
-- [components/Folder/Folder.tsx](../../../components/Folder/Folder.tsx)
+- [components/Chatbar/Chatbar.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chatbar/Chatbar.tsx)
+- [components/Chatbar/components/Conversations.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chatbar/components/Conversations.tsx)
+- [components/Chatbar/components/ChatFolders.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chatbar/components/ChatFolders.tsx)
+- [components/Chatbar/components/Conversation.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chatbar/components/Conversation.tsx)
+- [components/Chatbar/components/ChatbarSettings.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chatbar/components/ChatbarSettings.tsx)
+- [components/Sidebar/Sidebar.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Sidebar/Sidebar.tsx)
+- [components/Folder/Folder.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Folder/Folder.tsx)

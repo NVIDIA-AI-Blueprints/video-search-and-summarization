@@ -49,4 +49,4 @@ This directory contains all components related to the chat interface functionali
 - **Responsive Design**: Optimized for mobile and desktop with auto-scroll management
 
 ## Related Documentation
-See [docs/ui/chat/chat-interface.md](../../docs/ui/chat/chat-interface.md) for detailed feature documentation.
+See [docs/ui/chat/chat-interface.md](../../../../apps/nemo-agent-toolkit-ui/docs/ui/chat/chat-interface.md) for detailed feature documentation.

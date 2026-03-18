@@ -83,8 +83,8 @@ export const useVideoModal = (vstApiUrl?: string) => {
 
       if (data.videoUrl && vstApiUrl) {
         try {
-          const vstUrl = new URL(vstApiUrl, window.location.origin);
-          const videoUrl = new URL(data.videoUrl, window.location.origin);
+          const vstUrl = new URL(vstApiUrl);
+          const videoUrl = new URL(data.videoUrl);
 
           // Find /vst in both URLs and replace everything up to it
           const vstPathIndex = vstUrl.pathname.indexOf('/vst');

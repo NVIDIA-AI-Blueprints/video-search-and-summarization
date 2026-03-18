@@ -72,6 +72,6 @@ The settings system provides configuration management for API endpoints, WebSock
 - Import replaces existing data completely
 
 ## Source Links
-- [components/Settings/SettingDialog.tsx](../../../components/Settings/SettingDialog.tsx)
-- [components/Settings/Import.tsx](../../../components/Settings/Import.tsx)
-- [components/Chatbar/components/ChatbarSettings.tsx](../../../components/Chatbar/components/ChatbarSettings.tsx)
+- [components/Settings/SettingDialog.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Settings/SettingDialog.tsx)
+- [components/Settings/Import.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Settings/Import.tsx)
+- [components/Chatbar/components/ChatbarSettings.tsx](../../../../../packages/nemo-agent-toolkit-ui/components/Chatbar/components/ChatbarSettings.tsx)
