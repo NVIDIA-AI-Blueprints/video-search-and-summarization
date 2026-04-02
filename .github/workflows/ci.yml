@@ -20,10 +20,7 @@ on:
     branches:
       - main
       - develop
-  pull_request:
-    branches:
-      - main
-      - develop
+      - "pull-request/[0-9]+"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,6 +37,7 @@ jobs:
   lint:
     name: Lint (Python)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: agent
@@ -77,6 +75,7 @@ jobs:
   typecheck:
     name: Type Check (mypy)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: agent
@@ -105,6 +104,7 @@ jobs:
   test:
     name: Test (pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: agent
@@ -125,6 +125,7 @@ jobs:
         run: uv sync --group dev --frozen
 
       - name: pytest
+        timeout-minutes: 10
         run: |
           uv run pytest \
             --cov=src/vss_agents \
@@ -145,6 +146,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: agent
@@ -183,6 +185,7 @@ jobs:
   frontend-lint:
     name: Lint & Typecheck (UI)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: ui
@@ -211,6 +214,7 @@ jobs:
   frontend-build:
     name: Build (UI)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: ui
