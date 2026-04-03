@@ -64,6 +64,7 @@ This blueprint is designed for ease of setup with extensive configuration option
 | `agent/` | Video search and summarization agent (Python). Contains `src/vss_agents/` (tools, agents, APIs, embeddings, evaluators, video analytics), `tests/`, `stubs/`, `docker/`, and `3rdparty/`. See [agent/README.md](agent/README.md). |
 | `deployments/` | Deployment configs and Docker Compose: NIM model configs (`nim/`), developer workflows (`developer-workflow/` — dev-profile-base, dev-profile-search, dev-profile-alerts, dev-profile-lvs), foundational services, LVS, RTVI, VLM-as-verifier, VST, and root `compose.yml`. |
 | `scripts/` | Deployment and patch scripts, including the Brev launchable notebook (`deploy_vss_launchable.ipynb`) and dev-profile / patch scripts. |
+| `skills/` | Claude Code skills for AI-assisted deployment workflows (e.g. NemoClaw + VSS OpenClaw plugin install via Brev). |
 | `ui/` | Frontend monorepo (Next.js, Turbo): `apps/` (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui) and shared `packages/`. See [ui/README.md](ui/README.md). |
 
 ## Documentation
@@ -90,6 +91,17 @@ The platform requirement can vary depending on the configuration and deployment 
 
 Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [scripts](scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
 - [scripts/deploy_vss_launchable.ipynb](scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
+
+#### Claude Code Skill (optional)
+
+A [Claude Code](https://claude.ai/code) skill is included to automate NemoClaw + VSS OpenClaw plugin installation on your Brev instance. To install it:
+
+```bash
+mkdir -p .claude/skills
+cp -r skills/nemoclaw-brev .claude/skills/
+```
+
+Once installed, Claude Code will automatically use the skill when you ask it to set up NemoClaw on a Brev instance.
 
 ### Docker Compose Deployment
 
