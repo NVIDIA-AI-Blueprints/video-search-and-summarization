@@ -24,7 +24,7 @@ The full install takes **5–10 minutes** (model pull + Docker image build + san
 
 ## Workflow
 
-The VSS repo is cloned on the instance at `/home/ubuntu/video-search-and-summarization` (branch `feat/skills`), so `scripts/nemoclaw/` is already present — no file copy needed.
+The VSS repo is cloned on the instance at `/home/ubuntu/video-search-and-summarization` (branch `rlee/claude-code-skill-install-vss-openclaw-skill-nemoclaw-on-brev`), so `scripts/nemoclaw/` is already present — no file copy needed.
 
 ### 1. Find the Brev instance
 ```bash
@@ -46,7 +46,7 @@ brev exec <instance> 'nohup bash /home/ubuntu/video-search-and-summarization/scr
 
 Note the PID printed. Do NOT run this twice — check the log first if unsure whether it's already running.
 
-### 4. Monitor progress
+### 3. Monitor progress
 Poll the log every 60 seconds:
 ```bash
 brev exec <instance> 'tail -50 /tmp/nemoclaw_install.log'
@@ -64,7 +64,7 @@ Expected milestones (in order):
 - `VSS OpenClaw plugin installed`
 - `OpenClaw UI at https://...`
 
-### 5. Verify success
+### 4. Verify success
 Installation is successful when the log contains **all** of:
 ```
 [run_nemoclaw_install] VSS OpenClaw plugin installed
