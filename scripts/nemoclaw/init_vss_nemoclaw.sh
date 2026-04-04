@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
 NEMOCLAW_PROVIDER="ollama"
 NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-qwen3.5}"
@@ -13,8 +14,7 @@ OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://host.openshell.internal:11434/v1}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-1}"
 NEMOCLAW_SHIM_DIR="${HOME}/.local/bin"
 OPENCLAW_CONFIG_UPDATE_SCRIPT="${OPENCLAW_CONFIG_UPDATE_SCRIPT:-${SCRIPT_DIR}/update_openclaw_config.py}"
-NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${SCRIPT_DIR}/vss_nemoclaw_policy.yaml}"
-VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemoclaw_policy.yaml}"
 VSS_PLUGIN_ID="openclaw-vss"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
 VSS_REMOTE_EXTENSIONS_ROOT="/sandbox/.openclaw-data/extensions"
