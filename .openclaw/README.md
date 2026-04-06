@@ -1,6 +1,6 @@
 # VSS Claw — OpenClaw Plugin
 
-NVIDIA Video Search & Summarization agent for [OpenClaw](https://github.com/openclaw/openclaw). Provides 8 skills covering the full VSS lifecycle: deployment, sensor management, alerts, video search, video summarization, video analytics, incident reports, and security code review.
+NVIDIA Video Search & Summarization agent for [OpenClaw](https://github.com/openclaw/openclaw). Provides 7 skills covering the full VSS lifecycle: deployment, sensor management, alerts, video search, video summarization, video analytics, and incident reports.
 
 ---
 
@@ -74,7 +74,6 @@ video-search         Search video archives using natural language (Cosmos Embed1
 video-summarization  Summarize long videos, generate shift reports and daily summaries
 video-analytics      Query video analytics — incidents, alerts, object counts, metrics
 incident-report      Generate and query incident reports from Elasticsearch
-security-code-review Perform VSS PR security review against a 9-category checklist
 ```
 
 ---
@@ -96,4 +95,3 @@ Start a new OpenClaw session. The BOOTSTRAP flow runs automatically and the agen
 | `video-summarization` | "summarize this video", "generate a shift summary", "daily activity report" |
 | `video-analytics` | "show me alerts", "how many PPE violations?", "any incidents today?" |
 | `incident-report` | "generate an incident report", "what happened at the loading dock?" |
-| `security-code-review` | "review this PR for security", "security audit PR #80", "check for vulnerabilities" |
