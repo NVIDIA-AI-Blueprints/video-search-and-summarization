@@ -1,0 +1,56 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[FEA]: "
+labels: ["feature request", "? - Needs Triage"]
+body:
+  - type: dropdown
+    id: request-type
+    attributes:
+      label: Is this a new feature, an improvement, or a change to existing functionality?
+      options:
+        - New Feature
+        - Improvement
+        - Change
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How would you describe the priority of this feature request?
+      options:
+        - Critical (currently preventing work)
+        - High
+        - Medium
+        - Low (nice-to-have)
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem? Please describe.
+      description: A clear and concise description of the problem.
+      placeholder: "I'm frustrated when..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you'd like
+      description: A clear description of what you want to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you've considered
+      description: Any alternative solutions or features you've considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other context, screenshots, or examples.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's [Code of Conduct](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/CODE_OF_CONDUCT.md)
+          required: true
