@@ -1,6 +1,6 @@
 # VSS Claw — OpenClaw Plugin
 
-NVIDIA Video Search & Summarization agent for [OpenClaw](https://github.com/openclaw/openclaw). Provides 6 skills covering the full VSS lifecycle: NGC setup, prerequisites, base deployment, live video streams, semantic search, and alerts.
+NVIDIA Video Search & Summarization agent for [OpenClaw](https://github.com/openclaw/openclaw). Provides 7 skills covering the full VSS lifecycle: deployment, sensor management, alerts, video search, video summarization, video analytics, and incident reports.
 
 ---
 
@@ -61,18 +61,19 @@ On first gateway start after install, the plugin automatically copies workspace 
 ## 3. Verify
 
 ```bash
-openclaw skills list | grep -E "ngc|vss"
+openclaw skills list | grep vss
 ```
 
 Expected output:
 
 ```
-ngc               Install, configure, or verify NVIDIA NGC CLI and API key access
-vss-prerequisites Check and install VSS system requirements
-vss-base          Deploy and manage VSS base profile
-vss-lvs           Deploy and manage VSS live video stream profile
-vss-search        Run semantic video search queries
-vss-alerts        Configure and manage VSS alert rules
+deploy               Deploy or tear down any VSS profile (base, alerts, lvs, search)
+sensor-ops           Manage cameras, RTSP streams, recordings, and snapshots via VIOS
+alerts               Manage and monitor VSS alerts, submit for VLM verification
+video-search         Search video archives using natural language (Cosmos Embed1)
+video-summarization  Summarize long videos, generate shift reports and daily summaries
+video-analytics      Query video analytics — incidents, alerts, object counts, metrics
+incident-report      Generate and query incident reports from Elasticsearch
 ```
 
 ---
@@ -87,9 +88,10 @@ Start a new OpenClaw session. The BOOTSTRAP flow runs automatically and the agen
 
 | Skill | Trigger phrases |
 |---|---|
-| `ngc` | "set up NGC", "configure NGC key", "NGC not found" |
-| `vss-prerequisites` | "check prerequisites", "install requirements" |
-| `vss-base` | "deploy VSS", "start VSS base" |
-| `vss-lvs` | "deploy live stream", "start LVS profile" |
-| `vss-search` | "search videos", "find footage of …" |
-| `vss-alerts` | "create alert", "configure alert rules" |
+| `deploy` | "deploy VSS", "start VSS base", "deploy alerts profile", "tear down VSS" |
+| `sensor-ops` | "add a camera", "list sensors", "start recording", "get a snapshot" |
+| `alerts` | "check alerts", "submit alert for verification", "customize alert prompts" |
+| `video-search` | "find forklifts", "search for vehicles between 8am and noon" |
+| `video-summarization` | "summarize this video", "generate a shift summary", "daily activity report" |
+| `video-analytics` | "show me alerts", "how many PPE violations?", "any incidents today?" |
+| `incident-report` | "generate an incident report", "what happened at the loading dock?" |
