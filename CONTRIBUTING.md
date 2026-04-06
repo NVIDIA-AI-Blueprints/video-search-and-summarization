@@ -18,6 +18,41 @@ If you are interested in contributing to Video Search and Summarization (VSS), y
     - If you need more context on a particular issue, please ask and we shall
     provide.
 
+## Licensing
+
+This project uses a dual-license model:
+
+- **Apache-2.0** — applies to all code in the repository except the `ui/` directory.
+- **MIT** — applies to the original code under the `ui/` directory, which is derived from [NVIDIA NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI/).
+
+**All contributions to this repository, regardless of which directory they target, are accepted under the Apache-2.0 license.** Even if you are contributing changes to the `ui/` directory, your contribution will be licensed under Apache-2.0. The original `ui/` code retains its MIT license, but any additions or modifications contributed through this repository are Apache-2.0.
+
+See the [LICENSE](LICENSE) file for the full license texts.
+
+### Developer Certificate of Origin (DCO)
+
+All contributions must include a DCO sign-off. By adding a `Signed-off-by` line to your commit messages, you certify that you wrote (or otherwise have the right to submit) the contribution, and that you are licensing it under the Apache-2.0 license.
+
+To sign off, add the `-s` flag when committing:
+
+```bash
+git commit -s -m "Your commit message"
+```
+
+This appends a line like:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+If you have already made commits without a sign-off, you can amend the most recent one:
+
+```bash
+git commit --amend -s --no-edit
+```
+
+**Pull requests with unsigned commits will not be merged.**
+
 ## Code contributions
 
 ### Your first issue
