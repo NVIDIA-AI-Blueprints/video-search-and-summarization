@@ -4,6 +4,6 @@ repos:
     hooks:
       - id: trufflehog
         name: TruffleHog secret scan
-        entry: trufflehog git file://. --since-commit HEAD --only-verified --fail
+        entry: trufflehog git file://. --since-commit HEAD --results=verified,unknown --fail
         language: golang
         stages: [pre-commit]
