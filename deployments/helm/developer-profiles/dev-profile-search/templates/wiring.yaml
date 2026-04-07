@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{/*
+  Cross-chart service wiring ConfigMap.
+  Documents internal service endpoints for debugging.
+  Actual wiring is performed via subchart values overrides in values.yaml.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dev-profile-search.fullname" . }}-wiring
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+data:
+  # ── Infrastructure ────────────────────────────────────────────────────────
+  CENTRALIZEDB_HOST: "{{ .Release.Name }}-centralizedb"
+  CENTRALIZEDB_PORT: "5432"
+  REDIS_HOST: "{{ .Release.Name }}-redis"
+  REDIS_PORT: "6379"
+  PHOENIX_ENDPOINT: "http://{{ .Release.Name }}-phoenix:6006"
+
+  # ── Messaging ─────────────────────────────────────────────────────────────
+  KAFKA_BOOTSTRAP: "{{ .Release.Name }}-kafka:9092"
+  KAFKA_HEADLESS: "{{ .Release.Name }}-kafka-headless:9092"
+
+  # ── ELK Stack ─────────────────────────────────────────────────────────────
+  ELASTICSEARCH_ENDPOINT: "http://{{ .Release.Name }}-elasticsearch:9200"
+  KIBANA_ENDPOINT: "http://{{ .Release.Name }}-kibana:5601"
+
+  # ── VST Pipeline ──────────────────────────────────────────────────────────
+  SENSOR_MS_ENDPOINT: "http://{{ .Release.Name }}-sensor-ms:7000"
+  SDR_ENVOY_ENDPOINT: "http://{{ .Release.Name }}-sdr-envoy:10000"
+  VST_INGRESS_ENDPOINT: "http://{{ .Release.Name }}-vst-ingress:8000"
+  VST_MCP_ENDPOINT: "http://{{ .Release.Name }}-vst-mcp:8001"
+  STREAMPROCESSING_HEADLESS: "{{ .Release.Name }}-streamprocessing-ms-headless"
+
+  # ── Search Pipeline ───────────────────────────────────────────────────────
+  NVSTREAMER_ENDPOINT: "http://{{ .Release.Name }}-nvstreamer-nvstreamer:9100"
+  RTVI_EMBED_ENDPOINT: "http://{{ .Release.Name }}-rtvi-embed:8000"
+
+  # ── Agent Services ────────────────────────────────────────────────────────
+  VSS_AGENT_ENDPOINT: "http://{{ .Release.Name }}-agents-vss-agent:8000"
+  VSS_UI_ENDPOINT: "http://{{ .Release.Name }}-agents-vss-ui:3000"
+
+  # ── NIM Inference (nims subchart: nemotron + cosmos via NIM Operator CRDs) ─
+  LLM_ENDPOINT: "http://{{ .Release.Name }}-nemotron:8000"
+  VLM_ENDPOINT: "http://{{ .Release.Name }}-cosmos:8000"

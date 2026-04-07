@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-vios-ingress
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+service:
+  port: 30888
+  type: ClusterIP
+# Compose parity: healthcheck, env and volumes (nginx config, logs)
+# Compose healthcheck: tcp ${VST_INGRESS_HTTP_PORT:-30888}
+livenessProbe:
+  tcpSocket:
+    port: 30888
+  initialDelaySeconds: 2
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+readinessProbe:
+  tcpSocket:
+    port: 30888
+  initialDelaySeconds: 2
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+hostIp: ""
+# Empty: deployment uses global.externalHost, then 127.0.0.1
+externallyAccessibleIp: ""
+vstIngressHttpPort: "30888"
+sensorUpstream: ""
+# Agent backend for /static/ (report files). Empty = use Release.Name-vss-agent:8000. Required so url_validator can reach report URLs when internal_ip points at this ingress.
+agentUpstream: ""
+envoyUpstream: ""
+env:
+  - name: HOST_IP
+    value: ""
+  - name: EXTERNALLY_ACCESSIBLE_IP
+    value: "127.0.0.1"
+  - name: VST_INGRESS_HTTP_PORT
+    value: "30888"
+resources: {}
+nodeSelector: {}
+tolerations: []

@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+=====================================================================
+  NVIDIA Metropolis VSS Agents Helm Chart
+=====================================================================
+
+Thank you for installing {{ .Chart.Name }}!
+
+Release Name: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Chart Version: {{ .Chart.Version }}
+App Version: {{ .Chart.AppVersion }}
+
+=====================================================================
+  DEPLOYED SERVICES
+=====================================================================
+
+{{- if .Values.vssVaMcp.enabled }}
+VSS VA MCP (Video Analysis MCP Server):
+  - Service: {{ include "agents.fullname" . }}-vss-va-mcp
+  - Port: {{ .Values.vssVaMcp.port }}
+  - Internal URL: http://{{ include "agents.fullname" . }}-vss-va-mcp:{{ .Values.vssVaMcp.port }}
+{{- end }}
+
+{{- if .Values.vssAgent.enabled }}
+VSS Agent (Vision Safety System Agent):
+  - Service: {{ include "agents.fullname" . }}-vss-agent
+  - Port: {{ .Values.vssAgent.port }}
+  - Internal URL: http://{{ include "agents.fullname" . }}-vss-agent:{{ .Values.vssAgent.port }}
+{{- end }}
+
+{{- if .Values.vssUi.enabled }}
+VSS UI (User Interface):
+  - Service: {{ include "agents.fullname" . }}-vss-ui
+  - Port: {{ .Values.vssUi.port }}
+  - Type: LoadBalancer
+
+  To access the VSS UI:
+  {{- if contains "LoadBalancer" "LoadBalancer" }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+        You can watch the status by running:
+        kubectl get svc --namespace {{ .Release.Namespace }} -w {{ include "agents.fullname" . }}-vss-ui
+  {{- end }}
+{{- end }}
+
+=====================================================================
+  CONFIGURATION
+=====================================================================
+
+Host IP: {{ .Values.global.hostIP }}
+Config Path: {{ .Values.global.configPath }}
+
+External Services:
+  - VST API: http://{{ .Values.global.hostIP }}:{{ .Values.vssUi.externalPorts.vst }}
+  - MDX Web API: http://{{ .Values.global.hostIP }}:{{ .Values.vssUi.externalPorts.mdx }}
+  - Kibana Dashboard: http://{{ .Values.global.hostIP }}:{{ .Values.vssUi.dashboard.kibanaPort }}
+
+LLM Configuration:
+  - LLM Model: {{ .Values.vssAgent.llm.name }}
+  - LLM Base URL: {{ .Values.vssAgent.llm.baseUrl | default "Not configured" }}
+  - VLM Model: {{ .Values.vssAgent.vlm.name }}
+  - VLM Base URL: {{ .Values.vssAgent.vlm.baseUrl | default "Not configured" }}
+
+=====================================================================
+  QUICK START
+=====================================================================
+
+1. Get the VSS UI URL:
+   {{- if .Values.vssUi.enabled }}
+   export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "agents.fullname" . }}-vss-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+   echo "VSS UI: http://$SERVICE_IP:{{ .Values.vssUi.port }}"
+   {{- end }}
+
+2. Port-forward to access services locally:
+   {{- if .Values.vssUi.enabled }}
+   kubectl port-forward svc/{{ include "agents.fullname" . }}-vss-ui {{ .Values.vssUi.port }}:{{ .Values.vssUi.port }} --namespace {{ .Release.Namespace }}
+   {{- end }}
+   {{- if .Values.vssAgent.enabled }}
+   kubectl port-forward svc/{{ include "agents.fullname" . }}-vss-agent {{ .Values.vssAgent.port }}:{{ .Values.vssAgent.port }} --namespace {{ .Release.Namespace }}
+   {{- end }}
+
+3. Check pod status:
+   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+
+=====================================================================
+  PREREQUISITES
+=====================================================================
+
+Ensure the following services are running before using VSS Agents:
+
+1. VST MCP Service (for video management)
+2. NIM Services (Nemotron, Cosmos) for LLM capabilities
+3. Elasticsearch/Kibana for dashboard functionality
+4. MDX Web API for alerts integration
+
+=====================================================================
+
+For more information, visit:
+https://developer.nvidia.com/metropolis
+
+

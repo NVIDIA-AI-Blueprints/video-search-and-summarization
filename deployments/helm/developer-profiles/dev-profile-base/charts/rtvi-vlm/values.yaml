@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# rtvi-vlm: Optional for base profile when using edge / local VLM (release: bp_developer_base_2d_IGX-THOR, bp_developer_base_2d_AGX-THOR).
+# Compose: deployments/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
+# When enabled, set vss-agent.env RTVI_VLM_BASE_URL to http://<release>-rtvi-vlm:8000 (or use values-base override).
+enabled: false
+global: {}
+
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-rt-vlm
+  tag: "3.1.0-26.02.3"
+  pullPolicy: IfNotPresent
+replicas: 1
+
+# When true, use shared NIM VLM (cosmos-reason2-8b) instead of loading model in this pod.
+useSharedNim: false
+sharedNimService: ""
+sharedNimPort: "8000"
+viaVlmOpenAiModelDeploymentName: "nvidia/cosmos-reason2-8b"
+
+# Release base .env: MODEL_PATH='ngc:nim/nvidia/cosmos-reason2-8b:hf-1208'
+modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+
+ngcApiSecret:
+  name: ""
+  key: ""
+
+kafkaBootstrapServers: ""
+redisHost: ""
+redisPort: "6379"
+redisDb: "0"
+redisPassword: ""
+
+service:
+  port: 8000
+  type: ClusterIP
+
+securityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+shmSize: "16Gi"
+
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    nvidia.com/gpu: 1
+
+env:
+  - name: OPENAI_API_KEY
+    value: "NOAPIKEYSET"
+  - name: OPENAI_API_VERSION
+    value: ""
+  - name: NVIDIA_API_KEY
+    value: "NOAPIKEYSET"
+  - name: NVIDIA_VISIBLE_DEVICES
+    value: "all"
+  - name: VLM_MODEL_TO_USE
+    value: "openai-compat"
+  - name: KAFKA_ENABLED
+    value: "false"
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: ENABLE_OTEL_MONITORING
+    value: "false"
+  - name: ENABLE_REDIS_ERROR_MESSAGES
+    value: "false"
+  - name: NUM_GPUS
+    value: "1"
+  - name: NUM_VLM_PROCS
+    value: ""
+  - name: MODEL_IMPLEMENTATION_PATH
+    value: ""
+  - name: VLLM_GPU_MEMORY_UTILIZATION
+    value: ""
+  - name: VLM_BATCH_SIZE
+    value: ""
+  - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
+    value: "1"
+  - name: VLM_INPUT_WIDTH
+    value: ""
+  - name: VLM_INPUT_HEIGHT
+    value: ""
+  - name: VLM_SYSTEM_PROMPT
+    value: ""
+  - name: VSS_NUM_GPUS_PER_VLM_PROC
+    value: ""
+
+nodeSelector: {}
+tolerations: []

@@ -1,0 +1,266 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: fastapi
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: {{ .Values.vssAgent.objectStore.type }}
+    streaming_ingest:
+      vst_base_url: {{ include "agents.vstExternalUrl" . }}
+      vst_internal_url: {{ include "agents.vstInternalUrl" . }}
+      stream_mode: other
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: {{ .Values.vssAgent.phoenix.endpoint | default "http://localhost:6006" }}/v1/traces
+        project: DEV-vss-agent-{{ .Values.vssAgent.version }}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_base_url: {{ include "agents.vstExternalUrl" . }}
+    vst_external_url: {{ include "agents.vstExternalUrl" . }}
+    {{- if (include "agents.isIngressEnabled" .) }}
+    agent_base_url: http://{{ include "agents.ingressMainHost" . }}
+    {{- else }}
+    agent_base_url: http://{{ include "agents.externalHost" . }}:{{ .Values.vssUi.externalPorts.vssAgent | default .Values.vssAgent.port }}
+    {{- end }}
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: nim_vlm
+    max_frames: 60
+    max_fps: 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_clip
+    stream_mode: false
+    system_prompt: |
+      You are a monitoring system analyzing video footage.
+      Your task is to describe the events in the video in detail or answer the user's question about the video.
+        IMPORTANT:
+        - You must respond only in English and in plain text.
+        - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.
+        - Timestamp must be in pts format, seconds since the start of the video.
+        - Always provide a direct answer to the question asked.
+        - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_base_url: {{ include "agents.vstExternalUrl" . }}
+    vst_internal_url: {{ include "agents.vstInternalUrl" . }}
+    vst_external_url: {{ include "agents.vstExternalUrl" . }}
+
+  vst_snapshot:
+    _type: vst.snapshot
+    vst_base_url: {{ include "agents.vstExternalUrl" . }}
+    vst_internal_url: {{ include "agents.vstInternalUrl" . }}
+    vst_external_url: {{ include "agents.vstExternalUrl" . }}
+
+  vst_video_list:
+    _type: vst.video_list
+    vst_base_url: {{ include "agents.vstExternalUrl" . }}
+    vst_internal_url: {{ include "agents.vstInternalUrl" . }}
+
+  video_report_gen:
+    _type: video_report_gen
+    object_store: {{ .Values.vssAgent.objectStore.type }}
+    base_url: {{ include "agents.reportsBaseUrl" . }}
+    video_understanding_tool: video_understanding
+    video_url_tool: vst_video_clip
+    picture_url_tool: vst_snapshot
+    vst_internal_url: {{ include "agents.vstInternalUrl" . }}
+    vst_external_url: {{ include "agents.vstExternalUrl" . }}
+    vlm_prompt: |
+      Describe in detail what is happening in this video,
+      including all visible people, vehicles, equipments, objects,
+      actions, and environmental conditions.
+      OUTPUT REQUIREMENTS:
+      [timestamp-timestamp] Description of what is happening.
+      EXAMPLE:
+      [0.0s-4.0s] <description of the first event>
+      [4.0s-12.0s] <description of the second event>
+    hitl_enabled: true
+    hitl_prompt_llm: nim_llm
+    hitl_timeout_seconds: 60.0
+    hitl_vlm_prompt_template: |
+      **VLM Prompt for Report Generation**
+
+      **OPTIONS:**
+
+      • Press Submit (empty) → Approve and generate report
+
+      • Type a new prompt directly or paste current prompt and edit it manually
+
+      • Type `/generate <description>` → AI creates a prompt based on your description
+
+      • Type `/refine <instructions>` → AI modifies the current prompt
+
+      • Type `/cancel` → Cancel report generation
+
+      Enter your choice or press Submit to keep current value:
+    hitl_generate_system_prompt: |
+      You are a prompt engineer specializing in video analysis.
+      Create a clear, detailed prompt for a Vision Language Model (VLM) that will analyze video footage and generate a report.
+
+      Requirements:
+      - Be specific about what to look for in the video
+      - Include instructions to describe events with timestamps in chronological[Xs-Ys] format
+      - Focus on the user's described scenario/goals and create the prompt that will be understandable for the VLM
+      - Keep the prompt concise but detailed
+
+      Output ONLY the VLM prompt, no explanations.
+    hitl_refine_system_prompt: |
+      You are a prompt engineer specializing in video analysis.
+      Modify the existing VLM prompt based on the user's instructions.
+
+      Requirements:
+      - Preserve the timestamp format [Xs-Ys] requirement
+      - Maintain the original prompt structure and content and add on to it the user's requested changes
+
+      Current prompt to modify:
+      {current_prompt}
+
+      Output ONLY the modified prompt, no explanations.
+
+  report_agent:
+    _type: report_agent
+    log_level: INFO
+    video_report_tool: video_report_gen
+
+llms:
+  nim_llm:
+    _type: nim
+    model_name: {{ .Values.vssAgent.llm.name }}
+    base_url: {{ .Values.vssAgent.llm.baseUrl }}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  nim_vlm:
+    _type: nim
+    model_name: {{ .Values.vssAgent.vlm.name }}
+    base_url: {{ .Values.vssAgent.vlm.baseUrl }}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  eval_llm_judge:
+    _type: nim
+    model_name: {{ .Values.vssAgent.evalLlmJudge.name }}
+    base_url: {{ .Values.vssAgent.evalLlmJudge.baseUrl }}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+workflow:
+  _type: top_agent
+  llm_name: nim_llm
+  log_level: INFO
+  max_iterations: 15
+  llm_reasoning: false
+  tool_names:
+  - video_understanding
+  - vst_video_clip
+  - vst_snapshot
+  - vst_video_list
+  subagent_names:
+  - report_agent
+  prompt: |
+{{ .Files.Get (printf "configs/%s/workflow-prompt.txt" .Values.blueprint) | indent 4 }}
+  postprocessing:
+    validation_order:
+    - [url_validator]
+    validators:
+      url_validator:
+        timeout: 10.0
+        feedback_template: |
+          The following URLs are not accessible: {issues}
+          You have a hallucinated URL in the response, consider removing it or calling the appropriate tool to fetch the correct URL.
+
+eval:
+  general:
+    workflow_alias: {{ .Values.vssAgent.eval.workflowAlias | default "" | quote }}
+    output_dir: {{ .Values.vssAgent.eval.outputDir | default "/eval/results" }}
+    dataset:
+      _type: json
+      file_path: {{ .Values.vssAgent.eval.datasetPath | default "/eval/dataset.json" }}
+
+  evaluators:
+    trajectory_evaluator:
+      _type: customized_trajectory_evaluator
+      llm_name: eval_llm_judge
+      track_agent_selected_tools_only: true
+      max_retries: 2
+      llm_judge_reasoning: true
+      custom_prompt_template: |
+        You are an expert evaluator assessing an AI agent's performance on tool calling.
+
+        Question: {question}
+
+        Available Tools and Their Schemas:
+        {tool_schemas}
+
+        Agent's Actions and Tool Calls:
+        {agent_trajectory}
+
+        Agent's Final Answer:
+        {answer}
+
+        Reference/Expected Output:
+        {reference}
+
+        Evaluation Criteria:
+        1. **Tool Selection**: Did the agent select the appropriate tools for the task?
+        2. **Parameter Accuracy**: Were tool parameters correct according to the tool schemas above?
+        Check that all parameters match the expected types, required fields, and descriptions.
+        3. **Data Retrieval**: Did the agent successfully retrieve the necessary data? Sometimes the
+        data is not available, that should not be considered as a failure. As long as the tools are
+        called correctly, it should be considered as a success.
+        4. **Completeness**: Did the agent gather all required information to answer the question?
+        5. **Efficiency**: Did the agent avoid unnecessary or redundant tool calls?
+
+        IMPORTANT NOTES:
+
+        1. LLM Model Names in Trajectory: Some trajectory steps have tool names equal to LLM model names. These are NOT
+           actual tool calls. They are INTERNAL REASONING STEPS showing which LLM is thinking.
+
+           **CRITICAL: When evaluating tool selection, COMPLETELY IGNORE any steps where the tool
+           name is an LLM model name. Only evaluate steps where actual function tools are called.**
+
+        Scoring Guidelines:
+        - 1.0: Perfect execution - all criteria met, accurate answer
+        - 0.8-0.9: Excellent - minor issues but correct answer
+        - 0.6-0.7: Good - some issues but mostly correct
+        - 0.4-0.5: Fair - significant issues, partially correct
+        - 0.0-0.3: Poor - major issues, incorrect or incomplete answer
+
+        Think through your evaluation carefully, then output only a single number (your score from
+        0.0 to 1.0).

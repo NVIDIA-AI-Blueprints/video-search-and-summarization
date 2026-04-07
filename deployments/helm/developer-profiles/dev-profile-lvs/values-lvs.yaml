@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# LVS profile — install overrides (equiv. dev-profile.sh up -p lvs -H H100, bp_developer_lvs_2d)
+# Install: helm upgrade --install vss . -f values-lvs.yaml -n vss --create-namespace
+#
+# Set ngc.apiKey, global.storageClass, global.externalHost (+ optional scheme/port), and global.kibanaPublicUrl.
+# Stack + NIM defaults live in chart values.yaml.
+
+profile: lvs
+mode: ""
+llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
+vlmNameSlug: <replace-with-vlm-name> # e.g. cosmos-reason2-8b, cosmos-reason2-8b-mini, cosmos-reason2-8b-mini-2
+
+ngc:
+  createSecrets: true
+  apiKey: ""
+
+global:
+  storageClass: "" # e.g. oci-bv-high, gp3, standard, local-path
+  externalScheme: "http" # http or https
+  externalHost: "EXTERNAL_HOST" # e.g. vss.140.238.75.84.nip.io
+  externalPort: "" # Default 80 (http) / 443 (https): use "" — chart omits :port in URLs. Non-default port only: e.g. "8080", "8443".
+  kibanaPublicUrl: "http://kibana.EXTERNAL_HOST" # e.g. http://kibana.vss.140.238.75.84.nip.io
+
+# NIMs: enable only charts that match llmNameSlug / vlmNameSlug above (subchart key = slug, e.g. nvidia-nemotron-nano-9b-v2, cosmos-reason2-8b). you can see available subcharts under nims/charts/
+# hardwareProfile: per-GPU env set — key must exist under envByHardware in charts/nims/charts/<model>/values.yaml (H100, RTXPRO6000BW, H100-shared, …); "" = default env only.
+nims:
+  enabled: true
+  cosmos-reason2-8b:    # replace with respective model from nims/charts/ 
+    enabled: true
+    hardwareProfile: RTXPRO6000BW # replace with respective hardware profile from charts/nims/charts/<model>/values.yaml 
+  nvidia-nemotron-nano-9b-v2:
+    enabled: true
+    hardwareProfile: RTXPRO6000BW # replace with respective hardware profile from charts/nims/charts/<model>/values.yaml 

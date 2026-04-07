@@ -1,0 +1,174 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v2
+name: dev-profile-search
+description: |
+  NVIDIA Metropolis Developer Workflow - Search Profile
+
+  All-in-one umbrella chart deploying the complete bp_developer_search_2d stack:
+    - centralizedb          : PostgreSQL database for VST metadata
+    - redis                 : Redis message broker for event routing
+    - phoenix               : Phoenix observability / tracing UI
+    - kafka                 : Confluent Kafka message broker + topic init
+    - elasticsearch         : Elasticsearch for embedding index storage
+    - kibana                : Kibana dashboards for search analytics
+    - logstash              : Logstash pipeline (Kafka → Elasticsearch)
+    - streamprocessing-ms   : VST stream processing (GPU-accelerated)
+    - sdr-envoy             : SDR WDM agent + Envoy proxy sidecar
+    - sensor-ms             : VST sensor microservice
+    - vst-ingress           : Nginx reverse proxy / API gateway
+    - vst-mcp               : VST MCP Gateway for tool-calling
+    - nvstreamer            : NvStreamer 2D video stream manager
+    - perception            : DeepStream CNN perception pipeline
+    - rtvi-embed            : RTVI Cosmos Embed1 embedding service
+    - search-analytics      : VSS search analytics fusion app
+    - agents-app            : VSS Agent (LLM/VLM, search blueprint) + VSS UI
+    - nims                  : NVIDIA NIM models (Nemotron Nano 9B v2 LLM + Cosmos Reason2 8B VLM)
+
+  Installation – select GPU type with a single flag:
+    # H100 (default)
+    helm install vss-search ./dev-profile-search \
+      --set global.externalHost=<NODE_IP> \
+      --set global.ngcApiKey=<NGC_KEY> \
+      --set nims.gpuType=H100 \
+      -n metropolis --create-namespace
+
+    # L40S
+    helm install vss-search ./dev-profile-search \
+      --set global.externalHost=<NODE_IP> \
+      --set global.ngcApiKey=<NGC_KEY> \
+      --set nims.gpuType=L40S \
+      -n metropolis --create-namespace
+
+    # RTX PRO 6000 Blackwell Workstation
+    helm install vss-search ./dev-profile-search \
+      --set global.externalHost=<NODE_IP> \
+      --set global.ngcApiKey=<NGC_KEY> \
+      --set nims.gpuType=RTXPRO6000BW \
+      -n metropolis --create-namespace
+
+type: application
+version: 26.04.1
+appVersion: "26.04.1"
+keywords:
+  - metropolis
+  - developer-workflow
+  - search-profile
+  - vss
+  - video-search
+maintainers:
+  - name: NVIDIA
+
+# =============================================================================
+# All subcharts live in charts/ as local directories.
+# Omitting 'repository' tells Helm to resolve the chart from charts/ locally.
+# Use conditions below to enable/disable individual components.
+# =============================================================================
+dependencies:
+  # ---------------------------------------------------------------------------
+  # Infrastructure (shared with base profile)
+  # ---------------------------------------------------------------------------
+  - name: centralizedb
+    version: 1.0.0
+    condition: centralizedb.enabled
+
+  - name: redis
+    version: 1.0.0
+    condition: redis.enabled
+
+  - name: phoenix
+    version: 1.0.0
+    condition: phoenix.enabled
+
+  # ---------------------------------------------------------------------------
+  # Messaging layer
+  # ---------------------------------------------------------------------------
+  - name: kafka
+    version: 1.0.0
+    condition: kafka.enabled
+
+  # ---------------------------------------------------------------------------
+  # ELK stack (search index + dashboards)
+  # ---------------------------------------------------------------------------
+  - name: elasticsearch
+    version: 1.0.0
+    condition: elasticsearch.enabled
+
+  - name: kibana
+    version: 1.0.0
+    condition: kibana.enabled
+
+  - name: logstash
+    version: 1.0.0
+    condition: logstash.enabled
+
+  # ---------------------------------------------------------------------------
+  # VST pipeline (sensor management, stream processing, ingress)
+  # ---------------------------------------------------------------------------
+  - name: streamprocessing-ms
+    version: 1.0.0
+    condition: streamprocessing-ms.enabled
+
+  - name: sdr-envoy
+    version: 1.0.0
+    condition: sdr-envoy.enabled
+
+  - name: sensor-ms
+    version: 1.0.0
+    condition: sensor-ms.enabled
+
+  - name: vst-ingress
+    version: 1.0.0
+    condition: vst-ingress.enabled
+
+  - name: vst-mcp
+    version: 1.0.0
+    condition: vst-mcp.enabled
+
+  # ---------------------------------------------------------------------------
+  # Search-specific video pipeline
+  # ---------------------------------------------------------------------------
+  - name: nvstreamer
+    version: 1.0.0
+    condition: nvstreamer.enabled
+
+  - name: perception
+    version: 1.0.0
+    condition: perception.enabled
+
+  - name: rtvi-embed
+    version: 1.0.0
+    condition: rtvi-embed.enabled
+
+  - name: search-analytics
+    version: 1.0.0
+    condition: search-analytics.enabled
+
+  # ---------------------------------------------------------------------------
+  # Agent services (search blueprint)
+  # ---------------------------------------------------------------------------
+  - name: agents-app
+    version: 1.0.0
+    alias: agents
+    condition: agents.enabled
+
+  # ---------------------------------------------------------------------------
+  # NIM models (LLM + VLM) via NVIDIA NIM Operator CRDs
+  # Requires: NVIDIA NIM Operator installed in the cluster
+  # ---------------------------------------------------------------------------
+  - name: nims
+    version: 1.0.0
+    condition: nims.enabled

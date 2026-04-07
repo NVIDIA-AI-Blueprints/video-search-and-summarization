@@ -1,0 +1,1056 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# =============================================================================
+# NVIDIA Metropolis Search Profile - Production Values
+# =============================================================================
+# Umbrella chart wiring for the bp_developer_search_2d stack.
+#
+# REQUIRED overrides at install time:
+#   --set global.externalHost=<NODE_IP>
+#   --set global.ngcApiKey=<NGC_API_KEY>
+#
+# For Ingress-based access (recommended):
+#   --set ingress.enabled=true
+#   --set ingress.hosts.main=vss-search.<IP>.nip.io
+#   --set ingress.hosts.streamer=streamer.<IP>.nip.io
+#   --set ingress.hosts.kibana=kibana.<IP>.nip.io
+#   --set ingress.hosts.phoenix=phoenix.<IP>.nip.io
+#
+# NIM services are deployed as subcharts under charts/nims/ and auto-wired:
+#   - LLM (Nemotron Nano 9B v2) → <release>-nemotron:8000
+#   - VLM (Cosmos Reason2 8B)   → <release>-cosmos:8000
+#
+# GPU-specific NIM tuning (pass ONE at install time):
+#   -f charts/nims/override-values-H100.yaml
+#   -f charts/nims/override-values-L40S.yaml
+#   -f charts/nims/override-values-RTXPRO6000BW.yaml
+# =============================================================================
+
+global:
+  externalHost: ""           # REQUIRED: Node IP or ingress domain
+  enableCritic: false        # Shared toggle for critic flow and Cosmos NIM deployment
+  ngcApiKey: ""              # REQUIRED: NGC API key for image pulls and NIM access
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+  storageClass: ""
+  ingress:
+    enabled: true            # Must match top-level ingress.enabled; passed to subcharts via global
+    mainHost: ""             # Auto-constructed as vss-search.<externalHost>.nip.io if empty
+    streamerHost: ""         # Auto-constructed as streamer.<externalHost>.nip.io if empty
+
+# =============================================================================
+# Ingress - Path-based HTTP routing for external access
+# =============================================================================
+# When enabled, all HTTP services use ClusterIP and are exposed via a single
+# Ingress resource with host/path-based routing (aligned with dev-profile-alerts).
+# When disabled, services default to ClusterIP; use kubectl port-forward or
+# create your own Ingress/LoadBalancer to access them.
+#
+# NOTE: NVStreamer RTSP ports CANNOT go through HTTP Ingress.
+#       RTSP is always exposed via a separate NodePort service.
+ingress:
+  enabled: true
+  className: "haproxy"
+  annotations: {}
+  # Hosts are auto-constructed from global.externalHost when left empty:
+  #   main       -> vss-search.<IP>.nip.io
+  #   streamer   -> streamer.<IP>.nip.io
+  #   kibana     -> kibana.<IP>.nip.io
+  #   phoenix    -> phoenix.<IP>.nip.io
+  # Override to use custom DNS names (e.g. main: "vss-search.example.com")
+  hosts:
+    main: ""           # VSS UI + Agent + VST Ingress
+    streamer: ""       # NVStreamer HTTP API
+    kibana: ""         # Kibana dashboards
+    phoenix: ""        # Phoenix tracing UI
+  tls: []
+  #  - secretName: vss-search-tls
+  #    hosts:
+  #      - vss-search.example.com
+
+# =============================================================================
+# Shared storage - PVCs used by multiple subcharts
+# =============================================================================
+sharedStorage:
+  streamerVideos:
+    enabled: true
+    storageClass: ""
+    size: 50Gi
+
+# =============================================================================
+# centralizedb - PostgreSQL for VST metadata
+# =============================================================================
+centralizedb:
+  enabled: true
+  replicas: 1
+  image:
+    repository: postgres
+    tag: "17.6-alpine"
+    pullPolicy: IfNotPresent
+  args:
+    - "postgres"
+    - "-c"
+    - "config_file=/etc/postgresql/postgresql.conf"
+    - "-c"
+    - "unix_socket_directories=/var/run/postgresql"
+  postgresCm:
+    data:
+      CENTRALIZE_DB_HOSTADDR: ""   # default in template: ClusterIP service (<Release>-centralizedb)
+      CENTRALIZE_DB_NAME: nvcentralizedb
+      CENTRALIZE_DB_PASSWORD: nvidia123
+      CENTRALIZE_DB_PORT: "5432"
+      CENTRALIZE_DB_USERNAME: vst
+  initContainer:
+    fixPermissions:
+      enabled: true
+      image: busybox:1.37.0
+      runAsUser: 0
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+  service:
+    port: 5432
+    type: ClusterIP
+  storage:
+    data:
+      size: 10Gi
+      storageClass: ""
+    configMap:
+      useDefault: true
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
+  livenessProbe:
+    exec:
+      command: ["/bin/sh", "-c", "pg_isready -h localhost -U \"$POSTGRES_USER\""]
+    failureThreshold: 3
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    successThreshold: 1
+    timeoutSeconds: 2
+  readinessProbe:
+    exec:
+      command: ["/bin/sh", "-c", "pg_isready -h localhost -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+    failureThreshold: 5
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 2
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# redis - Message broker for VST event routing
+# =============================================================================
+redis:
+  enabled: true
+  replicas: 1
+  image:
+    repository: redis
+    tag: "8.2.2-alpine"
+    pullPolicy: IfNotPresent
+  port: 6379
+  persistence:
+    storageClass: ""
+    size: 5Gi
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# phoenix - Observability / tracing UI
+# =============================================================================
+phoenix:
+  enabled: true
+  replicas: 1
+  image:
+    repository: arizephoenix/phoenix
+    tag: "version-8.12.1"
+    pullPolicy: IfNotPresent
+  port: 6006
+  service:
+    type: ClusterIP
+  persistence:
+    storageClass: ""
+    size: 10Gi
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# kafka - Confluent Kafka message broker (KRaft mode)
+# =============================================================================
+kafka:
+  enabled: true
+  replicas: 1
+  image:
+    repository: confluentinc/cp-kafka
+    tag: "8.1.1"
+    pullPolicy: IfNotPresent
+  # KRaft (no ZooKeeper) settings
+  nodeId: "1"
+  brokerId: "1"
+  # Advertised listeners: set to the in-cluster headless service by default.
+  # Override with --set kafka.advertisedHost=<NODE_IP> for external access.
+  advertisedHost: ""       # Defaults to Release.Name-kafka-headless
+  advertisedPort: "9092"
+  heapOpts: "-Xmx4G -Xms4G"
+  maxRequestSize: "10485760"
+  # Topics created by the init Job
+  topics: '[{"name": "mdx-raw"}, {"name": "mdx-bev"}, {"name": "mdx-space-utilization"}, {"name": "mdx-alerts"}, {"name": "mdx-behavior", "retention_ms": "14400000", "segment_ms": "3600000", "replication_factor": "1"}, {"name": "mdx-behavior-plus"}, {"name": "mdx-frames"}, {"name": "mdx-mtmc"}, {"name": "mdx-rtls"}, {"name": "mdx-rtls-region-1"}, {"name": "mdx-amr"}, {"name": "mdx-vlm-alerts"}, {"name": "mdx-notification", "partitions": "1"}, {"name": "mdx-events"}, {"name": "mdx-incidents"}, {"name": "mdx-vlm-incidents"}, {"name": "mdx-vlm"}, {"name": "mdx-embed"}, {"name": "mdx-embed-filtered"}]'
+  defaultPartitions: "8"
+  defaultReplicationFactor: "1"
+  defaultRetentionMs: "14400000"
+  defaultSegmentMs: "3600000"
+  service:
+    type: ClusterIP
+    port: 9092
+  persistence:
+    storageClass: ""
+    size: 50Gi
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "1"
+    limits:
+      memory: "8Gi"
+      cpu: "2"
+  nodeSelector: {}
+  tolerations: []
+  # Enable Prometheus kafka-exporter (set true when Prometheus is deployed)
+  exporter:
+    enabled: false
+
+# =============================================================================
+# elasticsearch - Elasticsearch for embedding index storage
+# =============================================================================
+elasticsearch:
+  enabled: true
+  replicas: 1
+  image:
+    repository: docker.elastic.co/elasticsearch/elasticsearch
+    tag: "9.3.0"
+    pullPolicy: IfNotPresent
+  port: 9200
+  javaOpts: "-Xmx1024m -Xms256m"
+  ilmMinAge: "48h"
+  rtviCvEmbeddingsDim: "1536"
+  visionLlmEmbeddingsDim: "768"
+  # Init job settings
+  init:
+    enabled: true
+    image:
+      repository: docker.io/alpine/curl
+      tag: "8.12.1"
+      pullPolicy: IfNotPresent
+    backoffLimit: 5
+  persistence:
+    storageClass: ""
+    data:
+      size: 100Gi
+    logs:
+      size: 20Gi
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+  gpu:
+    enabled: true
+    count: 1
+    deviceId: "0"
+  nodeSelector: {}
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+  # Enable Prometheus elasticsearch-exporter
+  exporter:
+    enabled: false
+
+# =============================================================================
+# kibana - Kibana dashboards for search analytics
+# =============================================================================
+kibana:
+  enabled: true
+  replicas: 1
+  image:
+    repository: docker.elastic.co/kibana/kibana
+    tag: "9.3.0"
+    pullPolicy: IfNotPresent
+  port: 5601
+  service:
+    type: ClusterIP
+  # Kibana init: imports the search dashboard (ndjson)
+  init:
+    enabled: true
+    image:
+      repository: docker.io/alpine/curl
+      tag: "8.12.1"
+      pullPolicy: IfNotPresent
+    backoffLimit: 5
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# logstash - Logstash pipeline (Kafka → Elasticsearch)
+# =============================================================================
+logstash:
+  enabled: true
+  replicas: 1
+  image:
+    repository: docker.elastic.co/logstash/logstash
+    tag: "9.3.0"
+    pullPolicy: IfNotPresent
+  javaOpts: "-Xmx1024m -Xms256m"
+  streamType: "kafka"          # kafka | redis
+  service:
+    port: 5044
+  persistence:
+    storageClass: ""
+    libs:
+      size: 5Gi
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "1"
+  nodeSelector: {}
+  tolerations: []
+  # Enable Prometheus logstash-exporter
+  exporter:
+    enabled: false
+    tlsSecretName: ""  # Set to logstash TLS secret name if TLS is enabled
+
+# =============================================================================
+# streamprocessing-ms - VST stream processing (GPU-accelerated)
+# =============================================================================
+streamprocessing-ms:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-vios-streamprocessing
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  httpPort: 7001
+  rtspServerPort: 8554
+  rtspServerInstances: 10
+  containerName: "streamprocessing-ms"
+  serverDomainName: ""   # Auto-wired to own headless service for RTSP URL generation
+  installAdditionalPackages: "true"
+  gpu:
+    enabled: true
+    count: 1
+  endpoints:
+    sensorModule: ""   # Auto-wired via Release.Name
+    vstIngress: ""     # Auto-wired via Release.Name
+  postgres:
+    # Empty: CENTRALIZE_DB_* from <Release>-centralizedb-postgres-cm. Set host for external Postgres.
+    host: ""
+    port: "5432"
+    dbName: nvcentralizedb
+    dbUsername: vst
+    dbPassword: ""
+  redis:
+    host: ""           # Auto-wired: <Release.Name>-redis
+    port: "6379"
+  persistence:
+    storageClass: ""
+    vstData:
+      size: 10Gi
+    vstVideo:
+      size: 50Gi
+    clipStorage:
+      size: 50Gi
+    tempFiles:
+      size: 5Gi
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "2"
+    limits:
+      memory: "8Gi"
+      cpu: "4"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# sdr-envoy - SDR WDM agent + Envoy proxy sidecar
+# =============================================================================
+sdr-envoy:
+  enabled: true
+  replicas: 1
+  sdr:
+    image:
+      repository: nvcr.io/nvidia/vss-core/sdr
+      tag: "3.1.0"
+      pullPolicy: IfNotPresent
+    port: 4003
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+  envoy:
+    image:
+      repository: nvcr.io/nvidia/vss-core/envoy-proxy
+      tag: "3.1.0"
+      pullPolicy: IfNotPresent
+    listenerPort: 10000
+    adminPort: 9901
+    concurrency: "16"
+    streamIdleTimeout: "3600s"
+    requestTimeout: "3600s"
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+  wdm:
+    wlObjectName: "streamprocessing-ms"
+    redisServer: ""    # Auto-wired: <Release.Name>-redis
+    redisPort: "6379"
+    consumerGroupId: "sdr-streamprocessing-cg"
+    maxReplicas: "1"
+    threshold: "100"
+    addUrl: "/api/v1/proxy/stream/add"
+    deleteUrl: "/api/v1/proxy/stream/"
+    healthCheckUrl: "/api/v1/proxy/configuration"
+    changeIdAdd: "camera_proxy"
+    changeIdDel: "camera_remove"
+    msgKey: "vst.event"
+    msgTopic: "vst_events"
+    msgKeyField: "sensor.id"
+    routeHeader: "streamid"
+    k8sHeadlessPodPort: "7001"
+  service:
+    port: 10000
+  serviceAccount:
+    create: true
+  rbac:
+    create: true
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# sensor-ms - VST sensor management microservice
+# =============================================================================
+sensor-ms:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-vios-sensor
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  httpPort: 7000
+  serverDomainName: ""   # Auto-wired to streamprocessing-ms headless service for RTSP URL generation
+  rtspServerPort: 8554   # Must match streamprocessing-ms RTSP port
+  gpu:
+    enabled: true
+    count: 1
+  endpoints:
+    streamProcessorModule: ""  # Auto-wired: <Release.Name>-sdr-envoy:10000
+  postgres:
+    # Empty: load CENTRALIZE_DB_* from <Release>-centralizedb-postgres-cm (in-cluster DB).
+    # Set host to use an external Postgres (literal env; set dbPassword if required).
+    host: ""
+    port: "5432"
+    dbName: nvcentralizedb
+    dbUsername: vst
+    dbPassword: ""
+  redis:
+    host: ""           # Auto-wired
+    port: "6379"
+  persistence:
+    # When true, use emptyDir for vst_data/vst_video (no PVC; survives scheduling without StorageClass). Default false = create PVCs.
+    useEmptyDir: false
+    storageClass: ""
+    vstData:
+      size: 10Gi
+    vstVideo:
+      size: 50Gi
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# vst-ingress - Nginx reverse proxy / API gateway
+# =============================================================================
+vst-ingress:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-vios-ingress
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  port: 8000
+  service:
+    # Always NodePort: RTVI-embed requires IP-based URLs (rejects hostnames).
+    # Ingress still routes /vst to this service via its ClusterIP.
+    type: NodePort
+    nodePort: 30888
+  upstreams:
+    sensorPort: 7000
+    sdrEnvoyPort: 10000
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# vst-mcp - VST MCP Gateway for tool-calling
+# =============================================================================
+vst-mcp:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-vios-mcp
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  port: 8001
+  gateway:
+    cppApiBaseUrl: ""  # Auto-wired: http://<Release.Name>-vst-ingress:8000/vst
+    vstIngressPort: "8000"
+    cppApiTimeout: "30"
+    serverName: "vst-mcp-gateway"
+    serverVersion: "1.0.0"
+    logLevel: "INFO"
+    enableJsonrpcLogging: "true"
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# nvstreamer - NvStreamer 2D video stream manager
+# =============================================================================
+nvstreamer:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  port: 9100
+  rtspPort: 31554
+  rtspServerInstances: 10
+  installAdditionalPackages: "true"
+  serverDomainName: ""    # Auto-wires to global.externalHost for external RTSP access
+  service:
+    type: ClusterIP
+    port: 9100
+    # RTSP requires direct TCP access — cannot go through HTTP Ingress.
+    # A separate NodePort service exposes RTSP; port matches container port (31554)
+    # so the RTSP URL generated by NVStreamer is directly reachable externally.
+    rtsp:
+      type: NodePort
+      nodePort: 31554
+  gpu:
+    enabled: true
+    count: 1
+    deviceId: "0"
+  persistence:
+    storageClass: ""
+    vstData:
+      size: 20Gi
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+  nodeSelector: {}
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# =============================================================================
+# perception - DeepStream CNN perception pipeline (2D fusion)
+# =============================================================================
+perception:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  httpPort: 9000
+  streamType: "kafka"       # kafka | redis
+  modelType: "cnn"
+  otelSdkDisabled: "true"
+  otelServiceName: "rtvi-cv"
+  gpu:
+    enabled: true
+    count: 1
+    deviceId: "0"
+  kafka:
+    bootstrapServers: ""   # Auto-wired: <Release.Name>-kafka-kafka:9092
+  models:
+    authSecretName: "ngc-api-key-secret"
+    authSecretKey: "NGC_API_KEY"
+    # PGIE detector — nvidia/tao/rtdetr_2d_warehouse on NGC (nvidia org)
+    pgie:
+      ngc:
+        apiBaseUrl: "https://api.ngc.nvidia.com"
+        org: "nvidia"
+        team: "tao"
+        model: "rtdetr_2d_warehouse"
+        version: "deployable_efficientvit_l2_v1.0.1"
+      onnxFile: "rtdetr_warehouse_v1.0.1.fp16.onnx"
+      inferDims: "3;640;640"
+    # Vision encoder — nvidia/tao/radio-clip on NGC (nvidia org)
+    visionEncoder:
+      ngc:
+        apiBaseUrl: "https://api.ngc.nvidia.com"
+        org: "nvidia"
+        team: "tao"
+        model: "radio-clip"
+        version: "deployable_v1.0"
+      onnxFile: "radio-clip_v1.0.onnx"
+      weightsFile: "radio-clip_v1.0_weights.bin"
+      tokenizerDir: "radio-clip_v1.0_tokenizer"
+  persistence:
+    storageClass: ""
+    models:
+      size: 20Gi
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  nodeSelector: {}
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# =============================================================================
+# rtvi-embed - RTVI Cosmos Embed1 embedding service
+# =============================================================================
+rtvi-embed:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  port: 8000
+  service:
+    type: ClusterIP
+  gpuDeviceId: ""
+  dshm:
+    enabled: true
+    sizeLimit: "16Gi"
+  clearCachedEnginesOnStart: false
+  kafkaEnabled: true
+  kafkaTopic: "mdx-embed"
+  kafkaBootstrapServers: ""   # Auto-wired: <Release.Name>-kafka:9092
+  redisHost: ""               # Auto-wired: <Release.Name>-redis
+  redisPort: "6379"
+  modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
+  modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+  modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+  logLevel: "INFO"
+  enableOtelMonitoring: false
+  enableRedisErrorMessages: false
+  enableRequestProfiling: false
+  otelTracesExporter: "otlp"
+  otelExporterOtlpEndpoint: "http://otel-collector:4318"
+  otelMetricExportInterval: "60000"
+  otelResourceAttributes: ""
+  forceSwAv1Decoder: ""
+  numGpus: ""
+  numVlmProcs: ""
+  vlmBatchSize: "8"
+  rtspTimeout: ""
+  rtspLatency: ""
+  installProprietaryCodes: false
+  rtspReconnectionInterval: "5"
+  rtspReconnectionMaxAttempts: "10"
+  rtspReconnectionWindow: "60"
+  startupProbe:
+    initialDelaySeconds: 180
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 40
+  livenessProbe:
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readinessProbe:
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  ngcApiKey: ""
+  nvidiaApiKey: ""
+  hfToken: ""
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  podSecurityContext:
+    fsGroup: 1001
+  securityContext:
+    runAsUser: 1001
+    runAsGroup: 1001
+  persistence:
+    storageClass: ""
+    ngcModelCache:
+      size: 50Gi
+    hfCache:
+      size: 50Gi
+  clipStorage:
+    enabled: false
+    existingClaim: ""
+    hostPath: ""
+  nodeSelector: {}
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# =============================================================================
+# search-analytics - VSS search analytics fusion app
+# =============================================================================
+search-analytics:
+  enabled: true
+  replicas: 1
+  image:
+    repository: nvcr.io/nvidia/vss-core/vss-behavior-analytics
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  port: 8080
+  service:
+    type: ClusterIP
+  kafka:
+    bootstrapServers: ""   # Auto-wired: <Release.Name>-kafka:9092
+  config:
+    # Search analytics Kafka config JSON - override to customize topics/settings
+    kafkaConfigJson: ""    # Empty = use built-in default from ConfigMap
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
+# agents - VSS Agent (search blueprint) + VSS UI
+# (subchart alias for agents-app)
+# =============================================================================
+agents:
+  enabled: true
+
+  global:
+    externalHost: ""   # Inherited from parent global.externalHost
+    imagePullPolicy: IfNotPresent
+
+  # Use the "search" blueprint config (charts/agents-app/configs/search/config.yml)
+  blueprint: search
+
+  # Disable VA MCP - search profile uses direct embed search, not video analytics MCP
+  vssVaMcp:
+    enabled: false
+
+  vssAgent:
+    enabled: true
+    replicas: 1
+    image:
+      repository: nvcr.io/nvidia/vss-core/vss-agent
+      tag: "3.1.0"
+    version: "3.1.0"
+    port: 8000
+    service:
+      type: ClusterIP
+
+    # LLM - Nemotron Nano 9B v2 (auto-wired to <release>-nemotron:8000 via nims subchart)
+    llm:
+      name: "nvidia/nvidia-nemotron-nano-9b-v2"
+      baseUrl: ""    # Auto-wired: http://<release>-nemotron:8000
+
+    # VLM - Cosmos Reason2 8B (auto-wired to <release>-cosmos:8000 via nims subchart)
+    vlm:
+      name: "nvidia/cosmos-reason2-8b"
+      baseUrl: ""    # Auto-wired: http://<release>-cosmos:8000
+
+    evalLlmJudge:
+      name: "nvidia/nvidia-nemotron-nano-9b-v2"
+      baseUrl: ""    # Auto-wired: http://<release>-nemotron:8000
+
+    lvs:
+      backendUrl: ""
+    rtvi:
+      embedPort: "8000"
+      vlmBaseUrl: ""
+      cvBaseUrl: ""    # Auto-wired: http://<Release.Name>-perception-perception:9000
+      cvPort: "9000"
+
+    # Phoenix telemetry - wired to phoenix subchart service
+    phoenix:
+      endpoint: ""     # Auto-wired: http://<Release.Name>-phoenix:6006
+
+    # VST integration - wired to vst-ingress and vst-mcp subchart services
+    vst:
+      baseUrl: ""      # Auto-wired: http://<Release.Name>-vst-ingress:8000
+      mcpUrl: ""       # Auto-wired: http://<Release.Name>-vst-mcp:8001
+      internalUrl: ""  # Defaults to vstExternalUrl (vst-ingress routes to correct backends)
+      externalUrl: ""
+
+    # Cosmos embedding endpoint - wired to rtvi-embed service
+    # Pattern: http://<Release.Name>-rtvi-embed:8000
+    cosmosEmbed:
+      endpoint: ""     # Auto-wired
+
+    # ElasticSearch - wired to elasticsearch service
+    elasticsearch:
+      url: ""          # Auto-wired: http://<Release.Name>-elasticsearch:9200
+      index: "mdx-embed-filtered-2025-01-01"
+
+    objectStore:
+      type: "local_object_store"
+    template:
+      name: ""
+
+    apiKeys:
+      nvidia: ""
+      huggingface: ""
+
+    eval:
+      dir: ""
+      outputDir: ""
+      datasetDir: ""
+      datasetFileName: ""
+
+    agentEval:
+      enabled: false
+      storageClass: ""
+      size: 10Gi
+
+    extraEnvs:
+      - name: STREAM_MODE
+        value: "search"
+      - name: LLM_MODEL_TYPE
+        value: "nim"
+      - name: VLM_MODE
+        value: "remote"
+      - name: VSS_AGENT_EXTERNAL_URL
+        value: ""   # Set to Ingress URL (e.g. http://vss-search.<IP>.nip.io) or port-forward URL
+
+    resources:
+      requests:
+        memory: "4Gi"
+        cpu: "1"
+      limits:
+        memory: "8Gi"
+        cpu: "2"
+
+  vssUi:
+    enabled: true
+    replicas: 1
+    image:
+      repository: nvcr.io/nvidia/vss-core/vss-agent-ui
+      tag: "3.1.0"
+    port: 3000
+    service:
+      type: ClusterIP
+    chat:
+      enabled: false
+      websocketDefaultOn: false
+      chatHistoryDefaultOn: true
+      rightMenuOpen: false
+      enableIntermediateSteps: true
+      sideChatbarCollapsed: true
+      uploadFileEnable: false
+      messageCopyEnabled: false
+      messageEditEnabled: false
+      messageSpeakerEnabled: false
+      interactionModalCancelEnabled: false
+      uploadFileConfigTemplateJson: '{"fields":[{"field-name":"embedding","field-type":"boolean","field-default-value":true,"changeable":false,"tooltip-info":""}]}'
+      uploadFileHiddenMessageTemplate: "Let's show the videos just uploaded {filenames}?"
+      uploadFileMetadataEnabled: false
+      chatApiCustomAgentParamsJson: '{"params":[{"name":"search_source_type","label":"Search media source type","type":"select","default-value":"video_file","options":["video_file","rtsp"],"changeable":true,"tooltip-info":"Media Source type for Search Agent Query"}]}'
+    alerts:
+      enabled: false
+    dashboard:
+      enabled: true
+      kibanaPort: 5601
+    map:
+      port: 3002
+    videoManagement:
+      enabled: true
+      addRtspEnable: true
+      videoUploadEnable: true
+    search:
+      enabled: true
+      uploadFileEnable: false
+      micEnabled: false
+      messageCopyEnabled: false
+      messageEditEnabled: false
+      messageSpeakerEnabled: false
+      interactionModalCancelEnabled: false
+    # External port mapping (used only when ingress.enabled=false and services are
+    # manually exposed via NodePort or port-forward). When using Ingress, set
+    # externalUrls below instead.
+    externalPorts:
+      vst: 30888         # vst-ingress NodePort (always NodePort — RTVI-embed requires IP URLs)
+      mdx: 30080
+      kibana: 5601
+      vssAgent: 8000
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+  elasticsearch:
+    url: ""              # Auto-wired: http://<Release.Name>-elasticsearch:9200
+    index: "mdx-embed-filtered-2025-01-01"
+
+  serviceAccount:
+    create: true
+    name: "agents-sa"
+
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+# =============================================================================
+# nims - NVIDIA NIM models (LLM + VLM) via NIM Operator CRDs
+# Requires: NVIDIA NIM Operator (apps.nvidia.com/v1alpha1) installed in cluster.
+# GPU-specific tuning: use override-values-H100/L40S/RTXPRO6000BW.yaml files
+# from charts/nims/ or pass --set nims.nemotron.env.* / nims.cosmos.env.*
+# =============================================================================
+nims:
+  enabled: true
+
+  # GPU selection: H100 | L40S | RTXPRO6000BW
+  # The nims subchart renders nim-env ConfigMaps from the gpuProfiles lookup
+  # table using this single value.  Override at install time:
+  #   --set nims.gpuType=L40S
+  gpuType: "H100"
+
+  # --- Nemotron Nano 9B v2 (LLM) ---
+  nemotron:
+    enabled: true
+    image:
+      repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
+      tag: "1"
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+      requests:
+        nvidia.com/gpu: "1"
+    storage:
+      pvc:
+        storageClass: ""
+        size: "50Gi"
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+    env:
+      CUDA_VISIBLE_DEVICES: "0"
+
+  # --- Cosmos Reason2 8B (VLM) ---
+  # Requires 1 full GPU. If using GPU time-slicing, increase nvidia.com/gpu
+  # to match the number of time-sliced replicas per physical GPU.
+  # See: https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html
+  cosmos:
+    enabled: true # ignored, and controlled by global.enableCritic
+    image:
+      repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
+      tag: "1.6.0"
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+      requests:
+        nvidia.com/gpu: "1"
+    storage:
+      pvc:
+        storageClass: ""
+        size: "200Gi"
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+    env:
+      CUDA_VISIBLE_DEVICES: "1"
+      NIM_KVCACHE_PERCENT: "0.75"
+      NIM_MAX_MODEL_LEN: "16384"
+      NIM_LOW_MEMORY_MODE: "true"

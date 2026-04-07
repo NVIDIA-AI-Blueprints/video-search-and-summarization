@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-vios-streamprocessing
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+service:
+  port: 30001
+  type: ClusterIP
+# Compose parity: entrypoint, healthcheck, env and volumes
+command: ["/bin/bash", "-c"]
+args: ["if [ \"$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+# Compose healthcheck: tcp 30001; timeout 3s, interval 15s, retries 30, start_period 20s
+livenessProbe:
+  tcpSocket:
+    port: 30001
+  initialDelaySeconds: 20
+  periodSeconds: 15
+  timeoutSeconds: 3
+  failureThreshold: 30
+readinessProbe:
+  tcpSocket:
+    port: 30001
+  initialDelaySeconds: 20
+  periodSeconds: 15
+  timeoutSeconds: 3
+  failureThreshold: 30
+sensorModuleEndpoint: ""
+vstIngressEndpoint: ""   # default: <Release>-vst-ingress-dev:30888/vst (host:port/path, no scheme). Streamprocessing builds videoUrl as "http://" + this + path; full URL causes http://http://...
+# Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means use Release.Name (e.g. vss-redis:6379).
+redisServerAddress: ""
+# Centralized DB: set in template from Release.Name (vss-centralizedb-dev:5432). Override when using external DB.
+centralizedDbHost: ""
+centralizedDbPort: ""
+env:
+  - name: HOST_IP
+    value: "0.0.0.0"
+  # Set to "true" to run user_additional_install.sh at startup (installs e.g. libav/ffmpeg for upload media info). Script must exist in image at /home/vst/vst_release/tools/user_additional_install.sh.
+  - name: VST_INSTALL_ADDITIONAL_PACKAGES
+    value: "true"
+  - name: CONTAINER_NAME
+    value: streamprocessing-ms
+  - name: ADAPTOR
+    value: vst_rtsp
+  - name: HTTP_PORT
+    value: "30001"
+  - name: RTSP_SERVER_PORT
+    value: "30554"
+  - name: CENTRALIZE_DB_NAME
+    value: nvcentralizedb
+  - name: CENTRALIZE_DB_USERNAME
+    value: vst
+  # SENSOR_MODULE_ENDPOINT and VST_INGRESS_ENDPOINT are set by the template from sensorModuleEndpoint / vstIngressEndpoint (with release-based defaults)
+
+# Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH, CLIP_STORAGE_PATH. Optional PVCs for vst-data, vst-video, streamer-videos. temp-files stays EmptyDir.
+# To share with sensor-ms-dev (like compose), set the same existingClaim in both charts. Single-node: ReadWriteOnce is enough; use ReadWriteMany only if pods can run on different nodes.
+persistence:
+  vstData:
+    enabled: false
+    create: true
+    existingClaim: ""
+    size: 10Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  vstVideo:
+    enabled: false
+    create: true
+    existingClaim: ""
+    size: 20Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  streamerVideos:
+    enabled: false
+    create: true
+    existingClaim: ""
+    size: 20Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  # temp-files: always EmptyDir (ephemeral scratch)
+# When using PVC, the app (running as user vst) must be able to write. runAsUser/fsGroup ensure volume is writable; initContainer chowns when needed.
+securityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  fsGroup: 0
+
+# Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Set to {} to run without GPU (software mode). Requires NVIDIA device plugin on nodes.
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    nvidia.com/gpu: 1
+nodeSelector: {}
+tolerations: []

@@ -1,0 +1,259 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "streamprocessing-ms.fullname" . }}
+  labels:
+    {{- include "streamprocessing-ms.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "streamprocessing-ms.headlessName" . }}
+  replicas: {{ .Values.replicas | default 1 }}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      {{- include "streamprocessing-ms.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "streamprocessing-ms.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName | default "default" }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      initContainers:
+        - name: wait-for-postgres
+          image: docker.io/alpine/curl:8.12.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until curl --connect-timeout 1 {{ .Values.postgres.host | default (printf "%s-centralizedb" .Release.Name) }}:{{ .Values.postgres.port }} 2>&1 | grep -q 'Empty reply from server'; do
+                echo "Waiting for postgres..."
+                sleep 1
+              done
+        - name: wait-for-redis
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              REDIS_HOST="{{ .Values.redis.host | default (printf "%s-redis" .Release.Name) }}"
+              REDIS_PORT="{{ .Values.redis.port }}"
+              echo "Waiting for Redis at $REDIS_HOST:$REDIS_PORT..."
+              until nc -z "$REDIS_HOST" "$REDIS_PORT" 2>/dev/null; do
+                echo "Redis not ready, retrying in 2s..."
+                sleep 2
+              done
+              echo "Redis is ready."
+      containers:
+        - name: streamprocessing-ms
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [ "${VST_INSTALL_ADDITIONAL_PACKAGES}" = "true" ]; then
+                /home/vst/vst_release/tools/user_additional_install.sh
+              fi
+              exec /home/vst/vst_release/launch_vst
+          ports:
+            - name: http-api
+              containerPort: {{ .Values.httpPort }}
+              protocol: TCP
+            {{- $rtspBase := int .Values.rtspServerPort }}
+            {{- $rtspInstances := int (.Values.rtspServerInstances | default 10) }}
+            {{- range $i := until $rtspInstances }}
+            - name: rtsp-{{ $i }}
+              containerPort: {{ add $rtspBase $i }}
+              protocol: TCP
+            {{- end }}
+          env:
+            {{- $pgcm := include "streamprocessing-ms.centralizedbPostgresCmName" . }}
+            {{- $extDb := .Values.postgres.host }}
+            - name: ADAPTOR
+              value: "vst_rtsp"
+            - name: HOST_IP
+              value: "0.0.0.0"
+            - name: CENTRALIZE_DB_NAME
+{{- if $extDb }}
+              value: {{ .Values.postgres.dbName | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_NAME
+{{- end }}
+            - name: CENTRALIZE_DB_USERNAME
+{{- if $extDb }}
+              value: {{ .Values.postgres.dbUsername | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_USERNAME
+{{- end }}
+            - name: CENTRALIZE_DB_HOSTADDR
+{{- if $extDb }}
+              value: {{ .Values.postgres.host | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_HOSTADDR
+{{- end }}
+            - name: CENTRALIZE_DB_PORT
+{{- if $extDb }}
+              value: {{ .Values.postgres.port | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_PORT
+{{- end }}
+            - name: CENTRALIZE_DB_PASSWORD
+{{- if $extDb }}
+              value: {{ .Values.postgres.dbPassword | default "" | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_PASSWORD
+{{- end }}
+            - name: CONTAINER_NAME
+              value: {{ .Values.containerName | quote }}
+            - name: HTTP_PORT
+              value: {{ .Values.httpPort | quote }}
+            - name: RTSP_SERVER_PORT
+              value: {{ .Values.rtspServerPort | quote }}
+            - name: VST_INSTALL_ADDITIONAL_PACKAGES
+              value: {{ .Values.installAdditionalPackages | quote }}
+            - name: SENSOR_MODULE_ENDPOINT
+              value: {{ .Values.endpoints.sensorModule | default (printf "http://%s-sensor-ms:7000" .Release.Name) | quote }}
+            - name: VST_INGRESS_ENDPOINT
+              value: {{ .Values.endpoints.vstIngress | default (printf "http://%s-vst-ingress:8000/vst" .Release.Name) | quote }}
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -ec
+                - "exec 3<>/dev/tcp/127.0.0.1/{{ .Values.httpPort }}"
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -ec
+                - "exec 3<>/dev/tcp/127.0.0.1/{{ .Values.httpPort }}"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            {{- if .Values.gpu.enabled }}
+            requests:
+              {{- toYaml .Values.resources.requests | nindent 14 }}
+              nvidia.com/gpu: {{ .Values.gpu.count }}
+            limits:
+              {{- toYaml .Values.resources.limits | nindent 14 }}
+              nvidia.com/gpu: {{ .Values.gpu.count }}
+            {{- else }}
+            {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /home/vst/vst_release/configs/vst_config.json
+              subPath: vst_config.json
+              readOnly: true
+            - name: config
+              mountPath: /home/vst/vst_release/configs/adaptor_config.json
+              subPath: adaptor_config.json
+              readOnly: true
+            - name: config
+              mountPath: /home/vst/vst_release/configs/rtsp_streams.json
+              subPath: rtsp_streams.json
+              readOnly: true
+            - name: vst-data
+              mountPath: /home/vst/vst_release/vst_data
+            - name: vst-video
+              mountPath: /home/vst/vst_release/vst_video
+            - name: clip-storage
+              mountPath: /home/vst/vst_release/streamer_videos
+            - name: temp-files
+              mountPath: /home/vst/vst_release/webroot/temp_files
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "streamprocessing-ms.fullname" . }}-config
+        - name: clip-storage
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-streamer-videos
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: vst-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.vstData.size }}
+    - metadata:
+        name: vst-video
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.vstVideo.size }}
+    - metadata:
+        name: temp-files
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.tempFiles.size }}
+{{- end }}

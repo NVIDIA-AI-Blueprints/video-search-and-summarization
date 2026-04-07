@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+=====================================================================
+  NVIDIA Metropolis Search Profile - Developer Workflow
+=====================================================================
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+
+=====================================================================
+  DEPLOYED SERVICES
+=====================================================================
+
+  Infrastructure:
+    centralizedb (PostgreSQL)  : {{ .Release.Name }}-centralizedb:5432
+    redis                      : {{ .Release.Name }}-redis:6379
+    phoenix                    : {{ .Release.Name }}-phoenix:6006
+
+  Messaging:
+    kafka                      : {{ .Release.Name }}-kafka:9092
+
+  ELK Stack:
+    elasticsearch              : {{ .Release.Name }}-elasticsearch:9200
+    kibana                     : {{ .Release.Name }}-kibana:5601
+    logstash                   : {{ .Release.Name }}-logstash:5044
+
+  VST Pipeline:
+    streamprocessing-ms        : {{ .Release.Name }}-streamprocessing-ms:7001
+    sdr-envoy                  : {{ .Release.Name }}-sdr-envoy:10000
+    sensor-ms                  : {{ .Release.Name }}-sensor-ms:7000
+    vst-ingress                : {{ .Release.Name }}-vst-ingress:8000
+    vst-mcp                    : {{ .Release.Name }}-vst-mcp:8001
+
+  Search Pipeline:
+    nvstreamer (HTTP)          : {{ .Release.Name }}-nvstreamer-nvstreamer:9100
+    nvstreamer (RTSP)          : {{ .Release.Name }}-nvstreamer-nvstreamer-rtsp:{{ .Values.nvstreamer.rtspPort }} (NodePort {{ .Values.nvstreamer.service.rtsp.nodePort }})
+    rtvi-embed                 : {{ .Release.Name }}-rtvi-embed:8000
+    search-analytics           : {{ .Release.Name }}-search-analytics:8080
+
+  Agent Services:
+    vss-agent                  : {{ .Release.Name }}-agents-vss-agent:8000
+    vss-ui                     : {{ .Release.Name }}-agents-vss-ui:3000
+
+
+=====================================================================
+  EXTERNAL NIM DEPENDENCIES
+=====================================================================
+
+  Install as separate Helm releases:
+
+  1. Nemotron NIM (LLM):
+     Expected service: nemotron-nim-nim-llm:8000
+
+  2. Cosmos NIM (VLM):
+     Expected service: cosmos-reason2-8b:8000
+
+  3. Nemotron Nano NIM (LLM for search):
+     Expected service: nemotron-nim-nim-llm:8000
+
+=====================================================================
+  QUICK INSTALL
+=====================================================================
+
+  helm upgrade --install vss-search ./dev-profile-search \
+    -n default \
+    --set global.externalHost=<NODE_IP> \
+    --set global.ngcApiKey=<NGC_API_KEY> \
+    --set nims.global.ngcApiKey=<NGC_API_KEY> \
+    --set global.enableCritic=$ENABLE_CRITIC \
+    --wait=false
+
+  Ingress hosts are auto-constructed from global.externalHost using nip.io.
+  Override with --set ingress.hosts.main=custom.domain.com if needed.
+
+=====================================================================
+  ACCESS
+=====================================================================
+{{- if .Values.ingress.enabled }}
+
+  {{- $ip := .Values.global.externalHost | default "NODE_IP" }}
+  {{- $mainHost := .Values.ingress.hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
+  {{- $streamerHost := .Values.ingress.hosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
+  {{- $kibanaHost := .Values.ingress.hosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
+  {{- $phoenixHost := .Values.ingress.hosts.phoenix | default (printf "phoenix.%s.nip.io" $ip) }}
+  Ingress is ENABLED. Services are exposed via host-based routing:
+
+  VSS UI (Search):      http://{{ $mainHost }}
+  VSS Agent API:        http://{{ $mainHost }}/api
+  VST API:              http://{{ $mainHost }}/vst/api
+  Kibana Dashboards:    http://{{ $kibanaHost }}
+  Phoenix Tracing:      http://{{ $phoenixHost }}
+  NVStreamer HTTP:       http://{{ $streamerHost }}
+
+  NVStreamer RTSP:       rtsp://<NODE_IP>:31554  (NodePort — RTSP cannot use HTTP Ingress)
+
+{{- else }}
+
+  Ingress is DISABLED. Services use ClusterIP.
+  Use kubectl port-forward or create your own Ingress/LoadBalancer:
+
+  kubectl port-forward svc/{{ .Release.Name }}-agents-vss-ui 3000:3000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ .Release.Name }}-agents-vss-agent 8000:8000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ .Release.Name }}-vst-ingress 8000:8000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ .Release.Name }}-kibana-kibana 5601:5601 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ .Release.Name }}-phoenix 6006:6006 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ .Release.Name }}-nvstreamer-nvstreamer 9100:9100 -n {{ .Release.Namespace }}
+
+  NVStreamer RTSP:       rtsp://<NODE_IP>:31554  (always NodePort)
+
+  To enable Ingress, reinstall with:
+    --set ingress.enabled=true \
+    --set ingress.hosts.main=vss-search.<IP>.nip.io \
+    --set ingress.hosts.streamer=streamer.<IP>.nip.io \
+    --set ingress.hosts.kibana=kibana.<IP>.nip.io \
+    --set ingress.hosts.phoenix=phoenix.<IP>.nip.io \
+
+{{- end }}
+
+=====================================================================
+  PREREQUISITES
+=====================================================================
+
+  1. NVIDIA GPU device plugin installed on worker nodes
+  2. A default StorageClass provisioned on the cluster
+  3. NGC docker registry secret created (auto-created if ngcApiKey set)
+  4. Nemotron and Cosmos NIMs installed and healthy
+{{- if .Values.ingress.enabled }}
+  5. Ingress controller ({{ .Values.ingress.className }}) installed in cluster
+{{- end }}
+
+=====================================================================

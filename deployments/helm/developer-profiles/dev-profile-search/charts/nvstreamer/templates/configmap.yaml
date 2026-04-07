@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nvstreamer.fullname" . }}-nvstreamer-config
+  labels:
+    {{- include "nvstreamer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nvstreamer
+data:
+  vst_config.json: |
+{{- $kafkaAddr := .Values.kafkaServerAddress | default (printf "%s-kafka-kafka:9092" .Release.Name) }}
+{{- $redisAddr := .Values.redisServerAddress | default (printf "%s-redis:6379" .Release.Name) }}
+{{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "http://%s-elasticsearch:9200/mdx-raw*" .Release.Name) }}
+{{ .Files.Get "configs/vst-config.json" | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__REDIS_ADDRESS__" $redisAddr | replace "__VIDEO_METADATA_SERVER__" $videoMeta  | replace "__HTTP_PORT__" (.Values.port | toString) | replace "__RTSP_SERVER_PORT__" (.Values.rtspPort | toString) | indent 4 }}
+  vst_storage.json: |
+{{ .Files.Get "configs/vst-storage.json" | indent 4 }}

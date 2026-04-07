@@ -1,0 +1,158 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.ingress.enabled }}
+{{/*
+  Ingress for dev-profile-search.
+  Modeled after dev-profile-alerts/vss-ingress-example.yaml.
+  Routes HTTP traffic to ClusterIP services; RTSP (NVStreamer) is
+  handled by a separate NodePort service and is NOT routed here.
+
+  Host auto-wiring: when a host value is empty, it is constructed
+  from global.externalHost as <prefix>.<IP>.nip.io.
+*/}}
+{{- $ip := .Values.global.externalHost | default "127.0.0.1" }}
+{{- $mainHost := .Values.ingress.hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
+{{- $streamerHost := .Values.ingress.hosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
+{{- $kibanaHost := .Values.ingress.hosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
+{{- $phoenixHost := .Values.ingress.hosts.phoenix | default (printf "phoenix.%s.nip.io" $ip) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "dev-profile-search.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+  annotations:
+    haproxy.org/timeout-server: "3600s"
+    haproxy.org/timeout-client: "3600s"
+    haproxy.org/timeout-tunnel: "3600s"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    # ── Main host: VSS UI + Agent + VST Ingress ──────────────────────
+    - host: {{ $mainHost }}
+      http:
+        paths:
+          {{- if .Values.agents.enabled }}
+          {{- if .Values.agents.vssUi.enabled }}
+          - path: /api/chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-agents-vss-ui
+                port:
+                  number: {{ .Values.agents.vssUi.port }}
+          {{- end }}
+          {{- if .Values.agents.vssAgent.enabled }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-agents-vss-agent
+                port:
+                  number: {{ .Values.agents.vssAgent.port }}
+          - path: /chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-agents-vss-agent
+                port:
+                  number: {{ .Values.agents.vssAgent.port }}
+          - path: /websocket
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-agents-vss-agent
+                port:
+                  number: {{ .Values.agents.vssAgent.port }}
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-agents-vss-agent
+                port:
+                  number: {{ .Values.agents.vssAgent.port }}
+          {{- end }}
+          {{- end }}
+          {{- if (index .Values "vst-ingress").enabled }}
+          - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-vst-ingress
+                port:
+                  number: {{ (index .Values "vst-ingress").port }}
+          {{- end }}
+          {{- if .Values.agents.enabled }}
+          {{- if .Values.agents.vssUi.enabled }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-agents-vss-ui
+                port:
+                  number: {{ .Values.agents.vssUi.port }}
+          {{- end }}
+          {{- end }}
+    {{- if .Values.nvstreamer.enabled }}
+    # ── Streamer host: NVStreamer HTTP API ─────────────────────────────
+    - host: {{ $streamerHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-nvstreamer-nvstreamer
+                port:
+                  number: {{ .Values.nvstreamer.service.port }}
+    {{- end }}
+    {{- if .Values.kibana.enabled }}
+    # ── Kibana host: dashboards ───────────────────────────────────────
+    - host: {{ $kibanaHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-kibana-kibana
+                port:
+                  number: {{ .Values.kibana.port }}
+    {{- end }}
+    {{- if .Values.phoenix.enabled }}
+    # ── Phoenix host: tracing UI ──────────────────────────────────────
+    - host: {{ $phoenixHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-phoenix
+                port:
+                  number: {{ .Values.phoenix.port }}
+    {{- end }}
+{{- end }}

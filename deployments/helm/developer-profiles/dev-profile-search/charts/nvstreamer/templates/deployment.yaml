@@ -1,0 +1,181 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nvstreamer.fullname" . }}-nvstreamer
+  labels:
+    {{- include "nvstreamer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nvstreamer
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
+    {{- if not .Values.service.rtsp }}
+    {{- $rtspBase := int (.Values.rtspPort | default 9554) }}
+    {{- $rtspInstances := int (.Values.rtspServerInstances | default 10) }}
+    {{- range $i := until $rtspInstances }}
+    - name: rtsp-{{ $i }}
+      port: {{ add $rtspBase $i }}
+      targetPort: {{ add $rtspBase $i }}
+      protocol: TCP
+      {{- if and (eq $.Values.service.type "NodePort") $.Values.service.rtspNodePort (eq $i 0) }}
+      nodePort: {{ $.Values.service.rtspNodePort }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  selector:
+    {{- include "nvstreamer.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nvstreamer
+{{- if .Values.service.rtsp }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nvstreamer.fullname" . }}-nvstreamer-rtsp
+  labels:
+    {{- include "nvstreamer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nvstreamer-rtsp
+spec:
+  type: {{ .Values.service.rtsp.type | default "NodePort" }}
+  ports:
+    {{- $rtspBase := int (.Values.rtspPort | default 9554) }}
+    {{- $rtspInstances := int (.Values.rtspServerInstances | default 10) }}
+    {{- range $i := until $rtspInstances }}
+    - name: rtsp-{{ $i }}
+      port: {{ add $rtspBase $i }}
+      targetPort: {{ add $rtspBase $i }}
+      protocol: TCP
+      {{- if and (eq ($.Values.service.rtsp.type | default "NodePort") "NodePort") $.Values.service.rtsp.nodePort (eq $i 0) }}
+      nodePort: {{ $.Values.service.rtsp.nodePort }}
+      {{- end }}
+    {{- end }}
+  selector:
+    {{- include "nvstreamer.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nvstreamer
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nvstreamer.fullname" . }}-nvstreamer
+  labels:
+    {{- include "nvstreamer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nvstreamer
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "nvstreamer.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nvstreamer
+  template:
+    metadata:
+      labels:
+        {{- include "nvstreamer.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: nvstreamer
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: nvstreamer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+          env:
+            - name: ADAPTOR
+              value: "streamer"
+            - name: HTTP_PORT
+              value: {{ .Values.port | quote }}
+            - name: NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES
+              value: {{ .Values.installAdditionalPackages | quote }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: {{ .Values.gpu.deviceId | default "all" | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+            {{- $rtspBase := int (.Values.rtspPort | default 9554) }}
+            {{- $rtspInstances := int (.Values.rtspServerInstances | default 10) }}
+            {{- range $i := until $rtspInstances }}
+            - name: rtsp-{{ $i }}
+              containerPort: {{ add $rtspBase $i }}
+              protocol: TCP
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /home/vst/vst_release/configs/vst_config.json
+              subPath: vst_config.json
+            - name: config
+              mountPath: /home/vst/vst_release/configs/vst_storage.json
+              subPath: vst_storage.json
+            - name: user-install-script
+              mountPath: /home/vst/vst_release/tools/user_additional_install.sh
+              subPath: user_additional_install.sh
+            - name: streamer-videos
+              mountPath: /home/vst/vst_release/streamer_videos
+            - name: vst-data
+              mountPath: /home/vst/vst_release/vst_data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nvstreamer.fullname" . }}-nvstreamer-config
+        - name: user-install-script
+          configMap:
+            name: {{ include "nvstreamer.fullname" . }}-nvstreamer-user-install
+            defaultMode: 493
+        - name: streamer-videos
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-streamer-videos
+        - name: vst-data
+          persistentVolumeClaim:
+            claimName: {{ include "nvstreamer.fullname" . }}-nvstreamer-vst-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nvstreamer.fullname" . }}-nvstreamer-vst-data
+  labels:
+    {{- include "nvstreamer.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.vstData.size }}

@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+imagePullSecrets:
+  - name: ngc-docker-reg-secret
+
+replicas: 1
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+streamType: "kafka"
+modelType: "cnn"
+otelSdkDisabled: "true"
+otelServiceName: "rtvi-cv"
+deepstreamEnableSensorIdExtraction: "1"
+gstEnableCustomParserModifications: "1"
+hfHubOffline: "0"
+transformersOffline: "0"
+kafka:
+  bootstrapServers: ""
+gpu:
+  enabled: true
+  count: 1
+  deviceId: "0"
+models:
+  authSecretName: "ngc-api-key-secret"
+  authSecretKey: "NGC_API_KEY"
+  # PGIE detector — nvidia/tao/rtdetr_2d_warehouse on NGC (nvidia org)
+  pgie:
+    ngc:
+      apiBaseUrl: "https://api.ngc.nvidia.com"
+      org: "nvidia"
+      team: "tao"
+      model: "rtdetr_2d_warehouse"
+      version: "deployable_efficientvit_l2_v1.0.1"
+    onnxFile: "rtdetr_warehouse_v1.0.1.fp16.onnx"
+    # Input dimensions must match the ONNX model (channel;height;width)
+    # v1.0 = 3;544;960, v1.0.1 (EfficientViT-L2) = 3;640;960
+    inferDims: "3;640;640"
+  # Vision encoder — nvidia/tao/radio-clip on NGC (nvidia org)
+  visionEncoder:
+    ngc:
+      apiBaseUrl: "https://api.ngc.nvidia.com"
+      org: "nvidia"
+      team: "tao"
+      model: "radio-clip"
+      version: "deployable_v1.0"
+    onnxFile: "radio-clip_v1.0.onnx"
+    weightsFile: "radio-clip_v1.0_weights.bin"
+    tokenizerDir: "radio-clip_v1.0_tokenizer"
+persistence:
+  storageClass: ""
+  models:
+    size: 20Gi
+resources:
+  limits:
+    nvidia.com/gpu: 1
+nodeSelector: {}
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"

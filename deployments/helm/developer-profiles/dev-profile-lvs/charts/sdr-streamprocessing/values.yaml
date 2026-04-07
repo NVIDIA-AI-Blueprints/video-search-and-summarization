@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+
+image:
+  repository: nvcr.io/nvidia/vss-core/sdr
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# clusterType: kubernetes (default) | docker. Use kubernetes so SDR uses K8s API; docker only if mounting host docker.sock.
+clusterType: kubernetes
+
+service:
+  type: ClusterIP
+  port: 4003
+
+# For clusterType kubernetes: streamprocessing-ms-dev service port (WDM_TARGET_PORT_MAPPING, provisioning_address).
+streamprocessingPort: "30001"
+
+# Override when using external Redis or different release name.
+redisServer: ""
+redisPort: "6379"
+wdmMsgKey: "vst.event"
+
+# VST sensor endpoints (SDR talks to sensor for streams/status). Defaults use Release.Name.
+vstStreamsEndpoint: ""
+vstStatusEndpoint: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: {}
+global: {}

@@ -1,0 +1,121 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sensor-ms.fullname" . }}-config
+  labels:
+    {{- include "sensor-ms.labels" . | nindent 4 }}
+data:
+  vst_config.json: |
+    {
+      "network": {
+        "http_port": "{{ .Values.httpPort }}",
+        "server_domain_name": "{{ .Values.serverDomainName | default (printf "%s-streamprocessing-ms-headless" .Release.Name) }}",
+        "stunurl_list": ["stun.l.google.com:19302"],
+        "static_turnurl_list": [],
+        "use_coturn_auth_secret": false,
+        "coturn_turnurl_list_with_secret": [],
+        "use_twilio_stun_turn": false,
+        "twilio_account_sid": "",
+        "twilio_auth_token": "",
+        "use_reverse_proxy": false,
+        "ntp_servers": [],
+        "use_sensor_ntp_time": false,
+        "max_webrtc_out_connections": 40,
+        "max_webrtc_in_connections": 1,
+        "webservice_access_control_list": "",
+        "rtsp_server_port": {{ .Values.rtspServerPort | default 8554 }},
+        "enable_grpc": false,
+        "remote_vst_address": "",
+        "enable_websocket_pingpong": false,
+        "websocket_keep_alive_ms": 5000,
+        "ai_bridge_endpoint": ""
+      },
+      "onvif": {
+        "device_discovery_timeout_secs": 0,
+        "onvif_request_timeout_secs": 10,
+        "device_discovery_freq_secs": 0,
+        "device_discovery_interfaces": [],
+        "max_devices_supported": 210
+      },
+      "data": {
+        "storage_config_file": "/home/vst/vst_release/configs/vst_storage.json",
+        "storage_threshold_percentage": 95,
+        "storage_monitoring_frequency_secs": 2,
+        "enable_cloud_storage": false,
+        "nv_streamer_directory_path": "/home/vst/vst_release/streamer_videos/",
+        "nv_streamer_loop_playback": false,
+        "nv_streamer_seekable": false,
+        "nv_streamer_max_upload_file_size_MB": 10000,
+        "nv_streamer_media_container_supported": ["mp4", "mkv"],
+        "nv_streamer_metadata_container_supported": ["json"],
+        "nv_streamer_rtsp_server_output_buffer_size_kb": 1000,
+        "supported_video_codecs": ["h264", "h265"],
+        "supported_audio_codecs": ["pcmu", "pcma", "mpeg4-generic"],
+        "enable_aging_policy": false,
+        "max_video_download_size_MB": 1000,
+        "always_recording": true,
+        "event_recording": false,
+        "event_record_length_secs": 10,
+        "record_buffer_length_secs": 2,
+        "use_software_path": false,
+        "gpu_indices": [],
+        "device_name": "VST",
+        "device_location": "",
+        "use_centralize_local_db": false,
+        "max_network_db_connections": 10,
+        "default_file_expiry_minutes": 10080,
+        "download_files_timeout_secs": 120
+      },
+      "notifications": {
+        "enable_notification": true,
+        "enable_notification_consumer": true,
+        "use_message_broker_consumer": "kafka",
+        "message_broker_topic_consumer": "mdx-raw",
+        "use_message_broker": "redis",
+        "message_broker_payload_key": "sensor.id",
+        "message_broker_topic": "vst.event",
+        "message_broker_metadata_topic": "mdx-raw",
+        "redis_server_env_var": "{{ .Values.redis.host | default (printf "%s-redis" .Release.Name) }}:{{ .Values.redis.port }}",
+        "kafka_server_address": "{{ if and .Values.kafka .Values.kafka.bootstrapServers }}{{ .Values.kafka.bootstrapServers }}{{ else }}{{ printf "%s-kafka-kafka:9092" .Release.Name }}{{ end }}"
+      },
+      "debug": {
+        "enable_perf_logging": false,
+        "enable_qos_monitoring": false,
+        "enable_prometheus": false,
+        "enable_debug_apis": true,
+        "enable_latency_logging": false
+      },
+      "security": {
+        "use_https": false,
+        "use_rtsp_authentication": false,
+        "use_http_digest_authentication": false,
+        "use_multi_user": false,
+        "enable_user_cleanup": false,
+        "session_max_age_sec": 2592000
+      },
+      "observability": {
+        "enable_telemetry": false,
+        "otlp_endpoint": "http://localhost:4318/v1/traces"
+      }
+    }
+  adaptor_config.json: |
+{{ .Files.Get "configs/adaptor_config.json" | indent 4 }}
+  rtsp_streams.json: |
+{{ .Files.Get "configs/rtsp_streams.json" | indent 4 }}
+{{- end }}

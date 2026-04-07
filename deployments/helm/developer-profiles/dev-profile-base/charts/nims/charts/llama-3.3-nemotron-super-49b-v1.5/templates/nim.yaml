@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and (.Capabilities.APIVersions.Has "apps.nvidia.com/v1alpha1") .Values.enabled }}
+{{- $name := include "llama-3.3-nemotron-super-49b-v1.5.fullname" . }}
+{{- $imgPullSecret := .Values.imagePullSecret.name | default "ngc-secret" }}
+{{- $ngcSecret := .Values.ngcApiSecret.name | default (index (index .Values.global "ngcApiSecret") "name") | default "ngc-api" }}
+---
+apiVersion: apps.nvidia.com/v1alpha1
+kind: NIMCache
+metadata:
+  name: {{ $name }}-cache
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  source:
+    ngc:
+      modelPuller: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+      pullSecret: {{ $imgPullSecret }}
+      authSecret: {{ $ngcSecret }}
+      model:
+{{ toYaml .Values.model | nindent 8 }}
+  storage:
+    pvc:
+      create: {{ .Values.storage.pvc.create | default true }}
+      storageClass: {{ .Values.storage.pvc.storageClass | default (index .Values.global "storageClass") | default "" }}
+      size: {{ .Values.storage.pvc.size | default "120Gi" }}
+      volumeAccessMode: {{ .Values.storage.pvc.volumeAccessMode | default "ReadWriteOnce" }}
+  resources: {}
+---
+apiVersion: apps.nvidia.com/v1alpha1
+kind: NIMService
+metadata:
+  name: {{ $name }}
+spec:
+  image:
+    repository: {{ .Values.image.repository }}
+    tag: {{ .Values.image.tag | toString | quote }}
+    pullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+    pullSecrets:
+      - {{ $imgPullSecret }}
+  authSecret: {{ $ngcSecret }}
+  storage:
+    nimCache:
+      name: {{ $name }}-cache
+    sharedMemorySizeLimit: {{ .Values.storage.sharedMemorySizeLimit | default "16Gi" }}
+  env:
+{{- $profile := .Values.hardwareProfile | default "" }}
+{{- if and $profile (index .Values.envByHardware $profile) }}
+{{ toYaml (index .Values.envByHardware $profile) | nindent 4 }}
+{{- else }}
+{{ toYaml .Values.env | nindent 4 }}
+{{- end }}
+    - name: NGC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: {{ $ngcSecret }}
+          key: {{ .Values.ngcApiSecret.key | default (index (index .Values.global "ngcApiSecret") "key") | default "NGC_API_KEY" }}
+  replicas: {{ .Values.replicas | default 1 }}
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+{{ toYaml . | nindent 4 }}
+  {{- end }}
+  resources:
+{{ toYaml .Values.resources | nindent 4 }}
+  {{- with .Values.tolerations }}
+  tolerations:
+{{ toYaml . | nindent 4 }}
+  {{- end }}
+  expose:
+{{ toYaml .Values.expose | nindent 4 }}
+{{- end }}

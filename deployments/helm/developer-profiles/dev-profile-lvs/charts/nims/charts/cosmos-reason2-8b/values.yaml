@@ -1,0 +1,146 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NIM VLM: NIMCache + NIMService CRDs. Mirrors deployments/nim/cosmos-reason2-8b
+enabled: false
+global: {}
+
+image:
+  repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
+  tag: "1.6.0"
+  pullPolicy: IfNotPresent
+
+model:
+  engine: tensorrt_llm
+  profiles:
+    - all
+
+replicas: 1
+
+storage:
+  pvc:
+    create: true
+    size: "120Gi"
+    volumeAccessMode: ReadWriteOnce
+    storageClass: ""
+  sharedMemorySizeLimit: "32Gi"
+
+hardwareProfile: ""
+
+# env: default when hardwareProfile is "" or no envByHardware key (either/or with envByHardware in template).
+# envByHardware: only variables from met-blueprint-release deployments/nim/cosmos-reason2-8b/hw-*.env (${VLM_NIM_KVCACHE_PERCENT} -> 0.7).
+env:
+  - name: NIM_HTTP_API_PORT
+    value: "8000"
+  - name: NIM_TRITON_LOG_VERBOSE
+    value: "1"
+  - name: NIM_SERVED_MODEL_NAME
+    value: "nvidia/cosmos-reason2-8b"
+  - name: NIM_KVCACHE_PERCENT
+    value: "0.4"
+  - name: NIM_MAX_MODEL_LEN
+    value: "32768"
+  - name: NIM_MAX_NUM_SEQS
+    value: "4"
+  - name: MAX_JOBS
+    value: "4"
+  - name: NIM_DISABLE_MM_PREPROCESSOR_CACHE
+    value: "1"
+  - name: NIM_MODEL_NAME
+    value: ""
+
+envByHardware:
+  H100:
+    - name: NIM_KVCACHE_PERCENT
+      value: "0.7"
+    - name: NIM_DISABLE_MM_PREPROCESSOR_CACHE
+      value: "1"
+  H100-shared:
+    - name: NIM_KVCACHE_PERCENT
+      value: "0.4"
+    - name: NIM_MAX_MODEL_LEN
+      value: "32768"
+    - name: NIM_MAX_NUM_SEQS
+      value: "4"
+    - name: MAX_JOBS
+      value: "4"
+    - name: NIM_DISABLE_MM_PREPROCESSOR_CACHE
+      value: "1"
+  L40S:
+    - name: NIM_KVCACHE_PERCENT
+      value: "0.8"
+    - name: NIM_MAX_MODEL_LEN
+      value: "32768"
+    - name: NIM_MAX_NUM_SEQS
+      value: "4"
+    - name: MAX_JOBS
+      value: "4"
+    - name: NIM_DISABLE_MM_PREPROCESSOR_CACHE
+      value: "1"
+  RTXPRO6000BW:
+    - name: NIM_KVCACHE_PERCENT
+      value: "0.7"
+    - name: NIM_DISABLE_MM_PREPROCESSOR_CACHE
+      value: "1"
+  RTXPRO6000BW-shared:
+    - name: NIM_KVCACHE_PERCENT
+      value: "0.4"
+    - name: NIM_MAX_MODEL_LEN
+      value: "32768"
+    - name: NIM_MAX_NUM_SEQS
+      value: "4"
+    - name: MAX_JOBS
+      value: "4"
+    - name: NIM_DISABLE_MM_PREPROCESSOR_CACHE
+      value: "1"
+  DGX-SPARK:
+    - name: NIM_KVCACHE_PERCENT
+      value: "0.8"
+    - name: NIM_MAX_MODEL_LEN
+      value: "32768"
+    - name: NIM_MAX_NUM_SEQS
+      value: "4"
+    - name: NIM_DISABLE_CUDA_GRAPH
+      value: "1"
+  DGX-SPARK-shared:
+    - name: NIM_KVCACHE_PERCENT
+      value: "0.4"
+    - name: NIM_MAX_MODEL_LEN
+      value: "16384"
+    - name: NIM_MAX_NUM_SEQS
+      value: "4"
+    - name: NIM_DISABLE_CUDA_GRAPH
+      value: "1"
+
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    nvidia.com/gpu: 1
+
+nodeSelector: {}
+tolerations: []
+
+expose:
+  service:
+    name: http
+    type: ClusterIP
+    port: 8000
+    grpcPort: 8001
+
+imagePullSecret:
+  name: "ngc-secret"
+ngcApiSecret:
+  name: "ngc-api"

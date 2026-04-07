@@ -1,0 +1,223 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sdr-envoy.fullname" . }}
+  labels:
+    {{- include "sdr-envoy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "sdr-envoy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sdr-envoy.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/envoy-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName | default "default" }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              REDIS_HOST="{{ .Values.wdm.redisServer | default (printf "%s-redis" .Release.Name) }}"
+              until nc -z "$REDIS_HOST" {{ .Values.wdm.redisPort }}; do
+                echo "Waiting for Redis at $REDIS_HOST:{{ .Values.wdm.redisPort }}..."
+                sleep 3
+              done
+              echo "Redis is ready!"
+      containers:
+        - name: sdr
+          image: "{{ .Values.sdr.image.repository }}:{{ .Values.sdr.image.tag }}"
+          imagePullPolicy: {{ .Values.sdr.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http-sdr
+              containerPort: {{ .Values.sdr.port }}
+              protocol: TCP
+          env:
+            - name: CONTAINER_NAME
+              value: {{ include "sdr-envoy.fullname" . | quote }}
+            - name: PORT
+              value: {{ .Values.sdr.port | quote }}
+            - name: ENVOYROUTEHEADER
+              value: {{ .Values.wdm.routeHeader | quote }}
+            - name: NOHEADERTARGETCONTAINER
+              value: {{ printf "%s-0" (include "sdr-envoy.streamprocessingFullname" .) | quote }}
+            - name: WDM_WL_OBJECT_NAME
+              value: {{ include "sdr-envoy.streamprocessingFullname" . | quote }}
+            - name: WDM_MAX_REPLICAS
+              value: {{ .Values.wdm.maxReplicas | quote }}
+            - name: WDM_WL_THRESHOLD
+              value: {{ .Values.wdm.threshold | quote }}
+            - name: WDM_WL_ADD_URL
+              value: {{ .Values.wdm.addUrl | quote }}
+            - name: WDM_WL_DELETE_URL
+              value: {{ .Values.wdm.deleteUrl | quote }}
+            - name: WDM_WL_HEALTH_CHECK_URL
+              value: {{ .Values.wdm.healthCheckUrl | quote }}
+            - name: WDM_WL_CHANGE_ID_ADD
+              value: {{ .Values.wdm.changeIdAdd | quote }}
+            - name: WDM_WL_CHANGE_ID_DEL
+              value: {{ .Values.wdm.changeIdDel | quote }}
+            - name: WDM_WL_REDIS_SERVER
+              value: {{ .Values.wdm.redisServer | default (printf "%s-redis" .Release.Name) | quote }}
+            - name: WDM_WL_REDIS_PORT
+              value: {{ .Values.wdm.redisPort | quote }}
+            - name: WDM_REDIS_CACHE_OBJECT
+              value: "streamprocessing-data"
+            - name: WDM_MSG_KEY
+              value: {{ .Values.wdm.msgKey | quote }}
+            - name: WDM_MSG_TOPIC
+              value: {{ .Values.wdm.msgTopic | quote }}
+            - name: WDM_WL_REDIS_MSG_FIELD
+              value: {{ .Values.wdm.msgKeyField | quote }}
+            - name: WDM_KFK_ENABLE
+              value: "false"
+            - name: WDM_CONSUMER_GRP_ID
+              value: {{ .Values.wdm.consumerGroupId | quote }}
+            - name: WDM_CLUSTER_TYPE
+              value: "k8s-headless"
+            - name: WDM_WL_CONFIG_PORT
+              value: {{ .Values.wdm.k8sHeadlessPodPort | quote }}
+            - name: NAMESPACE
+              value: default
+            - name: WDM_K8S_HEADLESS_BASE_DOMAIN
+              value: {{ include "sdr-envoy.streamprocessingHeadless" . | quote }}
+            - name: WDM_K8S_HEADLESS_DEFAULT_POD_PORT
+              value: {{ .Values.wdm.k8sHeadlessPodPort | quote }}
+            - name: WDM_TARGET_PORT_MAPPING
+              value: {{ printf "{\"%s-0\": %s, \"default\": %s}" (include "sdr-envoy.streamprocessingFullname" .) .Values.wdm.k8sHeadlessPodPort .Values.wdm.k8sHeadlessPodPort | quote }}
+            - name: WDM_INITIALIZE_FROM_VST
+              value: "false"
+            - name: WDM_CLEAR_DATA_WL
+              value: "true"
+            - name: WDM_DS_SWAP_ID_NAME
+              value: "false"
+            - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+              value: "50"
+            - name: WDM_RESTART_DS_ON_ADD_FAIL
+              value: "false"
+            - name: WDM_DISABLE_WERKZEUG_LOGGING
+              value: "true"
+            - name: VST_STATUS_ENDPOINT
+              value: ""
+            - name: VST_STREAMS_ENDPOINT
+              value: ""
+            - name: ENVOY_REQUEST_TIMEOUT
+              value: {{ .Values.envoy.requestTimeout | default "3600s" | trimSuffix "s" | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: "true"
+            - name: OTEL_SERVICE_NAME
+              value: "SDR_AGENT"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http-sdr
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-sdr
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.sdr.resources | nindent 12 }}
+        - name: envoy
+          image: "{{ .Values.envoy.image.repository }}:{{ .Values.envoy.image.tag }}"
+          imagePullPolicy: {{ .Values.envoy.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /usr/local/bin/envoy
+          args:
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --concurrency
+            - {{ .Values.envoy.concurrency | quote }}
+            - --base-id
+            - "1"
+          ports:
+            - name: http-envoy
+              containerPort: {{ .Values.envoy.listenerPort }}
+              protocol: TCP
+            - name: http-admin
+              containerPort: {{ .Values.envoy.adminPort }}
+              protocol: TCP
+          env:
+            - name: CONTAINER_NAME
+              value: "envoy-streamprocessing"
+            - name: ENVOYROUTEHEADER
+              value: {{ .Values.wdm.routeHeader | quote }}
+            - name: NOHEADERTARGETCONTAINER
+              value: {{ printf "%s-0" (include "sdr-envoy.streamprocessingFullname" .) | quote }}
+            - name: NOHEADERTARGETPORT
+              value: {{ .Values.wdm.k8sHeadlessPodPort | quote }}
+            - name: WDM_WL_OBJECT_NAME
+              value: {{ include "sdr-envoy.streamprocessingFullname" . | quote }}
+            - name: WDM_WL_REDIS_SERVER
+              value: {{ .Values.wdm.redisServer | default (printf "%s-redis" .Release.Name) | quote }}
+            - name: WDM_WL_REDIS_PORT
+              value: {{ .Values.wdm.redisPort | quote }}
+          readinessProbe:
+            httpGet:
+              path: /server_info
+              port: http-admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /server_info
+              port: http-admin
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.envoy.resources | nindent 12 }}
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+              readOnly: true
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: {{ include "sdr-envoy.fullname" . }}-envoy-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

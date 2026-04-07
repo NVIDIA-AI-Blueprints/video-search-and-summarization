@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-ui.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-ui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-ui
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-ui
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-ui
+          image: {{ include "vss-ui.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            {{- $g := .Values.global | default dict }}
+            {{- $eh := index $g "externalHost" | default "" | trim }}
+            {{- $es := index $g "externalScheme" | default "http" }}
+            {{- $ep := index $g "externalPort" | default "" | trim }}
+            {{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}
+            {{- $wsSch := ternary "wss" "ws" (eq $es "https") }}
+            {{- $globalWs := ternary (ternary (printf "%s://%s:%s" $wsSch $eh $ep) (printf "%s://%s" $wsSch $eh) (ne $ep "")) "" (ne $eh "") }}
+            {{- $kibanaPub := index $g "kibanaPublicUrl" | default "" | trim }}
+            {{- range .Values.env }}
+            {{- if eq .name "NEXT_PUBLIC_APP_SUBTITLE" }}
+            - name: NEXT_PUBLIC_APP_SUBTITLE
+              value: {{ ($.Values.appSubtitle | default .value | default "Vision (LVS)") | quote }}
+            {{- else if eq .name "NEXT_PUBLIC_ENABLE_DASHBOARD_TAB" }}
+            - name: NEXT_PUBLIC_ENABLE_DASHBOARD_TAB
+              value: {{ (printf "%v" ($.Values.enableDashboardTab | default .value | default true)) | quote }}
+            {{- else if eq .name "NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL" }}
+            - name: NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL
+              value: {{ ($.Values.dashboardKibanaBaseUrl | default $kibanaPub | default .value | default "") | quote }}
+            {{- else }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+            {{- end }}
+            - name: NEXT_PUBLIC_AGENT_API_URL_BASE
+              value: {{ .Values.agentApiUrlBase | default (ternary (printf "%s/api/v1" $globalBase) "" (ne $globalBase "")) | default (printf "http://%s-vss-agent:8000/api/v1" .Release.Name) | quote }}
+            - name: NEXT_PUBLIC_VST_API_URL
+              value: {{ .Values.vstApiUrl | default (ternary (printf "%s/vst/api" $globalBase) "" (ne $globalBase "")) | default (printf "http://%s-vst-ingress-dev:30888/vst/api" .Release.Name) | quote }}
+            {{- $httpChat := .Values.chatCompletionUrl | default (ternary (printf "%s/chat/stream" $globalBase) "" (ne $globalBase "")) | default (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) }}
+            - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
+              value: {{ $httpChat | quote }}
+            - name: NEXT_PUBLIC_SEARCH_TAB_CHAT_HTTP_CHAT_COMPLETION_URL
+              value: {{ $httpChat | quote }}
+            {{- $wsUrl := .Values.websocketChatUrl | default (ternary (printf "%s/websocket" $globalWs) "" (ne $globalWs "")) }}
+            {{- if $wsUrl }}
+            - name: NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL
+              value: {{ $wsUrl | quote }}
+            - name: NEXT_PUBLIC_SEARCH_TAB_CHAT_WEBSOCKET_CHAT_COMPLETION_URL
+              value: {{ $wsUrl | quote }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

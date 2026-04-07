@@ -1,0 +1,177 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VSS parent chart — LVS profile. Default install matches full LVS stack (equiv. dev-profile.sh -p lvs).
+# Install: helm upgrade --install vss . -f values-lvs.yaml -n vss --create-namespace
+
+profile: lvs
+mode: ""
+llmNameSlug: nvidia-nemotron-nano-9b-v2
+vlmNameSlug: cosmos-reason2-8b
+
+ngc:
+  createSecrets: true
+  apiKey: ""
+
+global:
+  imagePullSecrets:
+    - name: ngc-secret
+  ngcApiSecret:
+    name: ngc-api
+    key: NGC_API_KEY
+  # For default http/https ports (80/443), keep externalPort "" so URLs omit :port; set a port only when not using the default.
+  externalScheme: ""
+  externalHost: ""
+  externalPort: ""
+  # Full public Kibana URL for Dashboard tab (vss-ui) and Kibana SERVER_PUBLICBASEURL when subchart value is empty (no /kibana suffix).
+  kibanaPublicUrl: ""
+
+vstStorage:
+  createSharedPvcs: true
+  accessMode: ReadWriteOnce
+  vstData:
+    size: 10Gi
+    storageClass: ""
+  vstVideo:
+    size: 20Gi
+    storageClass: ""
+  streamerVideos:
+    size: 20Gi
+    storageClass: ""
+
+# Set global.external* and optional global.kibanaPublicUrl in values-lvs.yaml. Images/replicas: charts/<name>/values.yaml.
+
+phoenix:
+  enabled: true
+
+redis:
+  enabled: true
+
+centralizedb-dev:
+  enabled: true
+
+envoy-streamprocessing:
+  enabled: true
+
+sdr-streamprocessing:
+  enabled: true
+
+sensor-ms-dev:
+  enabled: true
+  persistence:
+    vstData: { enabled: true, create: false, existingClaim: "" }
+    vstVideo: { enabled: true, create: false, existingClaim: "" }
+
+streamprocessing-ms-dev:
+  enabled: true
+  persistence:
+    vstData: { enabled: true, create: false, existingClaim: "" }
+    vstVideo: { enabled: true, create: false, existingClaim: "" }
+    streamerVideos: { enabled: true, create: false, existingClaim: "" }
+
+vst-ingress-dev:
+  enabled: true
+  externallyAccessibleIp: ""
+
+vst-mcp-dev:
+  enabled: true
+
+vss-proxy:
+  enabled: false
+
+rtvi-vlm:
+  enabled: false
+
+lvs-server:
+  enabled: true
+  elasticsearchHost: ""
+  elasticsearchPort: "9200"
+  llmService: ""
+  vlmService: ""
+
+elasticsearch:
+  enabled: true
+  storage:
+    dataSize: 10Gi
+    logsSize: 5Gi
+    storageClass: ""
+
+kibana:
+  enabled: true
+  elasticsearchHosts: ""
+  kibanaPublicUrl: ""
+
+elasticsearch-init-container:
+  enabled: true
+  elasticsearchUrl: ""
+
+kibana-init-container-lvs:
+  enabled: true
+  kibanaUrl: ""
+  elasticsearchUrl: ""
+
+vss-agent:
+  enabled: true
+  rtviVlmEnabled: false
+  profile: lvs
+  lvsBackendService: "lvs-server"
+  vstInternalUrl: ""
+  vstInternalIp: ""
+  vssAgentExternalUrl: ""
+  vssAgentVersion: "3.1.0"
+  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  vlmName: "nvidia/cosmos-reason2-8b"
+  evalLlmJudgeName: ""
+  evalLlmJudgeBaseUrl: ""
+  reportsBaseUrl: ""
+  vstExternalUrl: ""
+  externalIp: ""
+
+vss-ui:
+  enabled: true
+  appSubtitle: "Vision (LVS)"
+  enableDashboardTab: true
+  agentApiUrlBase: ""
+  vstApiUrl: ""
+  chatCompletionUrl: ""
+  websocketChatUrl: ""
+  dashboardKibanaBaseUrl: ""
+
+nims:
+  enabled: true
+  cosmos-reason1-7b:
+    enabled: false
+    hardwareProfile: H100
+  cosmos-reason2-8b:
+    enabled: true
+    hardwareProfile: H100
+  gpt-oss-20b:
+    enabled: false
+    hardwareProfile: H100
+  llama-3.3-nemotron-super-49b-v1.5:
+    enabled: false
+    hardwareProfile: H100
+  nemotron-3-nano:
+    enabled: false
+    hardwareProfile: H100
+  nvidia-nemotron-nano-9b-v2:
+    enabled: true
+    hardwareProfile: H100
+  nvidia-nemotron-nano-9b-v2-fp8:
+    enabled: false
+    hardwareProfile: H100
+  qwen3-vl-8b-instruct:
+    enabled: false
+    hardwareProfile: H100

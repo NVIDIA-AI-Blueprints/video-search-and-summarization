@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NIM LLM (FP8): NIMCache + NIMService CRDs. Mirrors deployments/nim/nvidia-nemotron-nano-9b-v2-fp8
+enabled: false
+global: {}
+
+image:
+  repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2-fp8
+  tag: "1"   # NIM catalog tag; release_3.1.0 fp8 stack uses vLLM image instead
+  pullPolicy: IfNotPresent
+
+model:
+  engine: tensorrt_llm
+  profiles:
+    - all
+
+replicas: 1
+
+storage:
+  pvc:
+    create: true
+    size: "120Gi"
+    volumeAccessMode: ReadWriteOnce
+    storageClass: ""
+  sharedMemorySizeLimit: "16Gi"
+
+hardwareProfile: ""
+
+# env: default when hardwareProfile is "" or no envByHardware key (either/or with envByHardware in template).
+# envByHardware: only variables from met-blueprint-release deployments/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-*.env (3.1.0 files are header-only — {}).
+env:
+  - name: NIM_HTTP_API_PORT
+    value: "8000"
+  - name: NIM_SERVED_MODEL_NAME
+    value: "nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8"
+
+envByHardware: {}
+
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    nvidia.com/gpu: 1
+
+nodeSelector: {}
+tolerations: []
+
+expose:
+  service:
+    name: http
+    type: ClusterIP
+    port: 8000
+    grpcPort: 8001
+
+imagePullSecret:
+  name: "ngc-secret"
+ngcApiSecret:
+  name: "ngc-api"

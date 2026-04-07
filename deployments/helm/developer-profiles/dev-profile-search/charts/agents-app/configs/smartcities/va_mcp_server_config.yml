@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+functions:
+  vst_sensor_list:
+    _type: mcp_tool_wrapper
+    url: {{ include "agents.vstMcpUrl" . }}/mcp
+    mcp_tool_name: sensor_list
+
+function_groups:
+  video_analytics:
+    _type: video_analytics
+    es_url: {{ include "agents.elasticsearchUrl" . | quote }}
+    index_prefix: "mdx-"
+    vlm_verified: {{ include "agents.bpValue" (dict "root" . "keys" (list "vaMcp" "vlmVerified")) }}
+    vst_sensor_list_tool: vst_sensor_list
+    embedding_model_name: {{ include "agents.bpValue" (dict "root" . "keys" (list "vaMcp" "embeddingModelName")) | quote }}
+    include:
+{{ include "agents.bpList" (dict "root" . "keys" (list "vaMcp" "videoAnalyticsIncludes")) | indent 6 }}
+
+llms:
+  nim_llm:
+    _type: nim
+    model_name: {{ include "agents.bpValue" (dict "root" . "keys" (list "vaMcp" "llmModelName")) }}
+    temperature: {{ include "agents.bpValue" (dict "root" . "keys" (list "vaMcp" "llmTemperature")) }}
+    max_tokens: {{ include "agents.bpValue" (dict "root" . "keys" (list "vaMcp" "llmMaxTokens")) }}
+
+# dummy workflow required to start MCP server
+workflow:
+  _type: react_agent
+  tool_names: [video_analytics]
+  llm_name: nim_llm
+  verbose: true
+  parse_agent_response_max_retries: 3
+

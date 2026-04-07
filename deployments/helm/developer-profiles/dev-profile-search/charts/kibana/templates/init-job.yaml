@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.init.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kibana.fullname" . }}-kibana-init
+  labels:
+    {{- include "kibana.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibana-init
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: {{ .Values.init.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "kibana.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kibana-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kibana-init
+          image: "{{ .Values.init.image.repository }}:{{ .Values.init.image.tag }}"
+          imagePullPolicy: {{ .Values.init.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ES_URL="{{ include "kibana.elasticsearchUrl" . }}"
+              KB_URL="http://{{ include "kibana.fullname" . }}-kibana:{{ .Values.port }}"
+              MAX_ATTEMPTS=30
+              echo "Waiting for Elasticsearch at $ES_URL..."
+              attempts=0
+              until curl -sf "$ES_URL" > /dev/null 2>&1; do
+                attempts=$((attempts + 1))
+                [ $attempts -ge $MAX_ATTEMPTS ] && echo "ES not ready" && exit 1
+                echo "Attempt $attempts/$MAX_ATTEMPTS - waiting..."
+                sleep 10
+              done
+              echo "Waiting for Kibana at $KB_URL..."
+              attempts=0
+              until curl -sf "$KB_URL/api/status" > /dev/null 2>&1; do
+                attempts=$((attempts + 1))
+                [ $attempts -ge $MAX_ATTEMPTS ] && echo "Kibana not ready" && exit 1
+                echo "Attempt $attempts/$MAX_ATTEMPTS - waiting..."
+                sleep 10
+              done
+              sleep 10
+              echo "Importing search dashboards..."
+              curl -X POST "$KB_URL/api/saved_objects/_import?overwrite=true" \
+                -H "kbn-xsrf: true" \
+                --form file=@/opt/mdx/search-kibana-objects.ndjson \
+                && echo "Dashboard import complete."
+          volumeMounts:
+            - name: kibana-init-data
+              mountPath: /opt/mdx/search-kibana-objects.ndjson
+              subPath: search-kibana-objects.ndjson
+              readOnly: true
+      volumes:
+        - name: kibana-init-data
+          configMap:
+            name: {{ include "kibana.fullname" . }}-kibana-init-data
+{{- end }}

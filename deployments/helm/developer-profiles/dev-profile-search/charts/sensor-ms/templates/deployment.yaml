@@ -1,0 +1,210 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sensor-ms.fullname" . }}
+  labels:
+    {{- include "sensor-ms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "sensor-ms.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sensor-ms.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      initContainers:
+        - name: wait-for-postgres
+          image: docker.io/alpine/curl:8.12.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until curl --connect-timeout 1 {{ .Values.postgres.host | default (printf "%s-centralizedb" .Release.Name) }}:{{ .Values.postgres.port }} 2>&1 | grep -q 'Empty reply from server'; do
+                echo "Waiting for postgres..."
+                sleep 1
+              done
+        - name: wait-for-redis
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              REDIS_HOST="{{ .Values.redis.host | default (printf "%s-redis" .Release.Name) }}"
+              REDIS_PORT="{{ .Values.redis.port }}"
+              echo "Waiting for Redis at $REDIS_HOST:$REDIS_PORT..."
+              until nc -z "$REDIS_HOST" "$REDIS_PORT" 2>/dev/null; do
+                echo "Redis not ready, retrying in 2s..."
+                sleep 2
+              done
+              echo "Redis is ready."
+      containers:
+        - name: sensor-ms
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/bash
+            - -c
+            - exec /home/vst/vst_release/launch_vst
+          ports:
+            - name: http-api
+              containerPort: {{ .Values.httpPort }}
+              protocol: TCP
+          env:
+            {{- $pgcm := include "sensor-ms.centralizedbPostgresCmName" . }}
+            {{- $extDb := .Values.postgres.host }}
+            - name: ADAPTOR
+              value: "vst_rtsp"
+            - name: HOST_IP
+              value: "0.0.0.0"
+            - name: CENTRALIZE_DB_NAME
+{{- if $extDb }}
+              value: {{ .Values.postgres.dbName | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_NAME
+{{- end }}
+            - name: CENTRALIZE_DB_USERNAME
+{{- if $extDb }}
+              value: {{ .Values.postgres.dbUsername | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_USERNAME
+{{- end }}
+            - name: CENTRALIZE_DB_HOSTADDR
+{{- if $extDb }}
+              value: {{ .Values.postgres.host | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_HOSTADDR
+{{- end }}
+            - name: CENTRALIZE_DB_PORT
+{{- if $extDb }}
+              value: {{ .Values.postgres.port | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_PORT
+{{- end }}
+            - name: CENTRALIZE_DB_PASSWORD
+{{- if $extDb }}
+              value: {{ .Values.postgres.dbPassword | default "" | quote }}
+{{- else }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $pgcm }}
+                  key: CENTRALIZE_DB_PASSWORD
+{{- end }}
+            - name: HTTP_PORT
+              value: {{ .Values.httpPort | quote }}
+            - name: NEED_RECORDING
+              value: "false"
+            - name: NEED_RTSPSERVER
+              value: "false"
+            - name: NEED_STORAGE
+              value: "false"
+            - name: NEED_STREAM_MONITORING
+              value: "true"
+            - name: STREAM_PROCESSOR_MODULE_ENDPOINT
+              value: {{ .Values.endpoints.streamProcessorModule | default (printf "http://%s-sdr-envoy:10000" .Release.Name) | quote }}
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -ec
+                - "exec 3<>/dev/tcp/127.0.0.1/{{ .Values.httpPort }}"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -ec
+                - "exec 3<>/dev/tcp/127.0.0.1/{{ .Values.httpPort }}"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /home/vst/vst_release/configs/vst_config.json
+              subPath: vst_config.json
+              readOnly: true
+            - name: config
+              mountPath: /home/vst/vst_release/configs/adaptor_config.json
+              subPath: adaptor_config.json
+              readOnly: true
+            - name: config
+              mountPath: /home/vst/vst_release/configs/rtsp_streams.json
+              subPath: rtsp_streams.json
+              readOnly: true
+            - name: vst-data
+              mountPath: /home/vst/vst_release/vst_data
+            - name: vst-video
+              mountPath: /home/vst/vst_release/vst_video
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "sensor-ms.fullname" . }}-config
+        - name: vst-data
+          {{- if .Values.persistence.useEmptyDir }}
+          emptyDir: {}
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "sensor-ms.fullname" . }}-vst-data
+          {{- end }}
+        - name: vst-video
+          {{- if .Values.persistence.useEmptyDir }}
+          emptyDir: {}
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "sensor-ms.fullname" . }}-vst-video
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

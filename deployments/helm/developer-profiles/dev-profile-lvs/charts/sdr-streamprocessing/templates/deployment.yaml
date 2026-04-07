@@ -1,0 +1,158 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sdr-streamprocessing.fullname" . }}
+  labels:
+    app.kubernetes.io/name: sdr-streamprocessing
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sdr-streamprocessing
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sdr-streamprocessing
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- if eq .Values.clusterType "kubernetes" }}
+      serviceAccountName: {{ include "sdr-streamprocessing.fullname" . }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: sdr-streamprocessing
+          image: {{ include "sdr-streamprocessing.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.service.port | quote }}
+            - name: WDM_CLUSTER_CONFIG_FILE
+              value: {{ if eq .Values.clusterType "kubernetes" }}/wdm-configs/kubernetes_cluster_config.json{{ else }}/wdm-configs/docker_cluster_config.json{{ end }}
+            # App expects "k8s" for Kubernetes API mode, "docker" for Docker socket (see helm_220226 metropolis-wdm).
+            - name: WDM_CLUSTER_TYPE
+              value: {{ if eq .Values.clusterType "kubernetes" }}k8s{{ else }}docker{{ end }}
+            - name: CONTAINER_NAME
+              value: sdr-streamprocessing
+            - name: WDM_MSG_KEY
+              value: {{ .Values.wdmMsgKey | default "vst.event" | quote }}
+            - name: WDM_WL_REDIS_SERVER
+              value: {{ .Values.redisServer | default (printf "%s-redis" .Release.Name) | quote }}
+            - name: WDM_WL_REDIS_PORT
+              value: {{ .Values.redisPort | default "6379" | quote }}
+            - name: WDM_WL_REDIS_MSG_FIELD
+              value: sensor.id
+            - name: WDM_WL_ADD_URL
+              value: /api/v1/proxy/stream/add
+            - name: WDM_WL_DELETE_URL
+              value: /api/v1/proxy/stream/
+            - name: WDM_WL_HEALTH_CHECK_URL
+              value: /api/v1/proxy/configuration
+            - name: WDM_WL_CHANGE_ID_ADD
+              value: camera_proxy
+            - name: WDM_WL_CHANGE_ID_DEL
+              value: camera_remove
+            - name: WDM_PRELOAD_WORKLOAD
+              value: ./tests/event_pre-roll.json
+            - name: WDM_CLEAR_DATA_WL
+              value: "true"
+            - name: WDM_KFK_ENABLE
+              value: "false"
+            - name: WDM_MSG_TOPIC
+              value: vst_events
+            - name: WDM_DS_SWAP_ID_NAME
+              value: "false"
+            - name: WDM_WL_THRESHOLD
+              value: "100"
+            - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+              value: "50"
+            - name: WDM_RESTART_DS_ON_ADD_FAIL
+              value: "false"
+            - name: WDM_DISABLE_WERKZEUG_LOGGING
+              value: "true"
+            - name: WDM_WL_OBJECT_NAME
+              value: streamprocessing-ms
+            - name: WDM_CONSUMER_GRP_ID
+              value: sdr-streamprocessing-cg
+            - name: WDM_CLUSTER_CONTAINER_NAMES
+              value: '["streamprocessing-ms"]'
+            - name: VST_STREAMS_ENDPOINT
+              value: {{ .Values.vstStreamsEndpoint | default (printf "http://%s-sensor-ms-dev:30000/api/v1/sensor/streams" .Release.Name) | quote }}
+            - name: VST_STATUS_ENDPOINT
+              value: {{ .Values.vstStatusEndpoint | default (printf "http://%s-sensor-ms-dev:30000/api/v1/sensor/status" .Release.Name) | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: "true"
+            - name: WDM_INITIALIZE_FROM_VST
+              value: "false"
+            - name: ENVOY_REQUEST_TIMEOUT
+              value: "300"
+            - name: WDM_TARGET_PORT_MAPPING
+              value: {{ printf "{\"streamprocessing-ms-1\": %s}" (.Values.streamprocessingPort | default "30001") | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: SDR_AGENT
+            - name: WDM_REDIS_CACHE_OBJECT
+              value: streamprocessing-data
+            - name: WDM_WL_NAME_IGNORE_REGEX
+              value: ""
+          volumeMounts:
+            - name: wdm-configs
+              mountPath: /wdm-configs
+              readOnly: true
+            - name: log
+              mountPath: /log
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 60
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: wdm-configs
+          configMap:
+            name: {{ include "sdr-streamprocessing.fullname" . }}-wdm-configs
+        - name: log
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

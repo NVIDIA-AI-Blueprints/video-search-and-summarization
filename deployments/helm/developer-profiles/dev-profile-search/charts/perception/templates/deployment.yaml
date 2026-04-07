@@ -1,0 +1,231 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "perception.fullname" . }}-perception
+  labels:
+    {{- include "perception.labels" . | nindent 4 }}
+    app.kubernetes.io/component: perception
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "perception.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: perception
+  template:
+    metadata:
+      labels:
+        {{- include "perception.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: perception
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- $pgie := .Values.models.pgie }}
+        {{- $ve   := .Values.models.visionEncoder }}
+        {{- $pgieFiles := printf "%s/v2/org/%s/team/%s/models/%s/versions/%s/files" $pgie.ngc.apiBaseUrl $pgie.ngc.org $pgie.ngc.team $pgie.ngc.model $pgie.ngc.version }}
+        {{- $veFiles   := printf "%s/v2/org/%s/team/%s/models/%s/versions/%s/files" $ve.ngc.apiBaseUrl $ve.ngc.org $ve.ngc.team $ve.ngc.model $ve.ngc.version }}
+        - name: download-models
+          image: alpine:3.23.2
+          env:
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.models.authSecretName }}
+                  key: {{ .Values.models.authSecretKey }}
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              PGIE_MODEL="/opt/storage/{{ $pgie.onnxFile }}"
+              VE_MODEL="/opt/storage/{{ $ve.onnxFile }}"
+              VE_WEIGHTS="/opt/storage/{{ $ve.weightsFile }}"
+              VE_TOKENIZER="/opt/storage/{{ $ve.tokenizerDir }}"
+
+              if [ -f "$PGIE_MODEL" ] && [ -f "$VE_MODEL" ] && [ -f "$VE_WEIGHTS" ] && [ -d "$VE_TOKENIZER" ]; then
+                echo "Models already present on PVC:"
+                ls -lh "$PGIE_MODEL" "$VE_MODEL" "$VE_WEIGHTS"
+                ls -ld "$VE_TOKENIZER"
+                exit 0
+              fi
+
+              apk add --no-cache curl jq > /dev/null 2>&1
+
+              ngc_download() {
+                local url="$1" dest="$2"
+                echo "  Downloading: $(basename "$dest")"
+                curl -fSL --retry 3 --retry-delay 5 \
+                  -H "Authorization: Bearer $NGC_API_KEY" \
+                  "$url" -o "$dest"
+              }
+
+              echo "=== Downloading PGIE model ({{ $pgie.ngc.org }}/{{ $pgie.ngc.team }}/{{ $pgie.ngc.model }}:{{ $pgie.ngc.version }}) ==="
+              ngc_download "{{ $pgieFiles }}/{{ $pgie.onnxFile }}" "$PGIE_MODEL"
+
+              echo "=== Downloading VisionEncoder model ({{ $ve.ngc.org }}/{{ $ve.ngc.team }}/{{ $ve.ngc.model }}:{{ $ve.ngc.version }}) ==="
+              ngc_download "{{ $veFiles }}/{{ $ve.onnxFile }}"      "$VE_MODEL"
+              ngc_download "{{ $veFiles }}/{{ $ve.weightsFile }}"   "$VE_WEIGHTS"
+
+              echo "  Downloading tokenizer directory: {{ $ve.tokenizerDir }}/"
+              mkdir -p "$VE_TOKENIZER"
+              curl -fSL --retry 3 --retry-delay 5 \
+                -H "Authorization: Bearer $NGC_API_KEY" \
+                "{{ $veFiles }}" | \
+                jq -r '.modelFiles[].path // empty' | \
+                grep "^{{ $ve.tokenizerDir }}/" | \
+                while read -r fpath; do
+                  mkdir -p "/opt/storage/$(dirname "$fpath")"
+                  ngc_download "{{ $veFiles }}/$fpath" "/opt/storage/$fpath"
+                done
+
+              echo "=== Model download complete ==="
+              ls -lhR /opt/storage/
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+        - name: wait-for-kafka
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka to be ready..."
+              until nc -z {{ include "perception.kafkaBootstrap" . | replace ":9092" "" }} 9092; do
+                echo "Kafka not ready yet, waiting..."
+                sleep 5
+              done
+              echo "Kafka is ready!"
+      containers:
+        - name: perception
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
+          command:
+            - bash
+            - -c
+            - ./ds-start.sh
+          {{- if .Values.httpPort }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.httpPort }}
+              hostPort: {{ .Values.httpPort }}
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          {{- end }}
+          env:
+            - name: MODEL_TYPE
+              value: {{ .Values.modelType | quote }}
+            - name: STREAM_TYPE
+              value: {{ .Values.streamType | quote }}
+            - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+              value: {{ .Values.deepstreamEnableSensorIdExtraction | quote }}
+            - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
+              value: {{ .Values.gstEnableCustomParserModifications | quote }}
+            - name: GST_PLUGIN_PATH
+              value: "/opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder"
+            - name: HF_HUB_OFFLINE
+              value: {{ .Values.hfHubOffline | quote }}
+            - name: TRANSFORMERS_OFFLINE
+              value: {{ .Values.transformersOffline | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: {{ .Values.otelSdkDisabled | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otelServiceName | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://localhost:4318"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: MDX_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "perception.kafkaBootstrap" . | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+              subPath: ds-start.sh
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config.txt
+              subPath: ds-main-config.txt
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-ppl-analytics-pgie-config.yml
+              subPath: ds-ppl-analytics-pgie-config.yml
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-nvdcf-accuracy-tracker-config.yml
+              subPath: ds-nvdcf-accuracy-tracker-config.yml
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-detector-labels.txt
+              subPath: ds-detector-labels.txt
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-kafka-config.txt
+              subPath: ds-kafka-config.txt
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "perception.fullname" . }}-perception-models
+        - name: ds-scripts
+          configMap:
+            name: {{ include "perception.fullname" . }}-perception-scripts
+            defaultMode: 0755
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "perception.fullname" . }}-perception-models
+  labels:
+    {{- include "perception.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.models.size }}

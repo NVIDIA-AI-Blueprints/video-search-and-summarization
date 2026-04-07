@@ -1,0 +1,157 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+worker_processes auto;
+
+error_log  stderr info;
+pid        /tmp/nginx/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    client_body_temp_path /tmp/nginx/client-body;
+    proxy_temp_path       /tmp/nginx/proxy;
+    fastcgi_temp_path     /tmp/nginx/fastcgi;
+    uwsgi_temp_path       /tmp/nginx/uwsgi;
+    scgi_temp_path        /tmp/nginx/scgi;
+
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    log_format detailed '$remote_addr [$time_local] "$request" '
+                       '$status $body_bytes_sent '
+                       'rt:$request_time ut:$upstream_response_time '
+                       'up:$upstream_addr';
+
+    access_log /dev/stdout detailed;
+
+    log_format proxy_debug '$remote_addr [$time_local] "$request" '
+                          '$status rt:$request_time ut:$upstream_response_time '
+                          'up:$upstream_addr us:$upstream_status';
+
+    client_max_body_size 500M;
+
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        '' close;
+    }
+
+    proxy_hide_header 'Access-Control-Allow-Origin';
+    proxy_hide_header 'Access-Control-Allow-Methods';
+    proxy_hide_header 'Access-Control-Allow-Headers';
+    proxy_hide_header 'Access-Control-Expose-Headers';
+    proxy_hide_header 'Access-Control-Max-Age';
+    proxy_hide_header 'Access-Control-Allow-Credentials';
+
+    map $http_origin $cors_origin {
+        default "0";
+        "~^https?://{{ .Values.externallyAccessibleIp | default "127.0.0.1" }}:{{ .Values.vstIngressHttpPort | default "30888" }}$" $http_origin;
+        "~^https?://{{ .Values.externallyAccessibleIp | default "127.0.0.1" }}:3000$" $http_origin;
+        "~^https?://{{ .Values.hostIp | default "127.0.0.1" }}:\d+$" $http_origin;
+        "~^https?://localhost:\d+$" $http_origin;
+        "~^https?://127.0.0.1:\d+$" $http_origin;
+    }
+
+    map "$http_origin:$request_method" $is_preflight {
+        default 0;
+        "~^https?://{{ .Values.externallyAccessibleIp | default "127.0.0.1" }}:{{ .Values.vstIngressHttpPort | default "30888" }}:OPTIONS$" 1;
+        "~^https?://{{ .Values.externallyAccessibleIp | default "127.0.0.1" }}:3000:OPTIONS$" 1;
+    }
+
+    server {
+        listen {{ .Values.vstIngressHttpPort | default "30888" }};
+
+        if ($is_preflight = 1) {
+            return 204;
+        }
+
+        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS, PATCH' always;
+        add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Accept,Origin,streamid,nvstreamer-identifier,nvstreamer-file-name,nvstreamer-chunk-number,nvstreamer-total-chunks,nvstreamer-is-last-chunk,nvstreamer-enable-transcode,nvstreamer-transcode-framerate,nvstreamer-transcode-bitrate' always;
+        add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+        add_header 'Access-Control-Max-Age' 3600 always;
+
+        location /health {
+            return 200 'ok';
+            add_header Content-Type text/plain;
+        }
+
+        location ^~ /vst/api/ {
+            return 404;
+        }
+
+        location = /vst {
+            return 301 /vst/;
+        }
+
+        location /vst/assets/ {
+            alias /vst-ui/assets/;
+        }
+
+        location /vst/favicon/ {
+            alias /vst-ui/favicon/;
+        }
+
+        location /vst/ {
+            alias /vst-ui/;
+            index index.html;
+            try_files $uri $uri/ /vst/index.html;
+        }
+
+        location /vst/api/v1/sensor/ {
+            access_log /dev/stdout proxy_debug;
+            rewrite ^/vst/api/v1/sensor/(.*) /api/v1/sensor/$1 break;
+            proxy_pass http://{{ .Values.sensorUpstream | default (printf "%s-sensor-ms-dev:30000" .Release.Name) }};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_http_version 1.1;
+        }
+
+        location /vst/api/v1/ {
+            rewrite ^/vst/api/v1/(.*) /api/v1/$1 break;
+            proxy_pass http://{{ .Values.envoyUpstream | default (printf "%s-envoy-streamprocessing:10000" .Release.Name) }};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            proxy_buffering off;
+            proxy_request_buffering off;
+        }
+
+        location /vst/storage/ {
+            rewrite ^/vst/storage/(.*) /storage/$1 break;
+            proxy_pass http://{{ .Values.envoyUpstream | default (printf "%s-envoy-streamprocessing:10000" .Release.Name) }};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_http_version 1.1;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            proxy_buffering off;
+            proxy_request_buffering off;
+        }
+    }
+}

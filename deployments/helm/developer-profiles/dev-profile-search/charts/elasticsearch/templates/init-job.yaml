@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.init.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "elasticsearch.fullname" . }}-es-init
+  labels:
+    {{- include "elasticsearch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: elasticsearch-init
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: {{ .Values.init.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "elasticsearch.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: elasticsearch-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: elasticsearch-init
+          image: "{{ .Values.init.image.repository }}:{{ .Values.init.image.tag }}"
+          imagePullPolicy: {{ .Values.init.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ES_URL="http://{{ include "elasticsearch.fullname" . }}-elasticsearch:{{ .Values.service.port }}"
+              MAX_ATTEMPTS=40
+              echo "Waiting for Elasticsearch at $ES_URL..."
+              attempts=0
+              until curl -sf "$ES_URL/_cluster/health" > /dev/null 2>&1; do
+                attempts=$((attempts + 1))
+                [ $attempts -ge $MAX_ATTEMPTS ] && echo "ES not ready after $MAX_ATTEMPTS attempts" && exit 1
+                echo "Attempt $attempts/$MAX_ATTEMPTS - waiting 15s..."
+                sleep 15
+              done
+              echo "Elasticsearch ready."
+
+              echo "Configuring ILM poll interval..."
+              curl -sf -X PUT "$ES_URL/_cluster/settings" \
+                -H "Content-Type: application/json" \
+                -d '{"persistent":{"indices.lifecycle.poll_interval":"30s"}}' \
+                && echo " ILM poll interval set to 30s" || echo " Failed to set ILM poll interval"
+
+              echo "Creating ILM policies..."
+              for policy in mdx-behavior mdx-raw mdx-frames mdx-alerts mdx-events mdx-mtmc mdx-rtls mdx-amr-locations mdx-amr-events mdx-bev mdx-space-utilization mdx-vlm-alerts mdx-incidents mdx-vlm-incidents mdx-embed-filtered; do
+                curl -sf -X PUT "$ES_URL/_ilm/policy/${policy}-ilm-policy" \
+                  -H "Content-Type: application/json" \
+                  -d '{"policy":{"phases":{"delete":{"min_age":"{{ .Values.ilmMinAge }}","actions":{"delete":{}}}}}}' \
+                  && echo " ${policy}-ilm-policy created" || echo " ${policy}-ilm-policy already exists"
+              done
+
+              echo "Checking for mdx-embed-filtered indices with incorrect mappings..."
+              for idx in $(curl -sf "$ES_URL/_cat/indices/mdx-embed-filtered-*?h=index" 2>/dev/null); do
+                mapping=$(curl -sf "$ES_URL/$idx/_mapping" 2>/dev/null)
+                if echo "$mapping" | grep -q '"visionEmbeddings"' && ! echo "$mapping" | grep -q '"type":"nested"'; then
+                  echo "  Deleting $idx (has incorrect non-nested mapping)..."
+                  curl -sf -X DELETE "$ES_URL/$idx" && echo "  Deleted $idx" || echo "  Failed to delete $idx"
+                else
+                  echo "  $idx mapping is correct, keeping."
+                fi
+              done
+
+              echo "Creating index templates..."
+
+              curl -sf -X PUT "$ES_URL/_index_template/metropolis_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-*"],"priority":100,"template":{"settings":{"number_of_shards":16,"translog.durability":"async","refresh_interval":"2s"}}}' \
+                && echo " metropolis_template created" || echo " metropolis_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_alerts_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-alerts-*"],"priority":501,"template":{"settings":{"index.lifecycle.name":"mdx-alerts-ilm-policy"},"mappings":{"properties":{"locations":{"type":"geo_shape"},"smoothLocations":{"type":"geo_shape"},"speedOverTime":{"enabled":false},"lipActivities":{"enabled":false},"gazes":{"enabled":false},"poses":{"enabled":false},"object":{"properties":{"bbox":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"enabled":false},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}}}}}}' \
+                && echo " mdx_alerts_template created" || echo " mdx_alerts_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_behavior_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-behavior-*"],"priority":502,"template":{"settings":{"index.lifecycle.name":"mdx-behavior-ilm-policy","index.mapping.exclude_source_vectors":false},"mappings":{"properties":{"locations":{"type":"geo_shape"},"smoothLocations":{"type":"geo_shape"},"speedOverTime":{"enabled":false},"lipActivities":{"enabled":false},"gazes":{"enabled":false},"poses":{"enabled":false},"embeddings":{"type":"nested","properties":{"vector":{"type":"dense_vector","dims":{{ .Values.rtviCvEmbeddingsDim }},"index":true}}},"object":{"properties":{"bbox":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"enabled":false},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}}}}}}' \
+                && echo " mdx_behavior_template created" || echo " mdx_behavior_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_events_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-events-*"],"priority":503,"template":{"settings":{"index.lifecycle.name":"mdx-events-ilm-policy"},"mappings":{"properties":{"locations":{"type":"geo_shape"},"smoothLocations":{"type":"geo_shape"},"speedOverTime":{"enabled":false},"lipActivities":{"enabled":false},"gazes":{"enabled":false},"poses":{"enabled":false},"object":{"properties":{"bbox":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"enabled":false},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}}}}}}' \
+                && echo " mdx_events_template created" || echo " mdx_events_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_vlm_alerts_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-vlm-alerts-*"],"priority":504,"template":{"settings":{"index.lifecycle.name":"mdx-vlm-alerts-ilm-policy"},"mappings":{"properties":{"locations":{"type":"geo_shape"},"smoothLocations":{"type":"geo_shape"},"speedOverTime":{"enabled":false},"lipActivities":{"enabled":false},"gazes":{"enabled":false},"poses":{"enabled":false},"object":{"properties":{"bbox":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"enabled":false},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}}}}}}' \
+                && echo " mdx_vlm_alerts_template created" || echo " mdx_vlm_alerts_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_frames_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-frames-*"],"priority":505,"template":{"settings":{"index.lifecycle.name":"mdx-frames-ilm-policy"},"mappings":{"properties":{"objects":{"type":"nested","properties":{"bbox":{"enabled":false},"bbox3d":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"enabled":false},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}},"rois":{"type":"nested","properties":{"coordinates":{"enabled":false}}},"fov":{"type":"nested"},"socialDistancing":{"properties":{"clusters":{"enabled":false}}}}}}}' \
+                && echo " mdx_frames_template created" || echo " mdx_frames_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_mtmc_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-mtmc-*"],"priority":506,"template":{"settings":{"index.lifecycle.name":"mdx-mtmc-ilm-policy"},"mappings":{"properties":{"matched":{"type":"nested"}}}}}' \
+                && echo " mdx_mtmc_template created" || echo " mdx_mtmc_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_rtls_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-rtls-*"],"priority":507,"template":{"settings":{"index.lifecycle.name":"mdx-rtls-ilm-policy"},"mappings":{"properties":{"objects":{"type":"nested","properties":{"bbox":{"enabled":false},"bbox3d":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"enabled":false},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}},"rois":{"type":"nested","properties":{"coordinates":{"enabled":false}}},"fov":{"type":"nested"},"socialDistancing":{"properties":{"clusters":{"enabled":false}}}}}}}' \
+                && echo " mdx_rtls_template created" || echo " mdx_rtls_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_amr_locations_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-amr-locations-*"],"priority":508,"template":{"settings":{"index.lifecycle.name":"mdx-amr-locations-ilm-policy"},"mappings":{"properties":{"objectCounts":{"type":"nested"},"locationsOfObjects":{"enabled":false}}}}}' \
+                && echo " mdx_amr_locations_template created" || echo " mdx_amr_locations_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_amr_events_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-amr-events-*"],"priority":509,"template":{"settings":{"index.lifecycle.name":"mdx-amr-events-ilm-policy"},"mappings":{"properties":{"events":{"type":"nested","properties":{"blockages":{"enabled":false},"currentRoute":{"enabled":false},"newRoute":{"enabled":false},"currentLocation":{"enabled":false}}}}}}}' \
+                && echo " mdx_amr_events_template created" || echo " mdx_amr_events_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_bev_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-bev-*"],"priority":510,"template":{"settings":{"index.lifecycle.name":"mdx-bev-ilm-policy"},"mappings":{"properties":{"objects":{"type":"nested","properties":{"bbox":{"enabled":false},"bbox3d":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"enabled":false},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}}}}}}' \
+                && echo " mdx_bev_template created" || echo " mdx_bev_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_space_utilization_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-space-utilization-*"],"priority":511,"template":{"settings":{"index.lifecycle.name":"mdx-space-utilization-ilm-policy"},"mappings":{"properties":{"layouts":{"enabled":false}}}}}' \
+                && echo " mdx_space_utilization_template created" || echo " mdx_space_utilization_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_raw_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-raw-*"],"priority":512,"template":{"settings":{"index.lifecycle.name":"mdx-raw-ilm-policy","index.mapping.exclude_source_vectors":false},"mappings":{"properties":{"objects":{"type":"nested","properties":{"bbox":{"enabled":false},"bbox3d":{"enabled":false},"coordinate":{"enabled":false},"dir":{"enabled":false},"embedding":{"properties":{"vector":{"type":"dense_vector","dims":{{ .Values.rtviCvEmbeddingsDim }},"index":true}}},"gaze":{"enabled":false},"lipActivity":{"enabled":false},"location":{"enabled":false},"pose":{"enabled":false}}}}}}}' \
+                && echo " mdx_raw_template created" || echo " mdx_raw_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_incidents_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-incidents-*"],"priority":513,"template":{"settings":{"index.lifecycle.name":"mdx-incidents-ilm-policy"}}}' \
+                && echo " mdx_incidents_template created" || echo " mdx_incidents_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_embed_filtered_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-embed-filtered-*"],"priority":514,"template":{"settings":{"index.lifecycle.name":"mdx-embed-filtered-ilm-policy","index.mapping.exclude_source_vectors":false},"mappings":{"properties":{"llm":{"properties":{"visionEmbeddings":{"type":"nested","properties":{"vector":{"type":"dense_vector","dims":{{ .Values.visionLlmEmbeddingsDim }},"index":true}}}}}}}}}' \
+                && echo " mdx_embed_filtered_template created" || echo " mdx_embed_filtered_template already exists"
+
+              curl -sf -X PUT "$ES_URL/_index_template/mdx_vlm_incidents_template" \
+                -H "Content-Type: application/json" \
+                -d '{"index_patterns":["mdx-vlm-incidents-*"],"priority":515,"template":{"settings":{"index.lifecycle.name":"mdx-vlm-incidents-ilm-policy"}}}' \
+                && echo " mdx_vlm_incidents_template created" || echo " mdx_vlm_incidents_template already exists"
+
+              echo "Creating ingest pipelines..."
+              curl -sf -X PUT "$ES_URL/_ingest/pipeline/insertion-timestamp-pipeline" \
+                -H "Content-Type: application/json" \
+                -d '{"description":"Adds dynamic timestamp field to documents","processors":[{"set":{"field":"_ingest_timestamp","value":"{{ "{{" }}_ingest.timestamp{{ "}}" }}"}},{"date":{"field":"_ingest_timestamp","target_field":"_ingest_timestamp","timezone":"UTC","formats":["ISO8601"]}},{"script":{"lang":"painless","source":"ctx[ctx.targetFieldName] = ctx._ingest_timestamp;"}},{"remove":{"field":"_ingest_timestamp","ignore_missing":true}},{"remove":{"field":"targetFieldName","ignore_missing":true}}]}' \
+                && echo " insertion-timestamp-pipeline created" || echo " insertion-timestamp-pipeline already exists"
+
+              echo "Elasticsearch initialization complete."
+{{- end }}

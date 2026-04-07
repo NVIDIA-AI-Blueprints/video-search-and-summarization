@@ -1,0 +1,268 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.vssAgent.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agents.fullname" . }}-vss-agent
+  labels:
+    {{- include "agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-agent
+spec:
+  type: {{ .Values.vssAgent.service.type | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ .Values.vssAgent.port }}
+      targetPort: {{ .Values.vssAgent.port }}
+      {{- if and (eq (default "ClusterIP" .Values.vssAgent.service.type) "NodePort") .Values.vssAgent.service.nodePort }}
+      nodePort: {{ .Values.vssAgent.service.nodePort }}
+      {{- end }}
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "agents.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: vss-agent
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agents.fullname" . }}-vss-agent
+  labels:
+    {{- include "agents.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-agent
+spec:
+  replicas: {{ .Values.vssAgent.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "agents.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: vss-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "agents.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: vss-agent
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/vss-agent-configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "agents.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vssAgent.podSecurityContext | default .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.vssVaMcp.enabled }}
+      initContainers:
+        - name: wait-for-va-mcp
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for VSS VA MCP to be ready..."
+              until wget -q --spider http://{{ include "agents.fullname" . }}-vss-va-mcp:{{ .Values.vssVaMcp.port }}/health; do
+                echo "VSS VA MCP not ready yet, waiting..."
+                sleep 5
+              done
+              echo "VSS VA MCP is ready!"
+      {{- end }}
+      containers:
+        - name: vss-agent
+          image: "{{ .Values.vssAgent.image.repository }}:{{ .Values.vssAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.vssAgent.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          {{- with .Values.vssAgent.securityContext | default .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            - serve
+            - --config_file
+            - "/config/config.yml"
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "{{ .Values.vssAgent.port }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.vssAgent.port }}
+              protocol: TCP
+          env:
+            # NAT Configuration
+            - name: VSS_AGENT_VERSION
+              value: {{ .Values.vssAgent.version | quote }}
+            - name: VSS_AGENT_CONFIG_FILE
+              value: "/config/config.yml"
+            - name: VSS_AGENT_HOST
+              value: "0.0.0.0"
+            - name: VSS_AGENT_PORT
+              value: {{ .Values.vssAgent.port | quote }}
+
+            # Phoenix Telemetry (auto-wired to phoenix subchart)
+            - name: PHOENIX_ENDPOINT
+              value: {{ include "agents.phoenixEndpoint" . | quote }}
+
+            # VST (Video Storage Tool)
+            - name: VST_BASE_URL
+              value: {{ include "agents.vstExternalUrl" . | quote }}
+            - name: VST_INTERNAL_URL
+              value: {{ include "agents.vstInternalUrl" . | quote }}
+            - name: VST_INTERNAL_HOST
+              value: {{ include "agents.vstInternalHost" . | quote }}
+            - name: VST_EXTERNAL_URL
+              value: {{ include "agents.vstExternalUrl" . | quote }}
+            - name: VST_MCP_URL
+              value: {{ include "agents.vstMcpUrl" . | quote }}
+            - name: HOST_IP
+              value: {{ include "agents.externalHost" . | quote }}
+            - name: INTERNAL_IP
+              value: {{ include "agents.externalHost" . | quote }}
+            - name: EXTERNAL_IP
+              value: {{ include "agents.externalHost" . | quote }}
+
+            # Agent external URL (browser-reachable for video upload callbacks)
+            - name: AGENT_BASE_URL
+            {{- if (include "agents.isIngressEnabled" .) }}
+              value: "http://{{ include "agents.ingressMainHost" . }}"
+            {{- else if and (eq (default "ClusterIP" .Values.vssAgent.service.type) "NodePort") .Values.vssAgent.service.nodePort }}
+              value: "http://{{ include "agents.externalHost" . }}:{{ .Values.vssAgent.service.nodePort }}"
+            {{- else }}
+              value: "http://{{ include "agents.fullname" . }}-vss-agent:{{ .Values.vssAgent.port }}"
+            {{- end }}
+
+            # MCP Server (Video Analysis)
+            - name: VIDEO_ANALYSIS_MCP_URL
+              value: {{ include "agents.vaMcpUrl" . | quote }}
+
+            # LLM Endpoints (auto-wired to nims subchart services when not overridden)
+            - name: LLM_NAME
+              value: {{ .Values.vssAgent.llm.name | quote }}
+            - name: LLM_BASE_URL
+              value: {{ include "agents.llmBaseUrl" . | quote }}
+            - name: VLM_NAME
+              value: {{ .Values.vssAgent.vlm.name | quote }}
+            - name: VLM_BASE_URL
+              value: {{ include "agents.vlmBaseUrl" . | quote }}
+            {{- if .Values.vssAgent.evalLlmJudge.name }}
+            - name: EVAL_LLM_JUDGE_NAME
+              value: {{ .Values.vssAgent.evalLlmJudge.name | quote }}
+            {{- end }}
+            {{- if .Values.vssAgent.evalLlmJudge.baseUrl }}
+            - name: EVAL_LLM_JUDGE_BASE_URL
+              value: {{ .Values.vssAgent.evalLlmJudge.baseUrl | quote }}
+            {{- end }}
+
+            # LVS (Live Video Search)
+            {{- if .Values.vssAgent.lvs.backendUrl }}
+            - name: LVS_BACKEND_URL
+              value: {{ .Values.vssAgent.lvs.backendUrl | quote }}
+            {{- end }}
+
+            # RTVI Configuration
+            - name: RTVI_EMBED_PORT
+              value: {{ .Values.vssAgent.rtvi.embedPort | default "8000" | quote }}
+            - name: RTVI_CV_PORT
+              value: {{ .Values.vssAgent.rtvi.cvPort | default "9000" | quote }}
+            - name: RTVI_CV_BASE_URL
+              value: {{ include "agents.rtviCvBaseUrl" . | quote }}
+            {{- if .Values.vssAgent.rtvi.vlmBaseUrl }}
+            - name: RTVI_VLM_BASE_URL
+              value: {{ .Values.vssAgent.rtvi.vlmBaseUrl | quote }}
+            {{- end }}
+
+            # Cosmos Embedding & ElasticSearch (for search features)
+            # COSMOS_EMBED_ENDPOINT auto-wires to rtvi-embed subchart service.
+            # ELASTIC_SEARCH_ENDPOINT auto-wires to elasticsearch subchart service.
+            - name: COSMOS_EMBED_ENDPOINT
+              value: {{ include "agents.cosmosEmbedEndpoint" . | quote }}
+            - name: ELASTIC_SEARCH_ENDPOINT
+              value: {{ include "agents.elasticsearchUrl" . | quote }}
+            {{- if .Values.elasticsearch.index }}
+            - name: ELASTIC_SEARCH_INDEX
+              value: {{ .Values.elasticsearch.index | quote }}
+            {{- end }}
+
+            # API Keys
+            {{- if .Values.vssAgent.apiKeys.nvidia }}
+            - name: NVIDIA_API_KEY
+              value: {{ .Values.vssAgent.apiKeys.nvidia | quote }}
+            {{- end }}
+
+            # Object Store & Report Generation
+            - name: VSS_AGENT_OBJECT_STORE_TYPE
+              value: {{ .Values.vssAgent.objectStore.type | quote }}
+            {{- if .Values.vssAgent.objectStore.reportsBaseUrl }}
+            - name: VSS_AGENT_REPORTS_BASE_URL
+              value: {{ .Values.vssAgent.objectStore.reportsBaseUrl | quote }}
+            {{- end }}
+            - name: VSS_AGENT_TEMPLATE_PATH
+              value: "/config/templates"
+            - name: VSS_AGENT_TEMPLATE_NAME
+              value: {{ .Values.vssAgent.template.name | quote }}
+
+            # Evaluation
+            - name: EVAL_DIR
+              value: {{ .Values.vssAgent.eval.dir | quote }}
+            - name: EVAL_OUTPUT_DIR
+              value: {{ .Values.vssAgent.eval.outputDir | quote }}
+            - name: DATASET_DIR
+              value: {{ .Values.vssAgent.eval.datasetDir | quote }}
+            - name: DATASET_FILE_NAME
+              value: {{ .Values.vssAgent.eval.datasetFileName | quote }}
+            {{- with .Values.vssAgent.extraEnvs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.vssAgent.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: config
+              mountPath: /config/templates/{{ .Values.vssAgent.template.name }}
+              subPath: {{ .Values.vssAgent.template.name }}
+              readOnly: true
+            {{- if .Values.vssAgent.agentEval.enabled }}
+            - name: agent-eval
+              mountPath: /vss-agent/agent_eval
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "agents.fullname" . }}-vss-agent-config
+        {{- if .Values.vssAgent.agentEval.enabled }}
+        - name: agent-eval
+          persistentVolumeClaim:
+            claimName: {{ include "agents.fullname" . }}-agent-eval
+        {{- end }}
+      {{- with .Values.vssAgent.nodeSelector | default .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vssAgent.affinity | default .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vssAgent.tolerations | default .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{ if .Values.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "streamprocessing-ms.headlessName" . }}
+  labels:
+    {{- include "streamprocessing-ms.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: http-api
+      port: {{ .Values.httpPort }}
+      targetPort: http-api
+      protocol: TCP
+    {{- $rtspBase := int .Values.rtspServerPort }}
+    {{- $rtspInstances := int (.Values.rtspServerInstances | default 10) }}
+    {{- range $i := until $rtspInstances }}
+    - name: rtsp-{{ $i }}
+      port: {{ add $rtspBase $i }}
+      targetPort: rtsp-{{ $i }}
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "streamprocessing-ms.selectorLabels" . | nindent 4 }}
+{{- end }}

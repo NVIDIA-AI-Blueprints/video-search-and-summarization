@@ -1,0 +1,183 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: fastapi
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: {{ .Values.vssAgent.objectStore.type }}
+    cors:
+      allow_origins: ['*']
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: {{ .Values.vssAgent.phoenix.endpoint | default "http://localhost:6006" }}/v1/traces
+        project: PS-vss-agent-{{ .Values.vssAgent.version }}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+function_groups:
+  video_analytics_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: {{ include "agents.vaMcpUrl" . }}/mcp
+    include:
+      - video_analytics.get_incidents
+      - video_analytics.get_incident
+      - video_analytics.get_fov_histogram
+      - video_analytics.get_sensor_ids
+
+  vst_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: {{ include "agents.vstMcpUrl" . }}/mcp
+    include:
+      - sensor_list
+      - get_video_storage_url
+      - get_replay_picture_url
+
+functions:
+  video_understanding:
+    _type: video_understanding
+    vlm_name: nim_vlm
+    max_frames: 30
+    num_frames: 16
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_url
+
+  vst_video_url:
+    _type: vst_video_url
+    get_video_storage_url_tool: vst_mcp.get_video_storage_url
+    get_sensor_list_tool: vst_mcp.sensor_list
+    vst_base_url: {{ include "agents.vstBaseUrl" . }}
+    overlay_config: true
+
+  vst_picture_url:
+    _type: vst_picture_url
+    get_sensor_list_tool: vst_mcp.sensor_list
+    get_replay_picture_url_tool: vst_mcp.get_replay_picture_url
+    vst_base_url: {{ include "agents.vstBaseUrl" . }}
+    max_retries: 5
+    retry_delay_seconds: 2
+
+  chart_generator:
+    _type: chart_generator
+    object_store_name: {{ .Values.vssAgent.objectStore.type }}
+    object_store_base_url: {{ include "agents.reportsBaseUrl" . }}
+
+  multi_incident_formatter:
+    _type: multi_incident_formatter
+    video_url_tool: vst_video_url
+    picture_url_tool: vst_picture_url
+    incidents_tool: video_analytics_mcp.video_analytics.get_incidents
+    chart_generator_tool: chart_generator
+    generate_chart: true
+    chart_base_url: {{ include "agents.reportsBaseUrl" . }}
+    display_limit: 20
+
+  template_report_gen:
+    _type: template_report_gen
+    object_store: {{ .Values.vssAgent.objectStore.type }}
+    output_dir: /tmp/ps_reports
+    save_local_copy: true
+    base_url: {{ include "agents.reportsBaseUrl" . }}
+    template_path: /config/templates
+    template_name: {{ .Values.vssAgent.template.name }}
+    agent_version: {{ .Values.vssAgent.version }}
+    llm_name: nim_llm
+    video_understanding_tool: video_understanding
+    picture_url_tool: vst_picture_url
+    video_url_tool: vst_video_url
+    include_cv_metadata_in_vlm_prompts: false
+    vlm_prompts:
+      - "Describe the incident in details including why the incident happened, contributing factors to the incident, outcomes and responses"
+      - "Describe the location of the incident. Include location description, security facilities such as gate, badge scanner, etc."
+      - "Describe all people involved in the video. Include the appearance of each person, and whether they presented proof of authorization such of scanning their badge"
+    report_prompt: |
+      Template to populate:
+      {template}
+
+      Instructions:
+      1. Extract incident details from tool results (incident ID, sensor ID, timestamp, location, etc.)
+      2. Extract video analysis details from video_understanding tool results to determine weather tailgating was occured and the reasoning
+      3. Fill in all template fields with extracted information
+      4. Use "Unknown" or "N/A" for fields where information is not available
+      5. Provide professional recommendations whether it is a true positive tailgating case based on the incident details
+      6. Ensure the report is complete and well-structured
+      7. For Report Indentifier, generate a unique identifier for the report
+      8. AI Agent version: {agent_version}
+
+      Return only the populated markdown template without any additional text or code blocks.
+
+  get_fov_counts_with_chart:
+    _type: get_fov_counts_with_chart
+    get_fov_histogram_tool: video_analytics_mcp.video_analytics.get_fov_histogram
+    chart_generator_tool: chart_generator
+    chart_base_url: {{ include "agents.reportsBaseUrl" . }}
+
+  # Report Agent - sub-agent for single incident reports (VA-MCP mode)
+  report_agent:
+    _type: report_agent
+    get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
+    get_incident_tool: video_analytics_mcp.video_analytics.get_incident
+    template_report_tool: template_report_gen
+
+  # Multi Report Agent - sub-agent for multiple incident reports
+  multi_report_agent:
+    _type: multi_report_agent
+    multi_incident_tool: multi_incident_formatter
+    max_incidents: 9999
+
+llms:
+  nim_llm:
+    _type: nim
+    model_name: {{ .Values.vssAgent.llm.name }}
+    base_url: {{ .Values.vssAgent.llm.baseUrl }}/v1
+    max_tokens: 4096
+    temperature: 0.0
+  nim_vlm:
+    _type: nim
+    model_name: {{ .Values.vssAgent.vlm.name }}
+    base_url: {{ .Values.vssAgent.vlm.baseUrl }}/v1
+    temperature: 0.0
+    max_tokens: 1024
+
+workflow:
+  _type: top_agent
+  llm_name: nim_llm
+  llm_reasoning: false
+  # thinking: true
+  # verbose: true
+  log_level: DEBUG
+  max_iterations: 20
+  max_history: 20
+  tool_names:
+    - get_fov_counts_with_chart
+    - video_analytics_mcp.video_analytics.get_sensor_ids
+    - vst_picture_url
+  subagent_names:
+    - report_agent
+    - multi_report_agent
+  prompt: |
+{{ .Files.Get (printf "configs/%s/workflow-prompt.txt" .Values.blueprint) | indent 4 }}
+

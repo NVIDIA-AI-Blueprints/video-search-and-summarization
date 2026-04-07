@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Global Configuration
+global:
+  # External host/IP for browser-accessible URLs
+  # IMPORTANT: Set this to the node IP or Ingress domain for external access
+  # Example: "192.168.1.100" for NodePort access, or "k8s.example.com" for Ingress
+  externalHost: ""  # REQUIRED: Must be set for UI to work properly
+
+# Blueprint selection - determines which config files to use
+# Options: smartcities, warehouse, public-safety
+# NOTE: The blueprint selection automatically sets:
+#   - smartcities: appTitle="SMART CITIES BLUEPRINT", workflow="Smart Cities Agent"
+#   - warehouse: appTitle="WAREHOUSE BLUEPRINT", workflow="Warehouse Agent"
+#   - public-safety: appTitle="PUBLIC SAFETY BLUEPRINT", workflow="Public Safety Agent"
+blueprint: smartcities
+
+#  # LLM Configuration
+vssAgent:
+  llm:
+    name: "nvidia/nvidia-nemotron-nano-9b-v2"
+    baseUrl: "http://nemotron-nim-nim-llm:8000"
+
+  # VLM (Vision Language Model) Configuration
+  vlm:
+    name: "nvidia/cosmos-reason2-8b"
+    baseUrl: "http://cosmos-reason2-8b:8000"
+
+  # Evaluation LLM Judge Configuration
+  evalLlmJudge:
+    name: "nvidia/nvidia-nemotron-nano-9b-v2"
+    baseUrl: "http://nemotron-nim-nim-llm:8000"
+
+  # LVS (Live Video Search) Configuration
+  lvs:
+    backendUrl: ""  # LVS backend URL
+
+  # RTVI (Real-Time Video Intelligence) Configuration
+  rtvi:
+    embedPort: ""  # RTVI embed port
+    vlmBaseUrl: ""  # RTVI VLM base URL
+
+  # Phoenix Telemetry
+  phoenix:
+    endpoint: "http://mdx-phoenix-svc:6006"  # Optional Phoenix telemetry endpoint
+  
+  # VST Integration
+  vst:
+    baseUrl: "http://vst-ingress-deployment-svc:8000"
+    mcpUrl: "http://smc-vst-mcp-vst-mcp-smc:8001"
+
+# VSS UI External URLs Configuration
+# These are browser-accessible URLs that require external access
+vssUi:
+  externalPorts:
+    vst: 30888         # NodePort for VST ingress (vst-ingress-deployment-svc)
+    mdx: 30080         # NodePort for MDX web API (via ingress)
+    kibana: 31560      # NodePort for Kibana (mdx-elasticsearch-kibana-kb-http)
+    vssAgent: 30800    # NodePort for VSS Agent (if exposed externally)
+
+  # API Path Prefixes for ingress routing
+  # In k8s, the MDX Web API is behind an ingress with path-based routing:
+  #   /api/v3.0/analytics/(.*)  →  vss-video-analytics-api-app-service:8081
+  # This differs from docker-compose where the API was called directly
+  apiPathPrefixes:
+    mdx: "/api/v3.0/analytics"  # MDX Web API ingress path prefix
+
+  # Alternative: Set explicit URLs if using custom Ingress configuration
+  # externalUrls:
+  #   vssAgentWebsocket: "ws://agent.example.com/websocket"
+  #   vssAgentHttp: "http://agent.example.com/chat/stream"
+  #   vssAgentApi: "http://agent.example.com/api/v1"
+  #   vstApi: "http://vst.example.com/vst/api"
+  #   mdxWebApi: "http://mdx.example.com/api/v3.0/analytics"
+  #   kibana: "http://kibana.example.com/app/dashboards"
+
+# Elasticsearch Configuration (for video analytics queries)
+elasticsearch:
+  url: "http://mdx-elasticsearch-cluster-es-http:9200"
+

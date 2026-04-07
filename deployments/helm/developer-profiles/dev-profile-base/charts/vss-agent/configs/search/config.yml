@@ -1,0 +1,175 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: false
+  front_end:
+    _type: fastapi
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
+    # Use custom FastAPI worker to enable streaming video ingest endpoint
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    # Configuration for streaming video ingest endpoint
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT}
+      rtvi_embed_model: cosmos-embed1-448p
+      rtvi_embed_chunk_duration: 5
+      rtvi_cv_base_url: http://${HOST_IP}:${RTVI_CV_PORT}
+      vlm_mode: ${VLM_MODE}
+      internal_ip: ${INTERNAL_IP}
+      external_ip: ${EXTERNAL_IP}
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
+      rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
+      stream_mode: ${STREAM_MODE}  # 'search' for search profile, 'other' for VST only
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+    - path: /api/v1/search
+      method: POST
+      description: "Search for a video by query"
+      function_name: search
+    - path: /api/v1/attribute_search
+      method: POST
+      description: "Search for objects by visual attributes"
+      function_name: attribute_search
+    - path: /api/v1/embed_search
+      method: POST
+      description: "Direct embedding search (bypasses agent)"
+      function_name: embed_search
+    - path: /api/v1/critic
+      method: POST
+      description: "Score video clips with critic agent"
+      function_name: critic_agent
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: DEV-SEARCH-vss-agent-${VSS_AGENT_VERSION}
+        #  Uncomment the following to enable Weave experiment tracking:
+        # weave:
+        #   _type: weave
+        #   project: ${WEAVE_PROJECT}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: "http://${HOST_IP}:${VSS_AGENT_PORT}"
+
+  search:
+    _type: search
+    embed_search_tool: embed_search
+    attribute_search_tool: attribute_search  # Optional: enable object-level search
+    agent_mode_llm: llm
+    use_attribute_search: true  # Internal config: enable fusion reranking with attribute search
+    critic_agent: critic_agent  # Optional: enables VLM verification
+    vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  embed_search:
+    _type: embed_search
+    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    # source_type="video_file" searches this, source_type="rtsp" searches all except this
+    es_index: ${ELASTIC_SEARCH_INDEX}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    default_max_results: 100
+
+  attribute_search:
+    _type: attribute_search
+    text_embed_type: siglip
+    text_embed_device: cpu
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}  # Use same ES as embed_search
+    # source_type="video_file" searches this, source_type="rtsp" searches all except this)
+    behavior_index: mdx-behavior-2025-01-01
+    # Corresponding frames index for uploaded video files (source_type="rtsp" searches all except this
+    frames_index: mdx-raw-2025-01-01
+    enable_frame_lookup: false
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  critic_agent:
+    _type: critic_agent
+    vlm_name: cosmos_vlm
+    max_concurrent_verifications: 5
+    video_analysis_tool: video_understanding
+    use_iso_timestamps: false  # This flag MUST match th video_analysis_tool's configuration (stream_mode).
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: cosmos_vlm
+    max_frames: 60
+    max_fps: 2  # for CR1, max fps is 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_clip
+    stream_mode: false
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${INTERNAL_IP}
+    external_ip: ${EXTERNAL_IP}
+
+llms:
+  llm:
+    _type: ${LLM_MODEL_TYPE:-nim}
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+    thinking: false
+
+  cosmos_vlm:
+    _type: nim
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+workflow:
+  _type: top_agent
+  llm_name: llm
+  llm_reasoning: false
+  max_iterations: 20
+  max_history: 20
+  subagent_names:
+  # Use search_agent as a sub-agent for streaming output
+  - search_agent
+  prompt: |
+    You are a video search assistant. Use the search_agent to find videos matching user queries.
+    The search_agent will decompose queries, run embed search, and perform fusion reranking.
+
+    When a user asks to search for videos, call the search_agent with:
+    - query: The user's search query
+    - agent_mode: true (to enable query decomposition)
+    - use_attribute_search: true (to enable fusion reranking)
+    - max_results: Number of results to return (default: 5)

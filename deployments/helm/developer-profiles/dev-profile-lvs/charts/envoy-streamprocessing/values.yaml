@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/envoy-proxy
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+command:
+  - /usr/local/bin/envoy
+  - -c
+  - /etc/envoy/envoy.yaml
+  - --concurrency
+  - "16"
+  - --base-id
+  - "1"
+service:
+  port: 10000
+  type: ClusterIP
+# Compose parity: environment block from sdr-streamprocessing/sdr-compose.yaml
+# redisServer default: <release>-redis; override from parent (e.g. global.redis.host).
+redisServer: ""
+redisPort: "6379"
+# Kafka: used by env only; Lua routing uses only Redis. Safe to leave set if SDR/streamprocessing don't need it.
+kafkaBootstrapUrl: "kafka:9092"
+# xDS (routes/clusters): SDR serves on port 4003. In K8s use SDR service; in Compose use 127.0.0.1.
+xdsServer: ""   # default: <release>-sdr-streamprocessing
+xdsPort: 4003
+# headerless_service: when request has no streamid, route to streamprocessing-ms. In K8s use service name; in Compose use 127.0.0.1.
+headerlessService: ""  # default: <release>-streamprocessing-ms-dev
+headerlessPort: 30001
+env:
+  - name: CONTAINER_NAME
+    value: "envoy-streamprocessing"
+  - name: ENVOYROUTEHEADER
+    value: "streamid"
+  - name: NOHEADERTARGETCONTAINER
+    value: "streamprocessing-ms-1"  # must match SDR WDM_TARGET_PORT_MAPPING key (e.g. streamprocessing-ms-1)
+  - name: WDM_WL_OBJECT_NAME
+    value: "streamprocessing-ms"    # Redis hash key for workload lookup; SDR writes this. Keep in sync with SDR config.
+resources: {}
+nodeSelector: {}
+tolerations: []

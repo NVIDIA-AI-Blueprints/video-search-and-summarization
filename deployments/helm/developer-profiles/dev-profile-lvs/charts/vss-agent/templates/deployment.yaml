@@ -1,0 +1,156 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-agent.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-agent
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-agent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-agent
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-agent
+          image: {{ include "vss-agent.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --config_file
+            - {{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}
+            - --host
+            - "0.0.0.0"
+            - --port
+            - {{ .Values.service.port | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vss-agent/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: eval-output
+              mountPath: /vss-agent/eval-output
+          env:
+            {{- $configPath := .Values.configFilePath | default "/etc/vss-agent/config.yml" }}
+            - name: VSS_AGENT_CONFIG_FILE
+              value: {{ $configPath | quote }}
+            {{- $g := .Values.global | default dict }}
+            {{- $eh := index $g "externalHost" | default "" | trim }}
+            {{- $es := index $g "externalScheme" | default "http" }}
+            {{- $ep := index $g "externalPort" | default "" | trim }}
+            {{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}
+            {{- range .Values.env }}
+            {{- if and (eq .name "EXTERNAL_IP") (or $.Values.externalIp (ne $eh "")) }}
+            - name: EXTERNAL_IP
+              value: {{ $.Values.externalIp | default $eh | quote }}
+            {{- else if (eq .name "INTERNAL_IP") }}
+            - name: INTERNAL_IP
+              value: {{ ($.Values.vstInternalIp | default (printf "%s-vst-ingress-dev:30888" $.Release.Name)) | quote }}
+            {{- else if and $.Values.vstInternalIp (eq .name "HOST_IP") }}
+            - name: HOST_IP
+              value: {{ ($.Values.vstInternalIp | default (printf "%s-vst-ingress-dev:30888" $.Release.Name)) | quote }}
+            {{- else if and (eq .name "RTVI_VLM_BASE_URL") $.Values.rtviVlmEnabled }}
+            - name: RTVI_VLM_BASE_URL
+              value: {{ printf "http://%s-rtvi-vlm:8000" $.Release.Name | quote }}
+            {{- else if and $.Values.lvsBackendService (eq .name "LVS_BACKEND_URL") }}
+            - name: LVS_BACKEND_URL
+              value: {{ printf "http://%s-%s:38111" $.Release.Name $.Values.lvsBackendService | quote }}
+            {{- else if and $.Values.videoAnalysisMcpUrl (eq .name "VIDEO_ANALYSIS_MCP_URL") }}
+            - name: VIDEO_ANALYSIS_MCP_URL
+              value: {{ $.Values.videoAnalysisMcpUrl | quote }}
+            {{- else if and (eq .name "VST_BASE_URL") (or $.Values.vstBaseUrl $.Values.vstExternalUrl (ne $globalBase "")) }}
+            - name: VST_BASE_URL
+              value: {{ ($.Values.vstBaseUrl | default $.Values.vstExternalUrl | default $globalBase) | quote }}
+            {{- else }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+            {{- end }}
+            - name: PHOENIX_ENDPOINT
+              value: {{ .Values.phoenixEndpoint | default (printf "http://%s-phoenix:6006" .Release.Name) | quote }}
+            - name: LLM_BASE_URL
+              value: {{ .Values.llmBaseUrl | default (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) | quote }}
+            - name: VLM_BASE_URL
+              value: {{ .Values.vlmBaseUrl | default (printf "http://%s-%s:8000" .Release.Name (ternary "rtvi-vlm" "cosmos-reason2-8b" .Values.rtviVlmEnabled)) | quote }}
+            - name: VST_EXTERNAL_URL
+              value: {{ .Values.vstExternalUrl | default $globalBase | default (printf "http://%s-vst-ingress-dev:30888" .Release.Name) | quote }}
+            - name: VST_INTERNAL_URL
+              value: {{ .Values.vstInternalUrl | default (printf "http://%s-vst-ingress-dev:30888" .Release.Name) | quote }}
+            - name: VST_MCP_URL
+              value: {{ .Values.vstMcpUrl | default (printf "http://%s-vst-mcp-dev:8001" .Release.Name) | quote }}
+            - name: LLM_NAME
+              value: {{ .Values.llmName | quote }}
+            - name: VLM_NAME
+              value: {{ .Values.vlmName | quote }}
+            - name: EVAL_LLM_JUDGE_NAME
+              value: {{ .Values.evalLlmJudgeName | default .Values.llmName | quote }}
+            - name: EVAL_LLM_JUDGE_BASE_URL
+              value: {{ .Values.evalLlmJudgeBaseUrl | default (.Values.llmBaseUrl | default (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name)) | quote }}
+            - name: VSS_AGENT_REPORTS_BASE_URL
+              value: {{ .Values.reportsBaseUrl | default (ternary (printf "%s/static/" $globalBase) "" (ne $globalBase "")) | default (printf "http://%s-vss-agent:8000/static/" .Release.Name) | quote }}
+            - name: VSS_AGENT_EXTERNAL_URL
+              value: {{ .Values.vssAgentExternalUrl | default .Values.vstExternalUrl | default $globalBase | default (printf "http://%s-vss-agent:8000" .Release.Name) | quote }}
+            {{- if .Values.vssAgentVersion }}
+            - name: VSS_AGENT_VERSION
+              value: {{ .Values.vssAgentVersion | quote }}
+            {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "vss-agent.fullname" . }}-config
+        - name: eval-output
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

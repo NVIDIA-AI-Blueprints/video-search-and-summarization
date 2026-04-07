@@ -1,0 +1,74 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- /* Shared VST storage PVCs. Single-node: ReadWriteOnce is enough (both pods on same node). Use ReadWriteMany only if sensor/streamprocessing can run on different nodes. */}}
+{{- if and (index .Values "vstStorage") .Values.vstStorage.createSharedPvcs }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-vst-data
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: vst-storage
+spec:
+  accessModes:
+    - {{ .Values.vstStorage.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.vstStorage.vstData.size | default "10Gi" }}
+  {{- $sc := .Values.vstStorage.vstData.storageClass | default (index .Values.global "storageClass") }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-vst-video
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: vst-storage
+spec:
+  accessModes:
+    - {{ .Values.vstStorage.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.vstStorage.vstVideo.size | default "20Gi" }}
+  {{- $sc := .Values.vstStorage.vstVideo.storageClass | default (index .Values.global "storageClass") }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-vst-streamer-videos
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: vst-storage
+spec:
+  accessModes:
+    - {{ .Values.vstStorage.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.vstStorage.streamerVideos.size | default "20Gi" }}
+  {{- $sc := .Values.vstStorage.streamerVideos.storageClass | default (index .Values.global "storageClass") }}
+  {{- if $sc }}
+  storageClassName: {{ $sc }}
+  {{- end }}
+{{- end }}

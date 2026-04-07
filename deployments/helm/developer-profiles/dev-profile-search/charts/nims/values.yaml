@@ -1,0 +1,165 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Default values for the nims umbrella chart.
+#
+# USAGE – select GPU at install time with a single flag:
+#   helm install nims ./nims --set gpuType=H100
+#   helm install nims ./nims --set gpuType=L40S
+#   helm install nims ./nims --set gpuType=RTXPRO6000BW
+#
+# The parent chart (nims/templates/nim-env-configmaps.yaml) renders one
+# ConfigMap per enabled NIM using the gpuProfiles lookup table below.
+# Override-values files are kept as thin convenience wrappers for CI/scripts.
+
+global:
+  # NGC API key for model download and NIM authentication
+  ngcApiKey: ""
+  # Pre-existing pull secret name (auto-created by parent chart or by user)
+  pullSecretName: "ngc-nim-docker-reg-secret"
+  # Pre-existing API key secret name
+  authSecretName: "ngc-nim-api-key-secret"
+  # Default storage class used by all NIMCache PVCs (can be overridden per subchart)
+  storageClass: ""
+
+# ---------------------------------------------------------------------------
+# GPU selection
+# Sets which entry in gpuProfiles is used when rendering the nim-env ConfigMaps.
+# Valid values: H100 | L40S | RTXPRO6000BW
+# ---------------------------------------------------------------------------
+gpuType: "H100"
+
+# ---------------------------------------------------------------------------
+# GPU profile lookup table
+# Each entry contains env vars keyed by NIM alias (nemotron / cosmos).
+# Only non-empty values end up in the rendered ConfigMap.
+# ---------------------------------------------------------------------------
+gpuProfiles:
+  H100:
+    nemotron:
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+    cosmos:
+      NIM_KVCACHE_PERCENT: "0.7"
+
+  L40S:
+    nemotron:
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+      NIM_KVCACHE_PERCENT: "0.8"
+      NIM_MAX_NUM_SEQS: "4"
+      NIM_MAX_MODEL_LEN: "128000"
+      NIM_LOW_MEMORY_MODE: "1"
+    cosmos:
+      NIM_KVCACHE_PERCENT: "0.8"
+      NIM_MAX_MODEL_LEN: "32768"
+      NIM_MAX_NUM_SEQS: "4"
+      MAX_JOBS: "4"
+
+  RTXPRO6000BW:
+    nemotron:
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+    cosmos:
+      NIM_KVCACHE_PERCENT: "0.7"
+
+# ---------------------------------------------------------------------------
+# Nemotron Nano 9B v2 – LLM NIM (alias: nemotron)
+# Deploys NIMCache + NIMService via NVIDIA NIM Operator CRDs.
+# ---------------------------------------------------------------------------
+nemotron:
+  enabled: true
+  # Override the NIMCache/NIMService resource name (default: <release>-nemotron).
+  # Useful for cross-chart references.
+  fullnameOverride: ""
+
+  image:
+    repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    limits:
+      nvidia.com/gpu: "1"
+    requests:
+      nvidia.com/gpu: "1"
+
+  storage:
+    pvc:
+      # Leave empty to inherit global.storageClass
+      storageClass: ""
+      size: "50Gi"
+
+  metrics:
+    enabled: false
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+# ---------------------------------------------------------------------------
+# Cosmos Reason2 8B – VLM NIM (alias: cosmos)
+# Deploys NIMCache + NIMService via NVIDIA NIM Operator CRDs.
+# ---------------------------------------------------------------------------
+cosmos:
+  enabled: true
+  # Override the NIMCache/NIMService resource name (default: <release>-cosmos).
+  # Useful for cross-chart references.
+  fullnameOverride: ""
+
+  image:
+    repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
+    tag: "1.6.0"
+    pullPolicy: IfNotPresent
+
+  replicas: 1
+
+  resources:
+    limits:
+      nvidia.com/gpu: "2"
+      cpu: "12"
+      memory: 48Gi
+    requests:
+      nvidia.com/gpu: "2"
+      cpu: "12"
+      memory: 48Gi
+
+  storage:
+    pvc:
+      # Leave empty to inherit global.storageClass
+      storageClass: ""
+      size: "200Gi"
+
+  metrics:
+    enabled: false
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+  env:
+    CUDA_VISIBLE_DEVICES: "1"
+    NIM_KVCACHE_PERCENT: "0.75"
+    NIM_MAX_MODEL_LEN: "16384"
+    NIM_LOW_MEMORY_MODE: "1"
+  

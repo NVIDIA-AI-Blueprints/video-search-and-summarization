@@ -1,0 +1,325 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "perception.fullname" . }}-perception-scripts
+  labels:
+    {{- include "perception.labels" . | nindent 4 }}
+data:
+  ds-start.sh: |
+    #!/bin/bash
+    if [[ $MODEL_TYPE == "cnn" ]]; then
+          echo "##### $MODEL_TYPE models will be used. #####"
+          echo "##### Copying onnx-files to DS docker volume for preserving PVCs... #####"
+          if ls /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/mtmc/*.onnx 1>/dev/null 2>&1; then
+            cp /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/mtmc/*.onnx /opt/storage/
+          else
+            echo "No local onnx models found, checking /opt/storage for existing models..."
+            ls -la /opt/storage/*.onnx 2>/dev/null || echo "WARNING: No onnx models found in /opt/storage - models will be downloaded on first inference"
+          fi
+
+          echo -e "\nds pgie configs\n"
+          cat ds-ppl-analytics-pgie-config.yml
+
+          if [ "$STREAM_TYPE" = "kafka" ]; then
+              echo "Running metropolis_perception_app with kafka configuration..."
+              echo -e "\nds main configs\n"
+              cat ds-main-config.txt
+              ./metropolis_perception_app -c ds-main-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
+          elif [ "$STREAM_TYPE" = "redis" ]; then
+              echo "Running metropolis_perception_app with redis configuration..."
+              echo -e "\nds main configs\n"
+              cat ds-main-redis-config.txt
+              ./metropolis_perception_app -c ds-main-redis-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
+          else
+              echo "STREAM_TYPE not set or invalid. Defaulting to kafka configuration..."
+              echo -e "\nds main configs\n"
+              cat ds-main-config.txt
+              ./metropolis_perception_app -c ds-main-config.txt -m 1 -t 0 -l 5 --message-rate 1 --tracker-reid
+          fi
+    else
+        echo "##### Invalid value $MODEL_TYPE for MODEL_TYPE variable. Valid values are: 'cnn'. #####"
+    fi
+
+  ds-detector-labels.txt: |
+    Person
+    Agility_Digit_Humanoid
+    Fourier_GR1_T2_Humanoid
+    Nova_Carter
+    Transporter
+    Forklift
+    Pallet
+
+  ds-kafka-config.txt: |
+    [message-broker]
+    partition-key = sensorId
+
+  ds-ppl-analytics-pgie-config.yml: |
+    class-attrs-all:
+      pre-cluster-threshold: 0.5
+      topk: 20
+    property:
+      cluster-mode: 4
+      gie-unique-id: 1
+      gpu-id: 0
+      infer-dims: {{ .Values.models.pgie.inferDims }}
+      offsets: 0;0;0
+      interval: 0
+      labelfile-path: ds-detector-labels.txt
+      maintain-aspect-ratio: 1
+      model-color-format: 0
+      net-scale-factor: 0.00392156862745098
+      network-mode: 2
+      network-type: 0
+      model-engine-file: /opt/storage/{{ .Values.models.pgie.onnxFile }}_b8_gpu0_fp16.engine
+      onnx-file: /opt/storage/{{ .Values.models.pgie.onnxFile }}
+      num-detected-classes: 7
+      output-tensor-meta: 1
+      output-blob-names: pred_boxes;pred_logits
+      parse-bbox-func-name: NvDsInferParseCustomRTDETRTAO
+      strongly-typed: 1
+      custom-lib-path: /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so
+
+  ds-nvdcf-accuracy-tracker-config.yml: |
+    BaseConfig:
+      minDetectorConfidence: 0.059091767738520054
+    TargetManagement:
+      enableBboxUnClipping: 1
+      preserveStreamUpdateOrder: 0
+      maxTargetsPerStream: 150
+      minIouDiff4NewTarget: 0.40803391831819774
+      minTrackerConfidence: 0.2379867160124702
+      probationAge: 2
+      maxShadowTrackingAge: 49
+      earlyTerminationAge: 1
+    TrajectoryManagement:
+      useUniqueID: 0
+      enableReAssoc: 1
+      minMatchingScore4Overall: 0.6491824364015243
+      minTrackletMatchingScore: 0.3365923298667557
+      minMatchingScore4ReidSimilarity: 0.41004668162204816
+      matchingScoreWeight4TrackletSimilarity: 0.8531794819299393
+      matchingScoreWeight4ReidSimilarity: 0.13580096342687126
+      minTrajectoryLength4Projection: 33
+      prepLength4TrajectoryProjection: 53
+      trajectoryProjectionLength: 99
+      maxAngle4TrackletMatching: 70
+      minSpeedSimilarity4TrackletMatching: 0.03284195344815558
+      minBboxSizeSimilarity4TrackletMatching: 0.40454200672158597
+      maxTrackletMatchingTimeSearchRange: 24
+      trajectoryProjectionProcessNoiseScale: 0.01
+      trajectoryProjectionMeasurementNoiseScale: 100
+      trackletSpacialSearchRegionScale: 0.01
+      reidExtractionInterval: 0
+    DataAssociator:
+      dataAssociatorType: 0
+      associationMatcherType: 1
+      checkClassMatch: 1
+      minMatchingScore4Overall: 0.16498049370431805
+      minMatchingScore4SizeSimilarity: 0.2470318611174308
+      minMatchingScore4Iou: 0.09268843253527276
+      minMatchingScore4VisualSimilarity: 0.5306397916012133
+      matchingScoreWeight4VisualSimilarity: 0.2593903206246254
+      matchingScoreWeight4SizeSimilarity: 0.8737211144111663
+      matchingScoreWeight4Iou: 0.3538715510450657
+      tentativeDetectorConfidence: 0.07696106106777956
+      minMatchingScore4TentativeIou: 0.18259431931328785
+    StateEstimator:
+      stateEstimatorType: 1
+      processNoiseVar4Loc: 5500.457806079246
+      processNoiseVar4Size: 2784.2546323956462
+      processNoiseVar4Vel: 545.3315792468695
+      measurementNoiseVar4Detector: 100.00000497224985
+      measurementNoiseVar4Tracker: 294.4755412477389
+    VisualTracker:
+      visualTrackerType: 1
+      useColorNames: 1
+      useHog: 1
+      featureImgSizeLevel: 3
+      featureFocusOffsetFactor_y: -0.21492658069764317
+      filterLr: 0.04747373772798158
+      filterChannelWeightsLr: 0.06898637782721721
+      gaussianSigma: 0.7195646880047487
+    ReID:
+      reidType: 0
+      outputReidTensor: 0
+      batchSize: 100
+      workspaceSize: 1000
+      reidFeatureSize: 256
+      reidHistorySize: 100
+      inferDims: [3, 256, 128]
+      networkMode: 1
+      inputOrder: 0
+      colorFormat: 0
+      offsets: [123.6750, 116.2800, 103.5300]
+      netScaleFactor: 0.01735207
+      keepAspc: 1
+      addFeatureNormalization: 1
+
+  {{- $kafkaHost := include "perception.kafkaBootstrap" . | replace ":9092" "" }}
+  ds-main-config.txt: |
+    [application]
+    enable-perf-measurement=1
+    perf-measurement-interval-sec=5
+
+    [tiled-display]
+    enable=3
+    rows=1
+    columns=2
+    width=1280
+    height=720
+    gpu-id=0
+    nvbuf-memory-type=0
+
+    [source-list]
+    num-source-bins=0
+    use-nvmultiurisrcbin=1
+    stream-name-display=1
+    max-batch-size=8
+    http-ip=0.0.0.0
+    http-port=9000
+    extract-sei-type5-data=1
+    sei-uuid=NVDS_CUSTOMMETA
+    sgie-batch-size=4
+
+    [source-attr-all]
+    enable=1
+    type=3
+    num-sources=1
+    gpu-id=0
+    cudadec-memtype=0
+    latency=100
+    rtsp-reconnect-interval-sec=10
+    rtsp-reconnect-attempts=-1
+    udp-buffer-size=2000000
+    drop-on-latency=0
+
+    [sink0]
+    enable=0
+    type=1
+    sync=0
+    source-id=0
+    gpu-id=0
+    nvbuf-memory-type=0
+
+    [sink1]
+    enable=1
+    type=6
+    msg-conv-payload-type=2
+    msg-conv-msg2p-new-api=0
+    msg-conv-frame-interval=1
+    msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so
+    msg-broker-conn-str={{ $kafkaHost }};9092;mdx-raw
+    topic=mdx-raw
+    nvdslogger=1
+
+    [sink2]
+    enable=0
+    type=3
+    container=1
+    codec=3
+    sync=1
+    bitrate=2000000
+    output-file=out.mp4
+    source-id=0
+
+    [message-converter]
+    enable=0
+    msg-conv-config=ds-msgconv-config.txt
+    msg-conv-payload-type=0
+
+    [message-consumer0]
+    enable=0
+    proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so
+    conn-str=<host>;<port>
+    config-file=/opt/nvidia/deepstream/deepstream/sources/libs/kafka_protocol_adaptor/ds-kafka-config.txt
+    subscribe-topic-list=<topic1>;<topic2>;<topicN>
+
+    [text-embedder]
+    enable=1
+
+    [osd]
+    enable=0
+    gpu-id=0
+    border-width=1
+    text-size=15
+    text-color=1;1;1;1;
+    text-bg-color=0.3;0.3;0.3;1
+    font=Arial
+    show-clock=0
+    clock-x-offset=800
+    clock-y-offset=820
+    clock-text-size=12
+    clock-color=1;0;0;0
+    nvbuf-memory-type=0
+
+    [streammux]
+    gpu-id=0
+    live-source=1
+    batch-size=8
+    batched-push-timeout=33000
+    width=1920
+    height=1080
+    enable-padding=0
+    nvbuf-memory-type=0
+    attach-sys-ts-as-ntp=0
+    drop-pipeline-eos=1
+
+    [primary-gie]
+    enable=1
+    gpu-id=0
+    batch-size=8
+    bbox-border-color0=1;0;0;1
+    bbox-border-color1=0;1;1;1
+    bbox-border-color2=0;1;1;1
+    bbox-border-color3=0;1;0;1
+    interval=1
+    gie-unique-id=1
+    nvbuf-memory-type=0
+    config-file=ds-ppl-analytics-pgie-config.yml
+
+    [tracker]
+    enable=1
+    tracker-width=960
+    tracker-height=544
+    ll-lib-file=/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so
+    ll-config-file=ds-nvdcf-accuracy-tracker-config.yml
+    gpu-id=0
+    display-tracking-id=1
+
+    [visionencoder]
+    enable=1
+    backend=tensorrt
+    tensorrt-engine=/opt/storage/{{ .Values.models.visionEncoder.onnxFile }}_batch16.plan
+    onnx-model=/opt/storage/{{ .Values.models.visionEncoder.onnxFile }}
+    batch-size=3
+    min-crop-size=32
+    verbose=1
+    gpu-id=0
+    skip-interval=0
+
+    [secondary-gie0]
+    enable=0
+    gpu-id=0
+    gie-unique-id=2
+    operate-on-gie-id=1
+    operate-on-class-ids=0
+    batch-size=8
+    config-file=ppl_analytics_sgie_config.txt
+
+    [tests]
+    file-loop=1

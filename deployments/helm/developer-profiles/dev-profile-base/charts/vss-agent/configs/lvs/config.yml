@@ -1,0 +1,278 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: fastapi
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      stream_mode: ${STREAM_MODE}  # 'search' for search profile, 'other' for VST only
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: DEV-LVS-vss-agent-${VSS_AGENT_VERSION}
+      # Uncomment the following to enable Weave experiment tracking:
+      # weave:
+      #   _type: weave
+      #   project: ${WEAVE_PROJECT}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: vlm
+    max_frames: 60
+    max_fps: 2  # for CR1, max fps is 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_clip
+    stream_mode: false
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${INTERNAL_IP}
+    external_ip: ${EXTERNAL_IP}
+    system_prompt: |
+      You are a monitoring system analyzing video footage.
+      Your task is to describe the events in the video in detail or answer the user's question about the video.
+        IMPORTANT:
+        - You must respond only in English and in plain text.
+        - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.
+        - Timestamp must be in pts format, seconds since the start of the video.
+        - Always provide a direct answer to the question asked.
+        - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.
+
+
+  vst_video_duration:
+    _type: vst.duration
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_snapshot:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_video_list:
+    _type: vst.video_list
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  lvs_video_understanding:
+    _type: lvs_video_understanding
+    lvs_backend_url: ${LVS_BACKEND_URL}
+    model: ${VLM_NAME}
+    video_url_tool: vst_video_clip
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${INTERNAL_IP}
+    external_ip: ${EXTERNAL_IP}
+    conn_timeout_ms: 5000
+    read_timeout_ms: 600000
+    chunk_duration: 10
+    num_frames_per_chunk: 20
+    hitl_scenario_template: |
+      Scenario (REQUIRED):
+      Please provide a scenario description for the video analysis.
+
+      Example: "traffic monitoring", "warehouse monitoring"
+
+      Enter your scenario or press Submit to keep current value:
+    hitl_events_template: |
+      Events (REQUIRED):
+      Please provide a comma-separated list of events to detect.
+
+      Examples:
+      - accident, pedestrian crossing, vehicle crossing, traffic violation
+      - boxes falling, accident, forklift stuck, workers not wearing PPE, person entering restricted area
+
+      Enter events (comma-separated) or press Submit to keep current value:
+    hitl_objects_template: |
+      Objects of Interest (OPTIONAL):
+      Please provide a comma-separated list of objects to focus on, or write "skip" to skip.
+
+      Examples:
+      - cars, trucks, pedestrians
+      - forklifts, pallets, workers
+
+      Enter objects (comma-separated), "skip" to skip or press Submit to keep current value:
+    default_scenario: "traffic monitoring"
+    default_events:
+    - accident
+    - pedestrian crossing
+    - vehicle crossing
+    - traffic violation
+
+  video_report_gen:
+    _type: video_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    video_understanding_tool: video_understanding
+    lvs_video_understanding_tool: lvs_video_understanding
+    video_url_tool: vst_video_clip
+    picture_url_tool: vst_snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vlm_prompt: |
+      Describe in detail what is happening in this video,
+      including all visible people, vehicles, equipments, objects,
+      actions, and environmental conditions.
+      OUTPUT REQUIREMENTS:
+      [timestamp-timestamp] Description of what is happening.
+      EXAMPLE:
+      [0.0s-4.0s] <description of the first event>
+      [4.0s-12.0s] <description of the second event>
+
+  report_agent:
+    _type: report_agent
+    log_level: INFO
+    video_report_tool: video_report_gen
+
+llms:
+  llm:
+    _type: ${LLM_MODEL_TYPE:-nim}
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  vlm:
+    _type: ${VLM_MODEL_TYPE:-nim}
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  eval_llm_judge:
+    _type: nim
+    model_name: ${EVAL_LLM_JUDGE_NAME}
+    base_url: ${EVAL_LLM_JUDGE_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+workflow:
+  _type: top_agent
+  llm_name: llm
+  log_level: INFO
+  max_iterations: 15
+  llm_reasoning: false
+  tool_names:
+  - video_understanding
+  - vst_video_clip
+  - vst_snapshot
+  - vst_video_list
+  - lvs_video_understanding
+  - vst_video_duration
+  subagent_names:
+  - report_agent
+  prompt: |
+    You are a routing agent for a video surveillance system. Your job is to route requests to the correct tool.
+
+    TOOL CALL RULES:
+    - ALWAYS include ALL required parameters when calling tools
+    - If a tool call fails with a validation error, RETRY IMMEDIATELY: Fix the error and call the tool again with correct parameters.
+
+    ## Routing Rules:
+    CRITICAL: Videos can be added/removed from the backend system. ALWAYS call vst_video_list when user asks about available videos.
+      **report_agent** - DO NOT call report_agent if the user did not explicitly ask for a report. However, if the user asks for a report, always call report_agent to generate a new report even when the report for the same video has already been generated. Do NOT return the answer with the URLs from conversation history. Do NOT generate a new URL yourself without calling report_agent.
+      **lvs_video_understanding** - ONLY for answering QUESTIONS about the ENTIRE video content (NOT for generating reports). Use when video is longer than 1 minute. Do NOT use when user asks to "generate a report". Do NOT use for specific timestamps.
+      **video_understanding** - For any question about video content (short videos or quick queries). Do NOT use when user asks to "generate a report"
+      **vst_video_clip** - For queries asking for showing videos. CRITICAL: Always call vst_video_clip to get the URL. DO NOT generate the URL yourself without calling vst_video_clip.
+      **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp. CRITICAL: Always call vst_snapshot to get the URL.
+    ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
+    ## Error Handling: if a tool fails more than 3 times, just return a summarized error message.
+
+    # WORKFLOWS:
+    1. LIST VIDEOS - Call vst_video_list, no input parameters required
+    2. GENERATE REPORT - Call report_agent with sensor_id and user_query. Do NOT use for follow-up questions.
+    3. ANSWER VIDEO QUESTION - For queries about a particular time(T), set start_time to T-0.5 and end_time to T+0.5. For time range longer than 1 minute, use LVS tool. Use vst_video_duration tool to get the duration and decide whether to use LVS tool.
+    4. GET MEDIA - Call vst_snapshot or vst_video_clip. You must call this tool to get the URL, DON'T generate the URL yourself.
+
+    # RESPONSE FORMAT
+      - Do not include phrases like "I should", "Let me", "The user".
+      - Convert json to markdown format. EXCEPTION: For queries about listing sensors, output sensors as plain text.
+      - Wrap urls in html tags. CRITICAL: ONLY when url is EXACTLY the one returned from a tool call. NEVER generate urls yourself.
+  postprocessing:
+    validation_order:
+    - [url_validator]
+    validators:
+      url_validator:
+        internal_ip: ${INTERNAL_IP}
+        timeout: 10.0
+        feedback_template: |
+          The following URLs are not accessible: {issues}
+          You have a hallucinated URL in the response, consider removing it or calling the appropriate tool to fetch the correct URL.
+
+eval:
+  general:
+    workflow_alias: ${WEAVE_WORKFLOW_ALIAS}
+    output_dir: ${EVAL_DIR}/results
+    dataset:
+      _type: json
+      file_path: ${EVAL_DIR}/dataset.json
+      structure:
+        question_key: "query"
+
+  evaluators:
+    trajectory_evaluator:
+      _type: customized_trajectory_evaluator
+      llm_name: eval_llm_judge
+      track_agent_selected_tools_only: true
+      max_retries: 2
+      custom_prompt_template: |
+        You are an expert evaluator assessing an AI agent's performance on tool calling.
+
+        Question: {question}
+        Available Tools and Their Schemas: {tool_schemas}
+        Agent's Actions and Tool Calls: {agent_trajectory}
+        Agent's Final Answer: {answer}
+        Reference/Expected Output: {reference}
+
+        Evaluation Criteria:
+        1. **Tool Selection**: Did the agent select the appropriate tools for the task?
+        2. **Parameter Accuracy**: Were tool parameters correct according to the tool schemas above?
+        3. **Data Retrieval**: Did the agent successfully retrieve the necessary data?
+        4. **Completeness**: Did the agent gather all required information to answer the question?
+        5. **Efficiency**: Did the agent avoid unnecessary or redundant tool calls?
+
+        IMPORTANT: 1) VLM Failure in report_agent is EXPECTED - score 1.0 if correct tools are called. 2) IGNORE steps where tool name is an LLM model name (internal reasoning).
+
+        Scoring: 1.0 = perfect, 0.8-0.9 = excellent, 0.6-0.7 = good, 0.4-0.5 = fair, 0.0-0.3 = poor.
+        Output only a single number (0.0 to 1.0).

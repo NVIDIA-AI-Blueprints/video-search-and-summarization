@@ -1,0 +1,126 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-long-video-summarization
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+# Backend (API), MCP, frontend ports — match Compose
+service:
+  backendPort: 38111
+  mcpPort: 38112
+  frontendPort: 38113
+  type: ClusterIP
+# GPU required
+resources:
+  requests:
+    nvidia.com/gpu: "1"
+  limits:
+    nvidia.com/gpu: "1"
+# In-cluster: set by template from release name when empty. Override for external LLM/VLM/ES.
+llmService: ""   # e.g. nvidia-nemotron-nano-9b-v2 → http://<release>-nvidia-nemotron-nano-9b-v2:8000/v1
+vlmService: ""  # e.g. cosmos-reason2-8b → http://<release>-cosmos-reason2-8b:8000/v1
+elasticsearchHost: ""
+elasticsearchPort: "9200"
+elasticsearchTransportPort: "9300"
+env:
+  - name: BACKEND_PORT
+    value: "38111"
+  - name: CA_RAG_CONFIG
+    value: /app/config.yaml
+  - name: DISABLE_GUARDRAILS
+    value: "true"
+  - name: ENABLE_VIA_HEALTH_EVAL
+    value: "false"
+  - name: FRONTEND_PORT
+    value: "38113"
+  - name: GPU_DEVICES
+    value: "0"
+  - name: LVS_DATABASE_BACKEND
+    value: elasticsearch_db
+  - name: LVS_DISABLE_DB_RESET_ON_REQUEST_DONE
+    value: "true"
+  - name: LVS_EMB_BASE_URL
+    value: ""
+  - name: LVS_EMB_ENABLE
+    value: "false"
+  - name: LVS_EMB_MODEL_NAME
+    value: ""
+  - name: LVS_ENABLE_MCP
+    value: "true"
+  - name: LVS_LLM_MODEL_NAME
+    value: nvidia/nvidia-nemotron-nano-9b-v2
+  - name: LVS_MCP_PORT
+    value: "38112"
+  - name: MILVUS_DB_GRPC_PORT
+    value: ""
+  - name: MILVUS_DB_HOST
+    value: ""
+  - name: MODEL_ROOT_DIR
+    value: /tmp/model_cache
+  - name: NGC_MODEL_CACHE
+    value: /tmp/model_cache
+  - name: NUM_GPUS
+    value: "1"
+  - name: NVIDIA_API_KEY
+    value: ""
+  - name: NVIDIA_VISIBLE_DEVICES
+    value: "0"
+  - name: VIA_VLM_API_KEY
+    value: not-used
+  - name: VLM_INPUT_HEIGHT
+    value: "736"
+  - name: VLM_INPUT_WIDTH
+    value: "1312"
+  - name: VLM_MODEL_TO_USE
+    value: openai-compat
+  - name: VSS_LOG_LEVEL
+    value: DEBUG
+# VST_INTERNAL_URL: used by LVS to rewrite video download URLs (e.g. from 127.0.0.1 or external host to in-cluster VST).
+# When set, LVS can fetch videos from the internal VST service. Default: http://<release>-vst-ingress-dev:30888
+vstInternalUrl: ""
+# ES_HOST, ES_PORT, ES_TRANSPORT_PORT, LVS_LLM_BASE_URL, VIA_VLM_ENDPOINT, VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME set by template
+# Model cache volume — Compose: ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
+# Set enabled: true to mount emptyDir at /tmp/model_cache (parity with Compose). Default false = no mount.
+modelCache:
+  enabled: false
+livenessProbe:
+  httpGet:
+    path: /v1/ready
+    port: backend
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 10
+readinessProbe:
+  httpGet:
+    path: /v1/ready
+    port: backend
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 10
+startupProbe:
+  httpGet:
+    path: /v1/ready
+    port: backend
+  periodSeconds: 30
+  failureThreshold: 24
+  timeoutSeconds: 10
+nodeSelector: {}
+tolerations: []

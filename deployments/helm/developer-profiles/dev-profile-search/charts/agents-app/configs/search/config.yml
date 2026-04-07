@@ -1,0 +1,189 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+general:
+  use_uvloop: false
+  front_end:
+    _type: fastapi
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT}
+      rtvi_embed_model: cosmos-embed1-448p
+      rtvi_embed_chunk_duration: 5
+      rtvi_cv_base_url: http://${HOST_IP}:${RTVI_CV_PORT}
+      vlm_mode: ${VLM_MODE}
+      internal_ip: ${INTERNAL_IP}
+      external_ip: ${EXTERNAL_IP}
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
+      rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
+      stream_mode: ${STREAM_MODE}
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+    - path: /api/v1/search
+      method: POST
+      description: "Search for a video by query"
+      function_name: search
+    - path: /api/v1/attribute_search
+      method: POST
+      description: "Search for objects by visual attributes"
+      function_name: attribute_search
+    - path: /api/v1/embed_search
+      method: POST
+      description: "Direct embedding search (bypasses agent)"
+      function_name: embed_search
+    - path: /api/v1/critic
+      method: POST
+      description: "Score video clips with critic agent"
+      function_name: critic_agent
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: DEV-SEARCH-vss-agent-${VSS_AGENT_VERSION}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: "${AGENT_BASE_URL}"
+
+  search:
+    _type: search
+    embed_search_tool: embed_search
+    attribute_search_tool: attribute_search
+    agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
+    use_attribute_search: true
+    critic_agent: critic_agent
+    enable_critic: {{- if hasKey .Values.global "enableCritic" }} {{ .Values.global.enableCritic }}{{- else }} false{{- end }}
+    search_max_iterations: 1
+    default_max_results: 10
+    vst_internal_url: ${VST_INTERNAL_URL}
+    embed_confidence_threshold: 0.1
+
+  search_agent:
+    _type: search_agent
+    embed_search_tool: embed_search
+    attribute_search_tool: attribute_search
+    agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
+    use_attribute_search: true
+    vst_internal_url: ${VST_INTERNAL_URL}
+    embed_confidence_threshold: 0.1
+    critic_agent: critic_agent
+    enable_critic: {{- if hasKey .Values.global "enableCritic" }} {{ .Values.global.enableCritic }}{{- else }} false{{- end }}
+    search_max_iterations: 1
+    default_max_results: 10
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    time_format: offset
+
+  embed_search:
+    _type: embed_search
+    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    es_index: ${ELASTIC_SEARCH_INDEX}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    default_max_results: 100
+
+  attribute_search:
+    _type: attribute_search
+    rtvi_cv_endpoint: http://${HOST_IP}:${RTVI_CV_PORT}
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    behavior_index: mdx-behavior-2025-01-01
+    frames_index: mdx-raw-2025-01-01
+    enable_frame_lookup: false
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  critic_agent:
+    _type: critic_agent
+    max_concurrent_verifications: 5
+    video_analysis_tool: video_understanding
+    time_format: offset
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 60
+    max_fps: 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_clip
+    time_format: offset
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${INTERNAL_IP}
+    external_ip: ${EXTERNAL_IP}
+
+llms:
+  nim_llm:
+    _type: nim
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  openai_llm:
+    _type: openai
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  nim_vlm:
+    _type: nim
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  openai_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  vllm_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+workflow:
+  _type: top_agent
+  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  llm_reasoning: false
+  max_iterations: 20
+  max_history: 0
+  subagent_names:
+  - search_agent
+  prompt: |
+    You are a video search assistant. Use the search_agent to find videos matching user queries.
+    The search_agent will decompose queries, run embed search, and perform fusion reranking.
+
+    When a user asks to search for videos, call the search_agent with:
+    - query: The user's search query
+    - agent_mode: true (to enable query decomposition)
+    - use_attribute_search: true (to enable fusion reranking)
+    - max_results: Number of results to return (default: 5)

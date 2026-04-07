@@ -1,0 +1,11 @@
+{
+  "Nvstreamer":
+      [
+          {
+              "enabled": false,
+              "endpoint": "localhost:31000",
+              "api": "/api/v1/sensor/streams",
+              "max_stream_count": 4
+          }
+      ]
+  }
