@@ -145,7 +145,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 
 ```bash
 # Clone the repository
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone -b feat/kubernetes-support https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization/deployments/helm/developer-profiles
 
 # Update the values-base.yaml and install the chart

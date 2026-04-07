@@ -173,7 +173,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 
 ```bash
 # Clone the repository
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone -b feat/kubernetes-support https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization/deployments/helm/developer-profiles
 
 # Update the values-lvs.yaml and install the chart

@@ -178,7 +178,7 @@ The following Kubernetes secrets are **automatically created** by the chart when
 
 ```bash
 # Clone the repository
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone -b feat/kubernetes-support https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization/deployments/helm/developer-profiles
 ```
 
