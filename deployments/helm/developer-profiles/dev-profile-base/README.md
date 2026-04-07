@@ -196,11 +196,11 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
   --set controller.daemonset.hostPorts.https=443
 ```
 
-**2. Apply the ingress.** Edit **`vss-ingress-example.yaml`** and **`vss-ingress-example-rewrites.yaml`** in this directory: Update the <RELEASE_NAME>,<NAMESPACE>, <EXTERNAL_HOST> in the files.
+**2. Apply the ingress.** Edit **`vss-ingress-example.yaml`** and **`vss-ingress-example-rewrites.yaml`** in this directory: Update the **RELEASE_NAME**, **NAMESPACE**, **EXTERNAL_HOST** in the files.
 
 
 ```bash
-kubectl apply -f vss-ingress-example.yaml -f vss-ingress-example-rewrites.yaml -n <NAMESPACE>
+kubectl apply -f dev-profile-base/vss-ingress-example.yaml -f dev-profile-base/vss-ingress-example-rewrites.yaml -n <NAMESPACE>
 ```
 
 **Note:** How you expose the ingress depends on your **CSP (cloud/service provider)**. You may use a LoadBalancer service or a cloud-specific ingress (e.g. OCI LB, AWS ALB, GKE Ingress). Adjust your configuration based on provider’s documentation.
