@@ -224,7 +224,7 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
 
 
 ```bash
-kubectl apply -f dev-profile-base/vss-ingress-example.yaml -f dev-profile-base/vss-ingress-example-rewrites.yaml -n <NAMESPACE>
+kubectl apply -f dev-profile-lvs/vss-ingress-example.yaml -f dev-profile-lvs/vss-ingress-example-rewrites.yaml -n <NAMESPACE>
 ```
 
 
@@ -233,7 +233,7 @@ kubectl apply -f dev-profile-base/vss-ingress-example.yaml -f dev-profile-base/v
 **Upgrade**
 
 ```bash
-helm upgrade <RELEASE_NAME> ./dev-profile-lvs -f dev-profile-base/values-lvs.yaml -n <NAMESPACE>
+helm upgrade <RELEASE_NAME> ./dev-profile-lvs -f dev-profile-lvs/values-lvs.yaml -n <NAMESPACE>
 ```
 
 **Uninstall**:
