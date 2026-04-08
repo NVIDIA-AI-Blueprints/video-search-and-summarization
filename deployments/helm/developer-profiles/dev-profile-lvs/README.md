@@ -194,7 +194,7 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
   --set vlmNameSlug=cosmos-reason2-8b \
   --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
   --set global.externalHost=vss."$EXTERNAL_HOST".nip.io \
-  --set global.kibanaPublicUrl=kibana.vss.$EXTERNAL_HOST.nip.io \
+  --set global.kibanaPublicUrl=http://kibana.vss.$EXTERNAL_HOST.nip.io \
   --set global.storageClass="$STORAGE_CLASS"
 ```
 
