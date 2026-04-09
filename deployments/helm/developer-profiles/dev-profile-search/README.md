@@ -275,7 +275,7 @@ Replace `<NODE_IP>` with the value of `$NODE_EXTERNAL_IP`.
 Verify the Ingress is configured:
 
 ```bash
-kubectl get ingress -n default
+kubectl get ingress -n <NAMESPACE>
 ```
 
 ### Access via NodePort
@@ -362,7 +362,7 @@ To use custom DNS names instead of `nip.io`:
 
 ```bash
 helm upgrade --install vss-search ./dev-profile-search \
-  -n default \
+  -n vss-search \
   --set global.externalHost=$NODE_EXTERNAL_IP \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
   --set ingress.hosts.main=vss-search.example.com \
@@ -382,7 +382,7 @@ kubectl create secret tls vss-search-tls \
   --key=path/to/tls.key
 
 helm upgrade --install vss-search ./dev-profile-search \
-  -n default \
+  -n vss-search \
   --set global.externalHost=$NODE_EXTERNAL_IP \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
   --set ingress.hosts.main=vss-search.example.com \
