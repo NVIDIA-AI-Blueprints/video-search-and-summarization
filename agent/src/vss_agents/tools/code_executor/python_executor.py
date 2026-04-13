@@ -19,8 +19,6 @@ import random
 import string
 from typing import Literal
 
-from vss_agents.tools.code_executor import DockerExecutor
-
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -28,6 +26,8 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+
+from vss_agents.tools.code_executor import DockerExecutor
 
 logger = logging.getLogger(__name__)
 

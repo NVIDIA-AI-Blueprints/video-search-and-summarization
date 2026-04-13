@@ -24,6 +24,7 @@ import re
 import time
 from typing import Any
 from typing import cast
+from typing import override
 from uuid import uuid4
 
 from langchain_core.callbacks.base import BaseCallbackHandler
@@ -63,7 +64,6 @@ from nat.data_models.intermediate_step import UsageInfo
 from nat.utils.type_converter import GlobalTypeConverter
 from pydantic import BaseModel
 from pydantic import Field
-from typing_extensions import override
 
 from vss_agents.agents.data_models import AgentDecision
 from vss_agents.agents.data_models import AgentMessageChunk

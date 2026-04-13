@@ -29,11 +29,9 @@ Key features:
 """
 
 from collections.abc import AsyncGenerator
-from enum import Enum
+from enum import StrEnum
 import json
 import logging
-
-from vss_agents.utils.url_translation import translate_url
 
 import aiohttp
 from nat.builder.builder import Builder
@@ -49,10 +47,12 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from vss_agents.utils.url_translation import translate_url
+
 logger = logging.getLogger(__name__)
 
 
-class LVSStatus(str, Enum):
+class LVSStatus(StrEnum):
     """Status values for LVS video understanding operations."""
 
     ABORTED = "aborted"
@@ -589,8 +589,11 @@ async def lvs_video_understanding(
         # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
         # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
         video_url = translate_url(
-            video_url, config.vlm_mode, config.internal_ip,
-            config.external_ip, config.vst_internal_url,
+            video_url,
+            config.vlm_mode,
+            config.internal_ip,
+            config.external_ip,
+            config.vst_internal_url,
         )
         logger.info(f"[LVS Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
 

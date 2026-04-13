@@ -18,6 +18,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+
 from vss_agents.agents.postprocessing.data_models import NonEmptyResponseValidatorConfig
 from vss_agents.agents.postprocessing.data_models import PostprocessingConfig
 from vss_agents.agents.postprocessing.data_models import URLValidatorConfig

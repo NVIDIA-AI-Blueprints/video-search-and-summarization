@@ -16,6 +16,7 @@
 """Unit tests for build_vst_url."""
 
 import pytest
+
 from vss_agents.tools.vst.utils import build_vst_url
 
 

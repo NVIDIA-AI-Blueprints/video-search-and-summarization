@@ -1494,7 +1494,9 @@ Enter your choice or press Submit to keep current value:"""
 
             # Whitespace-only = not valid; re-prompt
             if not stripped:
-                error_message = "Input is empty or whitespace. Press Submit with no text to approve the default, or enter a prompt."
+                error_message = (
+                    "Input is empty or whitespace. Press Submit with no text to approve the default, or enter a prompt."
+                )
                 continue
 
             # Plain text = use directly (no further approval needed)

@@ -23,7 +23,7 @@ from pydantic import Field
 # ========== EXISTING ENUMS AND MODELS ==========
 
 
-class AgentDecision(str, enum.Enum):
+class AgentDecision(enum.StrEnum):
     """Decision of the agent"""
 
     TOOL = "tool"
@@ -32,7 +32,7 @@ class AgentDecision(str, enum.Enum):
     SUPERVISOR = "supervisor"
 
 
-class AgentMessageChunkType(str, enum.Enum):
+class AgentMessageChunkType(enum.StrEnum):
     """Type of the message chunk"""
 
     THOUGHT = "thought"

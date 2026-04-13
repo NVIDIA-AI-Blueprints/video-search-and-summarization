@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf .next && rm -rf node_modules",
     "format": "prettier --write .",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts,.tsx"
   },
   "dependencies": {
     "@nemo-agent-toolkit/ui": "0.1.1",

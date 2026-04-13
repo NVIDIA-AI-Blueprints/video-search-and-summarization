@@ -538,7 +538,7 @@ async def _search_behavior(
         # Index doesn't exist - return empty result with informative error
         logger.error(f"Elasticsearch index '{index}' not found: {e}")
         raise ValueError(
-            f"Search index '{index}' does not exist. " "Please ensure videos have been ingested before searching."
+            f"Search index '{index}' does not exist. Please ensure videos have been ingested before searching."
         ) from e
 
     # Log ES response
@@ -908,8 +908,7 @@ async def search_by_attributes(
             if len(candidates) > 1:
                 scores = [c["_score"] for c in candidates]
                 logger.info(
-                    f"Processing {len(candidates)} candidate(s). "
-                    f"Score range: {max(scores):.4f} to {min(scores):.4f}"
+                    f"Processing {len(candidates)} candidate(s). Score range: {max(scores):.4f} to {min(scores):.4f}"
                 )
             else:
                 logger.info(f"Processing {len(candidates)} candidate(s).")
@@ -1267,9 +1266,7 @@ async def _append_multi_attribute(
 
 
 @register_function(config_type=AttributeSearchConfig)
-async def build_attribute_search(
-    config: AttributeSearchConfig, _builder: Builder
-) -> AsyncGenerator[FunctionInfo, None]:
+async def build_attribute_search(config: AttributeSearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
     """NAT function builder for attribute search."""
     # Always use RTVI CV for text embeddings
     embed_client: EmbedClient = RTVICVEmbedClient(config.rtvi_cv_endpoint)

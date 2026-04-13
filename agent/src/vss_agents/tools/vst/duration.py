@@ -17,9 +17,6 @@ from collections.abc import AsyncGenerator
 import datetime
 import logging
 
-from vss_agents.tools.vst.timeline import get_timeline
-from vss_agents.tools.vst.utils import get_stream_id
-
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -27,6 +24,9 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+
+from vss_agents.tools.vst.timeline import get_timeline
+from vss_agents.tools.vst.utils import get_stream_id
 
 logger = logging.getLogger(__name__)
 
