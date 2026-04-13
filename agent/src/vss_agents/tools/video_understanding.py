@@ -539,8 +539,11 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
             # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
             video_url = translate_url(
-                video_url, config.vlm_mode, config.internal_ip,
-                config.external_ip, config.vst_internal_url,
+                video_url,
+                config.vlm_mode,
+                config.internal_ip,
+                config.external_ip,
+                config.vst_internal_url,
             )
 
         logger.info(f"[Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")

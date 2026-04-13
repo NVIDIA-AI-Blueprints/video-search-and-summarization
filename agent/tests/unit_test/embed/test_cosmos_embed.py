@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+
 from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 
 

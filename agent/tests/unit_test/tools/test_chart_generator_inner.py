@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 
 import matplotlib.pyplot as plt
 import pytest
+
 from vss_agents.tools.chart_generator import BarChartData
 from vss_agents.tools.chart_generator import ChartGeneratorConfig
 from vss_agents.tools.chart_generator import ChartGeneratorInput

@@ -18,6 +18,7 @@ import uuid
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.data_models.vss import MediaInfoOffset
 from vss_agents.prompt import INIT_SUMMARIZE_PROMPT
 from vss_agents.tools.vss_summarize import VSSSummarizeConfig
