@@ -12,6 +12,7 @@
     "moduleResolution": "node",
     "baseUrl": ".",
     "paths": {
+      "@nemo-agent-toolkit/ui": ["../../nemo-agent-toolkit-ui/lib-src/index.d.ts"],
       "@nv-metropolis-bp-vss-ui/alerts": ["../alerts/lib-src/index.ts"],
       "@nv-metropolis-bp-vss-ui/dashboard": ["../dashboard/lib-src/index.ts"],
       "@nv-metropolis-bp-vss-ui/map": ["../map/lib-src/index.ts"],
