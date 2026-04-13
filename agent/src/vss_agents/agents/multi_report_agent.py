@@ -24,10 +24,6 @@ import logging
 import time
 from typing import Literal
 
-from vss_agents.agents.data_models import AgentMessageChunk
-from vss_agents.agents.data_models import AgentMessageChunkType
-from vss_agents.agents.data_models import AgentOutput
-
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -36,6 +32,10 @@ from nat.data_models.component_ref import FunctionRef
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+
+from vss_agents.agents.data_models import AgentMessageChunk
+from vss_agents.agents.data_models import AgentMessageChunkType
+from vss_agents.agents.data_models import AgentOutput
 
 logger = logging.getLogger(__name__)
 

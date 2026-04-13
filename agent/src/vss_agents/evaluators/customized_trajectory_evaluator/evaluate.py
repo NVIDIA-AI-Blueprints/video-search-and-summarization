@@ -22,11 +22,6 @@ import json
 import logging
 from typing import Any
 
-from vss_agents.evaluators.utils import ScoreOutputParser
-from vss_agents.evaluators.utils import invoke_llm_with_retry
-from vss_agents.evaluators.utils import should_evaluate
-from vss_agents.evaluators.utils import strip_agent_think_tags
-
 from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
@@ -34,6 +29,11 @@ from langchain_core.utils.function_calling import convert_to_openai_function
 from nat.eval.evaluator.base_evaluator import BaseEvaluator
 from nat.eval.evaluator.evaluator_model import EvalInputItem
 from nat.eval.evaluator.evaluator_model import EvalOutputItem
+
+from vss_agents.evaluators.utils import ScoreOutputParser
+from vss_agents.evaluators.utils import invoke_llm_with_retry
+from vss_agents.evaluators.utils import should_evaluate
+from vss_agents.evaluators.utils import strip_agent_think_tags
 
 logger = logging.getLogger(__name__)
 

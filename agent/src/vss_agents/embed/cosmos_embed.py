@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-
-from vss_agents.embed.embed import EmbedClient
+from typing import override
 
 import httpx
-from typing_extensions import override
+
+from vss_agents.embed.embed import EmbedClient
 
 logger = logging.getLogger(__name__)
 
