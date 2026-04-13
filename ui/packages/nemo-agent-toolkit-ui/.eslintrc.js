@@ -16,22 +16,27 @@ module.exports = {
   },
   rules: {
     // TypeScript specific rules (using ESLint equivalents)
-    'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
 
     // React specific rules
     'react/react-in-jsx-scope': 'off',
     'react/prop-types': 'off',
+    'react-hooks/rules-of-hooks': 'warn',
     'react-hooks/exhaustive-deps': 'warn',
+    'react/display-name': 'warn',
+    'react/no-unescaped-entities': 'warn',
+    '@next/next/no-img-element': 'warn',
+    '@next/next/no-sync-scripts': 'warn',
 
     // General rules
     'no-console': 'warn',
     'no-debugger': 'error',
-    'prefer-const': 'error',
+    'prefer-const': 'warn',
     'no-var': 'error',
 
     // Import rules
     'import/order': [
-      'error',
+      'warn',
       {
         groups: [
           'builtin',

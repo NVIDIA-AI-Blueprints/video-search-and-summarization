@@ -21,10 +21,6 @@ import re
 from typing import Any
 from typing import cast
 
-from vss_agents.utils.reasoning_parsing import parse_reasoning_content
-from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
-from vss_agents.utils.reasoning_utils import get_thinking_tag
-
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
@@ -32,6 +28,10 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from nat.eval.evaluator.evaluator_model import EvalInputItem
 from nat.eval.evaluator.evaluator_model import EvalOutputItem
+
+from vss_agents.utils.reasoning_parsing import parse_reasoning_content
+from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
+from vss_agents.utils.reasoning_utils import get_thinking_tag
 
 logger = logging.getLogger(__name__)
 

@@ -64,10 +64,10 @@ class CustomizedTrajectoryEvaluatorConfig(EvaluatorBaseConfig, name="customized_
 async def register_customized_trajectory_evaluator(
     config: CustomizedTrajectoryEvaluatorConfig, builder: EvalBuilder
 ) -> AsyncGenerator[EvaluatorInfo]:
-    from .evaluate import CustomizedTrajectoryEvaluator
-
     from langchain_core.prompts import PromptTemplate
     from nat.builder.framework_enum import LLMFrameworkEnum
+
+    from .evaluate import CustomizedTrajectoryEvaluator
 
     llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     tools = await builder.get_all_tools(wrapper_type=LLMFrameworkEnum.LANGCHAIN)

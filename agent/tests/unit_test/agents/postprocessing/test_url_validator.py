@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+
 from vss_agents.agents.postprocessing.validators.url_validator import URLValidator
 from vss_agents.agents.postprocessing.validators.url_validator import extract_urls
 from vss_agents.agents.postprocessing.validators.url_validator import extract_urls_from_tags_with_alt

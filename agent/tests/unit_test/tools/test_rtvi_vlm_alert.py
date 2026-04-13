@@ -16,6 +16,7 @@
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertInput
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertOutput

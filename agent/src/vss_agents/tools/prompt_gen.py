@@ -15,8 +15,6 @@
 from collections.abc import AsyncGenerator
 import logging
 
-from vss_agents.prompt import VSS_SUMMARIZE_PROMPT
-
 from langchain_core.prompts import ChatPromptTemplate
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -25,6 +23,8 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+
+from vss_agents.prompt import VSS_SUMMARIZE_PROMPT
 
 logger = logging.getLogger(__name__)
 
