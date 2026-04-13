@@ -16,6 +16,7 @@
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.tools.vst.sensor_list import VSTSensorListConfig
 from vss_agents.tools.vst.sensor_list import VSTSensorListInput
 from vss_agents.tools.vst.sensor_list import VSTSensorListOutput

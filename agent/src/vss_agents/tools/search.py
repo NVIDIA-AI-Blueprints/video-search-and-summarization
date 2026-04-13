@@ -668,7 +668,7 @@ async def execute_core_search(
     attribute_search_fn: Any
     | None = None,  # Function reference for attribute search (can be loaded from builder if None)
     critic_agent: Any | None = None,  # Optional critic agent
-) -> AsyncGenerator[Union[AgentMessageChunk, "SearchOutput"], None]:
+) -> AsyncGenerator[Union[AgentMessageChunk, "SearchOutput"]]:
     """
     Core search execution logic shared by search.py and search_agent.py.
 
@@ -827,7 +827,7 @@ async def execute_core_search(
         attribute_list = [attr for attr in attribute_list if not _is_single_word(attr)]
         if len(attribute_list) < original_count:
             pruned_count = original_count - len(attribute_list)
-            logger.info(f"Pruned {pruned_count} single-word attribute(s). " f"Remaining attributes: {attribute_list}")
+            logger.info(f"Pruned {pruned_count} single-word attribute(s). Remaining attributes: {attribute_list}")
 
         logger.info(f"Extracted attributes: {attribute_list}")
         # Check if attribute-only: has_action=False means attribute-only, otherwise use fusion path

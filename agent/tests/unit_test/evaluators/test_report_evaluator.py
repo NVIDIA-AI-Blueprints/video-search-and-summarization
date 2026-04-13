@@ -23,6 +23,8 @@ from unittest.mock import patch
 
 from nat.eval.evaluator.evaluator_model import EvalInputItem
 import pytest
+import yaml
+
 from vss_agents.evaluators.report_evaluator.data_models import EvaluationScore
 from vss_agents.evaluators.report_evaluator.eval_config_models import EvalMetricsConfig
 from vss_agents.evaluators.report_evaluator.eval_config_models import FieldConfig
@@ -30,7 +32,6 @@ from vss_agents.evaluators.report_evaluator.evaluate import ReportEvaluator
 from vss_agents.evaluators.report_evaluator.evaluate import _fetch_and_parse_report
 from vss_agents.evaluators.report_evaluator.evaluate import _load_eval_metrics_yaml
 from vss_agents.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
-import yaml
 
 MOCK_METRIC_SCORE = 0.8
 MOCK_LLM_JUDGE_SCORE = 0.9

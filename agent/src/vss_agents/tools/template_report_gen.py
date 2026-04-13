@@ -33,10 +33,6 @@ try:
 except ImportError:
     PDF_CONVERSION_AVAILABLE = False
 
-from vss_agents.tools.video_understanding import extend_timestamp
-from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
-from vss_agents.utils.reasoning_utils import get_thinking_tag
-
 from langchain_core.prompts import ChatPromptTemplate
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -48,6 +44,10 @@ from nat.data_models.function import FunctionBaseConfig
 from nat.object_store.models import ObjectStoreItem
 from pydantic import BaseModel
 from pydantic import Field
+
+from vss_agents.tools.video_understanding import extend_timestamp
+from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
+from vss_agents.utils.reasoning_utils import get_thinking_tag
 
 logger = logging.getLogger(__name__)
 

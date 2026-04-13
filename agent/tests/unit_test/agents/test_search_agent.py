@@ -21,6 +21,7 @@ import json
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.agents.search_agent import SearchAgentConfig
 from vss_agents.agents.search_agent import SearchAgentInput
 from vss_agents.agents.search_agent import _helper_markdown_bullet_list
@@ -196,12 +197,12 @@ def _make_search_output(num_results=1):
     for i in range(num_results):
         results.append(
             SearchResult(
-                video_name=f"video{i+1}.mp4",
-                description=f"Test video {i+1}",
-                start_time=f"2025-01-15T{10+i}:00:00Z",
-                end_time=f"2025-01-15T{10+i}:01:00Z",
-                sensor_id=f"sensor-{i+1}",
-                screenshot_url=f"http://example.com/screenshot{i+1}.jpg",
+                video_name=f"video{i + 1}.mp4",
+                description=f"Test video {i + 1}",
+                start_time=f"2025-01-15T{10 + i}:00:00Z",
+                end_time=f"2025-01-15T{10 + i}:01:00Z",
+                sensor_id=f"sensor-{i + 1}",
+                screenshot_url=f"http://example.com/screenshot{i + 1}.jpg",
                 similarity=0.95 - (i * 0.1),
             )
         )

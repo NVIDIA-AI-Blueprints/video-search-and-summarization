@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 import pytest
+
 from vss_agents.video_analytics.tools import VideoAnalyticsToolConfig
 from vss_agents.video_analytics.tools import video_analytics
 

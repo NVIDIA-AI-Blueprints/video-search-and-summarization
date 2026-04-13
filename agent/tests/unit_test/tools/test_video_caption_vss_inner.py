@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+
 from vss_agents.tools.video_caption import VideoCaptionConfig
 from vss_agents.tools.video_caption import VideoCaptionInput
 from vss_agents.tools.video_caption import video_caption

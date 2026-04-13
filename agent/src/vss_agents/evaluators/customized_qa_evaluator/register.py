@@ -56,10 +56,10 @@ async def register_customized_qa_evaluator(
     config: CustomizedQAEvaluatorConfig, builder: EvalBuilder
 ) -> AsyncGenerator[EvaluatorInfo]:
     """Register the customized QA evaluator."""
-    from .evaluate import CustomizedQAEvaluator
-
     from langchain_core.prompts import PromptTemplate
     from nat.builder.framework_enum import LLMFrameworkEnum
+
+    from .evaluate import CustomizedQAEvaluator
 
     llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 

@@ -17,6 +17,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+
 from vss_agents.tools.video_detailed_caption import VideoDetailedCaptionConfig
 from vss_agents.tools.video_detailed_caption import VideoDetailedCaptionInput
 from vss_agents.tools.video_detailed_caption import video_detailed_caption
