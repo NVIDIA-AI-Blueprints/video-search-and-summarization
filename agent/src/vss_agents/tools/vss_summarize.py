@@ -20,11 +20,6 @@ from typing import Annotated
 from typing import Any
 import uuid
 
-from vss_agents.data_models.vss import MediaInfoOffset
-from vss_agents.prompt import INIT_SUMMARIZE_PROMPT
-from vss_agents.prompt import VLM_FORMAT_INSTRUCTION
-from vss_agents.prompt import VLM_PROMPT_EXAMPLES
-
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -33,6 +28,11 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import model_validator
+
+from vss_agents.data_models.vss import MediaInfoOffset
+from vss_agents.prompt import INIT_SUMMARIZE_PROMPT
+from vss_agents.prompt import VLM_FORMAT_INSTRUCTION
+from vss_agents.prompt import VLM_PROMPT_EXAMPLES
 
 logger = logging.getLogger(__name__)
 

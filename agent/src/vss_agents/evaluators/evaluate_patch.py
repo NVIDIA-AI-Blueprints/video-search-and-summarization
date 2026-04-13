@@ -64,16 +64,16 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from vss_agents.evaluators.utils import compute_item_latency
-from vss_agents.evaluators.utils import strip_agent_think_tags
-
 from nat.eval.evaluator.evaluator_model import EvalInputItem
 from tqdm import tqdm
+
+from vss_agents.evaluators.utils import compute_item_latency
+from vss_agents.evaluators.utils import strip_agent_think_tags
 
 logger = logging.getLogger(__name__)
 
 
-class DatasetFilter(str, enum.Enum):
+class DatasetFilter(enum.StrEnum):
     ALL = "all"
     QA = "qa"
     TRAJECTORY = "trajectory"

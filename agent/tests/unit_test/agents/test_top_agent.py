@@ -15,6 +15,7 @@
 """Unit tests for top_agent module."""
 
 import pytest
+
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
 from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
