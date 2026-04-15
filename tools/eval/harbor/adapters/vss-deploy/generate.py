@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 """Generate Harbor tasks for VSS deploy skill evaluation.
 
-Each task provisions a bare Brev GPU instance. The agent must handle
-everything: install prerequisites, clone the repo, configure .env,
-deploy VSS, and verify it works. The verifier then checks containers
-and endpoints independently.
+Two eval types:
+  - L40S tasks: full deployment on Brev GPU instances, verifying containers
+    and endpoints.
+  - All other platforms: compose-only validation in local Docker, checking
+    that the resolved docker compose config is correct without deploying.
 
 Usage:
     python generate.py --output-dir ../../datasets/vss-deploy
     python generate.py --output-dir ../../datasets/vss-deploy-skill \
         --skill deploy --skill-dir ../../../../skills/deploy
     python generate.py --output-dir ../../datasets/vss-deploy \
-        --hardware H100 --mode remote-llm
+        --hardware L40S --mode remote-llm
 
-Run with Harbor + Brev:
+Run with Harbor:
+    # Full deployment (L40S via Brev)
     harbor run --env "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
-        -p tools/eval/harbor/datasets/vss-deploy -a claude-code -n 1 -l 5
+        -p tools/eval/harbor/datasets/vss-deploy -i "base-l40s-*" -a claude-code
+
+    # Compose-only validation (other platforms via Docker)
+    harbor run -e docker \
+        -p tools/eval/harbor/datasets/vss-deploy -x "base-l40s-*" -a claude-code
 """
 
 from __future__ import annotations
@@ -178,6 +184,15 @@ MODE_DESCRIPTIONS = {
 VSS_REPO_URL = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
 VSS_BRANCH = "feat/skills"
 
+# Dockerfile for compose-only validation tasks (local Docker environment).
+# docker:27-cli includes Docker CLI + Compose plugin; 'docker compose config'
+# works without a running daemon (pure YAML resolution).
+COMPOSE_ONLY_DOCKERFILE = """\
+FROM docker:27-cli
+RUN apk add --no-cache git python3 py3-yaml bash curl jq
+WORKDIR /workspace
+"""
+
 
 def build_scenarios(
     hardware_filter: str | None = None,
@@ -185,13 +200,17 @@ def build_scenarios(
 ) -> list[dict]:
     """Expand the platform matrix into individual scenarios.
 
-    Queries `brev search --json` to resolve real instance types from the org.
-    Skips platforms with no matching Brev instances available.
+    L40S scenarios use Brev for full deployment testing.
+    All other platforms generate compose-only validation tasks (local Docker).
     """
-    print("Querying Brev for available instance types...")
-    brev_instances = query_brev_instances()
-    if not brev_instances:
-        print("Warning: no Brev instances found — instance types will be empty")
+    # Only query Brev if we might generate L40S tasks
+    brev_instances: list[dict] = []
+    need_brev = hardware_filter is None or hardware_filter == "L40S"
+    if need_brev:
+        print("Querying Brev for available instance types...")
+        brev_instances = query_brev_instances()
+        if not brev_instances:
+            print("Warning: no Brev instances found — L40S tasks may be skipped")
 
     scenarios = []
 
@@ -200,28 +219,42 @@ def build_scenarios(
             continue
 
         spec = GPU_SPECS.get(hw_key, {})
+        is_brev = (hw_key == "L40S")
 
         for mode in platform["modes"]:
             if mode_filter and mode["id"] != mode_filter:
                 continue
 
-            brev_type = find_brev_instance_type(
-                brev_instances,
-                gpu_name=spec.get("search"),
-                gpu_count=mode["gpus"],
-                min_vram=spec.get("min_vram", 0),
-            )
-
-            if not brev_type:
-                print(f"  SKIP {hw_key}/{mode['id']}: no matching Brev instance "
-                      f"(need {mode['gpus']}x {spec.get('search', 'N/A')})")
-                continue
+            # Resolve Brev instance type only for L40S (full deployment)
+            brev_type = None
+            if is_brev:
+                brev_type = find_brev_instance_type(
+                    brev_instances,
+                    gpu_name=spec.get("search"),
+                    gpu_count=mode["gpus"],
+                    min_vram=spec.get("min_vram", 0),
+                )
+                if not brev_type:
+                    print(f"  SKIP {hw_key}/{mode['id']}: no matching Brev instance "
+                          f"(need {mode['gpus']}x {spec.get('search', 'N/A')})")
+                    continue
 
             task_id = f"base-{hw_key.lower()}-{mode['id']}"
+            eval_type = "brev" if is_brev else "compose_only"
 
-            instruction = (
-                f"Deploy VSS base profile. {MODE_DESCRIPTIONS[mode['id']]}\n"
-            )
+            if eval_type == "compose_only":
+                instruction = (
+                    "Configure and generate the docker compose configuration "
+                    f"for VSS base profile on {platform['hardware']}. "
+                    f"{MODE_DESCRIPTIONS[mode['id']]}\n"
+                    "\n"
+                    "Do NOT deploy containers — only generate the resolved "
+                    "compose file at deployments/resolved.yml.\n"
+                )
+            else:
+                instruction = (
+                    f"Deploy VSS base profile. {MODE_DESCRIPTIONS[mode['id']]}\n"
+                )
 
             scenarios.append({
                 "id": task_id,
@@ -231,8 +264,12 @@ def build_scenarios(
                 "vlm_mode": mode["vlm"],
                 "gpus": mode["gpus"],
                 "gpu": platform["gpu_label"],
+                "eval_type": eval_type,
                 "brev_instance_type": brev_type,
-                "description": f"Base profile on {platform['hardware']} — {mode['id']}",
+                "description": (
+                    f"Base profile on {platform['hardware']} — {mode['id']}"
+                    + (" (compose-only)" if eval_type == "compose_only" else "")
+                ),
                 "instruction": instruction,
                 "expected_containers": BASE_EXPECTED_CONTAINERS,
                 "expected_endpoints": BASE_EXPECTED_ENDPOINTS,
@@ -251,6 +288,8 @@ def generate_task(
     task_dir = output_dir / scenario["id"]
     task_dir.mkdir(parents=True, exist_ok=True)
 
+    eval_type = scenario["eval_type"]
+
     # -- instruction.md --
     instruction = scenario["instruction"]
     if skill_name:
@@ -258,36 +297,63 @@ def generate_task(
     (task_dir / "instruction.md").write_text(instruction)
 
     # -- task.toml --
-    task_toml = (
-        f'[task]\n'
-        f'name = "nvidia-vss/{scenario["id"]}"\n'
-        f'description = "{scenario["description"]}"\n'
-        f'keywords = ["deploy", "{scenario["profile"]}", '
-        f'"{scenario["hardware"]}", "{scenario["llm_mode"]}"]\n'
-        f'\n'
-        f'[metadata]\n'
-        f'gpu = "{scenario["gpu"]}"\n'
-        f'brev_instance_type = "{scenario["brev_instance_type"]}"\n'
-    )
+    if eval_type == "brev":
+        task_toml = (
+            f'[task]\n'
+            f'name = "nvidia-vss/{scenario["id"]}"\n'
+            f'description = "{scenario["description"]}"\n'
+            f'keywords = ["deploy", "{scenario["profile"]}", '
+            f'"{scenario["hardware"]}", "{scenario["llm_mode"]}"]\n'
+            f'\n'
+            f'[metadata]\n'
+            f'gpu = "{scenario["gpu"]}"\n'
+            f'brev_instance_type = "{scenario["brev_instance_type"]}"\n'
+        )
+    else:
+        task_toml = (
+            f'[task]\n'
+            f'name = "nvidia-vss/{scenario["id"]}"\n'
+            f'description = "{scenario["description"]}"\n'
+            f'keywords = ["compose-validation", "{scenario["profile"]}", '
+            f'"{scenario["hardware"]}", "{scenario["llm_mode"]}"]\n'
+            f'\n'
+            f'[metadata]\n'
+            f'eval_type = "compose_only"\n'
+            f'hardware_profile = "{scenario["hardware"]}"\n'
+        )
     (task_dir / "task.toml").write_text(task_toml)
 
-    # -- environment/ (required by Harbor for task validation, but BrevEnvironment
-    #    provisions bare instances — the Dockerfile is a no-op placeholder)
+    # -- environment/ --
     env_dir = task_dir / "environment"
     env_dir.mkdir(exist_ok=True)
-    (env_dir / "Dockerfile").write_text("FROM scratch\n")
+    if eval_type == "brev":
+        # BrevEnvironment provisions bare instances — Dockerfile is a no-op
+        (env_dir / "Dockerfile").write_text("FROM scratch\n")
+    else:
+        # Local Docker with git + docker compose for config generation
+        (env_dir / "Dockerfile").write_text(COMPOSE_ONLY_DOCKERFILE)
 
     # -- tests/test.sh --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    (tests_dir / "test.sh").write_text(
-        generate_test_script(scenario["expected_containers"], scenario["expected_endpoints"])
-    )
+    if eval_type == "brev":
+        (tests_dir / "test.sh").write_text(
+            generate_deploy_test_script(
+                scenario["expected_containers"], scenario["expected_endpoints"],
+            )
+        )
+    else:
+        (tests_dir / "test.sh").write_text(
+            generate_compose_validation_test(scenario)
+        )
 
     # -- solution/solve.sh --
     solution_dir = task_dir / "solution"
     solution_dir.mkdir(exist_ok=True)
-    (solution_dir / "solve.sh").write_text(generate_solve_script(scenario))
+    if eval_type == "brev":
+        (solution_dir / "solve.sh").write_text(generate_deploy_solve_script(scenario))
+    else:
+        (solution_dir / "solve.sh").write_text(generate_compose_only_solve_script(scenario))
 
     # -- Copy skill into task if requested --
     if skill_dir and skill_dir.exists():
@@ -297,11 +363,15 @@ def generate_task(
         shutil.copytree(skill_dir, skill_dest)
 
 
-def generate_test_script(
+# ---------------------------------------------------------------------------
+# Brev (full deployment) test & solution
+# ---------------------------------------------------------------------------
+
+def generate_deploy_test_script(
     expected_containers: list[str],
     expected_endpoints: list[dict],
 ) -> str:
-    """Generate the verifier that checks deployment health."""
+    """Generate the verifier that checks deployment health (Brev tasks)."""
     container_checks = "\n".join(
         f'check_container "{c}"' for c in expected_containers
     )
@@ -356,7 +426,7 @@ exit 0
 """
 
 
-def generate_solve_script(scenario: dict) -> str:
+def generate_deploy_solve_script(scenario: dict) -> str:
     """Generate the gold solution (full setup + deploy from bare instance).
 
     Uses plain string concatenation (not f-strings) to avoid brace escaping
@@ -474,6 +544,229 @@ def generate_solve_script(scenario: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# Compose-only validation test & solution
+# ---------------------------------------------------------------------------
+
+def generate_compose_validation_test(scenario: dict) -> str:
+    """Generate test that validates compose configuration without deploying.
+
+    Uses plain string concatenation to avoid brace escaping issues between
+    Python string formatting, shell variables, and embedded Python.
+    """
+    hardware = scenario["hardware"]
+    llm_mode = scenario["llm_mode"]
+    vlm_mode = scenario["vlm_mode"]
+
+    # Build list of .env key=value pairs to validate
+    env_checks = [
+        ("HARDWARE_PROFILE", hardware),
+        ("LLM_MODE", llm_mode),
+        ("VLM_MODE", vlm_mode),
+    ]
+    if llm_mode == "remote":
+        env_checks.append(("LLM_BASE_URL", "https://integrate.api.nvidia.com/v1"))
+    if vlm_mode == "remote":
+        env_checks.append(("VLM_BASE_URL", "https://integrate.api.nvidia.com/v1"))
+    if llm_mode == "local":
+        env_checks.append(("LLM_DEVICE_ID", "0"))
+    if vlm_mode == "local":
+        env_checks.append(("VLM_DEVICE_ID", "1"))
+
+    validate_lines = "\n".join(
+        'validate_env "' + k + '" "' + v + '"' for k, v in env_checks
+    )
+
+    lines = [
+        "#!/bin/bash",
+        "# Verifier: validate docker compose config for "
+        + hardware + " (" + scenario["id"] + ").",
+        "# Compose-only — no running containers expected.",
+        "set -euo pipefail",
+        "",
+        "PASS=0",
+        "FAIL=0",
+        "",
+        'check_pass() { echo "PASS: $1"; ((PASS++)); }',
+        'check_fail() { echo "FAIL: $1"; ((FAIL++)); }',
+        "",
+        "# Find the VSS repository",
+        'REPO=""',
+        "for d in /workspace/video-search-and-summarization \\",
+        "         /home/*/video-search-and-summarization; do",
+        '    [ -d "$d" ] && REPO="$d" && break',
+        "done",
+        "",
+        'if [ -z "$REPO" ]; then',
+        '    check_fail "VSS repository not found"',
+        '    echo ""',
+        '    echo "=== Results: $PASS passed, $FAIL failed ==="',
+        "    exit 1",
+        "fi",
+        'check_pass "VSS repository found"',
+        "",
+        'ENV_FILE="$REPO/deployments/developer-workflow/dev-profile-base/.env"',
+        'RESOLVED="$REPO/deployments/resolved.yml"',
+        "",
+        "# --- Check required files exist ---",
+        'if [ ! -f "$ENV_FILE" ]; then',
+        '    check_fail ".env file not found"',
+        '    echo ""',
+        '    echo "=== Results: $PASS passed, $FAIL failed ==="',
+        "    exit 1",
+        "fi",
+        'check_pass ".env file exists"',
+        "",
+        'if [ ! -f "$RESOLVED" ]; then',
+        '    check_fail "resolved.yml not found"',
+        '    echo ""',
+        '    echo "=== Results: $PASS passed, $FAIL failed ==="',
+        "    exit 1",
+        "fi",
+        'check_pass "resolved.yml exists"',
+        "",
+        "# --- Validate .env settings ---",
+        "validate_env() {",
+        "    local key=$1 expected=$2",
+        "    local actual",
+        "    actual=$(grep \"^${key}=\" \"$ENV_FILE\" | head -1 | cut -d= -f2- | tr -d \"'\\\"\")",
+        '    if [ "$actual" = "$expected" ]; then',
+        '        check_pass "$key=$expected"',
+        "    else",
+        "        check_fail \"$key expected '$expected' got '$actual'\"",
+        "    fi",
+        "}",
+        "",
+        validate_lines,
+        "",
+        "# --- Validate resolved compose YAML ---",
+        "export RESOLVED",
+        "python3 << 'PYEOF'",
+        "import yaml, sys, os",
+        "",
+        "resolved = os.environ.get('RESOLVED', '')",
+        "if not resolved or not os.path.exists(resolved):",
+        "    print('FAIL: resolved.yml not accessible')",
+        "    sys.exit(1)",
+        "",
+        "with open(resolved) as f:",
+        "    config = yaml.safe_load(f)",
+        "",
+        "if not isinstance(config, dict) or 'services' not in config:",
+        "    print('FAIL: not a valid compose file')",
+        "    sys.exit(1)",
+        "",
+        "services = set(config['services'].keys())",
+        "required = {'mdx-vss-agent', 'mdx-vss-ui', 'mdx-elasticsearch', 'mdx-kafka', 'mdx-redis'}",
+        "missing = required - services",
+        "if missing:",
+        "    print(f'FAIL: missing core services: {missing}')",
+        "    sys.exit(1)",
+        "",
+        "print(f'PASS: {len(services)} services, all core services present')",
+        "PYEOF",
+        "",
+        "if [ $? -eq 0 ]; then",
+        '    check_pass "Compose YAML validation"',
+        "else",
+        '    check_fail "Compose YAML validation"',
+        "fi",
+        "",
+        'echo ""',
+        'echo "=== Results: $PASS passed, $FAIL failed ==="',
+        "",
+        'if [ "$FAIL" -gt 0 ]; then',
+        "    exit 1",
+        "fi",
+        "exit 0",
+    ]
+
+    return "\n".join(lines) + "\n"
+
+
+def generate_compose_only_solve_script(scenario: dict) -> str:
+    """Generate solution that configures .env and generates compose config only.
+
+    Uses plain string concatenation (not f-strings) to avoid brace escaping
+    issues with shell variables and awk patterns.
+    """
+    overrides = {
+        "HARDWARE_PROFILE": scenario["hardware"],
+        "MDX_SAMPLE_APPS_DIR": "$REPO/deployments",
+        "MDX_DATA_DIR": "$REPO/data",
+        "HOST_IP": "$(hostname -I | awk '{print $1}')",
+    }
+
+    if scenario["llm_mode"] == "remote":
+        overrides["LLM_MODE"] = "remote"
+        overrides["LLM_BASE_URL"] = "https://integrate.api.nvidia.com/v1"
+    elif scenario["llm_mode"] == "local":
+        overrides["LLM_MODE"] = "local"
+        overrides["LLM_DEVICE_ID"] = "0"
+    elif scenario["llm_mode"] == "local_shared":
+        overrides["LLM_MODE"] = "local_shared"
+
+    if scenario["vlm_mode"] == "remote":
+        overrides["VLM_MODE"] = "remote"
+        overrides["VLM_BASE_URL"] = "https://integrate.api.nvidia.com/v1"
+    elif scenario["vlm_mode"] == "local":
+        overrides["VLM_MODE"] = "local"
+        overrides["VLM_DEVICE_ID"] = "1"
+    elif scenario["vlm_mode"] == "local_shared":
+        overrides["VLM_MODE"] = "local_shared"
+
+    sed_lines = "\n".join(
+        'sed -i "s|^' + k + "=.*|" + k + "=" + v + '|" "$ENV_FILE"'
+        for k, v in overrides.items()
+    )
+
+    lines = [
+        "#!/bin/bash",
+        "# Gold solution: configure .env + generate compose config for "
+        + scenario["profile"] + " on " + scenario["hardware"]
+        + " (" + scenario["llm_mode"] + " LLM, " + scenario["vlm_mode"] + " VLM).",
+        "# Compose-only — no deployment.",
+        "set -euo pipefail",
+        "",
+        "REPO=/workspace/video-search-and-summarization",
+        "",
+        "# === 1. Clone repo ===",
+        "",
+        'if [ ! -d "$REPO" ]; then',
+        "    git clone --branch " + VSS_BRANCH + " " + VSS_REPO_URL + ' "$REPO"',
+        "fi",
+        'mkdir -p "$REPO/data"',
+        "",
+        "# === 2. Configure .env ===",
+        "",
+        "PROFILE=" + scenario["profile"],
+        "ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env",
+        "",
+        "# Set API keys from environment if available",
+        'if [ -n "${NGC_CLI_API_KEY:-}" ]; then',
+        '    sed -i "s|^NGC_CLI_API_KEY=.*|NGC_CLI_API_KEY=$NGC_CLI_API_KEY|" "$ENV_FILE"',
+        "fi",
+        'if [ -n "${NVIDIA_API_KEY:-}" ]; then',
+        '    sed -i "s|^NVIDIA_API_KEY=.*|NVIDIA_API_KEY=$NVIDIA_API_KEY|" "$ENV_FILE"',
+        "fi",
+        "",
+        sed_lines,
+        "",
+        "# === 3. Generate resolved compose config ===",
+        "",
+        "cd $REPO/deployments",
+        "docker compose --env-file $ENV_FILE config > resolved.yml",
+        "",
+        'echo "Compose configuration generated at $REPO/deployments/resolved.yml"',
+    ]
+
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Harbor tasks for VSS deploy eval")
     parser.add_argument("--output-dir", required=True, help="Output directory for generated tasks")
@@ -498,20 +791,35 @@ def main() -> None:
         return
 
     for scenario in scenarios:
-        print(f"  {scenario['id']}")
+        print(f"  {scenario['id']} ({scenario['eval_type']})")
         generate_task(scenario, output_dir, args.skill, skill_dir)
 
+    # Summary
+    brev_scenarios = [s for s in scenarios if s["eval_type"] == "brev"]
+    compose_scenarios = [s for s in scenarios if s["eval_type"] == "compose_only"]
+
     print(f"\nGenerated {len(scenarios)} tasks in {output_dir}")
+
     print(f"\nPlatform coverage:")
-    by_hw = {}
+    by_hw: dict[str, list[str]] = {}
     for s in scenarios:
         by_hw.setdefault(s["hardware"], []).append(s["id"])
     for hw, ids in by_hw.items():
         print(f"  {hw}: {len(ids)} scenarios")
 
-    print(f"\nRun with:")
-    print(f"  harbor run --env 'tools.eval.harbor.envs.brev_env:BrevEnvironment' \\")
-    print(f"    -p {output_dir} -a claude-code -n 1 -l {len(scenarios)}")
+    print(f"\nEval types:")
+    print(f"  Brev (full deployment): {len(brev_scenarios)} tasks")
+    print(f"  Compose-only (Docker):  {len(compose_scenarios)} tasks")
+
+    if brev_scenarios:
+        print(f"\nRun full deployment (L40S via Brev):")
+        print(f"  harbor run --env 'tools.eval.harbor.envs.brev_env:BrevEnvironment' \\")
+        print(f"    -p {output_dir} -i 'base-l40s-*' -a claude-code -n 1")
+
+    if compose_scenarios:
+        print(f"\nRun compose-only validation (Docker):")
+        print(f"  harbor run -e docker \\")
+        print(f"    -p {output_dir} -x 'base-l40s-*' -a claude-code")
 
 
 if __name__ == "__main__":
