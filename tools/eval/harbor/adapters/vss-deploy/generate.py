@@ -135,26 +135,8 @@ def build_scenarios(
             task_id = f"base-{hw_key.lower()}-{mode['id']}"
 
             instruction = (
-                f"You are on a bare GPU instance with {platform['gpu_label']} GPU(s).\n"
-                f"Your task is to deploy the VSS base profile end-to-end.\n"
-                f"\n"
-                f"Hardware profile: {platform['hardware']}\n"
+                f"Deploy VSS base profile on this {platform['gpu_label']} machine. "
                 f"{MODE_DESCRIPTIONS[mode['id']]}\n"
-                f"\n"
-                f"You need to:\n"
-                f"1. Install prerequisites (Docker, NVIDIA Container Toolkit, kernel settings)\n"
-                f"2. Clone the VSS repo: {VSS_REPO_URL} (branch: {VSS_BRANCH})\n"
-                f"3. Configure the deployment (.env overrides for this hardware and mode)\n"
-                f"4. Run docker compose config to generate the resolved compose (dry-run)\n"
-                f"5. Deploy with docker compose up\n"
-                f"6. Wait for all containers to be healthy and endpoints to respond\n"
-                f"\n"
-                f"You have passwordless sudo access on this instance.\n"
-                f"NGC_CLI_API_KEY and NVIDIA_API_KEY are available in the environment.\n"
-                f"After driver installation, run `sudo modprobe nvidia && sudo modprobe nvidia_uvm` "
-                f"to load GPU modules instead of rebooting.\n"
-                f"The deployment is successful when the Agent API (port 8000) and "
-                f"Agent UI (port 3000) respond to HTTP requests.\n"
             )
 
             scenarios.append({
