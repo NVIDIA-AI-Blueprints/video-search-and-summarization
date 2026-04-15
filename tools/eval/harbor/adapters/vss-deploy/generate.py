@@ -6,134 +6,179 @@ verifies containers and endpoints are healthy, then tears down.
 
 Usage:
     python generate.py --output-dir ../../datasets/vss-deploy
-    python generate.py --output-dir ../../datasets/vss-deploy-skill --skill deploy --skill-dir ../../../skills/deploy
+    python generate.py --output-dir ../../datasets/vss-deploy-skill \
+        --skill deploy --skill-dir ../../../../skills/deploy
+    python generate.py --output-dir ../../datasets/vss-deploy \
+        --hardware H100                     # only H100 scenarios
+    python generate.py --output-dir ../../datasets/vss-deploy \
+        --hardware H100 --mode remote-llm   # single combo
 
-Run with Harbor:
+Run with Harbor + Brev:
     harbor run --env "tools.eval.harbor.brev_env:BrevEnvironment" \
-        -p tools/eval/datasets/vss-deploy -a claude-code -n 1 -l 5
+        -p tools/eval/harbor/datasets/vss-deploy -a claude-code -n 1 -l 5
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
 from pathlib import Path
 
-SCENARIOS = [
-    {
-        "id": "base-spark-shared",
-        "profile": "base",
+# ---------------------------------------------------------------------------
+# Platform matrix — from https://docs.nvidia.com/vss/3.1.0/quickstart.html
+#
+# Each platform defines:
+#   hardware:  HARDWARE_PROFILE value
+#   modes:     list of supported LLM/VLM mode combos
+#   brev:      Brev instance type for provisioning
+#   gpu_label: GPU name for task metadata
+# ---------------------------------------------------------------------------
+
+PLATFORMS = {
+    "H100": {
+        "hardware": "H100",
+        "gpu_label": "H100",
+        "brev_instance_type": "p5.48xlarge",
+        "modes": [
+            {"id": "shared",      "llm": "local_shared", "vlm": "local_shared"},
+            {"id": "dedicated",   "llm": "local",        "vlm": "local"},
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
+            {"id": "remote-vlm",  "llm": "local_shared",  "vlm": "remote"},
+            {"id": "remote-all",  "llm": "remote",       "vlm": "remote"},
+        ],
+    },
+    "RTXPRO6000BW": {
+        "hardware": "RTXPRO6000BW",
+        "gpu_label": "RTX PRO 6000",
+        "brev_instance_type": "g6e.2xlarge",
+        "modes": [
+            {"id": "shared",      "llm": "local_shared", "vlm": "local_shared"},
+            {"id": "dedicated",   "llm": "local",        "vlm": "local"},
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
+            {"id": "remote-vlm",  "llm": "local_shared",  "vlm": "remote"},
+            {"id": "remote-all",  "llm": "remote",       "vlm": "remote"},
+        ],
+    },
+    "L40S": {
+        "hardware": "L40S",
+        "gpu_label": "L40S",
+        "brev_instance_type": "g6e.xlarge",
+        "modes": [
+            # No shared GPU — L40S requires dedicated or remote
+            {"id": "dedicated",   "llm": "local",        "vlm": "local"},
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local"},
+            {"id": "remote-vlm",  "llm": "local",        "vlm": "remote"},
+            {"id": "remote-all",  "llm": "remote",       "vlm": "remote"},
+        ],
+    },
+    "DGX-SPARK": {
         "hardware": "DGX-SPARK",
-        "llm_mode": "local_shared",
-        "vlm_mode": "local_shared",
-        "gpu": "GB10",
+        "gpu_label": "GB10",
         "brev_instance_type": "nvidia-dgx-spark",
-        "description": "Base profile on DGX Spark with shared GPU (default config)",
-        "instruction": (
-            "Deploy the VSS base profile on this machine.\n"
-            "The GPU is a DGX Spark (GB10). Use the default shared GPU mode.\n"
-            "NGC_CLI_API_KEY is already set in the environment.\n"
-            "The VSS repo is cloned at /home/ubuntu/video-search-and-summarization.\n"
-        ),
-        "expected_containers": [
-            "mdx-vss-agent",
-            "mdx-vss-ui",
-            "mdx-elasticsearch",
-            "mdx-kafka",
-            "mdx-redis",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
+        "modes": [
+            # DGX Spark: remote LLM only
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
         ],
     },
-    {
-        "id": "base-h100-remote-llm",
-        "profile": "base",
-        "hardware": "H100",
-        "llm_mode": "remote",
-        "vlm_mode": "local_shared",
-        "gpu": "H100",
-        "brev_instance_type": "p5.48xlarge",
-        "description": "Base profile on H100 with remote LLM via NVIDIA API",
-        "instruction": (
-            "Deploy the VSS base profile on this machine.\n"
-            "The GPU is an H100. Use remote LLM via NVIDIA API (https://integrate.api.nvidia.com/v1).\n"
-            "Keep VLM local (shared mode).\n"
-            "NGC_CLI_API_KEY and NVIDIA_API_KEY are set in the environment.\n"
-            "The VSS repo is cloned at /home/ubuntu/video-search-and-summarization.\n"
-        ),
-        "expected_containers": [
-            "mdx-vss-agent",
-            "mdx-vss-ui",
-            "mdx-elasticsearch",
-            "mdx-kafka",
-            "mdx-redis",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
+    "IGX-THOR": {
+        "hardware": "IGX-THOR",
+        "gpu_label": "IGX",
+        "brev_instance_type": "nvidia-igx",
+        "modes": [
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
         ],
     },
-    {
-        "id": "base-h100-dedicated-gpu",
-        "profile": "base",
-        "hardware": "H100",
-        "llm_mode": "local",
-        "vlm_mode": "local",
-        "gpu": "H100",
-        "brev_instance_type": "p5.48xlarge",
-        "description": "Base profile on H100 with dedicated GPUs (LLM on 0, VLM on 1)",
-        "instruction": (
-            "Deploy the VSS base profile on this machine.\n"
-            "The GPU is an H100. Use dedicated GPUs: LLM on device 0, VLM on device 1.\n"
-            "NGC_CLI_API_KEY is set in the environment.\n"
-            "The VSS repo is cloned at /home/ubuntu/video-search-and-summarization.\n"
-        ),
-        "expected_containers": [
-            "mdx-vss-agent",
-            "mdx-vss-ui",
-            "mdx-elasticsearch",
-            "mdx-kafka",
-            "mdx-redis",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
+    "AGX-THOR": {
+        "hardware": "AGX-THOR",
+        "gpu_label": "AGX",
+        "brev_instance_type": "nvidia-agx",
+        "modes": [
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
         ],
     },
-    {
-        "id": "base-remote-all",
-        "profile": "base",
-        "hardware": "DGX-SPARK",
-        "llm_mode": "remote",
-        "vlm_mode": "remote",
-        "gpu": "none",
-        "brev_instance_type": "c5.2xlarge",
-        "description": "Base profile with both LLM and VLM remote (no local GPU for inference)",
-        "instruction": (
-            "Deploy the VSS base profile on this machine.\n"
-            "Use remote LLM and remote VLM via NVIDIA API (https://integrate.api.nvidia.com/v1).\n"
-            "NVIDIA_API_KEY is set in the environment.\n"
-            "The VSS repo is cloned at /home/ubuntu/video-search-and-summarization.\n"
-        ),
-        "expected_containers": [
-            "mdx-vss-agent",
-            "mdx-vss-ui",
-            "mdx-elasticsearch",
-            "mdx-kafka",
-            "mdx-redis",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
-        ],
-    },
+}
+
+# Base profile containers and endpoints (all platforms share these)
+BASE_EXPECTED_CONTAINERS = [
+    "mdx-vss-agent",
+    "mdx-vss-ui",
+    "mdx-elasticsearch",
+    "mdx-kafka",
+    "mdx-redis",
 ]
 
+BASE_EXPECTED_ENDPOINTS = [
+    {"port": 8000, "path": "/docs", "name": "Agent API"},
+    {"port": 3000, "path": "/", "name": "Agent UI"},
+]
 
-def generate_task(scenario: dict, output_dir: Path, skill_name: str | None, skill_dir: Path | None) -> None:
+# Human-readable mode descriptions for instructions
+MODE_DESCRIPTIONS = {
+    "shared":     "Use the default shared GPU mode (LLM and VLM on same GPU).",
+    "dedicated":  "Use dedicated GPUs: LLM on device 0, VLM on device 1.",
+    "remote-llm": "Use remote LLM via NVIDIA API (https://integrate.api.nvidia.com/v1). Keep VLM local.",
+    "remote-vlm": "Keep LLM local. Use remote VLM via NVIDIA API (https://integrate.api.nvidia.com/v1).",
+    "remote-all": "Use remote LLM and remote VLM via NVIDIA API (https://integrate.api.nvidia.com/v1).",
+}
+
+# Which API keys are needed per mode
+MODE_API_KEYS = {
+    "shared":     "NGC_CLI_API_KEY is set in the environment.",
+    "dedicated":  "NGC_CLI_API_KEY is set in the environment.",
+    "remote-llm": "NGC_CLI_API_KEY and NVIDIA_API_KEY are set in the environment.",
+    "remote-vlm": "NGC_CLI_API_KEY and NVIDIA_API_KEY are set in the environment.",
+    "remote-all": "NVIDIA_API_KEY is set in the environment.",
+}
+
+
+def build_scenarios(
+    hardware_filter: str | None = None,
+    mode_filter: str | None = None,
+) -> list[dict]:
+    """Expand the platform matrix into individual scenarios."""
+    scenarios = []
+
+    for hw_key, platform in PLATFORMS.items():
+        if hardware_filter and hw_key != hardware_filter:
+            continue
+
+        for mode in platform["modes"]:
+            if mode_filter and mode["id"] != mode_filter:
+                continue
+
+            task_id = f"base-{hw_key.lower()}-{mode['id']}"
+
+            instruction = (
+                f"Deploy the VSS base profile on this machine.\n"
+                f"The GPU is {platform['gpu_label']} (hardware profile: {platform['hardware']}).\n"
+                f"{MODE_DESCRIPTIONS[mode['id']]}\n"
+                f"{MODE_API_KEYS[mode['id']]}\n"
+                f"The VSS repo is cloned at /home/ubuntu/video-search-and-summarization.\n"
+            )
+
+            scenarios.append({
+                "id": task_id,
+                "profile": "base",
+                "hardware": platform["hardware"],
+                "llm_mode": mode["llm"],
+                "vlm_mode": mode["vlm"],
+                "gpu": platform["gpu_label"],
+                "brev_instance_type": platform["brev_instance_type"],
+                "description": f"Base profile on {platform['hardware']} — {mode['id']}",
+                "instruction": instruction,
+                "expected_containers": BASE_EXPECTED_CONTAINERS,
+                "expected_endpoints": BASE_EXPECTED_ENDPOINTS,
+            })
+
+    return scenarios
+
+
+def generate_task(
+    scenario: dict,
+    output_dir: Path,
+    skill_name: str | None,
+    skill_dir: Path | None,
+) -> None:
     """Generate a single Harbor task directory from a scenario."""
     task_dir = output_dir / scenario["id"]
     task_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +198,8 @@ def generate_task(scenario: dict, output_dir: Path, skill_name: str | None, skil
         f'[task]\n'
         f'id = "{scenario["id"]}"\n'
         f'difficulty = "medium"\n'
-        f'tags = ["deploy", "{scenario["profile"]}", "{scenario["llm_mode"]}"]\n'
+        f'tags = ["deploy", "{scenario["profile"]}", '
+        f'"{scenario["hardware"]}", "{scenario["llm_mode"]}"]\n'
         f'\n'
         f'[metadata]\n'
         f'gpu = "{scenario["gpu"]}"\n'
@@ -166,7 +212,7 @@ def generate_task(scenario: dict, output_dir: Path, skill_name: str | None, skil
     env_dir.mkdir(exist_ok=True)
     (env_dir / "Dockerfile").write_text(DOCKERFILE_TEMPLATE)
 
-    # -- environment/setup.sh (runs on Brev instance after boot) --
+    # -- environment/setup.sh --
     (env_dir / "setup.sh").write_text(SETUP_SCRIPT)
 
     # -- tests/test.sh --
@@ -179,19 +225,20 @@ def generate_task(scenario: dict, output_dir: Path, skill_name: str | None, skil
     # -- solution/solve.sh --
     solution_dir = task_dir / "solution"
     solution_dir.mkdir(exist_ok=True)
-    (solution_dir / "solve.sh").write_text(
-        generate_solve_script(scenario)
-    )
+    (solution_dir / "solve.sh").write_text(generate_solve_script(scenario))
 
     # -- Copy skill into task if requested --
     if skill_dir and skill_dir.exists():
-        skill_dest = task_dir / "environment" / "skills" / (skill_name or "deploy")
+        skill_dest = env_dir / "skills" / (skill_name or "deploy")
         if skill_dest.exists():
             shutil.rmtree(skill_dest)
         shutil.copytree(skill_dir, skill_dest)
 
 
-def generate_test_script(expected_containers: list[str], expected_endpoints: list[dict]) -> str:
+def generate_test_script(
+    expected_containers: list[str],
+    expected_endpoints: list[dict],
+) -> str:
     """Generate the verifier script that checks deployment health."""
     container_checks = "\n".join(
         f'check_container "{c}"' for c in expected_containers
@@ -262,19 +309,20 @@ def generate_solve_script(scenario: dict) -> str:
         "HARDWARE_PROFILE": scenario["hardware"],
         "MDX_SAMPLE_APPS_DIR": "/home/ubuntu/video-search-and-summarization/deployments",
         "MDX_DATA_DIR": "/home/ubuntu/video-search-and-summarization/data",
-        "HOST_IP": "$(hostname -I | awk '{print $1}')",
+        "HOST_IP": "$(hostname -I | awk '{{print $1}}')",
     }
 
     if scenario["llm_mode"] == "remote":
         overrides["LLM_MODE"] = "remote"
         overrides["LLM_BASE_URL"] = "https://integrate.api.nvidia.com/v1"
+    elif scenario["llm_mode"] == "local":
+        overrides["LLM_MODE"] = "local"
+        overrides["LLM_DEVICE_ID"] = "0"
+
     if scenario["vlm_mode"] == "remote":
         overrides["VLM_MODE"] = "remote"
         overrides["VLM_BASE_URL"] = "https://integrate.api.nvidia.com/v1"
-    if scenario["llm_mode"] == "local":
-        overrides["LLM_MODE"] = "local"
-        overrides["LLM_DEVICE_ID"] = "0"
-    if scenario["vlm_mode"] == "local":
+    elif scenario["vlm_mode"] == "local":
         overrides["VLM_MODE"] = "local"
         overrides["VLM_DEVICE_ID"] = "1"
 
@@ -284,16 +332,16 @@ def generate_solve_script(scenario: dict) -> str:
     )
 
     return f"""#!/bin/bash
-# Gold solution: deploy {scenario["profile"]} profile with {scenario["llm_mode"]} LLM.
+# Gold solution: deploy {scenario["profile"]} on {scenario["hardware"]} — {scenario["llm_mode"]} LLM, {scenario["vlm_mode"]} VLM.
 set -euo pipefail
 
 REPO=/home/ubuntu/video-search-and-summarization
 PROFILE={scenario["profile"]}
 ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
 
-# Setup
+# Setup prerequisites
 cd $REPO
-bash tools/eval/adapters/vss-deploy/environment/setup.sh 2>/dev/null || true
+bash environment/setup.sh 2>/dev/null || true
 
 # Apply env overrides
 {sed_commands}
@@ -305,9 +353,9 @@ docker compose --env-file $ENV_FILE config > resolved.yml
 # Deploy
 docker compose -f resolved.yml up -d --force-recreate
 
-# Wait for containers to be healthy (up to 10 min)
+# Wait for Agent API to be healthy (up to 15 min)
 echo "Waiting for containers..."
-for i in $(seq 1 60); do
+for i in $(seq 1 90); do
     if curl -sf -o /dev/null --max-time 5 http://localhost:8000/docs 2>/dev/null; then
         echo "Agent API is up after $((i*10))s"
         break
@@ -393,19 +441,36 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, help="Output directory for generated tasks")
     parser.add_argument("--skill", default=None, help="Skill name to inject (e.g. 'deploy')")
     parser.add_argument("--skill-dir", default=None, help="Path to skill directory to copy into tasks")
+    parser.add_argument("--hardware", default=None, choices=list(PLATFORMS.keys()),
+                        help="Generate only for this hardware platform")
+    parser.add_argument("--mode", default=None,
+                        help="Generate only for this mode (shared, dedicated, remote-llm, remote-vlm, remote-all)")
     parser.add_argument("--limit", type=int, default=None, help="Max number of tasks to generate")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     skill_dir = Path(args.skill_dir) if args.skill_dir else None
 
-    scenarios = SCENARIOS[: args.limit] if args.limit else SCENARIOS
+    scenarios = build_scenarios(args.hardware, args.mode)
+    if args.limit:
+        scenarios = scenarios[: args.limit]
+
+    if not scenarios:
+        print(f"No scenarios match hardware={args.hardware} mode={args.mode}")
+        return
 
     for scenario in scenarios:
-        print(f"Generating task: {scenario['id']}")
+        print(f"  {scenario['id']}")
         generate_task(scenario, output_dir, args.skill, skill_dir)
 
     print(f"\nGenerated {len(scenarios)} tasks in {output_dir}")
+    print(f"\nPlatform coverage:")
+    by_hw = {}
+    for s in scenarios:
+        by_hw.setdefault(s["hardware"], []).append(s["id"])
+    for hw, ids in by_hw.items():
+        print(f"  {hw}: {len(ids)} scenarios")
+
     print(f"\nRun with:")
     print(f"  harbor run --env 'tools.eval.harbor.brev_env:BrevEnvironment' \\")
     print(f"    -p {output_dir} -a claude-code -n 1 -l {len(scenarios)}")
