@@ -32,11 +32,12 @@ logger = logging.getLogger(__name__)
 # Defaults — override via env vars or task metadata
 DEFAULT_INSTANCE_TYPE = os.environ.get("BREV_INSTANCE_TYPE", "g5.xlarge")
 DEFAULT_GPU_TYPE = os.environ.get("BREV_GPU_TYPE", "A10G")
-BREV_STARTUP_TIMEOUT = int(os.environ.get("BREV_STARTUP_TIMEOUT", "600"))
+BREV_STARTUP_TIMEOUT = int(os.environ.get("BREV_STARTUP_TIMEOUT", "900"))
 BREV_POLL_INTERVAL = int(os.environ.get("BREV_POLL_INTERVAL", "15"))
-# Default timeout for brev CLI commands (the CLI enters an interactive
-# walkthrough after output, so we need to kill it after capturing output)
-BREV_CMD_TIMEOUT = int(os.environ.get("BREV_CMD_TIMEOUT", "60"))
+# Default timeout for brev CLI commands. The CLI enters an interactive
+# walkthrough after output — 10s is enough to capture the JSON/text output
+# before killing the walkthrough tail. Use longer timeouts for create/exec.
+BREV_CMD_TIMEOUT = int(os.environ.get("BREV_CMD_TIMEOUT", "10"))
 
 
 class BrevEnvironmentType(str, Enum):
@@ -131,6 +132,7 @@ class BrevEnvironment(BaseEnvironment):
             "create", self._instance_name,
             "--detached",
             stdin_data=self._instance_type,
+            timeout=120,
         )
         logger.warning("brev create result: rc=%s stdout=%s stderr=%s",
                        result.return_code, result.stdout[:200] if result.stdout else None,
@@ -244,7 +246,8 @@ class BrevEnvironment(BaseEnvironment):
                     instances = json.loads(raw)
                     for inst in instances:
                         if inst.get("name") == self._instance_name:
-                            if inst.get("status") == "RUNNING":
+                            if (inst.get("status") == "RUNNING"
+                                    and inst.get("shell_status") == "READY"):
                                 return
                 except json.JSONDecodeError:
                     pass
