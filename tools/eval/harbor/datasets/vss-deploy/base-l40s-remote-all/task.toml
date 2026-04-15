@@ -1,0 +1,8 @@
+[task]
+id = "base-l40s-remote-all"
+difficulty = "medium"
+tags = ["deploy", "base", "L40S", "remote"]
+
+[metadata]
+gpu = "L40S"
+brev_instance_type = "g6e.xlarge"

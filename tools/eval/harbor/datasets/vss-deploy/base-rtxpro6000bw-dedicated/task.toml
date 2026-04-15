@@ -1,0 +1,8 @@
+[task]
+id = "base-rtxpro6000bw-dedicated"
+difficulty = "medium"
+tags = ["deploy", "base", "RTXPRO6000BW", "local"]
+
+[metadata]
+gpu = "RTX PRO 6000"
+brev_instance_type = "g6e.2xlarge"

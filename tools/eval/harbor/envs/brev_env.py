@@ -1,18 +1,17 @@
 """Harbor environment provider that runs tasks on Brev GPU instances.
 
 Usage with Harbor:
-    harbor run --env "tools.eval.harbor.brev_env:BrevEnvironment" \
+    harbor run --env "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
         --dataset datasets/my-dataset --agent claude-code
 
 Requires:
     - `brev` CLI installed and authenticated (`brev login`)
     - `harbor` package installed (provides BaseEnvironment)
 
-The provider creates a Brev instance per task, uploads the task files,
-runs the agent, downloads results, and tears down the instance.
-
+The provider creates a bare Brev instance per task. All setup (Docker,
+NVIDIA toolkit, repo clone, deployment) is the agent's responsibility.
 GPU type is selected from task metadata (task.toml) or falls back to
-the BREV_GPU_TYPE / BREV_INSTANCE_TYPE env vars.
+the BREV_INSTANCE_TYPE env var.
 """
 
 from __future__ import annotations
@@ -41,14 +40,17 @@ class BrevEnvironmentType(str, Enum):
 
 
 class BrevEnvironment(BaseEnvironment):
-    """Harbor environment that provisions a Brev GPU instance per task.
+    """Harbor environment that provisions a bare Brev GPU instance per task.
 
     Lifecycle:
-        start()  → brev create, wait for RUNNING, install Docker
-        exec()   → brev exec <command>
-        upload() → scp via brev SSH config
+        start()    → brev create, wait for RUNNING
+        exec()     → brev exec <command>
+        upload()   → scp via brev SSH config
         download() → scp via brev SSH config
-        stop()   → brev delete
+        stop()     → brev delete
+
+    The instance is bare — no Docker, no repo, no setup. The agent
+    (or oracle solve.sh) handles all setup as part of the task.
     """
 
     def __init__(self, **kwargs):  # noqa: ANN003
@@ -117,9 +119,6 @@ class BrevEnvironment(BaseEnvironment):
 
         # Wait for RUNNING status
         await self._wait_for_running()
-
-        # Install Docker if needed (Brev images may not have it)
-        await self._ensure_docker()
 
         self._started = True
         logger.info("Brev instance %s is ready", self._instance_name)
@@ -231,22 +230,6 @@ class BrevEnvironment(BaseEnvironment):
 
         msg = f"Brev instance {self._instance_name} did not start within {BREV_STARTUP_TIMEOUT}s"
         raise TimeoutError(msg)
-
-    async def _ensure_docker(self) -> None:
-        """Install Docker on the instance if not present."""
-        check = await self.exec("docker --version")
-        if check.return_code == 0:
-            return
-
-        logger.info("Installing Docker on %s...", self._instance_name)
-        install_cmd = (
-            "curl -fsSL https://get.docker.com | sh && "
-            "sudo usermod -aG docker $USER"
-        )
-        result = await self.exec(install_cmd)
-        if result.return_code != 0:
-            msg = f"Docker install failed: {result.stderr}"
-            raise RuntimeError(msg)
 
 
 # -- Module-level helpers --

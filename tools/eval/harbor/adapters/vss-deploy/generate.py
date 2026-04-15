@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """Generate Harbor tasks for VSS deploy skill evaluation.
 
-Each task provisions a real Brev GPU instance, deploys a VSS profile,
-verifies containers and endpoints are healthy, then tears down.
+Each task provisions a bare Brev GPU instance. The agent must handle
+everything: install prerequisites, clone the repo, configure .env,
+deploy VSS, and verify it works. The verifier then checks containers
+and endpoints independently.
 
 Usage:
     python generate.py --output-dir ../../datasets/vss-deploy
     python generate.py --output-dir ../../datasets/vss-deploy-skill \
         --skill deploy --skill-dir ../../../../skills/deploy
     python generate.py --output-dir ../../datasets/vss-deploy \
-        --hardware H100                     # only H100 scenarios
-    python generate.py --output-dir ../../datasets/vss-deploy \
-        --hardware H100 --mode remote-llm   # single combo
+        --hardware H100 --mode remote-llm
 
 Run with Harbor + Brev:
-    harbor run --env "tools.eval.harbor.brev_env:BrevEnvironment" \
+    harbor run --env "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
         -p tools/eval/harbor/datasets/vss-deploy -a claude-code -n 1 -l 5
 """
 
@@ -26,12 +26,6 @@ from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Platform matrix — from https://docs.nvidia.com/vss/3.1.0/quickstart.html
-#
-# Each platform defines:
-#   hardware:  HARDWARE_PROFILE value
-#   modes:     list of supported LLM/VLM mode combos
-#   brev:      Brev instance type for provisioning
-#   gpu_label: GPU name for task metadata
 # ---------------------------------------------------------------------------
 
 PLATFORMS = {
@@ -43,7 +37,7 @@ PLATFORMS = {
             {"id": "shared",      "llm": "local_shared", "vlm": "local_shared"},
             {"id": "dedicated",   "llm": "local",        "vlm": "local"},
             {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
-            {"id": "remote-vlm",  "llm": "local_shared",  "vlm": "remote"},
+            {"id": "remote-vlm",  "llm": "local_shared", "vlm": "remote"},
             {"id": "remote-all",  "llm": "remote",       "vlm": "remote"},
         ],
     },
@@ -55,7 +49,7 @@ PLATFORMS = {
             {"id": "shared",      "llm": "local_shared", "vlm": "local_shared"},
             {"id": "dedicated",   "llm": "local",        "vlm": "local"},
             {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
-            {"id": "remote-vlm",  "llm": "local_shared",  "vlm": "remote"},
+            {"id": "remote-vlm",  "llm": "local_shared", "vlm": "remote"},
             {"id": "remote-all",  "llm": "remote",       "vlm": "remote"},
         ],
     },
@@ -64,7 +58,6 @@ PLATFORMS = {
         "gpu_label": "L40S",
         "brev_instance_type": "g6e.xlarge",
         "modes": [
-            # No shared GPU — L40S requires dedicated or remote
             {"id": "dedicated",   "llm": "local",        "vlm": "local"},
             {"id": "remote-llm",  "llm": "remote",       "vlm": "local"},
             {"id": "remote-vlm",  "llm": "local",        "vlm": "remote"},
@@ -76,7 +69,6 @@ PLATFORMS = {
         "gpu_label": "GB10",
         "brev_instance_type": "nvidia-dgx-spark",
         "modes": [
-            # DGX Spark: remote LLM only
             {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared"},
         ],
     },
@@ -98,7 +90,7 @@ PLATFORMS = {
     },
 }
 
-# Base profile containers and endpoints (all platforms share these)
+# Base profile expected containers and endpoints
 BASE_EXPECTED_CONTAINERS = [
     "mdx-vss-agent",
     "mdx-vss-ui",
@@ -112,23 +104,17 @@ BASE_EXPECTED_ENDPOINTS = [
     {"port": 3000, "path": "/", "name": "Agent UI"},
 ]
 
-# Human-readable mode descriptions for instructions
+# Mode descriptions for instructions
 MODE_DESCRIPTIONS = {
-    "shared":     "Use the default shared GPU mode (LLM and VLM on same GPU).",
+    "shared":     "Use shared GPU mode (LLM and VLM on the same GPU).",
     "dedicated":  "Use dedicated GPUs: LLM on device 0, VLM on device 1.",
     "remote-llm": "Use remote LLM via NVIDIA API (https://integrate.api.nvidia.com/v1). Keep VLM local.",
     "remote-vlm": "Keep LLM local. Use remote VLM via NVIDIA API (https://integrate.api.nvidia.com/v1).",
     "remote-all": "Use remote LLM and remote VLM via NVIDIA API (https://integrate.api.nvidia.com/v1).",
 }
 
-# Which API keys are needed per mode
-MODE_API_KEYS = {
-    "shared":     "NGC_CLI_API_KEY is set in the environment.",
-    "dedicated":  "NGC_CLI_API_KEY is set in the environment.",
-    "remote-llm": "NGC_CLI_API_KEY and NVIDIA_API_KEY are set in the environment.",
-    "remote-vlm": "NGC_CLI_API_KEY and NVIDIA_API_KEY are set in the environment.",
-    "remote-all": "NVIDIA_API_KEY is set in the environment.",
-}
+VSS_REPO_URL = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
+VSS_BRANCH = "feat/skills"
 
 
 def build_scenarios(
@@ -149,11 +135,23 @@ def build_scenarios(
             task_id = f"base-{hw_key.lower()}-{mode['id']}"
 
             instruction = (
-                f"Deploy the VSS base profile on this machine.\n"
-                f"The GPU is {platform['gpu_label']} (hardware profile: {platform['hardware']}).\n"
+                f"You are on a bare GPU instance with {platform['gpu_label']} GPU(s).\n"
+                f"Your task is to deploy the VSS base profile end-to-end.\n"
+                f"\n"
+                f"Hardware profile: {platform['hardware']}\n"
                 f"{MODE_DESCRIPTIONS[mode['id']]}\n"
-                f"{MODE_API_KEYS[mode['id']]}\n"
-                f"The VSS repo is cloned at /home/ubuntu/video-search-and-summarization.\n"
+                f"\n"
+                f"You need to:\n"
+                f"1. Install prerequisites (Docker, NVIDIA Container Toolkit, kernel settings)\n"
+                f"2. Clone the VSS repo: {VSS_REPO_URL} (branch: {VSS_BRANCH})\n"
+                f"3. Configure the deployment (.env overrides for this hardware and mode)\n"
+                f"4. Run docker compose config to generate the resolved compose (dry-run)\n"
+                f"5. Deploy with docker compose up\n"
+                f"6. Wait for all containers to be healthy and endpoints to respond\n"
+                f"\n"
+                f"NGC_CLI_API_KEY and NVIDIA_API_KEY are available in the environment.\n"
+                f"The deployment is successful when the Agent API (port 8000) and "
+                f"Agent UI (port 3000) respond to HTTP requests.\n"
             )
 
             scenarios.append({
@@ -187,10 +185,6 @@ def generate_task(
     instruction = scenario["instruction"]
     if skill_name:
         instruction = f"Use your /{skill_name} skill to complete this task.\n\n{instruction}"
-    instruction += (
-        "\nAfter deployment, verify that all containers are running and the Agent API "
-        "and UI endpoints respond. Then tear down the deployment with docker compose down.\n"
-    )
     (task_dir / "instruction.md").write_text(instruction)
 
     # -- task.toml --
@@ -207,14 +201,6 @@ def generate_task(
     )
     (task_dir / "task.toml").write_text(task_toml)
 
-    # -- environment/Dockerfile --
-    env_dir = task_dir / "environment"
-    env_dir.mkdir(exist_ok=True)
-    (env_dir / "Dockerfile").write_text(DOCKERFILE_TEMPLATE)
-
-    # -- environment/setup.sh --
-    (env_dir / "setup.sh").write_text(SETUP_SCRIPT)
-
     # -- tests/test.sh --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
@@ -229,7 +215,7 @@ def generate_task(
 
     # -- Copy skill into task if requested --
     if skill_dir and skill_dir.exists():
-        skill_dest = env_dir / "skills" / (skill_name or "deploy")
+        skill_dest = task_dir / "skills" / (skill_name or "deploy")
         if skill_dest.exists():
             shutil.rmtree(skill_dest)
         shutil.copytree(skill_dir, skill_dest)
@@ -239,7 +225,7 @@ def generate_test_script(
     expected_containers: list[str],
     expected_endpoints: list[dict],
 ) -> str:
-    """Generate the verifier script that checks deployment health."""
+    """Generate the verifier that checks deployment health."""
     container_checks = "\n".join(
         f'check_container "{c}"' for c in expected_containers
     )
@@ -287,15 +273,6 @@ echo "=== Checking endpoints ==="
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 
-# Teardown
-echo ""
-echo "=== Tearing down ==="
-REPO=/home/ubuntu/video-search-and-summarization
-if [ -f "$REPO/deployments/resolved.yml" ]; then
-    cd "$REPO/deployments"
-    docker compose -f resolved.yml down --timeout 30 2>/dev/null || true
-fi
-
 if [ "$FAIL" -gt 0 ]; then
     exit 1
 fi
@@ -304,11 +281,11 @@ exit 0
 
 
 def generate_solve_script(scenario: dict) -> str:
-    """Generate the gold solution (oracle) for a scenario."""
+    """Generate the gold solution (full setup + deploy from bare instance)."""
     overrides = {
         "HARDWARE_PROFILE": scenario["hardware"],
-        "MDX_SAMPLE_APPS_DIR": "/home/ubuntu/video-search-and-summarization/deployments",
-        "MDX_DATA_DIR": "/home/ubuntu/video-search-and-summarization/data",
+        "MDX_SAMPLE_APPS_DIR": "$REPO/deployments",
+        "MDX_DATA_DIR": "$REPO/data",
         "HOST_IP": "$(hostname -I | awk '{{print $1}}')",
     }
 
@@ -332,81 +309,22 @@ def generate_solve_script(scenario: dict) -> str:
     )
 
     return f"""#!/bin/bash
-# Gold solution: deploy {scenario["profile"]} on {scenario["hardware"]} — {scenario["llm_mode"]} LLM, {scenario["vlm_mode"]} VLM.
+# Gold solution: setup bare instance + deploy {scenario["profile"]} on {scenario["hardware"]} ({scenario["llm_mode"]} LLM, {scenario["vlm_mode"]} VLM).
 set -euo pipefail
 
 REPO=/home/ubuntu/video-search-and-summarization
-PROFILE={scenario["profile"]}
-ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
 
-# Setup prerequisites
-cd $REPO
-bash environment/setup.sh 2>/dev/null || true
+# === 1. Prerequisites ===
 
-# Apply env overrides
-{sed_commands}
-
-# Resolve compose
-cd $REPO/deployments
-docker compose --env-file $ENV_FILE config > resolved.yml
-
-# Deploy
-docker compose -f resolved.yml up -d --force-recreate
-
-# Wait for Agent API to be healthy (up to 15 min)
-echo "Waiting for containers..."
-for i in $(seq 1 90); do
-    if curl -sf -o /dev/null --max-time 5 http://localhost:8000/docs 2>/dev/null; then
-        echo "Agent API is up after $((i*10))s"
-        break
-    fi
-    sleep 10
-done
-"""
-
-
-# -- Templates --
-
-DOCKERFILE_TEMPLATE = """\
-# This Dockerfile is used when Harbor runs in local Docker mode.
-# When using BrevEnvironment, the Brev instance IS the environment
-# and setup.sh runs directly on it instead.
-FROM ubuntu:22.04
-
-RUN apt-get update && apt-get install -y \\
-    curl git jq python3 python3-pip \\
-    && rm -rf /var/lib/apt/lists/*
-
-COPY setup.sh /setup.sh
-RUN chmod +x /setup.sh
-"""
-
-SETUP_SCRIPT = """\
-#!/bin/bash
-# Setup script — runs on the Brev instance to prepare for VSS deployment.
-# Idempotent: safe to run multiple times.
-set -euo pipefail
-
-REPO_DIR=/home/ubuntu/video-search-and-summarization
-REPO_URL=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-BRANCH=feat/skills
-
-# Clone VSS repo if not present
-if [ ! -d "$REPO_DIR" ]; then
-    echo "Cloning VSS repo..."
-    git clone --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
-fi
-
-# Ensure Docker is installed
+# Docker
 if ! command -v docker &>/dev/null; then
-    echo "Installing Docker..."
     curl -fsSL https://get.docker.com | sh
     sudo usermod -aG docker "$USER"
+    newgrp docker
 fi
 
-# Ensure NVIDIA Container Toolkit
+# NVIDIA Container Toolkit
 if ! docker info 2>/dev/null | grep -q nvidia; then
-    echo "Installing NVIDIA Container Toolkit..."
     curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \\
         | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
     curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \\
@@ -417,22 +335,47 @@ if ! docker info 2>/dev/null | grep -q nvidia; then
     sudo systemctl restart docker
 fi
 
-# Load GPU modules if needed
-if ! nvidia-smi &>/dev/null; then
-    sudo modprobe nvidia 2>/dev/null || true
-    sudo modprobe nvidia_uvm 2>/dev/null || true
+# GPU modules
+nvidia-smi &>/dev/null || {{ sudo modprobe nvidia; sudo modprobe nvidia_uvm; }}
+
+# Kernel settings
+sudo sysctl -w vm.max_map_count=262144
+sudo sysctl -w net.core.rmem_max=5242880
+sudo sysctl -w net.core.wmem_max=5242880
+
+# === 2. Clone repo ===
+
+if [ ! -d "$REPO" ]; then
+    git clone --branch {VSS_BRANCH} {VSS_REPO_URL} "$REPO"
 fi
+mkdir -p "$REPO/data"
 
-# Kernel settings for Elasticsearch/Kafka
-sudo sysctl -w vm.max_map_count=262144 2>/dev/null || true
-sudo sysctl -w net.core.rmem_max=5242880 2>/dev/null || true
-sudo sysctl -w net.core.wmem_max=5242880 2>/dev/null || true
+# === 3. Configure .env ===
 
-# Create data directory
-mkdir -p "$REPO_DIR/data"
+PROFILE={scenario["profile"]}
+ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
 
-echo "Setup complete."
-nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null || echo "No GPU detected"
+{sed_commands}
+
+# === 4. Resolve compose (dry-run) ===
+
+cd $REPO/deployments
+docker compose --env-file $ENV_FILE config > resolved.yml
+
+# === 5. Deploy ===
+
+docker compose -f resolved.yml up -d --force-recreate
+
+# === 6. Wait for healthy ===
+
+echo "Waiting for containers..."
+for i in $(seq 1 90); do
+    if curl -sf -o /dev/null --max-time 5 http://localhost:8000/docs 2>/dev/null; then
+        echo "Agent API is up after $((i*10))s"
+        break
+    fi
+    sleep 10
+done
 """
 
 
@@ -472,7 +415,7 @@ def main() -> None:
         print(f"  {hw}: {len(ids)} scenarios")
 
     print(f"\nRun with:")
-    print(f"  harbor run --env 'tools.eval.harbor.brev_env:BrevEnvironment' \\")
+    print(f"  harbor run --env 'tools.eval.harbor.envs.brev_env:BrevEnvironment' \\")
     print(f"    -p {output_dir} -a claude-code -n 1 -l {len(scenarios)}")
 
 

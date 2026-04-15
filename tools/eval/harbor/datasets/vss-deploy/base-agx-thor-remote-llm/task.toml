@@ -1,0 +1,8 @@
+[task]
+id = "base-agx-thor-remote-llm"
+difficulty = "medium"
+tags = ["deploy", "base", "AGX-THOR", "remote"]
+
+[metadata]
+gpu = "AGX"
+brev_instance_type = "nvidia-agx"
