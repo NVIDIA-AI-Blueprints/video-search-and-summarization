@@ -1,8 +1,0 @@
-[task]
-id = "base-dgx-spark-remote-llm"
-difficulty = "medium"
-tags = ["deploy", "base", "DGX-SPARK", "remote"]
-
-[metadata]
-gpu = "GB10"
-brev_instance_type = "nvidia-dgx-spark"

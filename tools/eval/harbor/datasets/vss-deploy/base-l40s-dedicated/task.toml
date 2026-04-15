@@ -1,8 +1,0 @@
-[task]
-id = "base-l40s-dedicated"
-difficulty = "medium"
-tags = ["deploy", "base", "L40S", "local"]
-
-[metadata]
-gpu = "L40S"
-brev_instance_type = "g6e.xlarge"

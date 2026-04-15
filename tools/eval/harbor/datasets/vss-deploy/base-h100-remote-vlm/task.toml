@@ -1,8 +1,0 @@
-[task]
-id = "base-h100-remote-vlm"
-difficulty = "medium"
-tags = ["deploy", "base", "H100", "local_shared"]
-
-[metadata]
-gpu = "H100"
-brev_instance_type = "p5.48xlarge"

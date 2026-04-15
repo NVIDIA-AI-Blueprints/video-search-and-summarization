@@ -1,8 +1,0 @@
-[task]
-id = "base-igx-thor-remote-llm"
-difficulty = "medium"
-tags = ["deploy", "base", "IGX-THOR", "remote"]
-
-[metadata]
-gpu = "IGX"
-brev_instance_type = "nvidia-igx"

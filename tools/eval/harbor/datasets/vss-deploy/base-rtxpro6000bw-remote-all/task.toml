@@ -1,8 +1,0 @@
-[task]
-id = "base-rtxpro6000bw-remote-all"
-difficulty = "medium"
-tags = ["deploy", "base", "RTXPRO6000BW", "remote"]
-
-[metadata]
-gpu = "RTX PRO 6000"
-brev_instance_type = "g6e.2xlarge"
