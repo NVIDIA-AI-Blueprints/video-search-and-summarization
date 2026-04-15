@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import shlex
+import uuid
 from enum import Enum
 from pathlib import Path
 
@@ -99,7 +100,7 @@ class BrevEnvironment(BaseEnvironment):
             return
 
         self._instance_type = self._resolve_instance_type()
-        self._instance_name = f"harbor-{os.getpid()}-{id(self)}"
+        self._instance_name = f"harbor-{uuid.uuid4().hex[:8]}"
 
         logger.info(
             "Creating Brev instance %s (type=%s)",
@@ -111,7 +112,6 @@ class BrevEnvironment(BaseEnvironment):
         result = await _run_brev(
             "create", self._instance_name,
             "--type", self._instance_type,
-            "--no-open",
         )
         if result.return_code != 0:
             msg = f"brev create failed: {result.stderr}"
@@ -130,7 +130,7 @@ class BrevEnvironment(BaseEnvironment):
 
         if delete:
             logger.info("Deleting Brev instance %s", self._instance_name)
-            await _run_brev("delete", self._instance_name, "--yes")
+            await _run_brev("delete", self._instance_name)
         else:
             logger.info("Stopping Brev instance %s", self._instance_name)
             await _run_brev("stop", self._instance_name)

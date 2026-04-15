@@ -170,9 +170,9 @@ def generate_task(
     # -- task.toml --
     task_toml = (
         f'[task]\n'
-        f'id = "{scenario["id"]}"\n'
-        f'difficulty = "medium"\n'
-        f'tags = ["deploy", "{scenario["profile"]}", '
+        f'name = "nvidia-vss/{scenario["id"]}"\n'
+        f'description = "{scenario["description"]}"\n'
+        f'keywords = ["deploy", "{scenario["profile"]}", '
         f'"{scenario["hardware"]}", "{scenario["llm_mode"]}"]\n'
         f'\n'
         f'[metadata]\n'
@@ -180,6 +180,12 @@ def generate_task(
         f'brev_instance_type = "{scenario["brev_instance_type"]}"\n'
     )
     (task_dir / "task.toml").write_text(task_toml)
+
+    # -- environment/ (required by Harbor for task validation, but BrevEnvironment
+    #    provisions bare instances — the Dockerfile is a no-op placeholder)
+    env_dir = task_dir / "environment"
+    env_dir.mkdir(exist_ok=True)
+    (env_dir / "Dockerfile").write_text("FROM scratch\n")
 
     # -- tests/test.sh --
     tests_dir = task_dir / "tests"
