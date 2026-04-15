@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Defaults — override via env vars or task metadata
 DEFAULT_INSTANCE_TYPE = os.environ.get("BREV_INSTANCE_TYPE", "g5.xlarge")
 DEFAULT_GPU_TYPE = os.environ.get("BREV_GPU_TYPE", "A10G")
-BREV_STARTUP_TIMEOUT = int(os.environ.get("BREV_STARTUP_TIMEOUT", "900"))
+BREV_STARTUP_TIMEOUT = int(os.environ.get("BREV_STARTUP_TIMEOUT", "2400"))
 BREV_POLL_INTERVAL = int(os.environ.get("BREV_POLL_INTERVAL", "15"))
 # Default timeout for brev CLI commands. The CLI enters an interactive
 # walkthrough after output — 10s is enough to capture the JSON/text output
