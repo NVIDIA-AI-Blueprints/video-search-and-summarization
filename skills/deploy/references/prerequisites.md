@@ -24,9 +24,57 @@ Check `TOOLS.md` for the VSS section. If missing, the environment isn't configur
 
 ---
 
+## Sudo Access
+
+Most prerequisite steps require `sudo` (Docker install, NVIDIA toolkit, kernel settings, systemctl). On cloud instances (Brev, Colossus, DGX Cloud) the default user typically has passwordless sudo. On bare-metal machines, the user may need to enter a password or be in the `sudo` group.
+
+Check before proceeding:
+
+```bash
+sudo -n true 2>/dev/null && echo "passwordless sudo" || echo "sudo requires password"
+```
+
+If sudo requires a password, ask the user to run privileged commands manually or configure passwordless sudo for the session.
+
+## Kernel Settings
+
+Required for Elasticsearch and Kafka. Apply before deploying:
+
+```bash
+sudo sysctl -w vm.max_map_count=262144
+sudo sysctl -w net.core.rmem_max=5242880
+sudo sysctl -w net.core.wmem_max=5242880
+```
+
+To persist across reboots, write to `/etc/sysctl.d/99-vss.conf`:
+
+```bash
+cat <<'EOF' | sudo tee /etc/sysctl.d/99-vss.conf
+vm.max_map_count = 262144
+net.core.rmem_max = 5242880
+net.core.wmem_max = 5242880
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+EOF
+sudo sysctl --system
+```
+
+## GPU Module Loading
+
+If `nvidia-smi` fails with "NVIDIA-SMI has failed" but the driver is installed, load the kernel modules:
+
+```bash
+sudo modprobe nvidia && sudo modprobe nvidia_uvm
+```
+
+This works without a reboot on Brev and Colossus instances.
+
 ## Checks
 
-Run in order, report ✅ / ❌ for each.
+Run in order, report pass/fail for each.
 
 ### 1. GPU Detection
 
