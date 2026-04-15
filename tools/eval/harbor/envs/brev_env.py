@@ -235,7 +235,13 @@ class BrevEnvironment(BaseEnvironment):
             result = await _run_brev("ls", "--json")
             if result.return_code == 0 and result.stdout:
                 try:
-                    instances = json.loads(result.stdout)
+                    # brev ls --json appends walkthrough text after the JSON array.
+                    # Strip everything after the closing bracket.
+                    raw = result.stdout
+                    bracket = raw.rfind("]")
+                    if bracket >= 0:
+                        raw = raw[: bracket + 1]
+                    instances = json.loads(raw)
                     for inst in instances:
                         if inst.get("name") == self._instance_name:
                             if inst.get("status") == "RUNNING":
