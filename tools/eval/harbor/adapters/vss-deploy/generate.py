@@ -21,34 +21,49 @@ Run with Harbor + Brev:
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
+import subprocess
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Platform matrix — from https://docs.nvidia.com/vss/3.1.0/quickstart.html
+#
+# GPU names map to HARDWARE_PROFILE. Brev instance types are resolved at
+# generation time by querying `brev search --json`.
 # ---------------------------------------------------------------------------
+
+# VSS hardware profile → GPU search name in Brev + min VRAM per GPU
+GPU_SPECS = {
+    "H100":          {"search": "H100",              "min_vram": 80},
+    "RTXPRO6000BW":  {"search": "RTX PRO Server 6000", "min_vram": 48},
+    "L40S":          {"search": "L40S",              "min_vram": 48},
+    "DGX-SPARK":     {"search": None,                "min_vram": 0},   # not on Brev
+    "IGX-THOR":      {"search": None,                "min_vram": 0},   # not on Brev
+    "AGX-THOR":      {"search": None,                "min_vram": 0},   # not on Brev
+}
 
 PLATFORMS = {
     "H100": {
         "hardware": "H100",
         "gpu_label": "H100",
         "modes": [
-            {"id": "shared",      "llm": "local_shared", "vlm": "local_shared", "gpus": 1, "brev": "p5.48xlarge"},
-            {"id": "dedicated",   "llm": "local",        "vlm": "local",        "gpus": 2, "brev": "p5.48xlarge"},
-            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared", "gpus": 1, "brev": "p5.48xlarge"},
-            {"id": "remote-vlm",  "llm": "local_shared", "vlm": "remote",       "gpus": 1, "brev": "p5.48xlarge"},
-            {"id": "remote-all",  "llm": "remote",       "vlm": "remote",       "gpus": 0, "brev": "p5.48xlarge"},
+            {"id": "shared",      "llm": "local_shared", "vlm": "local_shared", "gpus": 1},
+            {"id": "dedicated",   "llm": "local",        "vlm": "local",        "gpus": 2},
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared", "gpus": 1},
+            {"id": "remote-vlm",  "llm": "local_shared", "vlm": "remote",       "gpus": 1},
+            {"id": "remote-all",  "llm": "remote",       "vlm": "remote",       "gpus": 0},
         ],
     },
     "RTXPRO6000BW": {
         "hardware": "RTXPRO6000BW",
         "gpu_label": "RTX PRO 6000",
         "modes": [
-            {"id": "shared",      "llm": "local_shared", "vlm": "local_shared", "gpus": 1, "brev": "g6e.2xlarge"},
-            {"id": "dedicated",   "llm": "local",        "vlm": "local",        "gpus": 2, "brev": "g6e.4xlarge"},
-            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared", "gpus": 1, "brev": "g6e.2xlarge"},
-            {"id": "remote-vlm",  "llm": "local_shared", "vlm": "remote",       "gpus": 1, "brev": "g6e.2xlarge"},
-            {"id": "remote-all",  "llm": "remote",       "vlm": "remote",       "gpus": 0, "brev": "c5.2xlarge"},
+            {"id": "shared",      "llm": "local_shared", "vlm": "local_shared", "gpus": 1},
+            {"id": "dedicated",   "llm": "local",        "vlm": "local",        "gpus": 2},
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local_shared", "gpus": 1},
+            {"id": "remote-vlm",  "llm": "local_shared", "vlm": "remote",       "gpus": 1},
+            {"id": "remote-all",  "llm": "remote",       "vlm": "remote",       "gpus": 0},
         ],
     },
     "L40S": {
@@ -56,34 +71,86 @@ PLATFORMS = {
         "gpu_label": "L40S",
         "modes": [
             # No shared — L40S requires dedicated or remote
-            {"id": "dedicated",   "llm": "local",        "vlm": "local",  "gpus": 2, "brev": "g6e.4xlarge"},
-            {"id": "remote-llm",  "llm": "remote",       "vlm": "local",  "gpus": 1, "brev": "g6e.xlarge"},
-            {"id": "remote-vlm",  "llm": "local",        "vlm": "remote", "gpus": 1, "brev": "g6e.xlarge"},
-            {"id": "remote-all",  "llm": "remote",       "vlm": "remote", "gpus": 0, "brev": "c5.2xlarge"},
+            {"id": "dedicated",   "llm": "local",        "vlm": "local",  "gpus": 2},
+            {"id": "remote-llm",  "llm": "remote",       "vlm": "local",  "gpus": 1},
+            {"id": "remote-vlm",  "llm": "local",        "vlm": "remote", "gpus": 1},
+            {"id": "remote-all",  "llm": "remote",       "vlm": "remote", "gpus": 0},
         ],
     },
     "DGX-SPARK": {
         "hardware": "DGX-SPARK",
         "gpu_label": "GB10",
         "modes": [
-            {"id": "remote-llm",  "llm": "remote", "vlm": "local_shared", "gpus": 1, "brev": "nvidia-dgx-spark"},
+            {"id": "remote-llm",  "llm": "remote", "vlm": "local_shared", "gpus": 1},
         ],
     },
     "IGX-THOR": {
         "hardware": "IGX-THOR",
         "gpu_label": "IGX",
         "modes": [
-            {"id": "remote-llm",  "llm": "remote", "vlm": "local_shared", "gpus": 1, "brev": "nvidia-igx"},
+            {"id": "remote-llm",  "llm": "remote", "vlm": "local_shared", "gpus": 1},
         ],
     },
     "AGX-THOR": {
         "hardware": "AGX-THOR",
         "gpu_label": "AGX",
         "modes": [
-            {"id": "remote-llm",  "llm": "remote", "vlm": "local_shared", "gpus": 1, "brev": "nvidia-agx"},
+            {"id": "remote-llm",  "llm": "remote", "vlm": "local_shared", "gpus": 1},
         ],
     },
 }
+
+
+def query_brev_instances() -> list[dict]:
+    """Query available Brev instances via `brev search --json`."""
+    try:
+        result = subprocess.run(
+            ["brev", "search", "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Warning: could not query brev search: {e}")
+    return []
+
+
+def find_brev_instance_type(
+    brev_instances: list[dict],
+    gpu_name: str | None,
+    gpu_count: int,
+    min_vram: int,
+) -> str | None:
+    """Find the cheapest Brev instance type matching GPU requirements.
+
+    For remote-all (gpu_count=0), returns a CPU-only instance if available,
+    or the cheapest GPU instance as fallback.
+    """
+    if not brev_instances:
+        return None
+
+    if gpu_count == 0:
+        # CPU-only: find cheapest instance with no GPU requirement
+        # Brev search only returns GPU instances, so pick cheapest single-GPU
+        candidates = sorted(brev_instances, key=lambda x: x["price_per_hour"])
+        return candidates[0]["type"] if candidates else None
+
+    if gpu_name is None:
+        return None
+
+    candidates = [
+        inst for inst in brev_instances
+        if gpu_name.lower() in inst["gpu_name"].lower()
+        and inst["gpu_count"] >= gpu_count
+        and inst["total_vram_gb"] >= min_vram * gpu_count
+    ]
+
+    if not candidates:
+        return None
+
+    # Cheapest matching instance
+    candidates.sort(key=lambda x: x["price_per_hour"])
+    return candidates[0]["type"]
 
 # Base profile expected containers and endpoints
 BASE_EXPECTED_CONTAINERS = [
@@ -116,15 +183,38 @@ def build_scenarios(
     hardware_filter: str | None = None,
     mode_filter: str | None = None,
 ) -> list[dict]:
-    """Expand the platform matrix into individual scenarios."""
+    """Expand the platform matrix into individual scenarios.
+
+    Queries `brev search --json` to resolve real instance types from the org.
+    Skips platforms with no matching Brev instances available.
+    """
+    print("Querying Brev for available instance types...")
+    brev_instances = query_brev_instances()
+    if not brev_instances:
+        print("Warning: no Brev instances found — instance types will be empty")
+
     scenarios = []
 
     for hw_key, platform in PLATFORMS.items():
         if hardware_filter and hw_key != hardware_filter:
             continue
 
+        spec = GPU_SPECS.get(hw_key, {})
+
         for mode in platform["modes"]:
             if mode_filter and mode["id"] != mode_filter:
+                continue
+
+            brev_type = find_brev_instance_type(
+                brev_instances,
+                gpu_name=spec.get("search"),
+                gpu_count=mode["gpus"],
+                min_vram=spec.get("min_vram", 0),
+            )
+
+            if not brev_type:
+                print(f"  SKIP {hw_key}/{mode['id']}: no matching Brev instance "
+                      f"(need {mode['gpus']}x {spec.get('search', 'N/A')})")
                 continue
 
             task_id = f"base-{hw_key.lower()}-{mode['id']}"
@@ -141,7 +231,7 @@ def build_scenarios(
                 "vlm_mode": mode["vlm"],
                 "gpus": mode["gpus"],
                 "gpu": platform["gpu_label"],
-                "brev_instance_type": mode["brev"],
+                "brev_instance_type": brev_type,
                 "description": f"Base profile on {platform['hardware']} — {mode['id']}",
                 "instruction": instruction,
                 "expected_containers": BASE_EXPECTED_CONTAINERS,
