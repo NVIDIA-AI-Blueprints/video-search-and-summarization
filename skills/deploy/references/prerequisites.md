@@ -88,7 +88,10 @@ If `nvidia-smi` fails → driver not installed or not loaded. Guide the user:
 
 - Ubuntu 24.04: install driver `580.105.08` from https://www.nvidia.com/en-us/drivers/
 - Ubuntu 22.04: install driver `580.65.06`
-- After install: `sudo reboot`
+- After install: load the kernel modules instead of rebooting:
+  ```bash
+  sudo modprobe nvidia && sudo modprobe nvidia_uvm
+  ```
 
 > **Workaround:** If GPU is present but detection fails during a deploy, prepend `SKIP_HARDWARE_CHECK=true` — but investigate root cause.
 
