@@ -1,141 +1,201 @@
 ---
 name: deploy
-description: Deploy or tear down any VSS profile. Use when asked to deploy VSS, start VSS, deploy base/alerts/lvs/search, deploy for incident reports, deploy for video summarization, deploy for video search, or tear down VSS.
+description: Deploy or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
 metadata:
   { "openclaw": { "emoji": "🚀", "os": ["linux"] } }
 ---
 
 # VSS Deploy
 
-Deploy any VSS profile from a single skill. Match the user's intent to a profile, dry-run, deploy in the background, and monitor.
+Deploy any VSS profile using a compose-centric workflow: build env overrides, generate resolved compose (dry-run), review, then deploy. Replaces direct `dev-profile.sh` execution with validated, auditable steps.
 
 ## Profile Routing
 
-| User says | Profile flag | GPUs | Reference |
-|---|---|---|---|
-| "deploy vss" / "deploy base" / "deploy quickstart" | `-p base` | 1 (shared) or 2 (dedicated) | `references/quickstart.md` |
-| "deploy alerts" / "alert verification" / "real-time alerts" | `-p alerts -m <mode>` | 2 required | `references/alerts.md` |
-| "deploy for incident report" | `-p alerts -m verification` | 2 required | `references/alerts.md` |
-| "deploy lvs" / "video summarization" / "deploy for video summarization" | `-p lvs` | 1 (shared) or 2 (dedicated) | `references/lvs.md` |
-| "deploy search" / "video search" / "deploy for video search" | `-p search` | 2 required | `references/search.md` |
+| User says | Profile | Reference |
+|---|---|---|
+| "deploy vss" / "deploy base" | `base` | `references/base.md` |
+| "deploy alerts" / "alert verification" / "real-time alerts" | `alerts` | `references/alerts.md` |
+| "deploy for incident report" | `alerts` | `references/alerts.md` |
+| "deploy lvs" / "video summarization" | `lvs` | `references/lvs.md` |
+| "deploy search" / "video search" | `search` | `references/search.md` |
 
 ## When to Use
 
-- Deploy VSS / start VSS / bring up the agent
+- Deploy VSS / start VSS / bring up a profile
 - Deploy a specific profile (base, alerts, lvs, search)
-- Deploy VSS for a use case (incident reports, video summarization, video search)
-- Tear down a running deployment (`dev-profile.sh down`)
+- Do a dry-run / preview what will be deployed
+- Change deployment config (hardware, LLM mode, GPU assignment)
+- Tear down a running deployment
+
+## Execution Modes
+
+The workflow is identical — only the transport differs.
+
+**MCP mode** (OpenClaw in sandbox) — call orchestrator-mcp tools via JSON-RPC on port 8090:
+
+```
+deploy/prereqs  → check system readiness
+deploy/config   → generate env + resolved compose (dry-run)
+deploy/compose-read  → review resolved compose
+deploy/compose-edit  → modify before deploying
+deploy/up       → start containers
+```
+
+**Direct mode** (Claude Code on host) — run docker compose commands directly:
+
+```bash
+# 1. Apply env overrides to the profile .env file
+# 2. docker compose --env-file .env config > resolved.yml   (dry-run)
+# 3. Review resolved.yml
+# 4. docker compose -f resolved.yml up -d
+```
+
+Use MCP mode inside an OpenClaw/NemoClaw sandbox. Use Direct mode as Claude Code on the host.
 
 ## Before Deploying
 
-1. **Read `TOOLS.md`** — get repo path and hardware from the VSS section. If missing, run BOOTSTRAP first.
-2. **NGC CLI & API key** — see [`references/ngc.md`](references/ngc.md) for install, configure, and verify steps. Check `$NGC_CLI_API_KEY` is set.
-3. **System prerequisites** — see [`references/prerequisites.md`](references/prerequisites.md) for GPU driver, Docker, and NVIDIA Container Toolkit checks.
-4. **Profile-specific prerequisites:**
-
-| Profile | GPU requirement | Extra |
-|---|---|---|
-| base | 1 GPU (shared) or 2 (dedicated) | — |
-| alerts | 2 GPUs required (device 0: RT-CV, device 1: LLM+VLM) | Must confirm mode: `verification` or `real-time` |
-| lvs | 1 GPU (shared) or 2 (dedicated) | — |
-| search | 2 GPUs required (device 0: RTVI-Embed, device 1: LLM) | VLM forced remote — no local VLM needed |
+1. **Repo path** — find `video-search-and-summarization/` on disk. Check `TOOLS.md` if available.
+2. **NGC CLI & API key** — see [`references/ngc.md`](references/ngc.md). Check `$NGC_CLI_API_KEY` is set.
+3. **System prerequisites** — see [`references/prerequisites.md`](references/prerequisites.md) for GPU, Docker, NVIDIA Container Toolkit.
 
 ### Pre-flight Check
 
-Run these before every deploy. **Do not proceed if any check fails.**
+Run before every deploy. Do not proceed if any check fails.
 
 ```bash
 # 1. GPU visible
 nvidia-smi --query-gpu=index,name --format=csv,noheader
 
-# 2. NVIDIA runtime registered in Docker
+# 2. NVIDIA runtime in Docker
 docker info 2>/dev/null | grep -i "runtimes"
 
-# 3. NVIDIA runtime works end-to-end inside a container
+# 3. NVIDIA runtime works end-to-end
 docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -5
 ```
 
-**If check 2 or 3 fails** (`unknown or invalid runtime name: nvidia`):
+If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisites.md).
 
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
+## Deployment Flow
+
+Always follow this sequence. Never skip the dry-run.
+
+### Step 1 — Gather context
+
+| Value | How to determine |
+|---|---|
+| **Profile** | Match user intent to routing table above. Default: `base` |
+| **Repo path** | Find `video-search-and-summarization/` on disk |
+| **Hardware** | `nvidia-smi --query-gpu=name --format=csv,noheader` → map to profile |
+| **LLM/VLM mode** | `local_shared` (default), `local` (dedicated GPUs), or `remote` |
+| **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
+| **Host IP** | `hostname -I \| awk '{print $1}'` |
+
+**Hardware profile mapping:**
+
+| GPU name contains | HARDWARE_PROFILE |
+|---|---|
+| H100 | `H100` |
+| L40S | `L40S` |
+| RTX 6000 Ada, RTX PRO 6000 | `RTXPRO6000BW` |
+| GB10 (DGX Spark) | `DGX-SPARK` |
+| IGX | `IGX-THOR` |
+| AGX | `AGX-THOR` |
+| Other | `OTHER` |
+
+### Step 2 — Build env_overrides
+
+Build a dictionary of env var overrides based on user intent. Only include vars that differ from the profile's `.env` defaults.
+
+**Always set (they have placeholder defaults in the template):**
+
+| Var | Value |
+|---|---|
+| `HARDWARE_PROFILE` | Detected or user-specified |
+| `MDX_SAMPLE_APPS_DIR` | `<repo>/deployments` |
+| `MDX_DATA_DIR` | `<repo>/data` (or user-specified) |
+| `HOST_IP` | Detected host IP |
+| `NGC_CLI_API_KEY` | From environment or user |
+
+**Common overrides by user intent:**
+
+| User intent | Env overrides |
+|---|---|
+| Remote LLM | `LLM_MODE=remote`, `LLM_BASE_URL=<url>`, `NVIDIA_API_KEY=<key>` |
+| Remote VLM | `VLM_MODE=remote`, `VLM_BASE_URL=<url>`, `NVIDIA_API_KEY=<key>` |
+| NVIDIA API for remote inference | `LLM_BASE_URL=https://integrate.api.nvidia.com/v1` |
+| Dedicated GPUs | `LLM_MODE=local`, `VLM_MODE=local`, `LLM_DEVICE_ID=0`, `VLM_DEVICE_ID=1` |
+| Different LLM model | `LLM_NAME=<name>`, `LLM_NAME_SLUG=<slug>` |
+| Different VLM model | `VLM_NAME=<name>`, `VLM_NAME_SLUG=<slug>` |
+
+See the profile reference doc for full env override recipes.
+
+**Do NOT set `COMPOSE_PROFILES` directly** — it is computed from `BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`, `LLM_NAME_SLUG`, `VLM_MODE`, `VLM_NAME_SLUG`.
+
+### Step 3 — Config / dry-run
+
+**Env file location:** `<repo>/deployments/developer-workflow/dev-profile-<profile>/.env`
+
+**MCP mode:**
+```
+deploy/config(profile=<profile>, env_overrides={...})
 ```
 
-Then re-run check 3 to confirm before deploying.
-
-> Full details: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
-
-## Deploy — Always Dry-Run First
-
+**Direct mode:**
 ```bash
-bash <repo>/scripts/dev-profile.sh up -p <profile> -H <hardware> [flags] --dry-run
+REPO=/path/to/video-search-and-summarization
+PROFILE=base
+ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
+
+# Read current .env, apply overrides, write back
+# (read lines, update matching keys, append new keys, write)
+
+# Resolve compose
+cd $REPO/deployments
+docker compose --env-file $ENV_FILE config > resolved.yml
 ```
 
-Show the full output, then ask: **"Looks good — deploy now?"**
+The resolved YAML is saved to `<repo>/deployments/resolved.yml`.
 
-### Profile-Specific Flags
+### Step 4 — Review
 
-**base:**
-```bash
-# Dedicated GPUs
---llm-device-id 0 --vlm-device-id 1
-# Remote LLM/VLM
---use-remote-llm --use-remote-vlm
-# (set LLM_ENDPOINT_URL / VLM_ENDPOINT_URL env vars first)
+Show the user a summary of what will be deployed:
+
+- Profile name and hardware
+- LLM/VLM models and mode (local/remote/local_shared)
+- Services that will start
+- GPU device assignment
+- Key endpoints (UI port, agent port)
+
+Ask: **"Looks good — deploy now?"**
+
+Do NOT proceed without user confirmation.
+
+### Step 5 — Deploy
+
+**MCP mode:**
+```
+deploy/up()
 ```
 
-**alerts:**
+**Direct mode:**
 ```bash
-# Must specify mode — ask user if not provided
--m verification    # CV-triggered, VLM reviews candidate alerts
--m real-time       # VLM continuously processes live video
+cd $REPO/deployments
+docker compose -f resolved.yml up -d --force-recreate
 ```
 
-**lvs:**
-```bash
-# Dedicated GPUs (optional)
---llm-device-id 0 --vlm-device-id 1
-```
-
-**search:**
-```bash
-# No extra flags — VLM is forced remote by the script
-```
-
-## Deploy Command
-
-Deploy runs in the background — it pulls images and starts containers (~10–20 min on first run). Start it, then poll for completion.
+Deploy takes ~10-20 min on first run (image pulls + model downloads). Monitor:
 
 ```bash
-set -a && . ~/.ngc/.env && set +a
-LOG=/tmp/vss-deploy.log
-nohup bash <repo>/scripts/dev-profile.sh up -p <profile> -H <hardware> [flags] \
-  > "$LOG" 2>&1 &
-echo "Deploy PID $! — logging to $LOG"
-```
-
-## Monitor Progress
-
-Poll every ~60s and report to the user:
-
-```bash
-# Last 20 lines of deploy log
-tail -20 /tmp/vss-deploy.log
-
 # Container status
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+# Logs for a specific service
+docker compose -f $REPO/deployments/resolved.yml logs --tail 50 <service>
 ```
 
-Deploy is complete when `docker ps` shows all `mdx-*` containers with status `Up` and port **3000** is exposed.
+Deploy is complete when all `mdx-*` containers show `Up` status.
 
-## After Deploy
+### Step 6 — Report endpoints
 
 | Profile | Agent UI | REST API | Other |
 |---|---|---|---|
@@ -145,21 +205,29 @@ Deploy is complete when `docker ps` shows all `mdx-*` containers with status `Up
 | search | `:3000` | `:8000` | — |
 
 Use workflow skills after deployment:
-- **alerts** / **incident-report** → for alert management and incident queries
-- **video-search** → for semantic video search
-- **video-summarization** → for long video summarization
-- **sensor-ops** → for camera/stream management via VIOS
-- **video-analytics** → for Elasticsearch queries
+- **alerts** / **incident-report** → alert management and incident queries
+- **video-search** → semantic video search
+- **video-summarization** → long video summarization
+- **sensor-ops** → camera/stream management via VIOS
+- **video-analytics** → Elasticsearch queries
 
 ## Tear Down
 
+**MCP mode:**
+```
+deploy/down()
+```
+
+**Direct mode:**
 ```bash
-bash <repo>/scripts/dev-profile.sh down
+cd $REPO/deployments
+docker compose -f resolved.yml down
 ```
 
 ## Troubleshooting
 
-- `unknown or invalid runtime name: nvidia` → NVIDIA Container Toolkit not installed or Docker daemon not restarted — run pre-flight check above
-- NGC auth error → re-export `NGC_CLI_API_KEY` or follow [`references/ngc.md`](references/ngc.md)
-- GPU detection error → follow [`references/prerequisites.md`](references/prerequisites.md) or prepend `SKIP_HARDWARE_CHECK=true`
-- cosmos-reason2-8b crash → must redeploy the full stack (known issue: cannot restart alone)
+- `unknown or invalid runtime name: nvidia` → NVIDIA Container Toolkit not installed or Docker not restarted. See [`references/prerequisites.md`](references/prerequisites.md).
+- NGC auth error → re-export `NGC_CLI_API_KEY` or follow [`references/ngc.md`](references/ngc.md).
+- GPU not detected → run `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then retry.
+- `deploy/up` fails with "no resolved compose" → must run `deploy/config` (Step 3) first.
+- cosmos-reason2-8b crash → must redeploy the full stack (known issue: NIM cannot restart alone).
