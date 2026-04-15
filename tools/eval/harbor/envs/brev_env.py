@@ -34,6 +34,9 @@ DEFAULT_INSTANCE_TYPE = os.environ.get("BREV_INSTANCE_TYPE", "g5.xlarge")
 DEFAULT_GPU_TYPE = os.environ.get("BREV_GPU_TYPE", "A10G")
 BREV_STARTUP_TIMEOUT = int(os.environ.get("BREV_STARTUP_TIMEOUT", "600"))
 BREV_POLL_INTERVAL = int(os.environ.get("BREV_POLL_INTERVAL", "15"))
+# Default timeout for brev CLI commands (the CLI enters an interactive
+# walkthrough after output, so we need to kill it after capturing output)
+BREV_CMD_TIMEOUT = int(os.environ.get("BREV_CMD_TIMEOUT", "60"))
 
 
 class BrevEnvironmentType(str, Enum):
@@ -108,11 +111,13 @@ class BrevEnvironment(BaseEnvironment):
             self._instance_type,
         )
 
-        # Create instance (--detached to avoid interactive onboarding prompt)
+        # Create instance. Pipe the instance type via stdin (not --type) to
+        # force the exact type instead of Brev's search/fallback logic.
+        # --detached avoids the interactive onboarding prompt.
         result = await _run_brev(
             "create", self._instance_name,
-            "--type", self._instance_type,
             "--detached",
+            stdin_data=self._instance_type,
         )
         if result.return_code != 0:
             msg = f"brev create failed: {result.stderr}"
@@ -241,24 +246,47 @@ def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-async def _run_brev(*args: str, timeout: int | None = None) -> ExecResult:
-    """Run a brev CLI command and return structured result."""
+async def _run_brev(
+    *args: str,
+    timeout: int | None = None,
+    stdin_data: str | None = None,
+) -> ExecResult:
+    """Run a brev CLI command and return structured result.
+
+    Uses a default timeout because the Brev CLI enters an interactive
+    walkthrough after printing output, which would hang forever.
+    A timeout kill is treated as success if stdout was captured.
+    """
+    if timeout is None:
+        timeout = BREV_CMD_TIMEOUT
+
     cmd = ["brev", *args]
     logger.debug("Running: %s", " ".join(cmd))
 
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.PIPE if stdin_data else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        stdin_bytes = stdin_data.encode() if stdin_data else None
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(),
+            proc.communicate(input=stdin_bytes),
             timeout=timeout,
         )
     except TimeoutError:
+        # Brev CLI likely hanging on interactive walkthrough after output.
+        # Kill it and return whatever stdout we captured.
         proc.kill()
-        return ExecResult(stdout=None, stderr="Command timed out", return_code=124)
+        stdout, stderr = await proc.communicate()
+        stdout_str = stdout.decode() if stdout else None
+        stderr_str = stderr.decode() if stderr else None
+        # If we got stdout, treat the timeout as success (walkthrough killed)
+        if stdout_str and stdout_str.strip():
+            logger.debug("brev command timed out but produced output — treating as success")
+            return ExecResult(stdout=stdout_str, stderr=stderr_str, return_code=0)
+        return ExecResult(stdout=stdout_str, stderr="Command timed out", return_code=124)
 
     return ExecResult(
         stdout=stdout.decode() if stdout else None,
