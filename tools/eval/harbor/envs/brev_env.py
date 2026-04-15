@@ -87,10 +87,19 @@ class BrevEnvironment(BaseEnvironment):
             raise RuntimeError(msg)
 
     def _resolve_instance_type(self) -> str:
-        """Resolve instance type from task metadata or env vars."""
-        # Check task metadata for GPU requirements
-        if hasattr(self, "task") and self.task:
-            meta = getattr(self.task, "metadata", {}) or {}
+        """Resolve instance type from task.toml metadata or env vars.
+
+        Reads task.toml from the parent of environment_dir (the task root).
+        """
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            import tomli as tomllib  # type: ignore[no-redef]
+
+        task_toml = self.environment_dir.parent / "task.toml"
+        if task_toml.exists():
+            data = tomllib.loads(task_toml.read_text())
+            meta = data.get("metadata", {})
             if "brev_instance_type" in meta:
                 return meta["brev_instance_type"]
             if "gpu" in meta:
@@ -114,11 +123,18 @@ class BrevEnvironment(BaseEnvironment):
         # Create instance. Pipe the instance type via stdin (not --type) to
         # force the exact type instead of Brev's search/fallback logic.
         # --detached avoids the interactive onboarding prompt.
+        logger.warning(
+            "Creating Brev instance %s with type %s (piped via stdin)",
+            self._instance_name, self._instance_type,
+        )
         result = await _run_brev(
             "create", self._instance_name,
             "--detached",
             stdin_data=self._instance_type,
         )
+        logger.warning("brev create result: rc=%s stdout=%s stderr=%s",
+                       result.return_code, result.stdout[:200] if result.stdout else None,
+                       result.stderr[:200] if result.stderr else None)
         if result.return_code != 0:
             msg = f"brev create failed: {result.stderr}"
             raise RuntimeError(msg)
