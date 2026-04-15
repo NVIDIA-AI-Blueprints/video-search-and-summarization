@@ -261,12 +261,16 @@ exit 0
 
 
 def generate_solve_script(scenario: dict) -> str:
-    """Generate the gold solution (full setup + deploy from bare instance)."""
+    """Generate the gold solution (full setup + deploy from bare instance).
+
+    Uses plain string concatenation (not f-strings) to avoid brace escaping
+    issues with shell variables and awk patterns.
+    """
     overrides = {
         "HARDWARE_PROFILE": scenario["hardware"],
         "MDX_SAMPLE_APPS_DIR": "$REPO/deployments",
         "MDX_DATA_DIR": "$REPO/data",
-        "HOST_IP": "$(hostname -I | awk '{{print $1}}')",
+        "HOST_IP": "$(hostname -I | awk '{print $1}')",
     }
 
     if scenario["llm_mode"] == "remote":
@@ -283,80 +287,95 @@ def generate_solve_script(scenario: dict) -> str:
         overrides["VLM_MODE"] = "local"
         overrides["VLM_DEVICE_ID"] = "1"
 
-    sed_commands = "\n".join(
-        f'sed -i "s|^{k}=.*|{k}={v}|" "$ENV_FILE"'
+    sed_lines = "\n".join(
+        'sed -i "s|^' + k + "=.*|" + k + "=" + v + '|" "$ENV_FILE"'
         for k, v in overrides.items()
     )
 
-    return f"""#!/bin/bash
-# Gold solution: setup bare instance + deploy {scenario["profile"]} on {scenario["hardware"]} ({scenario["llm_mode"]} LLM, {scenario["vlm_mode"]} VLM).
-set -euo pipefail
+    # Build script without f-strings to preserve shell braces
+    lines = [
+        "#!/bin/bash",
+        "# Gold solution: setup bare instance + deploy "
+        + scenario["profile"] + " on " + scenario["hardware"]
+        + " (" + scenario["llm_mode"] + " LLM, " + scenario["vlm_mode"] + " VLM).",
+        "set -euo pipefail",
+        "",
+        "REPO=/home/ubuntu/video-search-and-summarization",
+        "",
+        "# === 1. Prerequisites ===",
+        "",
+        "# Docker",
+        "if ! command -v docker &>/dev/null; then",
+        "    curl -fsSL https://get.docker.com | sh",
+        "    sudo usermod -aG docker $USER",
+        "    # Apply group without spawning a subshell",
+        "    sg docker -c 'docker ps' >/dev/null 2>&1 || true",
+        "fi",
+        "",
+        "# NVIDIA Container Toolkit",
+        "if ! docker info 2>/dev/null | grep -q nvidia; then",
+        "    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \\",
+        "        | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg",
+        "    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \\",
+        "        | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \\",
+        "        | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list",
+        "    sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit",
+        "    sudo nvidia-ctk runtime configure --runtime=docker",
+        "    sudo systemctl restart docker",
+        "fi",
+        "",
+        "# GPU modules",
+        "nvidia-smi &>/dev/null || { sudo modprobe nvidia; sudo modprobe nvidia_uvm; }",
+        "",
+        "# Kernel settings",
+        "sudo sysctl -w vm.max_map_count=262144",
+        "sudo sysctl -w net.core.rmem_max=5242880",
+        "sudo sysctl -w net.core.wmem_max=5242880",
+        "",
+        "# === 2. Clone repo ===",
+        "",
+        'if [ ! -d "$REPO" ]; then',
+        "    git clone --branch " + VSS_BRANCH + " " + VSS_REPO_URL + ' "$REPO"',
+        "fi",
+        'mkdir -p "$REPO/data"',
+        "",
+        "# === 3. Configure .env ===",
+        "",
+        "PROFILE=" + scenario["profile"],
+        "ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env",
+        "",
+        "# Set NGC key from environment",
+        'if [ -n "${NGC_CLI_API_KEY:-}" ]; then',
+        '    sed -i "s|^NGC_CLI_API_KEY=.*|NGC_CLI_API_KEY=$NGC_CLI_API_KEY|" "$ENV_FILE"',
+        "fi",
+        'if [ -n "${NVIDIA_API_KEY:-}" ]; then',
+        '    sed -i "s|^NVIDIA_API_KEY=.*|NVIDIA_API_KEY=$NVIDIA_API_KEY|" "$ENV_FILE"',
+        "fi",
+        "",
+        sed_lines,
+        "",
+        "# === 4. Resolve compose (dry-run) ===",
+        "",
+        "cd $REPO/deployments",
+        "docker compose --env-file $ENV_FILE config > resolved.yml",
+        "",
+        "# === 5. Deploy ===",
+        "",
+        "docker compose -f resolved.yml up -d --force-recreate",
+        "",
+        "# === 6. Wait for healthy ===",
+        "",
+        'echo "Waiting for containers..."',
+        "for i in $(seq 1 90); do",
+        "    if curl -sf -o /dev/null --max-time 5 http://localhost:8000/docs 2>/dev/null; then",
+        '        echo "Agent API is up after $((i*10))s"',
+        "        break",
+        "    fi",
+        "    sleep 10",
+        "done",
+    ]
 
-REPO=/home/ubuntu/video-search-and-summarization
-
-# === 1. Prerequisites ===
-
-# Docker
-if ! command -v docker &>/dev/null; then
-    curl -fsSL https://get.docker.com | sh
-    sudo usermod -aG docker "$USER"
-    newgrp docker
-fi
-
-# NVIDIA Container Toolkit
-if ! docker info 2>/dev/null | grep -q nvidia; then
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \\
-        | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \\
-        | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \\
-        | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-    sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-    sudo nvidia-ctk runtime configure --runtime=docker
-    sudo systemctl restart docker
-fi
-
-# GPU modules
-nvidia-smi &>/dev/null || {{ sudo modprobe nvidia; sudo modprobe nvidia_uvm; }}
-
-# Kernel settings
-sudo sysctl -w vm.max_map_count=262144
-sudo sysctl -w net.core.rmem_max=5242880
-sudo sysctl -w net.core.wmem_max=5242880
-
-# === 2. Clone repo ===
-
-if [ ! -d "$REPO" ]; then
-    git clone --branch {VSS_BRANCH} {VSS_REPO_URL} "$REPO"
-fi
-mkdir -p "$REPO/data"
-
-# === 3. Configure .env ===
-
-PROFILE={scenario["profile"]}
-ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
-
-{sed_commands}
-
-# === 4. Resolve compose (dry-run) ===
-
-cd $REPO/deployments
-docker compose --env-file $ENV_FILE config > resolved.yml
-
-# === 5. Deploy ===
-
-docker compose -f resolved.yml up -d --force-recreate
-
-# === 6. Wait for healthy ===
-
-echo "Waiting for containers..."
-for i in $(seq 1 90); do
-    if curl -sf -o /dev/null --max-time 5 http://localhost:8000/docs 2>/dev/null; then
-        echo "Agent API is up after $((i*10))s"
-        break
-    fi
-    sleep 10
-done
-"""
+    return "\n".join(lines) + "\n"
 
 
 def main() -> None:
