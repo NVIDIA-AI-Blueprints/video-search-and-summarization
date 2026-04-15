@@ -149,7 +149,10 @@ def build_scenarios(
                 f"5. Deploy with docker compose up\n"
                 f"6. Wait for all containers to be healthy and endpoints to respond\n"
                 f"\n"
+                f"You have passwordless sudo access on this instance.\n"
                 f"NGC_CLI_API_KEY and NVIDIA_API_KEY are available in the environment.\n"
+                f"After driver installation, run `sudo modprobe nvidia && sudo modprobe nvidia_uvm` "
+                f"to load GPU modules instead of rebooting.\n"
                 f"The deployment is successful when the Agent API (port 8000) and "
                 f"Agent UI (port 3000) respond to HTTP requests.\n"
             )
