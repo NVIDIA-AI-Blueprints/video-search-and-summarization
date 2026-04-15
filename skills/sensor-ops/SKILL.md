@@ -17,8 +17,11 @@ You are a VIOS API assistant. Interact with the VIOS microservice to manage came
 - Assume the VSS deployment context already provides the correct network endpoint for VST.
 
 **Availability Check:**
-- Before making any API call, verify that the VST backend is reachable via the VSS deployment endpoint (e.g. `curl -sf http://<VST_ENDPOINT>/vst/api/v1/sensor/list`).
-- If the backend is unavailable, fail gracefully and report the error to the user.
+- Before making any API call, verify that the VST backend is reachable via the VSS deployment endpoint:
+  ```bash
+  curl -sf --connect-timeout 5 http://<VST_ENDPOINT>/vst/api/v1/sensor/version
+  ```
+- If the backend is unavailable (non-zero exit code or connection error), fail gracefully and report the error to the user.
 
 **Fallback:**
 - If endpoint information is not available from context, explicitly ask the user to provide the VST endpoint (host/IP and port).
@@ -46,18 +49,32 @@ If a sensor has only one stream, `sensorId` and `streamId` are equal and can be 
 
 | Capability | URL prefix |
 |---|---|
-| Sensor list / add / delete | `/vst/api/v1/sensor/` |
+| Version / health check | `/vst/api/v1/sensor/version` |
+| Sensor list / info / status / add / delete | `/vst/api/v1/sensor/` |
+| Sensor streams | `/vst/api/v1/sensor/streams`, `/vst/api/v1/sensor/{id}/streams` |
+| Network scan | `/vst/api/v1/sensor/scan` |
 | Recording timelines | `/vst/api/v1/storage/` |
 | Video clip download / URL | `/vst/api/v1/storage/` |
 | File upload / delete | `/vst/api/v1/storage/` |
-| Live snapshot (picture) | `/vst/api/v1/live/` |
-| Historical snapshot (picture) | `/vst/api/v1/replay/` |
+| Live streams / snapshot (picture) | `/vst/api/v1/live/` |
+| Replay streams / historical snapshot | `/vst/api/v1/replay/` |
 
 ---
 
 ## Operations
 
-### 1. Sensor List (`vst_sensor_list`)
+### 1. Version / Health Check
+
+Lightweight endpoint to verify the VST backend is reachable. Used as the availability check before any other API call.
+
+```bash
+curl -sf --connect-timeout 5 "http://<VST_ENDPOINT>/vst/api/v1/sensor/version" | jq .
+```
+Response: version metadata for the running VST service.
+
+---
+
+### 2. Sensor List
 
 **List all sensors:**
 ```bash
@@ -106,7 +123,7 @@ curl -s "http://<VST_ENDPOINT>/vst/api/v1/replay/streams" | jq .
 
 ---
 
-### 2. Timelines & Storage Size (`vst_timeline`)
+### 3. Timelines & Storage Size
 
 Always use the `/storage` service for timelines.
 
@@ -135,7 +152,7 @@ Response: object keyed by `streamId`, each with `{sizeInMegabytes, state}`, plus
 
 ---
 
-### 3. Video Clip Extraction (`vst_video_clip`)
+### 4. Video Clip Extraction
 
 > **startTime / endTime:** Use values provided by the user. If not provided, first run:
 > ```bash
@@ -170,14 +187,14 @@ Note: `startTime` in the response reflects the actual segment boundary, which ma
 | `startTime` | Yes | ISO 8601 UTC. Use user-provided value, or fetch timelines first to get a valid range. |
 | `endTime` | Yes | ISO 8601 UTC. Must fall within the same recorded segment as `startTime`. |
 | `container` | No | `mp4` (default: `mp2t`/TS) |
-| `disableAudio` | No | Always pass `true` — disables audio track in the output |
+| `disableAudio` | No | Always pass `true` — VIOS does not support audio for files with B-frames; disabled by default to avoid failures |
 | `transcode` | No | `none` (default, fastest) or `full` (re-encode) |
 | `fullLength` | No | boolean; if true, snaps to full segment boundaries |
 | `expiryMinutes` | No (URL only) | minutes until URL expires, default 10080 (7 days) |
 
 ---
 
-### 4. Snapshot / Picture (`vst_snapshot`)
+### 5. Snapshot / Picture
 
 #### Live snapshot (most recent frame from sensor)
 ```bash
@@ -221,7 +238,7 @@ curl -s "http://<VST_ENDPOINT>/vst/api/v1/replay/stream/<streamId>/picture/url?s
 
 ---
 
-### 5. Add Sensor / Stream
+### 6. Add Sensor / Stream
 
 **Add sensor by IP (ONVIF):**
 ```bash
@@ -260,7 +277,7 @@ curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/scan" | jq .
 
 ---
 
-### 6. Delete Sensor (RTSP / non-file sensors)
+### 7. Delete Sensor (RTSP / non-file sensors)
 
 Use this to delete sensors that are **not** uploaded files (e.g. RTSP streams added to VIOS):
 ```bash
@@ -269,13 +286,11 @@ curl -s -X DELETE "http://<VST_ENDPOINT>/vst/api/v1/sensor/<sensorId>" | jq .
 ```
 This removes the sensor from all VIOS APIs but does **not** delete recordings from disk.
 
-> **RTSP full cleanup:** Because RTSP sensors record continuously, calling only this leaves orphaned recordings on disk. To fully remove an RTSP sensor, call both in order:
-> 1. `DELETE /sensor/<sensorId>` — stops recording and removes sensor from APIs
-> 2. `DELETE /storage/file/<streamId>?startTime=<startTime>&endTime=<endTime>` — deletes the recordings from disk (see Section 7 for the full command)
+> **RTSP full cleanup:** Calling only `DELETE /sensor/<sensorId>` leaves orphaned recordings on disk. See the delete guidance in Section 8 for the complete two-step RTSP removal flow.
 
 ---
 
-### 7. File Upload / Delete (`vst_file_upload`)
+### 8. File Upload / Delete
 
 There are two PUT upload APIs. Use the new API (v2) for most cases.
 
@@ -350,6 +365,10 @@ curl -s -X DELETE "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<streamId>?star
 
 When the user has a sensor name or IP but needs a clip or snapshot:
 
+0. Verify VST is reachable (see Setup — Availability Check):
+   ```bash
+   curl -sf --connect-timeout 5 "http://<VST_ENDPOINT>/vst/api/v1/sensor/version"
+   ```
 1. List sensors to find `sensorId`:
    ```bash
    curl -s "http://<VST_ENDPOINT>/vst/api/v1/sensor/list" | jq .
@@ -393,5 +412,5 @@ Common codes: `VMSInternalError`, `VMSNotFound`, `VMSInvalidParameter`.
 - **streamId header:** Live/replay/recorder endpoints require `streamId` as BOTH a path parameter AND a request header — include both.
 - **Large clips:** Use the `/url` variant to get a temporary download link rather than streaming bytes through curl.
 - **Sensor vs stream ID:** `sensorId` identifies a camera; `streamId` identifies a specific video stream from that camera (a sensor can have a main stream and sub-streams).
-- **Identifying sensor type (RTSP vs uploaded file):** Call `GET /sensor/<sensorId>/streams` and inspect the `url` field of each stream. If `url` starts with `rtsp://` it is a live RTSP/IP camera stream. If `url` is a file path (e.g. `"/home/vst/vst_release/streamer_videos/TruckAccident.mp4"`) it is an uploaded file sensor. This determines which delete flow to use — see Section 7.
+- **Identifying sensor type (RTSP vs uploaded file):** Call `GET /sensor/<sensorId>/streams` and inspect the `url` field of each stream. If `url` starts with `rtsp://` it is a live RTSP/IP camera stream. If `url` is a file path (e.g. `"/home/vst/vst_release/streamer_videos/TruckAccident.mp4"`) it is an uploaded file sensor. This determines which delete flow to use — see Section 8.
 - **Endpoint resolution:** The VST endpoint is provided by the VSS deployment context. Do not attempt manual IP/port discovery. If unavailable, ask the user. All curl examples use `<VST_ENDPOINT>` as a placeholder — substitute the resolved endpoint before executing.
