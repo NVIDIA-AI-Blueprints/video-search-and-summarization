@@ -135,8 +135,7 @@ def build_scenarios(
             task_id = f"base-{hw_key.lower()}-{mode['id']}"
 
             instruction = (
-                f"Deploy VSS base profile on this {platform['gpu_label']} machine. "
-                f"{MODE_DESCRIPTIONS[mode['id']]}\n"
+                f"Deploy VSS base profile. {MODE_DESCRIPTIONS[mode['id']]}\n"
             )
 
             scenarios.append({
