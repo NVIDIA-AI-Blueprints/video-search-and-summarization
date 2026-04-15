@@ -108,10 +108,11 @@ class BrevEnvironment(BaseEnvironment):
             self._instance_type,
         )
 
-        # Create instance
+        # Create instance (--detached to avoid interactive onboarding prompt)
         result = await _run_brev(
             "create", self._instance_name,
             "--type", self._instance_type,
+            "--detached",
         )
         if result.return_code != 0:
             msg = f"brev create failed: {result.stderr}"
