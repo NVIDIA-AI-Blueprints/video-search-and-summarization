@@ -17,6 +17,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+
 from vss_agents.api.video_upload_url import VideoUploadURLConfig
 from vss_agents.api.video_upload_url import VideoUploadURLInput
 from vss_agents.api.video_upload_url import VideoUploadURLOutput

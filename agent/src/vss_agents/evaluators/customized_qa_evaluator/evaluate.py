@@ -14,16 +14,16 @@
 # limitations under the License.
 import logging
 
+from langchain_core.language_models import BaseChatModel
+from langchain_core.prompts import PromptTemplate
+from nat.data_models.evaluator import EvalInputItem
+from nat.data_models.evaluator import EvalOutputItem
+from nat.plugins.eval.evaluator.base_evaluator import BaseEvaluator
+
 from vss_agents.evaluators.utils import ScoreOutputParser
 from vss_agents.evaluators.utils import invoke_llm_with_retry
 from vss_agents.evaluators.utils import should_evaluate
 from vss_agents.evaluators.utils import strip_agent_think_tags
-
-from langchain_core.language_models import BaseChatModel
-from langchain_core.prompts import PromptTemplate
-from nat.eval.evaluator.base_evaluator import BaseEvaluator
-from nat.eval.evaluator.evaluator_model import EvalInputItem
-from nat.eval.evaluator.evaluator_model import EvalOutputItem
 
 logger = logging.getLogger(__name__)
 

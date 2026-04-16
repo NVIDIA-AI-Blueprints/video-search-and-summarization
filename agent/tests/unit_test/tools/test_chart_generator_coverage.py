@@ -21,6 +21,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.tools.chart_generator import BarChartData
 from vss_agents.tools.chart_generator import ChartFileFormat
 from vss_agents.tools.chart_generator import ChartGeneratorConfig

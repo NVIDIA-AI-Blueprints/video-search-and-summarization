@@ -29,8 +29,8 @@ export interface ChatSidebarControlHandlers {
 }
 
 export interface NemoAgentToolkitAppProps {
-  theme: string;
-  onThemeChange?: (theme: string) => void;
+  theme?: 'light' | 'dark';
+  onThemeChange?: (theme: 'light' | 'dark') => void;
   isActive?: boolean;
   initialStateOverride?: Partial<HomeInitialState>;
   /** Optional storage key prefix (e.g. "searchTab") so this instance uses separate sessionStorage; pass at instantiation for reusability. */
@@ -46,6 +46,8 @@ export interface NemoAgentToolkitAppProps {
   onSubmitMessageReady?: (submitMessage: (message: string) => void) => void;
   /** Optional: called when a message is submitted programmatically (e.g. for attention/highlight). */
   onMessageSubmitted?: () => void;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 export const NemoAgentToolkitApp: React.ComponentType<NemoAgentToolkitAppProps>;

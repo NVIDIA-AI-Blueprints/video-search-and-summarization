@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.embed_search import EmbedSearchResultItem
