@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+
 from vss_agents.video_analytics.embeddings import EmbeddingModel
 from vss_agents.video_analytics.embeddings import PlaceEmbeddingCache
 

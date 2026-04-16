@@ -28,12 +28,11 @@ Key features:
 - User must explicitly accept or modify all 3 prompts before video analysis begins
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
-from enum import Enum
+from enum import StrEnum
 import json
 import logging
-
-from vss_agents.utils.url_translation import translate_url
 
 import aiohttp
 from nat.builder.builder import Builder
@@ -48,11 +47,14 @@ from nat.data_models.interactive import InteractionResponse
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
+
+from vss_agents.utils.url_translation import translate_url
 
 logger = logging.getLogger(__name__)
 
 
-class LVSStatus(str, Enum):
+class LVSStatus(StrEnum):
     """Status values for LVS video understanding operations."""
 
     ABORTED = "aborted"
@@ -224,11 +226,25 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
 class LVSVideoUnderstandingInput(BaseModel):
     """Input for the LVS Video Understanding tool with mandatory HITL."""
 
-    sensor_id: str = Field(
+    sensor_id: str | list[str] = Field(
         ...,
-        description="The sensor ID of the video to understand.",
-        min_length=1,
+        description="The sensor ID(s) of the video(s) to understand. Can be a single sensor ID or a list for parallel processing.",
     )
+
+    @field_validator("sensor_id")
+    @classmethod
+    def validate_sensor_id(cls, v: str | list[str]) -> str | list[str]:
+        """Validate that sensor_id is not empty."""
+        if isinstance(v, str):
+            if not v or not v.strip():
+                raise ValueError("sensor_id cannot be empty")
+        elif isinstance(v, list):
+            if not v:
+                raise ValueError("sensor_id list cannot be empty")
+            for sid in v:
+                if not sid or not sid.strip():
+                    raise ValueError("sensor_id list cannot contain empty strings")
+        return v
 
 
 @register_function(config_type=LVSVideoUnderstandingConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -321,6 +337,7 @@ async def lvs_video_understanding(
         scenario: str,
         events: list[str],
         objects_of_interest: list[str],
+        sensor_ids: list[str] | None = None,
     ) -> str:
         """
         Show all LVS configuration and get user confirmation.
@@ -329,14 +346,20 @@ async def lvs_video_understanding(
             scenario: The scenario description
             events: List of events to detect
             objects_of_interest: List of objects to focus on
+            sensor_ids: Optional list of video sensor IDs to show in the prompt context
 
         Returns:
             str: Normalized user choice ("/redo", "/cancel", or empty string for proceed)
         """
         config_summary = _format_lvs_config_summary(scenario, events, objects_of_interest)
 
+        video_context = ""
+        if sensor_ids:
+            video_list = ", ".join(f"`{sid}`" for sid in sensor_ids)
+            video_context = f"**Analyzing {len(sensor_ids)} video(s):** {video_list}\n\n"
+
         hitl_template = config.hitl_confirmation_template or DEFAULT_HITL_CONFIRMATION_TEMPLATE
-        prompt_text = f"{config_summary}\n\n{hitl_template}"
+        prompt_text = f"{video_context}{config_summary}\n\n{hitl_template}"
 
         user_choice = await _prompt_user_input(
             prompt_text,
@@ -349,6 +372,7 @@ async def lvs_video_understanding(
 
     async def _collect_hitl_parameters(
         current_params: tuple[str, list[str], list[str]] | None = None,
+        sensor_ids: list[str] | None = None,
     ) -> tuple[str, list[str], list[str]] | None:
         """
         Collect scenario, events, and objects_of_interest via HITL.
@@ -358,6 +382,7 @@ async def lvs_video_understanding(
 
         Args:
             current_params: Optional current parameters (scenario, events, objects_of_interest)
+            sensor_ids: Optional list of video sensor IDs to show in the prompt context
 
         Returns:
             tuple: (scenario, events, objects_of_interest), or None if cancelled
@@ -367,19 +392,23 @@ async def lvs_video_understanding(
         # Cancel info to append to each prompt
         cancel_info = "\n\n**Note:** Type `/cancel` at any time to abort the video analysis."
 
+        # Build video context header if sensor_ids provided
+        video_context = ""
+        if sensor_ids:
+            video_list = ", ".join(f"`{sid}`" for sid in sensor_ids)
+            video_context = f"**Analyzing {len(sensor_ids)} video(s):** {video_list}\n\n"
+
         # Build prompt with current values if they exist
         if current_params:
             current_scenario, current_events, current_objects = current_params
-            scenario_prompt = f"**CURRENTLY SET:** `{current_scenario}`\n\n{config.hitl_scenario_template}{cancel_info}"
-            events_prompt = (
-                f"**CURRENTLY SET:** `{', '.join(current_events)}`\n\n{config.hitl_events_template}{cancel_info}"
-            )
+            scenario_prompt = f"{video_context}**CURRENTLY SET:** `{current_scenario}`\n\n{config.hitl_scenario_template}{cancel_info}"
+            events_prompt = f"{video_context}**CURRENTLY SET:** `{', '.join(current_events)}`\n\n{config.hitl_events_template}{cancel_info}"
             if current_objects:
-                objects_prompt = (
-                    f"**CURRENTLY SET:** `{', '.join(current_objects)}`\n\n{config.hitl_objects_template}{cancel_info}"
-                )
+                objects_prompt = f"{video_context}**CURRENTLY SET:** `{', '.join(current_objects)}`\n\n{config.hitl_objects_template}{cancel_info}"
             else:
-                objects_prompt = f"**CURRENTLY SET:** None\n\n{config.hitl_objects_template}{cancel_info}"
+                objects_prompt = (
+                    f"{video_context}**CURRENTLY SET:** None\n\n{config.hitl_objects_template}{cancel_info}"
+                )
         else:
             # Use default values from config when no persistent state exists
             current_scenario = config.default_scenario
@@ -389,25 +418,21 @@ async def lvs_video_understanding(
             if current_scenario or current_events:
                 # Show defaults if they exist
                 if current_scenario:
-                    scenario_prompt = (
-                        f"**DEFAULT:** `{current_scenario}`\n\n{config.hitl_scenario_template}{cancel_info}"
-                    )
+                    scenario_prompt = f"{video_context}**DEFAULT:** `{current_scenario}`\n\n{config.hitl_scenario_template}{cancel_info}"
                 else:
-                    scenario_prompt = f"{config.hitl_scenario_template}{cancel_info}"
+                    scenario_prompt = f"{video_context}{config.hitl_scenario_template}{cancel_info}"
 
                 if current_events:
-                    events_prompt = (
-                        f"**DEFAULT:** `{', '.join(current_events)}`\n\n{config.hitl_events_template}{cancel_info}"
-                    )
+                    events_prompt = f"{video_context}**DEFAULT:** `{', '.join(current_events)}`\n\n{config.hitl_events_template}{cancel_info}"
                 else:
-                    events_prompt = f"{config.hitl_events_template}{cancel_info}"
+                    events_prompt = f"{video_context}{config.hitl_events_template}{cancel_info}"
 
-                objects_prompt = f"{config.hitl_objects_template}{cancel_info}"
+                objects_prompt = f"{video_context}{config.hitl_objects_template}{cancel_info}"
             else:
                 # No defaults configured
-                scenario_prompt = f"{config.hitl_scenario_template}{cancel_info}"
-                events_prompt = f"{config.hitl_events_template}{cancel_info}"
-                objects_prompt = f"{config.hitl_objects_template}{cancel_info}"
+                scenario_prompt = f"{video_context}{config.hitl_scenario_template}{cancel_info}"
+                events_prompt = f"{video_context}{config.hitl_events_template}{cancel_info}"
+                objects_prompt = f"{video_context}{config.hitl_objects_template}{cancel_info}"
 
         # Collect scenario (REQUIRED)
         scenario = ""
@@ -488,98 +513,34 @@ async def lvs_video_understanding(
         logger.info("HITL parameter collection completed")
         return scenario, events, objects_of_interest
 
-    async def _lvs_video_understanding(lvs_input: LVSVideoUnderstandingInput) -> str:
+    async def _process_single_lvs_video(
+        sensor_id: str,
+        scenario: str,
+        events: list[str],
+        objects_of_interest: list[str],
+    ) -> dict:
         """
-        Use LVS(Long Video Summarization) service to understand and summarize a video.
-
-        This tool is optimized for long videos and uses
-        chunk-based processing with event detection.
-
+        Process a single video using LVS service (internal function).
 
         Args:
-            lvs_input: LVSVideoUnderstandingInput with sensor_id(sensor name or video file name in VST)
+            sensor_id: The sensor ID of the video to process
+            scenario: The scenario description for LVS
+            events: List of events to detect
+            objects_of_interest: List of objects to track
+
         Returns:
-            str: The summary/analysis from LVS service
+            dict: The LVS result including video_summary, events, and hitl_prompts
         """
-        # Get thread_id for state persistence
-        thread_id = ContextState.get().conversation_id.get()
-        logger.info(f"Processing LVS request for thread {thread_id}")
-
-        logger.info(f"LVS Video Understanding: Processing '{lvs_input.sensor_id}'")
-
-        # Get current parameters for this thread (if any)
-        current_params = lvs_params_state.get(thread_id)
-
-        if current_params:
-            logger.info(f"Found existing parameters for thread {thread_id}")
-        else:
-            logger.info(f"No existing parameters for thread {thread_id}, will collect new ones")
-
-        # Initialize variables for type checker
-        scenario: str = ""
-        events: list[str] = []
-        objects_of_interest: list[str] = []
-
-        # HITL workflow with confirmation loop
-        while True:
-            # Step 1: Collect parameters via HITL
-            logger.info("Running HITL workflow to collect/confirm parameters")
-            params_result = await _collect_hitl_parameters(current_params)
-
-            # Handle cancellation
-            if params_result is None:
-                logger.info("LVS analysis cancelled by user during parameter collection")
-                return json.dumps(
-                    {
-                        "status": LVSStatus.ABORTED.value,
-                        "message": "Video analysis was cancelled by user.",
-                    },
-                    indent=2,
-                )
-
-            scenario, events, objects_of_interest = params_result
-
-            # Step 2: Show all configs and get confirmation (before fetching video URL)
-            logger.info("Showing LVS configuration for user confirmation")
-            user_choice = await _confirm_lvs_request(scenario, events, objects_of_interest)
-
-            if user_choice == "/redo":
-                # User wants to modify parameters - loop back with current values
-                logger.info("User requested redo - restarting parameter collection")
-                current_params = (scenario, events, objects_of_interest)
-                continue
-            elif user_choice == "/cancel":
-                # User cancelled
-                logger.info("LVS analysis cancelled by user")
-                return json.dumps(
-                    {
-                        "status": LVSStatus.ABORTED.value,
-                        "message": "Video analysis was cancelled by user.",
-                    },
-                    indent=2,
-                )
-            else:
-                # Empty string or any other input - proceed with LVS request
-                logger.info("User confirmed - proceeding with LVS analysis")
-                break
-
-        # Store HITL parameters for later inclusion in the report
-        hitl_scenario = scenario
-        hitl_events = events
-        hitl_objects_of_interest = objects_of_interest
-
-        # Update state for this thread
-        lvs_params_state[thread_id] = (scenario, events, objects_of_interest)
-        logger.info(f"Updated parameters state for thread {thread_id}")
+        logger.info(f"LVS Video Understanding: Processing '{sensor_id}'")
 
         # Load video URL tool (deferred to runtime to avoid initialization order issues)
         logger.info(f"Loading video URL tool: {config.video_url_tool}")
         video_url_tool = await builder.get_tool(config.video_url_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
         # Get video URL using the video_url_tool (e.g., vst_video_url)
-        logger.info(f"Using {config.video_url_tool} to get video URL for file {lvs_input.sensor_id}")
+        logger.info(f"Using {config.video_url_tool} to get video URL for file {sensor_id}")
         video_url_args = {
-            "sensor_id": lvs_input.sensor_id,
+            "sensor_id": sensor_id,
         }
         logger.debug(f"Video URL tool arguments: {video_url_args}")
         video_url_result = await video_url_tool.ainvoke(input=video_url_args)
@@ -589,8 +550,11 @@ async def lvs_video_understanding(
         # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
         # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
         video_url = translate_url(
-            video_url, config.vlm_mode, config.internal_ip,
-            config.external_ip, config.vst_internal_url,
+            video_url,
+            config.vlm_mode,
+            config.internal_ip,
+            config.external_ip,
+            config.vst_internal_url,
         )
         logger.info(f"[LVS Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
 
@@ -635,34 +599,34 @@ async def lvs_video_understanding(
                 content_json = json.loads(content)
                 logger.info(f"LVS response: {content_json}")
                 video_summary = content_json.get("video_summary", "").strip()
-                events = content_json.get("events", [])
+                detected_events = content_json.get("events", [])
 
                 # Generate friendly message only if no summary and no events
-                if not video_summary and not events:
+                if not video_summary and not detected_events:
                     video_summary = "No significant events or activities were detected in this video."
                     logger.warning("LVS returned no summary and no events")
                 elif not video_summary:
-                    logger.info(f"LVS returned no summary but has {len(events)} events")
-                if not events:
+                    logger.info(f"LVS returned no summary but has {len(detected_events)} events")
+                if not detected_events:
                     logger.warning("LVS returned no events")
 
                 result = {
+                    "sensor_id": sensor_id,
                     "video_summary": video_summary,
-                    "events": events,
+                    "events": detected_events,
                     "hitl_prompts": {
-                        "scenario": hitl_scenario,
-                        "events": hitl_events,
-                        "objects_of_interest": hitl_objects_of_interest,
+                        "scenario": scenario,
+                        "events": events,
+                        "objects_of_interest": objects_of_interest,
                     },
                     "lvs_backend_response": response_json,
                 }
-                if not video_summary and not events:
+                if not video_summary and not detected_events:
                     result["note"] = (
                         "The video may not contain the types of events specified in the search criteria, or the content may not be clear enough for detection."
                     )
-                formatted_response = json.dumps(result, indent=2, ensure_ascii=False)
-                logger.info(f"LVS response received with {len(events)} events")
-                return formatted_response
+                logger.info(f"LVS response received with {len(detected_events)} events for '{sensor_id}'")
+                return result
 
         except aiohttp.ClientError as e:
             logger.error(f"LVS service connection error: {e}")
@@ -670,6 +634,132 @@ async def lvs_video_understanding(
         except Exception as e:
             logger.error(f"LVS video understanding failed: {e}")
             raise
+
+    async def _lvs_video_understanding(lvs_input: LVSVideoUnderstandingInput) -> str:
+        """
+        Use LVS(Long Video Summarization) service to understand and summarize video(s).
+
+        This tool is optimized for long videos and uses chunk-based processing with event detection.
+        Supports parallel processing of multiple videos with shared HITL parameters.
+
+        Args:
+            lvs_input: LVSVideoUnderstandingInput with sensor_id(s) - can be a single string or list
+
+        Returns:
+            str: JSON string with the analysis results
+        """
+        # Normalize sensor_id to list for unified handling
+        sensor_ids = [lvs_input.sensor_id] if isinstance(lvs_input.sensor_id, str) else lvs_input.sensor_id
+        is_multi_video = len(sensor_ids) > 1
+
+        # Get thread_id for state persistence
+        thread_id = ContextState.get().conversation_id.get()
+        logger.info(f"Processing LVS request for thread {thread_id}")
+
+        if is_multi_video:
+            logger.info(f"Multi-video LVS request: {len(sensor_ids)} videos: {sensor_ids}")
+        else:
+            logger.info(f"Single-video LVS request: {sensor_ids[0]}")
+
+        # Get current parameters for this thread (if any)
+        current_params = lvs_params_state.get(thread_id)
+
+        if current_params:
+            logger.info(f"Found existing parameters for thread {thread_id}")
+        else:
+            logger.info(f"No existing parameters for thread {thread_id}, will collect new ones")
+
+        # Initialize variables for type checker
+        scenario: str = ""
+        events_list: list[str] = []
+        objects_of_interest: list[str] = []
+
+        # HITL workflow with confirmation loop (done once for all videos)
+        while True:
+            # Step 1: Collect parameters via HITL
+            logger.info("Running HITL workflow to collect/confirm parameters")
+            params_result = await _collect_hitl_parameters(current_params, sensor_ids=sensor_ids)
+
+            # Handle cancellation
+            if params_result is None:
+                logger.info("LVS analysis cancelled by user during parameter collection")
+                return json.dumps(
+                    {
+                        "status": LVSStatus.ABORTED.value,
+                        "message": "Video analysis was cancelled by user.",
+                    },
+                    indent=2,
+                )
+
+            scenario, events_list, objects_of_interest = params_result
+
+            # Step 2: Show all configs and get confirmation
+            logger.info("Showing LVS configuration for user confirmation")
+            user_choice = await _confirm_lvs_request(scenario, events_list, objects_of_interest, sensor_ids=sensor_ids)
+
+            if user_choice == "/redo":
+                # User wants to modify parameters - loop back with current values
+                logger.info("User requested redo - restarting parameter collection")
+                current_params = (scenario, events_list, objects_of_interest)
+                continue
+            elif user_choice == "/cancel":
+                # User cancelled
+                logger.info("LVS analysis cancelled by user")
+                return json.dumps(
+                    {
+                        "status": LVSStatus.ABORTED.value,
+                        "message": "Video analysis was cancelled by user.",
+                    },
+                    indent=2,
+                )
+            else:
+                # Empty string or any other input - proceed with LVS request
+                logger.info("User confirmed - proceeding with LVS analysis")
+                break
+
+        # Update state for this thread
+        lvs_params_state[thread_id] = (scenario, events_list, objects_of_interest)
+        logger.info(f"Updated parameters state for thread {thread_id}")
+
+        # Process video(s) - single or parallel
+        if is_multi_video:
+            # Process multiple videos in parallel
+            logger.info(f"Processing {len(sensor_ids)} videos in parallel with shared HITL parameters")
+
+            tasks = [_process_single_lvs_video(sid, scenario, events_list, objects_of_interest) for sid in sensor_ids]
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Aggregate results
+            all_results = []
+            failed_videos = []
+
+            for i, result_or_exception in enumerate(results):
+                if isinstance(result_or_exception, BaseException):
+                    logger.error(f"Failed to process video '{sensor_ids[i]}': {result_or_exception}")
+                    failed_videos.append(sensor_ids[i])
+                else:
+                    all_results.append(result_or_exception)
+
+            # Return aggregated results
+            aggregated = {
+                "status": LVSStatus.SUCCESS.value,
+                "videos_processed": len(all_results),
+                "videos_failed": len(failed_videos),
+                "results": all_results,
+                "failed_videos": failed_videos,
+                "hitl_prompts": {
+                    "scenario": scenario,
+                    "events": events_list,
+                    "objects_of_interest": objects_of_interest,
+                },
+            }
+
+            return json.dumps(aggregated, indent=2, ensure_ascii=False)
+        else:
+            # Single video - process directly
+            result = await _process_single_lvs_video(sensor_ids[0], scenario, events_list, objects_of_interest)
+            return json.dumps(result, indent=2, ensure_ascii=False)
 
     yield FunctionInfo.create(
         single_fn=_lvs_video_understanding,

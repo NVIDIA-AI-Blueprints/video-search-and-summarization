@@ -14,9 +14,15 @@
 # limitations under the License.
 """Unit tests for fov_counts_with_chart module."""
 
+import json
+from unittest.mock import AsyncMock
+
+import pytest
+
 from vss_agents.tools.fov_counts_with_chart import FOVCountsWithChartConfig
 from vss_agents.tools.fov_counts_with_chart import FOVCountsWithChartInput
 from vss_agents.tools.fov_counts_with_chart import FOVCountsWithChartOutput
+from vss_agents.tools.fov_counts_with_chart import get_fov_counts_with_chart
 
 
 class TestFOVCountsWithChartConfig:
@@ -123,3 +129,152 @@ class TestFOVCountsWithChartOutput:
         assert "average_count" in data
         assert "chart_url" in data
         assert "raw_histogram" in data
+
+
+def _make_histogram_entry(start: str, obj_type: str, avg_count: float) -> dict:
+    return {
+        "start": start,
+        "objects": [{"type": obj_type, "averageCount": avg_count}],
+    }
+
+
+class TestFOVCountsWithChartFunction:
+    """Functional tests exercising the inner tool logic via mocked dependencies."""
+
+    @pytest.fixture
+    def fov_tools(self):
+        mock_builder = AsyncMock()
+        fov_histogram_tool = AsyncMock()
+        chart_generator_tool = AsyncMock()
+
+        async def _get_tool(ref, wrapper_type=None):
+            if ref == "get_fov_histogram":
+                return fov_histogram_tool
+            if ref == "chart_generator":
+                return chart_generator_tool
+            raise ValueError(f"Unknown tool ref: {ref}")
+
+        mock_builder.get_tool = _get_tool
+
+        config = FOVCountsWithChartConfig(
+            get_fov_histogram_tool="get_fov_histogram",
+            chart_generator_tool="chart_generator",
+        )
+        return config, mock_builder, fov_histogram_tool, chart_generator_tool
+
+    async def _get_inner_fn(self, config, builder):
+        gen = get_fov_counts_with_chart.__wrapped__(config, builder)
+        fn_info = await gen.__anext__()
+        return fn_info.single_fn
+
+    @pytest.mark.asyncio
+    async def test_all_zero_counts_skips_chart(self, fov_tools):
+        config, builder, fov_tool, chart_tool = fov_tools
+
+        fov_tool.ainvoke.return_value = json.dumps(
+            {
+                "histogram": [
+                    _make_histogram_entry("2025-01-01T00:00:00Z", "Person", 0),
+                    _make_histogram_entry("2025-01-01T00:01:00Z", "Person", 0),
+                    _make_histogram_entry("2025-01-01T00:02:00Z", "Person", 0),
+                ],
+            }
+        )
+
+        inner_fn = await self._get_inner_fn(config, builder)
+        result = await inner_fn(
+            FOVCountsWithChartInput(
+                sensor_id="Camera_03",
+                start_time="2025-01-01T00:00:00.000Z",
+                end_time="2025-01-01T00:03:00.000Z",
+                object_type="Person",
+            )
+        )
+
+        assert result.latest_count == 0
+        assert result.average_count == 0.0
+        assert result.chart_url is None
+        chart_tool.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_negative_counts_clamped_to_zero(self, fov_tools):
+        config, builder, fov_tool, chart_tool = fov_tools
+
+        fov_tool.ainvoke.return_value = json.dumps(
+            {
+                "histogram": [
+                    _make_histogram_entry("2025-01-01T00:00:00Z", "Person", -5),
+                    _make_histogram_entry("2025-01-01T00:01:00Z", "Person", -10),
+                ],
+            }
+        )
+
+        inner_fn = await self._get_inner_fn(config, builder)
+        result = await inner_fn(
+            FOVCountsWithChartInput(
+                sensor_id="Camera_03",
+                start_time="2025-01-01T00:00:00.000Z",
+                end_time="2025-01-01T00:02:00.000Z",
+                object_type="Person",
+            )
+        )
+
+        assert result.latest_count == 0
+        assert result.average_count == 0.0
+        assert result.chart_url is None
+        chart_tool.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_histogram_returns_no_data(self, fov_tools):
+        config, builder, fov_tool, chart_tool = fov_tools
+
+        fov_tool.ainvoke.return_value = json.dumps({"histogram": []})
+
+        inner_fn = await self._get_inner_fn(config, builder)
+        result = await inner_fn(
+            FOVCountsWithChartInput(
+                sensor_id="Camera_03",
+                start_time="2025-01-01T00:00:00.000Z",
+                end_time="2025-01-01T00:03:00.000Z",
+                object_type="Person",
+            )
+        )
+
+        assert result.latest_count == 0
+        assert result.summary == "No data available for the specified time range"
+        assert result.chart_url is None
+        chart_tool.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_positive_counts_generates_chart(self, fov_tools):
+        config, builder, fov_tool, chart_tool = fov_tools
+
+        fov_tool.ainvoke.return_value = json.dumps(
+            {
+                "histogram": [
+                    _make_histogram_entry("2025-01-01T00:00:00Z", "Person", 5),
+                    _make_histogram_entry("2025-01-01T00:01:00Z", "Person", 10),
+                ],
+            }
+        )
+
+        mock_chart_output = AsyncMock()
+        mock_chart_output.success = True
+        mock_chart_output.object_store_key = "fov_charts/fov_Camera_03_0.png"
+        chart_tool.ainvoke.return_value = [mock_chart_output]
+
+        inner_fn = await self._get_inner_fn(config, builder)
+        result = await inner_fn(
+            FOVCountsWithChartInput(
+                sensor_id="Camera_03",
+                start_time="2025-01-01T00:00:00.000Z",
+                end_time="2025-01-01T00:02:00.000Z",
+                object_type="Person",
+            )
+        )
+
+        assert result.latest_count == 10
+        assert result.average_count == 7.5
+        assert result.chart_url is not None
+        assert "fov_Camera_03_0.png" in result.chart_url
+        chart_tool.ainvoke.assert_called_once()

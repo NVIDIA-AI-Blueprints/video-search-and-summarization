@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+
 from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.embed_search import QueryInput
@@ -445,7 +446,11 @@ class TestEmbedSearchInner:
     @pytest.mark.asyncio
     async def test_video_file_index_not_exists(self, config, mock_builder, mock_es_client, mock_embed_client):
         """Test video_file source_type raises when index doesn't exist."""
-        mock_es_client.indices.exists.return_value = False
+        from elasticsearch import NotFoundError as ESNotFoundError
+
+        mock_es_client.search.side_effect = ESNotFoundError(
+            message="index_not_found_exception", meta=MagicMock(), body={}
+        )
 
         inner_fn = await self._get_inner_fn(config, mock_builder, mock_es_client, mock_embed_client)
         query_input = QueryInput(params={"query": "test"}, source_type="video_file")

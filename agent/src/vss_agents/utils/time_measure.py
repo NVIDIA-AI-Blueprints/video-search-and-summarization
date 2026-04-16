@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-import sys
 import time
 
 logger = logging.getLogger(__name__)
@@ -61,10 +60,6 @@ class TimeMeasure:
             logger.log(
                 LOG_PERF_LEVEL,
                 f"{self._string:s} execution time = {exec_time:.3f} {unit:s}",
-            )
-            print(
-                f"{self._string:s} execution time = {exec_time:.3f} {unit:s}",
-                file=sys.stderr,
             )
             logger.debug(f"{self._string} start={self._start_time!s} end={self._end_time!s}")
 

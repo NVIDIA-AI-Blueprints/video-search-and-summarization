@@ -26,9 +26,9 @@
   "scripts": {
     "build": "next build --no-lint && npm run build:lib",
     "build:lib": "rm -rf lib && swc lib-src pages components hooks utils types constants styles -d lib --config-file .swcrc && mv lib/lib-src/* lib/ && rmdir lib/lib-src && (test -f lib/contexts/RuntimeConfigContext.js && sed -i 's|\"../../utils|\"../utils|g' lib/contexts/RuntimeConfigContext.js || true) && cp lib-src/index.d.ts lib/index.d.ts && cp -r public lib/public && mkdir -p lib/styles && cp .next/static/css/*.css lib/styles/globals.css && cp next-i18next.config.js lib/",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts,.tsx",
     "format": "prettier --write .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

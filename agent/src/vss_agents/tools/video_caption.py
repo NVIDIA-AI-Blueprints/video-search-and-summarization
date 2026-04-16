@@ -20,9 +20,6 @@ import shutil
 from typing import Any
 import uuid
 
-from vss_agents.utils.file_mapping import resolve_video_file
-from vss_agents.utils.time_measure import TimeMeasure
-
 import httpx
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
@@ -36,6 +33,9 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import model_validator
+
+from vss_agents.utils.file_mapping import resolve_video_file
+from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
 
@@ -339,9 +339,8 @@ async def video_caption(config: VideoCaptionConfig, builder: Builder) -> AsyncGe
 
                 step_size = 1 / video_caption_input.fps
                 with TimeMeasure(
-                    f"frame_select-{resolved_file_path}, {video_caption_input.start_timestamp}, {
-                        video_caption_input.end_timestamp
-                    }, {video_caption_input.fps}"
+                    f"frame_select-{resolved_file_path}, {video_caption_input.start_timestamp}, "
+                    f"{video_caption_input.end_timestamp}, {video_caption_input.fps}"
                 ):
                     base64_frames = await loop.run_in_executor(
                         None,
