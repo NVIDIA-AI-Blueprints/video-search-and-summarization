@@ -26,8 +26,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
-from nat.eval.evaluator.evaluator_model import EvalInputItem
-from nat.eval.evaluator.evaluator_model import EvalOutputItem
+from nat.data_models.evaluator import EvalInputItem
+from nat.data_models.evaluator import EvalOutputItem
 
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs

@@ -20,6 +20,8 @@ from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
 from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
 from vss_agents.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
+from vss_agents.agents.top_agent import AgentRequestOptions
+from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import strip_frontend_tags
 
 
@@ -100,3 +102,46 @@ class TestStripFrontendTags:
 
     def test_none_content_returns_empty(self):
         assert strip_frontend_tags(None) == ""
+
+
+class TestAgentRequestOptions:
+    """Tests for the AgentRequestOptions model."""
+
+    def test_defaults(self):
+        opts = AgentRequestOptions()
+        assert opts.use_critic is True
+        assert opts.llm_reasoning is False
+        assert opts.vlm_reasoning is None
+        assert opts.search_source_type == "video_file"
+
+    def test_use_critic_disabled(self):
+        opts = AgentRequestOptions(use_critic=False)
+        assert opts.use_critic is False
+
+    def test_all_fields_overridden(self):
+        opts = AgentRequestOptions(
+            llm_reasoning=True,
+            vlm_reasoning=True,
+            search_source_type="rtsp",
+            use_critic=False,
+        )
+        assert opts.llm_reasoning is True
+        assert opts.vlm_reasoning is True
+        assert opts.search_source_type == "rtsp"
+        assert opts.use_critic is False
+
+
+class TestTopAgentRequestUseCritic:
+    """Tests for the use_critic field on TopAgentRequest."""
+
+    def test_use_critic_defaults_to_none(self):
+        req = TopAgentRequest(messages=[])
+        assert req.use_critic is None
+
+    def test_use_critic_set_true(self):
+        req = TopAgentRequest(messages=[], use_critic=True)
+        assert req.use_critic is True
+
+    def test_use_critic_set_false(self):
+        req = TopAgentRequest(messages=[], use_critic=False)
+        assert req.use_critic is False

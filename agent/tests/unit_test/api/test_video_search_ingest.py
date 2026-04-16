@@ -22,7 +22,6 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 import pytest
-
 from vss_agents.api.video_search_ingest import ALLOWED_VIDEO_TYPES
 from vss_agents.api.video_search_ingest import VideoIngestResponse
 from vss_agents.api.video_search_ingest import create_streaming_video_ingest_router

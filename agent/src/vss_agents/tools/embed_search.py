@@ -38,6 +38,7 @@ from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
+from vss_agents.utils.time_measure import TimeMeasure
 
 if TYPE_CHECKING:
     from vss_agents.embed.embed import EmbedClient
@@ -339,9 +340,10 @@ def _build_es_query(query_input: QueryInput, query_embedding: list[float], confi
             filters.append(must_clauses[0])
 
     # Adjust k based on filters and similarity threshold
+    # Overfetch to account for post-retrieval filtering (exclude_videos, missing "llm" field, etc.)
     if top_k is None:
         k_value = config.default_max_results
-    elif min_cosine_similarity >= -1.0 or filters:
+    elif min_cosine_similarity > 0.0 or filters:
         k_value = top_k * 5
     else:
         k_value = top_k
@@ -391,7 +393,7 @@ def _build_es_query(query_input: QueryInput, query_embedding: list[float], confi
         }
 
     logger.debug(f"ES search_query:\n{json.dumps(search_query, indent=2)}")
-    logger.info(f"Search query: {_sanitize_for_logging(search_query)}")
+    logger.debug(f"Search query (sanitized): {_sanitize_for_logging(search_query)}")
 
     return search_query
 
@@ -588,7 +590,7 @@ async def _process_search_hit(
 
 
 @register_function(config_type=EmbedSearchConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
+async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo, None]:
     logger.info(f"Embed search config: {config}")
     es_client = AsyncElasticsearch(config.es_endpoint)
     embed_client: EmbedClient = CosmosEmbedClient(config.cosmos_embed_endpoint)
@@ -596,52 +598,47 @@ async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGen
     async def _embed_search(query_input: QueryInput) -> EmbedSearchOutput:
         """Perform embedding search using QueryInput and return EmbedSearchOutput."""
 
-        # Index check and search_index by source_type (before generating embedding)
-        es_index_exists = await es_client.indices.exists(index=config.es_index)
+        # Determine search index by source_type
         source_type = query_input.source_type
         if source_type == "video_file":
-            if not es_index_exists:
-                raise ValueError(
-                    f"Search index '{config.es_index}' does not exist. "
-                    "Please ensure videos have been ingested before searching."
-                )
             search_index: str | list[str] = config.es_index
         else:
-            # rtsp: if index does not exist, exclude es_index from search_index list
-            if es_index_exists:
-                search_index = ["mdx-embed-filtered-*", "-" + config.es_index]
-            else:
-                search_index = ["mdx-embed-filtered-*"]
+            # rtsp: search wildcard indices, excluding the video-file index
+            search_index = ["mdx-embed-filtered-*", "-" + config.es_index]
         logger.info(f"Search index(es): {search_index} (source_type={source_type})")
 
         # Step 1: Generate embedding
-        query_embedding = await _generate_query_embedding(query_input, embed_client)
+        with TimeMeasure("embed_search: generate query embedding"):
+            query_embedding = await _generate_query_embedding(query_input, embed_client)
 
         # Step 2: Build ES query
-        search_query = _build_es_query(query_input, query_embedding, config)
+        with TimeMeasure("embed_search: build ES query"):
+            search_query = _build_es_query(query_input, query_embedding, config)
 
         # Execute ES search
-        try:
-            response = await es_client.search(index=search_index, body=search_query)
-        except ESNotFoundError as e:
-            logger.error(f"Elasticsearch index '{search_index}' not found: {e}")
-            raise ValueError(
-                f"Search index '{search_index}' does not exist. "
-                "Please ensure videos have been ingested before searching."
-            ) from e
+        with TimeMeasure("embed_search: ES search execution"):
+            try:
+                response = await es_client.search(index=search_index, body=search_query)
+            except ESNotFoundError as e:
+                logger.error(f"Elasticsearch index '{search_index}' not found: {e}")
+                raise ValueError(
+                    f"Search index '{search_index}' does not exist. "
+                    "Please ensure videos have been ingested before searching."
+                ) from e
 
         # Log response
         response_dict = response.body
-        logger.info(
+        logger.debug(
             f"ES search response (before processing): {json.dumps(_sanitize_for_logging(response_dict), indent=2)}"
         )
 
         # Step 3: Process hits in parallel
-        hits = response["hits"]["hits"]
-        min_sim = float(query_input.params.get("min_cosine_similarity", "0.0"))
-        tasks = [_process_search_hit(hit, config, min_sim, query_input.exclude_videos) for hit in hits]
-        processed = await asyncio.gather(*tasks)
-        results = [r for r in processed if r is not None]
+        with TimeMeasure("embed_search: process search hits"):
+            hits = response["hits"]["hits"]
+            min_sim = float(query_input.params.get("min_cosine_similarity", "0.0"))
+            tasks = [_process_search_hit(hit, config, min_sim, query_input.exclude_videos) for hit in hits]
+            processed = await asyncio.gather(*tasks)
+            results = [r for r in processed if r is not None]
 
         # Apply top_k limit
         top_k_str = query_input.params.get("top_k", "")
@@ -649,7 +646,7 @@ async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGen
             results = results[: int(top_k_str)]
 
         logger.info(f"Found {len(results)} videos matching the query")
-        logger.info(
+        logger.debug(
             f"Embed search result (after processing): {json.dumps(_sanitize_for_logging(EmbedSearchOutput(query_embedding=query_embedding, results=results).model_dump()), indent=2)}"
         )
 

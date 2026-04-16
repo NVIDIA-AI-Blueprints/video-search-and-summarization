@@ -251,10 +251,7 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                             f"Available sensors: {sorted(live_streams.keys())}",
                         )
 
-                    # Get the RTSP URL from VST and replace internal IP with VST host IP
                     rtsp_url = live_streams[sensor_name]["url"]
-                    vst_host = urlparse(config.vst_internal_url).hostname
-                    rtsp_url = re.sub(r"rtsp://[\d.]+:", f"rtsp://{vst_host}:", rtsp_url)
                     logger.info(f"Starting RTVI-VLM alert for sensor: {sensor_name}, RTSP: {rtsp_url}")
 
                     # Step 1: Add stream

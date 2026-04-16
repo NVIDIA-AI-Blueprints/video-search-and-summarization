@@ -39,6 +39,12 @@ from vss_agents.agents.data_models import AgentOutput
 
 logger = logging.getLogger(__name__)
 
+_ARTIFACT_DISPLAY_NOTE = (
+    "NOTE: The formatted incident list is already being displayed to the user automatically. "
+    "You may use the incident details above (IDs, timestamps, categories) to continue your plan. "
+    "In your FINAL answer to the user, do not repeat the full incident list since it is already shown."
+)
+
 
 class MultiReportAgentInput(BaseModel):
     """
@@ -161,15 +167,22 @@ async def multi_report_agent(config: MultiReportAgentConfig, builder: Builder) -
                 incident_count = formatter_result.total_incidents
                 if formatter_result.chart_html:
                     side_effects["chart_html"] = formatter_result.chart_html
+                if formatted_incidents:
+                    side_effects["formatted_incidents"] = formatted_incidents
             elif isinstance(formatter_result, dict):
                 formatted_incidents = formatter_result.get("formatted_incidents", "")
                 incident_count = formatter_result.get("total_incidents", 0)
                 if "chart_html" in formatter_result:
                     side_effects["chart_html"] = formatter_result["chart_html"]
+                if formatted_incidents:
+                    side_effects["formatted_incidents"] = formatted_incidents
             else:
                 formatted_incidents = str(formatter_result)
 
             logger.info("Multi-incident report generated successfully")
+
+            if side_effects:
+                side_effects["artifact_note"] = _ARTIFACT_DISPLAY_NOTE
 
             execution_time_ms = int((time.time() - start_time_exec) * 1000)
             agent_output = AgentOutput(

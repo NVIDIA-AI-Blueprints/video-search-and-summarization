@@ -3,10 +3,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-source = "vcs"
-
-[tool.hatch.version.raw-options]
-root = ".."
+source = "vcs" 
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -48,6 +45,11 @@ name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
+[[tool.uv.index]]
+name = "ngc-data-platform"
+url = "https://urm.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi/simple"
+explicit = true
+
 
 
 [project]
@@ -68,7 +70,7 @@ dependencies = [
   "markdown>=3.4.0",
   "matplotlib>=3.8.0",
   "mcp >= 1.23.0",
-  "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiling,s3]==1.5.0a20260218",
+  "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiling,s3]==1.5.0",
   "opencv-python-headless>=4.13.0.92",
   "protobuf>=6.33.5",
   "pydantic >=2.11,<3",
@@ -107,7 +109,7 @@ dev = [
     "pytest>=8.4.1",
     "pytest-asyncio>=0.24",
     "ruff>=0.12.0",
-    "nvidia-nat[test]==1.5.0a20260218",
+    "nvidia-nat[test]==1.5.0",
     "pytest-cov>=6.1",
     "types-requests>=2.32.4.20260107",
     "types-markdown>=3.10.0.20251106",
@@ -116,7 +118,8 @@ dev = [
     "detect-secrets>=1.5.0",
 ]
 eval = [
-    "nvidia-nat[weave]==1.5.0a20260218",
+    "nvidia-nat[langchain,weave]==1.5.0",
+    "nvdataset>=0.77",
     "spacy>=3.7,<4.0",
 ]
 
@@ -139,6 +142,7 @@ torch = [
 torchvision = [
     { index = "pytorch-cpu", marker = "platform_machine == 'x86_64' or platform_machine == 'aarch64'" },
 ]
+nvdataset = { index = "ngc-data-platform" }
 
 [tool.ruff]
 # Basic settings
@@ -340,7 +344,7 @@ markers = [
 
 # Mypy configuration for type checking
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

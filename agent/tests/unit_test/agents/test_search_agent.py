@@ -21,7 +21,6 @@ import json
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.agents.search_agent import SearchAgentConfig
 from vss_agents.agents.search_agent import SearchAgentInput
 from vss_agents.agents.search_agent import _helper_markdown_bullet_list
@@ -188,6 +187,187 @@ class TestSearchAgentInput:
         assert input_data.end_time == "2025-01-01T12:00:00Z"
 
 
+class TestDecomposedQueryObjectIds:
+    """Test DecomposedQuery object_ids field."""
+
+    def test_object_ids_field_exists(self):
+        """Test that DecomposedQuery accepts object_ids."""
+        from vss_agents.tools.search import DecomposedQuery
+
+        dq = DecomposedQuery(object_ids=[5, 6])
+        assert dq.object_ids == [5, 6]
+
+    def test_object_ids_default_none(self):
+        """Test that object_ids defaults to None."""
+        from vss_agents.tools.search import DecomposedQuery
+
+        dq = DecomposedQuery()
+        assert dq.object_ids is None
+
+    def test_single_object_id(self):
+        """Test single object ID in list."""
+        from vss_agents.tools.search import DecomposedQuery
+
+        dq = DecomposedQuery(object_ids=[42])
+        assert dq.object_ids == [42]
+
+
+class TestFetchObjectEmbedding:
+    """Test _fetch_object_embedding edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_missing_object_raises(self):
+        """Test that missing object_id raises ValueError."""
+        from unittest.mock import AsyncMock
+
+        from vss_agents.tools.attribute_search import _fetch_object_embedding
+
+        mock_client = AsyncMock()
+        mock_client.search.return_value = {"hits": {"hits": []}}
+
+        with pytest.raises(ValueError, match="not found"):
+            await _fetch_object_embedding("999", mock_client, "test-index")
+
+    @pytest.mark.asyncio
+    async def test_missing_embedding_raises(self):
+        """Test that object with no embedding vector raises ValueError."""
+        from unittest.mock import AsyncMock
+
+        from vss_agents.tools.attribute_search import _fetch_object_embedding
+
+        mock_client = AsyncMock()
+        mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {}}}]}}
+
+        with pytest.raises(ValueError, match="no embedding vector"):
+            await _fetch_object_embedding("5", mock_client, "test-index")
+
+    @pytest.mark.asyncio
+    async def test_dict_embedding_shape(self):
+        """Test embedding extraction from dict shape: {"vector": [...]}."""
+        from unittest.mock import AsyncMock
+
+        from vss_agents.tools.attribute_search import _fetch_object_embedding
+
+        mock_client = AsyncMock()
+        mock_client.search.return_value = {
+            "hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0, 2.0, 3.0]}}}]}
+        }
+
+        result = await _fetch_object_embedding("5", mock_client, "test-index")
+        assert result == [1.0, 2.0, 3.0]
+
+    @pytest.mark.asyncio
+    async def test_list_embedding_shape(self):
+        """Test embedding extraction from list shape: [{"vector": [...]}]."""
+        from unittest.mock import AsyncMock
+
+        from vss_agents.tools.attribute_search import _fetch_object_embedding
+
+        mock_client = AsyncMock()
+        mock_client.search.return_value = {
+            "hits": {"hits": [{"_source": {"embeddings": [{"vector": [4.0, 5.0]}]}}]}
+        }
+
+        result = await _fetch_object_embedding("5", mock_client, "test-index")
+        assert result == [4.0, 5.0]
+
+    @pytest.mark.asyncio
+    async def test_list_index_with_str(self):
+        """Test behavior_index as list gets joined."""
+        from unittest.mock import AsyncMock
+
+        from vss_agents.tools.attribute_search import _fetch_object_embedding
+
+        mock_client = AsyncMock()
+        mock_client.search.return_value = {
+            "hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0]}}}]}
+        }
+
+        await _fetch_object_embedding("5", mock_client, ["idx-a", "idx-b"])
+        mock_client.search.assert_called_once()
+        call_kwargs = mock_client.search.call_args
+        assert call_kwargs.kwargs["index"] == "idx-a,idx-b"
+
+
+class TestDecomposeQueryObjectIds:
+    """Test that decompose_query correctly passes object_ids."""
+
+    @pytest.mark.asyncio
+    async def test_object_ids_extracted(self):
+        """Test that object_ids from LLM response are passed to DecomposedQuery."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from vss_agents.tools.search import decompose_query
+
+        mock_llm = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"query": "object ids 5, 6", "object_ids": [5, 6], "has_action": false}'
+        mock_llm.ainvoke.return_value = mock_response
+
+        result = await decompose_query("search for object ids 5, 6", mock_llm)
+        assert result.object_ids == [5, 6]
+
+    @pytest.mark.asyncio
+    async def test_object_ids_none_when_absent(self):
+        """Test that object_ids is None when LLM doesn't extract any."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from vss_agents.tools.search import decompose_query
+
+        mock_llm = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"query": "person in red shirt", "has_action": false}'
+        mock_llm.ainvoke.return_value = mock_response
+
+        result = await decompose_query("person in red shirt", mock_llm)
+        assert result.object_ids is None
+
+    @pytest.mark.asyncio
+    async def test_object_ids_invalid_type_ignored(self):
+        """Test that non-integer object_ids are gracefully ignored."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from vss_agents.tools.search import decompose_query
+
+        mock_llm = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"query": "test", "object_ids": ["abc", "def"], "has_action": false}'
+        mock_llm.ainvoke.return_value = mock_response
+
+        result = await decompose_query("test", mock_llm)
+        assert result.object_ids is None
+
+    @pytest.mark.asyncio
+    async def test_negative_object_ids_filtered(self):
+        """Test that non-positive object_ids are filtered out."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from vss_agents.tools.search import decompose_query
+
+        mock_llm = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"query": "test", "object_ids": [-1, 0, 5, 10], "has_action": false}'
+        mock_llm.ainvoke.return_value = mock_response
+
+        result = await decompose_query("test", mock_llm)
+        assert result.object_ids == [5, 10]
+
+    @pytest.mark.asyncio
+    async def test_all_non_positive_ids_yields_none(self):
+        """Test that all non-positive IDs results in None."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from vss_agents.tools.search import decompose_query
+
+        mock_llm = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"query": "test", "object_ids": [-1, 0], "has_action": false}'
+        mock_llm.ainvoke.return_value = mock_response
+
+        result = await decompose_query("test", mock_llm)
+        assert result.object_ids is None
+
+
 # ===== Tests for presentation converters (moved from embed_search) =====
 
 
@@ -197,12 +377,12 @@ def _make_search_output(num_results=1):
     for i in range(num_results):
         results.append(
             SearchResult(
-                video_name=f"video{i + 1}.mp4",
-                description=f"Test video {i + 1}",
-                start_time=f"2025-01-15T{10 + i}:00:00Z",
-                end_time=f"2025-01-15T{10 + i}:01:00Z",
-                sensor_id=f"sensor-{i + 1}",
-                screenshot_url=f"http://example.com/screenshot{i + 1}.jpg",
+                video_name=f"video{i+1}.mp4",
+                description=f"Test video {i+1}",
+                start_time=f"2025-01-15T{10+i}:00:00Z",
+                end_time=f"2025-01-15T{10+i}:01:00Z",
+                sensor_id=f"sensor-{i+1}",
+                screenshot_url=f"http://example.com/screenshot{i+1}.jpg",
                 similarity=0.95 - (i * 0.1),
             )
         )

@@ -41,12 +41,25 @@ from nat.data_models.component_ref import FunctionRef
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import model_validator
 
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
 
 logger = logging.getLogger(__name__)
+
+_ARTIFACT_DISPLAY_NOTE = (
+    "Do not include or offer to provide report download links in your final response "
+    "since they are already displayed to the user automatically."
+)
+
+
+def _append_artifact_display_note(side_effects: dict[str, Any]) -> None:
+    """Add a note to top agent when report artifacts are included in the subagent side effects."""
+    if side_effects:
+        side_effects["artifact_note"] = _ARTIFACT_DISPLAY_NOTE
+
 
 # ========== REPORT AGENT MODELS ==========
 
@@ -70,7 +83,10 @@ class ReportAgentInput(BaseModel):
         description="Specific incident ID. If provided, other search params are ignored.",
     )
 
-    source: str | None = Field(default=None, description="Source to filter incidents (sensor ID or place/city name).")
+    source: str | None = Field(
+        default=None,
+        description="Source to filter incidents (sensor ID or place/city name). Also accepts 'sensor_id' as an alias.",
+    )
 
     source_type: Literal["sensor", "place"] | None = Field(
         default=None, description="Type of the source. Must be 'sensor' or 'place'. Required if source is provided."
@@ -86,6 +102,18 @@ class ReportAgentInput(BaseModel):
         description="Enable LLM reasoning mode for report generation. If None, uses workflow config default.",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_sensor_id(cls, data: Any) -> Any:
+        """Accept sensor_id as shorthand for source + source_type='sensor'."""
+        if isinstance(data, dict) and "sensor_id" in data:
+            if not data.get("source"):
+                data["source"] = data["sensor_id"]
+                if not data.get("source_type"):
+                    data["source_type"] = "sensor"
+            del data["sensor_id"]
+        return data
+
 
 class VideoReportAgentInput(BaseModel):
     """
@@ -93,11 +121,12 @@ class VideoReportAgentInput(BaseModel):
 
     This mode works without Video Analytics MCP - directly analyzes uploaded videos from VST.
     No incident database required. Always analyzes the full video.
+    Supports parallel processing of multiple videos when using LVS (Long Video Summarization).
     """
 
-    sensor_id: str = Field(
+    sensor_id: str | list[str] = Field(
         ...,
-        description="VST sensor ID for video retrieval",
+        description="VST sensor ID(s) for video retrieval. Can be a single sensor_id string or a list of sensor_ids for parallel processing with LVS.",
     )
     user_query: str = Field(
         "Generate a detailed report of the video.",
@@ -259,7 +288,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
     else:  # Video(uploaded) Report mode (no Video Analytics MCP)
 
         async def _execute_report_video(
-            sensor_id: str,
+            sensor_id: str | list[str],
             user_query: str,
             vlm_reasoning: bool | None = None,
         ) -> AsyncGenerator[AgentMessageChunk]:
@@ -267,7 +296,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             Execute Video(uploaded) Report generation (video-based, no Video Analytics MCP).
 
             Args:
-                sensor_id: VST sensor ID (filename of uploaded video)
+                sensor_id: VST sensor ID(s) (filename(s) of uploaded video(s)). Can be a single string or list for parallel processing.
                 user_query: The user's question or analysis request
 
             Returns:
@@ -469,6 +498,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             if hasattr(report_result, "video_url") and report_result.video_url:
                 media.append(f"- [Incident Video]({report_result.video_url})")
             side_effects["media"] = "\n".join(media) + "\n"
+        _append_artifact_display_note(side_effects)
 
         agent_output = AgentOutput(
             messages=[f"Report generated successfully for incident {incident_id}"],
@@ -488,27 +518,38 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         Video(uploaded) Report mode: Direct video analysis without Video Analytics MCP.
 
         This mode works with uploaded videos from VST.
-        Always analyzes the full video (assumed to be < 2 mins).
-
         Delegates to video_report_gen tool which handles:
         1. VLM prompt sanitization (removes SOM markers)
-        2. Video analysis via video_understanding
-        3. Report formatting with optional template
-        4. Media URL fetching
+        2. Video analysis via video_understanding or lvs_video_understanding
+        3. Parallel processing for multiple videos (when using LVS)
+        4. Report formatting with optional template
+        5. Media URL fetching
 
         Args:
-            video_report_input: Video(uploaded) Report mode-specific input with sensor_id and user_query
+            video_report_input: Video(uploaded) Report mode-specific input with sensor_id(s) and user_query
 
         Returns:
             AgentOutput with video analysis and media URLs
         """
+
         # This tool is guaranteed to be set when va_mcp_enabled is False
         assert video_report_tool is not None
 
-        logger.info(f"Video(uploaded) Report mode: Analyzing uploaded video '{video_report_input.sensor_id}'")
+        # Normalize sensor_id for logging
+        sensor_ids = (
+            [video_report_input.sensor_id]
+            if isinstance(video_report_input.sensor_id, str)
+            else video_report_input.sensor_id
+        )
+
+        if len(sensor_ids) > 1:
+            logger.info(f"Video(uploaded) Report mode: Requesting reports for {len(sensor_ids)} videos: {sensor_ids}")
+        else:
+            logger.info(f"Video(uploaded) Report mode: Analyzing uploaded video '{sensor_ids[0]}'")
 
         try:
             # Call the Video(uploaded) Report generation tool
+            # The tool handles parallel processing internally for LVS videos
             tool_input: dict[str, Any] = {
                 "sensor_id": video_report_input.sensor_id,
                 "user_query": video_report_input.user_query,
@@ -519,16 +560,14 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
 
             report_result = await video_report_tool.ainvoke(tool_input)
         except Exception as e:
-            logger.exception(
-                f"Report Agent: Video analysis report generation failed for video '{video_report_input.sensor_id}': {e}"
-            )
+            logger.exception(f"Report Agent: Video analysis report generation failed for videos {sensor_ids}: {e}")
             raise ValueError(
-                f"Report Agent: Failed to generate video analysis report for video '{video_report_input.sensor_id}': {e}"
+                f"Report Agent: Failed to generate video analysis report for videos {sensor_ids}: {e}"
             ) from e
 
         # Check if report was cancelled (no http_url means no report was generated)
         if not report_result.http_url:
-            logger.info(f"Video report cancelled for '{video_report_input.sensor_id}'")
+            logger.info(f"Video report cancelled for {sensor_ids}")
             agent_output = AgentOutput(
                 messages=[report_result.summary or "Report generation was cancelled."],
                 side_effects={},
@@ -538,41 +577,83 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=agent_output.model_dump_json())
             return
 
-        logger.info(f"Video(uploaded) report generated successfully for '{video_report_input.sensor_id}'")
+        logger.info(f"Video(uploaded) report generated successfully for {sensor_ids}")
 
         # Format output
         side_effects = {}
 
-        downloads = ["**Report Downloads:**"]
-        downloads.append(f"- [Markdown Report]({report_result.http_url})")
-        if report_result.pdf_url:
-            downloads.append(f"- [PDF Report]({report_result.pdf_url})")
-        side_effects["report_downloads"] = "\n".join(downloads) + "\n"
+        # Format HITL prompts if available (from LVS) - used in both side_effects and messages
+        hitl_text = None
+        if hasattr(report_result, "hitl_prompts") and report_result.hitl_prompts:
+            hitl = report_result.hitl_prompts
+            prompts_parts = ["**Prompts:**"]
+            if hitl.get("scenario"):
+                prompts_parts.append(f"- Scenario: {hitl['scenario']}")
+            if hitl.get("events"):
+                prompts_parts.append(f"- Events of interest: {', '.join(hitl['events'])}")
+            if hitl.get("objects_of_interest"):
+                prompts_parts.append(f"- Objects of interest: {', '.join(hitl['objects_of_interest'])}")
+            hitl_text = "\n".join(prompts_parts) + "\n"
+            side_effects["hitl_prompts"] = hitl_text
 
-        if report_result.video_url:
-            media = ["**Media:**"]
-            media.append(f"- [Video Playback]({report_result.video_url})")
-            side_effects["media"] = "\n".join(media) + "\n"
+        # Handle multi-video vs single-video downloads
+        if hasattr(report_result, "all_reports") and report_result.all_reports:
+            # Multi-video: format per-video download links
+            downloads = ["**Report Downloads:**", ""]
+            for video_report in report_result.all_reports:
+                sensor_id = video_report.get("sensor_id", "Unknown")
+                downloads.append(f"**{sensor_id}:**")
+                if video_report.get("http_url"):
+                    downloads.append(f"  - [Markdown Report]({video_report['http_url']})")
+                if video_report.get("pdf_url"):
+                    downloads.append(f"  - [PDF Report]({video_report['pdf_url']})")
+                downloads.append("")  # Add blank line between videos
+            side_effects["report_downloads"] = "\n".join(downloads)
+
+            # Multi-video: format per-video media links
+            media_links = ["**Media:**", ""]
+            for video_report in report_result.all_reports:
+                if video_report.get("video_url"):
+                    sensor_id = video_report.get("sensor_id", "Unknown")
+                    media_links.append(f"**{sensor_id}:**")
+                    media_links.append(f"  - [Video Playback]({video_report['video_url']})")
+                    media_links.append("")  # Add blank line between videos
+            if len(media_links) > 2:  # More than just header and blank line
+                side_effects["media"] = "\n".join(media_links)
+        else:
+            # Single video: original format
+            downloads = ["**Report Downloads:**"]
+            downloads.append(f"- [Markdown Report]({report_result.http_url})")
+            if report_result.pdf_url:
+                downloads.append(f"- [PDF Report]({report_result.pdf_url})")
+            side_effects["report_downloads"] = "\n".join(downloads) + "\n"
+
+            if report_result.video_url:
+                media = ["**Media:**"]
+                media.append(f"- [Video Playback]({report_result.video_url})")
+                side_effects["media"] = "\n".join(media) + "\n"
+        _append_artifact_display_note(side_effects)
 
         # Build messages list
+        # Format sensor_id(s) for natural language display
+        if isinstance(video_report_input.sensor_id, list):
+            if len(video_report_input.sensor_id) == 1:
+                sensor_display = video_report_input.sensor_id[0]
+            elif len(video_report_input.sensor_id) == 2:
+                sensor_display = f"{video_report_input.sensor_id[0]} & {video_report_input.sensor_id[1]}"
+            else:
+                sensor_display = ", ".join(video_report_input.sensor_id[:-1]) + f" & {video_report_input.sensor_id[-1]}"
+        else:
+            sensor_display = video_report_input.sensor_id
+
         messages = [
-            f"Video analysis complete for '{video_report_input.sensor_id}'.\n",
-            f"Query: {video_report_input.user_query}.\n",
+            f"Video analysis complete for '{sensor_display}'.\n",
+            f"Query: {video_report_input.user_query}\n",
         ]
 
         # Add HITL prompts if available (from LVS)
-        if hasattr(report_result, "hitl_prompts") and report_result.hitl_prompts:
-            hitl = report_result.hitl_prompts
-            messages.append("\n**Prompts:**\n")
-            if hitl.get("scenario"):
-                messages.append(f"- Scenario: {hitl['scenario']}\n")
-            if hitl.get("events"):
-                events_str = ", ".join(hitl["events"])
-                messages.append(f"- Events of interest: {events_str}\n")
-            if hitl.get("objects_of_interest"):
-                objects_str = ", ".join(hitl["objects_of_interest"])
-                messages.append(f"- Objects of interest: {objects_str}\n")
-            messages.append("\n")  # Add empty line for spacing
+        if hitl_text:
+            messages.append(f"\n{hitl_text}")
 
         messages.append(report_result.summary)
 
@@ -608,6 +689,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             description=(
                 "Generate video analysis reports for uploaded videos without requiring incident database. "
                 "Analyzes full videos directly from VST based on sensor_id (filename). "
+                "Supports parallel processing of multiple videos when using LVS (handled by video_report_gen tool). "
                 "Returns AgentOutput with messages, side_effects (reports, URLs), and metadata."
             ),
             input_schema=VideoReportAgentInput,

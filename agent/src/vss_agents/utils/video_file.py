@@ -16,7 +16,6 @@ import logging
 import os
 
 import cv2
-
 from vss_agents.data_models.vss import MediaInfoOffset
 
 logger = logging.getLogger(__name__)

@@ -19,9 +19,8 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from langchain_core.exceptions import OutputParserException
-from nat.eval.evaluator.evaluator_model import EvalInputItem
+from nat.data_models.evaluator import EvalInputItem
 import pytest
-
 from vss_agents.evaluators.customized_trajectory_evaluator.evaluate import CustomizedTrajectoryEvaluator
 from vss_agents.evaluators.utils import ScoreOutputParser
 
@@ -411,7 +410,7 @@ class TestGetAgentSelectedUuids:
 
 
 _EVAL_MODULE = "vss_agents.evaluators.customized_trajectory_evaluator.evaluate"
-_ADAPTER_CLASS = "nat.eval.intermediate_step_adapter.IntermediateStepAdapter"
+_ADAPTER_CLASS = "nat.plugins.eval.utils.intermediate_step_adapter.IntermediateStepAdapter"
 
 
 class TestEvaluateItem:

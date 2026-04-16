@@ -19,7 +19,6 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-
 from vss_agents.utils.frame_select import frame_select
 from vss_agents.utils.frame_select import has_nvidia_gpu
 

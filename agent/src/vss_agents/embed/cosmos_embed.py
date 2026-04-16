@@ -13,18 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
-from typing import override
+import os
 
 import httpx
+from typing_extensions import override
 
 from vss_agents.embed.embed import EmbedClient
 
 logger = logging.getLogger(__name__)
 
+_EMBED_MODEL = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
+
 
 class CosmosEmbedClient(EmbedClient):
     def __init__(self, endpoint: str):
         self.endpoint = endpoint
+        self.model = _EMBED_MODEL
         self.text_embeddings_url = f"{endpoint}/v1/generate_text_embeddings"
         self.image_embeddings_url = f"{endpoint}/v1/generate_image_embeddings"
         self.video_embeddings_url = f"{endpoint}/v1/generate_video_embeddings"
@@ -44,7 +48,7 @@ class CosmosEmbedClient(EmbedClient):
             "input": [formatted_input],
             "request_type": "query",
             "encoding_format": "float",
-            "model": "nvidia/cosmos-embed1",
+            "model": self.model,
         }
         try:
             timeout = httpx.Timeout(connect=30.0, read=120.0, write=120.0, pool=30.0)
@@ -63,7 +67,7 @@ class CosmosEmbedClient(EmbedClient):
         """Generate embedding for text input"""
         payload = {
             "text_input": [text],
-            "model": "cosmos-embed1-448p",
+            "model": self.model,
         }
 
         try:
@@ -92,7 +96,7 @@ class CosmosEmbedClient(EmbedClient):
 
         payload = {
             "input": formatted_urls,
-            "model": "nvidia/cosmos-embed1",
+            "model": self.model,
             "encoding_format": "float",
             "request_type": "bulk_video",
         }

@@ -26,9 +26,9 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_function
-from nat.eval.evaluator.base_evaluator import BaseEvaluator
-from nat.eval.evaluator.evaluator_model import EvalInputItem
-from nat.eval.evaluator.evaluator_model import EvalOutputItem
+from nat.data_models.evaluator import EvalInputItem
+from nat.data_models.evaluator import EvalOutputItem
+from nat.plugins.eval.evaluator.base_evaluator import BaseEvaluator
 
 from vss_agents.evaluators.utils import ScoreOutputParser
 from vss_agents.evaluators.utils import invoke_llm_with_retry
@@ -197,8 +197,8 @@ class CustomizedTrajectoryEvaluator(BaseEvaluator):
         from typing import Any
 
         from nat.data_models.intermediate_step import IntermediateStepType
-        import nat.eval.intermediate_step_adapter as adapter_module
-        from nat.eval.intermediate_step_adapter import IntermediateStepAdapter
+        import nat.plugins.eval.utils.intermediate_step_adapter as adapter_module
+        from nat.plugins.eval.utils.intermediate_step_adapter import IntermediateStepAdapter
         from pydantic import BaseModel
 
         # Redefine AgentAction to accept list for multimodal inputs

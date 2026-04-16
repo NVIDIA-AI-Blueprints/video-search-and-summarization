@@ -15,7 +15,6 @@
 """Tests for vss_agents/evaluators/report_evaluator/field_evaluators/."""
 
 import pytest
-
 from vss_agents.evaluators.report_evaluator.field_evaluators.base import METRIC_REGISTRY
 from vss_agents.evaluators.report_evaluator.field_evaluators.base import EvaluationMetric
 from vss_agents.evaluators.report_evaluator.field_evaluators.base import register_metric

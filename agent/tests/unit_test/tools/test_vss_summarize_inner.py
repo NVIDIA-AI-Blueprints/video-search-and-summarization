@@ -20,7 +20,6 @@ from unittest.mock import patch
 import uuid
 
 import pytest
-
 from vss_agents.tools.vss_summarize import VSSSummarizeConfig
 from vss_agents.tools.vss_summarize import VSSSummarizeInput
 from vss_agents.tools.vss_summarize import VSSSummarizeOutput

@@ -24,7 +24,9 @@ def block_outbound_network(monkeypatch):
     """Fail fast if a unit test attempts a real network connection."""
 
     def _deny_network(*args, **kwargs):
-        raise AssertionError("API unit tests must not depend on remote endpoints. Mock the network boundary instead.")
+        raise AssertionError(
+            "API unit tests must not depend on remote endpoints. " "Mock the network boundary instead."
+        )
 
     monkeypatch.setattr(socket, "create_connection", _deny_network)
     monkeypatch.setattr(socket.socket, "connect", _deny_network, raising=True)

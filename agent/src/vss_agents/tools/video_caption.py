@@ -20,6 +20,9 @@ import shutil
 from typing import Any
 import uuid
 
+from vss_agents.utils.file_mapping import resolve_video_file
+from vss_agents.utils.time_measure import TimeMeasure
+
 import httpx
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
@@ -33,9 +36,6 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import model_validator
-
-from vss_agents.utils.file_mapping import resolve_video_file
-from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
 

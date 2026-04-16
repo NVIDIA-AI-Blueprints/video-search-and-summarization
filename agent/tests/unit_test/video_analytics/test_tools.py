@@ -16,7 +16,6 @@
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.video_analytics.tools import AnalyzeInput
 from vss_agents.video_analytics.tools import AverageSpeedsInput
 from vss_agents.video_analytics.tools import EmptyInput

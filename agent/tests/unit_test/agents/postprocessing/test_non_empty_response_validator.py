@@ -16,7 +16,6 @@
 """Unit tests for NonEmptyResponseValidator."""
 
 import pytest
-
 from vss_agents.agents.postprocessing.validators.non_empty_response_validator import NonEmptyResponseValidator
 
 

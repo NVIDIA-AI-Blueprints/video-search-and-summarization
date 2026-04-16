@@ -16,7 +16,6 @@
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.tools.evaluation_compressor import EvaluationCompressorConfig
 from vss_agents.tools.evaluation_compressor import EvaluationCompressorInput
 from vss_agents.tools.evaluation_compressor import remove_caption_details

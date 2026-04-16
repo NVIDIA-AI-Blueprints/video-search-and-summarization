@@ -15,7 +15,6 @@
 """Unit tests for interface module."""
 
 import pytest
-
 from vss_agents.video_analytics.interface import IncidentMetadata
 from vss_agents.video_analytics.interface import VideoAnalyticsInterface
 

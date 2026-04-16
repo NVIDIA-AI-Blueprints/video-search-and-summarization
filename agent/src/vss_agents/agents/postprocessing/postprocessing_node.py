@@ -19,10 +19,6 @@ import asyncio
 import logging
 from typing import Any
 
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
-from langchain_core.messages import HumanMessage
-
 from vss_agents.agents.postprocessing.data_models import POSTPROCESSING_FEEDBACK_MARKER
 from vss_agents.agents.postprocessing.data_models import PostprocessingConfig
 from vss_agents.agents.postprocessing.data_models import PostprocessingResult
@@ -30,6 +26,10 @@ from vss_agents.agents.postprocessing.validators.base import BaseValidator
 from vss_agents.agents.postprocessing.validators.llm_based_rule_validator import LLMBasedRuleValidator
 from vss_agents.agents.postprocessing.validators.non_empty_response_validator import NonEmptyResponseValidator
 from vss_agents.agents.postprocessing.validators.url_validator import URLValidator
+
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 
@@ -199,12 +199,13 @@ class PostprocessingNode:
             except TimeoutError:
                 if self.config.fail_open_on_validator_error:
                     logger.warning(
-                        f"Validation group {group} timed out after {self.config.group_timeout_seconds}s (fail-open)"
+                        f"Validation group {group} timed out after " f"{self.config.group_timeout_seconds}s (fail-open)"
                     )
                     continue  # treat as passed
                 else:
                     logger.error(
-                        f"Validation group {group} timed out after {self.config.group_timeout_seconds}s (fail-closed)"
+                        f"Validation group {group} timed out after "
+                        f"{self.config.group_timeout_seconds}s (fail-closed)"
                     )
                     return PostprocessingResult(
                         passed=False,

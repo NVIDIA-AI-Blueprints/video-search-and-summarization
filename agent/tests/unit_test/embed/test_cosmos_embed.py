@@ -20,7 +20,6 @@ from unittest.mock import patch
 
 import httpx
 import pytest
-
 from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 
 
@@ -212,5 +211,5 @@ class TestGetVideoEmbeddingsFromUrls:
             payload = call_args[1]["json"]
             # Check URL formatting
             assert payload["input"][0] == "data:video/mp4;presigned_url,http://test.com/video.mp4"
-            assert payload["model"] == "nvidia/cosmos-embed1"
+            assert payload["model"] == "cosmos-embed1-448p"
             assert payload["encoding_format"] == "float"

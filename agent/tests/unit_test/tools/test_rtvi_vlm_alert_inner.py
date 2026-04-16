@@ -21,7 +21,6 @@ from unittest.mock import patch
 
 import aiohttp
 import pytest
-
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertInput
 from vss_agents.tools.rtvi_vlm_alert import _sensor_to_rtvi_stream_id

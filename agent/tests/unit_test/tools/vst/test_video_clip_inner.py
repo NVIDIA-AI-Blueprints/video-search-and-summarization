@@ -20,7 +20,6 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
-
 from vss_agents.tools.vst.video_clip import VSTVideoClipConfig
 from vss_agents.tools.vst.video_clip import VSTVideoClipISOInput
 from vss_agents.tools.vst.video_clip import VSTVideoClipOffsetInput

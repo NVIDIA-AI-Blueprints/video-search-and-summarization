@@ -16,7 +16,6 @@
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.tools.vst.video_list import VSTVideoListConfig
 from vss_agents.tools.vst.video_list import VSTVideoListInput
 

@@ -27,17 +27,18 @@ import logging
 import os
 from typing import Any
 
+from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import delete_vst_sensor
+from vss_agents.tools.vst.utils import delete_vst_storage
+from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
+from vss_agents.utils.time_measure import TimeMeasure
+
 from elasticsearch import AsyncElasticsearch
 from fastapi import APIRouter
 from fastapi import FastAPI
 import httpx
 from pydantic import BaseModel
 from pydantic import Field
-
-from vss_agents.tools.vst.utils import VSTError
-from vss_agents.tools.vst.utils import delete_vst_sensor
-from vss_agents.tools.vst.utils import delete_vst_storage
-from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +239,8 @@ def create_video_delete_router(
             # Must happen BEFORE any deletions, since we need sensorName for ES queries.
             if is_search:
                 try:
-                    sensor_name = await get_sensor_id_from_stream_id(video_id, vst_url)
+                    with TimeMeasure("video_delete: lookup sensor name from VST"):
+                        sensor_name = await get_sensor_id_from_stream_id(video_id, vst_url)
                 except VSTError as e:
                     logger.warning(
                         "Could not look up sensorName for '%s': %s. ES cleanup for behavior/raw may not work.",
@@ -262,23 +264,27 @@ def create_video_delete_router(
                     if not id_value:
                         logger.warning(f"Skipping ES delete for '{index_name}': no identifier available")
                         continue
-                    success, msg = await _delete_es_documents(elasticsearch_url, index_name, id_value, field_name)
+                    with TimeMeasure(f"video_delete: ES delete from {index_name}"):
+                        success, msg = await _delete_es_documents(elasticsearch_url, index_name, id_value, field_name)
                     results.append(success)
                     logger.info(f"Delete from ES '{index_name}': {'OK' if success else msg}")
 
             # --- Remove from RTVI-CV (search mode only) ---
             if is_search:
-                success, msg = await _remove_from_rtvi_cv(client, rtvi_cv_url, video_id, sensor_name)
+                with TimeMeasure("video_delete: remove from RTVI-CV"):
+                    success, msg = await _remove_from_rtvi_cv(client, rtvi_cv_url, video_id, sensor_name)
                 results.append(success)
                 logger.info(f"Remove from RTVI-CV: {'OK' if success else msg}")
 
             # --- Delete VST sensor (using shared vst utils) ---
-            success, msg = await delete_vst_sensor(vst_url, video_id)
+            with TimeMeasure("video_delete: delete VST sensor"):
+                success, msg = await delete_vst_sensor(vst_url, video_id)
             results.append(success)
             logger.info("Delete VST sensor: %s", "OK" if success else msg)
 
             # --- Delete VST storage (using shared vst utils) ---
-            success, msg = await delete_vst_storage(vst_url, video_id)
+            with TimeMeasure("video_delete: delete VST storage"):
+                success, msg = await delete_vst_storage(vst_url, video_id)
             results.append(success)
             logger.info("Delete VST storage: %s", "OK" if success else msg)
 
