@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -64,16 +64,16 @@ import os
 from typing import Any
 from uuid import uuid4
 
+from nat.data_models.evaluator import EvalInputItem
+from tqdm import tqdm
+
 from vss_agents.evaluators.utils import compute_item_latency
 from vss_agents.evaluators.utils import strip_agent_think_tags
-
-from nat.eval.evaluator.evaluator_model import EvalInputItem
-from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
 
-class DatasetFilter(str, enum.Enum):
+class DatasetFilter(enum.StrEnum):
     ALL = "all"
     QA = "qa"
     TRAJECTORY = "trajectory"
@@ -244,7 +244,7 @@ def apply_patch() -> None:
     if _patched:
         return
 
-    from nat.eval.evaluate import EvaluationRun
+    from nat.plugins.eval.runtime.evaluate import EvaluationRun
 
     _original_run_workflow_local = EvaluationRun.run_workflow_local
 
@@ -291,7 +291,7 @@ def apply_patch() -> None:
         # We redirect NAT's tqdm to StringIO to silence them and use a single progress bar above instead.
         # NAT uses `from tqdm import tqdm` so the name is bound in its module
         # namespace at import time. We must patch it there directly.
-        import nat.eval.evaluate as _nat_eval_module
+        import nat.plugins.eval.runtime.evaluate as _nat_eval_module
 
         _original_nat_tqdm = _nat_eval_module.tqdm
 
@@ -358,7 +358,7 @@ def apply_patch() -> None:
         _last_avg_latency = _write_latency_summary(self, self.eval_input.eval_input_items)
 
     # Patch write_tabular_output to print average latency
-    import nat.cli.commands.evaluate as _nat_cli_eval
+    import nat.plugins.eval.cli.evaluate as _nat_cli_eval
 
     _original_write_tabular_output = _nat_cli_eval.write_tabular_output
 

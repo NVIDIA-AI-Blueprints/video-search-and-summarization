@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.tools.video_caption import VideoCaptionConfig
 from vss_agents.tools.video_caption import VideoCaptionInput
 from vss_agents.tools.video_caption import call_vlm_partition
@@ -191,7 +192,7 @@ class TestCallVlmPartition:
         long_response.content = "I'm sorry, I can't help with that" + " but here is a very long explanation " * 5
         mock_llm.ainvoke.return_value = long_response
 
-        start_ts, caption = await call_vlm_partition(
+        start_ts, _caption = await call_vlm_partition(
             llm=mock_llm,
             base64_frames=["frame1"],
             template_prompt="fps {fps} query {user_prompt} start {start_timestamp}",

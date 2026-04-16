@@ -32,6 +32,10 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
+from openai import APIConnectionError
+from openai import APITimeoutError
+from openai import InternalServerError
+from openai import RateLimitError
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import model_validator
@@ -44,6 +48,19 @@ from vss_agents.utils.retry import create_retry_strategy
 from vss_agents.utils.url_translation import translate_url
 
 logger = logging.getLogger(__name__)
+
+# Transient errors worth retrying for VLM calls.
+# Excludes client errors (4xx) like BadRequestError which are not retryable.
+_VLM_RETRYABLE_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,  # 5xx
+    RateLimitError,  # 429
+    aiohttp.ClientConnectorError,
+    aiohttp.ConnectionTimeoutError,
+    aiohttp.ServerTimeoutError,
+    aiohttp.ServerDisconnectedError,
+)
 
 
 def _parse_thinking_from_content(content: str) -> tuple[str | None, str]:
@@ -539,8 +556,11 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
             # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
             video_url = translate_url(
-                video_url, config.vlm_mode, config.internal_ip,
-                config.external_ip, config.vst_internal_url,
+                video_url,
+                config.vlm_mode,
+                config.internal_ip,
+                config.external_ip,
+                config.vst_internal_url,
             )
 
         logger.info(f"[Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
@@ -563,8 +583,9 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             max_fps=config.max_fps,
         )
 
-        # Retry logic for VLM call
-        async for retry in create_retry_strategy(retries=3, exceptions=(Exception,)):
+        # Retry logic for VLM call — only retry transient errors (connection/timeout/5xx).
+        # Client errors like 400 (e.g. unsupported video format) are not retryable.
+        async for retry in create_retry_strategy(retries=3, exceptions=_VLM_RETRYABLE_ERRORS):
             with retry:
                 try:
                     response = await vlm_chain.ainvoke({"messages": messages})

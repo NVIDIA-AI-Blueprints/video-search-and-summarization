@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 import pytest
+
 from vss_agents.video_analytics.tools import AnalyzeInput
 from vss_agents.video_analytics.tools import AverageSpeedsInput
 from vss_agents.video_analytics.tools import EmptyInput

@@ -59,11 +59,11 @@ class TestTimeMeasure:
 
     def test_print_enabled(self):
         """Test that print output works when enabled."""
-        with patch("builtins.print") as mock_print, patch("sys.stderr"), TimeMeasure("print test", print=True):
+        with patch("vss_agents.utils.time_measure.logger") as mock_logger, TimeMeasure("print test", print=True):
             time.sleep(0.001)
 
-        # Verify print was called
-        mock_print.assert_called()
+        # Verify logger.log was called with PERF level for timing output
+        mock_logger.log.assert_called()
 
     def test_print_disabled(self):
         """Test that print is skipped when disabled."""

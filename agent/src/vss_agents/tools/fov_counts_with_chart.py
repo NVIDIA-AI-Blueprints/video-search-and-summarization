@@ -148,12 +148,12 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
                 # Filter by specific object type
                 for obj in objects:
                     if obj.get("type") == input_data.object_type:
-                        count = int(obj.get("averageCount", 0))
+                        count = max(0, int(obj.get("averageCount", 0)))
                         break
             else:
                 # Sum all object types
                 for obj in objects:
-                    count += int(obj.get("averageCount", 0))
+                    count += max(0, int(obj.get("averageCount", 0)))
             counts.append(count)
 
         latest_count = counts[-1] if counts else 0
@@ -163,42 +163,47 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
             f"Parsed {len(counts)} histogram entries. Latest count: {latest_count}, Average: {average_count:.1f}"
         )
 
-        # Step 3: Generate chart
+        # Step 3: Generate chart only if there is meaningful data to visualize
         object_label = input_data.object_type if input_data.object_type else "All Objects"
-        chart_input = {
-            "charts_data": [
-                {
-                    "chart_file_format": "png",
-                    "title": f"{object_label} Count at {input_data.sensor_id}",
-                    "x_categories": x_categories,
-                    "series": {"Count": counts},
-                    "x_label": "Time",
-                    "y_label": "Count",
-                }
-            ],
-            "output_dir": "fov_charts",
-            "file_prefix": f"fov_{input_data.sensor_id}_",
-        }
-
-        logger.debug(f"Calling chart_generator with input: {chart_input}")
-        chart_result = await chart_generator_tool.ainvoke(chart_input)
-        logger.debug(f"Chart generator returned: {chart_result}")
-
-        # Parse chart result
         chart_url = None
-        if isinstance(chart_result, str):
-            # Chart result is HTML with img tag
-            import re
 
-            url_match = re.search(r'src="([^"]+)"', chart_result)
-            chart_url = url_match.group(1) if url_match else None
-        elif isinstance(chart_result, list) and len(chart_result) > 0:
-            # Result is a list of ChartGenExecOutput
-            first_chart = chart_result[0]
-            if hasattr(first_chart, "object_store_key") and first_chart.object_store_key:
-                chart_url = f"{config.chart_base_url}{first_chart.object_store_key}"
+        has_nonzero_data = any(c > 0 for c in counts)
 
-        logger.info(f"Chart generated successfully. URL: {chart_url}")
+        logger.info(f"has_nonzero_data: {has_nonzero_data}")
+
+        if has_nonzero_data:
+            chart_input = {
+                "charts_data": [
+                    {
+                        "chart_file_format": "png",
+                        "title": f"{object_label} Count at {input_data.sensor_id}",
+                        "x_categories": x_categories,
+                        "series": {"Count": counts},
+                        "x_label": "Time",
+                        "y_label": "Count",
+                    }
+                ],
+                "output_dir": "fov_charts",
+                "file_prefix": f"fov_{input_data.sensor_id}_{int(datetime.now().timestamp())}_",
+            }
+
+            logger.debug(f"Calling chart_generator with input: {chart_input}")
+            chart_result = await chart_generator_tool.ainvoke(chart_input)
+            logger.debug(f"Chart generator returned: {chart_result}")
+
+            if isinstance(chart_result, str):
+                import re
+
+                url_match = re.search(r'src="([^"]+)"', chart_result)
+                chart_url = url_match.group(1) if url_match else None
+            elif isinstance(chart_result, list) and len(chart_result) > 0:
+                first_chart = chart_result[0]
+                if hasattr(first_chart, "object_store_key") and first_chart.object_store_key:
+                    chart_url = f"{config.chart_base_url}{first_chart.object_store_key}"
+
+            logger.info(f"Chart generated successfully. URL: {chart_url}")
+        else:
+            logger.info("All counts are zero — skipping chart generation.")
 
         # Create summary with embedded chart
         summary = (

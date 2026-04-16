@@ -44,12 +44,14 @@ from pydantic import Field
 
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
+from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.vst.utils import get_streams_info
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 from vss_agents.utils.reasoning_utils import get_thinking_tag
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
+from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,7 @@ Extract the following parameters from the user query:
 - timestamp_end: End time in ISO format (e.g., "2025-01-01T14:00:00Z"). Use 2025-01-01 as the base date.
 - attributes: List of person with attributes, ONLY. Don't include other objects, don't just put "person".
 - has_action: REQUIRED boolean. Set to True if the query explicitly mentions an action/event/activity (e.g., running, walking, carrying, pushing, entering, leaving, moving). Set to False if the query only describes visual/physical attributes (what someone/something LOOKS LIKE) without any action. Examples: "person" → false, "person walking" → true, "red car" → false, "person carrying box" → true, "forklift" → false.
+- object_ids: List of integer object IDs if explicitly mentioned in the query (e.g., "find object 5" → [5], "search for objects 10, 20" → [10, 20]). null if no object IDs are mentioned.
 - top_k: Number of results to return (integer, only if explicitly mentioned, e.g., "top 5", "first 10")
 - min_cosine_similarity: Minimum similarity threshold between -1.0 and 1.0 (e.g., "highly similar" = 0.8, "somewhat similar" = 0.5, "exact match" = 0.9, "any match" = -1.0)
 
@@ -104,7 +107,15 @@ Output: {{"query": "person with long wavy hair wearing white sneakers", "video_s
 
 Example 8:
 User query: "Person in white t-shirt and black leggings running out of store with stolen items"
-Output: {{"query": "person in white t-shirt and black leggings running out of store with stolen items", "video_sources": [], "source_type": "video_file", "attributes": ["person in white t-shirt and black leggings"], "has_action": true}}"""
+Output: {{"query": "person in white t-shirt and black leggings running out of store with stolen items", "video_sources": [], "source_type": "video_file", "attributes": ["person in white t-shirt and black leggings"], "has_action": true}}
+
+Example 9:
+User query: "search for object ids 5, 6"
+Output: {{"query": "object ids 5, 6", "object_ids": [5, 6], "has_action": false}}
+
+Example 10:
+User query: "find more objects like object 42 near warehouse entrance"
+Output: {{"query": "objects like object 42 near warehouse entrance", "object_ids": [42], "video_sources": ["warehouse entrance"], "has_action": false}}"""
 
 
 class DecomposedQuery(BaseModel):
@@ -119,6 +130,9 @@ class DecomposedQuery(BaseModel):
     has_action: bool | None = Field(
         default=None,
         description="True if query contains an action/event/activity, False if only visual/physical attributes",
+    )
+    object_ids: list[int] | None = Field(
+        default=None, description="List of integer object IDs if explicitly mentioned in the query"
     )
     top_k: int | None = Field(default=None, description="Number of results to return")
     min_cosine_similarity: float | None = Field(default=None, description="Minimum similarity threshold (-1.0 to 1.0)")
@@ -137,7 +151,7 @@ async def _run_attribute_only_search(
 
     Returns list of SearchResult from attribute search in append mode.
     """
-    logger.info("Running attribute-only search (append mode)")
+    logger.info(f"Running attribute-only search (append mode), input: {search_input.model_dump_json()}")
     exclude_videos = exclude_videos or []
     try:
         attr_params = {
@@ -269,6 +283,7 @@ async def decompose_query(
     if video_stream_names:
         video_sources_parts.append(f"Video streams: {', '.join(video_stream_names)}")
     video_sources_str = "\n".join(video_sources_parts) if video_sources_parts else "No specific sources available"
+    logger.info(f"Video sources: {video_sources_str}")
 
     # Use default examples if not provided
     examples = few_shot_examples or DEFAULT_FEW_SHOT_EXAMPLES
@@ -338,6 +353,16 @@ async def decompose_query(
             except (ValueError, TypeError):
                 logger.debug("Failed to parse has_action value: %s", extracted["has_action"])
 
+        # Parse object_ids if present
+        object_ids = None
+        raw_object_ids = extracted.get("object_ids")
+        if raw_object_ids and isinstance(raw_object_ids, list):
+            try:
+                parsed = [int(oid) for oid in raw_object_ids]
+                object_ids = [oid for oid in parsed if oid > 0] or None
+            except (ValueError, TypeError):
+                logger.debug("Failed to parse object_ids: %s", raw_object_ids)
+
         return DecomposedQuery(
             query=extracted.get("query", user_query),
             video_sources=extracted.get("video_sources", []) or [],
@@ -346,6 +371,7 @@ async def decompose_query(
             timestamp_end=extracted.get("timestamp_end"),
             attributes=extracted.get("attributes", []) or [],
             has_action=has_action,
+            object_ids=object_ids,
             top_k=top_k,
             min_cosine_similarity=min_cosine_similarity,
         )
@@ -370,7 +396,7 @@ def _apply_weighted_linear_fusion(
         attribute_score = video["normalised_attribute_score"]
         fusion_score = w_embed * embed_score + w_attribute * attribute_score
 
-        logger.info(
+        logger.debug(
             f"Weighted Linear: {video['embed_result'].video_name} - "
             f"embed={embed_score:.3f} (w={w_embed:.2f}), "
             f"attribute={attribute_score:.3f} (w={w_attribute:.2f}), fusion_score={fusion_score:.3f}"
@@ -411,7 +437,7 @@ def _apply_rrf_fusion(
         rank_action = rank
         rrf_score = 1.0 / (rank_action + rrf_k) + rrf_w * video["normalised_attribute_score"]
 
-        logger.info(
+        logger.debug(
             f"RRF: {video['embed_result'].video_name} - "
             f"rank_action={rank_action}, normalised_attribute_score={video['normalised_attribute_score']:.3f}, "
             f"rrf_score={rrf_score:.6f}"
@@ -461,7 +487,7 @@ def _apply_rrf_fusion_with_attribute_rank(
         rank_attribute = attribute_ranks[id(video)]
         rrf_score = 1.0 / (rank_embed + rrf_k) + rrf_w * (1.0 / (rank_attribute + rrf_k))
 
-        logger.info(
+        logger.debug(
             f"RRF (both ranks): {video['embed_result'].video_name} - "
             f"rank_embed={rank_embed}, rank_attribute={rank_attribute}, "
             f"rrf_score={rrf_score:.6f}"
@@ -632,7 +658,7 @@ async def fusion_search_rerank(
             }
         )
 
-        logger.info(
+        logger.debug(
             f"Collecting scores: {embed_result.video_name} ({embed_result.start_time} to {embed_result.end_time}), "
             f"embed={embed_score:.3f}, normalised_attribute_score={normalised_attribute_score:.3f} "
             f"({len(attribute_scores)}/{len(attributes)} matched)"
@@ -654,6 +680,109 @@ async def fusion_search_rerank(
     return final_results
 
 
+def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchResult"]:
+    """Merge consecutive/overlapping SearchResult chunks from the same sensor.
+
+    Merging rules:
+    - video_name, sensor_id, description, screenshot_url: taken from the first chunk
+    - start_time / end_time: span of the merged window
+    - similarity: mean across merged chunks
+    - object_ids: concatenated (preserving order, deduplicating)
+    - critic_result: always None (merge runs before the critic)
+    """
+    if not results:
+        return results
+
+    # Results without timestamps (or with malformed ones) cannot be time-merged; pass them through as-is
+    timestamped: list[tuple[int, SearchResult]] = []
+    no_timestamp: list[tuple[int, SearchResult]] = []
+    for i, r in enumerate(results):
+        if not r.start_time or not r.end_time:
+            no_timestamp.append((i, r))
+            continue
+        try:
+            iso8601_to_datetime(r.start_time)
+            iso8601_to_datetime(r.end_time)
+            timestamped.append((i, r))
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Skipping merge for result with malformed timestamp (sensor={r.sensor_id}): {e}")
+            no_timestamp.append((i, r))
+
+    merged_with_pos: list[tuple[int, SearchResult]] = list(no_timestamp)
+
+    if not timestamped:
+        merged_with_pos.sort(key=lambda x: x[0])
+        return [r for _, r in merged_with_pos]
+
+    # Group by sensor_id, tracking original list position for final ordering
+    by_sensor: dict[str, list[tuple[int, SearchResult]]] = {}
+    for i, result in timestamped:
+        by_sensor.setdefault(result.sensor_id, []).append((i, result))
+
+    for sensor_id, indexed_results in by_sensor.items():
+        # Sort by start_time within each sensor group
+        sorted_results = sorted(indexed_results, key=lambda x: x[1].start_time)
+
+        # Build contiguous groups of overlapping/adjacent chunks
+        groups: list[tuple[int, list[SearchResult]]] = []  # (min original index, chunks)
+        group_min_idx = sorted_results[0][0]
+        group_chunks: list[SearchResult] = [sorted_results[0][1]]
+        group_end_dt = iso8601_to_datetime(sorted_results[0][1].end_time)
+
+        for idx, result in sorted_results[1:]:
+            result_start_dt = iso8601_to_datetime(result.start_time)
+            if result_start_dt <= group_end_dt:
+                # Overlapping or adjacent — extend the current group
+                result_end_dt = iso8601_to_datetime(result.end_time)
+                if result_end_dt > group_end_dt:
+                    group_end_dt = result_end_dt
+                group_chunks.append(result)
+                group_min_idx = min(group_min_idx, idx)
+            else:
+                groups.append((group_min_idx, group_chunks))
+                group_min_idx = idx
+                group_chunks = [result]
+                group_end_dt = iso8601_to_datetime(result.end_time)
+        groups.append((group_min_idx, group_chunks))
+
+        # Collapse each group into a single SearchResult
+        for min_idx, group in groups:
+            first = group[0]
+            end_dt = max(iso8601_to_datetime(g.end_time) for g in group)
+            similarity = sum(g.similarity for g in group) / len(group)
+
+            seen_ids: set[str] = set()
+            merged_object_ids: list[str] = []
+            for g in group:
+                for oid in g.object_ids:
+                    if oid not in seen_ids:
+                        merged_object_ids.append(oid)
+                        seen_ids.add(oid)
+
+            merged_critic = None
+
+            merged_with_pos.append(
+                (
+                    min_idx,
+                    SearchResult(
+                        video_name=first.video_name,
+                        description=first.description,
+                        start_time=first.start_time,
+                        end_time=datetime_to_iso8601(end_dt),
+                        sensor_id=sensor_id,
+                        screenshot_url=first.screenshot_url,
+                        similarity=similarity,
+                        object_ids=merged_object_ids,
+                        critic_result=merged_critic,
+                    ),
+                )
+            )
+
+    # Restore ranking order by minimum original index of each merged group
+    merged_with_pos.sort(key=lambda x: x[0])
+    return [r for _, r in merged_with_pos]
+
+
 # ===== SHARED CORE SEARCH LOGIC =====
 # This function contains the core search logic used by both search.py and search_agent.py
 # Uses async generator pattern for real-time streaming support
@@ -668,7 +797,7 @@ async def execute_core_search(
     attribute_search_fn: Any
     | None = None,  # Function reference for attribute search (can be loaded from builder if None)
     critic_agent: Any | None = None,  # Optional critic agent
-) -> AsyncGenerator[Union[AgentMessageChunk, "SearchOutput"], None]:
+) -> AsyncGenerator[Union[AgentMessageChunk, "SearchOutput"]]:
     """
     Core search execution logic shared by search.py and search_agent.py.
 
@@ -735,12 +864,13 @@ async def execute_core_search(
             except Exception as e:
                 logger.exception(f"Unexpected error fetching sensor names from VST: {e}")
 
-            decomposed = await decompose_query(
-                user_query=search_input.query,
-                llm=agent_llm,
-                video_file_names=video_file_names or None,
-                video_stream_names=video_stream_names or None,
-            )
+            with TimeMeasure("search: query decomposition"):
+                decomposed = await decompose_query(
+                    user_query=search_input.query,
+                    llm=agent_llm,
+                    video_file_names=video_file_names or None,
+                    video_stream_names=video_stream_names or None,
+                )
 
             if decomposed.query:
                 search_input.query = decomposed.query
@@ -772,19 +902,92 @@ async def execute_core_search(
                 decomp_summary["timestamp_end"] = decomposed.timestamp_end
             if decomposed.top_k is not None:
                 decomp_summary["top_k"] = decomposed.top_k
+            if decomposed.video_sources:
+                decomp_summary["video_sources"] = decomposed.video_sources
+            if decomposed.object_ids:
+                decomp_summary["object_ids"] = decomposed.object_ids
 
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.THOUGHT,
                 content=f"Query decomposed: {json.dumps(decomp_summary)}",
             )
 
-            logger.info(f"Query decomposed: {decomposed.model_dump()}")
+            logger.debug(f"Query decomposed: {decomposed.model_dump()}")
         except Exception as e:
             logger.warning(f"Query decomposition failed, using original query: {e}")
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.ERROR,
                 content=f"Decomposition failed, using original query: {e!s}",
             )
+
+    # ===== OBJECT_ID PATH: Direct behavior KNN (bypasses embed_search + fusion) =====
+    if decomposed and decomposed.object_ids:
+        if not getattr(config, "behavior_es_endpoint", None):
+            raise ValueError("behavior_es_endpoint config is required for object_id re-search")
+
+        top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
+
+        yield AgentMessageChunk(
+            type=AgentMessageChunkType.TOOL_CALL,
+            content=f"Searching for similar objects to: {decomposed.object_ids}",
+        )
+
+        from elasticsearch import AsyncElasticsearch
+
+        from vss_agents.tools.attribute_search import AttributeSearchResult
+        from vss_agents.tools.attribute_search import enrich_attribute_results
+        from vss_agents.tools.attribute_search import search_by_object_embedding
+
+        async def _safe_object_search(oid: int) -> list[AttributeSearchResult]:
+            try:
+                return await search_by_object_embedding(
+                    object_id=str(oid),
+                    es_client=es_client,
+                    behavior_index=config.behavior_index,
+                    top_k=top_k,
+                    min_similarity=search_input.min_cosine_similarity or 0.0,
+                    video_sources=search_input.video_sources if search_input.video_sources else None,
+                    timestamp_start=search_input.timestamp_start,
+                    timestamp_end=search_input.timestamp_end,
+                )
+            except Exception as e:
+                logger.warning(f"Object ID {oid} search failed: {e}")
+                return []
+
+        es_client = AsyncElasticsearch(
+            hosts=[config.behavior_es_endpoint],
+            request_timeout=30,
+            max_retries=1,
+        )
+        try:
+            with TimeMeasure("search: object_ids behavior KNN"):
+                results_list = await asyncio.gather(*[_safe_object_search(oid) for oid in decomposed.object_ids])
+
+            all_results: list[AttributeSearchResult] = []
+            for obj_results in results_list:
+                all_results.extend(obj_results)
+        finally:
+            await es_client.close()
+
+        # Deduplicate by object_id, keep highest similarity
+        seen: dict = {}
+        for r in all_results:
+            key = str(r.metadata.object_id)
+            if key not in seen or r.metadata.behavior_score > seen[key].metadata.behavior_score:
+                seen[key] = r
+        attr_results = sorted(seen.values(), key=lambda r: r.metadata.behavior_score, reverse=True)[:top_k]
+
+        vst_url = getattr(config, "vst_internal_url", None)
+        await enrich_attribute_results(attr_results, vst_url)
+
+        search_results = [attribute_result_to_search_result(r) for r in attr_results]
+        result_count = len(search_results)
+        yield AgentMessageChunk(
+            type=AgentMessageChunkType.THOUGHT,
+            content=f"Found {result_count} similar object{'s' if result_count != 1 else ''}",
+        )
+        yield SearchOutput(data=search_results, search_messages=[])
+        return
 
     # ===== SETUP COMMON QUERY PARAMETERS (used by all execution paths) =====
     top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
@@ -827,7 +1030,7 @@ async def execute_core_search(
         attribute_list = [attr for attr in attribute_list if not _is_single_word(attr)]
         if len(attribute_list) < original_count:
             pruned_count = original_count - len(attribute_list)
-            logger.info(f"Pruned {pruned_count} single-word attribute(s). " f"Remaining attributes: {attribute_list}")
+            logger.info(f"Pruned {pruned_count} single-word attribute(s). Remaining attributes: {attribute_list}")
 
         logger.info(f"Extracted attributes: {attribute_list}")
         # Check if attribute-only: has_action=False means attribute-only, otherwise use fusion path
@@ -844,6 +1047,10 @@ async def execute_core_search(
     rejected_results = set()
     confirmed_results = set()
     iteration_num = 0
+    # Collect non-fatal messages from pipeline steps to surface in the final response
+    search_messages: list[str] = []
+    # Persist critic verdicts across search iterations so re-appearing results keep their annotations
+    persistent_critic_results: dict = {}
 
     while do_search and iteration_num < config.search_max_iterations:
         iteration_num += 1
@@ -855,7 +1062,7 @@ async def execute_core_search(
 
         query_input_json = json.dumps({"params": query_params, "source_type": search_input.source_type})
         # PATH 1: Attribute-only search (attribute_list not empty AND is_attribute_only=True)
-        logger.info(
+        logger.debug(
             f"is_attribute_only: {is_attribute_only}, attribute_list: {attribute_list}, config.attribute_search_tool: {config.attribute_search_tool}"
         )
         if is_attribute_only and attribute_list and config.attribute_search_tool:
@@ -871,13 +1078,14 @@ async def execute_core_search(
                 attribute_search_fn = await builder.get_function(config.attribute_search_tool)
 
             # Use modular helper function
-            search_results = await _run_attribute_only_search(
-                attribute_list=attribute_list,
-                search_input=search_input,
-                attribute_search_fn=attribute_search_fn,
-                top_k=original_top_k,
-                min_similarity=min_similarity,
-            )
+            with TimeMeasure("search: attribute-only search"):
+                search_results = await _run_attribute_only_search(
+                    attribute_list=attribute_list,
+                    search_input=search_input,
+                    attribute_search_fn=attribute_search_fn,
+                    top_k=original_top_k,
+                    min_similarity=min_similarity,
+                )
 
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.THOUGHT,
@@ -894,7 +1102,8 @@ async def execute_core_search(
             )
 
             try:
-                embed_search_output = await embed_search.ainvoke(query_input_json)
+                with TimeMeasure("search: embed search"):
+                    embed_search_output = await embed_search.ainvoke(query_input_json)
             except ValueError as e:
                 error_msg = str(e)
                 logger.error(f"Embed search failed: {error_msg}")
@@ -961,13 +1170,14 @@ async def execute_core_search(
                         attribute_search_fn = await builder.get_function(config.attribute_search_tool)
 
                     # Fallback to pure attribute-only search (same as PATH 1)
-                    search_results = await _run_attribute_only_search(
-                        attribute_list=attribute_list,
-                        search_input=search_input,
-                        attribute_search_fn=attribute_search_fn,
-                        top_k=top_k,
-                        min_similarity=min_similarity,
-                    )
+                    with TimeMeasure("search: attribute-only fallback"):
+                        search_results = await _run_attribute_only_search(
+                            attribute_list=attribute_list,
+                            search_input=search_input,
+                            attribute_search_fn=attribute_search_fn,
+                            top_k=top_k,
+                            min_similarity=min_similarity,
+                        )
 
                     yield AgentMessageChunk(
                         type=AgentMessageChunkType.THOUGHT,
@@ -996,18 +1206,19 @@ async def execute_core_search(
                             f"Using {len(attribute_list)} LLM-extracted attributes for reranking: {attribute_list}"
                         )
 
-                        reranked_results = await fusion_search_rerank(
-                            embed_results=search_results,
-                            attributes=attribute_list,
-                            attribute_search_fn=attribute_search_fn,
-                            vst_internal_url=config.vst_internal_url,
-                            source_type=search_input.source_type,  # Pass source_type for index selection
-                            fusion_method=config.fusion_method,
-                            rrf_k=config.rrf_k,
-                            rrf_w=config.rrf_w,
-                            w_attribute=config.w_attribute,
-                            w_embed=config.w_embed,
-                        )
+                        with TimeMeasure("search: fusion search rerank"):
+                            reranked_results = await fusion_search_rerank(
+                                embed_results=search_results,
+                                attributes=attribute_list,
+                                attribute_search_fn=attribute_search_fn,
+                                vst_internal_url=config.vst_internal_url,
+                                source_type=search_input.source_type,  # Pass source_type for index selection
+                                fusion_method=config.fusion_method,
+                                rrf_k=config.rrf_k,
+                                rrf_w=config.rrf_w,
+                                w_attribute=config.w_attribute,
+                                w_embed=config.w_embed,
+                            )
 
                         # Use reranked results for critic verification if enabled
                         search_results = reranked_results
@@ -1026,6 +1237,21 @@ async def execute_core_search(
                         )
                         # Fall through to return original embed_search results
 
+        # Percentage-based filtering: keep results with similarity >= max_similarity * top_percent_filter
+        top_pct = getattr(config, "top_percent_filter", None)
+        if top_pct and 0 < top_pct < 1.0 and search_results:
+            max_sim = max(r.similarity for r in search_results)
+            sim_threshold = max_sim * top_pct
+            before_count = len(search_results)
+            search_results = [r for r in search_results if r.similarity >= sim_threshold]
+            logger.info(
+                f"Top-percent filter: kept {len(search_results)}/{before_count} results "
+                f"(similarity >= {sim_threshold:.4f}, i.e. {top_pct * 100:.0f}% of max {max_sim:.4f})"
+            )
+
+        # Merge consecutive chunks from the same sensor into single results
+        search_results = _merge_consecutive_results(search_results)
+
         # Step 3: If critic enabled and configured, verify results with VLM
         if (
             config.enable_critic
@@ -1037,8 +1263,9 @@ async def execute_core_search(
             try:
                 from vss_agents.agents.critic_agent import CriticAgentResult
                 from vss_agents.agents.critic_agent import VideoInfo
+                from vss_agents.agents.critic_agent import VideoResult as CriticVideoResult
 
-                critic_results: dict[VideoInfo, CriticAgentResult] = {}
+                critic_results: dict[VideoInfo, CriticVideoResult] = {}
 
                 yield AgentMessageChunk(
                     type=AgentMessageChunkType.THOUGHT,
@@ -1059,13 +1286,14 @@ async def execute_core_search(
                         search_videos.append(info)
                 if len(search_videos) > 0:
                     critic_input = {"query": original_query, "videos": search_videos}
-                    logger.info(f"[Search] Critic agent input: {critic_input}")
-                    critic_output = await critic_agent.ainvoke(critic_input)
-                    logger.info(f"[Search] Critic output: {critic_output}")
-                    critic_results = {result.video_info: result.result for result in critic_output.video_results}
+                    logger.debug(f"[Search] Critic agent input: {critic_input}")
+                    with TimeMeasure("search: critic agent verification"):
+                        critic_output = await critic_agent.ainvoke(critic_input)
+                    logger.debug(f"[Search] Critic output: {critic_output}")
+                    critic_results = {result.video_info: result for result in critic_output.video_results}
 
-                    for info, critic_result in critic_results.items():
-                        match critic_result:
+                    for info, video_result in critic_results.items():
+                        match video_result.result:
                             case CriticAgentResult.CONFIRMED:
                                 confirmed_results.add(info)
                             case CriticAgentResult.REJECTED:
@@ -1075,34 +1303,58 @@ async def execute_core_search(
                             case CriticAgentResult.UNVERIFIED:
                                 logger.warning(f"[Search] Unverified result for video {info.sensor_id}")
 
+                    # If all results are unverified (e.g. VLM is down), stop re-searching
+                    # and return results without critic verification.
+                    if critic_results and all(
+                        r.result == CriticAgentResult.UNVERIFIED for r in critic_results.values()
+                    ):
+                        logger.warning(
+                            "[Search] All critic results unverified (VLM may be down). "
+                            "Returning results without verification."
+                        )
+                        msg = "VLM verification unavailable. Returning search results without critic verification."
+                        search_messages.append(msg)
+                        yield AgentMessageChunk(
+                            type=AgentMessageChunkType.THOUGHT,
+                            content=msg,
+                        )
+                        do_search = False
+
                     logger.info(f"[Search] rejected_results: {rejected_results}")
 
-                # only filter the search_results directly if we are on the last iteration
-                if iteration_num == config.search_max_iterations:
-                    filtered_search_results = []
-                    for result in search_results:
-                        info = VideoInfo(
-                            sensor_id=result.sensor_id,
-                            start_timestamp=result.start_time,
-                            end_timestamp=result.end_time,
+                    for info, vr in critic_results.items():
+                        persistent_critic_results[info] = CriticResult(
+                            result=vr.result.value,
+                            criteria_met=vr.criteria_met or {},
                         )
-                        # We may want to handle unverified results differently. For now, just assume they are confirmed.
-                        if info not in rejected_results:
-                            filtered_search_results.append(result)
-                    search_results = filtered_search_results
+
+                # Annotate each search result with its critic verdict
+                for result in search_results:
+                    info = VideoInfo(
+                        sensor_id=result.sensor_id,
+                        start_timestamp=result.start_time,
+                        end_timestamp=result.end_time,
+                    )
+                    if info in persistent_critic_results:
+                        result.critic_result = persistent_critic_results[info]
 
                 # Yield critic results summary
-                verified_count = sum(1 for result in critic_results.values() if result == CriticAgentResult.CONFIRMED)
-                unverified_count = sum(
-                    1 for result in critic_results.values() if result == CriticAgentResult.UNVERIFIED
-                )
+                verified_count = sum(1 for vr in critic_results.values() if vr.result == CriticAgentResult.CONFIRMED)
+                unverified_count = sum(1 for vr in critic_results.values() if vr.result == CriticAgentResult.UNVERIFIED)
+
                 yield AgentMessageChunk(
                     type=AgentMessageChunkType.THOUGHT,
                     content=f"Critic verification complete: {verified_count}/{len(critic_results)} results verified, {unverified_count}/{len(critic_results)} results unverified",
                 )
+
             except Exception as e:
                 logger.error(f"[Search] Error calling critic agent: {e}", exc_info=True)
-                yield AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content=f"Critic verification failed: {e}")
+                msg = "Critic verification unavailable (VLM may be down). Returning results without verification."
+                search_messages.append(msg)
+                yield AgentMessageChunk(
+                    type=AgentMessageChunkType.THOUGHT,
+                    content=msg,
+                )
 
     # Yield final results summary
     result_count = len(search_results)
@@ -1115,7 +1367,7 @@ async def execute_core_search(
     if original_top_k is not None:
         search_results = search_results[:original_top_k]
 
-    yield SearchOutput(data=search_results)
+    yield SearchOutput(data=search_results, search_messages=search_messages)
 
 
 async def execute_core_search_wrapper(
@@ -1233,6 +1485,25 @@ class SearchConfig(FunctionBaseConfig, name="search"):
         description="RRF weight w for attribute cosine similarity in Reciprocal Rank Fusion (default: 0.5, only used for RRF)",
     )
 
+    top_percent_filter: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Score-based filter applied before merging consecutive segments. "
+        "Value between 0 and 1.0 — keeps results with similarity >= max_similarity * top_percent_filter. "
+        "E.g., 0.9 with max similarity 0.5 keeps results >= 0.45. None or 0 disables filtering.",
+    )
+
+    behavior_es_endpoint: str | None = Field(
+        default=None,
+        description="Elasticsearch endpoint for behavior index (needed for object_id re-search).",
+    )
+
+    behavior_index: str = Field(
+        default=DEFAULT_BEHAVIOR_INDEX,
+        description="Behavior index name for object embedding lookup.",
+    )
+
 
 class SearchInput(BaseModel):
     """Input for the Search tool"""
@@ -1291,6 +1562,16 @@ class SearchInput(BaseModel):
     )
 
 
+class CriticResult(BaseModel):
+    """Structured verdict from the critic agent for a single search result."""
+
+    result: str = Field(description="Critic verdict: 'confirmed', 'rejected', or 'unverified'.")
+    criteria_met: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Per-criterion evaluation from the critic (e.g. {'person': true, 'walking': false}).",
+    )
+
+
 # FIXME: sensor_id is not the same as stream_id, but for now they have the same value.
 # We'll need to revisit this code once we begin to differentiate between them.
 class SearchResult(BaseModel):
@@ -1306,6 +1587,10 @@ class SearchResult(BaseModel):
     object_ids: list[str] = Field(
         default_factory=list, description="List of object IDs for video generation (from attribute search)"
     )
+    critic_result: CriticResult | None = Field(
+        default=None,
+        description="Critic agent verdict for this result. None if the critic was not run.",
+    )
 
 
 class SearchOutput(BaseModel):
@@ -1316,6 +1601,10 @@ class SearchOutput(BaseModel):
     data: list[SearchResult] = Field(
         default_factory=list,
         description="List of search results matching the query",
+    )
+    search_messages: list[str] = Field(
+        default_factory=list,
+        description="Non-fatal messages from the search pipeline to surface in the response.",
     )
 
 
@@ -1357,13 +1646,9 @@ async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[Func
         return SearchInput.model_validate_json(input)
 
     def _chat_request_input_converter(request: ChatRequest) -> SearchInput:
-        try:
-            logger.info(f"Chat request input content: {request.messages[-1].content}")
-            logger.info(f"Chat request input content type: {type(request.messages[-1].content)}")
-            return SearchInput.model_validate_json(request.messages[-1].content)
-        except Exception:
-            logger.exception("Error in chat request input converter.")
-            raise
+        logger.info(f"Chat request input content: {request.messages[-1].content}")
+        logger.info(f"Chat request input content type: {type(request.messages[-1].content)}")
+        return SearchInput.model_validate_json(request.messages[-1].content)
 
     def _output_converter(output: SearchOutput) -> str:
         logger.info(f"Output: {output}")

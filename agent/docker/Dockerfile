@@ -74,7 +74,7 @@ RUN find /vss-agent/.venv -type f -path "*/torch/bin/test_*" -delete && \
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/null || true
 
 # Security patch stage - download patched OpenSSL libraries
-# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.19-1~deb12u1
+# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.19-1~deb12u2
 FROM debian:bookworm AS security-patches
 ARG TARGETARCH
 
@@ -83,9 +83,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends wget ca-certificates && \
     mkdir -p /patches && \
     if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u1_amd64.deb; \
+        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u2_amd64.deb; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u1_arm64.deb; \
+        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u2_arm64.deb; \
     fi && \
     cd /patches && \
     dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \
@@ -117,7 +117,7 @@ RUN ["/usr/local/bin/python3", "-c", "import os; os.remove('/tmp/cleanup_vulnera
 RUN ["/usr/local/bin/python3", "-c", "import os; os.path.exists('/usr/bin/openssl') and os.remove('/usr/bin/openssl')"]
 
 # Copy patched OpenSSL libraries to fix CVE-2025-69419, CVE-2025-69420, CVE-2025-15467
-# These replace the base image libssl3 with 3.0.19-1~deb12u1
+# These replace the base image libssl3 with 3.0.19-1~deb12u2
 # Copy directly to architecture-specific paths where the runtime image expects them
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/x86_64-linux-gnu/
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/aarch64-linux-gnu/
