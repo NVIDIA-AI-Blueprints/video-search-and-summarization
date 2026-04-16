@@ -1,27 +1,34 @@
-"""Harbor environment provider that runs tasks on Brev GPU instances.
+"""Harbor environment provider that uses a pre-existing Brev GPU instance.
 
-Usage with Harbor:
-    harbor run --env "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
-        --dataset datasets/my-dataset --agent claude-code
+Instead of creating/destroying instances per task, this provider connects
+to an already-running Brev instance via ``brev exec`` and ``brev copy``.
+This avoids the slow and unreliable instance provisioning loop.
+
+Set the instance name via:
+  - BREV_INSTANCE env var, or
+  - ``brev_instance`` in task.toml [metadata]
+
+Usage:
+    # Pre-create your instance once:
+    brev create my-eval-gpu --detached
+    # Wait for it to be RUNNING+READY, then:
+
+    BREV_INSTANCE=my-eval-gpu harbor run \
+        --environment-import-path "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
+        -p datasets/deploy -a claude-code -n 1
 
 Requires:
-    - `brev` CLI installed and authenticated (`brev login`)
-    - `harbor` package installed (provides BaseEnvironment)
-
-The provider creates a bare Brev instance per task. All setup (Docker,
-NVIDIA toolkit, repo clone, deployment) is the agent's responsibility.
-GPU type is selected from task metadata (task.toml) or falls back to
-the BREV_INSTANCE_TYPE env var.
+    - ``brev`` CLI installed and authenticated
+    - A running Brev instance (status=RUNNING, shell=READY)
+    - ``harbor`` package (provides BaseEnvironment)
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import shlex
-import uuid
 from enum import Enum
 from pathlib import Path
 
@@ -29,15 +36,15 @@ from harbor.environments.base import BaseEnvironment, ExecResult
 
 logger = logging.getLogger(__name__)
 
-# Defaults — override via env vars or task metadata
-DEFAULT_INSTANCE_TYPE = os.environ.get("BREV_INSTANCE_TYPE", "g5.xlarge")
-DEFAULT_GPU_TYPE = os.environ.get("BREV_GPU_TYPE", "A10G")
-BREV_STARTUP_TIMEOUT = int(os.environ.get("BREV_STARTUP_TIMEOUT", "2400"))
-BREV_POLL_INTERVAL = int(os.environ.get("BREV_POLL_INTERVAL", "15"))
-# Default timeout for brev CLI commands. The CLI enters an interactive
-# walkthrough after output — 10s is enough to capture the JSON/text output
-# before killing the walkthrough tail. Use longer timeouts for create/exec.
-BREV_CMD_TIMEOUT = int(os.environ.get("BREV_CMD_TIMEOUT", "10"))
+# The pre-existing Brev instance to connect to.
+# CLI env var > task.toml metadata > None (error).
+DEFAULT_INSTANCE = os.environ.get("BREV_INSTANCE")
+
+# Timeout for brev exec commands (seconds).  Set high for long deploys.
+BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
+
+# Timeout for brev copy commands.
+BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 
 
 class BrevEnvironmentType(str, Enum):
@@ -45,23 +52,19 @@ class BrevEnvironmentType(str, Enum):
 
 
 class BrevEnvironment(BaseEnvironment):
-    """Harbor environment that provisions a bare Brev GPU instance per task.
+    """Harbor environment that connects to a pre-existing Brev instance.
 
     Lifecycle:
-        start()    → brev create, wait for RUNNING
-        exec()     → brev exec <command>
-        upload()   → scp via brev SSH config
-        download() → scp via brev SSH config
-        stop()     → brev delete
-
-    The instance is bare — no Docker, no repo, no setup. The agent
-    (or oracle solve.sh) handles all setup as part of the task.
+        start()    → validate instance is reachable (no provisioning)
+        exec()     → brev exec <instance> <command>
+        upload()   → brev copy local:<path> <instance>:<path>
+        download() → brev copy <instance>:<path> local:<path>
+        stop()     → no-op (instance stays running for reuse)
     """
 
     def __init__(self, **kwargs):  # noqa: ANN003
         super().__init__(**kwargs)
-        self._instance_name: str | None = None
-        self._instance_type: str = DEFAULT_INSTANCE_TYPE
+        self._instance_name: str | None = DEFAULT_INSTANCE
         self._started = False
 
     @staticmethod
@@ -70,7 +73,6 @@ class BrevEnvironment(BaseEnvironment):
 
     @property
     def is_mounted(self) -> bool:
-        # Files are uploaded/downloaded explicitly, not bind-mounted
         return False
 
     @property
@@ -82,16 +84,18 @@ class BrevEnvironment(BaseEnvironment):
         return False
 
     def _validate_definition(self) -> None:
-        # Check brev CLI is available
         if not _which("brev"):
-            msg = "brev CLI not found. Install from https://docs.brev.dev/"
-            raise RuntimeError(msg)
+            raise RuntimeError(
+                "brev CLI not found. Install from https://docs.brev.dev/"
+            )
 
-    def _resolve_instance_type(self) -> str:
-        """Resolve instance type from task.toml metadata or env vars.
+    def _resolve_instance_name(self) -> str:
+        """Resolve instance name: env var > task.toml > error."""
+        # Env var takes priority
+        if DEFAULT_INSTANCE:
+            return DEFAULT_INSTANCE
 
-        Reads task.toml from the parent of environment_dir (the task root).
-        """
+        # Check task.toml metadata
         try:
             import tomllib
         except ModuleNotFoundError:
@@ -101,105 +105,136 @@ class BrevEnvironment(BaseEnvironment):
         if task_toml.exists():
             data = tomllib.loads(task_toml.read_text())
             meta = data.get("metadata", {})
-            if "brev_instance_type" in meta:
-                return meta["brev_instance_type"]
-            if "gpu" in meta:
-                return _gpu_to_instance_type(meta["gpu"])
-        return self._instance_type
+            if "brev_instance" in meta:
+                return meta["brev_instance"]
+
+        raise RuntimeError(
+            "No Brev instance specified. Set BREV_INSTANCE env var or "
+            "add brev_instance to task.toml [metadata]."
+        )
 
     async def start(self, force_build: bool) -> None:
-        """Create a Brev instance and wait for it to be ready."""
+        """Validate the pre-existing instance is reachable."""
         if self._started:
             return
 
-        self._instance_type = self._resolve_instance_type()
-        self._instance_name = f"harbor-{uuid.uuid4().hex[:8]}"
+        self._instance_name = self._resolve_instance_name()
 
-        logger.info(
-            "Creating Brev instance %s (type=%s)",
-            self._instance_name,
-            self._instance_type,
-        )
+        logger.info("Connecting to existing Brev instance: %s", self._instance_name)
 
-        # Create instance. Pipe the instance type via stdin (not --type) to
-        # force the exact type instead of Brev's search/fallback logic.
-        # --detached avoids the interactive onboarding prompt.
-        logger.warning(
-            "Creating Brev instance %s with type %s (piped via stdin)",
-            self._instance_name, self._instance_type,
+        # Quick smoke test — run a trivial command
+        result = await _run_brev_exec(
+            self._instance_name, "echo harbor-ready",
+            timeout=60,
         )
-        result = await _run_brev(
-            "create", self._instance_name,
-            "--detached",
-            stdin_data=self._instance_type,
-            timeout=120,
-        )
-        logger.warning("brev create result: rc=%s stdout=%s stderr=%s",
-                       result.return_code, result.stdout[:200] if result.stdout else None,
-                       result.stderr[:200] if result.stderr else None)
         if result.return_code != 0:
-            msg = f"brev create failed: {result.stderr}"
-            raise RuntimeError(msg)
+            raise RuntimeError(
+                f"Cannot reach Brev instance '{self._instance_name}': "
+                f"{result.stderr}"
+            )
 
-        # Wait for RUNNING status
-        await self._wait_for_running()
+        stdout = (result.stdout or "").strip()
+        if "harbor-ready" not in stdout:
+            raise RuntimeError(
+                f"Unexpected response from instance '{self._instance_name}': "
+                f"{stdout!r}"
+            )
+
+        # Pre-create harbor's expected directories with correct ownership
+        # so that agent and verifier processes can write to them.
+        await _run_brev_exec(
+            self._instance_name,
+            "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution && "
+            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution",
+            timeout=30,
+        )
 
         self._started = True
-        logger.info("Brev instance %s is ready", self._instance_name)
+        logger.info("Brev instance %s is reachable", self._instance_name)
 
     async def stop(self, delete: bool) -> None:
-        """Stop and optionally delete the Brev instance."""
-        if not self._instance_name:
-            return
-
-        if delete:
-            logger.info("Deleting Brev instance %s", self._instance_name)
-            await _run_brev("delete", self._instance_name)
-        else:
-            logger.info("Stopping Brev instance %s", self._instance_name)
-            await _run_brev("stop", self._instance_name)
-
+        """No-op — the instance stays running for reuse."""
+        logger.info(
+            "Leaving Brev instance %s running (delete=%s)",
+            self._instance_name, delete,
+        )
         self._started = False
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
-        """Upload a local file to the Brev instance via SCP."""
         assert self._instance_name
-        result = await _run_brev(
-            "cp", f"local:{source_path}", f"{self._instance_name}:{target_path}",
+        # Ensure parent directory exists with correct ownership
+        parent = str(Path(target_path).parent)
+        if parent and parent != ".":
+            await _run_brev_exec(
+                self._instance_name,
+                f"sudo mkdir -p {shlex.quote(parent)} && "
+                f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)}",
+                timeout=30,
+            )
+        result = await _run_brev_copy(
+            str(source_path), f"{self._instance_name}:{target_path}",
         )
         if result.return_code != 0:
-            msg = f"Upload failed: {result.stderr}"
-            raise RuntimeError(msg)
+            raise RuntimeError(f"Upload failed: {result.stderr}")
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
-        """Upload a local directory to the Brev instance."""
         assert self._instance_name
-        result = await _run_brev(
-            "cp", f"local:{source_dir}", f"{self._instance_name}:{target_dir}",
+        # brev copy has broken directory nesting behaviour.  Use tar
+        # piped over brev exec: tar locally, base64-encode, send via
+        # exec, decode+untar on the remote side.
+        src = str(source_dir).rstrip("/")
+        import subprocess as _sp, base64 as _b64
+        tar_bytes = _sp.check_output(
+            ["tar", "-czf", "-", "-C", src, "."],
+            timeout=60,
+        )
+        encoded = _b64.b64encode(tar_bytes).decode()
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"sudo mkdir -p {shlex.quote(target_dir)} && "
+            f"sudo chown $(whoami):$(id -gn) {shlex.quote(target_dir)} && "
+            f"echo '{encoded}' | base64 -d | tar -xzf - -C {shlex.quote(target_dir)}",
+            timeout=120,
         )
         if result.return_code != 0:
-            msg = f"Upload dir failed: {result.stderr}"
-            raise RuntimeError(msg)
+            raise RuntimeError(f"Upload dir failed: {result.stderr}")
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
-        """Download a file from the Brev instance to local."""
         assert self._instance_name
-        result = await _run_brev(
-            "cp", f"{self._instance_name}:{source_path}", f"local:{target_path}",
+        result = await _run_brev_copy(
+            f"{self._instance_name}:{source_path}", str(target_path),
         )
         if result.return_code != 0:
-            msg = f"Download failed: {result.stderr}"
-            raise RuntimeError(msg)
+            raise RuntimeError(f"Download failed: {result.stderr}")
 
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
-        """Download a directory from the Brev instance to local."""
         assert self._instance_name
-        result = await _run_brev(
-            "cp", f"{self._instance_name}:{source_dir}", f"local:{target_dir}",
+        # brev copy has broken directory nesting.  Use tar piped over
+        # brev exec: tar on remote, base64-encode, capture via exec,
+        # decode+untar locally.
+        import base64 as _b64, subprocess as _sp
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"tar -czf - -C {shlex.quote(source_dir)} . 2>/dev/null | base64",
+            timeout=120,
         )
         if result.return_code != 0:
-            msg = f"Download dir failed: {result.stderr}"
-            raise RuntimeError(msg)
+            raise RuntimeError(f"Download dir failed: {result.stderr}")
+        # Decode and untar locally
+        stdout = result.stdout or ""
+        # Strip any non-base64 noise (spinner chars, connection messages)
+        clean = "".join(
+            line for line in stdout.splitlines()
+            if line and not line.startswith("[") and not line.startswith("Connection")
+            and not line.startswith("ssh:") and line.strip()
+        )
+        tar_bytes = _b64.b64decode(clean)
+        target = Path(target_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        _sp.run(
+            ["tar", "-xzf", "-", "-C", str(target)],
+            input=tar_bytes, check=True, timeout=60,
+        )
 
     async def exec(
         self,
@@ -209,11 +244,9 @@ class BrevEnvironment(BaseEnvironment):
         timeout_sec: int | None = None,
         user: str | int | None = None,
     ) -> ExecResult:
-        """Execute a command on the Brev instance."""
         assert self._instance_name
 
-        # Build the command with optional cwd and env
-        parts = []
+        parts = ["source ~/.profile 2>/dev/null;"]
         if env:
             for k, v in env.items():
                 parts.append(f"export {shlex.quote(k)}={shlex.quote(v)};")
@@ -221,97 +254,73 @@ class BrevEnvironment(BaseEnvironment):
             parts.append(f"cd {shlex.quote(cwd)};")
         parts.append(command)
 
-        full_cmd = " ".join(parts)
+        inner_cmd = " ".join(parts)
 
-        return await _run_brev(
-            "exec", self._instance_name, full_cmd,
-            timeout=timeout_sec,
+        # Brev connects as non-root (ubuntu).  Harbor's agent-setup
+        # phase runs package-manager commands that need root.  We detect
+        # those and prepend sudo; everything else runs as the normal
+        # user so that file ownership stays consistent with brev copy.
+        needs_root = (
+            user == "root" or user == 0
+            or "apt-get " in command
+            or "apk " in command
+            or "yum " in command
+        )
+        if needs_root:
+            full_cmd = f"sudo bash -c {shlex.quote(inner_cmd)}"
+        else:
+            full_cmd = inner_cmd
+
+        return await _run_brev_exec(
+            self._instance_name, full_cmd,
+            timeout=timeout_sec or BREV_EXEC_TIMEOUT,
         )
 
-    # -- Internal helpers --
 
-    async def _wait_for_running(self) -> None:
-        """Poll until the instance reaches RUNNING status."""
-        elapsed = 0
-        while elapsed < BREV_STARTUP_TIMEOUT:
-            result = await _run_brev("ls", "--json")
-            if result.return_code == 0 and result.stdout:
-                try:
-                    # brev ls --json appends walkthrough text after the JSON array.
-                    # Strip everything after the closing bracket.
-                    raw = result.stdout
-                    bracket = raw.rfind("]")
-                    if bracket >= 0:
-                        raw = raw[: bracket + 1]
-                    instances = json.loads(raw)
-                    for inst in instances:
-                        if inst.get("name") == self._instance_name:
-                            if (inst.get("status") == "RUNNING"
-                                    and inst.get("shell_status") == "READY"):
-                                return
-                except json.JSONDecodeError:
-                    pass
-
-            logger.info(
-                "Waiting for %s to start (%ds / %ds)...",
-                self._instance_name, elapsed, BREV_STARTUP_TIMEOUT,
-            )
-            await asyncio.sleep(BREV_POLL_INTERVAL)
-            elapsed += BREV_POLL_INTERVAL
-
-        msg = f"Brev instance {self._instance_name} did not start within {BREV_STARTUP_TIMEOUT}s"
-        raise TimeoutError(msg)
-
-
-# -- Module-level helpers --
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _which(cmd: str) -> bool:
-    """Check if a command is on PATH."""
     import shutil
     return shutil.which(cmd) is not None
 
 
-async def _run_brev(
-    *args: str,
-    timeout: int | None = None,
-    stdin_data: str | None = None,
+async def _run_brev_exec(
+    instance: str,
+    command: str,
+    timeout: int = BREV_EXEC_TIMEOUT,
 ) -> ExecResult:
-    """Run a brev CLI command and return structured result.
+    """Run ``brev exec <instance> <command>`` and return result.
 
-    Uses a default timeout because the Brev CLI enters an interactive
-    walkthrough after printing output, which would hang forever.
-    A timeout kill is treated as success if stdout was captured.
+    Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
+    a single command string.  Stdin is piped with empty input so the
+    brev CLI doesn't enter interactive mode.
     """
-    if timeout is None:
-        timeout = BREV_CMD_TIMEOUT
+    # brev exec <instance> <command> — brev handles SSH transparently
+    cmd = ["brev", "exec", instance, command]
+    logger.debug("brev exec: %s", command[:200])
 
-    cmd = ["brev", *args]
-    logger.debug("Running: %s", " ".join(cmd))
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE if stdin_data else None,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdin_bytes = stdin_data.encode() if stdin_data else None
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=stdin_bytes),
+            proc.communicate(input=b"\n"),
             timeout=timeout,
         )
-    except TimeoutError:
-        # Brev CLI likely hanging on interactive walkthrough after output.
-        # Kill it and return whatever stdout we captured.
+    except asyncio.TimeoutError:
         proc.kill()
         stdout, stderr = await proc.communicate()
-        stdout_str = stdout.decode() if stdout else None
-        stderr_str = stderr.decode() if stderr else None
-        # If we got stdout, treat the timeout as success (walkthrough killed)
-        if stdout_str and stdout_str.strip():
-            logger.debug("brev command timed out but produced output — treating as success")
-            return ExecResult(stdout=stdout_str, stderr=stderr_str, return_code=0)
-        return ExecResult(stdout=stdout_str, stderr="Command timed out", return_code=124)
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="Command timed out",
+            return_code=124,
+        )
 
     return ExecResult(
         stdout=stdout.decode() if stdout else None,
@@ -320,23 +329,38 @@ async def _run_brev(
     )
 
 
-# GPU name -> Brev instance type mapping
-_GPU_INSTANCE_MAP = {
-    "A10G": "g5.xlarge",
-    "A100": "p4d.24xlarge",
-    "A100-80GB": "p4de.24xlarge",
-    "H100": "p5.48xlarge",
-    "L40S": "g6e.xlarge",
-    "L4": "g6.xlarge",
-    "T4": "g4dn.xlarge",
-}
+async def _run_brev_copy(
+    src: str,
+    dst: str,
+    timeout: int = BREV_COPY_TIMEOUT,
+) -> ExecResult:
+    """Run ``brev copy <src> <dst>`` and return result."""
+    cmd = ["brev", "copy", src, dst]
+    logger.debug("brev copy: %s -> %s", src, dst)
 
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
 
-def _gpu_to_instance_type(gpu_name: str) -> str:
-    """Map a GPU name from task metadata to a Brev instance type."""
-    gpu_upper = gpu_name.upper()
-    for key, instance_type in _GPU_INSTANCE_MAP.items():
-        if key.upper() in gpu_upper:
-            return instance_type
-    logger.warning("Unknown GPU %s, falling back to %s", gpu_name, DEFAULT_INSTANCE_TYPE)
-    return DEFAULT_INSTANCE_TYPE
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=b"\n"),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="Copy timed out",
+            return_code=124,
+        )
+
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
