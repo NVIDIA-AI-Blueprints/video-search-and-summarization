@@ -17,7 +17,7 @@ import logging
 from typing import cast
 
 import httpx
-from typing_extensions import override
+from typing_extensions import override  # noqa: UP035  # mypy targets 3.11
 
 from vss_agents.embed.embed import EmbedClient
 

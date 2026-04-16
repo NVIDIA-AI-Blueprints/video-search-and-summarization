@@ -312,7 +312,7 @@ def _results_summary_table(results: list[SearchResult]) -> str:
     col_widths = [max(len(h), *(len(row[i]) for row in rows)) for i, h in enumerate(headers)]
 
     def _fmt(cells: list[str]) -> str:
-        return "| " + " | ".join(c.ljust(w) for c, w in zip(cells, col_widths)) + " |"
+        return "| " + " | ".join(c.ljust(w) for c, w in zip(cells, col_widths, strict=False)) + " |"
 
     sep = "| " + " | ".join("-" * w for w in col_widths) + " |"
     return "\n".join([_fmt(headers), sep, *(_fmt(r) for r in rows)])

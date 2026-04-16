@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 from nat.data_models.evaluator import EvalInputItem
 import pytest
+
 from vss_agents.evaluators.utils import ScoreOutputParser
 from vss_agents.evaluators.utils import compute_item_latency
 from vss_agents.evaluators.utils import invoke_llm_with_retry

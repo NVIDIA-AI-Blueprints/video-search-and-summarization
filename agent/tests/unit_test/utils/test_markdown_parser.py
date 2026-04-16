@@ -91,9 +91,7 @@ class TestParseTable:
             "[01:10] Secondary update after assessment.",
         ]
         result = parse_table_or_blocktext([], textblock)
-        expected = (
-            "Incident detected at main gate. " "Additional context follows. " "Secondary update after assessment."
-        )
+        expected = "Incident detected at main gate. Additional context follows. Secondary update after assessment."
         # Ignore spacing differences introduced by line/paragraph joins
         assert result.replace(" ", "") == expected.replace(" ", "")
 

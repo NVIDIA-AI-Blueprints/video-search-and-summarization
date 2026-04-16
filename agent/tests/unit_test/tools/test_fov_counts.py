@@ -18,6 +18,7 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
+
 from vss_agents.tools.fov_counts_with_chart import FOVCountsWithChartConfig
 from vss_agents.tools.fov_counts_with_chart import FOVCountsWithChartInput
 from vss_agents.tools.fov_counts_with_chart import FOVCountsWithChartOutput

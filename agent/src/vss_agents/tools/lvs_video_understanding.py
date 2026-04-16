@@ -30,7 +30,7 @@ Key features:
 
 import asyncio
 from collections.abc import AsyncGenerator
-from enum import Enum
+from enum import StrEnum
 import json
 import logging
 
@@ -54,7 +54,7 @@ from vss_agents.utils.url_translation import translate_url
 logger = logging.getLogger(__name__)
 
 
-class LVSStatus(str, Enum):
+class LVSStatus(StrEnum):
     """Status values for LVS video understanding operations."""
 
     ABORTED = "aborted"

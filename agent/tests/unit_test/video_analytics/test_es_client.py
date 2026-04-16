@@ -17,6 +17,7 @@
 from copy import deepcopy
 
 import pytest
+
 from vss_agents.video_analytics.es_client import BASE_QUERY_TEMPLATE
 from vss_agents.video_analytics.es_client import ESClient
 

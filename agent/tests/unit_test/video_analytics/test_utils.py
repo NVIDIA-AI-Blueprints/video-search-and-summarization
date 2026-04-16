@@ -18,6 +18,7 @@ from datetime import UTC
 from datetime import datetime
 
 import pytest
+
 from vss_agents.video_analytics.utils import build_place_map
 from vss_agents.video_analytics.utils import build_sensor_map
 from vss_agents.video_analytics.utils import compute_bucket_size_seconds

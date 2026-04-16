@@ -590,7 +590,7 @@ async def _process_search_hit(
 
 
 @register_function(config_type=EmbedSearchConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo, None]:
+async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
     logger.info(f"Embed search config: {config}")
     es_client = AsyncElasticsearch(config.es_endpoint)
     embed_client: EmbedClient = CosmosEmbedClient(config.cosmos_embed_endpoint)

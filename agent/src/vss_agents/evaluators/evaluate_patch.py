@@ -73,7 +73,7 @@ from vss_agents.evaluators.utils import strip_agent_think_tags
 logger = logging.getLogger(__name__)
 
 
-class DatasetFilter(str, enum.Enum):
+class DatasetFilter(enum.StrEnum):
     ALL = "all"
     QA = "qa"
     TRAJECTORY = "trajectory"

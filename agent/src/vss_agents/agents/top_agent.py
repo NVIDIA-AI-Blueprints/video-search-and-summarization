@@ -63,7 +63,7 @@ from nat.data_models.intermediate_step import UsageInfo
 from nat.utils.type_converter import GlobalTypeConverter
 from pydantic import BaseModel
 from pydantic import Field
-from typing_extensions import override
+from typing_extensions import override  # noqa: UP035  # mypy targets 3.11
 
 from vss_agents.agents.data_models import AgentDecision
 from vss_agents.agents.data_models import AgentMessageChunk

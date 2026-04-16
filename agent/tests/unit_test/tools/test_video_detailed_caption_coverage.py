@@ -16,6 +16,7 @@
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.tools.video_detailed_caption import VideoDetailedCaptionConfig
 from vss_agents.tools.video_detailed_caption import VideoDetailedCaptionInput
 

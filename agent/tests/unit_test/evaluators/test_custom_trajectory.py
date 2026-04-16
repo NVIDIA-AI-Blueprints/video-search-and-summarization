@@ -21,6 +21,7 @@ from unittest.mock import patch
 from langchain_core.exceptions import OutputParserException
 from nat.data_models.evaluator import EvalInputItem
 import pytest
+
 from vss_agents.evaluators.customized_trajectory_evaluator.evaluate import CustomizedTrajectoryEvaluator
 from vss_agents.evaluators.utils import ScoreOutputParser
 

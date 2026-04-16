@@ -21,6 +21,7 @@ import json
 
 from pydantic import ValidationError
 import pytest
+
 from vss_agents.agents.search_agent import SearchAgentConfig
 from vss_agents.agents.search_agent import SearchAgentInput
 from vss_agents.agents.search_agent import _helper_markdown_bullet_list
@@ -249,9 +250,7 @@ class TestFetchObjectEmbedding:
         from vss_agents.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
-        mock_client.search.return_value = {
-            "hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0, 2.0, 3.0]}}}]}
-        }
+        mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0, 2.0, 3.0]}}}]}}
 
         result = await _fetch_object_embedding("5", mock_client, "test-index")
         assert result == [1.0, 2.0, 3.0]
@@ -264,9 +263,7 @@ class TestFetchObjectEmbedding:
         from vss_agents.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
-        mock_client.search.return_value = {
-            "hits": {"hits": [{"_source": {"embeddings": [{"vector": [4.0, 5.0]}]}}]}
-        }
+        mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": [{"vector": [4.0, 5.0]}]}}]}}
 
         result = await _fetch_object_embedding("5", mock_client, "test-index")
         assert result == [4.0, 5.0]
@@ -279,9 +276,7 @@ class TestFetchObjectEmbedding:
         from vss_agents.tools.attribute_search import _fetch_object_embedding
 
         mock_client = AsyncMock()
-        mock_client.search.return_value = {
-            "hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0]}}}]}
-        }
+        mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0]}}}]}}
 
         await _fetch_object_embedding("5", mock_client, ["idx-a", "idx-b"])
         mock_client.search.assert_called_once()
@@ -295,7 +290,8 @@ class TestDecomposeQueryObjectIds:
     @pytest.mark.asyncio
     async def test_object_ids_extracted(self):
         """Test that object_ids from LLM response are passed to DecomposedQuery."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock
+        from unittest.mock import MagicMock
 
         from vss_agents.tools.search import decompose_query
 
@@ -310,7 +306,8 @@ class TestDecomposeQueryObjectIds:
     @pytest.mark.asyncio
     async def test_object_ids_none_when_absent(self):
         """Test that object_ids is None when LLM doesn't extract any."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock
+        from unittest.mock import MagicMock
 
         from vss_agents.tools.search import decompose_query
 
@@ -325,7 +322,8 @@ class TestDecomposeQueryObjectIds:
     @pytest.mark.asyncio
     async def test_object_ids_invalid_type_ignored(self):
         """Test that non-integer object_ids are gracefully ignored."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock
+        from unittest.mock import MagicMock
 
         from vss_agents.tools.search import decompose_query
 
@@ -340,7 +338,8 @@ class TestDecomposeQueryObjectIds:
     @pytest.mark.asyncio
     async def test_negative_object_ids_filtered(self):
         """Test that non-positive object_ids are filtered out."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock
+        from unittest.mock import MagicMock
 
         from vss_agents.tools.search import decompose_query
 
@@ -355,7 +354,8 @@ class TestDecomposeQueryObjectIds:
     @pytest.mark.asyncio
     async def test_all_non_positive_ids_yields_none(self):
         """Test that all non-positive IDs results in None."""
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock
+        from unittest.mock import MagicMock
 
         from vss_agents.tools.search import decompose_query
 
@@ -377,12 +377,12 @@ def _make_search_output(num_results=1):
     for i in range(num_results):
         results.append(
             SearchResult(
-                video_name=f"video{i+1}.mp4",
-                description=f"Test video {i+1}",
-                start_time=f"2025-01-15T{10+i}:00:00Z",
-                end_time=f"2025-01-15T{10+i}:01:00Z",
-                sensor_id=f"sensor-{i+1}",
-                screenshot_url=f"http://example.com/screenshot{i+1}.jpg",
+                video_name=f"video{i + 1}.mp4",
+                description=f"Test video {i + 1}",
+                start_time=f"2025-01-15T{10 + i}:00:00Z",
+                end_time=f"2025-01-15T{10 + i}:01:00Z",
+                sensor_id=f"sensor-{i + 1}",
+                screenshot_url=f"http://example.com/screenshot{i + 1}.jpg",
                 similarity=0.95 - (i * 0.1),
             )
         )
