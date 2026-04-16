@@ -237,62 +237,46 @@ def find_brev_instance_type(
 def generate_instruction(profile: str, profile_def: dict, host_ip: str | None, models: dict) -> str:
     """Generate the instruction.md for a deploy task.
 
-    Full deployment: configure .env, generate resolved compose, deploy
-    containers, and wait for services to be healthy.
+    State the goal and relevant context only — the agent uses the
+    `/deploy` skill (registered via task.toml skills_dir) to figure out
+    the workflow.
     """
     lines = [
-        f"Deploy the VSS **{profile}** profile end-to-end.",
+        f"Use the `/deploy` skill to deploy the VSS **{profile}** profile on this machine.",
         "",
-        f"Profile: `{profile}`",
+        "## Target configuration",
         "",
-        "## Steps",
-        "",
-        "1. Clone the VSS repository if not already present:",
-        f"   `git clone --branch {VSS_BRANCH} {VSS_REPO_URL}`",
-        "",
-        "2. Ensure Docker is installed with NVIDIA runtime. Run the system "
-        "prerequisites (vm.max_map_count, rmem/wmem).",
-        "",
-        "3. Log in to NGC container registry:",
-        "   `docker login nvcr.io -u '$oauthtoken' -p $NGC_CLI_API_KEY`",
-        "",
-        "4. Configure the `.env` file at "
-        f"`deployments/developer-workflow/dev-profile-{profile}/.env`:",
-        "   - Set `HARDWARE_PROFILE=L40S`",
-        "   - Set `MDX_SAMPLE_APPS_DIR` to the deployments directory path",
-        "   - Set `MDX_DATA_DIR` to a data directory path",
-        "   - Set `HOST_IP` to the machine's IP address",
-        "   - Set `NGC_CLI_API_KEY` from the environment variable",
+        "- Hardware profile: `L40S`",
     ]
 
     if host_ip and "llm" in models:
-        lines.append(f"   - Set `LLM_MODE=remote`")
-        lines.append(f"   - Set `LLM_BASE_URL=http://{host_ip}:{models['llm']['port']}/v1`")
+        lines.append(
+            f"- LLM: remote, running at `http://{host_ip}:{models['llm']['port']}/v1` "
+            f"(model: `{models['llm']['model_id']}`)"
+        )
     else:
-        lines.append("   - Set `LLM_MODE=remote`")
-        lines.append("   - Set `LLM_BASE_URL=https://integrate.api.nvidia.com/v1`")
+        lines.append("- LLM: remote, via NVIDIA NIM API")
 
     if host_ip and "vlm" in models:
-        lines.append(f"   - Set `VLM_MODE=remote`")
-        lines.append(f"   - Set `VLM_BASE_URL=http://{host_ip}:{models['vlm']['port']}/v1`")
+        lines.append(
+            f"- VLM: remote, running at `http://{host_ip}:{models['vlm']['port']}/v1` "
+            f"(model: `{models['vlm']['model_id']}`)"
+        )
     else:
-        lines.append("   - Set `VLM_MODE=remote`")
-        lines.append("   - Set `VLM_BASE_URL=https://integrate.api.nvidia.com/v1`")
+        lines.append("- VLM: remote, via NVIDIA NIM API")
 
     lines.extend([
         "",
-        "5. Generate the resolved docker compose configuration:",
-        "   ```bash",
-        "   cd <repo>/deployments",
-        "   docker compose --env-file <env-file> config > resolved.yml",
-        "   ```",
+        "## Credentials",
         "",
-        "6. Deploy:",
-        "   ```bash",
-        "   docker compose -f resolved.yml up -d",
-        "   ```",
+        "- `NGC_CLI_API_KEY` is available in the environment for NGC "
+        "container registry authentication.",
         "",
-        "7. Wait for the Agent API to respond at http://localhost:8000/docs",
+        "## Success criteria",
+        "",
+        "Deployment is successful when the Agent API responds at "
+        "`http://localhost:8000/docs` and core containers "
+        "(`vss-agent`, `metropolis-vss-ui`, `mdx-redis`) are running.",
         "",
     ])
 
@@ -540,6 +524,11 @@ def generate_task(
         f'name = "nvidia-vss/deploy-{profile}"',
         f'description = "{profile_def["description"]}"',
         f'keywords = ["deploy", "{profile}"]',
+        "",
+        "[environment]",
+        '# Harbor copies this directory into $CLAUDE_CONFIG_DIR/skills/ before the',
+        '# agent runs so it can invoke the /deploy skill.',
+        'skills_dir = "/skills"',
         "",
         "[metadata]",
         'gpu = "L40S"',

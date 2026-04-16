@@ -144,10 +144,19 @@ class BrevEnvironment(BaseEnvironment):
         # so that agent and verifier processes can write to them.
         await _run_brev_exec(
             self._instance_name,
-            "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution && "
-            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution",
+            "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
+            "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
+
+        # Upload the task's skills/ directory to /skills on the instance
+        # so Claude Code can register them via task.toml:
+        # [environment] skills_dir = "/skills"
+        task_dir = self.environment_dir.parent
+        task_skills_dir = task_dir / "skills"
+        if task_skills_dir.is_dir():
+            logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
+            await self.upload_dir(str(task_skills_dir), "/skills")
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
