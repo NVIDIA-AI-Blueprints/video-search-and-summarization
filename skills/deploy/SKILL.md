@@ -120,12 +120,24 @@ Build a dictionary of env var overrides based on user intent. Only include vars 
 
 | User intent | Env overrides |
 |---|---|
-| Remote LLM | `LLM_MODE=remote`, `LLM_BASE_URL=<url>`, `NVIDIA_API_KEY=<key>` |
-| Remote VLM | `VLM_MODE=remote`, `VLM_BASE_URL=<url>`, `NVIDIA_API_KEY=<key>` |
-| NVIDIA API for remote inference | `LLM_BASE_URL=https://integrate.api.nvidia.com/v1` |
+| Remote LLM | `LLM_MODE=remote`, `LLM_BASE_URL=<host>` (no `/v1`), `NVIDIA_API_KEY=<key>` |
+| Remote VLM | `VLM_MODE=remote`, `VLM_BASE_URL=<host>` (no `/v1`), `NVIDIA_API_KEY=<key>` |
+| NVIDIA API for remote inference | `LLM_BASE_URL=https://integrate.api.nvidia.com` |
 | Dedicated GPUs | `LLM_MODE=local`, `VLM_MODE=local`, `LLM_DEVICE_ID=0`, `VLM_DEVICE_ID=1` |
 | Different LLM model | `LLM_NAME=<name>`, `LLM_NAME_SLUG=<slug>` |
 | Different VLM model | `VLM_NAME=<name>`, `VLM_NAME_SLUG=<slug>` |
+
+> **Important — `/v1` suffix on base URLs**
+>
+> `LLM_BASE_URL` and `VLM_BASE_URL` must **not** include a trailing `/v1`.
+> The agent's `config.yml` appends `/v1` automatically (`base_url: ${LLM_BASE_URL}/v1`),
+> so including it yourself produces `/v1/v1/chat/completions` and requests will fail
+> with connection / 404 errors.
+>
+> If a user or endpoint documentation gives you a URL ending in `/v1`, strip it
+> before writing to `.env`. Examples:
+> - User says: "LLM is at `http://10.0.0.5:31081/v1`" → write `LLM_BASE_URL=http://10.0.0.5:31081`
+> - User says: "Use `https://integrate.api.nvidia.com/v1`" → write `LLM_BASE_URL=https://integrate.api.nvidia.com`
 
 See the profile reference doc for full env override recipes.
 

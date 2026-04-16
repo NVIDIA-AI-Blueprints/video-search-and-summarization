@@ -52,6 +52,10 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 }
 ```
 
+> **Note on base URLs**: `LLM_BASE_URL` / `VLM_BASE_URL` must NOT end in `/v1`.
+> The agent config appends `/v1` automatically. If the user gives you a URL
+> with `/v1`, strip it before writing to the env.
+
 ### Remote LLM + local VLM
 
 ```json
@@ -62,7 +66,7 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
   "LLM_MODE": "remote",
-  "LLM_BASE_URL": "https://integrate.api.nvidia.com/v1",
+  "LLM_BASE_URL": "https://integrate.api.nvidia.com",
   "NVIDIA_API_KEY": "<key>"
 }
 ```
@@ -76,9 +80,9 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
   "MDX_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "LLM_MODE": "remote",
-  "LLM_BASE_URL": "https://integrate.api.nvidia.com/v1",
+  "LLM_BASE_URL": "https://integrate.api.nvidia.com",
   "VLM_MODE": "remote",
-  "VLM_BASE_URL": "https://integrate.api.nvidia.com/v1",
+  "VLM_BASE_URL": "https://integrate.api.nvidia.com",
   "NVIDIA_API_KEY": "<key>"
 }
 ```
