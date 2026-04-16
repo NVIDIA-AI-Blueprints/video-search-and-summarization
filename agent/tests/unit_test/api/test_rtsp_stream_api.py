@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+
 from vss_agents.api.rtsp_stream_api import AddStreamRequest
 from vss_agents.api.rtsp_stream_api import AddStreamResponse
 from vss_agents.api.rtsp_stream_api import DeleteStreamResponse
@@ -99,12 +100,12 @@ class TestAddStreamRequest:
             sensor_url="rtsp://camera:554/stream",
             name="camera-1",
             username="admin",
-            password="pw",
+            password="pw",  # pragma: allowlist secret
             location="Building A",
             tags="entrance,security",
         )
         assert request.username == "admin"
-        assert request.password == "pw"
+        assert request.password == "pw"  # pragma: allowlist secret
         assert request.location == "Building A"
         assert request.tags == "entrance,security"
 
@@ -161,7 +162,7 @@ class TestAddToVst:
         # Mock VST get RTSP URL
         mock_get_rtsp_url.return_value = (True, "OK", "rtsp://vst:554/sensor-123")
 
-        success, msg, sensor_id, rtsp_url = await add_to_vst(config, request)
+        success, _msg, sensor_id, rtsp_url = await add_to_vst(config, request)
 
         assert success is True
         assert sensor_id == "sensor-123"
@@ -175,7 +176,7 @@ class TestAddToVst:
 
         mock_add_sensor.return_value = (False, "VST returned 500: Internal Server Error", None)
 
-        success, msg, sensor_id, rtsp_url = await add_to_vst(config, request)
+        success, msg, sensor_id, _rtsp_url = await add_to_vst(config, request)
 
         assert success is False
         assert "500" in msg
@@ -189,7 +190,7 @@ class TestAddToVst:
 
         mock_add_sensor.return_value = (False, "VST response missing sensor ID: {}", None)
 
-        success, msg, sensor_id, rtsp_url = await add_to_vst(config, request)
+        success, msg, _sensor_id, _rtsp_url = await add_to_vst(config, request)
 
         assert success is False
         assert "missing sensor ID" in msg
@@ -252,7 +253,7 @@ class TestAddToRtviEmbed:
         mock_response.json = MagicMock(return_value={"streams": [{"id": "rtvi-stream-123"}]})
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        success, msg, stream_id = await add_to_rtvi_embed(
+        success, _msg, stream_id = await add_to_rtvi_embed(
             mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
         )
 
@@ -264,12 +265,12 @@ class TestAddToRtviEmbed:
         mock_client = MagicMock()
         config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="")
 
-        success, msg, stream_id = await add_to_rtvi_embed(
+        success, _msg, stream_id = await add_to_rtvi_embed(
             mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
         )
 
         assert success is True
-        assert "Skipped" in msg
+        assert "Skipped" in _msg
         assert stream_id == "sensor-123"  # Falls back to sensor_id
 
     @pytest.mark.asyncio
@@ -283,7 +284,7 @@ class TestAddToRtviEmbed:
         mock_response.json = MagicMock(return_value={"streams": []})  # Empty streams
         mock_client.post = AsyncMock(return_value=mock_response)
 
-        success, msg, stream_id = await add_to_rtvi_embed(
+        success, _msg, stream_id = await add_to_rtvi_embed(
             mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
         )
 
@@ -337,7 +338,7 @@ class TestGetStreamInfoByName:
 
         mock_vst_get_stream_info.return_value = ("sensor-123", "rtsp://vst:554/sensor-123")
 
-        success, msg, stream_id, rtsp_url = await get_stream_info_by_name(config, "camera-1")
+        success, _msg, stream_id, rtsp_url = await get_stream_info_by_name(config, "camera-1")
 
         assert success is True
         assert stream_id == "sensor-123"
@@ -350,7 +351,7 @@ class TestGetStreamInfoByName:
 
         mock_vst_get_stream_info.return_value = (None, None)
 
-        success, msg, stream_id, rtsp_url = await get_stream_info_by_name(config, "camera-1")
+        success, msg, _stream_id, _rtsp_url = await get_stream_info_by_name(config, "camera-1")
 
         assert success is False
         assert "not found" in msg
@@ -366,7 +367,7 @@ class TestCleanupFunctions:
 
         mock_vst_delete_sensor.return_value = (True, "OK")
 
-        success, msg = await cleanup_vst_sensor(config, "sensor-123")
+        success, _msg = await cleanup_vst_sensor(config, "sensor-123")
 
         assert success is True
 
@@ -401,7 +402,7 @@ class TestCleanupFunctions:
         mock_response.status_code = 200
         mock_client.delete = AsyncMock(return_value=mock_response)
 
-        success, msg = await cleanup_rtvi_embed_stream(mock_client, config, "stream-123")
+        success, _msg = await cleanup_rtvi_embed_stream(mock_client, config, "stream-123")
 
         assert success is True
 
@@ -414,7 +415,7 @@ class TestCleanupFunctions:
         mock_response.status_code = 200
         mock_client.delete = AsyncMock(return_value=mock_response)
 
-        success, msg = await cleanup_rtvi_embed_generation(mock_client, config, "stream-123")
+        success, _msg = await cleanup_rtvi_embed_generation(mock_client, config, "stream-123")
 
         assert success is True
 

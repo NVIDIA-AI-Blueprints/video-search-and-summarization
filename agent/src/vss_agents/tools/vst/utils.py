@@ -18,39 +18,12 @@ import json
 import logging
 import os
 import urllib.parse
-from urllib.parse import urlparse
-from urllib.parse import urlunparse
 
 import aiohttp
 
 from vss_agents.utils.retry import create_retry_strategy
 
 logger = logging.getLogger(__name__)
-
-
-def build_vst_url(base_url: str, url: str) -> str:
-    """Replace the scheme and host of *url* with those from *base_url*.
-
-    This is useful when the URL returned by a service uses an external or
-    proxy hostname but you need to reach the same resource via an internal
-    base URL.
-
-    Args:
-        base_url: Absolute base URL (e.g. ``http://10.0.1.1:30888``).
-        url: Full URL whose path/query/fragment should be preserved
-            (e.g. ``http://232.2.2.34:22324/vst/api/v1/storage/file.mp4``).
-
-    Returns:
-        The *url* with its scheme and netloc replaced by those of *base_url*.
-    """
-    base_parsed = urlparse(base_url.rstrip("/"))
-    url_parsed = urlparse(url)
-    return urlunparse(
-        url_parsed._replace(
-            scheme=base_parsed.scheme,
-            netloc=base_parsed.netloc,
-        )
-    )
 
 
 def build_overlay_config(
@@ -664,7 +637,7 @@ async def get_rtsp_url(sensor_id: str, vst_internal_url: str | None = None) -> t
     Get RTSP URL for a sensor from VST streams API.
     Returns: (success, message, rtsp_url)
     """
-    async for retry in create_retry_strategy(delay=0.1, retries=25, exceptions=(Exception,)):
+    async for retry in create_retry_strategy(delay=0.1, retries=50, exceptions=(Exception,)):
         with retry:
             streams_info = await get_streams_info(vst_internal_url)
             if sensor_id in streams_info:

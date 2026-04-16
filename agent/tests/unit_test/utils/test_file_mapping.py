@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+
 from vss_agents.utils.file_mapping import FileMapping
 from vss_agents.utils.file_mapping import StorageType
 from vss_agents.utils.file_mapping import VideoFileInfo

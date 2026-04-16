@@ -25,9 +25,11 @@ All paths yield AgentMessageChunk for real-time visibility.
 """
 
 from collections.abc import AsyncGenerator
+from datetime import UTC
+from datetime import datetime
 import json
 import logging
-from typing import Any
+import time
 from typing import Literal
 
 from nat.builder.builder import Builder
@@ -47,12 +49,24 @@ from pydantic import Field
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
+from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
 from vss_agents.tools.search import execute_core_search
+from vss_agents.tools.vst.utils import get_name_to_stream_id_map
+from vss_agents.utils.time_convert import iso8601_to_datetime
 
 logger = logging.getLogger(__name__)
+
+_ARTIFACT_DISPLAY_NOTE = (
+    "Do not include or offer to provide the search result summary table and the JSON search results in your final response "
+    "since they will be automatically appended to your final response to the user. "
+    "The critic/verification status of results is controlled by system configuration, not by user interaction or the agent. "
+    "Do not mention the critic/verification status or suggest any follow-up actions such as refining, verifying, or re-running the search."
+)
+
+_PTS_EPOCH = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
 
 
 def _to_search_results(raw: list) -> list[SearchResult]:
@@ -79,7 +93,9 @@ def _to_search_results(raw: list) -> list[SearchResult]:
 class SearchAgentInput(BaseModel):
     """Input for search agent."""
 
-    query: str = Field(description="Natural language search query")
+    query: str = Field(
+        description="Natural language search query. Pass the user's query as-is, including object IDs if mentioned (e.g., 'find objects similar to ID 5').",
+    )
     agent_mode: bool = Field(default=True, description="Enable query decomposition")
     use_attribute_search: bool | None = Field(
         default=None, description="Enable fusion reranking with attribute search (overrides config if provided)"
@@ -100,9 +116,11 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
 
     # Tool references - we'll call these directly
     embed_search_tool: FunctionRef = Field(description="Embed search tool reference")
+
     attribute_search_tool: FunctionRef | None = Field(
         default=None, description="Attribute search tool for fusion (optional)"
     )
+
     agent_mode_llm: LLMRef | None = Field(
         default=None, description="LLM for query decomposition (required if agent_mode=True)"
     )
@@ -167,6 +185,23 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         ge=1,
         description="""Maximum number of search iterations when refining search results with critic agent.
         Note, high max iterations can run for a long time. Default is 1.""",
+    )
+
+    top_percent_filter: float | None = Field(
+        default=None,
+        description="Score-based filter applied before merging consecutive segments. "
+        "Value between 0 and 1.0 — keeps results with similarity >= max_similarity * top_percent_filter. "
+        "E.g., 0.9 with max similarity 0.5 keeps results >= 0.45. None or 0 disables filtering.",
+    )
+
+    behavior_es_endpoint: str | None = Field(
+        default=None,
+        description="Elasticsearch endpoint for behavior index (needed for object_id re-search).",
+    )
+
+    behavior_index: str = Field(
+        default=DEFAULT_BEHAVIOR_INDEX,
+        description="Behavior index name for object embedding lookup.",
     )
 
 
@@ -239,6 +274,81 @@ def _to_chat_response_chunk(search_output: SearchOutput) -> ChatResponseChunk:
     return ChatResponseChunk.from_string(incidents)
 
 
+def _to_pts(ts: str | float) -> str:
+    """Convert an ISO 8601 timestamp string or float offset to a PTS string (e.g. '163.1s').
+
+    ISO strings are interpreted relative to 2025-01-01T00:00:00Z.
+    Float values are assumed to already be seconds and are formatted directly.
+    """
+    if isinstance(ts, (int, float)):
+        return f"{float(ts):.1f}s"
+    try:
+        dt = iso8601_to_datetime(ts)
+        return f"{(dt - _PTS_EPOCH).total_seconds():.1f}s"
+    except Exception:
+        return str(ts)
+
+
+def _results_summary_table(results: list[SearchResult]) -> str:
+    """Format search results as a Markdown summary table."""
+    has_critic = any(r.critic_result is not None for r in results)
+
+    headers = ["#", "Video", "Start", "End"]
+    if has_critic:
+        headers.append("Critic")
+
+    rows = []
+    for i, r in enumerate(results, 1):
+        row = [str(i), r.video_name, _to_pts(r.start_time), _to_pts(r.end_time)]
+        if has_critic:
+            if r.critic_result is not None:
+                verdict = r.critic_result.result
+                criteria = ", ".join(f"{k}: {'✓' if v else '✗'}" for k, v in r.critic_result.criteria_met.items())
+                row.append(f"{verdict} ({criteria})" if criteria else verdict)
+            else:
+                row.append("—")
+        rows.append(row)
+
+    col_widths = [max(len(h), *(len(row[i]) for row in rows)) for i, h in enumerate(headers)]
+
+    def _fmt(cells: list[str]) -> str:
+        return "| " + " | ".join(c.ljust(w) for c, w in zip(cells, col_widths, strict=False)) + " |"
+
+    sep = "| " + " | ".join("-" * w for w in col_widths) + " |"
+    return "\n".join([_fmt(headers), sep, *(_fmt(r) for r in rows)])
+
+
+class _StreamNameResolver:
+    """TTL-cached resolver that maps VST stream UUIDs to human-readable video names."""
+
+    def __init__(self, vst_url: str, ttl: float = 60.0):
+        self._vst_url = vst_url
+        self._ttl = ttl
+        self._cache: dict[str, str] = {}  # stream_id → video name
+        self._cache_ts: float = 0.0
+
+    async def _refresh_cache(self) -> None:
+        now = time.monotonic()
+        if not self._cache or (now - self._cache_ts) > self._ttl:
+            try:
+                mapping = await get_name_to_stream_id_map(self._vst_url)  # video name → stream_id
+                self._cache = {v: k for k, v in mapping.items()}  # inverse mapping
+                self._cache_ts = now
+            except Exception as e:
+                logger.warning(f"Could not refresh stream name map from VST: {e}")
+
+    async def get_name_for_stream_id(self, stream_id: str) -> str | None:
+        """Return the video name for a given stream_id."""
+        await self._refresh_cache()
+        return self._cache.get(stream_id)
+
+    async def resolve(self, results: list[SearchResult]) -> list[SearchResult]:
+        await self._refresh_cache()
+        if not self._cache:
+            return results
+        return [r.model_copy(update={"video_name": self._cache.get(r.sensor_id, r.video_name)}) for r in results]
+
+
 @register_function(config_type=SearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
     """
@@ -249,22 +359,10 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
     """
 
     # Load function references (for execute_core_search)
+    embed_search_fn = await builder.get_function(config.embed_search_tool)
     attribute_search_fn = None  # Function reference for fusion_search_rerank
-    vst_internal_url = None  # For sensor-id conversion in fusion reranking
-    if config.attribute_search_tool:
-        # Get function reference for fusion reranker (reuses search.py logic)
-        attribute_search_fn = await builder.get_function(config.attribute_search_tool)
 
-        # Get VST URL from attribute_search config for stream_id to sensor_id conversion
-        try:
-            attr_search_config = await builder.get_config(config.attribute_search_tool)
-            if hasattr(attr_search_config, "vst_internal_url"):
-                vst_internal_url = attr_search_config.vst_internal_url
-                logger.info(f"Retrieved vst_internal_url from attribute_search config: {vst_internal_url}")
-            else:
-                logger.warning("attribute_search config does not have vst_internal_url attribute")
-        except Exception as e:
-            logger.warning(f"Could not get VST URL from attribute_search config: {e}")
+    stream_name_resolver = _StreamNameResolver(config.vst_internal_url)
 
     agent_llm = None
     if config.agent_mode_llm:
@@ -309,11 +407,8 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             use_critic=search_agent_input.use_critic,
         )
 
-        # Get embed_search function reference
-        embed_search_fn = await builder.get_function(config.embed_search_tool)
-
         # Use shared core search function (async generator, collect all progress and return final result)
-        search_output = None
+        search_output = SearchOutput(data=[])
         async for update in execute_core_search(
             search_input=search_input,
             embed_search=embed_search_fn,
@@ -325,17 +420,10 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
         ):
             if isinstance(update, SearchOutput):
                 search_output = update
-        search_output = search_output or SearchOutput(data=[])
-        return search_output
 
-    def _get_result_name(result: Any) -> str:
-        """Helper to extract video name from result (dict or object)."""
-        if isinstance(result, dict):
-            name = result.get("video_name") or result.get("video_file")
-            return str(name) if name is not None else "unknown"
-        else:
-            name = getattr(result, "video_name", None) or getattr(result, "video_file", None)
-            return str(name) if name is not None else "unknown"
+        return SearchOutput(
+            data=await stream_name_resolver.resolve(search_output.data), search_messages=search_output.search_messages
+        )
 
     async def _execute_search_stream(
         search_agent_input: SearchAgentInput,
@@ -393,12 +481,10 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             use_critic=search_agent_input.use_critic,
         )
 
-        # Get embed_search function reference
-        embed_search_fn = await builder.get_function(config.embed_search_tool)
-
         try:
             # Use shared core search function (async generator) - yield progress updates in real-time
-            search_output = None
+            search_output = SearchOutput(data=[])
+
             async for update in execute_core_search(
                 search_input=search_input,
                 embed_search=embed_search_fn,
@@ -414,11 +500,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                 elif isinstance(update, SearchOutput):
                     search_output = update
 
-            if search_output is None:
-                search_output = SearchOutput(data=[])
-
-            # Note: execute_core_search already caps results to original_top_k, so no additional capping needed
-            final_results = search_output.data
+            final_results = await stream_name_resolver.resolve(search_output.data)
             result_count = len(final_results)
 
             # Build SearchOutput-compatible JSON
@@ -427,16 +509,21 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
 
             # Format results for display
             if result_count > 0:
-                summary = f"Found {result_count} matching video{'s' if result_count != 1 else ''}"
+                header = f"Found {result_count} matching video{'s' if result_count != 1 else ''}"
+                results_summary_table = _results_summary_table(final_results)
+                summary = header + "\n\n" + results_summary_table
                 search_result_json = json.dumps(search_dict, indent=2)
-                messages = [summary, "\n\n**Search API result (JSON):**\n```json\n" + search_result_json + "\n```"]
+                search_result_json_block = "\n\n**Search API result (JSON):**\n```json\n" + search_result_json + "\n```"
+                messages = [summary]
+                side_effects = {
+                    "results_summary": results_summary_table,
+                    "search_result_json": search_result_json_block,
+                    "artifact_note": _ARTIFACT_DISPLAY_NOTE,
+                }
 
                 output = AgentOutput(
                     messages=messages,
-                    side_effects={
-                        "search_results": search_dict,
-                        "result_count": result_count,
-                    },
+                    side_effects=side_effects,
                     metadata={
                         "query": query,
                         "agent_mode": agent_mode,
@@ -456,12 +543,19 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             else:
                 search_dict = {"data": []}
                 search_result_json = json.dumps(search_dict, indent=2)
+                no_results_msg = f"No videos found matching: '{query}'"
+                if search_output.search_messages:
+                    no_results_msg += "\n\nNote: " + "; ".join(search_output.search_messages)
+                search_result_json_block = "\n\n**Search API result (JSON):**\n```json\n" + search_result_json + "\n```"
+                messages = [no_results_msg]
+                side_effects = {
+                    "results_summary": no_results_msg,
+                    "search_result_json": search_result_json_block,
+                    "artifact_note": _ARTIFACT_DISPLAY_NOTE,
+                }
                 output = AgentOutput(
-                    messages=[
-                        f"No videos found matching: '{query}'",
-                        "\n\n**Search API result (JSON):**\n```json\n" + search_result_json + "\n```",
-                    ],
-                    side_effects={"search_results": search_dict},
+                    messages=messages,
+                    side_effects=side_effects,
                     metadata={"query": query},
                     status="success",
                 )

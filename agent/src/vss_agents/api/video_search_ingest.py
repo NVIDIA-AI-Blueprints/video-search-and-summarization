@@ -34,6 +34,7 @@ from pydantic import Field
 
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import VSTError
+from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.url_translation import rewrite_url_host
 
 logger = logging.getLogger(__name__)
@@ -165,11 +166,12 @@ def create_streaming_video_ingest_router(
             async with httpx.AsyncClient(timeout=300.0) as client:
                 logger.info(f"Streaming directly from client to VST at {vst_upload_url}")
 
-                vst_response = await client.put(
-                    vst_upload_url,
-                    content=request.stream(),
-                    headers={"Content-Type": content_type, "Content-Length": content_length},
-                )
+                with TimeMeasure("video_ingest: stream upload to VST"):
+                    vst_response = await client.put(
+                        vst_upload_url,
+                        content=request.stream(),
+                        headers={"Content-Type": content_type, "Content-Length": content_length},
+                    )
 
                 # Check VST response
                 logger.info(f"VST upload response status: {vst_response.status_code}")
@@ -198,7 +200,8 @@ def create_streaming_video_ingest_router(
 
                 # Get start and end times for the stream via shared vst timeline util
                 try:
-                    timeline_start_time, timeline_end_time = await get_timeline(vst_sensor_id, vst_url)
+                    with TimeMeasure("video_ingest: get timeline from VST"):
+                        timeline_start_time, timeline_end_time = await get_timeline(vst_sensor_id, vst_url)
                 except VSTError as e:
                     logger.error("Timelines API failed for stream %s: %s", vst_sensor_id, e)
                     raise HTTPException(status_code=502, detail=f"Timelines API failed: {e}") from e
@@ -226,7 +229,8 @@ def create_streaming_video_ingest_router(
                 logger.info(f"Calling Storage API: GET {storage_url}")
                 logger.info(f"Parameters: {storage_params}")
 
-                storage_response = await client.get(storage_url, params=storage_params)
+                with TimeMeasure("video_ingest: get storage URL from VST"):
+                    storage_response = await client.get(storage_url, params=storage_params)
                 logger.info(f"Storage API response status: {storage_response.status_code}")
 
                 if storage_response.status_code != 200:
@@ -269,7 +273,8 @@ def create_streaming_video_ingest_router(
                 logger.debug(f"Payload: {rtvi_cv_payload}")
 
                 async with httpx.AsyncClient(timeout=60.0) as rtvi_cv_client:
-                    rtvi_cv_response = await rtvi_cv_client.post(rtvi_cv_add_url, json=rtvi_cv_payload)
+                    with TimeMeasure("video_ingest: register with RTVI-CV"):
+                        rtvi_cv_response = await rtvi_cv_client.post(rtvi_cv_add_url, json=rtvi_cv_payload)
 
                     logger.info(f"RTVI-CV response status: {rtvi_cv_response.status_code}")
 
@@ -308,11 +313,12 @@ def create_streaming_video_ingest_router(
             logger.info(f"Request body: {embed_request}")
 
             async with httpx.AsyncClient(timeout=600.0) as client:
-                embed_response = await client.post(
-                    embedding_url,
-                    json=embed_request,
-                    headers={"accept": "application/json", "Content-Type": "application/json"},
-                )
+                with TimeMeasure("video_ingest: generate embeddings (RTVI)"):
+                    embed_response = await client.post(
+                        embedding_url,
+                        json=embed_request,
+                        headers={"accept": "application/json", "Content-Type": "application/json"},
+                    )
 
                 logger.info(f"RTVI Embedding API response status: {embed_response.status_code}")
 
@@ -378,7 +384,7 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
             rtvi_cv_port = os.getenv("RTVI_CV_PORT", "9000")
             rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip else None
             rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip else ""
-            rtvi_embed_model = "cosmos-embed1-448p"
+            rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
             rtvi_embed_chunk_duration = 5
             logger.info("streaming_ingest not in config, using environment variables")
 
