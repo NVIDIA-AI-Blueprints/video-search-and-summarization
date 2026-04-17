@@ -232,6 +232,11 @@ def generate_instruction(
         _describe_model("LLM", mode_spec["llm_mode"], llm_remote),
         _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote),
         "",
+        "## Repository",
+        "",
+        f"If the VSS repository is not already present, clone it from:",
+        f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`)",
+        "",
         "## Credentials",
         "",
         "- `NGC_CLI_API_KEY` is available in the environment for pulling NIM "
@@ -242,6 +247,9 @@ def generate_instruction(
         "Deployment is successful when the Agent API responds at "
         "`http://localhost:8000/docs` and the expected core containers "
         "are running.",
+        "",
+        "Run the deployment end-to-end without prompting for confirmation — "
+        "proceed autonomously from cloning through `docker compose up -d`.",
         "",
     ]
     return "\n".join(lines) + "\n"

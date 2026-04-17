@@ -212,6 +212,32 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
 
+        # Forward task-critical env vars from the local shell into the
+        # instance's ~/.eval_env (sourced by ~/.profile, which every
+        # brev exec then sources).  Harbor's claude-code agent only
+        # propagates ANTHROPIC_* env vars, so anything else needed
+        # during deploy (NGC_CLI_API_KEY, NVIDIA_API_KEY) must land on
+        # the instance out-of-band.
+        forwarded: list[tuple[str, str]] = []
+        for key in ("NGC_CLI_API_KEY", "NVIDIA_API_KEY"):
+            val = os.environ.get(key)
+            if val:
+                forwarded.append((key, val))
+        if forwarded:
+            env_block = "\n".join(
+                f"export {k}={shlex.quote(v)}" for k, v in forwarded
+            )
+            bootstrap = (
+                f"cat > ~/.eval_env <<'__HARBOR_EOF__'\n"
+                f"{env_block}\n"
+                f"__HARBOR_EOF__\n"
+                f"grep -q 'source ~/.eval_env' ~/.profile 2>/dev/null || "
+                f"echo 'source ~/.eval_env 2>/dev/null' >> ~/.profile"
+            )
+            logger.info("Writing %d forwarded env vars to ~/.eval_env on instance",
+                        len(forwarded))
+            await _run_brev_exec(self._instance_name, bootstrap, timeout=30)
+
         # Upload the task's skills/ directory to /skills on the instance
         # so Claude Code can register them via task.toml:
         # [environment] skills_dir = "/skills"
@@ -282,25 +308,34 @@ class BrevEnvironment(BaseEnvironment):
     async def download_dir(self, source_dir: str, target_dir: Path | str) -> None:
         assert self._instance_name
         # brev copy has broken directory nesting.  Use tar piped over
-        # brev exec: tar on remote, base64-encode, capture via exec,
-        # decode+untar locally.
-        import base64 as _b64, subprocess as _sp
+        # brev exec: tar on remote, base64-encode with markers, capture
+        # via exec, decode+untar locally.  Use sentinel markers to isolate
+        # base64 from brev CLI spinner/connection noise.
+        import base64 as _b64, re as _re, subprocess as _sp
+        marker = "__HARBOR_B64_" + uuid.uuid4().hex[:8] + "__"
         result = await _run_brev_exec(
             self._instance_name,
-            f"tar -czf - -C {shlex.quote(source_dir)} . 2>/dev/null | base64",
+            f"echo '{marker}START'; "
+            f"tar -czf - -C {shlex.quote(source_dir)} . 2>/dev/null | base64 -w 0; "
+            f"echo; echo '{marker}END'",
             timeout=120,
         )
         if result.return_code != 0:
             raise RuntimeError(f"Download dir failed: {result.stderr}")
-        # Decode and untar locally
         stdout = result.stdout or ""
-        # Strip any non-base64 noise (spinner chars, connection messages)
-        clean = "".join(
-            line for line in stdout.splitlines()
-            if line and not line.startswith("[") and not line.startswith("Connection")
-            and not line.startswith("ssh:") and line.strip()
-        )
-        tar_bytes = _b64.b64decode(clean)
+        # Extract only the bytes between START and END markers
+        m = _re.search(rf"{marker}START\s*\n(.*?)\n{marker}END", stdout, _re.DOTALL)
+        if not m:
+            raise RuntimeError(
+                f"Download dir failed: markers not found in output "
+                f"(len={len(stdout)})"
+            )
+        # Strip any remaining non-base64 chars (e.g. CR, stray spinner bytes)
+        raw_b64 = "".join(c for c in m.group(1) if c in
+                          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+        if not raw_b64:
+            raise RuntimeError("Download dir failed: no base64 data between markers")
+        tar_bytes = _b64.b64decode(raw_b64)
         target = Path(target_dir)
         target.mkdir(parents=True, exist_ok=True)
         _sp.run(
@@ -334,14 +369,19 @@ class BrevEnvironment(BaseEnvironment):
         inner_cmd = " ".join(parts)
 
         # Brev connects as non-root (ubuntu).  Harbor's agent-setup
-        # phase runs package-manager commands that need root.  We detect
-        # those and prepend sudo; everything else runs as the normal
+        # phase runs package-manager commands that need root.  Detect
+        # real install commands (not substrings like `command -v apk`)
+        # and wrap them with sudo; everything else runs as the normal
         # user so that file ownership stays consistent with brev copy.
+        import re
         needs_root = (
             user == "root" or user == 0
-            or "apt-get " in command
-            or "apk " in command
-            or "yum " in command
+            # Match package-manager INSTALL actions at word boundaries,
+            # not bare mentions like `command -v apt-get`.
+            or bool(re.search(
+                r"\b(apt-get|apt|apk|yum|dnf)\s+(install|add|update|upgrade)\b",
+                command,
+            ))
         )
         if needs_root:
             full_cmd = f"sudo bash -c {shlex.quote(inner_cmd)}"
@@ -498,46 +538,59 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
 
 
 async def _find_brev_instance(name: str) -> dict | None:
-    """Return the brev ls entry for `name`, or None if missing."""
-    result = await _run_brev("ls", "--json", timeout=15)
-    for inst in _parse_brev_json(result.stdout):
-        if inst.get("name") == name:
-            return inst
+    """Return the brev ls entry for `name`, or None if missing.
+
+    Retries a few times — `brev ls` sometimes hits transient RPC
+    deadline-exceeded errors and returns empty stdout.
+    """
+    for attempt in range(4):
+        result = await _run_brev("ls", "--json", timeout=30)
+        parsed = _parse_brev_json(result.stdout)
+        if parsed:
+            for inst in parsed:
+                if inst.get("name") == name:
+                    return inst
+            # JSON parsed, just no match for this name → authoritative miss
+            return None
+        # Empty output = transient failure; back off and retry
+        logger.info("brev ls returned empty (attempt %s) — retrying", attempt + 1)
+        await asyncio.sleep(5)
     return None
 
 
 def _check_instance_matches(instance: dict, req: dict) -> None:
-    """Raise RuntimeError if the instance's GPU doesn't meet task requirements."""
-    gpu = (instance.get("gpu") or "").upper()
-    gpu_count = int(instance.get("gpu_count", 0) or 0)
-    total_vram = float(instance.get("total_vram_gb", 0) or 0)
-    vram_per_gpu = (total_vram / gpu_count) if gpu_count > 0 else 0
+    """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
+    `brev ls --json` only returns {name, gpu (string), instance_type, status}
+    — no gpu_count / total_vram_gb.  So we do a loose name match here and
+    defer stricter checks to the search catalog when available.
+    """
+    gpu = (instance.get("gpu") or "").upper()
     required_type = (req.get("gpu_type") or "").upper()
-    required_count = req.get("gpu_count", 1)
-    required_vram = req.get("min_vram_gb_per_gpu", 0)
+
+    # Loose GPU name match: `RTX PRO 6000` ⊆ `RTX PRO SERVER 6000`
+    # Require ALL tokens of `want` to appear in `have` (and `want ⊆ have` as
+    # a substring fallback for dashed variants like `H100-SXM-80GB`).
+    def _loose_match(want: str, have: str) -> bool:
+        want_tokens = set(want.replace("-", " ").split())
+        have_tokens = set(have.replace("-", " ").split())
+        return want_tokens.issubset(have_tokens) or want in have
 
     errors = []
-    if required_type and required_type not in gpu:
-        errors.append(f"gpu_type: want {required_type!r}, have {gpu!r}")
-    if gpu_count < required_count:
-        errors.append(f"gpu_count: want {required_count}, have {gpu_count}")
-    if required_vram and vram_per_gpu < required_vram:
-        errors.append(
-            f"vram_per_gpu: want {required_vram} GB, have {vram_per_gpu:.0f} GB"
-        )
+    if required_type and not _loose_match(required_type, gpu):
+        errors.append(f"gpu_type: want tokens of {required_type!r} in {gpu!r}")
 
     if errors:
         raise RuntimeError(
             f"Brev instance '{instance.get('name')}' does not meet task "
             f"requirements:\n  - " + "\n  - ".join(errors) +
-            f"\n  (instance: type={instance.get('instance_type')}, "
-            f"gpu={gpu}, count={gpu_count}, vram={total_vram} GB)"
+            f"\n  (instance: type={instance.get('instance_type')}, gpu={gpu})"
         )
 
     logger.info(
-        "Instance '%s' meets requirements: gpu=%s count=%s vram=%s GB",
-        instance.get("name"), gpu, gpu_count, total_vram,
+        "Instance '%s' GPU name matches (%s ~= %s); vram/count not "
+        "verified (not returned by `brev ls --json`)",
+        instance.get("name"), gpu, required_type,
     )
 
 
