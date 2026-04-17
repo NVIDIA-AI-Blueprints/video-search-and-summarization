@@ -36,10 +36,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Paths
-SKILLS_GENERATOR="$REPO_ROOT/tools/eval/harbor/adapters/vss-skills/generate.py"
 DEPLOY_GENERATOR="$REPO_ROOT/tools/eval/harbor/adapters/deploy/generate.py"
-SKILLS_DATASETS_DIR="$REPO_ROOT/tools/eval/harbor/datasets/vss-skills"
-DEPLOY_DATASETS_DIR="$REPO_ROOT/tools/eval/harbor/datasets/deploy"
+DATASETS_DIR="$REPO_ROOT/tools/eval/harbor/datasets"
+DEPLOY_DATASETS_DIR="$DATASETS_DIR/deploy"
 BREV_ENV_MODULE="tools.eval.harbor.envs.brev_env:BrevEnvironment"
 SKILLS_DIR="$REPO_ROOT/skills"
 RESULTS_DIR="$REPO_ROOT/tools/eval/harbor/results"
@@ -54,10 +53,8 @@ ENV_FILE=""
 BREV_INSTANCE_TYPE="${BREV_INSTANCE_TYPE:-l40s-48gb.1x}"
 SKIP_INSTANCE_SETUP=false
 
-# All available skills
-ALL_SKILLS=(deploy alerts sensor-ops incident-report video-analytics video-search video-summarization)
-NON_DEPLOY_SKILLS=(alerts sensor-ops incident-report video-analytics video-search video-summarization)
-DEPLOY_PROFILES=(base alerts lvs search)
+# Skills with a generator adapter (only 'deploy' for now).
+ALL_SKILLS=(deploy)
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -72,6 +69,8 @@ Generate Harbor evaluation datasets for all VSS skills and run them.
 Options:
   --generate-only          Generate task datasets without running harbor
   --skill SKILL            Evaluate a single skill (default: all)
+  --task PROFILE/TASK      Run a single deploy task, e.g. base/thor-shared
+                           Implies --skill deploy.
   --dry-run                Print harbor commands without executing
   --parallel N             Run N evaluations concurrently (default: 1)
   --agent AGENT            Agent to use (default: claude-code)
@@ -196,6 +195,8 @@ echo "    BREV_INSTANCE:      ${BREV_INSTANCE:-<auto-create>}"
 echo "    BREV_INSTANCE_TYPE: $BREV_INSTANCE_TYPE"
 [[ -n "${NGC_CLI_API_KEY:-}" ]] && echo "    NGC_CLI_API_KEY:    set" || echo "    NGC_CLI_API_KEY:    (not set)"
 [[ -n "${NVIDIA_API_KEY:-}" ]] && echo "    NVIDIA_API_KEY:     set" || echo "    NVIDIA_API_KEY:     (not set)"
+[[ -n "${LLM_REMOTE_URL:-}" ]] && echo "    LLM_REMOTE_URL:     ${LLM_REMOTE_URL} (model: ${LLM_REMOTE_MODEL:-?})" || echo "    LLM_REMOTE_URL:     (not set — remote-* modes disabled for LLM)"
+[[ -n "${VLM_REMOTE_URL:-}" ]] && echo "    VLM_REMOTE_URL:     ${VLM_REMOTE_URL} (model: ${VLM_REMOTE_MODEL:-?})" || echo "    VLM_REMOTE_URL:     (not set — remote-* modes disabled for VLM)"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -296,6 +297,15 @@ DEPLOY_GEN_ARGS=(
     --skill-dir "$SKILLS_DIR/deploy"
 )
 
+# Plumb remote LLM/VLM endpoints from env into the generator.
+# If either pair is set, the generator will emit remote-* tasks for it.
+if [[ -n "${LLM_REMOTE_URL:-}" ]] && [[ -n "${LLM_REMOTE_MODEL:-}" ]]; then
+    DEPLOY_GEN_ARGS+=(--llm-remote-url "$LLM_REMOTE_URL" --llm-remote-model "$LLM_REMOTE_MODEL")
+fi
+if [[ -n "${VLM_REMOTE_URL:-}" ]] && [[ -n "${VLM_REMOTE_MODEL:-}" ]]; then
+    DEPLOY_GEN_ARGS+=(--vlm-remote-url "$VLM_REMOTE_URL" --vlm-remote-model "$VLM_REMOTE_MODEL")
+fi
+
 if [[ -n "$SKILL_FILTER" ]] && [[ "$SKILL_FILTER" == "deploy" ]]; then
     :
 elif [[ -n "$SKILL_FILTER" ]] && [[ "$SKILL_FILTER" != "deploy" ]]; then
@@ -311,38 +321,12 @@ if [[ ${#DEPLOY_GEN_ARGS[@]} -gt 0 ]]; then
     fi
 fi
 
-echo ""
-echo "--- Step 1b: Generating non-deploy skill datasets ---"
-echo ""
-
-SKILLS_GEN_ARGS=(
-    --output-dir "$SKILLS_DATASETS_DIR"
-    --skills-dir "$SKILLS_DIR"
-)
-
-SKIP_SKILLS_GEN=false
-if [[ -n "$SKILL_FILTER" ]]; then
-    if [[ "$SKILL_FILTER" == "deploy" ]]; then
-        echo "  (skipping non-deploy — filtered to deploy)"
-        SKIP_SKILLS_GEN=true
-    else
-        SKILLS_GEN_ARGS+=(--skill "$SKILL_FILTER")
-    fi
-fi
-
-if ! $SKIP_SKILLS_GEN; then
-    if $DRY_RUN; then
-        echo "[dry-run] python3 $SKILLS_GENERATOR ${SKILLS_GEN_ARGS[*]}"
-    else
-        python3 "$SKILLS_GENERATOR" "${SKILLS_GEN_ARGS[@]}"
-    fi
-fi
+# Non-deploy skills don't have generators yet; they'll live under
+# datasets/<skill>/ mirroring the skills/ folder structure.
 
 if $GENERATE_ONLY; then
     echo ""
-    echo "Datasets generated at:"
-    echo "  Deploy:  $DEPLOY_DATASETS_DIR"
-    echo "  Skills:  $SKILLS_DATASETS_DIR"
+    echo "Datasets generated under: $DATASETS_DIR"
     echo "Done (generate-only mode)."
     exit 0
 fi
@@ -365,22 +349,32 @@ else
 fi
 
 # Build list of eval items: each is "dataset_dir:task_id:label"
+# Deploy layout: datasets/deploy/<profile>/<platform>-<mode>/
+#   dataset root = datasets/deploy/<profile>
+#   task_id      = <platform>-<mode>
 EVAL_ITEMS=()
+
+enumerate_deploy_tasks() {
+    # Populate EVAL_ITEMS with all deploy tasks found on disk.
+    for profile_dir in "$DEPLOY_DATASETS_DIR"/*/; do
+        [[ -d "$profile_dir" ]] || continue
+        profile=$(basename "$profile_dir")
+        for task_dir in "$profile_dir"*/; do
+            [[ -f "$task_dir/task.toml" ]] || continue
+            task_id=$(basename "$task_dir")
+            EVAL_ITEMS+=("$profile_dir:$task_id:deploy/$profile/$task_id")
+        done
+    done
+}
+
 if [[ -n "$SKILL_FILTER" ]]; then
     if [[ "$SKILL_FILTER" == "deploy" ]]; then
-        for p in "${DEPLOY_PROFILES[@]}"; do
-            EVAL_ITEMS+=("$DEPLOY_DATASETS_DIR:$p:deploy/$p")
-        done
+        enumerate_deploy_tasks
     else
-        EVAL_ITEMS+=("$SKILLS_DATASETS_DIR:$SKILL_FILTER:$SKILL_FILTER")
+        echo "  skill '$SKILL_FILTER' has no generator adapter yet — nothing to run"
     fi
 else
-    for p in "${DEPLOY_PROFILES[@]}"; do
-        EVAL_ITEMS+=("$DEPLOY_DATASETS_DIR:$p:deploy/$p")
-    done
-    for s in "${NON_DEPLOY_SKILLS[@]}"; do
-        EVAL_ITEMS+=("$SKILLS_DATASETS_DIR:$s:$s")
-    done
+    enumerate_deploy_tasks
 fi
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)

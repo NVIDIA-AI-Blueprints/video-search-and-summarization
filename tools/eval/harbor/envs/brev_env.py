@@ -1,34 +1,33 @@
-"""Harbor environment provider that uses a pre-existing Brev GPU instance.
+"""Harbor environment provider for Brev GPU instances.
 
-Instead of creating/destroying instances per task, this provider connects
-to an already-running Brev instance via ``brev exec`` and ``brev copy``.
-This avoids the slow and unreliable instance provisioning loop.
+Two modes:
 
-Set the instance name via:
-  - BREV_INSTANCE env var, or
-  - ``brev_instance`` in task.toml [metadata]
+1. **Reuse an existing instance** (BREV_INSTANCE env var):
+   Validate the instance's GPU meets the task's requirements
+   (gpu_type, gpu_count, min_vram_gb_per_gpu from task.toml [metadata])
+   and fail early if not.
 
-Usage:
-    # Pre-create your instance once:
-    brev create my-eval-gpu --detached
-    # Wait for it to be RUNNING+READY, then:
+2. **Auto-provision** (no BREV_INSTANCE):
+   Query `brev search --json` for a matching instance type, create
+   one, wait for ready.  The instance is stopped (not deleted) on
+   trial completion so subsequent trials can reuse it.
 
-    BREV_INSTANCE=my-eval-gpu harbor run \
-        --environment-import-path "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
-        -p datasets/deploy -a claude-code -n 1
-
-Requires:
-    - ``brev`` CLI installed and authenticated
-    - A running Brev instance (status=RUNNING, shell=READY)
-    - ``harbor`` package (provides BaseEnvironment)
+Task.toml [metadata] fields consumed:
+    gpu_type              — e.g. "L40S", "H100", "RTX PRO 6000"
+    gpu_count             — 1 or 2
+    min_vram_gb_per_gpu   — e.g. 48, 80
+    brev_search           — (optional) substring override for brev search
+    brev_instance         — (optional) explicit instance name override
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shlex
+import uuid
 from enum import Enum
 from pathlib import Path
 
@@ -89,40 +88,106 @@ class BrevEnvironment(BaseEnvironment):
                 "brev CLI not found. Install from https://docs.brev.dev/"
             )
 
-    def _resolve_instance_name(self) -> str:
-        """Resolve instance name: env var > task.toml > error."""
-        # Env var takes priority
-        if DEFAULT_INSTANCE:
-            return DEFAULT_INSTANCE
-
-        # Check task.toml metadata
+    def _read_task_metadata(self) -> dict:
+        """Read [metadata] from this task's task.toml."""
         try:
             import tomllib
         except ModuleNotFoundError:
             import tomli as tomllib  # type: ignore[no-redef]
 
         task_toml = self.environment_dir.parent / "task.toml"
-        if task_toml.exists():
-            data = tomllib.loads(task_toml.read_text())
-            meta = data.get("metadata", {})
-            if "brev_instance" in meta:
-                return meta["brev_instance"]
+        if not task_toml.exists():
+            return {}
+        return tomllib.loads(task_toml.read_text()).get("metadata", {}) or {}
 
-        raise RuntimeError(
-            "No Brev instance specified. Set BREV_INSTANCE env var or "
-            "add brev_instance to task.toml [metadata]."
-        )
+    def _resolve_instance_name(self) -> str | None:
+        """Resolve instance name: env var > task.toml > None (auto-provision)."""
+        if DEFAULT_INSTANCE:
+            return DEFAULT_INSTANCE
+        meta = self._read_task_metadata()
+        if "brev_instance" in meta:
+            return meta["brev_instance"]
+        return None
 
     async def start(self, force_build: bool) -> None:
-        """Validate the pre-existing instance is reachable."""
+        """Validate or provision a Brev instance matching task GPU requirements."""
         if self._started:
             return
 
+        meta = self._read_task_metadata()
+        requirements = {
+            "gpu_type": meta.get("gpu_type"),
+            "gpu_count": int(meta.get("gpu_count", 1)),
+            "min_vram_gb_per_gpu": int(meta.get("min_vram_gb_per_gpu", 0)),
+            "brev_search": meta.get("brev_search") or meta.get("gpu_type"),
+        }
+
         self._instance_name = self._resolve_instance_name()
 
-        logger.info("Connecting to existing Brev instance: %s", self._instance_name)
+        if self._instance_name:
+            # Mode 1: validate existing instance's GPU fits task requirements
+            logger.info("Validating Brev instance '%s' against task requirements %s",
+                        self._instance_name, requirements)
+            instance = await _find_brev_instance(self._instance_name)
+            if instance is None:
+                raise RuntimeError(
+                    f"Brev instance '{self._instance_name}' not found "
+                    f"(is it deleted? wrong org?)"
+                )
+            _check_instance_matches(instance, requirements)
+        else:
+            # Mode 2: auto-provision via brev search + create.
+            # Some platforms (DGX-SPARK, IGX-THOR) aren't provisionable as
+            # cloud instance types — they're physical devices registered via
+            # `brev register`.  Check there first and give a helpful error.
+            if not requirements["brev_search"]:
+                raise RuntimeError(
+                    "No BREV_INSTANCE set and no GPU requirements in task.toml "
+                    "[metadata] — cannot auto-provision."
+                )
+            logger.info("Auto-provisioning Brev instance for %s", requirements)
+            instance_type = await _find_cheapest_matching_type(requirements)
+            if not instance_type:
+                # Before failing, list any registered nodes that might fit.
+                suggestions = await _suggest_registered_devices(requirements)
+                msg = [
+                    f"Cannot auto-provision: no Brev cloud instance type matches",
+                    f"  requirements: {requirements}",
+                ]
+                if suggestions:
+                    msg.append("")
+                    msg.append("Registered device(s) matching (or partially matching) these requirements:")
+                    for s in suggestions:
+                        msg.append(f"  - {s}")
+                    msg.append("")
+                    msg.append(
+                        "Set `BREV_INSTANCE=<name>` or add `brev_instance = \"<name>\"` "
+                        "to task.toml [metadata] to use one of these."
+                    )
+                else:
+                    msg.append("")
+                    msg.append(
+                        "No registered devices match either. Options:\n"
+                        "  1. Register a physical device via `brev register` "
+                        "(DGX Spark / IGX Thor are typically registered, not provisioned).\n"
+                        "  2. Adjust gpu_type / brev_search in the task to a provisionable "
+                        "platform (e.g. H100, L40S, RTX PRO 6000)."
+                    )
+                full_msg = "\n".join(msg)
+                logger.error(full_msg)
+                raise RuntimeError(full_msg)
+            self._instance_name = f"harbor-{uuid.uuid4().hex[:8]}"
+            logger.info("Creating %s as %s", self._instance_name, instance_type)
+            create_result = await _run_brev(
+                "create", self._instance_name, "--detached",
+                stdin_data=instance_type,
+                timeout=120,
+            )
+            if create_result.return_code != 0:
+                raise RuntimeError(f"brev create failed: {create_result.stderr}")
+            await _wait_for_running(self._instance_name)
 
-        # Quick smoke test — run a trivial command
+        # Quick smoke test — ensure exec works
         result = await _run_brev_exec(
             self._instance_name, "echo harbor-ready",
             timeout=60,
@@ -132,12 +197,10 @@ class BrevEnvironment(BaseEnvironment):
                 f"Cannot reach Brev instance '{self._instance_name}': "
                 f"{result.stderr}"
             )
-
-        stdout = (result.stdout or "").strip()
-        if "harbor-ready" not in stdout:
+        if "harbor-ready" not in (result.stdout or ""):
             raise RuntimeError(
                 f"Unexpected response from instance '{self._instance_name}': "
-                f"{stdout!r}"
+                f"{(result.stdout or '')[:200]!r}"
             )
 
         # Pre-create harbor's expected directories with correct ownership
@@ -255,7 +318,12 @@ class BrevEnvironment(BaseEnvironment):
     ) -> ExecResult:
         assert self._instance_name
 
-        parts = ["source ~/.profile 2>/dev/null;"]
+        parts = [
+            # Make sure user-installed binaries (claude, uv, etc.) are on PATH
+            # even though `brev exec` spawns a non-interactive non-login shell.
+            'export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH";',
+            "source ~/.profile 2>/dev/null;",
+        ]
         if env:
             for k, v in env.items():
                 parts.append(f"export {shlex.quote(k)}={shlex.quote(v)};")
@@ -372,4 +440,183 @@ async def _run_brev_copy(
         stdout=stdout.decode() if stdout else None,
         stderr=stderr.decode() if stderr else None,
         return_code=proc.returncode or 0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Brev CLI wrappers (for create / ls / search)
+# ---------------------------------------------------------------------------
+
+async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None) -> ExecResult:
+    """Generic brev CLI wrapper.  Stdin is closed via empty pipe if no data
+    provided — prevents the CLI from hanging on its interactive walkthrough."""
+    cmd = ["brev", *args]
+    logger.debug("brev: %s", " ".join(args))
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=(stdin_data or "").encode() + b"\n"),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        if stdout and stdout.strip():
+            return ExecResult(
+                stdout=stdout.decode(),
+                stderr=stderr.decode() if stderr else None,
+                return_code=0,
+            )
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="brev command timed out",
+            return_code=124,
+        )
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
+def _parse_brev_json(raw: str | None) -> list[dict]:
+    """Strip trailing walkthrough text and parse JSON array from brev CLI."""
+    if not raw:
+        return []
+    bracket = raw.rfind("]")
+    if bracket < 0:
+        return []
+    try:
+        return json.loads(raw[: bracket + 1])
+    except json.JSONDecodeError:
+        return []
+
+
+async def _find_brev_instance(name: str) -> dict | None:
+    """Return the brev ls entry for `name`, or None if missing."""
+    result = await _run_brev("ls", "--json", timeout=15)
+    for inst in _parse_brev_json(result.stdout):
+        if inst.get("name") == name:
+            return inst
+    return None
+
+
+def _check_instance_matches(instance: dict, req: dict) -> None:
+    """Raise RuntimeError if the instance's GPU doesn't meet task requirements."""
+    gpu = (instance.get("gpu") or "").upper()
+    gpu_count = int(instance.get("gpu_count", 0) or 0)
+    total_vram = float(instance.get("total_vram_gb", 0) or 0)
+    vram_per_gpu = (total_vram / gpu_count) if gpu_count > 0 else 0
+
+    required_type = (req.get("gpu_type") or "").upper()
+    required_count = req.get("gpu_count", 1)
+    required_vram = req.get("min_vram_gb_per_gpu", 0)
+
+    errors = []
+    if required_type and required_type not in gpu:
+        errors.append(f"gpu_type: want {required_type!r}, have {gpu!r}")
+    if gpu_count < required_count:
+        errors.append(f"gpu_count: want {required_count}, have {gpu_count}")
+    if required_vram and vram_per_gpu < required_vram:
+        errors.append(
+            f"vram_per_gpu: want {required_vram} GB, have {vram_per_gpu:.0f} GB"
+        )
+
+    if errors:
+        raise RuntimeError(
+            f"Brev instance '{instance.get('name')}' does not meet task "
+            f"requirements:\n  - " + "\n  - ".join(errors) +
+            f"\n  (instance: type={instance.get('instance_type')}, "
+            f"gpu={gpu}, count={gpu_count}, vram={total_vram} GB)"
+        )
+
+    logger.info(
+        "Instance '%s' meets requirements: gpu=%s count=%s vram=%s GB",
+        instance.get("name"), gpu, gpu_count, total_vram,
+    )
+
+
+async def _find_cheapest_matching_type(req: dict) -> str | None:
+    """Find the cheapest `brev search` instance type matching GPU requirements."""
+    result = await _run_brev("search", "--json", timeout=30)
+    search = (req.get("brev_search") or "").lower()
+    required_count = req.get("gpu_count", 1)
+    required_vram = req.get("min_vram_gb_per_gpu", 0)
+
+    candidates = []
+    for inst in _parse_brev_json(result.stdout):
+        gpu_name = (inst.get("gpu_name") or "").lower()
+        gpu_count = int(inst.get("gpu_count", 0) or 0)
+        total_vram = float(inst.get("total_vram_gb", 0) or 0)
+        if search and search not in gpu_name:
+            continue
+        if gpu_count < required_count:
+            continue
+        if required_vram and (total_vram / max(gpu_count, 1)) < required_vram:
+            continue
+        candidates.append(inst)
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: float(x.get("price_per_hour", 0) or 0))
+    return candidates[0].get("type")
+
+
+async def _suggest_registered_devices(req: dict) -> list[str]:
+    """Query `brev ls nodes --json` for registered physical devices that
+    match the task's requirements (best-effort, by name substring).
+    Returns human-readable strings for error messages."""
+    result = await _run_brev("ls", "nodes", "--json", timeout=15)
+    nodes = _parse_brev_json(result.stdout)
+    if not nodes:
+        return []
+    search = (req.get("brev_search") or req.get("gpu_type") or "").lower()
+    suggestions = []
+    for n in nodes:
+        name = n.get("name") or ""
+        status = n.get("status") or "?"
+        # Node entries don't include GPU specs; fall back to name matching.
+        # If search term appears in node name, it's a likely fit.
+        if search and search in name.lower():
+            suggestions.append(f"{name}  (status={status})  [name matches '{search}']")
+    # Also include all connected nodes as fallback suggestions.
+    if not suggestions:
+        for n in nodes:
+            if n.get("status") == "Connected":
+                suggestions.append(
+                    f"{n.get('name')}  (status=Connected)  "
+                    f"[GPU unknown — verify manually]"
+                )
+    return suggestions
+
+
+async def _wait_for_running(
+    name: str,
+    timeout_sec: int = 2400,
+    poll_interval: int = 15,
+) -> None:
+    """Poll `brev ls` until the named instance reaches RUNNING + shell READY."""
+    elapsed = 0
+    while elapsed < timeout_sec:
+        inst = await _find_brev_instance(name)
+        if inst:
+            status = inst.get("status")
+            shell = inst.get("shell_status")
+            if status == "FAILURE":
+                raise RuntimeError(f"Brev instance {name} creation FAILED")
+            if status == "RUNNING" and shell == "READY":
+                return
+            logger.info(
+                "Waiting for %s (status=%s shell=%s, %ds/%ds)",
+                name, status, shell, elapsed, timeout_sec,
+            )
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+    raise TimeoutError(
+        f"Brev instance {name} did not become ready within {timeout_sec}s"
     )

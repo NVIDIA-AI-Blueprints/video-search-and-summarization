@@ -3,3 +3,7 @@
 # Harbor eval outputs (generated at runtime)
 tools/eval/harbor/results/
 tools/eval/harbor/datasets/
+jobs/
+
+# Local secrets
+.env

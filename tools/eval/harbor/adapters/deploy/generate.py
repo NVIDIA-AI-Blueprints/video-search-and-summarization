@@ -1,43 +1,42 @@
 #!/usr/bin/env python3
 """Generate Harbor tasks for VSS deploy skill evaluation.
 
-Generates one task per profile (base, alerts, lvs, search).  Each task
-provisions a Brev GPU instance, then asks the agent to deploy that
-profile using the /deploy skill.
+For each profile × platform × mode combination, generates a task that
+asks the agent to deploy the profile using local LLM/VLM NIMs.
 
-For remote LLM/VLM modes the tasks point at model endpoints running on
-the *generating host* (this machine), so the Brev instance calls back
-over the network instead of pulling its own NIMs.  The generator auto-
-detects local model ports by probing localhost for /v1/models.
+Matrix:
+    Profiles: base, alerts, lvs, search
+    Platforms: H100 (80GB), L40S (48GB), RTXPRO6000BW (48GB)
+    Modes:
+        shared     — LLM + VLM share a single GPU (local_shared)
+        dedicated  — LLM on device 0, VLM on device 1 (two GPUs)
+
+Directory layout:
+    datasets/deploy/<profile>/<platform>-<mode>/
+        instruction.md, task.toml, tests/, solution/, skills/, environment/
 
 Usage:
-    # Generate all profiles (auto-detect local models)
+    # Generate all profiles × platforms × modes
     python generate.py --output-dir ../../datasets/deploy
 
     # Single profile
     python generate.py --output-dir ../../datasets/deploy --profile base
 
-    # Explicit host IP + model ports
-    python generate.py --output-dir ../../datasets/deploy \
-        --host-ip 10.160.0.184 \
-        --llm-port 31081 --vlm-port 31082
+    # Single platform
+    python generate.py --output-dir ../../datasets/deploy --platform L40S
 
 Run with Harbor:
-    harbor run --env "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
-        -p tools/eval/harbor/datasets/deploy -a claude-code -n 1
+    harbor run --env "tools.eval.harbor.envs.brev_env:BrevEnvironment" \\
+        -p tools/eval/harbor/datasets/deploy/base -a claude-code -n 1
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
-from urllib.request import urlopen
-from urllib.error import URLError
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -46,13 +45,94 @@ from urllib.error import URLError
 VSS_REPO_URL = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
 VSS_BRANCH = "feat/skills"
 
-# Candidate ports to scan for local model endpoints
-MODEL_CANDIDATE_PORTS = [
-    8000, 8001, 8080, 8888,
-    30081, 30082,
-    31080, 31081, 31082, 31083,
-    5000, 5001,
-]
+# ---------------------------------------------------------------------------
+# Platform / GPU specs
+# ---------------------------------------------------------------------------
+#
+# min_vram_per_gpu: minimum VRAM per GPU in GB required to run VSS NIMs
+# brev_search:      substring to match in `brev search --json` gpu_name field
+
+PLATFORMS: dict[str, dict] = {
+    "H100": {
+        "short_name": "h100",
+        "gpu_type": "H100",
+        "min_vram_per_gpu": 80,
+        "brev_search": "H100",
+        "supported_modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"],
+        "default_mode": None,
+    },
+    "L40S": {
+        "short_name": "l40s",
+        "gpu_type": "L40S",
+        "min_vram_per_gpu": 48,
+        "brev_search": "L40S",
+        # 48 GB is not enough for LLM + VLM on the same GPU → no shared
+        "supported_modes": ["dedicated", "remote-all", "remote-llm", "remote-vlm"],
+        "default_mode": None,
+    },
+    "RTXPRO6000BW": {
+        "short_name": "rtxpro6000bw",
+        "gpu_type": "RTX PRO 6000",
+        "min_vram_per_gpu": 96,
+        "brev_search": "RTX PRO",
+        "supported_modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"],
+        "default_mode": None,
+    },
+    # Edge platforms — single GPU; default config offloads the LLM.
+    "DGX-SPARK": {
+        "short_name": "spark",
+        "gpu_type": "GB10",
+        "min_vram_per_gpu": 96,   # unified memory on GB10
+        "brev_search": "GB10",
+        "supported_modes": ["shared", "remote-llm"],
+        "default_mode": "remote-llm",  # bare "spark" task id
+    },
+    "IGX-THOR": {
+        "short_name": "thor",
+        "gpu_type": "Thor",
+        "min_vram_per_gpu": 64,
+        "brev_search": "Thor",
+        "supported_modes": ["shared", "remote-llm"],
+        "default_mode": "remote-llm",  # bare "thor" task id
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Modes
+# ---------------------------------------------------------------------------
+
+MODES: dict[str, dict] = {
+    "shared": {
+        "llm_mode": "local_shared",
+        "vlm_mode": "local_shared",
+        "gpus_needed": 1,
+        "description": "LLM and VLM share a single GPU",
+    },
+    "dedicated": {
+        "llm_mode": "local",
+        "vlm_mode": "local",
+        "gpus_needed": 2,
+        "description": "LLM on GPU 0, VLM on GPU 1",
+    },
+    "remote-all": {
+        "llm_mode": "remote",
+        "vlm_mode": "remote",
+        "gpus_needed": 0,
+        "description": "Both LLM and VLM via remote endpoints (no local GPU used)",
+    },
+    "remote-llm": {
+        "llm_mode": "remote",
+        "vlm_mode": "local_shared",
+        "gpus_needed": 1,
+        "description": "Remote LLM, local VLM on a single GPU",
+    },
+    "remote-vlm": {
+        "llm_mode": "local_shared",
+        "vlm_mode": "remote",
+        "gpus_needed": 1,
+        "description": "Local LLM on a single GPU, remote VLM",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Profile definitions
@@ -60,9 +140,7 @@ MODEL_CANDIDATE_PORTS = [
 
 PROFILES: dict[str, dict] = {
     "base": {
-        "bp_profile": "bp_developer_base",
-        "mode": "2d",
-        "description": "Deploy VSS base profile — agent, UI, VST, LLM/VLM NIMs",
+        "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
         "expected_containers": [
             "vss-agent",
             "metropolis-vss-ui",
@@ -76,9 +154,7 @@ PROFILES: dict[str, dict] = {
         ],
     },
     "alerts": {
-        "bp_profile": "bp_developer_alerts",
-        "mode": "2d_cv",
-        "description": "Deploy VSS alerts profile — CV perception, alert verification, analytics",
+        "description": "VSS alerts profile — CV perception, alert verification",
         "expected_containers": [
             "vss-agent",
             "mdx-redis",
@@ -89,9 +165,7 @@ PROFILES: dict[str, dict] = {
         ],
     },
     "lvs": {
-        "bp_profile": "bp_developer_lvs",
-        "mode": "2d",
-        "description": "Deploy VSS LVS profile — long video summarization",
+        "description": "VSS LVS profile — long video summarization",
         "expected_containers": [
             "vss-agent",
             "metropolis-vss-ui",
@@ -105,9 +179,7 @@ PROFILES: dict[str, dict] = {
         ],
     },
     "search": {
-        "bp_profile": "bp_developer_search",
-        "mode": "2d",
-        "description": "Deploy VSS search profile — Cosmos Embed1 semantic video search",
+        "description": "VSS search profile — Cosmos Embed1 semantic search",
         "expected_containers": [
             "vss-agent",
             "metropolis-vss-ui",
@@ -123,163 +195,55 @@ PROFILES: dict[str, dict] = {
 }
 
 # ---------------------------------------------------------------------------
-# Local model discovery
-# ---------------------------------------------------------------------------
-
-def detect_host_ip() -> str | None:
-    """Detect this host's IP reachable from external machines."""
-    try:
-        result = subprocess.run(
-            ["hostname", "-I"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip().split()[0]
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    return None
-
-
-def probe_model_endpoint(port: int, host: str = "localhost") -> dict | None:
-    """Probe a port for an OpenAI-compatible /v1/models endpoint.
-
-    Returns {"port": int, "model_id": str} or None.
-    """
-    try:
-        url = f"http://{host}:{port}/v1/models"
-        with urlopen(url, timeout=2) as resp:
-            data = json.loads(resp.read())
-            if isinstance(data, dict) and "data" in data and len(data["data"]) > 0:
-                model_id = data["data"][0].get("id", "unknown")
-                return {"port": port, "model_id": model_id}
-    except (URLError, OSError, json.JSONDecodeError, KeyError):
-        pass
-    return None
-
-
-def discover_local_models(
-    candidate_ports: list[int] | None = None,
-) -> dict[str, dict]:
-    """Scan localhost for LLM and VLM model endpoints.
-
-    Returns {"llm": {"port": N, "model_id": "..."}, "vlm": {...}} with
-    whatever was found.  Classification is by model name heuristic:
-    cosmos/vision/vlm → VLM, everything else → LLM.
-    """
-    if candidate_ports is None:
-        candidate_ports = MODEL_CANDIDATE_PORTS
-
-    found: dict[str, dict] = {}
-
-    print("Scanning localhost for model endpoints...")
-    for port in candidate_ports:
-        info = probe_model_endpoint(port)
-        if info is None:
-            continue
-
-        model_id = info["model_id"].lower()
-        is_vlm = any(kw in model_id for kw in ["cosmos", "vision", "vlm", "qwen3-vl", "reason"])
-        role = "vlm" if is_vlm else "llm"
-
-        # First match wins per role
-        if role not in found:
-            found[role] = info
-            print(f"  Found {role.upper()}: port {port} → {info['model_id']}")
-
-    return found
-
-
-# ---------------------------------------------------------------------------
-# Brev helpers
-# ---------------------------------------------------------------------------
-
-def query_brev_instances() -> list[dict]:
-    """Query available Brev instances via `brev search --json`."""
-    try:
-        result = subprocess.run(
-            ["brev", "search", "--json"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode == 0:
-            return json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Warning: could not query brev search: {e}")
-    return []
-
-
-def find_brev_instance_type(
-    brev_instances: list[dict],
-    gpu_name: str,
-    gpu_count: int,
-    min_vram: int,
-) -> str | None:
-    """Find the cheapest Brev instance type matching GPU requirements."""
-    if not brev_instances:
-        return None
-
-    candidates = [
-        inst for inst in brev_instances
-        if gpu_name.lower() in inst["gpu_name"].lower()
-        and inst["gpu_count"] >= gpu_count
-        and inst["total_vram_gb"] >= min_vram * gpu_count
-    ]
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda x: x["price_per_hour"])
-    return candidates[0]["type"]
-
-
-# ---------------------------------------------------------------------------
 # Instruction generation
 # ---------------------------------------------------------------------------
 
-def generate_instruction(profile: str, profile_def: dict, host_ip: str | None, models: dict) -> str:
-    """Generate the instruction.md for a deploy task.
+def _describe_model(role: str, mode: str, remote: dict | None) -> str:
+    """One-line description of the LLM/VLM configuration for the instruction."""
+    if mode == "remote" and remote:
+        url = remote.get("url", "")
+        model = remote.get("model", "")
+        return f"- {role}: remote, endpoint `{url}` (model `{model}`)"
+    if mode == "local_shared":
+        return f"- {role}: local NIM, mode `local_shared` (shares GPU)"
+    if mode == "local":
+        return f"- {role}: local NIM, mode `local` (dedicated GPU)"
+    return f"- {role}: mode `{mode}`"
 
-    State the goal and relevant context only — the agent uses the
-    `/deploy` skill (registered via task.toml skills_dir) to figure out
-    the workflow.
-    """
+
+def generate_instruction(
+    profile: str,
+    platform: str,
+    mode: str,
+    llm_remote: dict | None,
+    vlm_remote: dict | None,
+) -> str:
+    """High-level goal + context. Agent uses /deploy skill for the workflow."""
+    platform_spec = PLATFORMS[platform]
+    mode_spec = MODES[mode]
+
     lines = [
         f"Use the `/deploy` skill to deploy the VSS **{profile}** profile on this machine.",
         "",
         "## Target configuration",
         "",
-        "- Hardware profile: `L40S`",
-    ]
-
-    if host_ip and "llm" in models:
-        lines.append(
-            f"- LLM: remote, running at `http://{host_ip}:{models['llm']['port']}/v1` "
-            f"(model: `{models['llm']['model_id']}`)"
-        )
-    else:
-        lines.append("- LLM: remote, via NVIDIA NIM API")
-
-    if host_ip and "vlm" in models:
-        lines.append(
-            f"- VLM: remote, running at `http://{host_ip}:{models['vlm']['port']}/v1` "
-            f"(model: `{models['vlm']['model_id']}`)"
-        )
-    else:
-        lines.append("- VLM: remote, via NVIDIA NIM API")
-
-    lines.extend([
+        f"- Hardware profile: `{platform}`",
+        f"- GPU mode: **{mode}** — {mode_spec['description']}",
+        _describe_model("LLM", mode_spec["llm_mode"], llm_remote),
+        _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote),
         "",
         "## Credentials",
         "",
-        "- `NGC_CLI_API_KEY` is available in the environment for NGC "
-        "container registry authentication.",
+        "- `NGC_CLI_API_KEY` is available in the environment for pulling NIM "
+        "containers from `nvcr.io`.",
         "",
         "## Success criteria",
         "",
         "Deployment is successful when the Agent API responds at "
-        "`http://localhost:8000/docs` and core containers "
-        "(`vss-agent`, `metropolis-vss-ui`, `mdx-redis`) are running.",
+        "`http://localhost:8000/docs` and the expected core containers "
+        "are running.",
         "",
-    ])
-
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -287,14 +251,11 @@ def generate_instruction(profile: str, profile_def: dict, host_ip: str | None, m
 # Test script generation
 # ---------------------------------------------------------------------------
 
-def generate_test_script(profile: str, profile_def: dict, host_ip: str | None, models: dict) -> str:
-    """Generate test.sh verifier for a deploy task.
-
-    Full deployment validation: checks .env settings, running containers,
-    and endpoint health.  Writes harbor reward to /logs/verifier/reward.txt.
-    """
+def generate_test_script(profile: str, profile_def: dict, platform: str, mode: str) -> str:
+    """Verifier: check .env config, running containers, healthy endpoints."""
     containers = profile_def["expected_containers"]
     endpoints = profile_def["expected_endpoints"]
+    mode_spec = MODES[mode]
 
     container_checks = "\n".join(
         'check_container "' + c + '"' for c in containers
@@ -305,9 +266,9 @@ def generate_test_script(profile: str, profile_def: dict, host_ip: str | None, m
     )
 
     env_checks = [
-        ("HARDWARE_PROFILE", "L40S"),
-        ("LLM_MODE", "remote"),
-        ("VLM_MODE", "remote"),
+        ("HARDWARE_PROFILE", platform),
+        ("LLM_MODE", mode_spec["llm_mode"]),
+        ("VLM_MODE", mode_spec["vlm_mode"]),
     ]
     validate_lines = "\n".join(
         'validate_env "' + k + '" "' + v + '"' for k, v in env_checks
@@ -315,8 +276,8 @@ def generate_test_script(profile: str, profile_def: dict, host_ip: str | None, m
 
     lines = [
         "#!/bin/bash",
-        "# Verifier for deploy profile: " + profile,
-        "# Writes reward to /logs/verifier/reward.txt for harbor.",
+        "# Verifier for deploy: " + profile + " on " + platform + "/" + mode,
+        "# Writes reward to /logs/verifier/reward.txt",
         "set -uo pipefail",
         "",
         "PASS=0",
@@ -373,27 +334,22 @@ def generate_test_script(profile: str, profile_def: dict, host_ip: str | None, m
         "",
         'ENV_FILE="$REPO/deployments/developer-workflow/dev-profile-' + profile + '/.env"',
         "",
-        "# --- Validate .env settings ---",
-        'echo "=== Checking .env configuration ==="',
+        'echo "=== Checking .env ==="',
         validate_lines,
         "",
-        "# --- Check containers ---",
         'echo ""',
         'echo "=== Checking containers ==="',
         container_checks,
         "",
-        "# --- Check endpoints ---",
         'echo ""',
         'echo "=== Checking endpoints ==="',
         endpoint_checks,
         "",
-        "# --- Write reward ---",
         'echo ""',
         'echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="',
         "",
-        "# Reward is fraction of checks passed",
         'if [ "$TOTAL" -gt 0 ]; then',
-        "    python3 -c \"print($PASS / $TOTAL)\" > /logs/verifier/reward.txt 2>/dev/null \\",
+        '    python3 -c "print($PASS / $TOTAL)" > /logs/verifier/reward.txt 2>/dev/null \\',
         "        || echo 0 > /logs/verifier/reward.txt",
         "else",
         "    echo 0 > /logs/verifier/reward.txt",
@@ -408,26 +364,36 @@ def generate_test_script(profile: str, profile_def: dict, host_ip: str | None, m
 # Solution script generation
 # ---------------------------------------------------------------------------
 
-def generate_solve_script(profile: str, profile_def: dict, host_ip: str | None, models: dict) -> str:
-    """Generate gold solution solve.sh for a deploy task (compose-only)."""
+def generate_solve_script(
+    profile: str,
+    platform: str,
+    mode: str,
+    llm_remote: dict | None,
+    vlm_remote: dict | None,
+) -> str:
+    """Gold solution: configure .env + deploy."""
+    mode_spec = MODES[mode]
+
     overrides: dict[str, str] = {
-        "HARDWARE_PROFILE": "L40S",
+        "HARDWARE_PROFILE": platform,
         "MDX_SAMPLE_APPS_DIR": "$REPO/deployments",
         "MDX_DATA_DIR": "$REPO/data",
         "HOST_IP": "$(hostname -I | awk '{print $1}')",
-        "LLM_MODE": "remote",
-        "VLM_MODE": "remote",
+        "LLM_MODE": mode_spec["llm_mode"],
+        "VLM_MODE": mode_spec["vlm_mode"],
     }
+    if mode == "dedicated":
+        overrides["LLM_DEVICE_ID"] = "0"
+        overrides["VLM_DEVICE_ID"] = "1"
 
-    if host_ip and "llm" in models:
-        overrides["LLM_BASE_URL"] = f"http://{host_ip}:{models['llm']['port']}/v1"
-    else:
-        overrides["LLM_BASE_URL"] = "https://integrate.api.nvidia.com/v1"
-
-    if host_ip and "vlm" in models:
-        overrides["VLM_BASE_URL"] = f"http://{host_ip}:{models['vlm']['port']}/v1"
-    else:
-        overrides["VLM_BASE_URL"] = "https://integrate.api.nvidia.com/v1"
+    # Remote endpoints: URL is stored without trailing /v1 — config.yml
+    # appends /v1 automatically via `base_url: ${LLM_BASE_URL}/v1`.
+    if mode_spec["llm_mode"] == "remote" and llm_remote:
+        overrides["LLM_BASE_URL"] = llm_remote["url"].rstrip("/").removesuffix("/v1")
+        overrides["LLM_NAME"] = llm_remote["model"]
+    if mode_spec["vlm_mode"] == "remote" and vlm_remote:
+        overrides["VLM_BASE_URL"] = vlm_remote["url"].rstrip("/").removesuffix("/v1")
+        overrides["VLM_NAME"] = vlm_remote["model"]
 
     sed_lines = "\n".join(
         'sed -i "s|^' + k + "=.*|" + k + "=" + v + '|" "$ENV_FILE"'
@@ -436,63 +402,51 @@ def generate_solve_script(profile: str, profile_def: dict, host_ip: str | None, 
 
     lines = [
         "#!/bin/bash",
-        "# Gold solution: configure " + profile + " profile (compose-only)",
+        "# Gold solution: deploy " + profile + " on " + platform + "/" + mode,
         "set -euo pipefail",
         "",
         "REPO=/home/ubuntu/video-search-and-summarization",
         "",
-        "# === 1. Prerequisites ===",
-        "",
+        "# --- Prerequisites ---",
         "if ! command -v docker &>/dev/null; then",
         "    curl -fsSL https://get.docker.com | sh",
         "fi",
-        "",
         "sudo sysctl -w vm.max_map_count=262144 2>/dev/null || true",
         "sudo sysctl -w net.core.rmem_max=5242880 2>/dev/null || true",
         "sudo sysctl -w net.core.wmem_max=5242880 2>/dev/null || true",
         "",
-        "# NGC login",
+        "# --- NGC login ---",
         'if [ -n "${NGC_CLI_API_KEY:-}" ]; then',
         "    docker login nvcr.io -u '\\$oauthtoken' -p \"$NGC_CLI_API_KEY\" 2>/dev/null || true",
         "fi",
         "",
-        "# === 2. Clone repo ===",
-        "",
+        "# --- Clone repo ---",
         'if [ ! -d "$REPO" ]; then',
         "    git clone --branch " + VSS_BRANCH + " " + VSS_REPO_URL + ' "$REPO"',
         "fi",
         'mkdir -p "$REPO/data"',
         "",
-        "# === 3. Configure .env ===",
-        "",
+        "# --- Configure .env ---",
         "PROFILE=" + profile,
         "ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env",
         "",
         sed_lines,
         "",
-        '# Set NGC key in .env',
         'if [ -n "${NGC_CLI_API_KEY:-}" ]; then',
         '    sed -i "s|^NGC_CLI_API_KEY=.*|NGC_CLI_API_KEY=$NGC_CLI_API_KEY|" "$ENV_FILE"',
         "fi",
         "",
-        "# === 4. Generate resolved compose + deploy ===",
-        "",
+        "# --- Deploy ---",
         "cd $REPO/deployments",
         "docker compose --env-file $ENV_FILE config 2>/dev/null > resolved.yml",
         "docker compose -f resolved.yml up -d",
         "",
-        "# === 5. Wait for healthy ===",
-        "",
-        'echo "Waiting for Agent API..."',
+        "# --- Wait for Agent API ---",
         "for i in $(seq 1 90); do",
-        "    if curl -sf -o /dev/null --max-time 5 http://localhost:8000/docs 2>/dev/null; then",
-        '        echo "Agent API up after $((i*10))s"',
-        "        break",
-        "    fi",
+        "    curl -sf -o /dev/null --max-time 5 http://localhost:8000/docs 2>/dev/null && break",
         "    sleep 10",
         "done",
     ]
-
     return "\n".join(lines) + "\n"
 
 
@@ -502,46 +456,60 @@ def generate_solve_script(profile: str, profile_def: dict, host_ip: str | None, 
 
 def generate_task(
     profile: str,
+    platform: str,
+    mode: str,
     profile_def: dict,
-    output_dir: Path,
+    output_root: Path,
     skill_dir: Path | None,
-    brev_instance_type: str,
-    host_ip: str | None,
-    models: dict,
+    llm_remote: dict | None,
+    vlm_remote: dict | None,
 ) -> None:
-    """Generate a single Harbor task directory for one profile."""
-    task_id = profile
-    task_dir = output_dir / task_id
+    """Write a single Harbor task directory for <profile>/<platform>-<mode>."""
+    platform_spec = PLATFORMS[platform]
+    mode_spec = MODES[mode]
+
+    task_id = make_task_id(platform, mode)
+    task_dir = output_root / profile / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
     # -- instruction.md --
-    instruction = generate_instruction(profile, profile_def, host_ip, models)
-    (task_dir / "instruction.md").write_text(instruction)
+    (task_dir / "instruction.md").write_text(
+        generate_instruction(profile, platform, mode, llm_remote, vlm_remote),
+    )
 
     # -- task.toml --
     meta_lines = [
         "[task]",
-        f'name = "nvidia-vss/deploy-{profile}"',
-        f'description = "{profile_def["description"]}"',
-        f'keywords = ["deploy", "{profile}"]',
+        f'name = "nvidia-vss/deploy-{profile}-{task_id}"',
+        f'description = "{profile_def["description"]} on {platform}/{mode}"',
+        f'keywords = ["deploy", "{profile}", "{platform}", "{mode}"]',
         "",
         "[environment]",
-        '# Harbor copies this directory into $CLAUDE_CONFIG_DIR/skills/ before the',
-        '# agent runs so it can invoke the /deploy skill.',
+        '# Harbor copies this into $CLAUDE_CONFIG_DIR/skills so the agent',
+        '# can invoke /deploy via the skill.',
         'skills_dir = "/skills"',
         "",
         "[metadata]",
-        'gpu = "L40S"',
-        f'brev_instance_type = "{brev_instance_type}"',
         f'profile = "{profile}"',
+        f'platform = "{platform}"',
+        f'mode = "{mode}"',
+        "# GPU requirements — BrevEnvironment checks these against the",
+        "# instance's actual GPU capacity before the trial runs.",
+        f'gpu_type = "{platform_spec["gpu_type"]}"',
+        f'gpu_count = {mode_spec["gpus_needed"]}',
+        f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
+        f'brev_search = "{platform_spec["brev_search"]}"',
     ]
-    if host_ip and "llm" in models:
-        meta_lines.append(f'llm_host = "{host_ip}:{models["llm"]["port"]}"')
-    if host_ip and "vlm" in models:
-        meta_lines.append(f'vlm_host = "{host_ip}:{models["vlm"]["port"]}"')
-    (task_dir / "task.toml").write_text("\n".join(meta_lines) + "\n")
+    if mode_spec["llm_mode"] == "remote" and llm_remote:
+        meta_lines.append(f'llm_remote_url = "{llm_remote["url"]}"')
+        meta_lines.append(f'llm_remote_model = "{llm_remote["model"]}"')
+    if mode_spec["vlm_mode"] == "remote" and vlm_remote:
+        meta_lines.append(f'vlm_remote_url = "{vlm_remote["url"]}"')
+        meta_lines.append(f'vlm_remote_model = "{vlm_remote["model"]}"')
+    meta_lines.append("")
+    (task_dir / "task.toml").write_text("\n".join(meta_lines))
 
-    # -- environment/ --
+    # -- environment/ placeholder (not used with BrevEnvironment) --
     env_dir = task_dir / "environment"
     env_dir.mkdir(exist_ok=True)
     (env_dir / "Dockerfile").write_text("FROM scratch\n")
@@ -550,17 +518,17 @@ def generate_task(
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
     (tests_dir / "test.sh").write_text(
-        generate_test_script(profile, profile_def, host_ip, models),
+        generate_test_script(profile, profile_def, platform, mode),
     )
 
     # -- solution/solve.sh --
     solution_dir = task_dir / "solution"
     solution_dir.mkdir(exist_ok=True)
     (solution_dir / "solve.sh").write_text(
-        generate_solve_script(profile, profile_def, host_ip, models),
+        generate_solve_script(profile, platform, mode, llm_remote, vlm_remote),
     )
 
-    # -- Copy deploy skill into task --
+    # -- skills/deploy/ --
     if skill_dir and skill_dir.exists():
         skill_dest = task_dir / "skills" / "deploy"
         if skill_dest.exists():
@@ -568,157 +536,179 @@ def generate_task(
         shutil.copytree(skill_dir, skill_dest)
 
 
+def make_task_id(platform: str, mode: str) -> str:
+    """Task directory name.  Equal to the platform short name when the
+    mode is this platform's default, otherwise '<short>-<mode>'."""
+    pspec = PLATFORMS[platform]
+    if mode == pspec.get("default_mode"):
+        return pspec["short_name"]
+    return f"{pspec['short_name']}-{mode}"
+
+
+def _mode_needs_local_nim(mode_spec: dict) -> bool:
+    """True if the mode deploys at least one local NIM (needs NGC to pull)."""
+    return mode_spec["llm_mode"] != "remote" or mode_spec["vlm_mode"] != "remote"
+
+
+def expand_matrix(
+    profile_filter: str | None,
+    platform_filter: str | None,
+    mode_filter: str | None,
+    have_llm_remote: bool,
+    have_vlm_remote: bool,
+    have_ngc_key: bool,
+) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
+    """Return (included, skipped) where:
+        included = list of (profile, platform, mode) that will be generated
+        skipped  = list of (profile, platform, mode, reason)
+    Filters applied: --profile/--platform/--mode + per-platform supported_modes
+    + remote URL availability for modes that need them
+    + NGC_CLI_API_KEY availability for modes that pull local NIMs."""
+    included: list[tuple[str, str, str]] = []
+    skipped: list[tuple[str, str, str, str]] = []
+    for profile in PROFILES:
+        if profile_filter and profile != profile_filter:
+            continue
+        for platform, pspec in PLATFORMS.items():
+            if platform_filter and platform != platform_filter:
+                continue
+            for mode in pspec["supported_modes"]:
+                if mode_filter and mode != mode_filter:
+                    continue
+                mspec = MODES[mode]
+                reason = None
+                if mspec["llm_mode"] == "remote" and not have_llm_remote:
+                    reason = "LLM_REMOTE_URL/MODEL not set"
+                elif mspec["vlm_mode"] == "remote" and not have_vlm_remote:
+                    reason = "VLM_REMOTE_URL/MODEL not set"
+                elif _mode_needs_local_nim(mspec) and not have_ngc_key:
+                    reason = "NGC_CLI_API_KEY not set (needed to pull local NIMs)"
+                if reason:
+                    skipped.append((profile, platform, mode, reason))
+                else:
+                    included.append((profile, platform, mode))
+    return included, skipped
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate Harbor tasks for VSS deploy skill evaluation",
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", required=True, help="Dataset output root")
+    parser.add_argument("--skill-dir", default=None, help="Path to skills/deploy")
+    parser.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
+    parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()))
+    parser.add_argument("--mode", default=None, choices=list(MODES.keys()))
+    parser.add_argument(
+        "--llm-remote-url", default=None,
+        help="Remote LLM endpoint (no trailing /v1). Enables remote-* modes for LLM.",
     )
     parser.add_argument(
-        "--output-dir", required=True,
-        help="Output directory for generated task datasets",
+        "--llm-remote-model", default=None,
+        help="Model ID served at --llm-remote-url (e.g. nvidia/nvidia-nemotron-nano-9b-v2)",
     )
     parser.add_argument(
-        "--profile", default=None, choices=list(PROFILES.keys()),
-        help="Generate only for this profile (default: all)",
+        "--vlm-remote-url", default=None,
+        help="Remote VLM endpoint (no trailing /v1). Enables remote-* modes for VLM.",
     )
     parser.add_argument(
-        "--skill-dir", default=None,
-        help="Path to skills/deploy directory to copy into tasks",
+        "--vlm-remote-model", default=None,
+        help="Model ID served at --vlm-remote-url",
     )
     parser.add_argument(
-        "--brev-instance-type", default=None,
-        help="Brev instance type override (skips 'brev search')",
-    )
-    parser.add_argument(
-        "--host-ip", default=None,
-        help="IP of this host reachable from Brev instances "
-             "(auto-detected if omitted)",
-    )
-    parser.add_argument(
-        "--llm-port", type=int, default=None,
-        help="Port of the local LLM endpoint (skips auto-scan)",
-    )
-    parser.add_argument(
-        "--vlm-port", type=int, default=None,
-        help="Port of the local VLM endpoint (skips auto-scan)",
-    )
-    parser.add_argument(
-        "--no-remote-models", action="store_true",
-        help="Skip model discovery — generate tasks for local NIM deployment",
+        "--assume-ngc-key", action="store_true",
+        help="Pretend NGC_CLI_API_KEY is available even if env doesn't have it",
     )
     args = parser.parse_args()
 
-    output_dir = Path(args.output_dir)
+    output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir) if args.skill_dir else None
 
-    # --- Resolve Brev instance type ---
-    brev_type = args.brev_instance_type or os.environ.get("BREV_INSTANCE_TYPE")
-
-    if brev_type:
-        print(f"  Using Brev instance type: {brev_type}")
-    else:
-        print("Querying Brev for available instance types...")
-        brev_instances = query_brev_instances()
-        if brev_instances:
-            brev_type = find_brev_instance_type(
-                brev_instances,
-                gpu_name="L40S",
-                gpu_count=2,
-                min_vram=48,
-            )
-        if brev_type:
-            print(f"  Resolved Brev instance type: {brev_type}")
-        else:
-            print(
-                "ERROR: Could not resolve a Brev instance type.\n"
-                "  - Make sure 'brev' CLI is installed and authenticated, or\n"
-                "  - Pass --brev-instance-type <type>, or\n"
-                "  - Set BREV_INSTANCE_TYPE env var.",
-                file=sys.stderr,
-            )
+    # Resolve remote endpoints (URL + model must be paired)
+    llm_remote: dict | None = None
+    if args.llm_remote_url:
+        if not args.llm_remote_model:
+            print("--llm-remote-url requires --llm-remote-model", file=sys.stderr)
             sys.exit(1)
+        llm_remote = {"url": args.llm_remote_url, "model": args.llm_remote_model}
+    vlm_remote: dict | None = None
+    if args.vlm_remote_url:
+        if not args.vlm_remote_model:
+            print("--vlm-remote-url requires --vlm-remote-model", file=sys.stderr)
+            sys.exit(1)
+        vlm_remote = {"url": args.vlm_remote_url, "model": args.vlm_remote_model}
 
-    # --- Discover local model endpoints ---
-    host_ip: str | None = None
-    models: dict[str, dict] = {}
+    have_ngc_key = args.assume_ngc_key or bool(os.environ.get("NGC_CLI_API_KEY"))
 
-    if not args.no_remote_models:
-        host_ip = args.host_ip or detect_host_ip()
-        if host_ip:
-            print(f"  Host IP: {host_ip}")
-        else:
-            print("  WARNING: Could not detect host IP — remote model mode disabled")
-
-        if host_ip:
-            if args.llm_port or args.vlm_port:
-                # Explicit ports — probe them directly
-                if args.llm_port:
-                    info = probe_model_endpoint(args.llm_port)
-                    if info:
-                        models["llm"] = info
-                        print(f"  LLM: port {args.llm_port} → {info['model_id']}")
-                    else:
-                        print(f"  WARNING: --llm-port {args.llm_port} "
-                              "did not respond to /v1/models")
-                if args.vlm_port:
-                    info = probe_model_endpoint(args.vlm_port)
-                    if info:
-                        models["vlm"] = info
-                        print(f"  VLM: port {args.vlm_port} → {info['model_id']}")
-                    else:
-                        print(f"  WARNING: --vlm-port {args.vlm_port} "
-                              "did not respond to /v1/models")
-            else:
-                # Auto-scan
-                models = discover_local_models()
-
-        if not models:
-            print("  No local model endpoints found — tasks will use local NIM deployment")
-            host_ip = None
+    # --- Inputs summary ---
+    print("=== Inputs ===")
+    print(f"  output_dir       : {output_root}")
+    print(f"  skill_dir        : {skill_dir or '(none)'}")
+    print(f"  filter profile   : {args.profile or '(all)'}")
+    print(f"  filter platform  : {args.platform or '(all)'}")
+    print(f"  filter mode      : {args.mode or '(all)'}")
+    if llm_remote:
+        print(f"  LLM remote       : {llm_remote['url']}  ({llm_remote['model']})")
     else:
-        print("  Skipping model discovery (--no-remote-models)")
-
-    # --- Select profiles ---
-    if args.profile:
-        selected = {args.profile: PROFILES[args.profile]}
+        print(f"  LLM remote       : (not set — remote-* modes needing LLM will be skipped)")
+    if vlm_remote:
+        print(f"  VLM remote       : {vlm_remote['url']}  ({vlm_remote['model']})")
     else:
-        selected = PROFILES
+        print(f"  VLM remote       : (not set — remote-* modes needing VLM will be skipped)")
+    if have_ngc_key:
+        source = "--assume-ngc-key" if args.assume_ngc_key else "NGC_CLI_API_KEY env"
+        print(f"  NGC key          : available ({source})")
+    else:
+        print(f"  NGC key          : (not set — modes with local NIMs will be skipped)")
+    print()
 
-    # --- Generate tasks ---
-    for profile_name, profile_def in selected.items():
-        print(f"  Generating task: {profile_name}")
+    included, skipped = expand_matrix(
+        args.profile, args.platform, args.mode,
+        have_llm_remote=llm_remote is not None,
+        have_vlm_remote=vlm_remote is not None,
+        have_ngc_key=have_ngc_key,
+    )
+
+    # --- Print skip decisions ---
+    if skipped:
+        print(f"=== Skipped ({len(skipped)}) ===")
+        for profile, platform, mode, reason in skipped:
+            task_id = make_task_id(platform, mode)
+            print(f"  SKIP {profile}/{task_id}   reason: {reason}")
+        print()
+
+    if not included:
+        print("No (profile, platform, mode) combinations match filters "
+              "with the provided env.", file=sys.stderr)
+        sys.exit(1)
+
+    # --- Generate ---
+    print(f"=== Generating ({len(included)}) ===")
+    for profile, platform, mode in included:
+        task_id = make_task_id(platform, mode)
+        print(f"  GEN  {profile}/{task_id}")
         generate_task(
-            profile_name, profile_def, output_dir, skill_dir,
-            brev_type, host_ip, models,
+            profile, platform, mode,
+            PROFILES[profile], output_root, skill_dir,
+            llm_remote, vlm_remote,
         )
 
-    # --- Summary ---
-    print(f"\nGenerated {len(selected)} deploy task(s) in {output_dir}")
     print()
-    print("Profiles:")
-    for name, pdef in selected.items():
-        print(f"  {name:10s}  {pdef['description']}")
-
-    if host_ip and models:
-        print()
-        print("Remote model endpoints (baked into tasks):")
-        for role, info in models.items():
-            print(f"  {role.upper():4s}  http://{host_ip}:{info['port']}/v1  "
-                  f"({info['model_id']})")
-
+    print(f"Summary: {len(included)} generated, {len(skipped)} skipped.")
     print()
-    print("Run with Harbor:")
+    print("Coverage:")
+    by_profile: dict[str, list[str]] = {}
+    for p, plat, m in included:
+        by_profile.setdefault(p, []).append(make_task_id(plat, m))
+    for p, tasks in by_profile.items():
+        print(f"  {p}: {', '.join(tasks)}")
+    print()
+    print("Run a profile's tasks with:")
+    first_profile = list(by_profile.keys())[0]
     print(f"  harbor run --env 'tools.eval.harbor.envs.brev_env:BrevEnvironment' \\")
-    print(f"    -p {output_dir} -a claude-code -n 1")
-
-    if args.profile:
-        print()
-        print(f"Run single profile '{args.profile}':")
-        print(f"  harbor run --env 'tools.eval.harbor.envs.brev_env:BrevEnvironment' \\")
-        print(f"    -p {output_dir} -i '{args.profile}' -a claude-code -n 1")
+    print(f"    -p {output_root}/{first_profile} -a claude-code -n 1")
 
 
 if __name__ == "__main__":
