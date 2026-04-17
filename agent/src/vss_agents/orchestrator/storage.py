@@ -159,7 +159,26 @@ def ensure_required_directories(
     created_paths: list[Path] = []
     for relative_path in relative_paths:
         full_path = root / relative_path
-        full_path.mkdir(parents=True, exist_ok=True)
+        try:
+            full_path.mkdir(parents=True, exist_ok=True)
+        except PermissionError as exc:
+            raise RuntimeError(
+                f"Permission denied creating required directory: {full_path}. "
+                f"Check ownership/permissions under data root: {root}"
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(f"Failed creating required directory: {full_path}. {exc}") from exc
+
+        if not full_path.is_dir():
+            raise RuntimeError(f"Required path is not a directory after creation attempt: {full_path}")
+
+        # Even when the directory already exists, fail early if the current user
+        # cannot traverse/write it; compose bind mounts will fail later otherwise.
+        if not os.access(full_path, os.X_OK | os.W_OK):
+            raise RuntimeError(
+                f"Required directory is not writable by current user: {full_path}. "
+                f"Check ownership/permissions under data root: {root}"
+            )
         created_paths.append(full_path)
     return created_paths
 

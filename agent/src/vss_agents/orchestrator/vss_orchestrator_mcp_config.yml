@@ -28,12 +28,14 @@
 function_groups:
   vss_orchestrator:
     _type: vss_orchestrator
-    # Absolute path to the deployments/ root. Set HOST_IP separately via env
-    # overrides in the compose_generate tool call, or pre-populate the selected profile .env.
-    deployments_dir: "/home/ubuntu/video-search-and-summarization/deployments"
+    mdx_data_dir: "/home/ubuntu/video-search-and-summarization/deployments/data-dir"
     # Required output directory for compose_generate artifacts.
     output_dir: "/home/ubuntu/video-search-and-summarization/.orchestrator-artifacts"
     # Relative directories to create under MDX_DATA_DIR for all profiles.
+    # Absolute path to the deployments/ root. Set HOST_IP separately via env
+    # overrides in the compose_generate tool call, or pre-populate the selected profile .env.
+    deployments_dir: "/home/ubuntu/video-search-and-summarization/deployments"
+    # MDX_DATA_DIR base directory used by orchestrator (profile .env MDX_DATA_DIR is ignored).
     mdx_data_directories:
       - data_log/analytics_cache
       - data_log/calibration_toolkit

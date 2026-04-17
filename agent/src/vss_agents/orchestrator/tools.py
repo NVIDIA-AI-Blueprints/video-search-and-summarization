@@ -218,6 +218,13 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
             "(e.g. /home/user/video-search-and-summarization/deployments)."
         )
     )
+    mdx_data_dir: str = Field(
+        min_length=1,
+        description=(
+            "Absolute path for MDX_DATA_DIR resolved from MCP YAML config. "
+            "Profile .env MDX_DATA_DIR values are ignored."
+        ),
+    )
     output_dir: str = Field(
         description=(
             "Directory where compose_generate writes generated artifacts "
@@ -281,6 +288,7 @@ async def vss_orchestrator(
     # ---------------------------------------------------------------------------
 
     configured_output_dir = Path(_config.output_dir).expanduser().resolve()
+    mdx_data_dir = Path(_config.mdx_data_dir).expanduser().resolve()
     configured_mdx_data_directories = tuple(_config.mdx_data_directories)
     configured_model_artifacts_by_profile: dict[str, tuple[ModelArtifact, ...]] = {
         profile: tuple(
@@ -295,6 +303,18 @@ async def vss_orchestrator(
         for profile, artifacts in _config.model_artifacts.items()
     }
     configured_model_resolution = _config.model_resolution
+
+    # Bootstrap required data directories as soon as config is loaded, so MCP
+    # server startup fails fast if any directory cannot be created.
+    try:
+        ensure_data_directories(
+            str(mdx_data_dir),
+            required_subdirectories=configured_mdx_data_directories,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"Startup directory bootstrap failed for mdx_data_dir '{mdx_data_dir}': {exc}") from exc
+
+    print(f"[vss_orchestrator] startup directory bootstrap succeeded for mdx_data_dir: {mdx_data_dir}", flush=True)
 
     def _resolve_output_paths(docker_compose_id: str) -> tuple[Path, Path]:
         """Return (env_path, compose_path) under the configured output directory."""
@@ -624,6 +644,7 @@ async def vss_orchestrator(
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),
                     deployments_dir=str(deployments_dir),
+                    mdx_data_dir=str(mdx_data_dir),
                 )
                 resolved_env, env_path, compose_path = generate_dry_run_artifacts(dry_run_recipe)
                 ensure_data_directories(

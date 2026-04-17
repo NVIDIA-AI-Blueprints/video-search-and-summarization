@@ -106,6 +106,7 @@ class DryRunRecipe:
     output_env_file: Path
     output_compose_file: Path
     deployments_dir: Path
+    mdx_data_dir: Path
     compose_file: Path
     source_env_file: Path
     supported_hardware_profiles: frozenset[str]
@@ -128,11 +129,14 @@ def create_dry_run_recipe(
     output_env_file: str,
     output_compose_file: str,
     deployments_dir: str,
+    mdx_data_dir: str,
 ) -> DryRunRecipe:
     profile = profile.strip()
     if profile not in SUPPORTED_PROFILES:
         raise ValidationError(f"Unsupported profile '{profile}'. Supported: {sorted(SUPPORTED_PROFILES)}")
 
+
+    # TODL: Need to make them configurable - deployments_path and source_env_file paths and compose_file path
     deployments_path = Path(deployments_dir).resolve()
     if not deployments_path.is_dir():
         raise ValidationError(f"Deployments directory does not exist: {deployments_path}")
@@ -160,6 +164,7 @@ def create_dry_run_recipe(
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
         deployments_dir=deployments_path,
+        mdx_data_dir=Path(mdx_data_dir).expanduser().resolve(),
         compose_file=compose_file,
         source_env_file=source_env_file,
         supported_hardware_profiles=frozenset(model_resolution.hardware.supported_profiles),
@@ -255,7 +260,12 @@ def build_resolved_env(config: DryRunRecipe) -> Dict[str, str]:
     )
 
     merged["MDX_SAMPLE_APPS_DIR"] = first_non_placeholder([merged.get("MDX_SAMPLE_APPS_DIR", ""), str(config.deployments_dir)])
-    merged["MDX_DATA_DIR"] = first_non_placeholder([merged.get("MDX_DATA_DIR", ""), str(config.deployments_dir / "data-dir")])
+    merged["MDX_DATA_DIR"] = first_non_placeholder(
+        [
+            config.env_overrides.get("MDX_DATA_DIR", ""),
+            str(config.mdx_data_dir),
+        ]
+    )
     merged["HOST_IP"] = host_ip
     merged["EXTERNALLY_ACCESSIBLE_IP"] = external_ip
     if external_ip != host_ip:
