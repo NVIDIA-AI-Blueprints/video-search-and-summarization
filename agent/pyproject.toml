@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-source = "vcs"
+source = "vcs" 
 raw-options.root = ".."
 
 [tool.hatch.metadata]
@@ -130,6 +130,7 @@ vss_tools = "vss_agents.tools.register"
 vss_agents = "vss_agents.agents.register"
 vss_api = "vss_agents.api.register"
 vss_va_mcp = "vss_agents.video_analytics.tools"
+vss_orchestrator_mcp = "vss_agents.orchestrator.tools"
 vss_evaluators = "vss_agents.evaluators.register"
 vst_tools = "vss_agents.tools.vst.register"
 

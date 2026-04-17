@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VSS Orchestrator MCP Server
+#
+# Exposes three tools:
+#   vss_orchestrator__compose_generate - resolve env + compose YAML artifacts
+#   vss_orchestrator__compose_up   - docker compose up -d --force-recreate --build
+#   vss_orchestrator__compose_down - docker compose down -v --remove-orphans
+#
+# Start with:
+#   nat mcp serve --config_file deployments/developer-workflow/vss-orchestrator-mcp/vss_orchestrator_mcp_config.yml
+#
+# Server listens at: http://localhost:9901/mcp  (default NAT MCP port)
+
+function_groups:
+  vss_orchestrator:
+    _type: vss_orchestrator
+    # Absolute path to the deployments/ root. Set HOST_IP separately via env
+    # overrides in the compose_generate tool call, or pre-populate the selected profile .env.
+    deployments_dir: "/home/ubuntu/video-search-and-summarization/deployments"
+    # Required output directory for compose_generate artifacts.
+    output_dir: "/home/ubuntu/video-search-and-summarization/.orchestrator-artifacts"
+    # Relative directories to create under MDX_DATA_DIR for all profiles.
+    mdx_data_directories:
+      - data_log/analytics_cache
+      - data_log/calibration_toolkit
+      - data_log/elastic/data
+      - data_log/elastic/logs
+      - data_log/kafka
+      - data_log/redis/data
+      - data_log/redis/log
+      - data_log/vss_video_analytics_api
+      - agent_eval/dataset
+      - agent_eval/results
+      - videos/dev-profile-alerts
+      - models
+    # Model artifact definitions keyed by profile name.
+    model_artifacts:
+      search:
+        - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1"
+          downloaded_relative_path: "rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx"
+          output_name: "rtdetr_warehouse_v1.0.1.fp16.onnx"
+          artifact_kind: "file"
+        - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
+          downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx"
+          output_name: "radio-clip_v1.0.onnx"
+          artifact_kind: "file"
+        - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
+          downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin"
+          output_name: "radio-clip_v1.0_weights.bin"
+          artifact_kind: "file"
+        - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
+          downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer"
+          output_name: "radio-clip_v1.0_tokenizer"
+          artifact_kind: "dir"
+      alerts:
+        - package_ref: "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
+          downloaded_relative_path: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"
+          output_name: "rtdetr-its/model_epoch_035.fp16.onnx"
+          artifact_kind: "file"
+        - package_ref: "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
+          downloaded_relative_path: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"
+          output_name: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+          artifact_kind: "file"
+    # Hardware/model resolution rules used by compose_generate.
+    model_resolution:
+      hardware:
+        supported_profiles:
+          - H100
+          - L40S
+          - RTXPRO6000BW
+          - DGX-SPARK
+          - IGX-THOR
+          - AGX-THOR
+          - OTHER
+        edge_profiles:
+          - DGX-SPARK
+          - IGX-THOR
+          - AGX-THOR
+        edge_allowed_profiles:
+          - base
+          - alerts
+        edge_device_ids:
+          llm: "0"
+          vlm: "0"
+        thor_base_profiles:
+          - IGX-THOR
+          - AGX-THOR
+      llm:
+        supported_models:
+          nvidia/nvidia-nemotron-nano-9b-v2: nvidia-nemotron-nano-9b-v2
+          nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8: nvidia-nemotron-nano-9b-v2-fp8
+          nvidia/nemotron-3-nano: nemotron-3-nano
+          nvidia/llama-3.3-nemotron-super-49b-v1.5: llama-3.3-nemotron-super-49b-v1.5
+          openai/gpt-oss-20b: gpt-oss-20b
+      vlm:
+        supported_models:
+          nvidia/cosmos-reason1-7b: cosmos-reason1-7b
+          nvidia/cosmos-reason2-8b: cosmos-reason2-8b
+          Qwen/Qwen3-VL-8B-Instruct: qwen3-vl-8b-instruct
+        thor_base_overrides:
+          VLM_NAME_SLUG: none
+          VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
+          RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+          RTVI_VLM_MODEL_TO_USE: cosmos-reason2
+          RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+          VLM_MODEL_TYPE: rtvi
+    # skip_prerequisite_checks: false   # set to true to skip nvidia-smi / docker checks
+    include:
+      - compose_generate
+      - compose_artifacts
+      - container_list
+      - container_logs
+      - compose_up
+      - compose_down
+      - compose_status
+
+llms:
+  nim_llm:
+    _type: nim
+    model_name: meta/llama-3.1-70b-instruct
+    temperature: 0.0
+    max_tokens: 1024
+
+# dummy workflow required to start MCP server
+workflow:
+  _type: react_agent
+  tool_names: [vss_orchestrator]
+  llm_name: nim_llm
