@@ -15,10 +15,16 @@
 
 # VSS Orchestrator MCP Server
 #
-# Exposes three tools:
-#   vss_orchestrator__compose_generate - resolve env + compose YAML artifacts
-#   vss_orchestrator__compose_up   - docker compose up -d --force-recreate --build
-#   vss_orchestrator__compose_down - docker compose down -v --remove-orphans
+# Exposes nine tools:
+#   vss_orchestrator__docker_profiles - list all supported deployment profiles
+#   vss_orchestrator__docker_prereqs - run Docker/GPU prerequisite checks
+#   vss_orchestrator__docker_generate - resolve env + compose YAML artifacts
+#   vss_orchestrator__docker_read - fetch generated env/yaml by docker_compose_id
+#   vss_orchestrator__docker_list - list docker container names
+#   vss_orchestrator__docker_logs - fetch docker logs by container name
+#   vss_orchestrator__docker_up - docker compose up -d --force-recreate --build
+#   vss_orchestrator__docker_down - docker compose down -v --remove-orphans
+#   vss_orchestrator__docker_status - poll docker operation status/logs
 #
 # Start with:
 #   nat mcp serve --config_file deployments/developer-workflow/vss-orchestrator-mcp/vss_orchestrator_mcp_config.yml
@@ -28,12 +34,12 @@
 function_groups:
   vss_orchestrator:
     mdx_data_dir: "/home/ubuntu/video-search-and-summarization/deployments/data-dir"
-    # Required output directory for compose_generate artifacts.
+    # Required output directory for docker_generate artifacts.
     output_dir: "/home/ubuntu/video-search-and-summarization/.orchestrator-artifacts"
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
     _type: vss_orchestrator
     # Absolute path to the deployments/ root. Set HOST_IP separately via env
-    # overrides in the compose_generate tool call, or pre-populate the selected profile .env.
+    # overrides in the docker_generate tool call, or pre-populate the selected profile .env.
     deployments_dir: "/home/ubuntu/video-search-and-summarization/deployments"
     # Absolute source compose yaml path.
     source_compose_yaml: "/home/ubuntu/video-search-and-summarization/deployments/compose.yml"
@@ -81,7 +87,7 @@ function_groups:
           downloaded_relative_path: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"
           output_name: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
           artifact_kind: "file"
-    # Hardware/model resolution rules used by compose_generate.
+    # Hardware/model resolution rules used by docker_generate.
     model_resolution:
       hardware:
         supported_profiles:
@@ -127,13 +133,13 @@ function_groups:
     include:
       - docker_profiles
       - docker_prereqs
-      - compose_generate
-      - compose_artifacts
-      - container_list
-      - container_logs
-      - compose_up
-      - compose_down
-      - compose_status
+      - docker_generate
+      - docker_read
+      - docker_list
+      - docker_logs
+      - docker_up
+      - docker_down
+      - docker_status
 
 llms:
   nim_llm:

@@ -18,13 +18,13 @@
 Exposes nine tools that wrap the orchestrator utilities:
   - docker_profiles: list all supported deployment profiles
   - docker_prereqs: run Docker/GPU prerequisite checks
-  - compose_generate : resolve env + compose YAML artifacts
-  - compose_artifacts: fetch generated env/yaml by docker_compose_id
-  - container_list: list docker container names
-  - container_logs   : fetch docker logs by container name
-  - compose_up       : fire-and-return docker compose up
-  - compose_status: poll compose_up status and logs
-  - compose_down     : docker compose down using generated artifacts
+  - docker_generate : resolve env + compose YAML artifacts
+  - docker_read: fetch generated env/yaml by docker_compose_id
+  - docker_list: list docker container names
+  - docker_logs: fetch docker logs by container name
+  - docker_up: fire-and-return docker compose up
+  - docker_status: poll docker_up status and logs
+  - docker_down: docker compose down using generated artifacts
 """
 
 import os
@@ -100,7 +100,7 @@ _COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S: Final[int] = 5
 
 
 class GenerateInput(BaseModel):
-    """Input for the compose_generate tool."""
+    """Input for the docker_generate tool."""
 
     profile: str = Field(
         ...,
@@ -125,31 +125,31 @@ class GenerateInput(BaseModel):
 
 
 class ComposeStatusInput(BaseModel):
-    """Input for compose_status polling."""
+    """Input for docker_status polling."""
 
     docker_compose_ops_id: str = Field(
         ...,
-        description="Compose operation ID returned by compose_up/compose_down.",
+        description="Compose operation ID returned by docker_up/docker_down.",
     )
     tail_lines: int = Field(
         default=_COMPOSE_STATUS_TAIL_BOUNDS.default,
         ge=_COMPOSE_STATUS_TAIL_BOUNDS.minimum,
         le=_COMPOSE_STATUS_TAIL_BOUNDS.maximum,
-        description="Number of lines to return from the end of the compose_up log.",
+        description="Number of lines to return from the end of the docker_up log.",
     )
 
 
 class ComposeArtifactsInput(BaseModel):
-    """Input for compose_artifacts lookups."""
+    """Input for docker_read lookups."""
 
     docker_compose_id: str = Field(
         ...,
-        description="Docker compose ID returned by compose_generate.",
+        description="Docker compose ID returned by docker_generate.",
     )
 
 
 class ComposeContainersInput(BaseModel):
-    """Input for container_list lookup."""
+    """Input for docker_list lookup."""
 
     all_containers: bool = Field(
         default=True,
@@ -158,7 +158,7 @@ class ComposeContainersInput(BaseModel):
 
 
 class ContainerLogsInput(BaseModel):
-    """Input for container_logs lookups."""
+    """Input for docker_logs lookups."""
 
     container_name: str = Field(
         ...,
@@ -256,14 +256,14 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     )
     output_dir: str = Field(
         description=(
-            "Directory where compose_generate writes generated artifacts "
+            "Directory where docker_generate writes generated artifacts "
             "(generated.<docker_compose_id>.dry-run.env and "
             "compose.resolved.<docker_compose_id>.dry-run.yml)."
         )
     )
     mdx_data_directories: tuple[str, ...] = Field(
         ...,
-        description="Relative subdirectories created under MDX_DATA_DIR for all profiles by compose_generate.",
+        description="Relative subdirectories created under MDX_DATA_DIR for all profiles by docker_generate.",
     )
     model_artifacts: dict[str, tuple[ModelArtifactConfig, ...]] = Field(
         ...,
@@ -271,26 +271,26 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     )
     model_resolution: ModelResolutionConfig = Field(
         ...,
-        description="Hardware/model resolution rules used during compose_generate validation.",
+        description="Hardware/model resolution rules used during docker_generate validation.",
     )
     include: list[str] = Field(
         default=[
             "docker_profiles",
             "docker_prereqs",
-            "compose_generate",
-            "compose_artifacts",
-            "container_list",
-            "container_logs",
-            "compose_up",
-            "compose_status",
-            "compose_down",
+            "docker_generate",
+            "docker_read",
+            "docker_list",
+            "docker_logs",
+            "docker_up",
+            "docker_status",
+            "docker_down",
         ],
         description="Subset of tools to expose. All tools are included by default.",
     )
 
 
 class ComposeOperationInput(BaseModel):
-    """Input for compose_up/compose_down operations."""
+    """Input for docker_up/docker_down operations."""
 
     docker_compose_id: str = Field(
         ...,
@@ -352,9 +352,9 @@ async def vss_orchestrator(
     def _artifacts_exist(env_path: Path, compose_path: Path) -> str | None:
         """Return an error message if required artifacts are missing, else None."""
         if not env_path.is_file():
-            return f"Generated env file not found: {env_path}. Run the 'compose_generate' tool first."
+            return f"Generated env file not found: {env_path}. Run the 'docker_generate' tool first."
         if not compose_path.is_file():
-            return f"Resolved compose file not found: {compose_path}. Run the 'compose_generate' tool first."
+            return f"Resolved compose file not found: {compose_path}. Run the 'docker_generate' tool first."
         return None
 
     def _compose_env() -> dict[str, str]:
@@ -413,7 +413,7 @@ async def vss_orchestrator(
                 "status": ComposeStatus.ERROR.value,
                 "error": (
                     f"Unknown docker_compose_id '{docker_compose_id}'. "
-                    "Run compose_generate first to create and register it."
+                    "Run docker_generate first to create and register it."
                 ),
             }
 
@@ -627,8 +627,8 @@ async def vss_orchestrator(
             "docker_compose_id": docker_compose_id,
             "action": action,
             "command": f"docker compose {action} {' '.join(action_args)}".strip(),
-            "poll_tool": "compose_status",
-            "status_hint": "Poll compose_status with docker_compose_ops_id for progress/completion.",
+            "poll_tool": "docker_status",
+            "status_hint": "Poll docker_status with docker_compose_ops_id for progress/completion.",
             "recommended_poll_interval_s": _COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S,
             "pid": -1,
         }
@@ -671,12 +671,12 @@ async def vss_orchestrator(
         group.add_function(name="docker_prereqs", fn=_docker_prereqs, description=_docker_prereqs.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: compose_generate
+    # Tool: docker_generate
     # ---------------------------------------------------------------------------
 
-    if "compose_generate" in _config.include:
+    if "docker_generate" in _config.include:
 
-        async def _compose_generate(input: GenerateInput) -> dict:
+        async def _docker_generate(input: GenerateInput) -> dict:
             """Generate resolved docker compose YAML and .env artifacts.
 
             Validates environment configuration, resolves all variables (HOST_IP,
@@ -686,7 +686,7 @@ async def vss_orchestrator(
             - A resolved docker compose YAML with all variable references expanded
               and orphaned depends_on entries removed.
 
-            These artifacts must exist before running compose_up or compose_down.
+            These artifacts must exist before running docker_up or docker_down.
 
             Returns a summary dict with artifact paths and key resolved values on
             success, or {"status": "error", "error": "<message>"} on failure.
@@ -732,24 +732,24 @@ async def vss_orchestrator(
                     "vlm_mode": resolved_env.get("VLM_MODE", "(unset)"),
                     "vlm_name": resolved_env.get("VLM_NAME", "(unset)"),
                     "compose_profiles": resolved_env.get("COMPOSE_PROFILES", "(unset)"),
-                    "message": "Artifacts generated. Use docker_compose_id with compose_up/compose_down.",
+                    "message": "Artifacts generated. Use docker_compose_id with docker_up/docker_down.",
                 }
-                print(f"[compose_generate:{docker_compose_id}] compose yaml: {compose_path}", flush=True)
-                print(f"[compose_generate:{docker_compose_id}] env: {env_path}", flush=True)
-                print(f"[compose_generate:{docker_compose_id}] {result}", flush=True)
+                print(f"[docker_generate:{docker_compose_id}] compose yaml: {compose_path}", flush=True)
+                print(f"[docker_generate:{docker_compose_id}] env: {env_path}", flush=True)
+                print(f"[docker_generate:{docker_compose_id}] {result}", flush=True)
                 return result
             except (ValidationError, RuntimeError) as exc:
                 return {"status": ComposeStatus.ERROR.value, "error": str(exc)}
 
-        group.add_function(name="compose_generate", fn=_compose_generate, description=_compose_generate.__doc__)
+        group.add_function(name="docker_generate", fn=_docker_generate, description=_docker_generate.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: compose_artifacts
+    # Tool: docker_read
     # ---------------------------------------------------------------------------
 
-    if "compose_artifacts" in _config.include:
+    if "docker_read" in _config.include:
 
-        async def _compose_artifacts(input: ComposeArtifactsInput) -> dict:
+        async def _docker_read(input: ComposeArtifactsInput) -> dict:
             """Fetch generated env and resolved compose yaml content by docker_compose_id."""
             with _COMPOSE_SPECS_LOCK:
                 spec = _COMPOSE_SPECS.get(input.docker_compose_id)
@@ -758,7 +758,7 @@ async def vss_orchestrator(
                     "status": ComposeStatus.ERROR.value,
                     "error": (
                         f"Unknown docker_compose_id '{input.docker_compose_id}'. "
-                        "Run compose_generate first to create and register it."
+                        "Run docker_generate first to create and register it."
                     ),
                 }
 
@@ -776,15 +776,15 @@ async def vss_orchestrator(
                 "compose_yaml_content": compose_path.read_text(encoding="utf-8", errors="replace"),
             }
 
-        group.add_function(name="compose_artifacts", fn=_compose_artifacts, description=_compose_artifacts.__doc__)
+        group.add_function(name="docker_read", fn=_docker_read, description=_docker_read.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: container_list
+    # Tool: docker_list
     # ---------------------------------------------------------------------------
 
-    if "container_list" in _config.include:
+    if "docker_list" in _config.include:
 
-        async def _container_list(input: ComposeContainersInput) -> dict:
+        async def _docker_list(input: ComposeContainersInput) -> dict:
             """List docker container names."""
             args = ["docker", "ps", "--format", "{{.Names}}"]
             if input.all_containers:
@@ -810,15 +810,15 @@ async def vss_orchestrator(
                 "container_names": container_names,
             }
 
-        group.add_function(name="container_list", fn=_container_list, description=_container_list.__doc__)
+        group.add_function(name="docker_list", fn=_docker_list, description=_docker_list.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: container_logs
+    # Tool: docker_logs
     # ---------------------------------------------------------------------------
 
-    if "container_logs" in _config.include:
+    if "docker_logs" in _config.include:
 
-        async def _container_logs(input: ContainerLogsInput) -> dict:
+        async def _docker_logs(input: ContainerLogsInput) -> dict:
             """Fetch docker logs by container name."""
             result = subprocess.run(
                 ["docker", "logs", "--tail", str(input.tail), input.container_name],
@@ -840,22 +840,22 @@ async def vss_orchestrator(
                 "logs": result.stdout,
             }
 
-        group.add_function(name="container_logs", fn=_container_logs, description=_container_logs.__doc__)
+        group.add_function(name="docker_logs", fn=_docker_logs, description=_docker_logs.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: compose_up
+    # Tool: docker_up
     # ---------------------------------------------------------------------------
 
-    if "compose_up" in _config.include:
+    if "docker_up" in _config.include:
 
-        async def _compose_up(input: ComposeOperationInput) -> dict:
+        async def _docker_up(input: ComposeOperationInput) -> dict:
             """Start docker compose services using previously generated artifacts.
 
             Runs in background: docker compose up -d --force-recreate --build
 
             Requires that artifacts for the docker_compose_id already exist.
 
-            Returns immediately for polling via compose_status.
+            Returns immediately for polling via docker_status.
             """
             try:
                 return _start_compose_op(
@@ -866,16 +866,16 @@ async def vss_orchestrator(
             except FileNotFoundError:
                 return {"status": ComposeStatus.ERROR.value, "error": "docker command not found. Install Docker with Compose v2."}
 
-        group.add_function(name="compose_up", fn=_compose_up, description=_compose_up.__doc__)
+        group.add_function(name="docker_up", fn=_docker_up, description=_docker_up.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: compose_status
+    # Tool: docker_status
     # ---------------------------------------------------------------------------
 
-    if "compose_status" in _config.include:
+    if "docker_status" in _config.include:
 
-        async def _compose_status(input: ComposeStatusInput) -> dict:
-            """Poll status and recent logs for a background compose_up operation."""
+        async def _docker_status(input: ComposeStatusInput) -> dict:
+            """Poll status and recent logs for a background docker_up operation."""
             with _COMPOSE_OPS_LOCK:
                 op = _COMPOSE_OPERATIONS.get(input.docker_compose_ops_id)
                 if op is None:
@@ -900,22 +900,22 @@ async def vss_orchestrator(
                     "log_excerpt": "\n".join(recent_lines),
                 }
 
-        group.add_function(name="compose_status", fn=_compose_status, description=_compose_status.__doc__)
+        group.add_function(name="docker_status", fn=_docker_status, description=_docker_status.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: compose_down
+    # Tool: docker_down
     # ---------------------------------------------------------------------------
 
-    if "compose_down" in _config.include:
+    if "docker_down" in _config.include:
 
-        async def _compose_down(input: ComposeOperationInput) -> dict:
+        async def _docker_down(input: ComposeOperationInput) -> dict:
             """Stop and remove docker compose services.
 
             Runs in background: docker compose down -v --remove-orphans
 
             Requires that artifacts for the docker_compose_id already exist.
 
-            Returns immediately for polling via compose_status.
+            Returns immediately for polling via docker_status.
             """
             try:
                 return _start_compose_op(
@@ -926,6 +926,6 @@ async def vss_orchestrator(
             except FileNotFoundError:
                 return {"status": ComposeStatus.ERROR.value, "error": "docker command not found. Install Docker with Compose v2."}
 
-        group.add_function(name="compose_down", fn=_compose_down, description=_compose_down.__doc__)
+        group.add_function(name="docker_down", fn=_docker_down, description=_docker_down.__doc__)
 
     yield group
