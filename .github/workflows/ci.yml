@@ -240,7 +240,7 @@ jobs:
         run: npm run build
 
   # ---------------------------------------------------------------------------
-  # Job 7: Trigger downstream pipeline on main
+  # Job 7: Trigger downstream pipeline on main and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
@@ -252,15 +252,27 @@ jobs:
       - frontend-lint
       - frontend-build
     runs-on: self-hosted
-    timeout-minutes: 10
+    # Holds the runner until the downstream pipeline completes. Must be
+    # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
+    # (+ a small safety buffer).
+    timeout-minutes: 245
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
-      DOWNSTREAM_PROJECT_PATH: hverjus/ci-vss-oss
+      DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
       DOWNSTREAM_REF: main
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
     steps:
       - uses: actions/checkout@v4
 
       - name: Trigger pipeline
+        id: trigger
         run: python3 .github/scripts/trigger-downstream-pipeline.sh
+
+      - name: Poll pipeline
+        env:
+          DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+          POLL_INTERVAL_SECONDS: "120"
+          MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
+        run: python3 .github/scripts/poll-downstream-pipeline.py

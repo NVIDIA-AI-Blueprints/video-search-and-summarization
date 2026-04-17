@@ -37,21 +37,46 @@ def api_base_url(raw_url: str) -> str:
     return base
 
 
-def request_json(action: str, url: str, token: str, data: bytes | None = None) -> dict[str, Any]:
-    headers = {
-        "PRIVATE-TOKEN": token,
-        "Accept": "application/json",
-    }
-    if data is not None:
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
+def request_json(
+    action: str,
+    url: str,
+    token: str,
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if headers is None:
+        headers = {
+            "PRIVATE-TOKEN": token,
+            "Accept": "application/json",
+        }
+        if data is not None:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
 
     request = Request(url, data=data, headers=headers)
     try:
         with urlopen(request) as response:
             payload = response.read().decode("utf-8")
     except HTTPError as exc:
-        _ = exc.read()
-        emit_error(f"{action} failed with status {exc.code}")
+        # Extract just the "message" / "error" field from the JSON body
+        # (GitLab convention). We do NOT include the raw body because it
+        # sometimes echoes the full request URL, which is a secret. The
+        # message field itself is safe - typically "Reference not found",
+        # "Missing CI config file", "insufficient_scope", etc.
+        reason = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+            body_json = json.loads(body) if body else {}
+            if isinstance(body_json, dict):
+                msg = body_json.get("message") or body_json.get("error")
+                if isinstance(msg, str):
+                    reason = msg
+                elif isinstance(msg, dict):
+                    # GitLab sometimes returns a dict of field: [errors]
+                    reason = ", ".join(f"{k}: {v}" for k, v in msg.items())
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        suffix = f": {reason}" if reason else ""
+        emit_error(f"{action} failed with status {exc.code}{suffix}")
         raise SystemExit(1) from exc
     except (URLError, ContentTooShortError) as exc:
         _ = exc
@@ -85,7 +110,7 @@ def trigger_pipeline(
     ref: str,
     variable_name: str,
     commit_sha: str,
-) -> int:
+) -> dict[str, Any]:
     payload = urlencode(
         [
             ("ref", ref),
@@ -93,8 +118,7 @@ def trigger_pipeline(
             ("variables[][value]", commit_sha),
         ]
     ).encode("utf-8")
-    response = request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
-    return int(response.get("iid") or response["id"])
+    return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
 
 
 def write_summary(message: str) -> None:
@@ -105,24 +129,69 @@ def write_summary(message: str) -> None:
         summary_file.write(f"{message}\n")
 
 
+def write_output(key: str, value: str) -> None:
+    output_path = os.environ.get("GITHUB_OUTPUT", "").strip()
+    if not output_path or not value:
+        return
+    with open(output_path, "a", encoding="utf-8") as output_file:
+        output_file.write(f"{key}={value}\n")
+
+
 def main() -> int:
     try:
-        base_url = api_base_url(require_env("DOWNSTREAM_CI_URL"))
+        raw_url = require_env("DOWNSTREAM_CI_URL")
+        base_url = api_base_url(raw_url)
         token = require_env("DOWNSTREAM_CI_TOKEN")
         project_path = require_env("DOWNSTREAM_PROJECT_PATH")
         commit_sha = require_env("GITHUB_SHA")
         ref = os.environ.get("DOWNSTREAM_REF", "main")
         variable_name = os.environ.get("DOWNSTREAM_SUBMODULE_HASH_VARIABLE", "VSS_SUBMODULE_HASH")
 
-        for value in (base_url, token, project_path, ref, variable_name):
+        # Mask the raw URL (e.g. "https://gitlab.example.com"), the API
+        # base URL (with "/api/v4" appended), and every path component of
+        # the project so no combination of them can leak into the log.
+        for value in (raw_url, base_url, token, project_path, ref, variable_name):
             add_mask(value)
+        for segment in project_path.split("/"):
+            add_mask(segment)
 
         project_id = fetch_project_id(base_url, token, project_path)
-        pipeline_number = trigger_pipeline(base_url, token, project_id, ref, variable_name, commit_sha)
+        pipeline = trigger_pipeline(base_url, token, project_id, ref, variable_name, commit_sha)
 
-        message = f"Triggered pipeline number {pipeline_number}"
-        print(message)
-        write_summary(message)
+        pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
+        pipeline_id = str(pipeline.get("id") or "")
+        pipeline_sha = str(pipeline.get("sha") or "")
+        pipeline_url = str(pipeline.get("web_url") or "")
+        pipeline_created_at = str(pipeline.get("created_at") or "")
+
+        # The pipeline URL includes the downstream host and project path,
+        # both of which are treated as secrets.
+        if pipeline_url:
+            add_mask(pipeline_url)
+
+        # Log identifiers only - no URL, no project path.
+        print(f"Triggered downstream pipeline #{pipeline_iid} (id={pipeline_id}, sha={pipeline_sha})")
+
+        sha_short = pipeline_sha[:8] if pipeline_sha else ""
+        summary_lines = ["### Downstream pipeline triggered", ""]
+        if pipeline_iid:
+            summary_lines.append(f"- **Pipeline:** #{pipeline_iid}")
+        if pipeline_id:
+            summary_lines.append(f"- **Global ID:** `{pipeline_id}`")
+        if pipeline_sha:
+            summary_lines.append(f"- **Commit SHA:** `{sha_short}` (`{pipeline_sha}`)")
+        if pipeline_created_at:
+            summary_lines.append(f"- **Created at:** {pipeline_created_at}")
+        write_summary("\n".join(summary_lines))
+
+        # Expose identifiers to the poll step in the same job. Do NOT
+        # write the pipeline URL here - it is a secret and would appear
+        # in any caller that echoes the output.
+        write_output("pipeline_iid", pipeline_iid)
+        write_output("pipeline_id", pipeline_id)
+        write_output("pipeline_sha", pipeline_sha)
+        write_output("pipeline_created_at", pipeline_created_at)
+        write_output("project_id", str(project_id))
         return 0
     except SystemExit:
         raise
