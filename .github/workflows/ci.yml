@@ -253,14 +253,20 @@ jobs:
       - frontend-build
     runs-on: self-hosted
     timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
-      DOWNSTREAM_PROJECT_PATH: hverjus/ci-vss-oss
+      DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
       DOWNSTREAM_REF: main
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
     steps:
       - uses: actions/checkout@v4
 
       - name: Trigger pipeline
+        id: trigger
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/trigger-downstream-pipeline.sh

@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Downstream pipeline follow-up
+
+# Manually-triggered workflow that reconciles GitHub commit statuses for
+# the `ci/downstream-pipeline` context with the actual state of the
+# linked GitLab pipeline(s).
+#
+# Exit semantics (the workflow's own pass/fail is the signal):
+#   - exit 0 : every inspected pipeline reached SUCCESS
+#   - exit 1 : any inspected pipeline FAILED, or is still NOT_READY
+#
+# Run it from the Actions tab via "Run workflow" after the downstream
+# pipeline has had time to complete.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  check:
+    name: Check pending downstream pipelines
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
+      DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
+      DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
+      FOLLOWUP_BRANCHES: "main,develop"
+      FOLLOWUP_COMMIT_LIMIT: "30"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconcile downstream pipeline statuses
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/check-downstream-pipeline.py
