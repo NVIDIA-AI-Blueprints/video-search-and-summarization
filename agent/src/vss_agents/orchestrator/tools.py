@@ -218,6 +218,20 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
             "(e.g. /home/user/video-search-and-summarization/deployments)."
         )
     )
+    source_compose_yaml: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Absolute path to the source docker compose YAML file."
+        ),
+    )
+    source_env: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Absolute path to the source profile .env file. Supports '{profile}' placeholder."
+        ),
+    )
     mdx_data_dir: str = Field(
         min_length=1,
         description=(
@@ -645,6 +659,8 @@ async def vss_orchestrator(
                     output_compose_file=str(compose_path),
                     deployments_dir=str(deployments_dir),
                     mdx_data_dir=str(mdx_data_dir),
+                    source_compose_yaml=_config.source_compose_yaml,
+                    source_env=_config.source_env,
                 )
                 resolved_env, env_path, compose_path = generate_dry_run_artifacts(dry_run_recipe)
                 ensure_data_directories(

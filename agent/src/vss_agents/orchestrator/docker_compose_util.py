@@ -33,6 +33,7 @@ from .network_util import (
     detect_internal_ip,
     read_etc_environment,
 )
+from .storage import resolve_required_absolute_file
 
 SupportedProfile = Literal["base", "search", "lvs", "alerts"]
 PROFILE_BASE: Final[str] = "base"
@@ -130,24 +131,35 @@ def create_dry_run_recipe(
     output_compose_file: str,
     deployments_dir: str,
     mdx_data_dir: str,
+    source_compose_yaml: str,
+    source_env: str,
 ) -> DryRunRecipe:
     profile = profile.strip()
     if profile not in SUPPORTED_PROFILES:
         raise ValidationError(f"Unsupported profile '{profile}'. Supported: {sorted(SUPPORTED_PROFILES)}")
 
 
-    # TODL: Need to make them configurable - deployments_path and source_env_file paths and compose_file path
     deployments_path = Path(deployments_dir).resolve()
     if not deployments_path.is_dir():
         raise ValidationError(f"Deployments directory does not exist: {deployments_path}")
 
-    compose_file = deployments_path / "compose.yml"
-    if not compose_file.is_file():
-        raise ValidationError(f"Compose file not found: {compose_file}")
+    compose_file = resolve_required_absolute_file(
+        source_compose_yaml,
+        field_name="source_compose_yaml",
+        missing_label="Compose file",
+        error_type=ValidationError,
+    )
 
-    source_env_file = deployments_path / "developer-workflow" / f"dev-profile-{profile}" / ".env"
-    if not source_env_file.is_file():
-        raise ValidationError(f"Profile source .env not found: {source_env_file}")
+    try:
+        resolved_source_env = source_env.strip().format(profile=profile)
+    except (IndexError, KeyError, ValueError) as exc:
+        raise ValidationError("source_env format is invalid. Only '{profile}' placeholder is supported.") from exc
+    source_env_file = resolve_required_absolute_file(
+        resolved_source_env,
+        field_name="source_env",
+        missing_label="Profile source .env",
+        error_type=ValidationError,
+    )
 
     try:
         model_resolution = ModelResolutionInput.model_validate(model_resolution, from_attributes=True)

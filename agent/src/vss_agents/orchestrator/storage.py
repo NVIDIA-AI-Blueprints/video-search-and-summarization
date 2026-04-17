@@ -48,6 +48,29 @@ class ModelArtifact:
     artifact_kind: ArtifactKind
 
 
+def resolve_required_absolute_file(
+    path_value: str,
+    *,
+    field_name: str,
+    missing_label: str,
+    error_type: type[Exception] = RuntimeError,
+) -> Path:
+    """Resolve and validate a required absolute file path."""
+
+    normalized = path_value.strip()
+    if not normalized:
+        raise error_type(f"{field_name} must not be empty.")
+
+    resolved_path = Path(normalized).expanduser()
+    if not resolved_path.is_absolute():
+        raise error_type(f"{field_name} must be an absolute path.")
+
+    resolved_path = resolved_path.resolve()
+    if not resolved_path.is_file():
+        raise error_type(f"{missing_label} not found: {resolved_path}")
+    return resolved_path
+
+
 def _artifact_is_valid(path: Path, kind: ArtifactKind) -> bool:
     if kind == ArtifactKind.FILE:
         return path.is_file()
