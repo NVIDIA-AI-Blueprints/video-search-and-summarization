@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
+description: Deploy, debug, or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Also debug/verify a running deployment end-to-end using `scripts/test_base.py` (upload a sample warehouse video, exercise the agent's video-Q&A path, confirm the stack is healthy). Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", "test the deployed agent", or "why is my vss deploy broken". Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
 metadata:
   { "openclaw": { "emoji": "🚀", "os": ["linux"] } }
 ---
@@ -26,6 +26,7 @@ Deploy any VSS profile using a compose-centric workflow: build env overrides, ge
 - Do a dry-run / preview what will be deployed
 - Change deployment config (hardware, LLM mode, GPU assignment)
 - Tear down a running deployment
+- **Debug or verify** an existing deployment (see [Debugging a Deployment](#debugging-a-deployment))
 
 ## Execution Modes
 
@@ -235,6 +236,69 @@ deploy/down()
 cd $REPO/deployments
 docker compose -f resolved.yml down
 ```
+
+## Debugging a Deployment
+
+Use this workflow when the user asks to "debug the deploy", "verify it's working",
+"why is the agent not responding", or similar. The goal is to confirm the full
+video-ingestion-to-agent-answer path, not just that containers are "Up".
+
+Each profile reference doc (e.g. [`references/base.md`](references/base.md)) has a
+**Debugging** section listing the exact commands to run for that profile.
+
+### Quick checks (all profiles)
+
+```bash
+# 1. All expected containers Up
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+
+# 2. Agent API + UI responding
+curl -sf http://localhost:8000/docs >/dev/null && echo "agent OK"
+curl -sf http://localhost:3000/ >/dev/null && echo "ui OK"
+
+# 3. VLM NIM responding (base/lvs profiles)
+curl -sf http://localhost:30082/v1/models | python3 -m json.tool
+
+# 4. LLM NIM responding
+curl -sf http://localhost:30081/v1/models | python3 -m json.tool
+```
+
+### End-to-end video sanity check
+
+`scripts/test_base.py` is the canonical end-to-end probe. It:
+
+1. Waits for the agent `/health` endpoint
+2. Asks the agent for a VST upload URL (`POST /api/v1/videos`)
+3. Uploads a public warehouse video (Pexels CC0, ~1 MB) directly to VST
+4. Verifies the video is visible via `GET /vst/api/v1/sensor/streams`
+5. Sends the blueprint queries over the agent WebSocket
+   (`"What videos are available?"` / `"Generate a report for video <name>"`)
+6. Handles HITL prompts (VLM-prompt for `base`, scenario/events/objects for `lvs`)
+7. Prints pass/fail and a response snippet
+
+Usage:
+
+```bash
+# Install once
+pip install websocket-client
+
+# base profile
+python skills/deploy/scripts/test_base.py http://localhost:8000 \
+    --profile base
+
+# lvs profile
+python skills/deploy/scripts/test_base.py http://localhost:8000 \
+    --profile lvs
+
+# Use a local video instead of the default Pexels download
+python skills/deploy/scripts/test_base.py http://localhost:8000 \
+    --video-path /path/to/my_video.mp4 --profile base
+```
+
+The script exits non-zero on any failure, so it can also be wired into CI or
+an eval verifier. If any step fails, cross-reference the vss-agent log
+(`docker logs vss-agent`) for the error line — the script prints which
+step (upload / VST check / query) tripped.
 
 ## Troubleshooting
 

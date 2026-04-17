@@ -192,6 +192,23 @@ PROFILES: dict[str, dict] = {
             {"port": 3000, "path": "/", "name": "Agent UI"},
         ],
     },
+    "base-debug": {
+        "description": "VSS base profile + debug workflow — deploy, then run the "
+                       "/deploy skill's debug script to verify end-to-end video flow",
+        "derives_from": "base",
+        "debug": True,
+        "expected_containers": [
+            "vss-agent",
+            "metropolis-vss-ui",
+            "mdx-redis",
+            "centralizedb-dev",
+            "phoenix",
+        ],
+        "expected_endpoints": [
+            {"port": 8000, "path": "/docs", "name": "Agent API"},
+            {"port": 3000, "path": "/", "name": "Agent UI"},
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -219,8 +236,60 @@ def generate_instruction(
     vlm_remote: dict | None,
 ) -> str:
     """High-level goal + context. Agent uses /deploy skill for the workflow."""
-    platform_spec = PLATFORMS[platform]
     mode_spec = MODES[mode]
+    profile_def = PROFILES[profile]
+    is_debug = bool(profile_def.get("debug"))
+    underlying = profile_def.get("derives_from", profile)
+
+    if is_debug:
+        lines = [
+            f"Use the `/deploy` skill to **deploy and debug** the VSS "
+            f"**{underlying}** profile on this machine.",
+            "",
+            "## Target configuration",
+            "",
+            f"- Hardware profile: `{platform}`",
+            f"- GPU mode: **{mode}** — {mode_spec['description']}",
+            _describe_model("LLM", mode_spec["llm_mode"], llm_remote),
+            _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote),
+            "",
+            "## Repository",
+            "",
+            "If the VSS repository is not already present, clone it from:",
+            f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`)",
+            "",
+            "## Credentials",
+            "",
+            "- `NGC_CLI_API_KEY` is available in the environment for pulling "
+            "NIM containers from `nvcr.io`.",
+            "",
+            "## Workflow",
+            "",
+            f"1. Deploy the `{underlying}` profile end-to-end (`/deploy` skill, "
+            "autonomous — do not stop to confirm).",
+            "2. Once containers are up and the Agent API responds at "
+            "`http://localhost:8000/docs`, run the skill's debug script to "
+            "verify the full video pipeline works:",
+            "",
+            "   ```bash",
+            "   pip install websocket-client",
+            "   python skills/deploy/scripts/test_base.py \\",
+            "       http://localhost:8000 --profile base",
+            "   ```",
+            "",
+            "   (The script is bundled with the `/deploy` skill. See "
+            "`skills/deploy/SKILL.md` → *Debugging a Deployment* and "
+            "`skills/deploy/references/base.md` → *Debugging* for details.)",
+            "",
+            "## Success criteria",
+            "",
+            "- Expected containers are Up",
+            "- Agent API responds at `http://localhost:8000/docs`",
+            "- `test_base.py` exits 0 (video uploaded + both "
+            "WebSocket queries return non-empty content)",
+            "",
+        ]
+        return "\n".join(lines) + "\n"
 
     lines = [
         f"Use the `/deploy` skill to deploy the VSS **{profile}** profile on this machine.",
@@ -264,6 +333,10 @@ def generate_test_script(profile: str, profile_def: dict, platform: str, mode: s
     containers = profile_def["expected_containers"]
     endpoints = profile_def["expected_endpoints"]
     mode_spec = MODES[mode]
+    # base + base-debug both run the E2E sanity check.
+    underlying = profile_def.get("derives_from", profile)
+    run_e2e = underlying == "base"
+    env_profile = underlying  # .env lives at dev-profile-<underlying>/.env
 
     container_checks = "\n".join(
         'check_container "' + c + '"' for c in containers
@@ -340,7 +413,7 @@ def generate_test_script(profile: str, profile_def: dict, platform: str, mode: s
         "fi",
         'check_pass "VSS repository found"',
         "",
-        'ENV_FILE="$REPO/deployments/developer-workflow/dev-profile-' + profile + '/.env"',
+        'ENV_FILE="$REPO/deployments/developer-workflow/dev-profile-' + env_profile + '/.env"',
         "",
         'echo "=== Checking .env ==="',
         validate_lines,
@@ -354,6 +427,20 @@ def generate_test_script(profile: str, profile_def: dict, platform: str, mode: s
         endpoint_checks,
         "",
         'echo ""',
+    ]
+    if run_e2e:
+        lines += [
+            'echo "=== Warehouse video E2E sanity check ==="',
+            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"',
+            'python3 -m pip install --quiet websocket-client >/dev/null 2>&1 || true',
+            'if python3 "$TEST_DIR/test_base.py" http://localhost:8000 --profile base; then',
+            '    check_pass "warehouse video E2E"',
+            'else',
+            '    check_fail "warehouse video E2E"',
+            'fi',
+            'echo ""',
+        ]
+    lines += [
         'echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="',
         "",
         'if [ "$TOTAL" -gt 0 ]; then',
@@ -381,6 +468,7 @@ def generate_solve_script(
 ) -> str:
     """Gold solution: configure .env + deploy."""
     mode_spec = MODES[mode]
+    env_profile = PROFILES[profile].get("derives_from", profile)
 
     overrides: dict[str, str] = {
         "HARDWARE_PROFILE": platform,
@@ -435,7 +523,7 @@ def generate_solve_script(
         'mkdir -p "$REPO/data"',
         "",
         "# --- Configure .env ---",
-        "PROFILE=" + profile,
+        "PROFILE=" + env_profile,
         "ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env",
         "",
         sed_lines,
@@ -522,12 +610,18 @@ def generate_task(
     env_dir.mkdir(exist_ok=True)
     (env_dir / "Dockerfile").write_text("FROM scratch\n")
 
-    # -- tests/test.sh --
+    # -- tests/test.sh (+ E2E helper for `base` and `base-debug`) --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
     (tests_dir / "test.sh").write_text(
         generate_test_script(profile, profile_def, platform, mode),
     )
+    underlying = profile_def.get("derives_from", profile)
+    if underlying == "base" and skill_dir:
+        # Canonical source lives in the /deploy skill: skills/deploy/scripts/.
+        script_src = skill_dir / "scripts" / "test_base.py"
+        if script_src.exists():
+            shutil.copy(script_src, tests_dir / "test_base.py")
 
     # -- solution/solve.sh --
     solution_dir = task_dir / "solution"
