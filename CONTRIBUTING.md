@@ -77,6 +77,66 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues 
 - Ensure new or existing tests cover your changes.
 - Keep the documentation up to date with your changes.
 
+### Local development and testing
+
+Before opening a PR, please enable the pre-commit hooks and, ideally, run the GitHub Actions CI locally. Both workflows mirror the checks that run on CI, so passing them locally means the PR will pass remote checks.
+
+#### 1. Enable pre-commit hooks
+
+The repository ships with a `.pre-commit-config.yaml` at the root that runs the same lint and type-check steps as CI:
+
+- `ruff check` — mirrors the CI `Lint (Python)` job
+- `ruff format --check` — mirrors the CI `Lint (Python)` job
+- `mypy src/vss_agents/` — mirrors the CI `Type Check (mypy)` job
+- TruffleHog secret scan
+
+Install the hooks once after cloning the repo:
+
+```bash
+cd agent
+uv venv --python 3.13
+uv sync --group dev
+uv run pre-commit install
+```
+
+After that, the hooks run automatically on every `git commit`. To run them manually against all files:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+If you need to bypass a hook for a specific commit (rare, and not recommended), use `SKIP=<hook-id> git commit …` or `git commit --no-verify`.
+
+#### 2. Run the CI workflow locally with `act`
+
+The full GitHub Actions CI pipeline (`.github/workflows/ci.yml`) can be executed locally using [`act`](https://github.com/nektos/act), which runs the workflow in Docker containers that match GitHub's runners.
+
+Install `act` (see its [README](https://github.com/nektos/act#installation) for other platforms):
+
+```bash
+# Linux / macOS (Homebrew)
+brew install act
+
+# Linux (curl)
+curl https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+```
+
+You'll also need Docker running locally.
+
+From the repository root, run the push workflow:
+
+```bash
+act push --workflows .github/workflows/ci.yml
+```
+
+This executes every job in parallel (lint, typecheck, test, security scan, UI lint/typecheck, UI build). The first run downloads the `catthehacker/ubuntu:act-latest` image (~1 GB); subsequent runs reuse the cached image.
+
+Notes:
+
+- `act` does not have GitHub's `ACTIONS_RUNTIME_TOKEN`, so the `actions/upload-artifact` step in the `Test (pytest)` job will fail at the end. This is expected and does not affect the test result — the tests themselves will have already passed.
+- To run a single job, pass `-j <job-id>`, e.g. `act push -j lint`.
+- If you hit GitHub API rate limits on `actions/setup-node`, pass a token: `act push --secret GITHUB_TOKEN=$(gh auth token)`.
+
 ### Branch naming
 
 Branches used to create PRs should have a name of the form `<type>/<name>` which conforms to the following conventions:
