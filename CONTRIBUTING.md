@@ -53,6 +53,31 @@ git commit --amend -s --no-edit
 
 **Pull requests with unsigned commits will not be merged.**
 
+## Pre-commit hooks
+
+This repository uses [pre-commit](https://pre-commit.com/) hooks to run security scans before each commit. You must install and enable them before contributing.
+
+### Setup
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+### What runs
+
+| Hook | Purpose |
+|------|---------|
+| [TruffleHog](https://github.com/trufflesecurity/trufflehog) | Scans commits for secrets, credentials, and API keys |
+
+The hooks run automatically on `git commit`. To run them manually against all files:
+
+```bash
+pre-commit run --all-files
+```
+
+If a hook fails, fix the issue before committing. **Pull requests that contain detected secrets will not be merged.**
+
 ## Code contributions
 
 ### Your first issue
@@ -76,6 +101,10 @@ Remember, if you are unsure about anything, don't hesitate to comment on issues 
 - Reference any issues closed by the PR with "closes #1234".
 - Ensure new or existing tests cover your changes.
 - Keep the documentation up to date with your changes.
+
+### UI directory — no external contributions
+
+The `ui/` directory is maintained internally by the NVIDIA Metropolis UI team and is **not open to external contributions**. Pull requests that modify files under `ui/` from external contributors will be closed. If you find a bug or want to request a feature related to the UI, please [file an issue](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/new/choose) instead.
 
 ### Branch naming
 
