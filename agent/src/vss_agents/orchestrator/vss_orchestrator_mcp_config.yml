@@ -124,9 +124,9 @@ function_groups:
           RTVI_VLM_MODEL_TO_USE: cosmos-reason2
           RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
           VLM_MODEL_TYPE: rtvi
-    # skip_prerequisite_checks: false   # set to true to skip nvidia-smi / docker checks
     include:
       - docker_profiles
+      - docker_prereqs
       - compose_generate
       - compose_artifacts
       - container_list

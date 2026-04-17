@@ -15,8 +15,9 @@
 
 """VSS Orchestrator MCP function group.
 
-Exposes eight tools that wrap the orchestrator utilities:
+Exposes nine tools that wrap the orchestrator utilities:
   - docker_profiles: list all supported deployment profiles
+  - docker_prereqs: run Docker/GPU prerequisite checks
   - compose_generate : resolve env + compose YAML artifacts
   - compose_artifacts: fetch generated env/yaml by docker_compose_id
   - container_list: list docker container names
@@ -177,6 +178,12 @@ class DockerProfilesInput(BaseModel):
     pass
 
 
+class DockerPrereqsInput(BaseModel):
+    """Input for docker_prereqs lookup."""
+
+    pass
+
+
 class ModelArtifactConfig(BaseModel):
     """Config shape for profile model artifacts in MCP YAML."""
 
@@ -266,13 +273,10 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         ...,
         description="Hardware/model resolution rules used during compose_generate validation.",
     )
-    skip_prerequisite_checks: bool = Field(
-        default=False,
-        description="Skip GPU/Docker prerequisite validation by default for all compose_generate calls.",
-    )
     include: list[str] = Field(
         default=[
             "docker_profiles",
+            "docker_prereqs",
             "compose_generate",
             "compose_artifacts",
             "container_list",
@@ -647,6 +651,26 @@ async def vss_orchestrator(
         group.add_function(name="docker_profiles", fn=_docker_profiles, description=_docker_profiles.__doc__)
 
     # ---------------------------------------------------------------------------
+    # Tool: docker_prereqs
+    # ---------------------------------------------------------------------------
+
+    if "docker_prereqs" in _config.include:
+
+        async def _docker_prereqs(input: DockerPrereqsInput) -> dict:
+            """Run Docker/GPU prerequisite checks."""
+            _ = input
+            try:
+                run_prerequisite_checks()
+            except RuntimeError as exc:
+                return {"status": ComposeStatus.ERROR.value, "error": str(exc)}
+            return {
+                "status": ComposeStatus.SUCCESS.value,
+                "message": "Prerequisite checks passed.",
+            }
+
+        group.add_function(name="docker_prereqs", fn=_docker_prereqs, description=_docker_prereqs.__doc__)
+
+    # ---------------------------------------------------------------------------
     # Tool: compose_generate
     # ---------------------------------------------------------------------------
 
@@ -663,8 +687,6 @@ async def vss_orchestrator(
               and orphaned depends_on entries removed.
 
             These artifacts must exist before running compose_up or compose_down.
-            GPU/Docker prerequisite checks run by default unless disabled in the
-            function group config.
 
             Returns a summary dict with artifact paths and key resolved values on
             success, or {"status": "error", "error": "<message>"} on failure.
@@ -691,8 +713,6 @@ async def vss_orchestrator(
                     resolved_env["MDX_DATA_DIR"],
                     required_subdirectories=configured_mdx_data_directories,
                 )
-                if not _config.skip_prerequisite_checks:
-                    run_prerequisite_checks()
                 with _COMPOSE_SPECS_LOCK:
                     _COMPOSE_SPECS[docker_compose_id] = {
                         "docker_compose_id": docker_compose_id,
