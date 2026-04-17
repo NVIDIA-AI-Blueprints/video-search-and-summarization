@@ -139,7 +139,7 @@ def _run_disk_space_check() -> None:
     print()
 
 
-def run_prerequisite_checks() -> None:
+def run_prereqs_checks() -> None:
     print("\n=== Prerequisites Check ===")
     _run_gpu_checks()
     _run_docker_checks()

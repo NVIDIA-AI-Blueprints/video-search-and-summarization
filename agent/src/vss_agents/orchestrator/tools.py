@@ -54,7 +54,7 @@ from .docker_compose_util import generate_dry_run_artifacts
 from .docker_compose_util import parse_env_file
 from .docker_compose_util import parse_env_overrides
 from .docker_compose_util import SUPPORTED_PROFILES
-from .prerequisite_check import run_prerequisite_checks
+from .prereqs_check import run_prereqs_checks
 from .storage import ArtifactKind
 from .storage import ModelArtifact
 from .storage import ensure_data_directories
@@ -660,7 +660,7 @@ async def vss_orchestrator(
             """Run Docker/GPU prerequisite checks."""
             _ = input
             try:
-                run_prerequisite_checks()
+                run_prereqs_checks()
             except RuntimeError as exc:
                 return {"status": ComposeStatus.ERROR.value, "error": str(exc)}
             return {
