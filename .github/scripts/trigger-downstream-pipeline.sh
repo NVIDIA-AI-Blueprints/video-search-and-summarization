@@ -57,8 +57,26 @@ def request_json(
         with urlopen(request) as response:
             payload = response.read().decode("utf-8")
     except HTTPError as exc:
-        _ = exc.read()
-        emit_error(f"{action} failed with status {exc.code}")
+        # Extract just the "message" / "error" field from the JSON body
+        # (GitLab convention). We do NOT include the raw body because it
+        # sometimes echoes the full request URL, which is a secret. The
+        # message field itself is safe - typically "Reference not found",
+        # "Missing CI config file", "insufficient_scope", etc.
+        reason = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+            body_json = json.loads(body) if body else {}
+            if isinstance(body_json, dict):
+                msg = body_json.get("message") or body_json.get("error")
+                if isinstance(msg, str):
+                    reason = msg
+                elif isinstance(msg, dict):
+                    # GitLab sometimes returns a dict of field: [errors]
+                    reason = ", ".join(f"{k}: {v}" for k, v in msg.items())
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        suffix = f": {reason}" if reason else ""
+        emit_error(f"{action} failed with status {exc.code}{suffix}")
         raise SystemExit(1) from exc
     except (URLError, ContentTooShortError) as exc:
         _ = exc
@@ -119,44 +137,6 @@ def write_output(key: str, value: str) -> None:
         output_file.write(f"{key}={value}\n")
 
 
-# Context string used on GitHub commit statuses to track the downstream
-# pipeline. The follow-up workflow looks for this exact context to discover
-# pipelines that still need to be checked.
-DOWNSTREAM_STATUS_CONTEXT = "ci/downstream-pipeline"
-
-
-def post_github_status(
-    repo: str,
-    sha: str,
-    github_token: str,
-    state: str,
-    target_url: str,
-    description: str,
-) -> None:
-    url = f"https://api.github.com/repos/{repo}/statuses/{sha}"
-    body = json.dumps(
-        {
-            "state": state,
-            "target_url": target_url,
-            "description": description[:140],
-            "context": DOWNSTREAM_STATUS_CONTEXT,
-        }
-    ).encode("utf-8")
-    headers = {
-        "Authorization": f"Bearer {github_token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json",
-        "User-Agent": "trigger-downstream-pipeline",
-    }
-    try:
-        request_json("GitHub status update", url, token="", data=body, headers=headers)
-    except SystemExit:
-        # Failing to post a status should not fail the pipeline trigger itself;
-        # the pipeline is already running on GitLab at this point.
-        print("::warning::Failed to post GitHub commit status for downstream pipeline")
-
-
 def main() -> int:
     try:
         raw_url = require_env("DOWNSTREAM_CI_URL")
@@ -185,14 +165,11 @@ def main() -> int:
         pipeline_created_at = str(pipeline.get("created_at") or "")
 
         # The pipeline URL includes the downstream host and project path,
-        # both of which are treated as secrets. Mask it before anything
-        # else might echo it.
+        # both of which are treated as secrets.
         if pipeline_url:
             add_mask(pipeline_url)
 
-        # Log identifiers only (numbers + commit SHAs). No URL, no
-        # project path - the link is carried on the GitHub commit status
-        # via target_url, which is not part of the job log.
+        # Log identifiers only - no URL, no project path.
         print(f"Triggered downstream pipeline #{pipeline_iid} (id={pipeline_id}, sha={pipeline_sha})")
 
         sha_short = pipeline_sha[:8] if pipeline_sha else ""
@@ -205,32 +182,16 @@ def main() -> int:
             summary_lines.append(f"- **Commit SHA:** `{sha_short}` (`{pipeline_sha}`)")
         if pipeline_created_at:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
-        summary_lines.append("")
-        summary_lines.append("Follow the `ci/downstream-pipeline` commit status for the clickable link to the downstream pipeline.")
         write_summary("\n".join(summary_lines))
 
+        # Expose identifiers to the poll step in the same job. Do NOT
+        # write the pipeline URL here - it is a secret and would appear
+        # in any caller that echoes the output.
         write_output("pipeline_iid", pipeline_iid)
         write_output("pipeline_id", pipeline_id)
         write_output("pipeline_sha", pipeline_sha)
-        # pipeline_url is intentionally masked above and exposed via
-        # commit status target_url rather than a job output to reduce
-        # the risk of a later step echoing it in plaintext.
         write_output("pipeline_created_at", pipeline_created_at)
-
-        github_token = os.environ.get("GITHUB_TOKEN", "").strip()
-        github_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
-        if github_token and github_repo and pipeline_id and pipeline_url:
-            # Machine-readable marker. The follow-up workflow parses
-            # "pipeline_id=<N>" out of description to re-query GitLab.
-            description = f"pipeline_id={pipeline_id} iid={pipeline_iid} (awaiting downstream CI)"
-            post_github_status(
-                repo=github_repo,
-                sha=commit_sha,
-                github_token=github_token,
-                state="pending",
-                target_url=pipeline_url,
-                description=description,
-            )
+        write_output("project_id", str(project_id))
         return 0
     except SystemExit:
         raise
