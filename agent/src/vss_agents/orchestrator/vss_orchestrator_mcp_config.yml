@@ -126,6 +126,7 @@ function_groups:
           VLM_MODEL_TYPE: rtvi
     # skip_prerequisite_checks: false   # set to true to skip nvidia-smi / docker checks
     include:
+      - docker_profiles
       - compose_generate
       - compose_artifacts
       - container_list

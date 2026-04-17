@@ -15,7 +15,8 @@
 
 """VSS Orchestrator MCP function group.
 
-Exposes seven tools that wrap the orchestrator utilities:
+Exposes eight tools that wrap the orchestrator utilities:
+  - docker_profiles: list all supported deployment profiles
   - compose_generate : resolve env + compose YAML artifacts
   - compose_artifacts: fetch generated env/yaml by docker_compose_id
   - container_list: list docker container names
@@ -51,6 +52,7 @@ from .docker_compose_util import create_dry_run_recipe
 from .docker_compose_util import generate_dry_run_artifacts
 from .docker_compose_util import parse_env_file
 from .docker_compose_util import parse_env_overrides
+from .docker_compose_util import SUPPORTED_PROFILES
 from .prerequisite_check import run_prerequisite_checks
 from .storage import ArtifactKind
 from .storage import ModelArtifact
@@ -169,6 +171,12 @@ class ContainerLogsInput(BaseModel):
     )
 
 
+class DockerProfilesInput(BaseModel):
+    """Input for docker_profiles lookup."""
+
+    pass
+
+
 class ModelArtifactConfig(BaseModel):
     """Config shape for profile model artifacts in MCP YAML."""
 
@@ -264,6 +272,7 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     )
     include: list[str] = Field(
         default=[
+            "docker_profiles",
             "compose_generate",
             "compose_artifacts",
             "container_list",
@@ -621,10 +630,25 @@ async def vss_orchestrator(
         }
 
     # ---------------------------------------------------------------------------
+    # Tool: docker_profiles
+    # ---------------------------------------------------------------------------
+    group = FunctionGroup(config=_config)
+
+    if "docker_profiles" in _config.include:
+
+        async def _docker_profiles(input: DockerProfilesInput) -> dict:
+            """List all supported deployment profiles."""
+            _ = input
+            return {
+                "status": ComposeStatus.SUCCESS.value,
+                "profiles": sorted(SUPPORTED_PROFILES),
+            }
+
+        group.add_function(name="docker_profiles", fn=_docker_profiles, description=_docker_profiles.__doc__)
+
+    # ---------------------------------------------------------------------------
     # Tool: compose_generate
     # ---------------------------------------------------------------------------
-
-    group = FunctionGroup(config=_config)
 
     if "compose_generate" in _config.include:
 
