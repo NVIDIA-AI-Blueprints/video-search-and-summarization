@@ -169,7 +169,7 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
       "log_excerpt": "..."
     }
     ```
-- `docker_down`: stop or remove deployment for a generated compose id (background operation).
+- `docker_down`: stop / remove deployment for a generated compose id (background operation).
   - Payload:
     ```json
     {
