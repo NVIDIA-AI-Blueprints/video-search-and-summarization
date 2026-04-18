@@ -4,14 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
-NEMOCLAW_PROVIDER="ollama"
-NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-qwen3.5}"
+NEMOCLAW_PROVIDER="nvidia-remote"
+NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-nvidia/nvidia-nemotron-nano-9b-v2}"
 NEMOCLAW_NON_INTERACTIVE=1
 NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1
-OLLAMA_MODEL="${OLLAMA_MODEL:-$NEMOCLAW_MODEL}"
-OLLAMA_HOST="${OLLAMA_HOST:-0.0.0.0:11434}"
-OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://host.openshell.internal:11434/v1}"
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-1}"
+NEMOCLAW_REMOTE_BASE_URL="${NEMOCLAW_REMOTE_BASE_URL:-https://integrate.api.nvidia.com/v1}"
+NEMOCLAW_REMOTE_API_KEY="${NEMOCLAW_REMOTE_API_KEY:-${NVIDIA_API_KEY:-}}"
 NEMOCLAW_SHIM_DIR="${HOME}/.local/bin"
 OPENCLAW_CONFIG_UPDATE_SCRIPT="${OPENCLAW_CONFIG_UPDATE_SCRIPT:-${SCRIPT_DIR}/update_openclaw_config.py}"
 NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemoclaw_policy.yaml}"
@@ -38,11 +36,9 @@ Usage:
 
 Options:
   --sandbox-name NAME         Sandbox name (default: demo)
-  --model NAME                Model name for NemoClaw and Ollama (default: qwen3.5)
-  --ollama-model NAME         Ollama model name override
-  --ollama-host HOST:PORT     Ollama bind address (default: 0.0.0.0:11434)
-  --ollama-base-url URL       OpenShell base URL for Ollama
-  --cuda-visible-devices IDS  CUDA device selection (default: 1)
+  --model NAME                Model name for NemoClaw inference
+  --remote-base-url URL       OpenAI-compatible base URL for remote provider
+  --nvidia-api-key KEY        API key for remote provider (fallback: NVIDIA_API_KEY)
   --openclaw-config-script PATH
                               Path to the OpenClaw config update helper
   --policy-file PATH          Path to the custom sandbox policy file
@@ -63,20 +59,12 @@ parse_args() {
         NEMOCLAW_MODEL="$2"
         shift 2
         ;;
-      --ollama-model)
-        OLLAMA_MODEL="$2"
+      --remote-base-url)
+        NEMOCLAW_REMOTE_BASE_URL="$2"
         shift 2
         ;;
-      --ollama-host)
-        OLLAMA_HOST="$2"
-        shift 2
-        ;;
-      --ollama-base-url)
-        OLLAMA_BASE_URL="$2"
-        shift 2
-        ;;
-      --cuda-visible-devices)
-        CUDA_VISIBLE_DEVICES="$2"
+      --nvidia-api-key)
+        NEMOCLAW_REMOTE_API_KEY="$2"
         shift 2
         ;;
       --openclaw-config-script)
@@ -115,9 +103,6 @@ parse_args() {
     exit 1
   fi
 
-  if [ -z "${OLLAMA_MODEL:-}" ]; then
-    OLLAMA_MODEL="$NEMOCLAW_MODEL"
-  fi
 }
 
 ensure_nvm_loaded() {
@@ -169,67 +154,6 @@ resolve_nemoclaw() {
   done
 
   return 1
-}
-
-install_ollama_if_needed() {
-  if have ollama; then
-    log "Ollama already installed"
-    return
-  fi
-
-  if ! have curl; then
-    log "curl is required to install Ollama"
-    exit 1
-  fi
-
-  log "Installing Ollama"
-  local tmpdir script
-  tmpdir="$(mktemp -d)"
-  script="$tmpdir/install_ollama.sh"
-  curl -fsSL https://ollama.com/install.sh -o "$script"
-  sh "$script"
-  rm -rf "$tmpdir"
-}
-
-start_ollama_server() {
-  if have systemctl && have sudo; then
-    sudo -n systemctl stop ollama >/dev/null 2>&1 || true
-  fi
-
-  pkill -f "ollama serve" >/dev/null 2>&1 || true
-
-  log "Starting Ollama server on $OLLAMA_HOST"
-  nohup env OLLAMA_HOST="$OLLAMA_HOST" CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES" \
-    ollama serve >/tmp/ollama.log 2>&1 &
-
-  local attempt
-  for attempt in $(seq 1 30); do
-    if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-      log "Ollama is ready"
-      return
-    fi
-    sleep 1
-  done
-
-  log "Ollama did not become ready; check /tmp/ollama.log"
-  exit 1
-}
-
-ensure_ollama_model() {
-  local installed_model
-  while IFS= read -r installed_model; do
-    if [ "$installed_model" = "$OLLAMA_MODEL" ]; then
-      log "Ollama model $OLLAMA_MODEL already present"
-      return
-    fi
-    if [[ "$OLLAMA_MODEL" != *:* ]] && [ "$installed_model" = "${OLLAMA_MODEL}:latest" ]; then
-      log "Ollama model $installed_model already present"
-      return
-    fi
-  done < <(ollama list 2>/dev/null | awk 'NR > 1 && $1 != "" { print $1 }')
-
-  log "Pulling Ollama model $OLLAMA_MODEL"
-  ollama pull "$OLLAMA_MODEL"
 }
 
 ensure_openshell_installed() {
@@ -568,25 +492,34 @@ configure_openshell_provider() {
     return
   fi
 
-  log "Configuring OpenShell provider $NEMOCLAW_PROVIDER for Ollama"
+  local provider_api_key provider_base_url
+  provider_base_url="$NEMOCLAW_REMOTE_BASE_URL"
+  provider_api_key="${NEMOCLAW_REMOTE_API_KEY:-}"
+
+  log "Configuring OpenShell provider $NEMOCLAW_PROVIDER for remote model API"
+  if [ -z "$provider_api_key" ]; then
+    log "NEMOCLAW_REMOTE_API_KEY is required for remote provider (or set NVIDIA_API_KEY)"
+    exit 1
+  fi
+
   if openshell provider get "$NEMOCLAW_PROVIDER" >/dev/null 2>&1; then
-    if ! env OPENAI_API_KEY=empty openshell provider update \
+    if ! env OPENAI_API_KEY="$provider_api_key" openshell provider update \
       --credential OPENAI_API_KEY \
-      --config "OPENAI_BASE_URL=$OLLAMA_BASE_URL" \
+      --config "OPENAI_BASE_URL=$provider_base_url" \
       "$NEMOCLAW_PROVIDER"; then
       log "Provider update failed; continuing with existing provider config"
     fi
   else
-    if ! env OPENAI_API_KEY=empty openshell provider create \
+    if ! env OPENAI_API_KEY="$provider_api_key" openshell provider create \
       --name "$NEMOCLAW_PROVIDER" \
       --type openai \
       --credential OPENAI_API_KEY \
-      --config "OPENAI_BASE_URL=$OLLAMA_BASE_URL"; then
+      --config "OPENAI_BASE_URL=$provider_base_url"; then
       log "Provider create failed; continuing"
     fi
   fi
 
-  openshell inference set --provider "$NEMOCLAW_PROVIDER" --model "$OLLAMA_MODEL"
+  openshell inference set --provider "$NEMOCLAW_PROVIDER" --model "$NEMOCLAW_MODEL"
   openshell inference get || true
 }
 
@@ -771,9 +704,7 @@ run_install() {
 }
 
 main() {
-  install_ollama_if_needed
-  start_ollama_server
-  ensure_ollama_model
+  log "Using remote NVIDIA-hosted model provider"
 
   log "Start installing/onboarding NemoClaw"
   # ensure_openshell_installed
@@ -796,7 +727,7 @@ main() {
 
 parse_args "$@"
 export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
-export OLLAMA_MODEL OLLAMA_HOST OLLAMA_BASE_URL CUDA_VISIBLE_DEVICES
+export NEMOCLAW_REMOTE_BASE_URL NEMOCLAW_REMOTE_API_KEY
 export OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
 
 main

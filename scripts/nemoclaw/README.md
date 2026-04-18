@@ -2,18 +2,17 @@
 
 `init_vss_nemoclaw.sh` bootstraps a NemoClaw sandbox on a Brev instance and installs the Video Search and Summarization OpenClaw plugin into it.
 
+It currently uses a remote NVIDIA-hosted model via `NVIDIA_API_KEY`.
+
 ## What It Does
 
 When you run `init_vss_nemoclaw.sh`, it:
 
-1. Installs Ollama if needed.
-2. Starts `ollama serve` with the requested GPU selection.
-3. Pulls the requested Ollama model.
-4. Runs NemoClaw onboarding if `nemoclaw` is already available, or falls back to `/home/ubuntu/NemoClaw/install.sh`.
-5. Configures the OpenShell inference provider to talk to Ollama through `host.openshell.internal`.
-6. Applies the VSS sandbox policy from `assets/vss_nemoclaw_policy.yaml`.
-7. Packages and installs the VSS OpenClaw plugin from `.openclaw/` and `skills/`.
-8. Updates OpenClaw's allowed origins and prints the final OpenClaw UI URL when available.
+1. Runs NemoClaw onboarding if `nemoclaw` is already available, or falls back to `/home/ubuntu/NemoClaw/install.sh`.
+2. Configures the OpenShell inference provider to use the remote NVIDIA-hosted model API.
+3. Applies the VSS sandbox policy from `assets/vss_nemoclaw_policy.yaml`.
+4. Packages and installs the VSS OpenClaw plugin from `.openclaw/` and `skills/`.
+5. Updates OpenClaw's allowed origins and prints the final OpenClaw UI URL when available.
 
 ## Expected Environment
 
@@ -44,7 +43,7 @@ bash scripts/nemoclaw/init_vss_nemoclaw.sh
 You can also pass the sandbox name and model positionally:
 
 ```bash
-bash scripts/nemoclaw/init_vss_nemoclaw.sh demo qwen3.5
+bash scripts/nemoclaw/init_vss_nemoclaw.sh demo nvidia/nvidia-nemotron-nano-9b-v2
 ```
 
 Or use explicit flags:
@@ -52,8 +51,8 @@ Or use explicit flags:
 ```bash
 bash scripts/nemoclaw/init_vss_nemoclaw.sh \
   --sandbox-name demo \
-  --model qwen3.5 \
-  --cuda-visible-devices 1
+  --model nvidia/nvidia-nemotron-nano-9b-v2 \
+  --nvidia-api-key "$NVIDIA_API_KEY"
 ```
 
 To start it in the background on a Brev instance:
@@ -68,11 +67,9 @@ nohup bash /home/ubuntu/video-search-and-summarization/scripts/nemoclaw/init_vss
 | Option | Description | Default |
 |---|---|---|
 | `--sandbox-name NAME` | Target sandbox name | `demo` |
-| `--model NAME` | NemoClaw model and default Ollama model | `qwen3.5` |
-| `--ollama-model NAME` | Override the Ollama model name only | same as `--model` |
-| `--ollama-host HOST:PORT` | Ollama bind address | `0.0.0.0:11434` |
-| `--ollama-base-url URL` | OpenShell-facing Ollama endpoint | `http://host.openshell.internal:11434/v1` |
-| `--cuda-visible-devices IDS` | GPU selection for `ollama serve` | `1` |
+| `--model NAME` | NemoClaw inference model | `nvidia/nvidia-nemotron-nano-9b-v2` |
+| `--remote-base-url URL` | OpenAI-compatible base URL for remote provider | `https://integrate.api.nvidia.com/v1` |
+| `--nvidia-api-key KEY` | API key for remote provider | `NVIDIA_API_KEY` env fallback |
 | `--openclaw-config-script PATH` | Path to `update_openclaw_config.py` | `scripts/nemoclaw/update_openclaw_config.py` |
 | `--policy-file PATH` | Custom sandbox policy file | `assets/vss_nemoclaw_policy.yaml` |
 | `--help` | Show usage help | n/a |
@@ -84,10 +81,9 @@ The script also honors these environment variables:
 - `VSS_REPO_DIR`: repo root used to resolve plugin assets and the default policy file
 - `NEMOCLAW_SANDBOX_NAME`
 - `NEMOCLAW_MODEL`
-- `OLLAMA_MODEL`
-- `OLLAMA_HOST`
-- `OLLAMA_BASE_URL`
-- `CUDA_VISIBLE_DEVICES`
+- `NEMOCLAW_REMOTE_BASE_URL`
+- `NEMOCLAW_REMOTE_API_KEY`
+- `NVIDIA_API_KEY`
 - `OPENCLAW_CONFIG_UPDATE_SCRIPT`
 - `NEMOCLAW_POLICY_FILE`
 - `VSS_CONTAINER_NAME`: explicit OpenShell gateway container name, if autodetection is not sufficient
@@ -98,7 +94,7 @@ The script also honors these environment variables:
 Successful runs usually include log lines like:
 
 ```text
-[run_nemoclaw_install] Ollama is ready
+[run_nemoclaw_install] Using remote NVIDIA-hosted model provider
 [run_nemoclaw_install] Start installing/onboarding NemoClaw
 [run_nemoclaw_install] Finished installing/onboarding NemoClaw
 [run_nemoclaw_install] Applying custom policy to sandbox demo
@@ -116,7 +112,7 @@ If the config update succeeds, the helper also prints:
 
 ## Troubleshooting
 
-- If the script stops after the Ollama step, inspect `/tmp/ollama.log`.
+- Verify `NVIDIA_API_KEY` is set before running the installer.
 - If NemoClaw onboarding fails, verify `nemoclaw` is resolvable or that `/home/ubuntu/NemoClaw/install.sh` exists and is executable.
 - If the custom policy is skipped, confirm `assets/vss_nemoclaw_policy.yaml` exists or pass `--policy-file`.
 - If plugin installation is skipped, verify the repo checkout includes both `.openclaw/` and `skills/`.
