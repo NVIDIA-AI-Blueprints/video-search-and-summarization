@@ -91,6 +91,20 @@ The platform requirement can vary depending on the configuration and deployment 
 Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [scripts](scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
 - [scripts/deploy_vss_launchable.ipynb](scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
 
+### Local GPU Deployment (Docker Compose with Local Models)
+
+**Ideal for:** Running the full stack on your own GPU(s) without relying on remote API keys for inference.
+
+The Docker Compose deployment supports local NIM model hosting. Set the following variables in your `.env` file (e.g. `deployments/developer-workflow/dev-profile-base/.env`) before starting:
+
+```bash
+LLM_MODE=local_shared   # run LLM locally on GPU, sharing VRAM
+VLM_MODE=local_shared   # run VLM locally on GPU
+HARDWARE_PROFILE=H100   # match your GPU (H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER)
+```
+
+An NVIDIA AI Enterprise developer licence and NGC API key are still required to pull NIM containers. See [GPU requirements](https://docs.nvidia.com/vss/3.1.0/prerequisites.html#development-profile-gpu-requirements) for validated topologies and VRAM budgets, and [Local NIM deployment docs](https://docs.nvidia.com/vss/3.1.0/quickstart.html) for the full setup walkthrough.
+
 ### Docker Compose Deployment
 
 **Ideal for:** Deploying a VSS agent on your own hardware or bare metal cloud instance.
