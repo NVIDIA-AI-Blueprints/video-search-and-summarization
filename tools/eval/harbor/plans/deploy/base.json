@@ -1,0 +1,562 @@
+{
+  "meta": {
+    "profile": "base",
+    "created_at": "2026-04-19",
+    "task_count": 16,
+    "required_passes_per_task": 12,
+    "schema_version": 1,
+    "description": "TEMPLATE for base-profile Harbor eval. A coordinator MUST copy this file to a run-specific path before dispatching any workers \u2014 never write progress back into this template. See coordinator_instructions.run_directory_protocol.",
+    "is_template": true,
+    "do_not_edit_reason": "This file is the immutable template. Each eval run copies it to results/<timestamp>/eval_progress.json and workers update that copy.",
+    "verifier_checks": [
+      "VSS repository found",
+      "HARDWARE_PROFILE matches platform",
+      "LLM_MODE matches mode",
+      "VLM_MODE matches mode",
+      "container vss-agent running",
+      "container metropolis-vss-ui running",
+      "container mdx-redis running",
+      "container centralizedb-dev running",
+      "container phoenix running",
+      "Agent API (port 8000) /docs responds",
+      "Agent UI (port 3000) / responds",
+      "warehouse video E2E (POST /api/v1/videos -> PUT VST -> WebSocket queries)"
+    ],
+    "harbor_cmd_template": "BREV_INSTANCE=<instance> uvx harbor run --environment-import-path tools.eval.harbor.envs.brev_env:BrevEnvironment -p tools/eval/harbor/datasets/deploy/base -i <task_id> -a claude-code -n 1 -o tools/eval/harbor/results/<results_dir> --timeout-multiplier 6 --max-retries 2 --model $ANTHROPIC_MODEL --ak api_base=$ANTHROPIC_BASE_URL/v1",
+    "env_required_always": [
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_MODEL"
+    ],
+    "repo_root": "/home/ubuntu/video-search-and-summarization",
+    "env_file": ".env",
+    "results_root": "tools/eval/harbor/results",
+    "coordinator_instructions": {
+      "overview": "You are the coordinator. Your job is NOT to run trials yourself \u2014 it is to (1) copy this template to a run-specific path, (2) dispatch ONE worker subagent per execution group, and (3) aggregate results. Each worker handles its group's task queue sequentially on its dedicated Brev instance and writes progress ONLY into the run copy.",
+      "run_directory_protocol": {
+        "why": "This file is a reusable template. Writing progress back into it would pollute it for future runs.",
+        "steps": [
+          "1. Pick a run_id. Convention: UTC timestamp, e.g. run_id = datetime.utcnow().strftime('%Y-%m-%dT%H-%M-%S').",
+          "2. Create run dir: RUN_DIR = tools/eval/harbor/results/<run_id>/ (harbor also writes per-trial artifacts here).",
+          "3. Copy: cp tools/eval/harbor/eval_progress.json <RUN_DIR>/eval_progress.json",
+          "4. Open the COPY, set meta.is_template=false, meta.run_id=<run_id>, meta.run_dir=<RUN_DIR>, meta.started_at=<utcnow>. Write back.",
+          "5. Pass the COPY's absolute path as progress_file to every worker in their prompt. Workers read/write ONLY that file, never the template.",
+          "6. Harbor per-trial results go under <RUN_DIR>/<task_id>__<hash>/; workers record that path in tasks.<id>.result_path."
+        ],
+        "guards": [
+          "Never modify tools/eval/harbor/eval_progress.json during a run.",
+          "If a worker accidentally writes to the template path, treat as a bug \u2014 fail loudly.",
+          "A new run always starts by copying the template fresh (do not resume a previous run's copy unless the user explicitly asks)."
+        ]
+      },
+      "steps": [
+        "1. Validate template: read this file (tools/eval/harbor/eval_progress.json), confirm meta.is_template==true, every task has an execution_group (or status=skipped_*), every group's queue_order references valid tasks, no task is in two groups.",
+        "2. Set up the run directory per run_directory_protocol above. From this step onward, progress_file = <RUN_DIR>/eval_progress.json.",
+        "3. Ensure .env at repo root has ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, NGC_CLI_API_KEY, and (for remote-* groups) LLM_REMOTE_URL/MODEL, VLM_REMOTE_URL/MODEL.",
+        "4. For each execution_group in the COPY where status in ('ready','needs_start','needs_provision'): check brev instance via `brev ls`. Start if STOPPED. If provision fails, set that group's status='skipped_no_gpu' in the COPY and mark all its tasks status='skipped_no_gpu'.",
+        "5. Dispatch ONE worker subagent per READY group IN PARALLEL (single message, multiple Agent tool calls). Pass each worker: group_id, brev_instance, queue_order (array), progress_file (absolute path to the COPY), and the worker_prompt_template text.",
+        "6. Do NOT run trials yourself. Wait for workers to return. Each worker updates progress_file (the COPY) in-place using the json_update_protocol.",
+        "7. After all workers report back, re-read progress_file, compute summary (passed/failed/skipped/blocked per group + overall), update the COPY's summary block, and produce a one-page report to the user."
+      ],
+      "concurrency_rules": [
+        "Groups run concurrently (one worker per group, parallel Agent calls).",
+        "Within a group, tasks run STRICTLY sequentially \u2014 no two VSS deploys may run on the same host (they share docker + ports 8000/3000/30888 + VST volume).",
+        "Even mode=remote-all (gpu_count=0) is host-exclusive because it still binds agent/UI/VST ports.",
+        "Workers must wait for previous task's verifier to finish AND tear the stack down before starting the next task in their queue."
+      ],
+      "json_update_protocol": [
+        "All writes go to the run copy (progress_file passed by the coordinator), NEVER to tools/eval/harbor/eval_progress.json.",
+        "Before starting a task: set status='in_progress', append {started_at, harbor_cmd, result_path} to attempts[].",
+        "After a task: set status='passed' (reward==1.0) or 'failed' (reward<1.0) or 'skipped_no_gpu' (can't provision) or 'blocked' (external dependency).",
+        "Always update last_reward and result_path on any completion.",
+        "Atomic write: read current progress_file, modify in memory, write to progress_file + '.tmp', rename over progress_file. Prevents concurrent-write corruption across parallel workers.",
+        "If progress_file path resolves to the template (meta.is_template==true), ABORT \u2014 that means the coordinator forgot to copy."
+      ]
+    },
+    "worker_prompt_template": "You are a worker subagent for Harbor eval group '<group_id>' targeting Brev instance '<brev_instance>'. Working dir: /home/ubuntu/video-search-and-summarization.\n\nCRITICAL: progress_file = '<progress_file_abs_path>'. Read and write ONLY this file. Do NOT touch tools/eval/harbor/eval_progress.json (that is the immutable template). If your progress_file has meta.is_template==true, ABORT and tell the coordinator they forgot to copy the template.\n\nYour queue (run in this order, ONE AT A TIME):\n<queue_order_json>\n\nPer-task workflow:\n1. Re-read progress_file. If this task is already status=passed, skip. If status=failed with attempts>=3, skip.\n2. Atomic update to progress_file: set status='in_progress', append new attempt {started_at, harbor_cmd, result_path} to attempts[].\n3. Verify prerequisites on the Brev instance:\n   - brev ls shows instance RUNNING\n   - For modes needing NGC: NGC_CLI_API_KEY in .env\n   - For remote-* modes: LLM_REMOTE_URL/MODEL and/or VLM_REMOTE_URL/MODEL in .env\n   - Before deploy: clean up any previous VSS stack on the instance (sudo docker ps -aq | xargs -r sudo docker rm -f; sudo rm -rf <repo>/deployments/data-dir; git -C <repo> checkout -- . && git -C <repo> clean -fdx)\n4. Inspect task files:\n   - tools/eval/harbor/datasets/deploy/base/<task_id>/task.toml (metadata)\n   - tools/eval/harbor/datasets/deploy/base/<task_id>/instruction.md (agent prompt)\n   - tools/eval/harbor/datasets/deploy/base/<task_id>/tests/test.sh (verifier)\n   - tools/eval/harbor/datasets/deploy/base/<task_id>/tests/test_base.py (E2E probe)\n5. Build and run the harbor command (template: meta.harbor_cmd_template in progress_file). Output goes under meta.run_dir / <task_id>__<hash>/. Run in background; tail trial.log + verifier/test-stdout.txt for progress.\n6. After the trial completes, read verifier/reward.txt and verifier/test-stdout.txt. The 12 checks are listed in meta.verifier_checks.\n7. If reward == 1.0 (12/12): atomic-update progress_file \u2014 status=passed, last_reward=1.0, result_path=<harbor output dir>. Move on.\n8. If reward < 1.0: diagnose root cause from test-stdout.txt + docker logs (vss-agent, LLM NIM, VLM NIM). Common categories:\n   - env mismatch: deploy skill wrote wrong HARDWARE_PROFILE/LLM_MODE/VLM_MODE -> check .env on instance\n   - NIM health: GPU OOM, image pull fail, model config wrong\n   - endpoint 500: agent startup race -> longer health wait\n   - E2E upload fail: POST /api/v1/videos 500, VST not ingesting, or WebSocket error_message\n   - remote endpoint unreachable: launchpad URL/model wrong or firewall\n   Fix ROOT CAUSE, not symptoms. Do NOT modify skills/deploy/*, generate.py, or test_base.py unless the bug is there. Tear down and retry (up to 3 attempts). Each attempt appends to attempts[] in progress_file.\n9. If still failing after 3 attempts: atomic-update progress_file \u2014 status=failed, error_notes=<one-line summary>.\n10. Between tasks in the queue: FULL teardown on the Brev host \u2014 stop all containers, remove volumes, reset deployments/ via git. Next task must start on a clean host.\n\nConstraints:\n- Do NOT commit any changes.\n- Do NOT destroy other Brev instances or tasks outside your group.\n- Do NOT touch the template file tools/eval/harbor/eval_progress.json.\n- Budget 60 min per task from start of harbor cmd. If exceeded, kill, status=failed with reason='timeout', move on.\n- Serialize file writes with atomic rename (tmp + rename) \u2014 parallel workers in other groups write to the same progress_file.\n\nReport back when your queue is empty: a one-paragraph summary per task (status, reward, notable issues). The coordinator will aggregate from progress_file; your report is a fast path for them.",
+    "brev_instances_known": {
+      "vss-eval-rtx": {
+        "gpu": "RTX PRO Server 6000",
+        "gpu_count": 2,
+        "instance_type": "g7e.12xlarge",
+        "stoppable": true,
+        "price_per_hour": 9.94
+      },
+      "vss-eval-l40s": {
+        "gpu": "L40S",
+        "gpu_count": 2,
+        "instance_type": "l40s-48gb.2x",
+        "stoppable": true,
+        "price_per_hour": 3.48
+      },
+      "vss-eval-h100": {
+        "gpu": "H100",
+        "gpu_count": 2,
+        "instance_type": "hyperstack_H100x2",
+        "stoppable": false,
+        "price_per_hour": 4.56
+      }
+    }
+  },
+  "execution_groups": {
+    "A": {
+      "description": "RTX PRO 6000 2-GPU host \u2014 supports shared, dedicated, and all remote-* modes",
+      "brev_instance": "vss-eval-rtx",
+      "instance_type": "g7e.12xlarge",
+      "gpu_type": "RTX PRO Server 6000",
+      "gpu_count_available": 2,
+      "stoppable": true,
+      "price_per_hour": 9.94,
+      "status": "booting",
+      "queue_order": [
+        "rtxpro6000bw-shared",
+        "rtxpro6000bw-remote-all",
+        "rtxpro6000bw-remote-llm",
+        "rtxpro6000bw-remote-vlm",
+        "rtxpro6000bw-dedicated"
+      ],
+      "skipped_tasks": {}
+    },
+    "B": {
+      "description": "L40S 2-GPU host \u2014 supports remote-* and dedicated (VRAM-tight)",
+      "brev_instance": "vss-eval-l40s",
+      "instance_type": "l40s-48gb.2x",
+      "gpu_type": "L40S",
+      "gpu_count_available": 2,
+      "stoppable": true,
+      "price_per_hour": 3.48,
+      "status": "booting",
+      "queue_order": [
+        "l40s-remote-all",
+        "l40s-remote-llm",
+        "l40s-remote-vlm",
+        "l40s-dedicated"
+      ],
+      "skipped_tasks": {}
+    },
+    "C": {
+      "description": "H100 2-GPU host \u2014 supports all 5 modes",
+      "brev_instance": "vss-eval-h100",
+      "instance_type": "hyperstack_H100x2",
+      "gpu_type": "H100",
+      "gpu_count_available": 2,
+      "stoppable": false,
+      "price_per_hour": 4.56,
+      "status": "booting",
+      "queue_order": [
+        "h100-remote-all",
+        "h100-shared",
+        "h100-remote-llm",
+        "h100-remote-vlm",
+        "h100-dedicated"
+      ],
+      "skipped_tasks": {},
+      "warning": "non-stoppable \u2014 MUST delete when queue finishes"
+    },
+    "D": {
+      "description": "DGX-Spark \u2014 not provisioned in this run",
+      "brev_instance": null,
+      "brev_search_hint": "GB10",
+      "gpu_type": "GB10",
+      "gpu_count_available": 0,
+      "status": "skipped_no_gpu",
+      "queue_order": [],
+      "skipped_tasks": {
+        "spark": "user did not request Spark provisioning",
+        "spark-shared": "user did not request Spark provisioning"
+      }
+    }
+  },
+  "tasks": {
+    "rtxpro6000bw-shared": {
+      "path": "tools/eval/harbor/datasets/deploy/base/rtxpro6000bw-shared",
+      "execution_group": "A",
+      "queue_order_in_group": 1,
+      "platform": "RTXPRO6000BW",
+      "mode": "shared",
+      "gpu_type": "RTX PRO 6000",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 96,
+      "brev_search_hint": "RTX PRO",
+      "required_env": [
+        "NGC_CLI_API_KEY"
+      ],
+      "status": "pending",
+      "notes": "Baseline \u2014 LLM + VLM share single GPU. Previous 2026-04-17 run was 11/12 on old upload path; test_base.py rewrite should hit 12/12.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-rtx"
+    },
+    "rtxpro6000bw-dedicated": {
+      "path": "tools/eval/harbor/datasets/deploy/base/rtxpro6000bw-dedicated",
+      "execution_group": "A",
+      "queue_order_in_group": 5,
+      "platform": "RTXPRO6000BW",
+      "mode": "dedicated",
+      "gpu_type": "RTX PRO 6000",
+      "gpu_count": 2,
+      "min_vram_gb_per_gpu": 96,
+      "brev_search_hint": "RTX PRO",
+      "required_env": [
+        "NGC_CLI_API_KEY"
+      ],
+      "status": "pending",
+      "notes": "Dedicated: LLM on GPU 0, VLM on GPU 1. Enabled by 2-GPU vss-eval-rtx.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-rtx"
+    },
+    "rtxpro6000bw-remote-all": {
+      "path": "tools/eval/harbor/datasets/deploy/base/rtxpro6000bw-remote-all",
+      "execution_group": "A",
+      "queue_order_in_group": 2,
+      "platform": "RTXPRO6000BW",
+      "mode": "remote-all",
+      "gpu_type": "RTX PRO 6000",
+      "gpu_count": 0,
+      "min_vram_gb_per_gpu": 96,
+      "brev_search_hint": "RTX PRO",
+      "required_env": [
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL",
+        "VLM_REMOTE_URL",
+        "VLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "No local GPU for inference; fastest to test (no NIM pull). Launchpad remote LLM + VLM.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-rtx"
+    },
+    "rtxpro6000bw-remote-llm": {
+      "path": "tools/eval/harbor/datasets/deploy/base/rtxpro6000bw-remote-llm",
+      "execution_group": "A",
+      "queue_order_in_group": 3,
+      "platform": "RTXPRO6000BW",
+      "mode": "remote-llm",
+      "gpu_type": "RTX PRO 6000",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 96,
+      "brev_search_hint": "RTX PRO",
+      "required_env": [
+        "NGC_CLI_API_KEY",
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "Remote LLM (launchpad) + local VLM NIM on single RTX PRO 6000.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-rtx"
+    },
+    "rtxpro6000bw-remote-vlm": {
+      "path": "tools/eval/harbor/datasets/deploy/base/rtxpro6000bw-remote-vlm",
+      "execution_group": "A",
+      "queue_order_in_group": 4,
+      "platform": "RTXPRO6000BW",
+      "mode": "remote-vlm",
+      "gpu_type": "RTX PRO 6000",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 96,
+      "brev_search_hint": "RTX PRO",
+      "required_env": [
+        "NGC_CLI_API_KEY",
+        "VLM_REMOTE_URL",
+        "VLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "Local LLM NIM on single RTX PRO 6000 + remote VLM (launchpad).",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-rtx"
+    },
+    "h100-shared": {
+      "path": "tools/eval/harbor/datasets/deploy/base/h100-shared",
+      "execution_group": "C",
+      "queue_order_in_group": 2,
+      "platform": "H100",
+      "mode": "shared",
+      "gpu_type": "H100",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 80,
+      "brev_search_hint": "H100",
+      "required_env": [
+        "NGC_CLI_API_KEY"
+      ],
+      "status": "pending",
+      "notes": "Needs H100 provisioning. Single-GPU shared mode.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-h100"
+    },
+    "h100-dedicated": {
+      "path": "tools/eval/harbor/datasets/deploy/base/h100-dedicated",
+      "execution_group": "C",
+      "queue_order_in_group": 5,
+      "platform": "H100",
+      "mode": "dedicated",
+      "gpu_type": "H100",
+      "gpu_count": 2,
+      "min_vram_gb_per_gpu": 80,
+      "brev_search_hint": "H100",
+      "required_env": [
+        "NGC_CLI_API_KEY"
+      ],
+      "status": "pending",
+      "notes": "Needs 2xH100 provisioning. Skip if only 1xH100 available.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-h100"
+    },
+    "h100-remote-all": {
+      "path": "tools/eval/harbor/datasets/deploy/base/h100-remote-all",
+      "execution_group": "C",
+      "queue_order_in_group": 1,
+      "platform": "H100",
+      "mode": "remote-all",
+      "gpu_type": "H100",
+      "gpu_count": 0,
+      "min_vram_gb_per_gpu": 80,
+      "brev_search_hint": "H100",
+      "required_env": [
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL",
+        "VLM_REMOTE_URL",
+        "VLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "First on H100 queue \u2014 fast warm-up (no NIM pull). HARDWARE_PROFILE still tagged H100 in .env.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-h100"
+    },
+    "h100-remote-llm": {
+      "path": "tools/eval/harbor/datasets/deploy/base/h100-remote-llm",
+      "execution_group": "C",
+      "queue_order_in_group": 3,
+      "platform": "H100",
+      "mode": "remote-llm",
+      "gpu_type": "H100",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 80,
+      "brev_search_hint": "H100",
+      "required_env": [
+        "NGC_CLI_API_KEY",
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "Remote LLM + local VLM on H100.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-h100"
+    },
+    "h100-remote-vlm": {
+      "path": "tools/eval/harbor/datasets/deploy/base/h100-remote-vlm",
+      "execution_group": "C",
+      "queue_order_in_group": 4,
+      "platform": "H100",
+      "mode": "remote-vlm",
+      "gpu_type": "H100",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 80,
+      "brev_search_hint": "H100",
+      "required_env": [
+        "NGC_CLI_API_KEY",
+        "VLM_REMOTE_URL",
+        "VLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "Local LLM NIM + remote VLM on H100.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-h100"
+    },
+    "l40s-dedicated": {
+      "path": "tools/eval/harbor/datasets/deploy/base/l40s-dedicated",
+      "execution_group": "B",
+      "queue_order_in_group": 4,
+      "platform": "L40S",
+      "mode": "dedicated",
+      "gpu_type": "L40S",
+      "gpu_count": 2,
+      "min_vram_gb_per_gpu": 48,
+      "brev_search_hint": "L40S",
+      "required_env": [
+        "NGC_CLI_API_KEY"
+      ],
+      "status": "pending",
+      "notes": "Dedicated: LLM on GPU 0, VLM on GPU 1 \u2014 48GB per GPU. Watch VRAM (nemotron-9b FP16 ~18GB, cosmos-reason2-8b ~16GB).",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-l40s"
+    },
+    "l40s-remote-all": {
+      "path": "tools/eval/harbor/datasets/deploy/base/l40s-remote-all",
+      "execution_group": "B",
+      "queue_order_in_group": 1,
+      "platform": "L40S",
+      "mode": "remote-all",
+      "gpu_type": "L40S",
+      "gpu_count": 0,
+      "min_vram_gb_per_gpu": 48,
+      "brev_search_hint": "L40S",
+      "required_env": [
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL",
+        "VLM_REMOTE_URL",
+        "VLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "First on vss-eval-l40s queue. No NIMs \u2014 fastest path to validate.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-l40s"
+    },
+    "l40s-remote-llm": {
+      "path": "tools/eval/harbor/datasets/deploy/base/l40s-remote-llm",
+      "execution_group": "B",
+      "queue_order_in_group": 2,
+      "platform": "L40S",
+      "mode": "remote-llm",
+      "gpu_type": "L40S",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 48,
+      "brev_search_hint": "L40S",
+      "required_env": [
+        "NGC_CLI_API_KEY",
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "Remote LLM + local VLM (cosmos-reason2-8b ~16GB) on single L40S \u2014 should fit.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-l40s"
+    },
+    "l40s-remote-vlm": {
+      "path": "tools/eval/harbor/datasets/deploy/base/l40s-remote-vlm",
+      "execution_group": "B",
+      "queue_order_in_group": 3,
+      "platform": "L40S",
+      "mode": "remote-vlm",
+      "gpu_type": "L40S",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 48,
+      "brev_search_hint": "L40S",
+      "required_env": [
+        "NGC_CLI_API_KEY",
+        "VLM_REMOTE_URL",
+        "VLM_REMOTE_MODEL"
+      ],
+      "status": "pending",
+      "notes": "Local LLM NIM (nemotron-9b ~18GB) on single L40S + remote VLM \u2014 should fit.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null,
+      "brev_instance_preferred": "vss-eval-l40s"
+    },
+    "spark": {
+      "path": "tools/eval/harbor/datasets/deploy/base/spark",
+      "execution_group": "D",
+      "queue_order_in_group": 1,
+      "platform": "DGX-SPARK",
+      "mode": "remote-llm",
+      "gpu_type": "GB10",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 96,
+      "brev_search_hint": "GB10",
+      "required_env": [
+        "NGC_CLI_API_KEY",
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL"
+      ],
+      "status": "skipped_no_gpu",
+      "notes": "User did not request Spark provisioning.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "spark-shared": {
+      "path": "tools/eval/harbor/datasets/deploy/base/spark-shared",
+      "execution_group": "D",
+      "queue_order_in_group": 2,
+      "platform": "DGX-SPARK",
+      "mode": "shared",
+      "gpu_type": "GB10",
+      "gpu_count": 1,
+      "min_vram_gb_per_gpu": 96,
+      "brev_search_hint": "GB10",
+      "required_env": [
+        "NGC_CLI_API_KEY"
+      ],
+      "status": "skipped_no_gpu",
+      "notes": "User did not request Spark provisioning.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    }
+  },
+  "summary": {
+    "last_updated": null,
+    "total": 16,
+    "pending": 14,
+    "in_progress": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped_no_gpu": 2,
+    "blocked": 0,
+    "per_group": {
+      "A": {
+        "total": 5,
+        "done": 0,
+        "instance": "vss-eval-rtx"
+      },
+      "B": {
+        "total": 4,
+        "done": 0,
+        "instance": "vss-eval-l40s"
+      },
+      "C": {
+        "total": 5,
+        "done": 0,
+        "instance": "vss-eval-h100"
+      },
+      "D": {
+        "total": 0,
+        "done": 0,
+        "instance": null,
+        "skipped": 2
+      }
+    }
+  }
+}
