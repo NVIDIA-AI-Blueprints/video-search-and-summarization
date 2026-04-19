@@ -105,11 +105,15 @@ Always follow this sequence. Never skip the dry-run.
 
 ### Step 1b — Prepare the data directory
 
-**Do this BEFORE `docker compose up`.** The stack mounts several subdirs of
-`$MDX_DATA_DIR` into different containers, each running as its own uid
-(postgres=70 on Alpine, elasticsearch=1000, VST=1000, etc.). The reference
-`scripts/dev-profile.sh` creates the subdirs and sets them world-writable —
-**do not** `chown` them.
+**This is the #1 source of silent-deploy bugs. Follow it exactly.**
+
+The stack mounts several subdirs of `$MDX_DATA_DIR` into containers that each
+run as a different uid. Docker auto-creates empty bind-mount paths as
+`root:root`, which is read-only for the container processes. The reference
+`scripts/dev-profile.sh` uses `chmod -R 777` on the relevant subdirs — it
+does **not** `chown`.
+
+Run this verbatim before `docker compose up`:
 
 ```bash
 DATA=$MDX_DATA_DIR      # e.g. <repo>/data
@@ -127,16 +131,36 @@ mkdir -p \
 #   alerts → mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/videos/dev-profile-alerts" "$DATA/models/rtdetr-its" "$DATA/models/gdino"
 #   search → mkdir -p "$DATA/models"
 chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
-# if you created $DATA/models above, also: chmod -R 777 "$DATA/models"
+# If you created $DATA/models above, also: chmod -R 777 "$DATA/models"
 ```
 
-> **Do NOT `chown -R ubuntu:ubuntu $MDX_DATA_DIR`.**
+> **❌ FORBIDDEN: `chown -R ubuntu:ubuntu $MDX_DATA_DIR` (or any recursive chown).**
 >
-> It looks like "good housekeeping" but breaks every container that runs as
-> a non-ubuntu uid. For example, `centralizedb-dev` (Alpine postgres, uid 70)
-> stops being able to read its own PGDATA → VST fails to query
-> `sensor_details` → video-in-VST checks fail silently → deploy looks healthy
-> but the pipeline is broken. Use `chmod -R 777` per the recipe above.
+> This is "good housekeeping" to a shell-admin instinct but is **the** deploy-
+> breaking command in this stack. You will observe a "healthy" deploy
+> (containers Up, endpoints 200) while the video pipeline is silently broken.
+> Use `chmod -R 777` on the specific subdirs above — nothing else.
+
+**Known per-container uid gotchas** (each uses a bind mount under `$DATA`):
+
+| Container | Image | Runs as | Mount path | Symptom if permissions wrong |
+|---|---|---|---|---|
+| `centralizedb-dev` | postgres:17.6-alpine | uid **70** | `$DATA/data_log/vst/postgres/db` | Can't read own PGDATA → VST `sensor_details` query fails → uploaded videos never appear in `/vst/api/v1/sensor/streams` → warehouse E2E check returns empty |
+| `mdx-redis` | redis:8.2.2-alpine | uid **999** | `$DATA/data_log/redis/log`, `/redis/data` | "Can't open the log file: Permission denied" → redis dies → `envoy-streamprocessing` dies (needs Redis Lua script) → stream pipeline broken |
+| `elasticsearch` | elasticsearch | uid **1000** | `$DATA/data_log/elastic/{data,logs}` | "AccessDeniedException" on startup → ES refuses to start |
+| `vst` / `sensor-ms-dev` | vst | uid **1000** | `$DATA/data_log/vst/*` (videos, clips) | 403 on ingest or stream write |
+
+`chmod -R 777 $DATA/data_log` covers all of these. Do NOT chown them to
+individual uids — containers that init their own dirs on first start (like
+postgres) will then re-chown to their uid and a later chown back to ubuntu
+breaks them.
+
+**If postgres is already broken** (common when redeploying without a clean
+`data-dir`):
+```bash
+sudo rm -rf "$DATA/data_log/vst/postgres"  # postgres re-initializes on next start
+docker restart centralizedb-dev
+```
 
 ### Step 2 — Build env_overrides
 
@@ -228,8 +252,14 @@ deploy/up()
 **Direct mode:**
 ```bash
 cd $REPO/deployments
-docker compose -f resolved.yml up -d --force-recreate
+docker compose -f resolved.yml up -d
 ```
+
+> **Do NOT use `--force-recreate` on retries.** It destroys already-warm
+> NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture
+> per NIM. If the previous `up -d` partially failed, fix the root cause
+> (usually perms or an env typo) and just re-run `up -d` — Docker will
+> re-create only the containers whose config changed or that are down.
 
 Deploy takes ~10-20 min on first run (image pulls + model downloads). Monitor:
 
