@@ -180,6 +180,7 @@ Common failure modes and what they mean for base:
 |---|---|
 | `POST /api/v1/videos` HTTP 500 | Agent not finished starting — poll `/health` longer |
 | VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vst-ingress-dev` |
+| VST returns empty `sensor/streams` but VST container is healthy | `centralizedb-dev` (postgres) can't read PGDATA because `$MDX_DATA_DIR` was `chown`ed to ubuntu. See [SKILL.md § Step 1b](../SKILL.md#step-1b--prepare-the-data-directory) — use `chmod -R 777`, not `chown`. Fix: `sudo rm -rf $MDX_DATA_DIR/data_log/vst/postgres && redeploy` (postgres re-initializes on start) |
 | WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2-shared-gpu` / `cosmos-reason2-8b-shared-gpu` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |

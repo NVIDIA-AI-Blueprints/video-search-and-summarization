@@ -103,6 +103,41 @@ Always follow this sequence. Never skip the dry-run.
 | AGX | `AGX-THOR` |
 | Other | `OTHER` |
 
+### Step 1b — Prepare the data directory
+
+**Do this BEFORE `docker compose up`.** The stack mounts several subdirs of
+`$MDX_DATA_DIR` into different containers, each running as its own uid
+(postgres=70 on Alpine, elasticsearch=1000, VST=1000, etc.). The reference
+`scripts/dev-profile.sh` creates the subdirs and sets them world-writable —
+**do not** `chown` them.
+
+```bash
+DATA=$MDX_DATA_DIR      # e.g. <repo>/data
+mkdir -p \
+  "$DATA/data_log/analytics_cache" \
+  "$DATA/data_log/calibration_toolkit" \
+  "$DATA/data_log/elastic/data" \
+  "$DATA/data_log/elastic/logs" \
+  "$DATA/data_log/kafka" \
+  "$DATA/data_log/redis/data" \
+  "$DATA/data_log/redis/log" \
+  "$DATA/agent_eval/dataset" \
+  "$DATA/agent_eval/results"
+# Profile-specific subdirs:
+#   alerts → mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/videos/dev-profile-alerts" "$DATA/models/rtdetr-its" "$DATA/models/gdino"
+#   search → mkdir -p "$DATA/models"
+chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
+# if you created $DATA/models above, also: chmod -R 777 "$DATA/models"
+```
+
+> **Do NOT `chown -R ubuntu:ubuntu $MDX_DATA_DIR`.**
+>
+> It looks like "good housekeeping" but breaks every container that runs as
+> a non-ubuntu uid. For example, `centralizedb-dev` (Alpine postgres, uid 70)
+> stops being able to read its own PGDATA → VST fails to query
+> `sensor_details` → video-in-VST checks fail silently → deploy looks healthy
+> but the pipeline is broken. Use `chmod -R 777` per the recipe above.
+
 ### Step 2 — Build env_overrides
 
 Build a dictionary of env var overrides based on user intent. Only include vars that differ from the profile's `.env` defaults.
