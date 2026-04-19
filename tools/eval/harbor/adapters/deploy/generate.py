@@ -135,6 +135,36 @@ MODES: dict[str, dict] = {
 }
 
 # ---------------------------------------------------------------------------
+# Resource estimates
+# ---------------------------------------------------------------------------
+#
+# VSS base stack (agent, UI, VST, phoenix, redis, kafka, centralizedb) is
+# ~60 GB of image pulls.  Each local NIM image is ~60-70 GB.  Add 20 GB
+# docker metadata + buffer.
+#
+# min_gpu_driver_version is keyed to the default NIM image tags shipped
+# with the skill: cosmos-reason2-8b:1.6.0 requires driver 580.95+.  If the
+# mode uses only remote inference (remote-all), there is no local driver
+# requirement.
+
+_BASE_STACK_GB = 80
+_PER_LOCAL_NIM_GB = 70
+_LOCAL_NIM_MIN_DRIVER = "580.95"
+
+
+def _min_root_disk_gb(mode_spec: dict) -> int:
+    """Estimated root disk (GB) needed for this mode's docker workload."""
+    n = int(mode_spec["llm_mode"] != "remote") + int(mode_spec["vlm_mode"] != "remote")
+    return _BASE_STACK_GB + _PER_LOCAL_NIM_GB * n
+
+
+def _min_gpu_driver_version(mode_spec: dict) -> str | None:
+    """Minimum NVIDIA driver version. None if no local NIMs."""
+    if mode_spec["llm_mode"] == "remote" and mode_spec["vlm_mode"] == "remote":
+        return None
+    return _LOCAL_NIM_MIN_DRIVER
+
+# ---------------------------------------------------------------------------
 # Profile definitions
 # ---------------------------------------------------------------------------
 
@@ -595,7 +625,14 @@ def generate_task(
         f'gpu_count = {mode_spec["gpus_needed"]}',
         f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
         f'brev_search = "{platform_spec["brev_search"]}"',
+        "# Disk + driver requirements — BrevEnvironment validates both via",
+        "# `df -BG /` and `nvidia-smi --query-gpu=driver_version` after the",
+        "# instance is reachable; a mismatch raises and the trial is aborted.",
+        f'min_root_disk_gb = {_min_root_disk_gb(mode_spec)}',
     ]
+    min_driver = _min_gpu_driver_version(mode_spec)
+    if min_driver:
+        meta_lines.append(f'min_gpu_driver_version = "{min_driver}"')
     if mode_spec["llm_mode"] == "remote" and llm_remote:
         meta_lines.append(f'llm_remote_url = "{llm_remote["url"]}"')
         meta_lines.append(f'llm_remote_model = "{llm_remote["model"]}"')

@@ -120,6 +120,8 @@ class BrevEnvironment(BaseEnvironment):
             "gpu_count": int(meta.get("gpu_count", 1)),
             "min_vram_gb_per_gpu": int(meta.get("min_vram_gb_per_gpu", 0)),
             "brev_search": meta.get("brev_search") or meta.get("gpu_type"),
+            "min_root_disk_gb": int(meta.get("min_root_disk_gb", 0)),
+            "min_gpu_driver_version": meta.get("min_gpu_driver_version"),
         }
 
         self._instance_name = self._resolve_instance_name()
@@ -202,6 +204,13 @@ class BrevEnvironment(BaseEnvironment):
                 f"Unexpected response from instance '{self._instance_name}': "
                 f"{(result.stdout or '')[:200]!r}"
             )
+
+        # Post-provision resource checks: root disk + GPU driver.
+        # These catch provider quirks that brev search doesn't surface
+        # (e.g. hyperstack_H100x2 lists disk_min_gb=1600 but mounts the
+        # big volume on /ephemeral — / is only ~100 GB, which OOMs on
+        # local NIM pulls).
+        await _check_live_resources(self._instance_name, requirements)
 
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
@@ -600,17 +609,25 @@ async def _find_cheapest_matching_type(req: dict) -> str | None:
     search = (req.get("brev_search") or "").lower()
     required_count = req.get("gpu_count", 1)
     required_vram = req.get("min_vram_gb_per_gpu", 0)
+    required_disk = req.get("min_root_disk_gb", 0)
 
     candidates = []
     for inst in _parse_brev_json(result.stdout):
         gpu_name = (inst.get("gpu_name") or "").lower()
         gpu_count = int(inst.get("gpu_count", 0) or 0)
         total_vram = float(inst.get("total_vram_gb", 0) or 0)
+        disk_min_gb = int(inst.get("disk_min_gb", 0) or 0)
         if search and search not in gpu_name:
             continue
         if gpu_count < required_count:
             continue
         if required_vram and (total_vram / max(gpu_count, 1)) < required_vram:
+            continue
+        # Pre-filter by disk_min_gb.  Some providers misreport this (e.g.
+        # hyperstack lists ephemeral-disk size not root), so the live check
+        # in _check_live_resources is authoritative; this filter just prunes
+        # candidates that are obviously undersized.
+        if required_disk and disk_min_gb and disk_min_gb < required_disk:
             continue
         candidates.append(inst)
 
@@ -618,6 +635,73 @@ async def _find_cheapest_matching_type(req: dict) -> str | None:
         return None
     candidates.sort(key=lambda x: float(x.get("price_per_hour", 0) or 0))
     return candidates[0].get("type")
+
+
+def _version_lt(a: str, b: str) -> bool:
+    """Return True if NVIDIA driver version `a` is older than `b`.
+
+    Drivers are dotted ints (e.g. "570.195.03" vs "580.95")."""
+    def tup(s: str) -> tuple[int, ...]:
+        parts = s.strip().split(".")
+        return tuple(int("".join(ch for ch in p if ch.isdigit()) or 0) for p in parts)
+    return tup(a) < tup(b)
+
+
+async def _check_live_resources(instance_name: str, req: dict) -> None:
+    """SSH into the instance and verify root disk + driver meet requirements."""
+    min_disk = req.get("min_root_disk_gb", 0)
+    min_driver = req.get("min_gpu_driver_version")
+
+    if min_disk:
+        # df -BG reports total in GB; strip trailing 'G'.
+        result = await _run_brev_exec(
+            instance_name,
+            "df -BG / | tail -1 | awk '{print $2}'",
+            timeout=30,
+        )
+        if result.return_code == 0 and result.stdout.strip():
+            total = result.stdout.strip().rstrip("G").strip()
+            try:
+                total_gb = int(total)
+            except ValueError:
+                logger.warning("Could not parse df output: %r", result.stdout)
+                total_gb = None
+            if total_gb is not None and total_gb < min_disk:
+                raise RuntimeError(
+                    f"Brev instance '{instance_name}' root disk is {total_gb} GB; "
+                    f"task requires at least {min_disk} GB (for NIM images + VSS "
+                    f"containers). Delete and reprovision with a larger-root "
+                    f"instance type."
+                )
+            logger.info(
+                "Instance '%s' root disk: %s GB (>= required %s GB)",
+                instance_name, total_gb, min_disk,
+            )
+
+    if min_driver:
+        result = await _run_brev_exec(
+            instance_name,
+            "nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1",
+            timeout=30,
+        )
+        if result.return_code != 0 or not result.stdout.strip():
+            logger.warning(
+                "nvidia-smi failed on '%s'; skipping driver check. "
+                "stderr: %s", instance_name, (result.stderr or "")[:200],
+            )
+            return
+        actual = result.stdout.strip().split("\n")[0].strip()
+        if _version_lt(actual, min_driver):
+            raise RuntimeError(
+                f"Brev instance '{instance_name}' has NVIDIA driver {actual}; "
+                f"task requires {min_driver}+ (needed by the NIM images in this "
+                f"profile). Delete and reprovision with a newer-driver instance "
+                f"type, or upgrade the driver on the host."
+            )
+        logger.info(
+            "Instance '%s' driver: %s (>= required %s)",
+            instance_name, actual, min_driver,
+        )
 
 
 async def _suggest_registered_devices(req: dict) -> list[str]:
