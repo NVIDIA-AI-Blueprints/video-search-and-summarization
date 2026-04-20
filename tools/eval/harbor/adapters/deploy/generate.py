@@ -273,8 +273,20 @@ PROFILES: dict[str, dict] = {
 # Instruction generation
 # ---------------------------------------------------------------------------
 
-def _describe_model(role: str, mode: str, remote: dict | None) -> str:
+def _describe_model(role: str, mode: str, remote: dict | None,
+                    edge_override: bool = False) -> str:
     """One-line description of the LLM/VLM configuration for the instruction."""
+    if mode == "remote" and edge_override and role == "LLM":
+        # Edge shared mode: LLM is Edge 4B running locally in a vLLM
+        # container on port 30081, NOT the launchpad remote endpoint.
+        return (
+            "- LLM: Edge 4B via **local** vLLM container on "
+            "`http://localhost:30081` "
+            "(model `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8`). "
+            "The blueprint treats this as `LLM_MODE=remote` because the "
+            "agent reaches it via `LLM_BASE_URL`, but the vLLM container "
+            "runs on this same host. Do NOT use a launchpad URL."
+        )
     if mode == "remote" and remote:
         url = remote.get("url", "")
         model = remote.get("model", "")
@@ -308,8 +320,10 @@ def generate_instruction(
             "",
             f"- Hardware profile: `{platform}`",
             f"- GPU mode: **{mode}** — {mode_spec['description']}",
-            _describe_model("LLM", mode_spec["llm_mode"], llm_remote),
-            _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote),
+            _describe_model("LLM", mode_spec["llm_mode"], llm_remote,
+                            edge_override=bool(mode_spec.get("_edge_override"))),
+            _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
+                            edge_override=bool(mode_spec.get("_edge_override"))),
             "",
             "## Repository",
             "",
@@ -356,8 +370,18 @@ def generate_instruction(
         "",
         f"- Hardware profile: `{platform}`",
         f"- GPU mode: **{mode}** — {mode_spec['description']}",
-        _describe_model("LLM", mode_spec["llm_mode"], llm_remote),
-        _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote),
+        _describe_model("LLM", mode_spec["llm_mode"], llm_remote,
+                        edge_override=bool(mode_spec.get("_edge_override"))),
+        _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
+                        edge_override=bool(mode_spec.get("_edge_override"))),
+        "",
+        "## Env file contract",
+        "",
+        f"The verifier reads `deployments/developer-workflow/dev-profile-"
+        f"{profile_def.get('derives_from', profile)}/.env`. Write your "
+        "`HARDWARE_PROFILE`, `LLM_MODE`, `VLM_MODE` etc. directly to THAT "
+        "file — not to `generated.env` (which `dev-profile.sh` creates and "
+        "uses internally but leaves the base `.env` stale).",
         "",
         "## Repository",
         "",
