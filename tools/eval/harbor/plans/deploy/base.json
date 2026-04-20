@@ -57,13 +57,13 @@
         "5. Dispatch ONE worker subagent per READY group IN PARALLEL (single message, multiple Agent tool calls). Pass each worker: group_id, brev_instance, queue_order (array), progress_file (absolute path to the COPY), and the worker_prompt_template text.",
         "6. Do NOT run trials yourself. Wait for workers to return. Each worker updates progress_file (the COPY) in-place using the json_update_protocol.",
         "7. After all workers report back, re-read progress_file, compute summary (passed/failed/skipped/blocked per group + overall), update the COPY's summary block, and produce a one-page report to the user.",
-        "8. Clean up Brev instances to stop billing. For each group's brev_instance in the COPY: if the instance is stoppable (see meta.brev_instances_known.<name>.stoppable or check the provider: hyperstack_*, dmz.*, massedcompute_*, scaleway_* are non-stoppable), run `brev stop <name>`; otherwise run `brev delete <name>` (non-stoppable instances bill 24/7 until deleted — this is CRITICAL). Do NOT skip this step because the eval succeeded; the instances were created for this run and should be torn down unless the user explicitly asks to keep them. Announce the stop/delete actions to the user before executing so they can cancel if they want to keep one for follow-up."
+        "8. Clean up Brev instances to stop billing. For each group's brev_instance in the COPY: if the instance is stoppable (see meta.brev_instances_known.<name>.stoppable or check the provider: hyperstack_*, dmz.*, massedcompute_*, scaleway_* are non-stoppable), run `brev stop <name>`; otherwise run `brev delete <name>` (non-stoppable instances bill 24/7 until deleted \u2014 this is CRITICAL). Do NOT skip this step because the eval succeeded; the instances were created for this run and should be torn down unless the user explicitly asks to keep them. Announce the stop/delete actions to the user before executing so they can cancel if they want to keep one for follow-up."
       ],
       "cleanup_policy": {
         "why": "Brev instances accrue charges while existing (non-stoppable) or while running (stoppable). A coordinator that completes the eval but forgets to stop/delete can burn hundreds of dollars before the user notices.",
         "rules": [
-          "Non-stoppable instances (hyperstack_*, dmz.*, massedcompute_*, scaleway_*): `brev delete <name>` — they bill even when idle.",
-          "Stoppable instances (e.g. l40s-48gb.2x, g7e.12xlarge): `brev stop <name>` — they keep their disk and can be restarted later cheaply.",
+          "Non-stoppable instances (hyperstack_*, dmz.*, massedcompute_*, scaleway_*): `brev delete <name>` \u2014 they bill even when idle.",
+          "Stoppable instances (e.g. l40s-48gb.2x, g7e.12xlarge): `brev stop <name>` \u2014 they keep their disk and can be restarted later cheaply.",
           "Address non-stoppable first (higher ongoing cost).",
           "Do NOT touch instances the coordinator did not create in this run (pre-existing instances or user-registered external nodes).",
           "If the user instructs 'keep <name> for follow-up', skip cleanup for that instance and note it in the summary."
@@ -106,6 +106,16 @@
         "instance_type": "hyperstack_H100x2",
         "stoppable": false,
         "price_per_hour": 4.56
+      },
+      "SPARK": {
+        "gpu": "GB10",
+        "gpu_count": 1,
+        "instance_type": "registered-external-node",
+        "stoppable": false,
+        "price_per_hour": null,
+        "ssh_alias": "spark",
+        "host": "global.stg.ga.launchpad.nvidia.com:11871",
+        "note": "Registered BYOH node; coordinator should not delete."
       }
     }
   },
@@ -165,17 +175,20 @@
       "warning": "non-stoppable \u2014 MUST delete when queue finishes"
     },
     "D": {
-      "description": "DGX-Spark \u2014 not provisioned in this run",
-      "brev_instance": null,
-      "brev_search_hint": "GB10",
+      "description": "DGX-Spark (GB10) \u2014 registered external node via SSH alias",
+      "brev_instance": "SPARK",
+      "instance_type": "registered-external-node",
       "gpu_type": "GB10",
-      "gpu_count_available": 0,
-      "status": "skipped_no_gpu",
-      "queue_order": [],
-      "skipped_tasks": {
-        "spark": "user did not request Spark provisioning",
-        "spark-shared": "user did not request Spark provisioning"
-      }
+      "gpu_count_available": 1,
+      "stoppable": false,
+      "price_per_hour": null,
+      "status": "ready",
+      "queue_order": [
+        "spark",
+        "spark-shared"
+      ],
+      "skipped_tasks": {},
+      "notes": "BYOH \u2014 leave instance alone in cleanup step 8 (coordinator did not create it)."
     }
   },
   "tasks": {
@@ -509,12 +522,13 @@
         "LLM_REMOTE_URL",
         "LLM_REMOTE_MODEL"
       ],
-      "status": "skipped_no_gpu",
-      "notes": "User did not request Spark provisioning.",
+      "status": "pending",
+      "notes": "Remote-LLM mode (local VLM on GB10 only). Uses registered SPARK node via SSH alias.",
       "attempts": [],
       "last_reward": null,
       "result_path": null,
-      "error_notes": null
+      "error_notes": null,
+      "brev_instance_preferred": "SPARK"
     },
     "spark-shared": {
       "path": "tools/eval/harbor/datasets/deploy/base/spark-shared",
@@ -529,22 +543,23 @@
       "required_env": [
         "NGC_CLI_API_KEY"
       ],
-      "status": "skipped_no_gpu",
-      "notes": "User did not request Spark provisioning.",
+      "status": "pending",
+      "notes": "Shared mode (both LLM + VLM local on GB10, 96GB unified memory). VRAM-tight.",
       "attempts": [],
       "last_reward": null,
       "result_path": null,
-      "error_notes": null
+      "error_notes": null,
+      "brev_instance_preferred": "SPARK"
     }
   },
   "summary": {
     "last_updated": null,
     "total": 16,
-    "pending": 14,
+    "pending": 16,
     "in_progress": 0,
     "passed": 0,
     "failed": 0,
-    "skipped_no_gpu": 2,
+    "skipped_no_gpu": 0,
     "blocked": 0,
     "per_group": {
       "A": {
@@ -563,10 +578,9 @@
         "instance": "vss-eval-h100"
       },
       "D": {
-        "total": 0,
+        "total": 2,
         "done": 0,
-        "instance": null,
-        "skipped": 2
+        "instance": "SPARK"
       }
     }
   }
