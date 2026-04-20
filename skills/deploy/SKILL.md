@@ -19,6 +19,12 @@ Deploy any VSS profile using a compose-centric workflow: build env overrides, ge
 | "deploy lvs" / "video summarization" | `lvs` | `references/lvs.md` |
 | "deploy search" / "video search" | `search` | `references/search.md` |
 
+**Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md)
+for the 4B-LLM recipe (`config_edge.yml` + standalone vLLM on port 30081). Edge
+platforms share a single unified-memory GPU between LLM and VLM, so the
+Nemotron Edge 4B is the default and the Nemotron Nano 9B v2 FP8 is an option
+when memory allows.
+
 ## When to Use
 
 - Deploy VSS / start VSS / bring up a profile
@@ -93,15 +99,21 @@ Always follow this sequence. Never skip the dry-run.
 
 **Hardware profile mapping:**
 
-| GPU name contains | HARDWARE_PROFILE |
-|---|---|
-| H100 | `H100` |
-| L40S | `L40S` |
-| RTX 6000 Ada, RTX PRO 6000 | `RTXPRO6000BW` |
-| GB10 (DGX Spark) | `DGX-SPARK` |
-| IGX | `IGX-THOR` |
-| AGX | `AGX-THOR` |
-| Other | `OTHER` |
+| GPU name contains | HARDWARE_PROFILE | Recommended LLM path |
+|---|---|---|
+| H100 | `H100` | Nano 9B v2 (NIM) |
+| L40S | `L40S` | Nano 9B v2 (NIM) |
+| RTX 6000 Ada, RTX PRO 6000 | `RTXPRO6000BW` | Nano 9B v2 (NIM) |
+| GB10 (DGX Spark) | `DGX-SPARK` | **Edge 4B** (vLLM) — see [`references/edge.md`](references/edge.md) |
+| IGX | `IGX-THOR` | **Edge 4B** (vLLM) — see [`references/edge.md`](references/edge.md) |
+| AGX | `AGX-THOR` | **Edge 4B** (vLLM) — see [`references/edge.md`](references/edge.md) |
+| Other | `OTHER` | — |
+
+> **Edge platforms share a single GPU.** On DGX Spark and Thor, both LLM and VLM
+> must fit in unified memory. The default is `NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8`
+> running as a standalone vLLM container on port 30081, with the agent pointed
+> at it via `--use-remote-llm`. Use the full Nano 9B v2 FP8 only if memory allows
+> and you want clarifying-question behavior from the agent.
 
 ### Step 1b — Prepare the data directory
 
