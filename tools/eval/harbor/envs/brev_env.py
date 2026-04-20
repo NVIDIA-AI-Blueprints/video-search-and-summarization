@@ -228,7 +228,7 @@ class BrevEnvironment(BaseEnvironment):
         # during deploy (NGC_CLI_API_KEY, NVIDIA_API_KEY) must land on
         # the instance out-of-band.
         forwarded: list[tuple[str, str]] = []
-        for key in ("NGC_CLI_API_KEY", "NVIDIA_API_KEY"):
+        for key in ("NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN"):
             val = os.environ.get(key)
             if val:
                 forwarded.append((key, val))

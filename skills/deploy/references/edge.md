@@ -1,33 +1,52 @@
 # Edge Deployment Reference (DGX Spark, AGX Thor, IGX Thor)
 
-Base-profile deployment for edge platforms using a compact LLM sized for
-unified-memory GPUs. Two supported paths:
+Base-profile deployment for edge platforms. **Shared-mode deployments MUST use
+NVIDIA Nemotron Edge 4B as the LLM** — the Nano 9B NIM image has a broken
+arm64 manifest (x86_64 binaries inside an arm64-tagged layer) and the Nano 9B
+FP8 does not yet ship a DGX-Spark-optimized NIM profile.
 
-1. **NVIDIA Nemotron Edge 4B** (FP8) — fits in ~25% of GPU memory, lets the VLM
-   share the remaining budget. Recommended default for strict memory envelopes.
-   Uses a simplified planning prompt (`config_edge.yml`) that skips clarifying
-   questions.
-2. **NVIDIA Nemotron Nano 9B v2 FP8** — larger context and planning quality,
-   asks clarifying questions when user queries are ambiguous. Use this when
-   memory allows and you want the agent to interact naturally.
+Two supported paths on edge hardware:
+
+1. **NVIDIA Nemotron Edge 4B** (FP8) — **required** for shared-mode on all edge
+   platforms (Spark, AGX Thor, IGX Thor). Fits in ~25% of GPU memory, lets the
+   VLM share the remaining budget. Uses a simplified planning prompt
+   (`config_edge.yml`) that skips clarifying questions. **Requires `HF_TOKEN`**
+   in the environment (weights pulled from Hugging Face).
+2. **NVIDIA Nemotron Nano 9B v2 FP8** — fallback ONLY when a DGX-Spark-optimized
+   FP8 NIM becomes available (track via the upstream blueprint's compose
+   overrides). Do not use until that lands — the current `:1` tag will fail on
+   arm64.
 
 ## When to pick which
 
 | Situation | Model |
 |---|---|
-| DGX Spark or IGX/AGX Thor, both LLM+VLM must share single GPU | **Edge 4B** |
-| DGX Spark with explicit choice to trade clarifying-Q's for more memory | Edge 4B |
-| Unified memory > 96 GB or dedicated GPU for LLM | Nano 9B v2 FP8 |
-| Expecting ambiguous / multi-turn user queries | Nano 9B v2 FP8 |
-| Running Edge 4B from a remote endpoint (not on-device) | Edge 4B |
+| DGX Spark shared mode | **Edge 4B (mandatory)** |
+| IGX/AGX Thor shared mode | **Edge 4B (mandatory)** |
+| DGX Spark remote-llm mode (LLM at launchpad endpoint) | Remote LLM — no local model needed |
+| Ambiguous / multi-turn user queries on edge | Edge 4B (accept: no clarifying Q's) |
+| Non-edge hardware (H100, L40S, RTX PRO) | Nano 9B v2 (standard NIM) |
 
 ## Prerequisites
 
 - `NGC_CLI_API_KEY` (NIM containers)
-- `HF_TOKEN` (only for Edge 4B — weights pull from Hugging Face)
+- **`HF_TOKEN` — required** (Edge 4B weights pull from Hugging Face; shared mode on
+  edge hardware is blocked without it)
 - `NVIDIA_API_KEY` (agent-side)
 - GPU freed: `docker ps` should show no running VSS or LLM containers before
   starting. Reboot the device if in doubt.
+
+### HF_TOKEN verification
+
+Before running the deploy, verify the token can reach the Edge 4B repo:
+
+```bash
+curl -sf -H "Authorization: Bearer $HF_TOKEN" \
+    https://huggingface.co/api/models/nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8 \
+    >/dev/null && echo "HF_TOKEN works" || echo "HF_TOKEN missing/invalid/no access"
+```
+
+If the model is gated, the token's owner must request access on the HF page.
 
 ## DGX Spark — Edge 4B + local Cosmos-Reason2-8B VLM
 

@@ -109,11 +109,13 @@ Always follow this sequence. Never skip the dry-run.
 | AGX | `AGX-THOR` | **Edge 4B** (vLLM) — see [`references/edge.md`](references/edge.md) |
 | Other | `OTHER` | — |
 
-> **Edge platforms share a single GPU.** On DGX Spark and Thor, both LLM and VLM
-> must fit in unified memory. The default is `NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8`
-> running as a standalone vLLM container on port 30081, with the agent pointed
-> at it via `--use-remote-llm`. Use the full Nano 9B v2 FP8 only if memory allows
-> and you want clarifying-question behavior from the agent.
+> **Edge shared mode requires Edge 4B + `HF_TOKEN`.** On DGX Spark and AGX/IGX
+> Thor, both LLM and VLM must fit in unified memory, AND the standard
+> `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image has a broken arm64
+> manifest. You must run `NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` as a
+> standalone vLLM container on port 30081 with the agent pointed at it via
+> `--use-remote-llm`. Full recipe and the mandatory `HF_TOKEN` verification
+> step are in [`references/edge.md`](references/edge.md).
 
 ### Step 1b — Prepare the data directory
 
