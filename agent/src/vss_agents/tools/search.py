@@ -833,12 +833,17 @@ async def execute_core_search(
             # Fetch sensor names from VST based on source_type
             video_file_names: list[str] = []
             video_stream_names: list[str] = []
+            name_to_uuid: dict[str, str] = {}
             try:
                 vst_url = getattr(config, "vst_internal_url", None)
                 if vst_url:
                     streams_info = await get_streams_info(vst_url)
                     source_type = getattr(search_input, "source_type", None)
-                    for _stream_id, stream_info in streams_info.items():
+                    # Classify streams by source_type AND build the name→UUID mapping
+                    # used for two-tier video source filtering. Only include names
+                    # matching the query's source_type so names that collide across
+                    # RTSP and video_file sources don't overwrite each other.
+                    for stream_id, stream_info in streams_info.items():
                         name = stream_info.get("name", "")
                         url = stream_info.get("url", "")
                         if not name:
@@ -846,9 +851,14 @@ async def execute_core_search(
                         is_rtsp = url and url.startswith("rtsp://")
                         if source_type == "rtsp" and is_rtsp:
                             video_stream_names.append(name)
+                            name_to_uuid[name] = stream_id
                         elif source_type == "video_file" and not is_rtsp:
                             video_file_names.append(name)
+                            name_to_uuid[name] = stream_id
                         elif source_type is None:
+                            # source_type unspecified — include all, matching existing
+                            # behavior for the name lists
+                            name_to_uuid[name] = stream_id
                             if is_rtsp:
                                 video_stream_names.append(name)
                             else:
@@ -876,6 +886,19 @@ async def execute_core_search(
                 search_input.query = decomposed.query
             if decomposed.video_sources:
                 search_input.video_sources = decomposed.video_sources
+            # Resolve video source names → UUIDs using the VST mapping (two-tier filtering)
+            # Resolved UUIDs get fast exact-match ES filters; unresolved names fall back to wildcards
+            if search_input.video_sources and name_to_uuid:
+                resolved_sources = []
+                for vname in search_input.video_sources:
+                    uuid = name_to_uuid.get(vname)
+                    if uuid:
+                        resolved_sources.append(uuid)
+                        logger.info(f"Resolved video source '{vname}' to UUID '{uuid}'")
+                    else:
+                        resolved_sources.append(vname)
+                        logger.info(f"Video source '{vname}' not resolved — will use wildcard filter")
+                search_input.video_sources = resolved_sources
             if decomposed.timestamp_start:
                 try:
                     search_input.timestamp_start = iso8601_to_datetime(decomposed.timestamp_start)
