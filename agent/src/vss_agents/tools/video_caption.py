@@ -339,8 +339,9 @@ async def video_caption(config: VideoCaptionConfig, builder: Builder) -> AsyncGe
 
                 step_size = 1 / video_caption_input.fps
                 with TimeMeasure(
-                    f"frame_select-{resolved_file_path}, {video_caption_input.start_timestamp}, "
-                    f"{video_caption_input.end_timestamp}, {video_caption_input.fps}"
+                    f"frame_select-{resolved_file_path}, {video_caption_input.start_timestamp}, {
+                        video_caption_input.end_timestamp
+                    }, {video_caption_input.fps}"
                 ):
                     base64_frames = await loop.run_in_executor(
                         None,

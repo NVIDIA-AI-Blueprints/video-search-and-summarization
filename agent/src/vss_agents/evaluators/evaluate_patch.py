@@ -68,6 +68,7 @@ from nat.data_models.evaluator import EvalInputItem
 from tqdm import tqdm
 
 from vss_agents.evaluators.utils import compute_item_latency
+from vss_agents.evaluators.utils import extract_tool_results_from_trajectory
 from vss_agents.evaluators.utils import strip_agent_think_tags
 
 logger = logging.getLogger(__name__)
@@ -302,11 +303,16 @@ def apply_patch() -> None:
             ContextState.get().conversation_id.set(conv_id)
             logger.info(f"[Multi-turn] Running conversation {conv_id} with {len(items)} turns sequentially")
             conversation_history: list[dict[str, str]] = []
+            all_turn_tool_results: dict[str, dict[str, Any]] = {}
 
             for item in items:
                 # Add previous turns so evaluators have conversation context
                 if conversation_history:
                     item.full_dataset_entry["_conversation_history"] = list(conversation_history)
+
+                # Pass previous turns' tool results for cross-turn $ref resolution
+                if all_turn_tool_results:
+                    item.full_dataset_entry["_all_turn_tool_results"] = dict(all_turn_tool_results)
 
                 # Re-set conversation_id before each turn
                 ContextState.get().conversation_id.set(conv_id)
@@ -316,13 +322,18 @@ def apply_patch() -> None:
                 await _original_run_workflow_local(self, session_manager)
                 pbar.update(1)
 
+                turn_id = item.full_dataset_entry.get("turn_id", f"turn_{len(conversation_history) + 1}")
                 conversation_history.append(
                     {
-                        "turn_id": item.full_dataset_entry.get("turn_id", f"turn_{len(conversation_history) + 1}"),
+                        "turn_id": turn_id,
                         "query": item.input_obj,
                         "answer": strip_agent_think_tags(item.output_obj),
                     }
                 )
+                # Extract tool results from trajectory for cross-turn $ref resolution
+                tool_results = extract_tool_results_from_trajectory(item.trajectory or [])
+                if tool_results:
+                    all_turn_tool_results[turn_id] = tool_results
 
         async def run_non_multi_turn() -> None:
             """Run non-multi-turn items."""

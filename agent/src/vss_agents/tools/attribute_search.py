@@ -37,6 +37,7 @@ from vss_agents.embed.embed import EmbedClient
 from vss_agents.embed.rtvi_cv_embed import RTVICVEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.time_measure import TimeMeasure
+from vss_agents.utils.uuid_string import is_standard_uuid_string
 
 logger = logging.getLogger(__name__)
 
@@ -567,31 +568,38 @@ async def _search_behavior(
         if overlap_filter["bool"]["must"]:
             filter_clauses.append(overlap_filter)
 
-    # Add video_sources filter if provided (same logic as embed_search)
+    # Add video_sources filter if provided (same two-tier logic as embed_search)
+    # Resolved UUIDs get a single `terms` clause; unresolved names use wildcard/regexp fallback
     if video_sources:
-        should_clauses = []
-        for vname in video_sources:
-            escaped_vname = vname.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
-            # Check sensor.id (for RTSP streams and video files)
-            should_clauses.append({"term": {"sensor.id.keyword": vname}})
-            should_clauses.append({"wildcard": {"sensor.id.keyword": f"*{escaped_vname}*"}})
-            # Check sensor.info.url (for uploaded video files)
-            should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}"}})
-            should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}*"}})
-            # Check sensor.info.path (for RTSP streams - contains UUID)
-            should_clauses.append({"wildcard": {"sensor.info.path.keyword": f"*{escaped_vname}*"}})
-            regex_escaped = re.escape(vname)
-            should_clauses.append({"regexp": {"sensor.info.url": f".*{regex_escaped}"}})
-            should_clauses.append({"regexp": {"sensor.info.path": f".*{regex_escaped}"}})
+        uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
+        non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
 
-        filter_clauses.append(
-            {
-                "bool": {
-                    "should": should_clauses,
-                    "minimum_should_match": 1,
+        if uuid_sources and not non_uuid_sources:
+            # All sources are UUIDs — single terms clause (fastest)
+            filter_clauses.append({"terms": {"sensor.id.keyword": uuid_sources}})
+        else:
+            # Mixed or all non-UUID — build should clauses
+            should_clauses: list[dict[str, Any]] = []
+            if uuid_sources:
+                should_clauses.append({"terms": {"sensor.id.keyword": uuid_sources}})
+            for vname in non_uuid_sources:
+                escaped_vname = vname.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
+                should_clauses.append({"term": {"sensor.id.keyword": vname}})
+                should_clauses.append({"wildcard": {"sensor.id.keyword": f"*{escaped_vname}*"}})
+                should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}"}})
+                should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}*"}})
+                should_clauses.append({"wildcard": {"sensor.info.path.keyword": f"*{escaped_vname}*"}})
+                regex_escaped = re.escape(vname)
+                should_clauses.append({"regexp": {"sensor.info.url": f".*{regex_escaped}"}})
+                should_clauses.append({"regexp": {"sensor.info.path": f".*{regex_escaped}"}})
+            filter_clauses.append(
+                {
+                    "bool": {
+                        "should": should_clauses,
+                        "minimum_should_match": 1,
+                    }
                 }
-            }
-        )
+            )
 
     # Build KNN query with filters INSIDE (so filters are applied during KNN search, not after)
     # Fetch more candidates to account for duplicates - we'll deduplicate and return top_k later
@@ -1415,9 +1423,20 @@ async def build_attribute_search(config: AttributeSearchConfig, _builder: Builde
             config.enable_frame_lookup,
         )
 
-    yield FunctionInfo.create(
-        single_fn=attribute_search_fn,
-        description="Search for objects by visual attributes",
-        input_schema=AttributeSearchInput,
-        # Note: single_output_schema removed to avoid Python 3.13 isinstance() issues with parameterized generics
-    )
+    try:
+        yield FunctionInfo.create(
+            single_fn=attribute_search_fn,
+            description="Search for objects by visual attributes",
+            input_schema=AttributeSearchInput,
+            # Note: single_output_schema removed to avoid Python 3.13 isinstance() issues with parameterized generics
+        )
+    finally:
+        # Release embedding cache + close ES client
+        try:
+            await embed_client.aclose()
+        except Exception as e:
+            logger.warning(f"Error closing embed client: {e}")
+        try:
+            await es_client.close()
+        except Exception as e:
+            logger.warning(f"Error closing ES client: {e}")

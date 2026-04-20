@@ -265,12 +265,12 @@ class TestAddToRtviEmbed:
         mock_client = MagicMock()
         config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="")
 
-        success, _msg, stream_id = await add_to_rtvi_embed(
+        success, msg, stream_id = await add_to_rtvi_embed(
             mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
         )
 
         assert success is True
-        assert "Skipped" in _msg
+        assert "Skipped" in msg
         assert stream_id == "sensor-123"  # Falls back to sensor_id
 
     @pytest.mark.asyncio
