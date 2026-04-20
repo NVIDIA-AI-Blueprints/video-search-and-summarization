@@ -9,7 +9,7 @@ metadata:
 
 > **Alpha Feature** — not recommended for production use.
 
-Search video archives by natural language using Cosmos Embed1 embeddings. Requires the search profile — deploy with the `deploy` skill (`-p search`).
+Search video archives by natural language using Cosmos Embed1 embeddings. Requires the search profile — deploy with the `deploy` skill (`-p search`). These videos sources can be ingested files or RTSP streams.
 
 ## When to Use
 
@@ -61,8 +61,8 @@ Infer these inputs only from the conversation or user query (no other files unle
 
 - ALWAYS step into the troubleshooting step of the workflow immediately if anything unexpected happens, read [troubleshooting.md](references/troubleshooting.md)
 - Queries work best with **concrete visual descriptions** (objects, actions, locations). Augment user queries if needed to enhance the quality of the questions, expanding potential details
-- User queries to do video search supposes videos are already uploaded. No need to search for them locally.
-  Assume this unless the findings show the video is not uploaded or ingested yet
+- User queries to do video search supposes video sources are already ingested. No need to search for them locally.
+  Assume this unless the findings show the video source is not ingested yet
 - Use `video-analytics` skill to cross-reference search results with incident/alert data
 
 ---
@@ -72,6 +72,7 @@ Infer these inputs only from the conversation or user query (no other files unle
 Default to using this REST API approach, unless user specifies otherwise.
 
 ```bash
+# Consider only ingested video file sources by default
 curl -s -X POST http://${HOST_IP}:8000/generate \
   -H "Content-Type: application/json" \
   -d '{"input_message": "find all instances of forklifts"}' | jq .
@@ -94,16 +95,21 @@ curl -s -X POST http://${HOST_IP}:8000/generate \
 curl -s -X POST http://${HOST_IP}:8000/generate \
   -H "Content-Type: application/json" \
   -d '{"input_message": "what happened at the entrance between 2pm and 3pm?"}' | jq .
+
+# Consider only RTSP sources with `search_source_type` filter i.e. live camera streams
+curl -s -X POST http://${HOST_IP}:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{"input_message": "find all instances of forklifts", "search_source_type": "rtsp"}' | jq .
 ```
 
 ### Advanced control knobs
 
-If user query is ambiguous, user wants more guidance or when fine-grained control is needed, augment the user input by calling out explicitly certain options in plain-text and steering the agent in the desired direction. Available control axes: 
+If user query is ambiguous, user wants more guidance or when fine-grained control is needed, augment the user `input_message` by calling out explicitly certain options in plain-text and steering the agent in the desired direction. Available control axes: 
 
 | Axes                 | Type      | Default | Description                                               |
 |----------------------|-----------|---------|-----------------------------------------------------------|
 | `video sources`      | string[]  | null    | Filter to specific cameras or sensor names                |
-| `top k`              | int       | null    | Max results (default: around 10 from config)              |
+| `top k`              | int       | 10      | Max results
 | `minimum similarity` | float     | 0.0     | Min similarity threshold; raise (e.g. 0.3) to filter noise|
 | `critic usage`       | bool      | true    | VLM verifies each result and removes false positives      |
 | `description`        | string    | null    | Filter by camera metadata (e.g. location, category) if metadata is available|
