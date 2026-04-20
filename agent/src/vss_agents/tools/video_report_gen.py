@@ -62,6 +62,7 @@ from vss_agents.tools.lvs_video_understanding import LVSStatus
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.tools.vst.video_clip import get_video_url
+from vss_agents.utils.hitl import format_hitl_popup_header
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
@@ -505,6 +506,10 @@ class VideoReportGenOutput(BaseModel):
     hitl_prompts: dict[str, Any] | None = Field(
         default=None,
         description="HITL prompts used for LVS analysis (scenario, events, objects_of_interest). Shared across all videos in multi-video processing.",
+    )
+    lvs_fallback_warning: str | None = Field(
+        default=None,
+        description="Warning message when LVS was not available and fell back to standard video understanding for a long video.",
     )
     # Multi-video specific fields
     all_reports: list[dict[str, Any]] | None = Field(
@@ -1420,6 +1425,7 @@ Enter your choice or press Submit to keep current value:"""
     async def _collect_hitl_vlm_prompt(
         current_prompt: str | None,
         sensor_ids: list[str] | None = None,
+        total_videos: int | None = None,
     ) -> str | None:
         """
         Collect/confirm VLM prompt via HITL with support for /generate and /refine commands.
@@ -1432,7 +1438,11 @@ Enter your choice or press Submit to keep current value:"""
 
         Args:
             current_prompt: Current prompt from state (if any)
-            sensor_ids: Optional list of video sensor IDs to show in the prompt context
+            sensor_ids: Optional list of video sensor IDs this prompt will apply to.
+            total_videos: Optional total number of videos in the user's request.
+                When larger than ``len(sensor_ids)``, the popup header switches to
+                "Setting prompt for X out of Y videos" so the user knows the prompt
+                only applies to a subset (e.g. the short-video batch in mixed routing).
 
         Returns:
             str: The confirmed or updated VLM prompt, or None if cancelled
@@ -1442,10 +1452,7 @@ Enter your choice or press Submit to keep current value:"""
         hitl_template = config.hitl_vlm_prompt_template or default_hitl_vlm_prompt_template
 
         # Build video context header if sensor_ids provided
-        video_context = ""
-        if sensor_ids:
-            video_list = ", ".join(f"`{sid}`" for sid in sensor_ids)
-            video_context = f"**Analyzing {len(sensor_ids)} video(s):** {video_list}\n\n"
+        video_context = format_hitl_popup_header(sensor_ids, total_videos)
 
         # Track the working prompt and its source
         working_prompt = current_prompt or config.vlm_prompt
@@ -1566,12 +1573,38 @@ Enter your choice or press Submit to keep current value:"""
 
         logger.info(f"Video routing: {len(lvs_sensor_ids)} LVS, {len(base_sensor_ids)} base VLM")
 
+        # When the request splits into both LVS and base VLM groups, each HITL popup
+        # only covers a subset of the user's videos. Pass the total count so popups
+        # render "Setting prompt for X out of Y videos" instead of "Analyzing X video(s)".
+        total_videos = len(sensor_ids)
+        request_total_videos: int | None = total_videos if (lvs_sensor_ids and base_sensor_ids) else None
+
+        # Build consolidated LVS fallback warning for long videos
+        fallback_videos = [(sid, dur) for sid, dur in durations if dur > config.lvs_video_length and not lvs_available]
+        if fallback_videos:
+            if len(fallback_videos) == 1:
+                sid, dur = fallback_videos[0]
+                video_summary = f"Input video {sid} is {dur:.1f}s long"
+            else:
+                video_list = ", ".join(f"{sid} ({dur:.1f}s)" for sid, dur in fallback_videos)
+                video_summary = f"Input videos {video_list} exceed the expected length"
+            multi_lvs_fallback_warning: str | None = (
+                f"⚠️ **Note:** {video_summary}. "
+                f"Please use 'Long Video Summarization' for videos longer than {config.lvs_video_length}s.\n\n"
+            )
+        else:
+            multi_lvs_fallback_warning = None
+
         # Step 2: Collect base VLM prompt upfront (if any base videos and HITL enabled)
         vlm_prompt_override: str | None = None
         if base_sensor_ids and config.hitl_enabled:
             thread_id = ContextState.get().conversation_id.get()
             current_prompt = _get_prompt(thread_id)
-            resolved_prompt = await _collect_hitl_vlm_prompt(current_prompt, sensor_ids=base_sensor_ids)
+            resolved_prompt = await _collect_hitl_vlm_prompt(
+                current_prompt,
+                sensor_ids=base_sensor_ids,
+                total_videos=request_total_videos,
+            )
             if resolved_prompt is None:
                 return VideoReportGenOutput(
                     summary="Report generation was cancelled by the user.",
@@ -1592,7 +1625,12 @@ Enter your choice or press Submit to keep current value:"""
                 user_query=report_input.user_query,
                 vlm_reasoning=report_input.vlm_reasoning,
             )
-            tasks.append((lvs_sensor_ids, _video_report_gen_single(lvs_input)))
+            tasks.append(
+                (
+                    lvs_sensor_ids,
+                    _video_report_gen_single(lvs_input, request_total_videos=request_total_videos),
+                )
+            )
 
         for sid in base_sensor_ids:
             base_input = VideoReportGenInput(
@@ -1684,6 +1722,7 @@ Enter your choice or press Submit to keep current value:"""
             pdf_file_size=total_pdf_file_size,
             all_reports=all_reports,
             hitl_prompts=shared_hitl_prompts,
+            lvs_fallback_warning=multi_lvs_fallback_warning,
         )
 
     async def _generate_single_report(
@@ -1768,6 +1807,7 @@ Enter your choice or press Submit to keep current value:"""
     async def _video_report_gen_single(
         report_input: VideoReportGenInput,
         vlm_prompt_override: str | None = None,
+        request_total_videos: int | None = None,
     ) -> VideoReportGenOutput:
         """
         Generate a video analysis report for one video (or a batch of LVS videos).
@@ -1776,6 +1816,10 @@ Enter your choice or press Submit to keep current value:"""
             report_input: Input with sensor_id (str or list[str] for LVS batch).
             vlm_prompt_override: Pre-collected free-text prompt for base VLM videos,
                 bypasses per-video HITL when provided.
+            request_total_videos: Total number of videos in the user's original request,
+                forwarded to the LVS tool so its HITL popups can show
+                "Setting prompt for X out of Y videos" when only a subset is dispatched
+                here. ``None`` when this call covers the whole request.
         """
         sensor_id = report_input.sensor_id if isinstance(report_input.sensor_id, str) else report_input.sensor_id[0]
         logger.info(f"Generating report for sensor '{sensor_id}'")
@@ -1805,8 +1849,8 @@ Enter your choice or press Submit to keep current value:"""
                     f"Falling back to standard video_understanding tool. for video duration {duration_seconds:.1f}s > {config.lvs_video_length}s"
                 )
                 lvs_fallback_warning = (
-                    f"⚠️ **Note:** Input video {sensor_id} is {duration_seconds:.1f}s long. \n"
-                    f"Please use Long video Summarization' for videos longer than {config.lvs_video_length}s.\n\n"
+                    f"⚠️ **Note:** Input video {sensor_id} is {duration_seconds:.1f}s long. "
+                    f"Please use 'Long Video Summarization' for videos longer than {config.lvs_video_length}s.\n\n"
                 )
         else:
             logger.info(
@@ -1822,6 +1866,8 @@ Enter your choice or press Submit to keep current value:"""
             vlm_input: dict[str, Any] = {
                 "sensor_id": report_input.sensor_id,
             }
+            if request_total_videos is not None:
+                vlm_input["request_total_videos"] = request_total_videos
 
             if report_input.vlm_reasoning is not None:
                 vlm_input["vlm_reasoning"] = report_input.vlm_reasoning
@@ -2054,10 +2100,8 @@ Enter your choice or press Submit to keep current value:"""
         )
 
         # Create summary
-        summary = ""
-        if lvs_fallback_warning:
-            summary += lvs_fallback_warning
-        summary += f"Report generated for '{sensor_id}'.\n\n"
+
+        summary = f"Report generated for '{sensor_id}'.\n\n"
 
         logger.info(f"report generation complete: {report_metadata['http_url']}")
 
@@ -2071,6 +2115,7 @@ Enter your choice or press Submit to keep current value:"""
             content=None,  # Not needed
             video_url=report_metadata["video_url"],
             hitl_prompts=hitl_prompts,
+            lvs_fallback_warning=lvs_fallback_warning or None,
         )
 
     async def _video_report_gen(report_input: VideoReportGenInput) -> VideoReportGenOutput:

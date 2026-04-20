@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
 import logging
 from typing import cast
 
@@ -20,8 +19,11 @@ import httpx
 from typing_extensions import override  # noqa: UP035  # mypy targets 3.11
 
 from vss_agents.embed.embed import EmbedClient
+from vss_agents.embed.embed import LRUEmbeddingCache
 
 logger = logging.getLogger(__name__)
+
+_TEXT_EMBEDDING_CACHE_MAXSIZE = 1024
 
 
 class RTVICVEmbedClient(EmbedClient):
@@ -36,30 +38,37 @@ class RTVICVEmbedClient(EmbedClient):
         """
         self.endpoint = endpoint.rstrip("/")
         self.text_embeddings_url = f"{self.endpoint}/api/v1/generate_text_embeddings"
-        self._text_embedding_cache: dict[str, list[float]] = {}
-        self._text_embedding_locks: dict[str, asyncio.Lock] = {}
+        # Bounded LRU cache for text embeddings (with per-key async locks)
+        self._text_cache = LRUEmbeddingCache(maxsize=_TEXT_EMBEDDING_CACHE_MAXSIZE)
+
+    @override
+    async def aclose(self) -> None:
+        """Clear cached embeddings and locks."""
+        self._text_cache.clear()
 
     @override
     async def get_text_embedding(self, text: str) -> list[float]:
         """Generate embedding for text input using RTVI CV API.
 
-        Results are cached by text input so that concurrent callers
-        with the same query share a single network round-trip.
+        Results are cached (bounded LRU) so concurrent callers with the same
+        query share a single network round-trip.
         """
-        if text in self._text_embedding_cache:
+        cached = self._text_cache.get(text)
+        if cached is not None:
             logger.debug(f"Text embedding cache hit for: {text[:80]}")
-            return self._text_embedding_cache[text]
+            return cached
 
         # Per-key lock so only one caller fetches a given text
-        lock = self._text_embedding_locks.setdefault(text, asyncio.Lock())
+        lock = self._text_cache.get_lock(text)
 
         async with lock:
             # Double-check after acquiring lock
-            if text in self._text_embedding_cache:
-                return self._text_embedding_cache[text]
+            cached = self._text_cache.get(text)
+            if cached is not None:
+                return cached
 
             embedding = await self._fetch_text_embedding(text)
-            self._text_embedding_cache[text] = embedding
+            self._text_cache.put(text, embedding)
             return embedding
 
     async def _fetch_text_embedding(self, text: str) -> list[float]:

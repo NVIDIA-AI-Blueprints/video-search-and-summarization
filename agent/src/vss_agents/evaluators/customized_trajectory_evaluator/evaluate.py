@@ -18,6 +18,7 @@
 
 import ast
 import contextlib
+import copy
 import json
 import logging
 from typing import Any
@@ -31,7 +32,9 @@ from nat.data_models.evaluator import EvalOutputItem
 from nat.plugins.eval.evaluator.base_evaluator import BaseEvaluator
 
 from vss_agents.evaluators.utils import ScoreOutputParser
+from vss_agents.evaluators.utils import extract_tool_results_from_trajectory
 from vss_agents.evaluators.utils import invoke_llm_with_retry
+from vss_agents.evaluators.utils import parse_tool_result
 from vss_agents.evaluators.utils import should_evaluate
 from vss_agents.evaluators.utils import strip_agent_think_tags
 
@@ -182,6 +185,88 @@ class CustomizedTrajectoryEvaluator(BaseEvaluator):
 
         return agent_selected_uuids
 
+    def _resolve_refs(
+        self,
+        ground_truth: list[dict[str, Any]],
+        tool_results: dict[str, list[Any]],
+        previous_turn_results: dict[str, dict[str, list[Any]]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Resolve $ref references in ground truth params using actual tool results.
+
+        A $ref tells the evaluator: "don't compare against a hardcoded value. Instead,
+        look up the actual result from a previous tool call and compare against that."
+
+        $ref fields:
+            - tool (required): which tool's result to look up.
+            - path (required): keys/indices to navigate into the result.
+              Strings are dict keys, integers are list indices.
+              e.g. ["items", 0, "id"] means result["items"][0]["id"].
+            - index (optional, default 0): which occurrence of the tool to use,
+              if the same tool was called multiple times.
+            - turn (optional): reference a previous turn's tool result instead of
+              the current turn.
+
+        Examples:
+            {"$ref": {"tool": "tool_a", "path": ["items", 0, "id"]}}
+            {"$ref": {"tool": "tool_a", "index": 1, "path": ["items", 0]}}
+            {"$ref": {"turn": "turn_1", "tool": "tool_a", "path": ["items", 0]}}
+
+        Args:
+            ground_truth: The trajectory_ground_truth list from the dataset.
+            tool_results: Current turn's tool results, keyed by
+                tool_name -> [result_0, result_1, ...] (ordered by occurrence).
+            previous_turn_results: Previous turns' tool results, keyed by
+                turn_id -> {tool_name -> [result_0, ...]}. Extracted from
+                trajectories in evaluate_patch.
+
+        Returns:
+            A deep copy of ground_truth with all $ref values resolved to concrete values.
+            Unresolvable $ref values are left unchanged.
+        """
+        resolved = copy.deepcopy(ground_truth)
+        for entry in resolved:
+            if "params" not in entry:
+                continue
+            for param_key, param_value in entry["params"].items():
+                if not (isinstance(param_value, dict) and "$ref" in param_value):
+                    continue
+                ref = param_value["$ref"]
+                ref_tool = ref.get("tool")
+                ref_index = ref.get("index", 0)
+                ref_path = ref.get("path", [])
+                ref_turn = ref.get("turn")
+
+                if not ref_tool:
+                    logger.warning(f"$ref missing required 'tool' key: {ref}")
+                    continue
+
+                # Pick the source: previous turn or current turn
+                if ref_turn:
+                    source = (previous_turn_results or {}).get(ref_turn, {})
+                else:
+                    source = tool_results
+
+                # Look up the tool's result list, then pick by index
+                results_list = source.get(ref_tool, [])
+                if ref_index >= len(results_list):
+                    logger.warning(
+                        f"$ref resolution failed: tool '{ref_tool}' has {len(results_list)} results, "
+                        f"requested index {ref_index}"
+                    )
+                    continue
+
+                result = parse_tool_result(results_list[ref_index])
+
+                try:
+                    value = result
+                    for key in ref_path:
+                        value = value[key]
+                    entry["params"][param_key] = value
+                except (KeyError, IndexError, TypeError):
+                    logger.warning(f"$ref path resolution failed for {ref_path}")
+
+        return resolved
+
     async def evaluate_item(self, item: EvalInputItem) -> EvalOutputItem:
         """
         Evaluate a single EvalInputItem and return an EvalOutputItem.
@@ -244,7 +329,10 @@ class CustomizedTrajectoryEvaluator(BaseEvaluator):
 
         logger.info(f"After filtering LLM reasoning steps: {len(agent_trajectory)} steps remain")
 
-        # Extract tool calls with step numbers.
+        # Extract tool results for $ref resolution
+        tool_results = extract_tool_results_from_trajectory(trajectory)
+
+        # Extract tool calls with step numbers for the LLM judge.
         # Each LLM reasoning step (contains "Tool calls:") marks the start of a new step.
         # Tools following the same LLM step are parallel (same step number).
         structured_tool_calls = []
@@ -261,6 +349,12 @@ class CustomizedTrajectoryEvaluator(BaseEvaluator):
                     params = ast.literal_eval(params)
             structured_tool_calls.append({"step": step_number, "name": action.tool, "params": params})
 
+        # Get previous turns' tool results for cross-turn $ref resolution.
+        # These are extracted from the trajectory in evaluate_patch.py and indexed by tool name.
+        previous_turn_results: dict[str, dict[str, list[Any]]] | None = None
+        if hasattr(item, "full_dataset_entry") and item.full_dataset_entry:
+            previous_turn_results = item.full_dataset_entry.get("_all_turn_tool_results")
+
         # Get conversation history from previous turns (multi-turn only)
         conv_history = []
         if hasattr(item, "full_dataset_entry") and item.full_dataset_entry:
@@ -269,20 +363,23 @@ class CustomizedTrajectoryEvaluator(BaseEvaluator):
                 conv_history = []
 
         # Auto-detect: check if this item has trajectory_ground_truth
-        reference = None
+        reference: list[dict[str, Any]] | None = None
         if hasattr(item, "full_dataset_entry") and item.full_dataset_entry:
             reference = item.full_dataset_entry.get("trajectory_ground_truth")
 
         has_reference = reference is not None
 
-        if has_reference and self.prompt_with_reference:
+        if reference is not None and self.prompt_with_reference:
+            # Resolve $ref placeholders in ground truth using actual tool results
+            resolved_reference = self._resolve_refs(reference, tool_results, previous_turn_results)
+
             # Reference mode: compare structured tool calls against ground truth
             if structured_tool_calls:
                 actual_tool_calls_str = json.dumps(structured_tool_calls, indent=2)
             else:
                 actual_tool_calls_str = "(no tool calls)"
 
-            reference_str = json.dumps(reference, indent=2)
+            reference_str = json.dumps(resolved_reference, indent=2)
 
             prompt_text = self.prompt_with_reference.format(
                 question=question,
@@ -324,12 +421,15 @@ class CustomizedTrajectoryEvaluator(BaseEvaluator):
             )
 
         # Build reasoning closure to capture local variables
+        resolved_ref = resolved_reference if has_reference and self.prompt_with_reference else reference
+
         def build_reasoning(eval_result: dict) -> dict:
             return {
                 "reasoning": eval_result["reasoning"],
                 "query": question,
                 "actual_tool_calls": structured_tool_calls,
                 "expected_tool_calls": reference,
+                "resolved_expected_tool_calls": resolved_ref,
                 "final_answer": generated_answer,
                 "trajectory": [(action.model_dump(), output) for action, output in agent_trajectory],
                 "conversation_history": conv_history,

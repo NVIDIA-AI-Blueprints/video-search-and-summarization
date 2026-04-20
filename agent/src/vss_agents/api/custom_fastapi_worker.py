@@ -66,6 +66,7 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         """Register streaming ingest routes (video upload and RTSP streams) only when configured."""
         front_end_cfg = getattr(getattr(self.config, "general", None), "front_end", None)
         streaming_config = getattr(front_end_cfg, "streaming_ingest", None) if front_end_cfg else None
+        logger.info(f"Streaming config: {streaming_config}")
 
         # Register video upload streaming routes
         try:
