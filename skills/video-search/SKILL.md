@@ -45,7 +45,7 @@ When using this skill, ALWAYS follow this high-level workflow:
    - Organize findings individually with supporting detail, and close with a summary
    - Use tables where comparisons help. Write like a technical report, not a chat message.
 4. CRITICAL: Verify the results and explain this to the user concisely. 
-   If search fails, or returns unexpected results (i.e. videos that do not appear to match user query, zero matches, zero videos returned, error etc.), STOP. Do not proceed without reading [troubleshooting.md](troubleshooting.md) to iterate with feedback loops until proper results are found and presented like a professional inspection report.
+   If search fails, or returns unexpected results (i.e. videos that do not appear to match user query, zero matches, zero videos returned, error etc.), STOP. Do not proceed without reading [troubleshooting.md](references/troubleshooting.md) to iterate with feedback loops until proper results are found and presented like a professional inspection report.
 5. Final verifications:
    - ALWAYS inform user that final and further verifications can be run. Present this as a `Verification Step`
    - ONLY IF user agrees, download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query
@@ -59,7 +59,7 @@ Infer these inputs only from the conversation or user query (no other files unle
 
 ## Gotchas
 
-- ALWAYS step into the troubleshooting step of the workflow immediately if anything unexpected happens, read [troubleshooting.md](troubleshooting.md)
+- ALWAYS step into the troubleshooting step of the workflow immediately if anything unexpected happens, read [troubleshooting.md](references/troubleshooting.md)
 - Queries work best with **concrete visual descriptions** (objects, actions, locations). Augment user queries if needed to enhance the quality of the questions, expanding potential details
 - User queries to do video search supposes videos are already uploaded. No need to search for them locally.
   Assume this unless the findings show the video is not uploaded or ingested yet
@@ -109,7 +109,7 @@ If user query is ambiguous, user wants more guidance or when fine-grained contro
 | `description`        | string    | null    | Filter by camera metadata (e.g. location, category) if metadata is available|
 
 Pick and choose some of these tuning options. Adjust them as needed for the user’s situation and query. 
-For examples of discovery modes leveraging these, see [discovery_modes.md](discovery_modes.md).
+For examples of discovery modes leveraging these, see [discovery_modes.md](references/discovery_modes.md).
 
 ---
 
