@@ -173,6 +173,38 @@ deployments/dev-profile.sh up -p base \
   `deployments/developer-workflow/dev-profile-base/vss-agent/configs/config_edge.yml`
   exists before running. If missing, pull the latest `feat/skills` or
   main branch.
+- **The planning prompt in `config_edge.yml` must go BEYOND "don't ask
+  clarifying questions".** Edge 4B's default behavior on terse planning
+  prompts is to emit `[USER] <template>` — which `vss_agents/agents/top_agent.py`
+  treats as direct-to-user clarification and short-circuits away from tool
+  calls. The E2E video probe then returns planning output instead of actual
+  agent responses. Your `config_edge.yml`'s `workflow.prompt` must include
+  explicit tool-call rules and per-query plan shapes. Known-working shape:
+
+  ```yaml
+  workflow:
+    prompt: |
+      You are a routing agent for a video surveillance system.
+
+      CRITICAL PLANNING RULES:
+      - You MUST produce a numbered execution plan that calls tools.
+      - NEVER output [USER] for video-related questions. ALWAYS call the
+        appropriate tool.
+      - For "What videos are available?" / "List videos":
+        Plan must be "1. Call vst_video_list to retrieve the list of videos."
+      - For "Generate a report for video X":
+        Plan must include "1. Call report_agent with video_name=X"
+      - For video content questions:
+        Plan must include "1. Call video_understanding with the video name and question"
+
+      ## Routing Rules:
+        (copy the rest of config.yml's workflow.prompt verbatim)
+  ```
+
+  The key invariant: the Edge 4B model will not infer "call a tool" from
+  a prose description of tools; it needs exact-phrase plan templates to
+  match its pattern-completion behavior. This was surfaced during the
+  Harbor eval run on SPARK (shared mode).
 
 ## Known ARM64 gotcha
 
