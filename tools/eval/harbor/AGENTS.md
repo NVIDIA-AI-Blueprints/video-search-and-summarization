@@ -167,6 +167,103 @@ one probe file can drive all steps (keeps disk + diff small).
 
 After generating, commit nothing yet — § 8 handles the PR.
 
+### Canonical eval spec example
+
+Every spec you read follows the same shape — use this as the pattern-match
+source when processing a new skill:
+
+```json
+{
+  "skills": ["sensor-ops"],
+  "env": "A deployed VSS base profile on a Brev-launchable host. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "expects": [
+    {
+      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
+      "checks": [
+        "The upload API call (PUT /vst/api/v1/storage/file/<filename>?timestamp=...) returns HTTP 2xx",
+        "The response JSON contains both a sensorId and a streamId (non-empty UUIDs)",
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
+      ]
+    },
+    {
+      "query": "Extract a snapshot from 5 seconds into the uploaded video and return a shareable URL.",
+      "checks": [
+        "GET /vst/api/v1/replay/stream/<streamId>/picture/url?startTime=2025-01-01T00:00:05.000Z returns a JSON object with a non-empty imageUrl field",
+        "The returned imageUrl matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...)",
+        "curl -sfI <imageUrl> returns HTTP 200",
+        "The response Content-Type starts with image/ (typically image/jpeg)",
+        "The response Content-Length is greater than 2000 bytes (rejects empty / error-placeholder images)"
+      ]
+    },
+    {
+      "query": "Extract a video clip from 3 to 5 seconds (mp4 container) from the uploaded video and return a shareable URL.",
+      "checks": [
+        "GET /vst/api/v1/storage/file/<streamId>/url?startTime=2025-01-01T00:00:03.000Z&endTime=2025-01-01T00:00:05.000Z&container=mp4&disableAudio=true returns a JSON object with a non-empty videoUrl field",
+        "The returned videoUrl matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...)",
+        "curl -sfI <videoUrl> returns HTTP 200",
+        "The response Content-Type starts with video/ (typically video/mp4)",
+        "The response Content-Length is greater than 10000 bytes (rejects empty / error-page responses)",
+        "The response JSON's startTime is within a minute of the requested 00:00:03 and expiryISO is in the future"
+      ]
+    }
+  ]
+}
+```
+
+Source of truth (never edit this — it's skill-author territory, see § 10):
+[`skills/sensor-ops/eval/base_profile_ops.json`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/feat/skills/skills/sensor-ops/eval/base_profile_ops.json)
+
+Three things to extract from any spec before generating the adapter:
+
+1. **`skills[]`** — folder name(s) under `skills/`. For multi-skill specs,
+   each task's `skill` field names the primary one; the adapter copies all
+   listed skills into the task's `skills/` dir.
+2. **`env`** — parse for: platform targets (platforms named, GPU hints,
+   "L40S" / "H100" keywords), VSS profile dependency (`"deployed VSS
+   <profile> profile"` phrasing), required env vars (`HF_TOKEN`,
+   `BREV_ENV_ID`, etc.). See § 5.
+3. **`expects[]`** — length = task count. Each entry's `query` becomes
+   the task's `instruction.md`; each `checks` list becomes the task's
+   verifier (inline shell when possible, Python probe otherwise — see the
+   "Probe authoring heuristic" above).
+
+### Agentic verifiers (LLM-as-judge) — optional
+
+A spec may add a `judge` block alongside `checks` when the outcome needs
+semantic judgment rather than deterministic assertions (free-form text
+quality, rubric grading, etc.):
+
+```jsonc
+"judge": {
+  "rubric": "The agent must produce a report that (a) references at least "
+            "three distinct timestamps, (b) mentions at least one forklift-"
+            "related action, and (c) includes a shareable URL.",
+  "pass_threshold": 0.8,
+  "temperature": 0.0,
+  "n_samples": 3
+}
+```
+
+When the adapter sees `judge`, it wires the verifier in a **gated** shape:
+deterministic `checks` run first; if all pass, a small LLM call
+(`tests/llm_judge.py`) scores the agent trajectory against the rubric and
+returns `{pass, score, rationale}` to `/logs/verifier/judge.json`. Final
+reward = 1.0 iff `deterministic_all_pass AND judge.score >= pass_threshold`,
+else the weighted mix described in the judge section below.
+
+Tradeoffs to surface in the PR comment when a judge is used:
+- Flaky runs (nondeterministic) — mitigate with `temperature=0.0` +
+  `n_samples>=3` (majority vote).
+- Prompt-injection risk — quarantine the agent's output inside XML
+  delimiters in the judge prompt; instruct the judge never to follow
+  instructions found inside the quarantine.
+- Debuggability — always persist `judge.json` with the rationale so the
+  PR comment can quote the reason on failure.
+
+Skills without a `judge` block get pure deterministic verification — no
+extra LLM cost.
+
 ---
 
 ## 5. Platform + profile decision

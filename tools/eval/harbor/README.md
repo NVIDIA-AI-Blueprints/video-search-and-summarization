@@ -144,6 +144,74 @@ Each generated task contains:
 - `skills/<skill>/` — copy of the skill that harbor registers with Claude Code
 - `environment/Dockerfile` — placeholder (not used — Brev env is pre-existing)
 
+## Eval spec format
+
+Each evaluable skill ships a spec at
+`skills/<skill>/eval/<profile>.json`. This is the **only file a skill
+author writes** — the coordinator agent (see [`AGENTS.md`](AGENTS.md))
+derives the Harbor adapter, dataset, and queue entries from it.
+
+Schema (loose — pattern-match from the working example below):
+
+| Key | Type | Description |
+|---|---|---|
+| `skills` | `string[]` | Skill names this spec exercises (usually just one). |
+| `env` | `string` | Prose describing prerequisites: target platform(s), deployed VSS profile (if any), required env vars, Brev secure-link assumptions, etc. The coordinator parses this to pick platforms and inject deploy tasks. |
+| `expects` | `array` | Ordered list — **each entry becomes one Harbor task in the subagent queue**, chained to the previous via `requires_previous_passed`. |
+| `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. |
+| `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Shell-runnable or probe-runnable; the adapter decides whether to inline them in `test.sh` or route them through a Python probe under `skills/<skill>/scripts/`. |
+
+### Worked example — `skills/sensor-ops/eval/base_profile_ops.json`
+
+Three-step thread against a deployed VSS base: upload video → snapshot URL → clip URL. Produces 3 queued tasks per targeted platform.
+
+```json
+{
+  "skills": ["sensor-ops"],
+  "env": "A deployed VSS base profile on a Brev-launchable host. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "expects": [
+    {
+      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
+      "checks": [
+        "The upload API call (PUT /vst/api/v1/storage/file/<filename>?timestamp=...) returns HTTP 2xx",
+        "The response JSON contains both a sensorId and a streamId (non-empty UUIDs)",
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
+      ]
+    },
+    {
+      "query": "Extract a snapshot from 5 seconds into the uploaded video and return a shareable URL.",
+      "checks": [
+        "GET /vst/api/v1/replay/stream/<streamId>/picture/url?startTime=2025-01-01T00:00:05.000Z returns a JSON object with a non-empty imageUrl field",
+        "The returned imageUrl matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...)",
+        "curl -sfI <imageUrl> returns HTTP 200",
+        "The response Content-Type starts with image/ (typically image/jpeg)",
+        "The response Content-Length is greater than 2000 bytes (rejects empty / error-placeholder images)"
+      ]
+    },
+    {
+      "query": "Extract a video clip from 3 to 5 seconds (mp4 container) from the uploaded video and return a shareable URL.",
+      "checks": [
+        "GET /vst/api/v1/storage/file/<streamId>/url?startTime=2025-01-01T00:00:03.000Z&endTime=2025-01-01T00:00:05.000Z&container=mp4&disableAudio=true returns a JSON object with a non-empty videoUrl field",
+        "The returned videoUrl matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...)",
+        "curl -sfI <videoUrl> returns HTTP 200",
+        "The response Content-Type starts with video/ (typically video/mp4)",
+        "The response Content-Length is greater than 10000 bytes (rejects empty / error-page responses)",
+        "The response JSON's startTime is within a minute of the requested 00:00:03 and expiryISO is in the future"
+      ]
+    }
+  ]
+}
+```
+
+Source: [`skills/sensor-ops/eval/base_profile_ops.json`](../../../skills/sensor-ops/eval/base_profile_ops.json)
+
+What the coordinator derives from this spec:
+- `env` names "VSS base profile" → every targeted platform's queue gets a `deploy` task (profile=`base`) prepended.
+- `env` doesn't pin a platform → dispatched to every subagent that can run base (L40S remote-all / H100 shared / RTX 6000 Pro shared / SPARK shared).
+- `expects[]` has 3 entries → 3 sequential sensor-ops tasks per platform, each chained via `requires_previous_passed`.
+- `checks` use regex on Brev-link URLs + HEAD `Content-Type` probing → adapter routes to a Python probe (`skills/sensor-ops/scripts/test_base_profile_ops.py`), not an inline shell tally.
+
 ## Running individual commands
 
 ### Generate datasets only
