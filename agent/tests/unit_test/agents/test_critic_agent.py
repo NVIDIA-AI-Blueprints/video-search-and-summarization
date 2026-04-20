@@ -18,7 +18,6 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
-
 from vss_agents.agents.critic_agent import CriticAgentConfig
 from vss_agents.agents.critic_agent import CriticAgentInput
 from vss_agents.agents.critic_agent import CriticAgentOutput

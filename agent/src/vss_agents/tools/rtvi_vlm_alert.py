@@ -19,9 +19,7 @@ from collections.abc import AsyncGenerator
 import contextlib
 import json
 import logging
-import re
 from typing import Literal
-from urllib.parse import urlparse
 
 import aiohttp
 from nat.builder.builder import Builder

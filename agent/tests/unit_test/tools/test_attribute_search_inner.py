@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 import pytest
-
 from vss_agents.tools.attribute_search import AttributeSearchMetadata
 from vss_agents.tools.attribute_search import AttributeSearchResult
 from vss_agents.tools.attribute_search import enrich_attribute_results

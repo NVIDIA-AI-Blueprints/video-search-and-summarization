@@ -19,6 +19,10 @@ import asyncio
 import logging
 from typing import Any
 
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+from langchain_core.messages import HumanMessage
+
 from vss_agents.agents.postprocessing.data_models import POSTPROCESSING_FEEDBACK_MARKER
 from vss_agents.agents.postprocessing.data_models import PostprocessingConfig
 from vss_agents.agents.postprocessing.data_models import PostprocessingResult
@@ -26,10 +30,6 @@ from vss_agents.agents.postprocessing.validators.base import BaseValidator
 from vss_agents.agents.postprocessing.validators.llm_based_rule_validator import LLMBasedRuleValidator
 from vss_agents.agents.postprocessing.validators.non_empty_response_validator import NonEmptyResponseValidator
 from vss_agents.agents.postprocessing.validators.url_validator import URLValidator
-
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
-from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 
