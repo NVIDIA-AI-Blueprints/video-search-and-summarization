@@ -61,10 +61,10 @@ This blueprint is designed for ease of setup with extensive configuration option
 
 | Directory | Description |
 |-----------|-------------|
-| `agent/` | Video search and summarization agent (Python). Contains `src/vss_agents/` (tools, agents, APIs, embeddings, evaluators, video analytics), `tests/`, `stubs/`, `docker/`, and `3rdparty/`. See [agent/README.md](agent/README.md). |
+| `services/agent/` | Video search and summarization agent (Python). Contains `src/vss_agents/` (tools, agents, APIs, embeddings, evaluators, video analytics), `tests/`, `stubs/`, `docker/`, and `3rdparty/`. See [services/agent/README.md](services/agent/README.md). |
+| `services/ui/` | Frontend monorepo (Next.js, Turbo): `apps/` (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui) and shared `packages/`. See [services/ui/README.md](services/ui/README.md). |
 | `deployments/` | Deployment configs and Docker Compose: NIM model configs (`nim/`), developer workflows (`developer-workflow/` — dev-profile-base, dev-profile-search, dev-profile-alerts, dev-profile-lvs), foundational services, LVS, RTVI, VLM-as-verifier, VST, and root `compose.yml`. |
 | `scripts/` | Deployment and patch scripts, including the Brev launchable notebook (`deploy_vss_launchable.ipynb`) and dev-profile / patch scripts. |
-| `ui/` | Frontend monorepo (Next.js, Turbo): `apps/` (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui) and shared `packages/`. See [ui/README.md](ui/README.md). |
 
 ## Documentation
 
