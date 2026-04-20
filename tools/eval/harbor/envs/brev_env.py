@@ -412,6 +412,129 @@ def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+# Registered external nodes (BYOH / DGX-Spark / IGX-Thor) can't use
+# `brev exec` — they require a direct SSH session via the alias that
+# `brev shell` writes into ~/.brev/ssh_config.  We cache the list on
+# first query to avoid repeated `brev ls nodes` round-trips.
+_registered_nodes_cache: dict[str, dict] | None = None
+
+
+async def _load_registered_nodes() -> dict[str, dict]:
+    """Return {lower_name: node_dict} from `brev ls nodes --json`.
+    Cached per-process.  Safe to call on any host that has the brev CLI."""
+    global _registered_nodes_cache
+    if _registered_nodes_cache is not None:
+        return _registered_nodes_cache
+    _registered_nodes_cache = {}
+    try:
+        result = await _run_brev("ls", "nodes", "--json", timeout=15)
+        nodes = _parse_brev_json(result.stdout) if result.stdout else []
+        for n in nodes:
+            name = (n.get("name") or "").strip()
+            if name:
+                _registered_nodes_cache[name.lower()] = n
+    except Exception as e:
+        logger.warning("brev ls nodes failed (registered nodes unavailable): %s", e)
+    return _registered_nodes_cache
+
+
+async def _is_registered_node(name: str) -> bool:
+    """True if *name* matches a registered external node (case-insensitive)."""
+    if not name:
+        return False
+    cache = await _load_registered_nodes()
+    return name.lower() in cache
+
+
+def _ssh_alias_for(name: str) -> str:
+    """`brev shell <name>` writes a lowercased `Host <name.lower()>` entry
+    into ~/.brev/ssh_config (which ~/.ssh/config includes).  Use that alias."""
+    return name.lower()
+
+
+async def _run_ssh_exec(
+    alias: str,
+    command: str,
+    timeout: int = BREV_EXEC_TIMEOUT,
+) -> ExecResult:
+    """Run `ssh <alias> <command>` — for registered nodes."""
+    cmd = [
+        "ssh",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=30",
+        "-o", "StrictHostKeyChecking=no",
+        alias, command,
+    ]
+    logger.debug("ssh %s: %s", alias, command[:200])
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=b""),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="SSH command timed out",
+            return_code=124,
+        )
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
+async def _run_scp(
+    src: str, dst: str,
+    timeout: int = BREV_COPY_TIMEOUT,
+) -> ExecResult:
+    """Run `scp -r <src> <dst>` — for registered nodes.
+
+    Expects either src or dst to be of form `<alias>:<path>`.  Uses the
+    same SSH options as _run_ssh_exec."""
+    cmd = [
+        "scp", "-r",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=15",
+        "-o", "StrictHostKeyChecking=no",
+        src, dst,
+    ]
+    logger.debug("scp: %s -> %s", src, dst)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(input=b""),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        stdout, stderr = await proc.communicate()
+        return ExecResult(
+            stdout=stdout.decode() if stdout else None,
+            stderr="scp timed out",
+            return_code=124,
+        )
+    return ExecResult(
+        stdout=stdout.decode() if stdout else None,
+        stderr=stderr.decode() if stderr else None,
+        return_code=proc.returncode or 0,
+    )
+
+
 async def _run_brev_exec(
     instance: str,
     command: str,
@@ -419,10 +542,15 @@ async def _run_brev_exec(
 ) -> ExecResult:
     """Run ``brev exec <instance> <command>`` and return result.
 
+    For registered external nodes (e.g. DGX-Spark / IGX-Thor), transparently
+    falls back to direct ``ssh <alias>`` since brev exec can't reach them.
+
     Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
     a single command string.  Stdin is piped with empty input so the
     brev CLI doesn't enter interactive mode.
     """
+    if await _is_registered_node(instance):
+        return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
     # brev exec <instance> <command> — brev handles SSH transparently
     cmd = ["brev", "exec", instance, command]
     logger.debug("brev exec: %s", command[:200])
@@ -460,7 +588,22 @@ async def _run_brev_copy(
     dst: str,
     timeout: int = BREV_COPY_TIMEOUT,
 ) -> ExecResult:
-    """Run ``brev copy <src> <dst>`` and return result."""
+    """Run ``brev copy <src> <dst>`` and return result.
+
+    For registered external nodes, transparently falls back to ``scp``
+    using the ssh alias (same host:path convention, just with lowercase
+    name)."""
+    # Detect registered-node endpoint on either side: "<name>:<path>"
+    for endpoint in (src, dst):
+        if ":" not in endpoint:
+            continue
+        instance_name = endpoint.split(":", 1)[0]
+        if await _is_registered_node(instance_name):
+            alias = _ssh_alias_for(instance_name)
+            scp_src = src.replace(f"{instance_name}:", f"{alias}:", 1) if src.startswith(f"{instance_name}:") else src
+            scp_dst = dst.replace(f"{instance_name}:", f"{alias}:", 1) if dst.startswith(f"{instance_name}:") else dst
+            return await _run_scp(scp_src, scp_dst, timeout)
+
     cmd = ["brev", "copy", src, dst]
     logger.debug("brev copy: %s -> %s", src, dst)
 
@@ -549,21 +692,44 @@ def _parse_brev_json(raw: str | None) -> list[dict]:
 async def _find_brev_instance(name: str) -> dict | None:
     """Return the brev ls entry for `name`, or None if missing.
 
+    If the name isn't a Brev-managed instance, falls back to registered
+    external nodes (brev ls nodes) — those are reachable over SSH but not
+    via `brev exec`.  Returns a synthesized dict with `type="registered"`
+    and whatever fields the node exposes.
+
     Retries a few times — `brev ls` sometimes hits transient RPC
     deadline-exceeded errors and returns empty stdout.
     """
     for attempt in range(4):
         result = await _run_brev("ls", "--json", timeout=30)
-        parsed = _parse_brev_json(result.stdout)
-        if parsed:
-            for inst in parsed:
-                if inst.get("name") == name:
-                    return inst
-            # JSON parsed, just no match for this name → authoritative miss
-            return None
-        # Empty output = transient failure; back off and retry
-        logger.info("brev ls returned empty (attempt %s) — retrying", attempt + 1)
-        await asyncio.sleep(5)
+        raw = result.stdout or ""
+        # A well-formed JSON array response (even if empty) is authoritative —
+        # treat an empty-list response as "not a Brev-managed instance" and
+        # fall through to the registered-node check.  Only truly empty stdout
+        # or missing closing `]` is transient.
+        if raw.strip() == "" or raw.rfind("]") < 0:
+            logger.info("brev ls returned empty stdout (attempt %s) — retrying", attempt + 1)
+            await asyncio.sleep(5)
+            continue
+
+        parsed = _parse_brev_json(raw)
+        for inst in parsed:
+            if inst.get("name") == name:
+                return inst
+
+        # JSON parsed, just no match for this name — check registered nodes
+        nodes = await _load_registered_nodes()
+        node = nodes.get(name.lower())
+        if node:
+            return {
+                "name": node.get("name") or name,
+                "type": "registered",
+                "gpu": node.get("gpu") or "",
+                "instance_type": "registered-external-node",
+                "status": node.get("status") or "?",
+                "_registered": True,
+            }
+        return None
     return None
 
 
@@ -573,7 +739,19 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
     `brev ls --json` only returns {name, gpu (string), instance_type, status}
     — no gpu_count / total_vram_gb.  So we do a loose name match here and
     defer stricter checks to the search catalog when available.
+
+    For registered external nodes, `gpu` may be empty (not reported by
+    `brev ls nodes`).  Skip the string match in that case and defer to the
+    live nvidia-smi check in _check_live_resources.
     """
+    if instance.get("_registered"):
+        logger.info(
+            "Instance '%s' is a registered external node — "
+            "skipping catalog GPU-name match (rely on live nvidia-smi check)",
+            instance.get("name"),
+        )
+        return
+
     gpu = (instance.get("gpu") or "").upper()
     required_type = (req.get("gpu_type") or "").upper()
 
