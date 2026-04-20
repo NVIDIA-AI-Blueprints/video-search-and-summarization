@@ -18,6 +18,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -206,6 +207,64 @@ def run_query(agent_url, query, profile, recv_timeout=120, overall_timeout=900):
             ws.close()
 
 
+_HTTP_ERROR_PATTERNS = [
+    # Generic HTTP error bodies that slip through 502 / 503 / 504 gateway failures
+    r"<html[^>]*>.*?\b5\d\d\b",          # HTML error pages with 5xx status
+    r"\b502\b.*\b(Bad Gateway|BadGateway)\b",
+    r"\b503\b.*\b(Service Unavailable|ServiceUnavailable)\b",
+    r"\b504\b.*\b(Gateway Time[- ]?out|GatewayTimeout)\b",
+    r"<title>[^<]*5\d\d[^<]*</title>",    # <title>502 Bad Gateway</title>
+    r"\bnginx\b.*\b(error|unavailable)\b",
+    r"Cloudflare.*error.*\d{3,4}",
+]
+
+_ERROR_RE = re.compile("|".join(_HTTP_ERROR_PATTERNS), re.IGNORECASE | re.DOTALL)
+
+
+def looks_like_http_error(text: str) -> bool:
+    """Return True if *text* looks like an HTTP error body (nginx 502 HTML,
+    Cloudflare error page, etc.) rather than real agent output.
+
+    The VSS Agent WebSocket proxies to vss-agent through nginx; when the
+    upstream LLM is down nginx returns 502 Bad Gateway as the response
+    body — long enough to pass a naive non-empty check."""
+    if not text or len(text.strip()) < 20:
+        return True
+    return bool(_ERROR_RE.search(text))
+
+
+def is_meaningful_response(text: str, query: str, min_chars: int = 50) -> tuple[bool, str]:
+    """Heuristic semantic check on a WebSocket query response.
+
+    Returns (ok, reason). `ok=False` if the response is empty, an HTTP
+    error body, or noticeably shorter than a real answer would be.
+
+    Parameters
+    ----------
+    text   : the raw response text concatenated from system_response_message
+             chunks.
+    query  : the query we asked — used to spot stock "I can't help" refusals.
+    min_chars : minimum length after stripping to be considered plausible.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return False, "empty response"
+    if len(stripped) < min_chars:
+        return False, f"too short ({len(stripped)} < {min_chars} chars)"
+    if looks_like_http_error(stripped):
+        return False, "HTTP error body (likely 502/503/504 from upstream)"
+    # Refusal-like patterns that would trip a false-positive "content returned"
+    # but don't reflect a working pipeline.
+    low = stripped.lower()
+    if any(p in low for p in [
+        "i cannot access",
+        "i do not have access",
+        "unable to process your request",
+    ]) and len(stripped) < 200:
+        return False, "generic refusal / access-denied response"
+    return True, f"{len(stripped)} chars"
+
+
 def download_video(url, dest):
     print(f"  Downloading {url} → {dest}")
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -280,14 +339,17 @@ def main():
         q = qt.format(video_name=video_id)
         print(f"  [{i}/{len(queries)}] {q}")
         resp = run_query(agent_url, q, args.profile)
-        if not resp.strip():
-            print(f"    ✗ empty response")
-            failures += 1
+        ok, reason = is_meaningful_response(resp, q)
+        snippet = (resp or "").strip().replace("\n", " ")[:200]
+        if ok:
+            print(f"    ✓ {reason} — {snippet}...")
         else:
-            snippet = resp.strip().replace("\n", " ")[:200]
-            print(f"    ✓ {len(resp)} chars — {snippet}...")
+            print(f"    ✗ {reason}")
+            if snippet:
+                print(f"      body: {snippet}...")
+            failures += 1
 
-    print(f"[4/4] Results: {len(queries) - failures}/{len(queries)} queries returned content")
+    print(f"[4/4] Results: {len(queries) - failures}/{len(queries)} queries returned meaningful content")
     if failures:
         sys.exit(f"✗ {failures} query/queries failed")
     print("✓ PASS")
