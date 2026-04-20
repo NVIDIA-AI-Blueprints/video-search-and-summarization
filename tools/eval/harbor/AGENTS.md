@@ -14,16 +14,27 @@ You are the coordinator. Read this end-to-end before doing anything.
 Watch the GitHub repo for PRs targeting `develop` from branches matching
 `pull-request/*`. When such a PR lands (or gets a new commit), inspect its
 diff. If it modifies anything under `skills/`, scan the changed skills for
-`eval/*.json` specs. For each spec, generate a matching Harbor adapter under
-`tools/eval/harbor/adapters/<skill>/`, append one eval task per applicable
-platform to the **four** per-platform subagent queues —
-**L40S, H100, RTX 6000 Pro, and SPARK (DGX Spark GB10)** — wait for
-subagents to report back, post the results (with a Harbor trace URL) as a
-comment on the source PR, and finally raise your own PR (branch
-`feat/eval-adapter-<N>-<sha>`) carrying the adapter code changes. Then loop.
+`eval/*.json` specs. For each spec, determine the **target platform(s) and
+profile dependency** from the spec's `env` field (not all evals run on all
+four platforms — some are platform-specific, some need a specific deployed
+profile as prerequisite, some need only a GPU host with no VSS deploy at
+all). Generate a matching Harbor adapter under
+`tools/eval/harbor/adapters/<skill>/` that emits **one task per entry in
+the spec's `expects[]`** (each `expects[]` item is a step in a thread —
+they go onto the queue in order, chained via `requires_previous_passed`
+within the same queue). Append those task sequences to the relevant
+subagent queue(s). Wait for subagents to report back, post the results
+(with Harbor trace URLs) as a comment on the source PR, and finally raise
+your own PR (branch `feat/eval-adapter-<N>-<sha>`) carrying only the
+adapter code changes. Then loop.
+
+Four subagents exist — **L40S, H100, RTX 6000 Pro, and SPARK (DGX Spark
+GB10)** — but any given eval spec may target only a subset of them (or
+just one).
 
 You do **not** run evals yourself. You do **not** maintain plan JSON files —
-the per-platform subagent queues replace them.
+the per-platform subagent queues replace them. You do **not** modify
+`skills/` (see § 10).
 
 ---
 
@@ -118,44 +129,112 @@ the skill's eval spec changes. Pattern-match from the two existing adapters:
   per-platform generator. This is the default shape for skills whose spec
   has a flat `expects[]` list.
 
-The adapter must emit, per platform it supports:
+The adapter emits, **per (platform, expects-entry) pair**:
 
 ```
-datasets/<skill>/<profile>/<platform>/
-  task.toml         # [metadata] with gpu_type, brev_search, min_vram_gb_per_gpu,
-                    #            min_root_disk_gb, min_gpu_driver_version,
-                    #            requires_deployed_vss (if applicable)
-  instruction.md    # derived from the spec's queries + env notes
-  tests/test.sh     # invokes the skill's probe; tallies PASS/FAIL → /logs/verifier/reward.txt
-  tests/<probe>.py  # copied from skills/<skill>/scripts/<probe>.py if the spec references one
+datasets/<skill>/<profile>/<platform>/step-<k>/
+  task.toml         # [metadata]: gpu_type, brev_search, min_vram_gb_per_gpu,
+                    #             min_root_disk_gb, min_gpu_driver_version,
+                    #             requires_deployed_vss, profile_dependency,
+                    #             step_index, step_count
+  instruction.md    # derived from this single expects-entry (query + checks);
+                    #             instructs the agent to do exactly this step
+  tests/test.sh     # invokes the probe for this step; tallies PASS/FAIL
+                    #             → /logs/verifier/reward.txt
+  tests/<probe>.py  # copied from skills/<skill>/scripts/<probe>.py
+                    #             — the probe takes --step <k> to scope its checks
   tests/<spec>.json # copied from skills/<skill>/eval/<profile>.json
+                    #             (so the probe can look up expected checks)
   solution/solve.sh # gold-standard or no-op
-  skills/<skill>/   # full skill copy so the agent has it at runtime
-  skills/deploy/    # include if requires_deployed_vss=true (agent can diagnose)
+  skills/<skill>/   # full skill copy
+  skills/deploy/    # included if profile_dependency != null (agent can diagnose)
   environment/Dockerfile   # FROM scratch (BrevEnvironment takes over)
 ```
+
+Where `<k>` is the 1-based index into `expects[]` and `step_count` equals
+`len(expects)`. Task IDs surface as e.g. `rtxpro6000bw-step-1` /
+`rtxpro6000bw-step-2` / `rtxpro6000bw-step-3`.
+
+If a spec has only one `expects[]` entry, emit the single dir without the
+`step-<k>` subdir (directly under `<platform>/`) to keep the path flat.
 
 Probe authoring heuristic: if the spec's `checks` can all be evaluated via
 shell one-liners, the test.sh inlines them. If any check requires stateful
 logic (regex on Brev links, HEAD `Content-Type` probing, JSON traversal),
 the skill must ship a Python probe under `scripts/` and the adapter copies
-it into each task's `tests/` dir.
+it into each task's `tests/` dir. The probe should accept `--step <k>` so
+one probe file can drive all steps (keeps disk + diff small).
 
 After generating, commit nothing yet — § 8 handles the PR.
 
 ---
 
-## 5. Platform dispatch decision
+## 5. Platform + profile decision
 
-Read the skill's eval spec to pick the subset of platforms:
+Read the spec to decide **which platform(s)** the tasks should run on and
+**what profile prerequisite** (if any) chains in front. Do this by parsing
+the spec's `env` field (prose) together with any structured hints on the
+spec and the skill's SKILL.md. You're expected to reason, not regex-match.
 
-- If the spec has `"resources": {"platforms": [...]}` — use exactly that list.
-- If the spec declares `"requires_deployed_vss": true` — dispatch to every
-  platform that can actually run a VSS deploy for the named `prerequisite_profile`
-  (today: `l40s`, `h100`, `rtx`, `spark`).
-- If the spec has no platform constraints — dispatch to all four.
+Three categories you'll see in practice:
 
-For each selected platform, append a task entry to that subagent's queue:
+1. **GPU-only, no deploy** — the task needs a bare GPU host but no VSS
+   stack. The spec's `env` describes the hardware ("L40S with 2 GPUs and
+   Docker"), not a VSS profile. Dispatch straight to the matching subagent;
+   don't inject a deploy task. Example: a GPU driver sanity probe.
+2. **Profile-dependent** — the spec says "a deployed VSS base profile"
+   or similar. The agent must chain a deploy task for that profile on the
+   same subagent queue, ahead of the skill's own tasks. Example:
+   `sensor-ops/base_profile_ops.json` needs `base` deployed.
+3. **Multi-platform matrix** — the spec explicitly lists platforms
+   (`env` says "H100 or RTX 6000 Pro", or `"resources": {"platforms": [...]}`
+   is set). Enqueue the task sequence on each named platform separately.
+
+Default when nothing is stated: dispatch to every subagent that can
+physically run the task. "Physical" means the spec's resource hints
+(`min_vram_gb_per_gpu`, `min_root_disk_gb`, ARM64 support if the NIM
+images are x86-only) all fit the subagent's host.
+
+If the spec is ambiguous (e.g. "a GPU host" with no driver floor): pick
+`rtx` as the default single-platform target and add a "Subagent
+suggestions" line asking the skill author to tighten the spec.
+
+### Task sequencing within a spec
+
+A single `<skill>/eval/<profile>.json` may contain multiple entries in
+`expects[]` (or equivalent list). Treat each entry as **one queue task**,
+not a sub-check of a monolithic task:
+
+- Task N+1's `requires_previous_passed` = task N's id (within the same
+  platform queue).
+- All tasks for one spec × one platform share the same `pr_number`,
+  `eval_spec_path`, `eval_spec_sha`, so the results monitor can group
+  them into a single PR-comment batch.
+- If task N fails, tasks N+1..end get `status="blocked"` with
+  `error_notes="predecessor <id> failed"` — they don't retry.
+
+### Building the full enqueue for one spec × one platform
+
+Given a spec with K `expects[]` entries dispatched to platform P:
+
+1. If the spec declares profile prerequisite `<profile>`, prepend one
+   deploy task:
+   ```
+   id=uuid-1, skill="deploy", profile="<profile>", platform=P, task_id="<P-short>-<mode>"
+   ```
+   Mode is chosen per platform from the deploy adapter's supported modes
+   (`shared` when a single GPU fits both NIMs, `remote-all` on 48 GB L40S,
+   `spark-shared` Edge 4B on SPARK, etc.).
+2. Emit K skill tasks, each chained to the previous (first one chained to
+   the deploy task if present, else null):
+   ```
+   id=uuid-k, skill="<skill>", platform=P, task_id="<skill-task-id>-step-<k>",
+   requires_previous_passed=uuid-(k-1)
+   ```
+3. Append them as a contiguous block to the platform's queue JSON.
+
+For each selected platform, append the entire chained task sequence to that
+subagent's queue. Each task entry:
 
 ```json
 {
@@ -164,12 +243,16 @@ For each selected platform, append a task entry to that subagent's queue:
   "pr_head_sha": "<sha>",
   "pr_url": "https://github.com/<org>/<repo>/pull/<N>",
   "skill": "<name>",
-  "profile": "<profile>",
+  "profile": "<profile or null>",
+  "profile_dependency": "<prerequisite profile name or null>",
   "platform": "<PLATFORM>",
-  "dataset_dir": "tools/eval/harbor/datasets/<skill>/<profile>",
-  "task_id": "<platform-short-name>",
+  "dataset_dir": "tools/eval/harbor/datasets/<skill>/<profile>/<platform>",
+  "task_id": "step-<k>",
+  "step_index": <k>,
+  "step_count": <K>,
+  "query_summary": "<first ~80 chars of this expects[k-1].query>",
   "requires_deployed_vss": true | false,
-  "requires_previous_passed": "<other-task-id>" | null,
+  "requires_previous_passed": "<uuid of prior task or null>",
   "eval_spec_path": "skills/<skill>/eval/<profile>.json",
   "eval_spec_sha": "<blob-sha of the spec at pr_head_sha>",
   "adapter_sha_before": "<sha of generate.py before regeneration, or null if new>",
@@ -446,11 +529,20 @@ playbook wiring:
 2. Verify PR monitor detects it within 60 s.
 3. Verify adapter regenerates and dataset tree appears under
    `tools/eval/harbor/datasets/sensor-ops/base/`.
-4. Verify four task entries appear (one per platform) across the queue
-   JSONs.
-5. Verify subagents pick them up and post results (expect 4 passes if
-   nothing has changed in the skill).
-6. Verify the PR gets a comment with a 4-row table and trace links.
-7. Verify the adapter-change PR is raised against `develop`.
+4. Verify the right task sequence appears on the right queues:
+   - `sensor-ops/base_profile_ops.json` targets every platform capable of
+     running the `base` profile (per spec's env). For each such platform,
+     the queue should receive:
+       - 1 deploy task (profile=`base`) — first
+       - K sensor-ops tasks (K = `len(expects)` = 3 today) — chained via
+         `requires_previous_passed`
+   - Queues for platforms the spec doesn't target must stay unchanged.
+5. Verify subagents walk the chain in order, blocking downstream tasks on
+   predecessor failure.
+6. Verify the PR gets a single comment per (spec × platform) batch with a
+   step-by-step results table and trace links.
+7. Verify the adapter-change PR is raised against `develop` on branch
+   `feat/eval-adapter-<N>-<sha>` and touches only
+   `tools/eval/harbor/adapters/<skill>/`.
 
 Only after all seven steps pass do you start acting on real PRs.
