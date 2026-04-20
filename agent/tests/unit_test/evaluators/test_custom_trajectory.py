@@ -19,9 +19,8 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from langchain_core.exceptions import OutputParserException
-from nat.eval.evaluator.evaluator_model import EvalInputItem
+from nat.data_models.evaluator import EvalInputItem
 import pytest
-
 from vss_agents.evaluators.customized_trajectory_evaluator.evaluate import CustomizedTrajectoryEvaluator
 from vss_agents.evaluators.utils import ScoreOutputParser
 
@@ -410,8 +409,204 @@ class TestGetAgentSelectedUuids:
         assert tool_uuid in result, "Tool matched via OpenAI format name should be included"
 
 
+class TestParseToolResult:
+    """Test parse_tool_result utility function."""
+
+    def test_dict(self):
+        from vss_agents.evaluators.utils import parse_tool_result
+
+        assert parse_tool_result({"key": "val"}) == {"key": "val"}
+
+    def test_json_string(self):
+        from vss_agents.evaluators.utils import parse_tool_result
+
+        assert parse_tool_result('{"key": "val"}') == {"key": "val"}
+
+    def test_python_repr(self):
+        from vss_agents.evaluators.utils import parse_tool_result
+
+        assert parse_tool_result("{'key': 'val'}") == {"key": "val"}
+
+    def test_plain_string(self):
+        from vss_agents.evaluators.utils import parse_tool_result
+
+        assert parse_tool_result("hello") == "hello"
+
+
+class TestResolveRefs:
+    """Test _resolve_refs method."""
+
+    @pytest.fixture
+    def evaluator(self):
+        mock_llm = MagicMock()
+        return CustomizedTrajectoryEvaluator(llm=mock_llm, tools=None)
+
+    def test_resolve_same_turn_ref(self, evaluator):
+        ground_truth = [
+            {"step": 1, "name": "tool_a", "params": {}},
+            {
+                "step": 2,
+                "name": "tool_b",
+                "params": {
+                    "id": {"$ref": {"tool": "tool_a", "path": ["items", 0, "name"]}},
+                    "start": 1,
+                },
+            },
+        ]
+        tool_results = {
+            "tool_a": [{"items": [{"name": "item-1"}, {"name": "item-2"}]}],
+        }
+
+        resolved = evaluator._resolve_refs(ground_truth, tool_results)
+
+        assert resolved[0]["params"] == {}
+        assert resolved[1]["params"]["id"] == "item-1"
+        assert resolved[1]["params"]["start"] == 1
+        # Original must not be mutated
+        assert isinstance(ground_truth[1]["params"]["id"], dict)
+
+    def test_resolve_ref_with_index(self, evaluator):
+        """index selects which occurrence when a tool is called multiple times."""
+        ground_truth = [
+            {
+                "step": 2,
+                "name": "tool_b",
+                "params": {"val": {"$ref": {"tool": "tool_a", "index": 1, "path": ["result"]}}},
+            },
+        ]
+        tool_results = {
+            "tool_a": [{"result": "first_call"}, {"result": "second_call"}],
+        }
+
+        resolved = evaluator._resolve_refs(ground_truth, tool_results)
+        assert resolved[0]["params"]["val"] == "second_call"
+
+    def test_resolve_ref_missing_tool_leaves_ref(self, evaluator):
+        """If referenced tool has no result, the $ref is left unchanged."""
+        ground_truth = [
+            {
+                "step": 2,
+                "name": "tool_b",
+                "params": {"x": {"$ref": {"tool": "nonexistent", "path": ["a"]}}},
+            },
+        ]
+
+        resolved = evaluator._resolve_refs(ground_truth, {})
+        assert "$ref" in resolved[0]["params"]["x"]
+
+    def test_resolve_ref_bad_path_leaves_ref(self, evaluator):
+        """If path traversal fails, the $ref is left unchanged."""
+        ground_truth = [
+            {
+                "step": 2,
+                "name": "tool_b",
+                "params": {"x": {"$ref": {"tool": "tool_a", "path": ["no_such_key"]}}},
+            },
+        ]
+        tool_results = {"tool_a": [{"other_key": "val"}]}
+
+        resolved = evaluator._resolve_refs(ground_truth, tool_results)
+        assert "$ref" in resolved[0]["params"]["x"]
+
+    def test_resolve_ref_missing_tool_key_leaves_ref(self, evaluator):
+        """$ref without required 'tool' key is left unchanged."""
+        ground_truth = [
+            {
+                "step": 1,
+                "name": "tool_a",
+                "params": {"x": {"$ref": {"path": ["a"]}}},
+            },
+        ]
+
+        resolved = evaluator._resolve_refs(ground_truth, {})
+        assert "$ref" in resolved[0]["params"]["x"]
+
+    def test_resolve_no_refs_unchanged(self, evaluator):
+        """Ground truth without any $ref is returned as-is (deep copy)."""
+        ground_truth = [
+            {"step": 1, "name": "tool_a", "params": {"key": "val"}},
+        ]
+
+        resolved = evaluator._resolve_refs(ground_truth, {})
+        assert resolved == ground_truth
+
+    def test_resolve_cross_turn_ref(self, evaluator):
+        """$ref with 'turn' + 'tool' resolves from previous_turn_results."""
+        ground_truth = [
+            {
+                "step": 1,
+                "name": "tool_b",
+                "params": {
+                    "id": {"$ref": {"turn": "turn_1", "tool": "tool_a", "path": ["items", 1, "name"]}},
+                },
+            },
+        ]
+        previous_turn_results = {
+            "turn_1": {
+                "tool_a": [{"items": [{"name": "item-1"}, {"name": "item-2"}]}],
+            }
+        }
+
+        resolved = evaluator._resolve_refs(ground_truth, {}, previous_turn_results)
+        assert resolved[0]["params"]["id"] == "item-2"
+
+    def test_resolve_cross_turn_ref_disambiguates_tool(self, evaluator):
+        """Cross-turn $ref picks the correct tool when multiple exist."""
+        ground_truth = [
+            {
+                "step": 1,
+                "name": "tool_c",
+                "params": {
+                    "val": {"$ref": {"turn": "turn_1", "tool": "tool_b", "path": [0]}},
+                },
+            },
+        ]
+        previous_turn_results = {
+            "turn_1": {
+                "tool_a": [["wrong"]],
+                "tool_b": [["correct"]],
+            }
+        }
+
+        resolved = evaluator._resolve_refs(ground_truth, {}, previous_turn_results)
+        assert resolved[0]["params"]["val"] == "correct"
+
+    def test_resolve_cross_turn_ref_missing_turn_leaves_ref(self, evaluator):
+        """If referenced turn doesn't exist, the $ref is left unchanged."""
+        ground_truth = [
+            {
+                "step": 1,
+                "name": "tool_a",
+                "params": {"x": {"$ref": {"turn": "turn_99", "tool": "tool_a", "path": ["a"]}}},
+            },
+        ]
+
+        resolved = evaluator._resolve_refs(ground_truth, {}, {})
+        assert "$ref" in resolved[0]["params"]["x"]
+
+    def test_resolve_cross_turn_ref_parses_string_result(self, evaluator):
+        """Cross-turn results stored as JSON strings get parsed before path traversal."""
+        ground_truth = [
+            {
+                "step": 1,
+                "name": "tool_b",
+                "params": {
+                    "val": {"$ref": {"turn": "turn_1", "tool": "tool_a", "path": ["items", 0]}},
+                },
+            },
+        ]
+        previous_turn_results = {
+            "turn_1": {
+                "tool_a": ['{"items": ["first", "second"]}'],
+            }
+        }
+
+        resolved = evaluator._resolve_refs(ground_truth, {}, previous_turn_results)
+        assert resolved[0]["params"]["val"] == "first"
+
+
 _EVAL_MODULE = "vss_agents.evaluators.customized_trajectory_evaluator.evaluate"
-_ADAPTER_CLASS = "nat.eval.intermediate_step_adapter.IntermediateStepAdapter"
+_ADAPTER_CLASS = "nat.plugins.eval.utils.intermediate_step_adapter.IntermediateStepAdapter"
 
 
 class TestEvaluateItem:
@@ -623,6 +818,63 @@ class TestEvaluateItem:
         actual = build_reasoning({"reasoning": "r"})["actual_tool_calls"]
         assert actual[0]["params"] == {"key": "value"}
 
+    # --- $ref resolution through evaluate_item ---
+
+    @pytest.mark.asyncio
+    @patch(f"{_EVAL_MODULE}.invoke_llm_with_retry", new_callable=AsyncMock)
+    @patch(f"{_EVAL_MODULE}.extract_tool_results_from_trajectory")
+    @patch(_ADAPTER_CLASS)
+    async def test_ref_resolved_in_prompt_reference(self, mock_adapter, mock_extract, mock_invoke):
+        """$ref in trajectory_ground_truth is resolved to concrete value before sending to LLM judge."""
+        mock_prompt = MagicMock()
+        mock_prompt.format.return_value = "prompt"
+        evaluator = self._make_evaluator(prompt_with_ref=mock_prompt)
+
+        mock_adapter.return_value.get_agent_actions.return_value = [
+            (self._make_agent_action("", ""), "plan\n\nTool calls: [{'name': 'tool_a'}]"),
+            (self._make_agent_action("tool_a", {}), "result"),
+            (self._make_agent_action("", ""), "plan\n\nTool calls: [{'name': 'tool_b'}]"),
+            (self._make_agent_action("tool_b", {"id": "item-1", "start": 1}), "done"),
+        ]
+        mock_extract.return_value = {
+            "tool_a": [{"items": [{"name": "item-1"}, {"name": "item-2"}]}],
+        }
+        mock_invoke.return_value = MagicMock(id="test_001", score=1.0)
+
+        ground_truth = [
+            {"step": 1, "name": "tool_a", "params": {}},
+            {
+                "step": 2,
+                "name": "tool_b",
+                "params": {
+                    "id": {"$ref": {"tool": "tool_a", "path": ["items", 0, "name"]}},
+                    "start": 1,
+                },
+            },
+        ]
+        item = self._make_item(
+            full_dataset_entry={
+                "evaluation_method": ["trajectory"],
+                "trajectory_ground_truth": ground_truth,
+            }
+        )
+
+        await evaluator.evaluate_item(item)
+
+        # The reference sent to the prompt should have the resolved value
+        import json
+
+        reference_str = mock_prompt.format.call_args.kwargs["reference"]
+        resolved = json.loads(reference_str)
+        assert resolved[1]["params"]["id"] == "item-1"
+        assert resolved[1]["params"]["start"] == 1
+
+        # build_reasoning should have both original and resolved
+        build_reasoning = mock_invoke.call_args.kwargs["build_reasoning"]
+        reasoning = build_reasoning({"reasoning": "r"})
+        assert "$ref" in str(reasoning["expected_tool_calls"])
+        assert reasoning["resolved_expected_tool_calls"][1]["params"]["id"] == "item-1"
+
     # --- Conversation history ---
 
     @pytest.mark.asyncio
@@ -706,6 +958,7 @@ class TestEvaluateItem:
         assert result["reasoning"] == "my reasoning"
         assert result["query"] == "What is X?"
         assert result["expected_tool_calls"] == ground_truth
+        assert result["resolved_expected_tool_calls"] is not None
         assert result["final_answer"] == "X is Y"
         assert isinstance(result["actual_tool_calls"], list)
         assert result["conversation_history"] == conv_history

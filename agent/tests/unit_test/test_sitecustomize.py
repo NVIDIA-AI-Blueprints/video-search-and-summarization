@@ -14,8 +14,26 @@
 # limitations under the License.
 """Tests for sitecustomize.py."""
 
+import importlib.util
+from pathlib import Path
+import sys
 from unittest.mock import MagicMock
 from unittest.mock import patch
+
+import pytest
+
+# Path to the project's sitecustomize.py (src/ directory)
+_PROJECT_SITECUSTOMIZE = Path(__file__).parent.parent.parent / "src" / "sitecustomize.py"
+
+
+@pytest.fixture(autouse=True)
+def _project_sitecustomize(monkeypatch):
+    """Install the project's sitecustomize into sys.modules for each test."""
+    spec = importlib.util.spec_from_file_location("sitecustomize", _PROJECT_SITECUSTOMIZE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setitem(sys.modules, "sitecustomize", mod)
+    return mod
 
 
 class TestSiteCustomize:

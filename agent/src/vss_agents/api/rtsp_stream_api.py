@@ -22,18 +22,19 @@ import logging
 import os
 from typing import Any
 
+from vss_agents.tools.vst.utils import add_sensor as vst_add_sensor
+from vss_agents.tools.vst.utils import delete_sensor as vst_delete_sensor
+from vss_agents.tools.vst.utils import delete_storage as vst_delete_storage
+from vss_agents.tools.vst.utils import get_rtsp_url as vst_get_rtsp_url
+from vss_agents.tools.vst.utils import get_stream_info_by_name as vst_get_stream_info_by_name
+from vss_agents.utils.time_measure import TimeMeasure
+
 from fastapi import APIRouter
 from fastapi import FastAPI
 import httpx
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
-
-from vss_agents.tools.vst.utils import add_sensor as vst_add_sensor
-from vss_agents.tools.vst.utils import delete_sensor as vst_delete_sensor
-from vss_agents.tools.vst.utils import delete_storage as vst_delete_storage
-from vss_agents.tools.vst.utils import get_rtsp_url as vst_get_rtsp_url
-from vss_agents.tools.vst.utils import get_stream_info_by_name as vst_get_stream_info_by_name
 
 
 class StreamMode(StrEnum):
@@ -430,7 +431,8 @@ def create_rtsp_stream_api_router(
         logger.info(f"Adding stream '{request.name}' in mode: {config.default_stream_mode.value}")
 
         # Step 1: Add to VST and get RTSP URL (uses shared utils)
-        success, msg, sensor_id, rtsp_url = await add_to_vst(config, request)
+        with TimeMeasure("rtsp_stream: add to VST"):
+            success, msg, sensor_id, rtsp_url = await add_to_vst(config, request)
 
         if not success:
             return AddStreamResponse(
@@ -454,7 +456,8 @@ def create_rtsp_stream_api_router(
         # For search mode, use httpx client for RTVI calls
         async with httpx.AsyncClient(timeout=60.0) as client:
             # Step 2: Add to RTVI-CV using RTSP URL from VST streams API
-            success, msg = await add_to_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
+            with TimeMeasure("rtsp_stream: add to RTVI-CV"):
+                success, msg = await add_to_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
             if not success:
                 # Rollback: cleanup VST sensor and storage
                 await cleanup_vst_sensor(config, sensor_id)
@@ -467,9 +470,10 @@ def create_rtsp_stream_api_router(
             rtvi_cv_added = config.rtvi_cv_url != ""
 
             # Step 3: Add to RTVI-embed using RTSP URL from VST streams API
-            success, msg, rtvi_embed_stream_id = await add_to_rtvi_embed(
-                client, config, sensor_id, request.name, rtsp_url
-            )
+            with TimeMeasure("rtsp_stream: add to RTVI-embed"):
+                success, msg, rtvi_embed_stream_id = await add_to_rtvi_embed(
+                    client, config, sensor_id, request.name, rtsp_url
+                )
             if not success:
                 # Rollback: cleanup RTVI-CV and VST (sensor + storage)
                 if rtvi_cv_added:
@@ -486,7 +490,8 @@ def create_rtsp_stream_api_router(
             # Step 4: Start embedding generation
             if rtvi_embed_stream_id is None:
                 rtvi_embed_stream_id = sensor_id
-            success, msg = await start_embedding_generation(client, config, rtvi_embed_stream_id)
+            with TimeMeasure("rtsp_stream: start embedding generation"):
+                success, msg = await start_embedding_generation(client, config, rtvi_embed_stream_id)
             if not success:
                 # Rollback: cleanup RTVI-embed, RTVI-CV, and VST (sensor + storage)
                 if rtvi_embed_added:
@@ -637,7 +642,7 @@ def register_rtsp_stream_api_routes(app: FastAPI, config: Any) -> None:
             default_stream_mode = str(
                 getattr(streaming_config, "stream_mode", None) or os.getenv("STREAM_MODE", "search")
             )
-            logger.info("Using streaming_ingest config from YAML")
+            logger.info("Using streaming_ingest config from YAML for RTSP stream routes")
         else:
             # Fallback to environment variables
             host_ip = os.getenv("HOST_IP")

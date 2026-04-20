@@ -24,7 +24,6 @@ import re
 import time
 from typing import Any
 from typing import cast
-from typing import override
 from uuid import uuid4
 
 from langchain_core.callbacks.base import BaseCallbackHandler
@@ -64,6 +63,7 @@ from nat.data_models.intermediate_step import UsageInfo
 from nat.utils.type_converter import GlobalTypeConverter
 from pydantic import BaseModel
 from pydantic import Field
+from typing_extensions import override
 
 from vss_agents.agents.data_models import AgentDecision
 from vss_agents.agents.data_models import AgentMessageChunk
@@ -87,6 +87,17 @@ EMPTY_SCRATCHPAD_ERROR = 'No tool input received in state: "agent_scratchpad"'
 _TOOL_RESULTS_DELIMITER = "\n\n---\n### Latest Tool Results\n"
 
 
+class AgentRequestOptions(BaseModel):
+    """Per-request options passed from the UI/client through the agent pipeline."""
+
+    llm_reasoning: bool = Field(default=False, description="Enable LLM reasoning mode")
+    vlm_reasoning: bool | None = Field(default=None, description="Enable VLM reasoning mode (None = use tool default)")
+    search_source_type: str = Field(
+        default="video_file", description="Video source type for search: 'video_file' or 'rtsp'"
+    )
+    use_critic: bool = Field(default=True, description="Whether to verify search results with VLM critic agent")
+
+
 class TopAgentRequest(ChatRequestOrMessage):
     """Extended ChatRequestOrMessage with reasoning parameters."""
 
@@ -95,6 +106,7 @@ class TopAgentRequest(ChatRequestOrMessage):
     search_source_type: str = Field(
         default="video_file", description="Video source type for search: 'video_file' or 'rtsp'"
     )
+    use_critic: bool | None = Field(default=None, description="Whether to verify search results with VLM critic agent")
 
 
 def _extract_text_content(message: "Message") -> dict:
@@ -176,16 +188,20 @@ class TopAgentState(BaseModel):
     final_answer: str = Field(default="", description="Final answer from the agent")
     plan: str = Field(default="", description="Execution plan drafted by the plan node")
     previous_conversation: str = Field(default="", description="Previous conversation summary")
-    llm_reasoning: bool = Field(default=False, description="Enable LLM reasoning mode")
-    vlm_reasoning: bool | None = Field(
-        default=None, description="Enable VLM reasoning mode (If None, use tool default)"
+    options: AgentRequestOptions = Field(default_factory=AgentRequestOptions, description="Per-request options")
+    subagent_side_effects: list[str] = Field(
+        default_factory=list,
+        description="Accumulated sub-agent side effects (download links, media URLs)",
     )
-    search_source_type: str = Field(default="video_file", description="Video source type for search agent")
 
 
 class TopAgentConfig(FunctionBaseConfig, name="top_agent"):
     """Config for the Top Agent."""
 
+    workflow_alias: str | None = Field(
+        default=None,
+        description="Alias used by the NAT MCP server to register this workflow.",
+    )
     tool_names: list[FunctionRef] = Field(
         default_factory=list,
         description="The list of regular tools to provide to the top agent (e.g., get_fov_counts_with_chart).",
@@ -358,12 +374,15 @@ class TopAgent(AsyncMixin):
                     scratchpad_lines.append(text)
         scratchpad_summary = "\n".join(scratchpad_lines)
 
-        # Strip previous tool results section before sending plan to LLM
-        clean_plan = state.plan.split(_TOOL_RESULTS_DELIMITER)[0].rstrip()
+        # Strip previous tool results section before sending plan to LLM,
+        # but preserve them so they can be re-appended with the new results.
+        plan_parts = state.plan.split(_TOOL_RESULTS_DELIMITER, 1)
+        clean_plan = plan_parts[0].rstrip()
+        previous_tool_results = plan_parts[1] if len(plan_parts) > 1 else ""
 
         system_content = (
-            "You are a plan-tracking assistant. You will be given an execution plan and "
-            "a scratchpad of recent tool calls and their results.\n\n"
+            "You are a plan-tracking assistant. You will be given the user's question, an execution plan and "
+            "a scratchpad of previous tool calls and their results.\n\n"
             "Your job:\n"
             "- Mark completed steps with [x] and append a concise result summary.\n"
             "- Keep pending steps with [ ].\n"
@@ -371,20 +390,25 @@ class TopAgent(AsyncMixin):
             "- Return ONLY the updated plan — no commentary, no preamble.\n"
         )
 
-        thinking_tag = get_thinking_tag(self.llm, state.llm_reasoning)
+        thinking_tag = get_thinking_tag(self.llm, state.options.llm_reasoning)
         if thinking_tag:
             system_content += f"\n{thinking_tag}"
+
+        user_question = ""
+        if state.current_message and hasattr(state.current_message, "content"):
+            user_question = str(state.current_message.content) if state.current_message.content else ""
 
         messages: list[BaseMessage] = [
             SystemMessage(content=system_content),
             HumanMessage(
                 content=(
+                    f"User question:\n{user_question}\n\n"
                     f"Current plan:\n{clean_plan}\n\nScratchpad (recent tool calls and results):\n{scratchpad_summary}"
                 )
             ),
         ]
 
-        llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.llm_reasoning)
+        llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
         llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
 
         result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
@@ -393,9 +417,14 @@ class TopAgent(AsyncMixin):
         if not updated_plan:
             updated_plan = str(result.content) if hasattr(result, "content") else clean_plan
 
-        # Programmatically append exact tool results so the agent has them
+        # Programmatically append exact tool results so the agent has them,
+        # combining previous results with new ones from this cycle.
+        all_tool_results = previous_tool_results
         if tool_results_lines:
-            updated_plan += _TOOL_RESULTS_DELIMITER + "\n\n".join(tool_results_lines)
+            new_results = "\n\n".join(tool_results_lines)
+            all_tool_results = f"{previous_tool_results}\n\n{new_results}" if previous_tool_results else new_results
+        if all_tool_results:
+            updated_plan += _TOOL_RESULTS_DELIMITER + all_tool_results
 
         logger.info("Plan update node produced updated plan:\n%s", updated_plan)
         writer(AgentMessageChunk(type=AgentMessageChunkType.THOUGHT, content="Updated Plan:\n\n" + updated_plan))
@@ -415,11 +444,12 @@ class TopAgent(AsyncMixin):
     async def astream(
         self,
         input_messages: list[BaseMessage],
-        llm_reasoning: bool = False,
-        vlm_reasoning: bool = False,
-        search_source_type: str = "video_file",
+        options: AgentRequestOptions | None = None,
     ) -> AsyncGenerator[AgentMessageChunk]:
         """Stream the agent's response."""
+        if options is None:
+            options = AgentRequestOptions()
+
         if not input_messages:
             raise RuntimeError(EMPTY_MESSAGES_ERROR)
 
@@ -455,7 +485,7 @@ class TopAgent(AsyncMixin):
 
                 older_text = "\n".join(_get_content_text(m) for m in older_half)
 
-                summary_thinking_tag = get_thinking_tag(self.llm, llm_reasoning)
+                summary_thinking_tag = get_thinking_tag(self.llm, options.llm_reasoning)
                 summary_prompt = (
                     "Briefly summarize the conversation history in 2-3 sentences:\n"
                     "- What did the user ask?\n"
@@ -478,7 +508,7 @@ class TopAgent(AsyncMixin):
                     )
                 )
 
-                llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, llm_reasoning)
+                llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, options.llm_reasoning)
                 llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
                 summary_result = await llm_to_use.ainvoke(
                     summary_messages, config=RunnableConfig(callbacks=self.callbacks)
@@ -499,9 +529,7 @@ class TopAgent(AsyncMixin):
                 conversation_history=list(conversation_history),
                 agent_scratchpad=[],
                 final_answer="",
-                llm_reasoning=llm_reasoning,
-                vlm_reasoning=vlm_reasoning,
-                search_source_type=search_source_type,
+                options=options,
             )
         else:
             input_state = TopAgentState(
@@ -509,9 +537,7 @@ class TopAgent(AsyncMixin):
                 previous_conversation="",
                 conversation_history=[],
                 agent_scratchpad=[],
-                llm_reasoning=llm_reasoning,
-                vlm_reasoning=vlm_reasoning,
-                search_source_type=search_source_type,
+                options=options,
             )
 
         try:
@@ -591,10 +617,10 @@ class TopAgent(AsyncMixin):
             "3. Summarize the clips and return them to the user.\n\n"
             "Example clarify:\n"
             "[USER] Which video or camera are you referring to? "
-            "Please provide a sensor name or video ID so I can look it up."
+            "Please provide a sensor name or video ID so I can look it up.\n\n"
             "Example direct answer:\n"
             "what tools are available?\n"
-            "[USER] The available tools are: ... (list of tools)"
+            "[USER] The available tools are: ... (list of tools)\n"
         )
 
         # Include previous conversation summary in the system message so the plan can reference prior context
@@ -612,7 +638,7 @@ class TopAgent(AsyncMixin):
             + previous_exec_feedback
         )
 
-        thinking_tag = get_thinking_tag(self.llm, state.llm_reasoning)
+        thinking_tag = get_thinking_tag(self.llm, state.options.llm_reasoning)
         if thinking_tag:
             system_content += f"\n{thinking_tag}"
 
@@ -621,9 +647,9 @@ class TopAgent(AsyncMixin):
 
         if state.conversation_history and self.max_history > 0:
             messages.extend(state.conversation_history)
-        messages.append(HumanMessage(content="User question: " + question))
+        messages.append(HumanMessage(content=question))
 
-        llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.llm_reasoning)
+        llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
         llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
 
         result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
@@ -674,13 +700,13 @@ class TopAgent(AsyncMixin):
 
         try:
             # Get the thinking tag based on the LLM model and llm_reasoning state
-            thinking_tag = get_thinking_tag(self.llm, state.llm_reasoning)
+            thinking_tag = get_thinking_tag(self.llm, state.options.llm_reasoning)
             thinking_tag_formatted = f"\n{thinking_tag}" if thinking_tag else ""
 
             if thinking_tag:
                 logger.info(f"Applying thinking tag: '{thinking_tag}'")
 
-            llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.llm_reasoning)
+            llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
             llm_to_use = self.llm_with_tools.bind(**llm_kwargs) if llm_kwargs else self.llm_with_tools
 
             if state.plan and self.plan_exec_prompt is not None:
@@ -813,16 +839,19 @@ class TopAgent(AsyncMixin):
                     # Build tool args once, filtering None values and injecting llm_reasoning/vlm_reasoning if supported
                     tool_args = {k: v for k, v in tool_call["args"].items() if v is not None}
                     if self._tool_accepts_param(tool_name, "llm_reasoning"):
-                        tool_args["llm_reasoning"] = state.llm_reasoning
-                        logger.info(f"Passing llm_reasoning={state.llm_reasoning} to {tool_name}")
+                        tool_args["llm_reasoning"] = state.options.llm_reasoning
+                        logger.info(f"Passing llm_reasoning={state.options.llm_reasoning} to {tool_name}")
                     if self._tool_accepts_param(tool_name, "vlm_reasoning"):
-                        tool_args["vlm_reasoning"] = state.vlm_reasoning
-                        logger.info(f"Passing vlm_reasoning={state.vlm_reasoning} to {tool_name}")
+                        tool_args["vlm_reasoning"] = state.options.vlm_reasoning
+                        logger.info(f"Passing vlm_reasoning={state.options.vlm_reasoning} to {tool_name}")
                     # Only inject search_source_type for search_agent (video_file/rtsp). report_agent and
                     # others use source_type with different semantics (e.g. sensor/place)
                     if tool_name == "search_agent" and self._tool_accepts_param(tool_name, "source_type"):
-                        tool_args["source_type"] = state.search_source_type
-                        logger.info(f"Passing source_type={state.search_source_type} to {tool_name}")
+                        tool_args["source_type"] = state.options.search_source_type
+                        logger.info(f"Passing source_type={state.options.search_source_type} to {tool_name}")
+                    if self._tool_accepts_param(tool_name, "use_critic"):
+                        tool_args["use_critic"] = state.options.use_critic
+                        logger.info(f"Passing use_critic={state.options.use_critic} to {tool_name}")
 
                     # Use native streaming for configured sub-agents
                     final_chunks = []
@@ -873,21 +902,44 @@ class TopAgent(AsyncMixin):
 
                                         final_content = "\n".join(final_content_parts)
                                         final_chunks.append(final_content)
-                                        state.final_answer = final_content
+
+                                        # Don't set final_answer from sub-agents so the planning is not blocked
+                                        # Accumulate side_effects (download links, media URLs)
+                                        # so they can be appended in finalize_node.
+                                        side_effects_parts = []
+                                        if agent_output.side_effects:
+                                            # Keep artifact_note in scratchpad context only
+                                            side_effects_parts = [
+                                                f"{value}"
+                                                for key, value in agent_output.side_effects.items()
+                                                if key != "artifact_note"
+                                            ]
+                                            if side_effects_parts:
+                                                state.subagent_side_effects.append("\n".join(side_effects_parts))
                                         logger.info(
-                                            f"Set state.final_answer from {tool_name} (pending postprocessing validation)"
+                                            f"Accumulated side_effects from {tool_name}: {len(side_effects_parts)} items"
                                         )
+
                                         if agent_output.messages:
-                                            tool_response = f"tool: {tool_name} completed. Result: {' '.join(agent_output.messages)}"
+                                            messages_text = " ".join(agent_output.messages)
                                         else:
-                                            tool_response = f"tool: {tool_name} completed. Result: {final_content}"
+                                            messages_text = final_content
+                                        artifact_note = (
+                                            str(agent_output.side_effects.get("artifact_note", ""))
+                                            if agent_output.side_effects
+                                            else ""
+                                        )
+                                        if artifact_note:
+                                            messages_text = (
+                                                f"{messages_text}\n\n{artifact_note}"
+                                                if messages_text
+                                                else artifact_note
+                                            )
+                                        tool_response = f"tool: {tool_name} completed. Result: {messages_text}"
                                     except (json.JSONDecodeError, Exception):
                                         # Not AgentOutput JSON, treat as plain text
                                         final_chunks.append(chunk.content)
-                                        state.final_answer = chunk.content
-                                        logger.info(
-                                            f"Set state.final_answer from {tool_name} (pending postprocessing validation)"
-                                        )
+                                        logger.info(f"Raw output from {tool_name}")
                                         tool_response = chunk.content
                                 else:
                                     # For non-FINAL chunks, yield directly
@@ -1041,7 +1093,7 @@ class TopAgent(AsyncMixin):
             state.final_answer,
             user_query=user_query,
             scratchpad=state.agent_scratchpad,
-            llm_reasoning=state.llm_reasoning,
+            llm_reasoning=state.options.llm_reasoning,
         )
 
         if result.passed:
@@ -1103,6 +1155,14 @@ class TopAgent(AsyncMixin):
 
     async def finalize_node(self, state: TopAgentState) -> TopAgentState:
         """Final node that emits FINAL chunk and updates conversation history."""
+        # Append accumulated sub-agent side effects
+        if state.subagent_side_effects:
+            subagent_content = "\n\n".join(state.subagent_side_effects)
+            if state.final_answer:
+                state.final_answer = state.final_answer + "\n\n" + subagent_content
+            else:
+                state.final_answer = subagent_content
+
         if state.final_answer:
             # Remove backslash-escaped quotes (LLM artifact from JSON context, e.g. src=\"url\" -> src="url")
             state.final_answer = state.final_answer.replace('\\"', '"').replace("\\'", "'")
@@ -1351,11 +1411,13 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
     plan_exec_prompt: ChatPromptTemplate | None = None
     if config.planning_enabled:
         plan_exec_system = (
-            "Follow the execution plan precisely to answer the user's question."
+            "Follow the execution plan precisely to answer the user's question.\n"
             "All necessary context (sensor IDs, time ranges, etc.) should be already encoded in the plan.\n\n"
             "If the plan lacks a required context or input parameter, ask the user for the missing information.\n\n"
             "[x] means a step has been completed and the result is appended.\n\n"
-            "Summarize and return the final answer to the user after all steps are completed."
+            "Summarize and return the final answer to the user after all steps are completed.\n"
+            "- Your final answer MUST answer ALL parts of the user's question (User's Question: {question}). "
+            "If the user asked multiple things, you MUST answer each one. "
         )
         if tool_call_prompt:
             plan_exec_system += "\n\n## Tool call rules:\n " + tool_call_prompt
@@ -1366,7 +1428,7 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
         plan_exec_prompt = ChatPromptTemplate(
             [
                 ("system", plan_exec_system),
-                ("user", "User Question: {question}\n\nExecution Plan:\n{plan_section}"),
+                ("user", "User Question: {question}\n\nExecution Plan:\n{plan_section}\n\n"),
             ]
         )
 
@@ -1417,31 +1479,32 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
         Args:
             request: ChatRequestOrMessage with messages and optional reasoning parameters
         """
-        # Validate as TopAgentRequest for typed access to llm_reasoning/vlm_reasoning fields
+        # Validate as TopAgentRequest for typed access to per-request option fields
         typed_request = TopAgentRequest.model_validate(request.model_dump())
-        llm_reasoning = typed_request.llm_reasoning if typed_request.llm_reasoning is not None else config.llm_reasoning
-        vlm_reasoning = typed_request.vlm_reasoning if typed_request.vlm_reasoning is not None else False
-        search_source_type = typed_request.search_source_type if typed_request.search_source_type else "video_file"
+        options = AgentRequestOptions(
+            llm_reasoning=typed_request.llm_reasoning
+            if typed_request.llm_reasoning is not None
+            else config.llm_reasoning,
+            vlm_reasoning=typed_request.vlm_reasoning if typed_request.vlm_reasoning is not None else None,
+            search_source_type=typed_request.search_source_type or "video_file",
+            use_critic=typed_request.use_critic if typed_request.use_critic is not None else True,
+        )
 
         # Override with WebSocket payload values if present (WebSocket requests don't pass params through request object)
         context = Context.get()
         if hasattr(context.metadata, "payload") and isinstance(context.metadata.payload, dict):
             payload = context.metadata.payload
-            llm_reasoning = bool(payload["llm_reasoning"]) if "llm_reasoning" in payload else llm_reasoning
-            vlm_reasoning = bool(payload["vlm_reasoning"]) if "vlm_reasoning" in payload else vlm_reasoning
-            search_source_type = (
-                str(payload["search_source_type"]) if "search_source_type" in payload else search_source_type
-            )
-            logger.info(
-                f"Extracted from WebSocket payload - llm_reasoning={llm_reasoning}, vlm_reasoning={vlm_reasoning}, search_source_type={search_source_type}"
-            )
+            if "llm_reasoning" in payload:
+                options.llm_reasoning = bool(payload["llm_reasoning"])
+            if "vlm_reasoning" in payload:
+                options.vlm_reasoning = bool(payload["vlm_reasoning"])
+            if "search_source_type" in payload:
+                options.search_source_type = str(payload["search_source_type"])
+            if "use_critic" in payload:
+                options.use_critic = bool(payload["use_critic"])
+            logger.info(f"Extracted from WebSocket payload - {options}")
 
-        logger.info(
-            "Creating Top Agent with llm_reasoning=%s, vlm_reasoning=%s, search_source_type=%s",
-            llm_reasoning,
-            vlm_reasoning,
-            search_source_type,
-        )
+        logger.info("Creating Top Agent with options=%s", options)
 
         try:
             # Convert request to ChatRequest following NAT's agent pattern:
@@ -1457,9 +1520,7 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
             # Stream agent responses
             async for chunk in agent.astream(
                 input_messages=[current_message],
-                llm_reasoning=llm_reasoning,
-                vlm_reasoning=vlm_reasoning,
-                search_source_type=search_source_type,
+                options=options,
             ):
                 if chunk.type == AgentMessageChunkType.THOUGHT:
                     step_num += 1

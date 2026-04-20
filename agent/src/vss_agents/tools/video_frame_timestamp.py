@@ -18,6 +18,8 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 import logging
 
+from vss_agents.prompt import VIDEO_FRAME_TIMESTAMP_PROMPT
+
 import cv2
 from langchain_core.prompts import ChatPromptTemplate
 from nat.builder.builder import Builder
@@ -27,8 +29,6 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
-
-from vss_agents.prompt import VIDEO_FRAME_TIMESTAMP_PROMPT
 
 logger = logging.getLogger(__name__)
 

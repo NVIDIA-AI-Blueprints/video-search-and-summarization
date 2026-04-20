@@ -16,7 +16,6 @@
 """Unit tests for rewrite_url_host."""
 
 import pytest
-
 from vss_agents.utils.url_translation import rewrite_url_host
 
 

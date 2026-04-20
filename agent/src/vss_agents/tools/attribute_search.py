@@ -15,7 +15,6 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
-from copy import deepcopy
 from datetime import datetime
 from datetime import timedelta
 import logging
@@ -37,6 +36,8 @@ from pydantic import Field
 from vss_agents.embed.embed import EmbedClient
 from vss_agents.embed.rtvi_cv_embed import RTVICVEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
+from vss_agents.utils.time_measure import TimeMeasure
+from vss_agents.utils.uuid_string import is_standard_uuid_string
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,9 @@ BASE_2025 = datetime(2025, 1, 1, tzinfo=datetime.now().astimezone().tzinfo)
 # Minimum clip duration in seconds (for attribute-only search results)
 # Clips shorter than this will be extended to this duration
 MIN_CLIP_DURATION_SECONDS = 1.0
+
+# Default behavior index name — shared across SearchConfig, SearchAgentConfig, AttributeSearchConfig
+DEFAULT_BEHAVIOR_INDEX = "mdx-behavior-2025-01-01"
 
 
 class AttributeSearchInput(BaseModel):
@@ -132,7 +136,7 @@ class AttributeSearchConfig(FunctionBaseConfig, name="attribute_search"):
     )
 
     behavior_index: str = Field(
-        default="mdx-behavior-2026-01-06",
+        default=DEFAULT_BEHAVIOR_INDEX,
         description="Elasticsearch index with object embeddings",
     )
 
@@ -418,6 +422,118 @@ async def _get_frame_from_behavior(
         return None, None, None, None
 
 
+async def _fetch_object_embedding(
+    object_id: str,
+    es_client: AsyncElasticsearch,
+    behavior_index: str | list[str],
+) -> list[float]:
+    """Fetch an object's embedding vector from the behavior index by object_id.
+
+    Retrieves the most recent behavior embedding for the given object_id.
+    Used for object re-search (Path B1): user clicks a detected bbox → find more similar objects.
+
+    Args:
+        object_id: The object ID to look up (from SearchResult.object_ids)
+        es_client: Elasticsearch async client
+        behavior_index: Behavior index name(s) to search
+
+    Returns:
+        The embedding vector as list[float]
+
+    Raises:
+        ValueError: If object_id not found or has no embedding
+    """
+    search_index_str = behavior_index if isinstance(behavior_index, str) else ",".join(behavior_index)
+    query = {
+        "query": {"term": {"object.id.keyword": object_id}},
+        "size": 1,
+        "sort": [{"timestamp": {"order": "desc"}}],
+        "_source": ["embeddings.vector"],
+    }
+    response = await es_client.search(index=search_index_str, body=query)
+    hits = response["hits"]["hits"]
+    if not hits:
+        raise ValueError(f"Object ID '{object_id}' not found in behavior index '{search_index_str}'")
+    embeddings = hits[0]["_source"].get("embeddings", {})
+    # Handle both dict {"vector": [...]} and list [{"vector": [...]}] shapes
+    if isinstance(embeddings, list):
+        embeddings = embeddings[0] if embeddings else {}
+    vector = embeddings.get("vector", [])
+    if not vector:
+        raise ValueError(f"Object ID '{object_id}' has no embedding vector")
+    return [float(v) for v in vector]
+
+
+async def search_by_object_embedding(
+    object_id: str,
+    es_client: AsyncElasticsearch,
+    behavior_index: str | list[str],
+    top_k: int = 5,
+    min_similarity: float = 0.0,
+    video_sources: list[str] | None = None,
+    timestamp_start: datetime | None = None,
+    timestamp_end: datetime | None = None,
+) -> list["AttributeSearchResult"]:
+    """Search for similar objects using a known object's embedding from the behavior index.
+
+    Fetches the object's embedding, then runs KNN on the behavior index to find
+    visually similar objects.
+
+    Args:
+        object_id: The object ID whose embedding to use as query
+        es_client: Elasticsearch async client
+        behavior_index: Behavior index name(s)
+        top_k: Number of results to return
+        min_similarity: Minimum similarity threshold
+        video_sources: Optional video source filter
+        timestamp_start: Optional start time filter
+        timestamp_end: Optional end time filter
+
+    Returns:
+        List of AttributeSearchResult sorted by similarity
+    """
+    embedding = await _fetch_object_embedding(object_id, es_client, behavior_index)
+    results = await search_by_attributes(
+        query_embedding=embedding,
+        es_client=es_client,
+        index=behavior_index,
+        timestamp_start=timestamp_start,
+        timestamp_end=timestamp_end,
+        video_sources=video_sources,
+        top_k=top_k,
+        min_similarity=min_similarity,
+    )
+    return results[:top_k]
+
+
+async def enrich_attribute_results(
+    results: list["AttributeSearchResult"],
+    vst_url: str | None,
+) -> None:
+    """Enrich attribute search results with screenshot URLs and resolved stream IDs.
+
+    Mutates results in-place: resolves sensor_id → stream_id (UUID) and builds
+    screenshot URLs via VST.
+    """
+    if not vst_url:
+        return
+    from vss_agents.tools.vst.utils import get_stream_id
+
+    async def _enrich_result(r: AttributeSearchResult) -> None:
+        if r.metadata and r.metadata.sensor_id and not r.screenshot_url:
+            try:
+                stream_id = await get_stream_id(r.metadata.sensor_id, vst_url)
+                if stream_id:
+                    ts = r.metadata.start_time or r.metadata.frame_timestamp
+                    if ts:
+                        r.screenshot_url = build_screenshot_url(vst_url, stream_id, ts)
+                    r.metadata.sensor_id = stream_id
+            except Exception as e:
+                logger.warning(f"Failed to enrich result for sensor {r.metadata.sensor_id}: {e}")
+
+    await asyncio.gather(*(_enrich_result(r) for r in results))
+
+
 async def _search_behavior(
     es_client: AsyncElasticsearch,
     index: str | list[str],
@@ -452,31 +568,38 @@ async def _search_behavior(
         if overlap_filter["bool"]["must"]:
             filter_clauses.append(overlap_filter)
 
-    # Add video_sources filter if provided (same logic as embed_search)
+    # Add video_sources filter if provided (same two-tier logic as embed_search)
+    # Resolved UUIDs get a single `terms` clause; unresolved names use wildcard/regexp fallback
     if video_sources:
-        should_clauses = []
-        for vname in video_sources:
-            escaped_vname = vname.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
-            # Check sensor.id (for RTSP streams and video files)
-            should_clauses.append({"term": {"sensor.id.keyword": vname}})
-            should_clauses.append({"wildcard": {"sensor.id.keyword": f"*{escaped_vname}*"}})
-            # Check sensor.info.url (for uploaded video files)
-            should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}"}})
-            should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}*"}})
-            # Check sensor.info.path (for RTSP streams - contains UUID)
-            should_clauses.append({"wildcard": {"sensor.info.path.keyword": f"*{escaped_vname}*"}})
-            regex_escaped = re.escape(vname)
-            should_clauses.append({"regexp": {"sensor.info.url": f".*{regex_escaped}"}})
-            should_clauses.append({"regexp": {"sensor.info.path": f".*{regex_escaped}"}})
+        uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
+        non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
 
-        filter_clauses.append(
-            {
-                "bool": {
-                    "should": should_clauses,
-                    "minimum_should_match": 1,
+        if uuid_sources and not non_uuid_sources:
+            # All sources are UUIDs — single terms clause (fastest)
+            filter_clauses.append({"terms": {"sensor.id.keyword": uuid_sources}})
+        else:
+            # Mixed or all non-UUID — build should clauses
+            should_clauses: list[dict[str, Any]] = []
+            if uuid_sources:
+                should_clauses.append({"terms": {"sensor.id.keyword": uuid_sources}})
+            for vname in non_uuid_sources:
+                escaped_vname = vname.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
+                should_clauses.append({"term": {"sensor.id.keyword": vname}})
+                should_clauses.append({"wildcard": {"sensor.id.keyword": f"*{escaped_vname}*"}})
+                should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}"}})
+                should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}*"}})
+                should_clauses.append({"wildcard": {"sensor.info.path.keyword": f"*{escaped_vname}*"}})
+                regex_escaped = re.escape(vname)
+                should_clauses.append({"regexp": {"sensor.info.url": f".*{regex_escaped}"}})
+                should_clauses.append({"regexp": {"sensor.info.path": f".*{regex_escaped}"}})
+            filter_clauses.append(
+                {
+                    "bool": {
+                        "should": should_clauses,
+                        "minimum_should_match": 1,
+                    }
                 }
-            }
-        )
+            )
 
     # Build KNN query with filters INSIDE (so filters are applied during KNN search, not after)
     # Fetch more candidates to account for duplicates - we'll deduplicate and return top_k later
@@ -505,7 +628,7 @@ async def _search_behavior(
             knn_query["filter"] = filter_clauses[0]
 
     logger.debug(f"Query embedding: dim={len(query_embedding)}")
-    logger.info(
+    logger.debug(
         f"KNN search: top_k={top_k}, fetch_k={fetch_k}, k={knn_query['k']}, num_candidates={knn_query['num_candidates']}, filters={len(filter_clauses)}"
     )
 
@@ -526,7 +649,7 @@ async def _search_behavior(
         ],
     }
 
-    logger.info(f"Searching objects: top_k={top_k}, fetching {fetch_k} candidates to account for duplicates")
+    logger.debug(f"Searching objects: top_k={top_k}, fetching {fetch_k} candidates to account for duplicates")
 
     # Convert list index to comma-separated string for Elasticsearch (handles exclusion patterns)
     search_index_str = index if isinstance(index, str) else ",".join(index)
@@ -536,9 +659,10 @@ async def _search_behavior(
         response = await es_client.search(index=search_index_str, body=search_query)
     except ESNotFoundError as e:
         # Index doesn't exist - return empty result with informative error
-        logger.error(f"Elasticsearch index '{index}' not found: {e}")
+        logger.error(f"Elasticsearch index '{search_index_str}' not found: {e}")
         raise ValueError(
-            f"Search index '{index}' does not exist. Please ensure videos have been ingested before searching."
+            f"Search index '{search_index_str}' does not exist. "
+            "Please ensure videos have been ingested before searching."
         ) from e
 
     # Log ES response
@@ -850,7 +974,7 @@ def _deduplicate_by_object(
                 if earliest_start != existing_start or latest_end != existing_end:
                     merge_count += 1
 
-                    logger.info(
+                    logger.debug(
                         f"Deduplication: Merging time ranges for sensor_id={result.metadata.sensor_id}, "
                         f"object_id={result.metadata.object_id}. "
                         f"Merged range: start_time={earliest_start}, end_time={latest_end}"
@@ -891,16 +1015,17 @@ async def search_by_attributes(
     exclude_videos = exclude_videos or []
     try:
         # Phase 1: Search behavior embeddings
-        candidates = await _search_behavior(
-            es_client=es_client,
-            index=index,
-            query_embedding=query_embedding,
-            top_k=top_k,
-            min_similarity=min_similarity,
-            timestamp_start=timestamp_start,
-            timestamp_end=timestamp_end,
-            video_sources=video_sources,
-        )
+        with TimeMeasure("attribute_search: search behavior embeddings"):
+            candidates = await _search_behavior(
+                es_client=es_client,
+                index=index,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                min_similarity=min_similarity,
+                timestamp_start=timestamp_start,
+                timestamp_end=timestamp_end,
+                video_sources=video_sources,
+            )
 
         # Phase 2: Perform frame lookups (if enabled) to get more accurate bbox, timestamp, and frame_score
         # When disabled, we use behavior embedding data directly (bbox, timestamp from behavior)
@@ -919,14 +1044,15 @@ async def search_by_attributes(
         results = []
         if enable_frame_lookup and frames_index:
             # Perform frame lookups to get more accurate bbox, timestamp, and frame_score
-            frame_results = await _perform_frame_lookups(
-                candidates=candidates,
-                query_embedding=query_embedding,
-                es_client=es_client,
-                frames_index=frames_index,
-                timestamp_start=timestamp_start,
-                timestamp_end=timestamp_end,
-            )
+            with TimeMeasure("attribute_search: frame lookups"):
+                frame_results = await _perform_frame_lookups(
+                    candidates=candidates,
+                    query_embedding=query_embedding,
+                    es_client=es_client,
+                    frames_index=frames_index,
+                    timestamp_start=timestamp_start,
+                    timestamp_end=timestamp_end,
+                )
             # Build results with frame lookup data
             for idx, hit in enumerate(candidates):
                 frame_result = frame_results[idx] if idx < len(frame_results) else None
@@ -952,29 +1078,25 @@ async def search_by_attributes(
         logger.info(f"Matched {len(results)} object-video pairs")
 
         # Deduplicate: Keep only the best result per (sensor_id, object_id) pair, merge timestamps
-        results = _deduplicate_by_object(results, candidates)
+        with TimeMeasure("attribute_search: deduplication"):
+            results = _deduplicate_by_object(results, candidates)
         logger.info(f"After deduplication: {len(results)} unique object-video pairs")
 
         # Remove excluded videos before top_k truncation
-        # TODO: make this more efficient
-        filtered_results = deepcopy(results)
-        for result in results:
-            for exclude_video in exclude_videos:
-                if (
-                    result.metadata.sensor_id == exclude_video.get("sensor_id", "")
-                    and result.metadata.start_time == exclude_video.get("start_timestamp", "")
-                    and result.metadata.end_time == exclude_video.get("end_timestamp", "")
-                ):
-                    filtered_results.remove(result)
-                    break
-        results = filtered_results
+        exclude_set = {
+            (ev.get("sensor_id", ""), ev.get("start_timestamp", ""), ev.get("end_timestamp", ""))
+            for ev in exclude_videos
+        }
+        results = [
+            r for r in results if (r.metadata.sensor_id, r.metadata.start_time, r.metadata.end_time) not in exclude_set
+        ]
 
         # Return top_k after deduplication
-        if top_k > 0 and len(filtered_results) > top_k:
-            filtered_results = filtered_results[:top_k]
+        if 0 < top_k < len(results):
+            results = results[:top_k]
             logger.info(f"Returning top {top_k} results after deduplication")
 
-        return filtered_results
+        return results
 
     except Exception as e:
         logger.error(f"Attribute search failed: {e}", exc_info=True)
@@ -991,7 +1113,8 @@ async def search_single_attribute(
     enable_frame_lookup: bool = True,
 ) -> list[AttributeSearchResult]:
     """Search for a single attribute."""
-    query_embedding = await embed_client.get_text_embedding(query_text)
+    with TimeMeasure("attribute_search: generate text embedding"):
+        query_embedding = await embed_client.get_text_embedding(query_text)
     return await search_by_attributes(
         query_embedding=query_embedding,
         es_client=es_client,
@@ -1221,6 +1344,8 @@ async def _append_multi_attribute(
                     await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
 
             # Generate screenshot for each attribute's results independently
+            # Filter out invalid sensor_ids from behavior index (e.g., "0" from garbage ES data) via VST validation
+            valid_results = []
             if attr_results and vst_external_url:
                 for result in attr_results:
                     if result.metadata and result.metadata.sensor_id and result.metadata.frame_timestamp:
@@ -1241,10 +1366,16 @@ async def _append_multi_attribute(
                                 result.screenshot_url = build_screenshot_url(
                                     vst_external_url, stream_id, result.metadata.frame_timestamp
                                 )
-                        except Exception as e:
-                            logger.debug(f"Failed to generate screenshot for attribute '{attr_query}': {e}")
 
-            all_results.extend(attr_results)
+                            valid_results.append(result)
+                        except Exception as e:
+                            # Skip result if VST conversion fails
+                            logger.debug(f"Failed to generate screenshot for attribute '{attr_query}': {e}")
+                            continue
+            else:
+                valid_results = attr_results
+
+            all_results.extend(valid_results)
             logger.info(f"Attribute '{attr_query}': found {len(attr_results)} results")
         except Exception as e:
             logger.warning(f"Attribute search failed for '{attr_query}': {e}")
@@ -1292,9 +1423,20 @@ async def build_attribute_search(config: AttributeSearchConfig, _builder: Builde
             config.enable_frame_lookup,
         )
 
-    yield FunctionInfo.create(
-        single_fn=attribute_search_fn,
-        description="Search for objects by visual attributes",
-        input_schema=AttributeSearchInput,
-        # Note: single_output_schema removed to avoid Python 3.13 isinstance() issues with parameterized generics
-    )
+    try:
+        yield FunctionInfo.create(
+            single_fn=attribute_search_fn,
+            description="Search for objects by visual attributes",
+            input_schema=AttributeSearchInput,
+            # Note: single_output_schema removed to avoid Python 3.13 isinstance() issues with parameterized generics
+        )
+    finally:
+        # Release embedding cache + close ES client
+        try:
+            await embed_client.aclose()
+        except Exception as e:
+            logger.warning(f"Error closing embed client: {e}")
+        try:
+            await es_client.close()
+        except Exception as e:
+            logger.warning(f"Error closing ES client: {e}")

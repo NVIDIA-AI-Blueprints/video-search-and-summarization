@@ -29,6 +29,13 @@ import os
 from typing import Literal
 import urllib.parse
 
+from vss_agents.tools.vst.timeline import get_timeline
+from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import build_overlay_config
+from vss_agents.tools.vst.utils import get_stream_id
+from vss_agents.tools.vst.utils import validate_video_url
+from vss_agents.utils.retry import create_retry_strategy
+
 import aiohttp
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -38,13 +45,6 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import model_validator
-
-from vss_agents.tools.vst.timeline import get_timeline
-from vss_agents.tools.vst.utils import VSTError
-from vss_agents.tools.vst.utils import build_overlay_config
-from vss_agents.tools.vst.utils import get_stream_id
-from vss_agents.tools.vst.utils import validate_video_url
-from vss_agents.utils.retry import create_retry_strategy
 
 logger = logging.getLogger(__name__)
 

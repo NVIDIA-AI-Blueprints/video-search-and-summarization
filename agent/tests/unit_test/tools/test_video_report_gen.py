@@ -18,7 +18,6 @@ import tempfile
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.tools.video_report_gen import TimestampMatch
 from vss_agents.tools.video_report_gen import VideoReportGenInput
 from vss_agents.tools.video_report_gen import VideoReportGenOutput
@@ -388,9 +387,9 @@ class TestResourcesSectionFormatting:
 
         assert playback_line_idx is not None, "Should find 'Video Playback:' label"
         # The URL should NOT be on the same line as the label
-        assert video_url not in lines[playback_line_idx], (
-            "URL should not be on the same line as 'Video Playback:' label"
-        )
+        assert (
+            video_url not in lines[playback_line_idx]
+        ), "URL should not be on the same line as 'Video Playback:' label"
         # There should be a blank line between label and URL
         assert lines[playback_line_idx + 1].strip() == "", "There should be a blank line between the label and the URL"
         # URL should be on a subsequent line

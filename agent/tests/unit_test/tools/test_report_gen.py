@@ -16,7 +16,6 @@
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.tools.report_gen import ReportGenConfig
 from vss_agents.tools.report_gen import ReportGenInput
 from vss_agents.tools.report_gen import ReportGenOutput

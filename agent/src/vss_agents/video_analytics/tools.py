@@ -17,17 +17,6 @@ from copy import deepcopy
 import json
 from typing import Any
 
-from nat.builder.builder import Builder
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function import FunctionGroup
-from nat.cli.register_workflow import register_function_group
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.function import FunctionGroupBaseConfig
-from pydantic import BaseModel
-from pydantic import Field
-from pydantic import field_validator
-from pydantic import model_validator
-
 from .es_client import BASE_QUERY_TEMPLATE
 from .es_client import ESClient
 from .query_builders import BehaviorQueryBuilder
@@ -41,6 +30,17 @@ from .utils import create_events_from_incidents
 from .utils import parse_vst_sensor_list_response
 from .utils import sweep_overlapping_incidents
 from .utils import validate_iso_timestamp
+
+from nat.builder.builder import Builder
+from nat.builder.framework_enum import LLMFrameworkEnum
+from nat.builder.function import FunctionGroup
+from nat.cli.register_workflow import register_function_group
+from nat.data_models.component_ref import FunctionRef
+from nat.data_models.function import FunctionGroupBaseConfig
+from pydantic import BaseModel
+from pydantic import Field
+from pydantic import field_validator
+from pydantic import model_validator
 
 
 # Input models for functions

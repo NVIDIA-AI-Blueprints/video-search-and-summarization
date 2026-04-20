@@ -26,7 +26,7 @@ class TestVARetrievalConfig:
         config = VARetrievalConfig()
         assert config.minio_url == "http://localhost:9000"
         assert config.access_key == "minioadmin"
-        assert config.secret_key == "minioadmin"  # pragma: allowlist secret
+        assert config.secret_key == "minioadmin"
         assert config.bucket_name == "incidents-bucket"
         assert config.prefix == ""
         assert config.db_path == ":memory:"
@@ -37,7 +37,7 @@ class TestVARetrievalConfig:
         config = VARetrievalConfig(
             minio_url="http://custom-minio:9000",
             access_key="custom-access",
-            secret_key="custom-secret",  # pragma: allowlist secret
+            secret_key="custom-secret",
             bucket_name="custom-bucket",
             prefix="incidents/",
             db_path="/tmp/incidents.duckdb",
@@ -46,7 +46,7 @@ class TestVARetrievalConfig:
         )
         assert config.minio_url == "http://custom-minio:9000"
         assert config.access_key == "custom-access"
-        assert config.secret_key == "custom-secret"  # pragma: allowlist secret
+        assert config.secret_key == "custom-secret"
         assert config.bucket_name == "custom-bucket"
         assert config.prefix == "incidents/"
         assert config.db_path == "/tmp/incidents.duckdb"

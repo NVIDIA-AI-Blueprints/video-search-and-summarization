@@ -14,13 +14,16 @@
 # limitations under the License.
 import logging
 from typing import cast
-from typing import override
 
 import httpx
+from typing_extensions import override
 
 from vss_agents.embed.embed import EmbedClient
+from vss_agents.embed.embed import LRUEmbeddingCache
 
 logger = logging.getLogger(__name__)
+
+_TEXT_EMBEDDING_CACHE_MAXSIZE = 1024
 
 
 class RTVICVEmbedClient(EmbedClient):
@@ -35,10 +38,41 @@ class RTVICVEmbedClient(EmbedClient):
         """
         self.endpoint = endpoint.rstrip("/")
         self.text_embeddings_url = f"{self.endpoint}/api/v1/generate_text_embeddings"
+        # Bounded LRU cache for text embeddings (with per-key async locks)
+        self._text_cache = LRUEmbeddingCache(maxsize=_TEXT_EMBEDDING_CACHE_MAXSIZE)
+
+    @override
+    async def aclose(self) -> None:
+        """Clear cached embeddings and locks."""
+        self._text_cache.clear()
 
     @override
     async def get_text_embedding(self, text: str) -> list[float]:
-        """Generate embedding for text input using RTVI CV API."""
+        """Generate embedding for text input using RTVI CV API.
+
+        Results are cached (bounded LRU) so concurrent callers with the same
+        query share a single network round-trip.
+        """
+        cached = self._text_cache.get(text)
+        if cached is not None:
+            logger.debug(f"Text embedding cache hit for: {text[:80]}")
+            return cached
+
+        # Per-key lock so only one caller fetches a given text
+        lock = self._text_cache.get_lock(text)
+
+        async with lock:
+            # Double-check after acquiring lock
+            cached = self._text_cache.get(text)
+            if cached is not None:
+                return cached
+
+            embedding = await self._fetch_text_embedding(text)
+            self._text_cache.put(text, embedding)
+            return embedding
+
+    async def _fetch_text_embedding(self, text: str) -> list[float]:
+        """Fetch text embedding from RTVI CV API."""
         payload = {
             "text_input": text,
             "model": "",

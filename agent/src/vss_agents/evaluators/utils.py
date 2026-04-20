@@ -15,7 +15,10 @@
 
 """Shared utilities for evaluators."""
 
+import ast
 from collections.abc import Callable
+import contextlib
+import json
 import logging
 import re
 from typing import Any
@@ -26,14 +29,55 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
-from nat.eval.evaluator.evaluator_model import EvalInputItem
-from nat.eval.evaluator.evaluator_model import EvalOutputItem
+from nat.data_models.evaluator import EvalInputItem
+from nat.data_models.evaluator import EvalOutputItem
 
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 from vss_agents.utils.reasoning_utils import get_thinking_tag
 
 logger = logging.getLogger(__name__)
+
+
+def parse_tool_result(output: Any) -> Any:
+    """Parse a tool output into a structured form for $ref resolution.
+
+    Handles dicts/lists (returned as-is), JSON strings, and Python repr strings.
+    """
+    if isinstance(output, (dict, list)):
+        return output
+    if isinstance(output, str):
+        with contextlib.suppress(Exception):
+            return json.loads(output)
+        with contextlib.suppress(Exception):
+            return ast.literal_eval(output)
+    return output
+
+
+def extract_tool_results_from_trajectory(trajectory: list) -> dict[str, list[Any]]:
+    """Extract top-level tool results from a trajectory, indexed by tool name.
+
+    Only includes TOOL_END events at the workflow level (not nested tool calls).
+    Results are collected as lists to handle multiple calls to the same tool.
+
+    Returns:
+        Mapping of tool_name -> [result_0, result_1, ...] in call order.
+    """
+    from nat.data_models.intermediate_step import IntermediateStepType
+
+    tool_results: dict[str, list[Any]] = {}
+    for step in trajectory:
+        if (
+            step.event_type == IntermediateStepType.TOOL_END
+            and step.function_ancestry
+            and step.function_ancestry.function_name == "<workflow>"
+            and step.name
+            and step.data
+        ):
+            output = getattr(step.data, "output", None)
+            if output is not None:
+                tool_results.setdefault(step.name, []).append(output)
+    return tool_results
 
 
 def compute_item_latency(item: EvalInputItem) -> float | None:

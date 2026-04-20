@@ -18,6 +18,12 @@
 import logging
 from typing import Any
 
+from vss_agents.agents.postprocessing.data_models import ValidatorResult
+from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
+from vss_agents.utils.reasoning_utils import get_thinking_tag
+
+from .base import BaseValidator
+
 from langchain_core.exceptions import LangChainException
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
@@ -26,12 +32,6 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from pydantic import BaseModel
 from pydantic import Field
-
-from vss_agents.agents.postprocessing.data_models import ValidatorResult
-from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
-from vss_agents.utils.reasoning_utils import get_thinking_tag
-
-from .base import BaseValidator
 
 logger = logging.getLogger(__name__)
 

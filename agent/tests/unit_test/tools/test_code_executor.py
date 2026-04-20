@@ -18,7 +18,6 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.tools.code_executor.docker_backend import cleanup_docker_resources
 from vss_agents.tools.code_executor.python_executor import CodeExecutorConfig
 from vss_agents.tools.code_executor.python_executor import CodeExecutorInput

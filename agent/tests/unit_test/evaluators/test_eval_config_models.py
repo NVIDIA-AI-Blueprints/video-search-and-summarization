@@ -16,7 +16,6 @@
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.evaluators.report_evaluator.eval_config_models import EvalMetricsConfig
 from vss_agents.evaluators.report_evaluator.eval_config_models import FieldConfig
 

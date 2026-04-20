@@ -125,9 +125,9 @@ def main():
     print("\n🔍 Verifying cleanup...")
     remaining = find_all_expat_files()
 
-    print(f"\n{'=' * 70}")
+    print(f"\n{'='*70}")
     print("CLEANUP SUMMARY")
-    print(f"{'=' * 70}")
+    print(f"{'='*70}")
     print(f"✓ Successfully removed: {removed_count} libexpat items")
     if failed_count > 0:
         print(f"✗ Failed to remove: {failed_count} items")
@@ -139,7 +139,7 @@ def main():
         return 1
     else:
         print("✓ All libexpat files successfully removed")
-        print(f"{'=' * 70}")
+        print(f"{'='*70}")
         return 0
 
 

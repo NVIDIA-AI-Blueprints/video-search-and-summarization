@@ -15,7 +15,6 @@
 """Tests for vss_agents/utils/asyncmixin.py."""
 
 import pytest
-
 from vss_agents.utils.asyncmixin import AsyncMixin
 
 

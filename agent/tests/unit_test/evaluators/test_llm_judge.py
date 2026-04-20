@@ -19,7 +19,6 @@ from unittest.mock import MagicMock
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge import FieldEvaluation
 from vss_agents.evaluators.report_evaluator.field_evaluators.llm_judge import LLMJudgeMetric
 

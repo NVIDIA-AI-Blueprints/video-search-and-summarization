@@ -22,7 +22,6 @@ from unittest.mock import MagicMock
 
 from pydantic import ValidationError
 import pytest
-
 from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import QueryInput
 from vss_agents.tools.embed_search import _str_input_converter

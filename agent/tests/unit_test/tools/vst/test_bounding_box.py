@@ -25,7 +25,6 @@ from unittest.mock import patch
 import urllib.parse
 
 import pytest
-
 from vss_agents.tools.vst.snapshot import VSTSnapshotConfig
 from vss_agents.tools.vst.snapshot import VSTSnapshotISOInput
 from vss_agents.tools.vst.snapshot import VSTSnapshotOutput
@@ -219,6 +218,7 @@ class TestSnapshotBoundingBox:
                     "2025-01-01T00:05:00.000Z",
                     "http://10.0.0.1:30888",
                     overlay_enabled=True,
+                    timeout_seconds=10.0,
                 )
 
 

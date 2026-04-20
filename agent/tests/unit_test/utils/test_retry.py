@@ -15,7 +15,6 @@
 """Tests for vss_agents/utils/retry.py."""
 
 import pytest
-
 from vss_agents.utils.retry import create_retry_strategy
 
 

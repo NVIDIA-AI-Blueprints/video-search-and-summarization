@@ -62,6 +62,7 @@ from vss_agents.tools.lvs_video_understanding import LVSStatus
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.tools.vst.video_clip import get_video_url
+from vss_agents.utils.hitl import format_hitl_popup_header
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
@@ -468,11 +469,12 @@ User's modification request:""",
 
 
 class VideoReportGenInput(BaseModel):
-    """Input for Video(uploaded) Report generation."""
+    """Input for Video(uploaded) Report generation. Supports parallel processing for multiple videos."""
 
-    sensor_id: str = Field(
+    sensor_id: str | list[str] = Field(
         ...,
-        description="VST sensor ID (filename of uploaded video, e.g., 'warehouse_01.mp4')",
+        description="VST sensor ID(s) (filename of uploaded video, e.g., 'warehouse_01.mp4' or ['video1.mp4', 'video2.mp4']). "
+        "Multiple videos are processed in parallel with per-video routing (LVS for long videos, standard VLM for short).",
     )
     user_query: str = Field(
         ...,
@@ -488,17 +490,32 @@ class VideoReportGenInput(BaseModel):
 
 
 class VideoReportGenOutput(BaseModel):
-    """Output from Video(uploaded) Report generation."""
+    """Output from Video(uploaded) Report generation. Supports aggregated results for multiple videos."""
 
-    http_url: str | None = Field(default=None, description="HTTP URL to access the markdown report file")
+    http_url: str | None = Field(
+        default=None,
+        description="HTTP URL to access the markdown report file (single video) or primary report (multi-video)",
+    )
     pdf_url: str | None = Field(default=None, description="HTTP URL to access the PDF report file (if generated)")
     object_store_key: str | None = Field(default=None, description="Key/filename in the object store")
     summary: str | None = Field(default=None, description="Brief summary of the report (or cancellation message)")
-    file_size: int = Field(default=0, description="Size of the markdown report file in bytes")
-    pdf_file_size: int = Field(default=0, description="Size of the PDF report file in bytes")
+    file_size: int = Field(default=0, description="Size of the markdown report file in bytes (total for all videos)")
+    pdf_file_size: int = Field(default=0, description="Size of the PDF report file in bytes (total for all videos)")
     content: str | None = Field(default=None, description="The actual markdown content of the generated report")
-    video_url: str | None = Field(default=None, description="The URL of the video playback")
-    hitl_prompts: dict | None = Field(default=None, description="HITL prompts used for the report")
+    video_url: str | None = Field(default=None, description="The URL of the video playback (single video only)")
+    hitl_prompts: dict[str, Any] | None = Field(
+        default=None,
+        description="HITL prompts used for LVS analysis (scenario, events, objects_of_interest). Shared across all videos in multi-video processing.",
+    )
+    lvs_fallback_warning: str | None = Field(
+        default=None,
+        description="Warning message when LVS was not available and fell back to standard video understanding for a long video.",
+    )
+    # Multi-video specific fields
+    all_reports: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="List of individual report details for multi-video processing. Each dict contains sensor_id, http_url, pdf_url, etc.",
+    )
 
 
 async def _save_markdown_to_object_store(
@@ -1405,7 +1422,11 @@ Enter your choice or press Submit to keep current value:"""
         logger.info(f"LLM refined prompt: {refined[:100]}...")
         return refined
 
-    async def _collect_hitl_vlm_prompt(current_prompt: str | None) -> str | None:
+    async def _collect_hitl_vlm_prompt(
+        current_prompt: str | None,
+        sensor_ids: list[str] | None = None,
+        total_videos: int | None = None,
+    ) -> str | None:
         """
         Collect/confirm VLM prompt via HITL with support for /generate and /refine commands.
 
@@ -1417,6 +1438,11 @@ Enter your choice or press Submit to keep current value:"""
 
         Args:
             current_prompt: Current prompt from state (if any)
+            sensor_ids: Optional list of video sensor IDs this prompt will apply to.
+            total_videos: Optional total number of videos in the user's request.
+                When larger than ``len(sensor_ids)``, the popup header switches to
+                "Setting prompt for X out of Y videos" so the user knows the prompt
+                only applies to a subset (e.g. the short-video batch in mixed routing).
 
         Returns:
             str: The confirmed or updated VLM prompt, or None if cancelled
@@ -1424,6 +1450,9 @@ Enter your choice or press Submit to keep current value:"""
         logger.info("Starting HITL VLM prompt collection workflow")
 
         hitl_template = config.hitl_vlm_prompt_template or default_hitl_vlm_prompt_template
+
+        # Build video context header if sensor_ids provided
+        video_context = format_hitl_popup_header(sensor_ids, total_videos)
 
         # Track the working prompt and its source
         working_prompt = current_prompt or config.vlm_prompt
@@ -1433,10 +1462,10 @@ Enter your choice or press Submit to keep current value:"""
         while True:
             # Build the display text, including any error message from previous iteration
             if error_message:
-                prompt_text = f"**⚠️ ERROR:** {error_message}\n\n**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
+                prompt_text = f"{video_context}**⚠️ ERROR:** {error_message}\n\n**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
                 error_message = ""  # Clear after displaying
             else:
-                prompt_text = f"**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
+                prompt_text = f"{video_context}**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
 
             user_input = await _prompt_user_input(
                 prompt_text,
@@ -1503,21 +1532,300 @@ Enter your choice or press Submit to keep current value:"""
             logger.info(f"User provided custom prompt: {stripped[:100]}...")
             return stripped
 
-    async def _video_report_gen(report_input: VideoReportGenInput) -> VideoReportGenOutput:
+    async def _process_multiple_videos(
+        report_input: VideoReportGenInput, sensor_ids: list[str]
+    ) -> VideoReportGenOutput:
         """
-        Generate a video analysis report for uploaded videos (Video(uploaded) Report mode).
+        Process multiple videos in parallel with mixed LVS/base VLM routing.
 
-        This tool:
-        1. Sanitizes VLM prompts (removes SOM markers)
-        2. Calls video_understanding tool for each prompt
-        3. Formats results using optional template and LLM
-        4. Saves markdown and PDF to object store
-        5. Returns URLs and metadata
+        Flow:
+        1. Classify each video by duration (LVS vs base VLM)
+        2. If base VLM videos exist with HITL enabled: collect free-text VLM prompt
+        3. Dispatch two groups in parallel via asyncio.gather:
+           - LVS group: single _video_report_gen_single call with all LVS sensor_ids
+             (the LVS tool handles its own HITL internally)
+           - Base VLM group: individual _video_report_gen_single calls per video
+        4. Aggregate results from both groups
         """
-        logger.info(f"Generating report for sensor '{report_input.sensor_id}'")
+        logger.info(f"Processing {len(sensor_ids)} videos with mixed routing...")
+
+        # Step 1: Get durations and classify each video
+        durations: list[tuple[str, float]] = []
+        for sid in sensor_ids:
+            try:
+                stream_id = await get_stream_id(sid, config.vst_internal_url)
+                start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)
+                start_dt = iso8601_to_datetime(start_timestamp)
+                end_dt = iso8601_to_datetime(end_timestamp)
+                duration_seconds = (end_dt - start_dt).total_seconds()
+                durations.append((sid, duration_seconds))
+                logger.info(f"Video '{sid}' duration: {duration_seconds:.1f}s")
+            except Exception as e:
+                logger.error(f"Failed to get duration for '{sid}': {e}")
+                return VideoReportGenOutput(
+                    summary=f"⚠️ **Error:** Could not determine duration for video '{sid}': {e}",
+                    http_url=None,
+                )
+
+        lvs_available = lvs_video_understanding_tool is not None
+        lvs_sensor_ids: list[str] = [sid for sid, dur in durations if dur > config.lvs_video_length and lvs_available]
+        base_sensor_ids: list[str] = [sid for sid, _ in durations if sid not in lvs_sensor_ids]
+
+        logger.info(f"Video routing: {len(lvs_sensor_ids)} LVS, {len(base_sensor_ids)} base VLM")
+
+        # When the request splits into both LVS and base VLM groups, each HITL popup
+        # only covers a subset of the user's videos. Pass the total count so popups
+        # render "Setting prompt for X out of Y videos" instead of "Analyzing X video(s)".
+        total_videos = len(sensor_ids)
+        request_total_videos: int | None = total_videos if (lvs_sensor_ids and base_sensor_ids) else None
+
+        # Build consolidated LVS fallback warning for long videos
+        fallback_videos = [(sid, dur) for sid, dur in durations if dur > config.lvs_video_length and not lvs_available]
+        if fallback_videos:
+            if len(fallback_videos) == 1:
+                sid, dur = fallback_videos[0]
+                video_summary = f"Input video {sid} is {dur:.1f}s long"
+            else:
+                video_list = ", ".join(f"{sid} ({dur:.1f}s)" for sid, dur in fallback_videos)
+                video_summary = f"Input videos {video_list} exceed the expected length"
+            multi_lvs_fallback_warning: str | None = (
+                f"⚠️ **Note:** {video_summary}. "
+                f"Please use 'Long Video Summarization' for videos longer than {config.lvs_video_length}s.\n\n"
+            )
+        else:
+            multi_lvs_fallback_warning = None
+
+        # Step 2: Collect base VLM prompt upfront (if any base videos and HITL enabled)
+        vlm_prompt_override: str | None = None
+        if base_sensor_ids and config.hitl_enabled:
+            thread_id = ContextState.get().conversation_id.get()
+            current_prompt = _get_prompt(thread_id)
+            resolved_prompt = await _collect_hitl_vlm_prompt(
+                current_prompt,
+                sensor_ids=base_sensor_ids,
+                total_videos=request_total_videos,
+            )
+            if resolved_prompt is None:
+                return VideoReportGenOutput(
+                    summary="Report generation was cancelled by the user.",
+                    http_url=None,
+                )
+            vlm_prompt_override = resolved_prompt
+            _store_prompt(thread_id, resolved_prompt)
+            logger.info(f"Collected VLM prompt for base videos: '{resolved_prompt[:100]}...'")
+
+        # Step 3: Build tasks — LVS group as a single call, base VLM as individual calls
+        logger.info(f"Dispatching videos (LVS: {len(lvs_sensor_ids)}, VLM: {len(base_sensor_ids)})")
+
+        tasks: list[tuple[list[str], Any]] = []
+
+        if lvs_sensor_ids:
+            lvs_input = VideoReportGenInput(
+                sensor_id=lvs_sensor_ids if len(lvs_sensor_ids) > 1 else lvs_sensor_ids[0],
+                user_query=report_input.user_query,
+                vlm_reasoning=report_input.vlm_reasoning,
+            )
+            tasks.append(
+                (
+                    lvs_sensor_ids,
+                    _video_report_gen_single(lvs_input, request_total_videos=request_total_videos),
+                )
+            )
+
+        for sid in base_sensor_ids:
+            base_input = VideoReportGenInput(
+                sensor_id=sid,
+                user_query=report_input.user_query,
+                vlm_reasoning=report_input.vlm_reasoning,
+            )
+            tasks.append(([sid], _video_report_gen_single(base_input, vlm_prompt_override=vlm_prompt_override)))
+
+        results = await asyncio.gather(*[coro for _, coro in tasks], return_exceptions=True)
+
+        # Step 4: Aggregate results from both groups
+        all_reports: list[dict[str, Any]] = []
+        total_file_size = 0
+        total_pdf_file_size = 0
+        successful_count = 0
+        failed_videos: list[str] = []
+        shared_hitl_prompts: dict[str, Any] | None = None
+
+        for (task_sids, _), result_or_exception in zip(tasks, results, strict=True):
+            if isinstance(result_or_exception, BaseException):
+                logger.error(f"Failed to process {task_sids}: {result_or_exception}")
+                for sid in task_sids:
+                    failed_videos.append(f"{sid} (Error: {result_or_exception!s})")
+                continue
+
+            video_result: VideoReportGenOutput = result_or_exception
+
+            if shared_hitl_prompts is None and video_result.hitl_prompts:
+                shared_hitl_prompts = video_result.hitl_prompts
+
+            if vlm_prompt_override and shared_hitl_prompts is None:
+                shared_hitl_prompts = {"vlm_prompt": vlm_prompt_override}
+
+            if video_result.all_reports:
+                for report in video_result.all_reports:
+                    successful_count += 1
+                    all_reports.append(report)
+                    total_file_size += report.get("file_size", 0)
+                    total_pdf_file_size += report.get("pdf_file_size", 0)
+            elif video_result.http_url:
+                successful_count += 1
+                all_reports.append(
+                    {
+                        "sensor_id": task_sids[0],
+                        "http_url": video_result.http_url,
+                        "pdf_url": video_result.pdf_url,
+                        "file_size": video_result.file_size,
+                        "pdf_file_size": video_result.pdf_file_size,
+                        "video_url": video_result.video_url,
+                    }
+                )
+                total_file_size += video_result.file_size
+                total_pdf_file_size += video_result.pdf_file_size
+
+        # Build summary
+        method_parts = []
+        if lvs_sensor_ids:
+            method_parts.append(f"{len(lvs_sensor_ids)} via LVS")
+        if base_sensor_ids:
+            method_parts.append(f"{len(base_sensor_ids)} via standard VLM")
+        method_str = ", ".join(method_parts)
+
+        summary_parts = [
+            f"Processed {len(sensor_ids)} video(s) ({method_str}): "
+            f"{successful_count} successful, {len(failed_videos)} failed.\n",
+        ]
+
+        if failed_videos:
+            summary_parts.append("\n**Failed videos:**")
+            for failed in failed_videos:
+                summary_parts.append(f"- {failed}")
+            summary_parts.append("")
+
+        summary = "\n".join(summary_parts)
+
+        first_http_url: str | None = (
+            str(all_reports[0]["http_url"]) if all_reports and all_reports[0].get("http_url") else None
+        )
+        first_pdf_url: str | None = (
+            str(all_reports[0]["pdf_url"]) if all_reports and all_reports[0].get("pdf_url") else None
+        )
+
+        return VideoReportGenOutput(
+            http_url=first_http_url,
+            pdf_url=first_pdf_url,
+            summary=summary,
+            file_size=total_file_size,
+            pdf_file_size=total_pdf_file_size,
+            all_reports=all_reports,
+            hitl_prompts=shared_hitl_prompts,
+            lvs_fallback_warning=multi_lvs_fallback_warning,
+        )
+
+    async def _generate_single_report(
+        sensor_id: str,
+        vlm_content: str,
+        user_query: str,
+        hitl_prompts: dict | None,
+        video_url_tool: Any,
+        picture_url_tool: Any,
+        object_store: Any,
+    ) -> dict[str, Any]:
+        """
+        Generate a single video report (markdown and PDF).
+
+        Args:
+            sensor_id: The video sensor ID
+            vlm_content: Formatted VLM analysis content
+            user_query: The user's query
+            hitl_prompts: Optional HITL prompts
+            video_url_tool: Tool for getting video URLs
+            picture_url_tool: Tool for getting snapshots
+            object_store: Object store for saving files
+
+        Returns:
+            dict with report metadata (http_url, pdf_url, file_size, pdf_file_size, video_url)
+        """
+        # Create report header
+        report_header = _create_report_header(sensor_id, user_query, hitl_prompts=hitl_prompts)
+
+        # Inject snapshots and video clips
+        if picture_url_tool:
+            vlm_content = await _inject_snapshots(vlm_content, sensor_id, picture_url_tool)
+
+        if config.vst_internal_url and config.vst_external_url:
+            vlm_content = await _inject_video_clips(
+                vlm_content, sensor_id, config.vst_internal_url, config.vst_external_url
+            )
+
+        markdown_content = report_header + vlm_content
+
+        # Fetch video URL
+        video_url = None
+        if video_url_tool:
+            try:
+                video_result = await video_url_tool.ainvoke(input={"sensor_id": sensor_id})
+                video_url = video_result.video_url
+                logger.info(f"Video URL for '{sensor_id}': {video_url}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch video URL for '{sensor_id}': {e}")
+
+        # Append video URL to report
+        if video_url:
+            markdown_content += "\n\n## Resources\n\n"
+            markdown_content += f"**Video Playback:**\n\n{video_url}\n\n"
+
+        # Save reports to object store
+        # Include sensor_id in filename to avoid collisions in parallel processing
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_sensor_id = sensor_id.replace("/", "_").replace(" ", "_").replace(":", "_")
+        filename = f"vss_report_{safe_sensor_id}_{timestamp_str}.md"
+        pdf_filename = filename.replace(".md", ".pdf")
+
+        # Save markdown
+        http_url, file_size = await _save_markdown_to_object_store(markdown_content, filename, object_store, config)
+
+        # Save PDF
+        pdf_url, pdf_file_size = await _save_pdf_to_object_store(
+            markdown_content, filename, pdf_filename, object_store, config
+        )
+
+        logger.info(f"Report generated for '{sensor_id}': {http_url}")
+
+        return {
+            "sensor_id": sensor_id,
+            "http_url": http_url,
+            "pdf_url": pdf_url,
+            "file_size": file_size,
+            "pdf_file_size": pdf_file_size,
+            "video_url": video_url,
+        }
+
+    async def _video_report_gen_single(
+        report_input: VideoReportGenInput,
+        vlm_prompt_override: str | None = None,
+        request_total_videos: int | None = None,
+    ) -> VideoReportGenOutput:
+        """
+        Generate a video analysis report for one video (or a batch of LVS videos).
+
+        Args:
+            report_input: Input with sensor_id (str or list[str] for LVS batch).
+            vlm_prompt_override: Pre-collected free-text prompt for base VLM videos,
+                bypasses per-video HITL when provided.
+            request_total_videos: Total number of videos in the user's original request,
+                forwarded to the LVS tool so its HITL popups can show
+                "Setting prompt for X out of Y videos" when only a subset is dispatched
+                here. ``None`` when this call covers the whole request.
+        """
+        sensor_id = report_input.sensor_id if isinstance(report_input.sensor_id, str) else report_input.sensor_id[0]
+        logger.info(f"Generating report for sensor '{sensor_id}'")
         logger.info(f"User query: {report_input.user_query}")
 
-        # Decide which video understanding tool to use based on user's explicit request
+        # Decide which video understanding tool to use based on duration
         selected_tool = video_understanding_tool  # Default to regular tool
         tool_name = "video_understanding"
         lvs_fallback_warning = ""
@@ -1525,7 +1833,7 @@ Enter your choice or press Submit to keep current value:"""
         # Use LVS only if explicitly requested by user
 
         # based on config, use lvs if video duration is longer than config.lvs_video_length
-        stream_id = await get_stream_id(report_input.sensor_id, config.vst_internal_url)
+        stream_id = await get_stream_id(sensor_id, config.vst_internal_url)
         start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)
         start_dt = iso8601_to_datetime(start_timestamp)
         end_dt = iso8601_to_datetime(end_timestamp)
@@ -1541,8 +1849,8 @@ Enter your choice or press Submit to keep current value:"""
                     f"Falling back to standard video_understanding tool. for video duration {duration_seconds:.1f}s > {config.lvs_video_length}s"
                 )
                 lvs_fallback_warning = (
-                    f"⚠️ **Note:** Input video {report_input.sensor_id} is {duration_seconds:.1f}s long. \n"
-                    f"Please use Long video Summarization' for videos longer than {config.lvs_video_length}s.\n\n"
+                    f"⚠️ **Note:** Input video {sensor_id} is {duration_seconds:.1f}s long. "
+                    f"Please use 'Long Video Summarization' for videos longer than {config.lvs_video_length}s.\n\n"
                 )
         else:
             logger.info(
@@ -1553,15 +1861,14 @@ Enter your choice or press Submit to keep current value:"""
         chunks: list[tuple[float, float]] | None = None  # Only used for standard VLM
         clean_prompt = None  # Track the VLM prompt for report header
         if tool_name == "lvs_video_understanding":
-            # LVS tool manages its own prompts via HITL - no chunking needed
-            logger.info("Using LVS tool (prompts managed by HITL workflow)")
+            logger.info("Using LVS tool for video analysis")
 
-            # Step 3: Run LVS analysis on entire video
-            vlm_input: dict[str, str | bool] = {
+            vlm_input: dict[str, Any] = {
                 "sensor_id": report_input.sensor_id,
             }
+            if request_total_videos is not None:
+                vlm_input["request_total_videos"] = request_total_videos
 
-            # Add vlm_reasoning if specified
             if report_input.vlm_reasoning is not None:
                 vlm_input["vlm_reasoning"] = report_input.vlm_reasoning
 
@@ -1569,19 +1876,18 @@ Enter your choice or press Submit to keep current value:"""
                 vlm_results = [await selected_tool.ainvoke(input=vlm_input)]
             except Exception as e:
                 logger.exception(f"Video Analysis Report: Failed to run LVS analysis: {e}")
-                raise ValueError(
-                    f"Video Analysis Report: Failed to analyze video '{report_input.sensor_id}': {e}"
-                ) from e
+                raise ValueError(f"Video Analysis Report: Failed to analyze video(s): {e}") from e
         else:
             # Standard VLM: divide video into chunks and process in parallel
 
-            # HITL: Collect/confirm VLM prompt if enabled
-            if config.hitl_enabled:
+            if vlm_prompt_override is not None:
+                logger.info(f"[PROMPT LOADED] Using pre-collected VLM prompt: '{vlm_prompt_override[:100]}...'")
+                clean_prompt = _remove_som_markers(vlm_prompt_override)
+            elif config.hitl_enabled:
                 thread_id = ContextState.get().conversation_id.get()
                 current_prompt = _get_prompt(thread_id)
                 resolved_prompt = await _collect_hitl_vlm_prompt(current_prompt)
 
-                # Check if user cancelled
                 if resolved_prompt is None:
                     logger.info("Report generation cancelled by user")
                     return VideoReportGenOutput(
@@ -1602,7 +1908,7 @@ Enter your choice or press Submit to keep current value:"""
                 logger.info(f"[PROMPT LOADED] video_report_gen.vlm_prompt from CONFIG: '{config.vlm_prompt[:100]}...'")
                 clean_prompt = _remove_som_markers(config.vlm_prompt)
 
-            stream_id = await get_stream_id(report_input.sensor_id, config.vst_internal_url)
+            stream_id = await get_stream_id(sensor_id, config.vst_internal_url)
             start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)
             start_dt = iso8601_to_datetime(start_timestamp)
             end_dt = iso8601_to_datetime(end_timestamp)
@@ -1655,7 +1961,7 @@ Enter your choice or press Submit to keep current value:"""
                 if uses_float_timestamps:
                     # Non-stream mode: pass float offsets (seconds since beginning of stream)
                     chunk_vlm_input: dict[str, Any] = {
-                        "sensor_id": report_input.sensor_id,
+                        "sensor_id": sensor_id,
                         "start_timestamp": chunk_start,
                         "end_timestamp": chunk_end,
                         "user_prompt": vlm_prompt,
@@ -1665,7 +1971,7 @@ Enter your choice or press Submit to keep current value:"""
                     chunk_start_dt = start_dt + timedelta(seconds=chunk_start)
                     chunk_end_dt = start_dt + timedelta(seconds=chunk_end)
                     chunk_vlm_input = {
-                        "sensor_id": report_input.sensor_id,
+                        "sensor_id": sensor_id,
                         "start_timestamp": datetime_to_iso8601(chunk_start_dt),
                         "end_timestamp": datetime_to_iso8601(chunk_end_dt),
                         "user_prompt": vlm_prompt,
@@ -1686,9 +1992,7 @@ Enter your choice or press Submit to keep current value:"""
                 )
             except Exception as e:
                 logger.exception(f"Video Analysis Report: Failed to run VLM analysis: {e}")
-                raise ValueError(
-                    f"Video Analysis Report: Failed to analyze video '{report_input.sensor_id}': {e}"
-                ) from e
+                raise ValueError(f"Video Analysis Report: Failed to analyze video '{sensor_id}': {e}") from e
 
         # Step 4: Create report with header and VLM analysis
         logger.info(f"Processing {tool_name} response")
@@ -1696,10 +2000,13 @@ Enter your choice or press Submit to keep current value:"""
         # Extract HITL prompts if using LVS (needed for header)
         hitl_prompts = None
         if tool_name == "lvs_video_understanding" and vlm_results:
+            lvs_data = None
             try:
-                # Parse the first LVS result to extract HITL prompts
                 lvs_data = json.loads(vlm_results[0])
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"Failed to parse LVS response as JSON: {e}, falling back to raw formatting")
 
+            if lvs_data is not None:
                 # Check if LVS was aborted by user
                 if lvs_data.get("status") == LVSStatus.ABORTED.value:
                     logger.info("LVS analysis was aborted by user, returning aborted message")
@@ -1710,14 +2017,55 @@ Enter your choice or press Submit to keep current value:"""
 
                 hitl_prompts = lvs_data.get("hitl_prompts")
 
-            except Exception as e:
-                logger.warning(f"Failed to extract HITL prompts from LVS response: {e}")
+                # Check if this is a multi-video response (has "results" field)
+                if "results" in lvs_data:
+                    # Multi-video response - generate individual reports for each video
+                    logger.info(f"Multi-video LVS response detected: {lvs_data['videos_processed']} videos")
 
-        report_header = _create_report_header(
-            report_input.sensor_id,
-            report_input.user_query,
-            hitl_prompts=hitl_prompts,
-        )
+                    all_reports: list[dict[str, Any]] = []
+                    total_file_size = 0
+                    total_pdf_file_size = 0
+
+                    # Process each video result
+                    for video_result in lvs_data["results"]:
+                        video_sensor_id = video_result["sensor_id"]
+                        logger.info(f"Generating report for '{video_sensor_id}'")
+
+                        # Format LVS response for this video
+                        video_result_str = json.dumps(video_result)
+                        vlm_content = _format_lvs_response(video_result_str)
+
+                        # Generate the report using helper method
+                        report_metadata = await _generate_single_report(
+                            sensor_id=video_sensor_id,
+                            vlm_content=vlm_content,
+                            user_query=report_input.user_query,
+                            hitl_prompts=hitl_prompts,
+                            video_url_tool=video_url_tool,
+                            picture_url_tool=picture_url_tool,
+                            object_store=object_store,
+                        )
+
+                        all_reports.append(report_metadata)
+                        total_file_size += report_metadata["file_size"]
+                        total_pdf_file_size += report_metadata["pdf_file_size"]
+
+                    # Build summary
+                    summary_parts = [
+                        f"Processed {lvs_data['videos_processed']} video(s) using long video summarization.\n",
+                    ]
+                    if lvs_data.get("failed_videos"):
+                        summary_parts.append(f"\n**Failed videos:** {', '.join(lvs_data['failed_videos'])}")
+
+                    return VideoReportGenOutput(
+                        http_url=all_reports[0]["http_url"] if all_reports else None,
+                        pdf_url=all_reports[0]["pdf_url"] if all_reports else None,
+                        summary="\n".join(summary_parts),
+                        file_size=total_file_size,
+                        pdf_file_size=total_pdf_file_size,
+                        hitl_prompts=hitl_prompts,
+                        all_reports=all_reports,
+                    )
 
         # Format results based on tool type
         if tool_name == "lvs_video_understanding":
@@ -1740,81 +2088,54 @@ Enter your choice or press Submit to keep current value:"""
                 normalized_results.append(filtered)
             vlm_content = "\n\n".join(normalized_results)
 
-        # Step 4b: Inject snapshots for timestamps found in VLM response
-        if picture_url_tool:
-            vlm_content = await _inject_snapshots(
-                vlm_content,
-                report_input.sensor_id,
-                picture_url_tool,
-            )
-
-        # Step 4c: Inject video clip links for timestamps found in VLM response
-        if config.vst_internal_url and config.vst_external_url:
-            vlm_content = await _inject_video_clips(
-                vlm_content,
-                report_input.sensor_id,
-                config.vst_internal_url,
-                config.vst_external_url,
-            )
-
-        markdown_content = report_header + vlm_content
-
-        # Step 5: Fetch video URL
-        video_url = None
-
-        if video_url_tool:
-            try:
-                video_result = await video_url_tool.ainvoke(
-                    input={
-                        "sensor_id": report_input.sensor_id,
-                    }
-                )
-                video_url = video_result.video_url
-                logger.info(f"Video URL: {video_url}")
-            except Exception as e:
-                logger.warning(f"Video Analysis Report: Failed to fetch video URL: {e}")
-
-        # Append video URL to report
-        # FIX: The URL is placed in its own paragraph (separated by \n\n) instead of
-        # inline with the label. When both were on the same line, the CSS
-        # text-align:justify caused xhtml2pdf to stretch the space between "Video
-        # Playback:" and the URL across the full page width in the PDF output.
-        if video_url:
-            markdown_content += "\n\n## Resources\n\n"
-            markdown_content += f"**Video Playback:**\n\n{video_url}\n\n"
-
-        # Step 6: Save reports to object store
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"vss_report_{timestamp_str}.md"
-        pdf_filename = filename.replace(".md", ".pdf")
-
-        # Save markdown
-        http_url, file_size = await _save_markdown_to_object_store(markdown_content, filename, object_store, config)
-
-        # Save PDF
-        pdf_url, pdf_file_size = await _save_pdf_to_object_store(
-            markdown_content, filename, pdf_filename, object_store, config
+        # Generate the report using the helper method
+        report_metadata = await _generate_single_report(
+            sensor_id=sensor_id,
+            vlm_content=vlm_content,
+            user_query=report_input.user_query,
+            hitl_prompts=hitl_prompts,
+            video_url_tool=video_url_tool,
+            picture_url_tool=picture_url_tool,
+            object_store=object_store,
         )
 
-        # Step 7: Create summary
-        summary = ""
-        if lvs_fallback_warning:
-            summary += lvs_fallback_warning
-        summary += f"Report generated for '{report_input.sensor_id}'.\n\n"
+        # Create summary
 
-        logger.info(f"report generation complete: {http_url}")
+        summary = f"Report generated for '{sensor_id}'.\n\n"
+
+        logger.info(f"report generation complete: {report_metadata['http_url']}")
 
         return VideoReportGenOutput(
-            http_url=http_url,
-            pdf_url=pdf_url,
-            object_store_key=filename,
+            http_url=report_metadata["http_url"],
+            pdf_url=report_metadata["pdf_url"],
+            object_store_key=None,  # Not set in helper
             summary=summary,
-            file_size=file_size,
-            pdf_file_size=pdf_file_size,
-            content=markdown_content,
-            video_url=video_url,
+            file_size=report_metadata["file_size"],
+            pdf_file_size=report_metadata["pdf_file_size"],
+            content=None,  # Not needed
+            video_url=report_metadata["video_url"],
             hitl_prompts=hitl_prompts,
+            lvs_fallback_warning=lvs_fallback_warning or None,
         )
+
+    async def _video_report_gen(report_input: VideoReportGenInput) -> VideoReportGenOutput:
+        """
+        Generate a video analysis report for uploaded videos (Video(uploaded) Report mode).
+
+        This tool:
+        1. Sanitizes VLM prompts (removes SOM markers)
+        2. Calls video_understanding tool (LVS for long videos, standard VLM for short videos)
+        3. Formats results using optional template and LLM
+        4. Saves markdown and PDF to object store
+        5. Returns URLs and metadata
+
+        Supports multiple videos with mixed LVS/VLM routing and parallel processing.
+        """
+        sensor_ids = report_input.sensor_id if isinstance(report_input.sensor_id, list) else [report_input.sensor_id]
+
+        if len(sensor_ids) > 1:
+            return await _process_multiple_videos(report_input, sensor_ids)
+        return await _video_report_gen_single(report_input)
 
     desc = _video_report_gen.__doc__ if _video_report_gen.__doc__ is not None else ""
     if config.lvs_video_understanding_tool is not None:

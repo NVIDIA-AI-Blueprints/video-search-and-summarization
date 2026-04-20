@@ -17,7 +17,6 @@
 from unittest.mock import AsyncMock
 
 import pytest
-
 from vss_agents.tools.chart_generator import ChartGeneratorConfig
 from vss_agents.tools.chart_generator import ChartGenExecOutput
 from vss_agents.tools.chart_generator import chart_generator

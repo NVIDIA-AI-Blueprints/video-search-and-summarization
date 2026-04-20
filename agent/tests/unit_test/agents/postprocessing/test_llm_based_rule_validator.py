@@ -21,7 +21,6 @@ from unittest.mock import patch
 
 from langchain_core.exceptions import OutputParserException
 import pytest
-
 from vss_agents.agents.postprocessing.validators.llm_based_rule_validator import LLMBasedRuleValidator
 from vss_agents.agents.postprocessing.validators.llm_based_rule_validator import LLMBasedRuleValidatorOutput
 

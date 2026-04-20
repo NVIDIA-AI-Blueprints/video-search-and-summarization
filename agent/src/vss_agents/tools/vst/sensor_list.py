@@ -18,6 +18,8 @@
 from collections.abc import AsyncGenerator
 import logging
 
+from vss_agents.tools.vst.utils import get_name_to_stream_id_map
+
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -25,8 +27,6 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
-
-from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 
 logger = logging.getLogger(__name__)
 

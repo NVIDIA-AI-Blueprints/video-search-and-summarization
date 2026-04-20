@@ -15,7 +15,6 @@
 """Tests for vss_agents/utils/parser.py."""
 
 import pytest
-
 from vss_agents.utils.parser import ReActOutputParserError
 from vss_agents.utils.parser import parse_function_calls
 

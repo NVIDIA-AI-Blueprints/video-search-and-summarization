@@ -20,7 +20,6 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
-
 from vss_agents.tools.vst.snapshot import VSTSnapshotConfig
 from vss_agents.tools.vst.snapshot import VSTSnapshotISOInput
 from vss_agents.tools.vst.snapshot import VSTSnapshotOffsetInput
