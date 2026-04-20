@@ -164,6 +164,34 @@ def _min_gpu_driver_version(mode_spec: dict) -> str | None:
         return None
     return _LOCAL_NIM_MIN_DRIVER
 
+
+# Edge platforms that don't have an arm64 NIM for the Nano 9B LLM —
+# shared mode on these must use the Edge 4B model via a standalone vLLM
+# container, which the blueprint deploys with LLM_MODE=remote. See
+# skills/deploy/references/edge.md.
+_EDGE_PLATFORMS_WITHOUT_LOCAL_LLM_NIM = ("DGX-SPARK", "IGX-THOR", "AGX-THOR")
+
+
+def effective_mode_spec(platform: str, mode: str) -> dict:
+    """Return the mode spec with platform-specific overrides applied.
+
+    On edge platforms (DGX-SPARK / IGX-THOR / AGX-THOR), `shared` mode
+    maps to llm_mode=remote (Edge 4B runs as a standalone vLLM on
+    localhost:30081 — blueprint treats it as a remote endpoint) +
+    vlm_mode=local_shared (VLM NIM still deploys locally). Other modes
+    and other platforms pass through unchanged.
+    """
+    spec = dict(MODES[mode])
+    if mode == "shared" and platform in _EDGE_PLATFORMS_WITHOUT_LOCAL_LLM_NIM:
+        spec["llm_mode"] = "remote"
+        spec["vlm_mode"] = "local_shared"
+        spec["description"] = (
+            "Edge shared mode: Edge 4B LLM via standalone vLLM on port "
+            "30081 (LLM_MODE=remote), VLM NIM shares the same GPU"
+        )
+        spec["_edge_override"] = True
+    return spec
+
 # ---------------------------------------------------------------------------
 # Profile definitions
 # ---------------------------------------------------------------------------
@@ -266,7 +294,7 @@ def generate_instruction(
     vlm_remote: dict | None,
 ) -> str:
     """High-level goal + context. Agent uses /deploy skill for the workflow."""
-    mode_spec = MODES[mode]
+    mode_spec = effective_mode_spec(platform, mode)
     profile_def = PROFILES[profile]
     is_debug = bool(profile_def.get("debug"))
     underlying = profile_def.get("derives_from", profile)
@@ -340,6 +368,33 @@ def generate_instruction(
         "",
         "- `NGC_CLI_API_KEY` is available in the environment for pulling NIM "
         "containers from `nvcr.io`.",
+    ]
+    if mode_spec.get("_edge_override"):
+        lines += [
+            "- `HF_TOKEN` is available — required for the Edge 4B vLLM "
+            "container to pull model weights from Hugging Face.",
+            "",
+            "## Edge-platform deployment (mandatory)",
+            "",
+            f"This task runs on `{platform}` in shared mode. The default "
+            "`nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image has a "
+            "broken arm64 manifest — you MUST use the Edge 4B recipe from "
+            "[`skills/deploy/references/edge.md`](../../skills/deploy/references/edge.md):",
+            "",
+            "1. Run the `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` "
+            "model as a standalone vLLM container on port 30081 "
+            "(`nvcr.io/nvidia/vllm:26.02-py3`, `--tool-call-parser qwen3_coder`, "
+            "`--gpu-memory-utilization 0.25`).",
+            f"2. Deploy the agent with `--use-remote-llm --hardware-profile {platform} "
+            "--vlm-env-file deployments/nim/cosmos-reason2-8b/hw-"
+            f"{platform}-shared.env` (LLM_MODE ends up `remote` in .env, VLM_MODE "
+            "stays `local_shared`).",
+            "3. Use `config_edge.yml` if present; if missing, copy `config.yml` "
+            "and simplify the planning prompt.",
+            "",
+            "Do NOT attempt a local Nano 9B NIM — the arm64 image is broken.",
+        ]
+    lines += [
         "",
         "## Success criteria",
         "",
@@ -362,7 +417,7 @@ def generate_test_script(profile: str, profile_def: dict, platform: str, mode: s
     """Verifier: check .env config, running containers, healthy endpoints."""
     containers = profile_def["expected_containers"]
     endpoints = profile_def["expected_endpoints"]
-    mode_spec = MODES[mode]
+    mode_spec = effective_mode_spec(platform, mode)
     # base + base-debug both run the E2E sanity check.
     underlying = profile_def.get("derives_from", profile)
     run_e2e = underlying == "base"
@@ -497,7 +552,7 @@ def generate_solve_script(
     vlm_remote: dict | None,
 ) -> str:
     """Gold solution: configure .env + deploy."""
-    mode_spec = MODES[mode]
+    mode_spec = effective_mode_spec(platform, mode)
     env_profile = PROFILES[profile].get("derives_from", profile)
 
     overrides: dict[str, str] = {
@@ -592,7 +647,7 @@ def generate_task(
 ) -> None:
     """Write a single Harbor task directory for <profile>/<platform>-<mode>."""
     platform_spec = PLATFORMS[platform]
-    mode_spec = MODES[mode]
+    mode_spec = effective_mode_spec(platform, mode)
 
     task_id = make_task_id(platform, mode)
     task_dir = output_root / profile / task_id
