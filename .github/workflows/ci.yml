@@ -240,7 +240,20 @@ jobs:
         run: npm run build
 
   # ---------------------------------------------------------------------------
-  # Job 7: Trigger downstream pipeline on main and poll it to completion
+  # Job 7: Folder structure enforcement
+  # ---------------------------------------------------------------------------
+  folder-structure:
+    name: Check folder structure
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate folder structures
+        run: python3 .github/scripts/check_folder_structure.py
+
+  # ---------------------------------------------------------------------------
+  # Job 8: Trigger downstream pipeline on main and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
@@ -251,6 +264,7 @@ jobs:
       - security
       - frontend-lint
       - frontend-build
+      - folder-structure
     runs-on: self-hosted
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
