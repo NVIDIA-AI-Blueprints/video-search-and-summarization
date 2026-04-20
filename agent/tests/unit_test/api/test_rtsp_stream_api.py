@@ -100,12 +100,12 @@ class TestAddStreamRequest:
             sensor_url="rtsp://camera:554/stream",
             name="camera-1",
             username="admin",
-            password="pw",
+            password="pw",  # pragma: allowlist secret
             location="Building A",
             tags="entrance,security",
         )
         assert request.username == "admin"
-        assert request.password == "pw"
+        assert request.password == "pw"  # pragma: allowlist secret
         assert request.location == "Building A"
         assert request.tags == "entrance,security"
 

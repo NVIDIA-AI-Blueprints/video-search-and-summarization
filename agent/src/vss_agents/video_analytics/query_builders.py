@@ -87,8 +87,8 @@ class IncidentQueryBuilder:
             elif source_type == "place":
                 # Use wildcard matching to allow partial place name matches
                 # Works for both city names and intersection names
-                # Example: "Dubuque" matches "city=Dubuque/intersection=HWY_20_AND_LOCUST"
-                # Example: "HWY_20_AND_LOCUST" matches "city=Dubuque/intersection=HWY_20_AND_LOCUST"
+                # Example: "Dubuque" matches "city=Dubuque/intersection=HWY_20_AND_LOCUST"  # pragma: allowlist secret
+                # Example: "HWY_20_AND_LOCUST" matches "city=Dubuque/intersection=HWY_20_AND_LOCUST"  # pragma: allowlist secret
                 query["query"]["bool"]["must"].append({"wildcard": {"place.name.keyword": f"*{source}*"}})
 
         # VLM verdict filter - only if vlm_verified is enabled and verdict is provided
