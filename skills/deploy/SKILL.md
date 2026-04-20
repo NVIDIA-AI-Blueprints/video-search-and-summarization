@@ -162,6 +162,28 @@ sudo rm -rf "$DATA/data_log/vst/postgres"  # postgres re-initializes on next sta
 docker restart centralizedb-dev
 ```
 
+### Step 1c — If deploying on Brev, set up secure-link env vars
+
+On a Brev-managed instance, VSS is accessed from the browser via a
+Cloudflare-fronted secure link that tunnels to an nginx proxy on port 7777.
+The proxy consolidates UI + Agent API + VST behind one origin (CORS-safe).
+
+Source the helper **before** `docker compose up`:
+
+```bash
+source skills/deploy/scripts/brev_setup.sh
+```
+
+It detects `/etc/environment`'s `BREV_ENV_ID` and exports `PROXY_PORT=7777`
+and `BREV_LINK_PREFIX=77770` (launchable default; override with
+`BREV_LINK_PREFIX=7777` if the secure link was created manually without
+the `0` suffix). On non-Brev instances the script is a no-op.
+
+See [`references/brev.md`](references/brev.md) for:
+- Per-profile secure-link requirements (base needs 1, lvs/search/alerts need 2–3)
+- The launchable `0`-suffix quirk
+- Common CORS / 502 troubleshooting
+
 ### Step 2 — Build env_overrides
 
 Build a dictionary of env var overrides based on user intent. Only include vars that differ from the profile's `.env` defaults.
