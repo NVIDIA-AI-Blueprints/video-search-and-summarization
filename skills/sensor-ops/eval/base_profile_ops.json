@@ -1,0 +1,36 @@
+{
+  "skills": ["sensor-ops"],
+  "env": "A deployed VSS base profile on a Brev-launchable host. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "expects": [
+    {
+      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
+      "checks": [
+        "The upload API call (PUT /vst/api/v1/storage/file/<filename>?timestamp=...) returns HTTP 2xx",
+        "The response JSON contains both a sensorId and a streamId (non-empty UUIDs)",
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
+      ]
+    },
+    {
+      "query": "Extract a snapshot from 5 seconds into the uploaded video and return a shareable URL.",
+      "checks": [
+        "GET /vst/api/v1/replay/stream/<streamId>/picture/url?startTime=2025-01-01T00:00:05.000Z returns a JSON object with a non-empty imageUrl field",
+        "The returned imageUrl matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...)",
+        "curl -sfI <imageUrl> returns HTTP 200",
+        "The response Content-Type starts with image/ (typically image/jpeg)",
+        "The response Content-Length is greater than 2000 bytes (rejects empty / error-placeholder images)"
+      ]
+    },
+    {
+      "query": "Extract a video clip from 3 to 5 seconds (mp4 container) from the uploaded video and return a shareable URL.",
+      "checks": [
+        "GET /vst/api/v1/storage/file/<streamId>/url?startTime=2025-01-01T00:00:03.000Z&endTime=2025-01-01T00:00:05.000Z&container=mp4&disableAudio=true returns a JSON object with a non-empty videoUrl field",
+        "The returned videoUrl matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...)",
+        "curl -sfI <videoUrl> returns HTTP 200",
+        "The response Content-Type starts with video/ (typically video/mp4)",
+        "The response Content-Length is greater than 10000 bytes (rejects empty / error-page responses)",
+        "The response JSON's startTime is within a minute of the requested 00:00:03 and expiryISO is in the future"
+      ]
+    }
+  ]
+}
