@@ -16,10 +16,11 @@ Watch the GitHub repo for PRs targeting `develop` from branches matching
 diff. If it modifies anything under `skills/`, scan the changed skills for
 `eval/*.json` specs. For each spec, generate a matching Harbor adapter under
 `tools/eval/harbor/adapters/<skill>/`, append one eval task per applicable
-platform to the four per-platform subagent queues, wait for subagents to
-report back, post the results (with a Harbor trace URL) as a comment on the
-PR, and finally raise your own PR carrying the adapter code changes. Then
-loop.
+platform to the **four** per-platform subagent queues —
+**L40S, H100, RTX 6000 Pro, and SPARK (DGX Spark GB10)** — wait for
+subagents to report back, post the results (with a Harbor trace URL) as a
+comment on the source PR, and finally raise your own PR (branch
+`feat/eval-adapter-<N>-<sha>`) carrying the adapter code changes. Then loop.
 
 You do **not** run evals yourself. You do **not** maintain plan JSON files —
 the per-platform subagent queues replace them.
@@ -160,17 +161,30 @@ For each selected platform, append a task entry to that subagent's queue:
 {
   "id": "<uuid>",
   "pr_number": <N>,
-  "head_sha": "<sha>",
+  "pr_head_sha": "<sha>",
+  "pr_url": "https://github.com/<org>/<repo>/pull/<N>",
   "skill": "<name>",
   "profile": "<profile>",
   "platform": "<PLATFORM>",
   "dataset_dir": "tools/eval/harbor/datasets/<skill>/<profile>",
   "task_id": "<platform-short-name>",
   "requires_deployed_vss": true | false,
+  "requires_previous_passed": "<other-task-id>" | null,
+  "eval_spec_path": "skills/<skill>/eval/<profile>.json",
+  "eval_spec_sha": "<blob-sha of the spec at pr_head_sha>",
+  "adapter_sha_before": "<sha of generate.py before regeneration, or null if new>",
+  "adapter_sha_after":  "<sha of generate.py after regeneration>",
   "status": "pending",
-  "added_at": "<utc-iso>"
+  "added_at": "<utc-iso>",
+  "started_at": null,
+  "finished_at": null
 }
 ```
+
+`eval_spec_sha` and `adapter_sha_before/after` let the coordinator decide
+whether a PR is a genuine test change, a rerun of an unchanged test, or an
+adapter-only refactor — which in turn drives the tone of the result
+comment (§ 7).
 
 If the skill chains behind another (e.g., `env.prerequisite_skill = "deploy"`),
 also append the paired deploy task **first** with a matching `id`, and set
@@ -213,20 +227,48 @@ exactly one queue file (`/tmp/subagents/<name>.json`) and one Brev instance.
    ```json
    {
      "id": "<uuid>",
+     "task_id": "<platform-short-name>",
+     "pr_number": <N>,
      "status": "passed" | "failed" | "blocked",
      "reward": 1.0,
+     "checks_passed": 15,
+     "checks_total": 15,
      "result_path": "tools/eval/harbor/results/<run_id>/<task_id>__<hash>",
+     "harbor_trace_url": "https://harbor-<env_id>.brevlab.com/jobs/<run_id>/<task_id>__<hash>",
+     "attempts": 1,
+     "started_at": "<utc-iso>",
      "finished_at": "<utc-iso>",
-     "error_notes": "<short description or null>"
+     "duration_sec": 823,
+     "error_notes": "<short description or null>",
+     "failed_checks": ["imageUrl does not match Brev secure-link pattern", "..."],
+     "suggestion": "<1-2 sentence natural-language observation for the coordinator>"
    }
    ```
+   `failed_checks` mirrors the `FAIL:` lines from `test-stdout.txt` so the
+   coordinator can include them verbatim in the PR comment. `suggestion`
+   is a short free-text hint the subagent writes when it spots an actionable
+   issue (e.g. "the spec's `min_root_disk_gb` is 80 but the deploy needs
+   ~130 GB of image pulls — consider raising it"). **Always include these
+   fields even on success** (`failed_checks=[]`, `suggestion=null`).
 8. Budget: 60 min per deploy task, 30 min per downstream task. On timeout
    kill harbor, mark `failed` with `error_notes="timeout"`, and move on.
 9. Max 3 attempts per task. If all fail, `status=failed` (not blocked).
-10. On SPARK: **never** stop/delete the instance. On the others:
-    — stoppable → `brev stop` once the queue is empty.
-    — non-stoppable (h100 dmz) → `brev delete` once empty.
-    Don't delete the instance between tasks in the same queue.
+
+### When the queue drains
+
+When `len(pending) + len(in_progress) == 0` the subagent is idle. It does
+NOT shut itself down. The coordinator polls each subagent's queue and, when
+it sees all tasks have a matching `results[]` entry AND no new tasks have
+been appended in the last 5 min, issues the instance shutdown itself:
+
+- **SPARK** — no-op (BYOH, see §10). Leave the subagent alive to pick up
+  future tasks.
+- **L40S, RTX 6000 Pro** — coordinator calls `brev stop <instance>`.
+- **H100** (non-stoppable) — coordinator calls `brev delete <instance>`.
+
+Subagents do not shut down instances between tasks in the same queue.
+Teardown is a queue-completion concern only, and only the coordinator
+decides when the queue is complete.
 
 ---
 
@@ -250,16 +292,40 @@ Post once per eval-spec batch (not per task). Example body:
 ## Harbor Eval — `skills/sensor-ops/eval/base_profile_ops.json`
 
 Head: `<sha>` · 3 queries × up to 15 checks · dispatched to 4 platforms
+Queued at `<utc-iso>` · first finished at `<utc-iso>` · last finished at `<utc-iso>`
 
-| Platform | Result | Reward | Trace |
-|---|---|---|---|
-| L40S | ✅ passed | 1.0 (15/15) | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-13-22) |
-| H100 | ✅ passed | 1.0 (15/15) | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-17-01) |
-| RTX PRO 6000 | ❌ failed | 0.87 (13/15) | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-21-44) — *imageUrl not Brev-formatted* |
-| DGX Spark | ✅ passed | 1.0 (15/15) | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-30-19) |
+| Platform | Result | Reward | Duration | Trace |
+|---|---|---|---|---|
+| L40S | ✅ passed | 1.0 (15/15) | 13m 42s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-13-22/l40s__abc) |
+| H100 | ✅ passed | 1.0 (15/15) | 11m 05s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-17-01/h100__def) |
+| RTX 6000 Pro | ❌ failed | 0.87 (13/15) | 14m 23s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-21-44/rtx__ghi) |
+| DGX Spark | ✅ passed | 1.0 (15/15) | 18m 17s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-30-19/spark__jkl) |
 
-<sub>Adapter changes will land in a follow-up PR once this batch is clean.</sub>
+### Failing checks (RTX 6000 Pro)
+
+- imageUrl does not match Brev secure-link pattern (got `http://localhost:30888/...`)
+- Content-Length 847 below 2000-byte minimum for snapshot JPEG
+
+### Subagent suggestions
+
+> **RTX 6000 Pro (failed):** The spec's Brev-link check assumes
+> `BREV_LINK_PREFIX` is exported. On `vss-eval-rtx` this env var is missing
+> from `/etc/environment` — consider documenting the setup step in the spec's
+> `env.description` field, or loosening the check to skip when
+> `BREV_LINK_PREFIX` is unset (see how `test_base_profile_ops.py` already
+> does this).
+
+<sub>This comment is generated by the eval coordinator. Adapter changes
+(if any) will land in a follow-up PR (`feat/eval-adapter-<N>-<sha>`) once
+the batch finishes. The coordinator never edits `skills/` — treat
+suggestions above as input for the skill author to act on.</sub>
 ```
+
+The per-task fields (`failed_checks`, `suggestion`, `duration_sec`, etc.)
+come directly from `results[]` entries written by the subagents (§ 6). The
+coordinator concatenates non-null `suggestion`s into the "Subagent
+suggestions" section; omit the section entirely if all suggestions are
+null.
 
 Post with:
 ```bash
@@ -296,7 +362,7 @@ When every eval spec batch for a given PR has been processed (pass or fail
 doesn't matter — we still want the adapter committed so future CI can rerun
 it), raise a PR from this repo to upstream the adapter:
 
-1. `git checkout -b coordinator/adapter-pr-<N>-<short-sha>`
+1. `git checkout -b feat/eval-adapter-<N>-<short-sha>`
 2. `git add tools/eval/harbor/adapters/<skill>/generate.py` (and any new
     `__init__.py`). Also add any probe/spec files you copied that don't yet
     live in the skills tree.
@@ -305,7 +371,7 @@ it), raise a PR from this repo to upstream the adapter:
     JSONs (ephemeral under `/tmp`).
 4. `git commit -m "eval adapter: add coverage for skills/<name> (PR #<N>)"`
    with a body that includes a link to the source PR.
-5. `gh pr create --base develop --head coordinator/adapter-pr-<N>-<short-sha>`
+5. `gh pr create --base develop --head feat/eval-adapter-<N>-<short-sha>`
    with title `eval adapter for skills/<name> (via #<N>)`.
 6. Post a follow-up comment on the source PR linking the adapter PR.
 
@@ -336,14 +402,30 @@ On startup:
 
 ## 10. What NOT to do
 
+- **NEVER modify `skills/`.** The `skills/` tree is human-owned; only skill
+  authors touch it. If you notice an eval spec is wrong, a probe is broken,
+  a reference doc is stale, or a check would be clearer with a different
+  regex — **post a comment on the source PR with the suggestion**. Do not
+  edit the file and do not include the edit in your adapter PR. Your
+  `feat/eval-adapter-*` PR must only touch `tools/eval/harbor/adapters/`
+  (+ gitignore / `tools/eval/harbor/AGENTS.md` if applicable).
 - Don't commit datasets, results, or queue JSONs to the skill repo.
 - Don't run evals yourself — always dispatch through the per-platform queue.
 - Don't write plan JSONs (the old `tools/eval/harbor/plans/` concept is
   abandoned). If you see existing plan files, leave them alone but never
   create new ones.
-- Don't stop / delete SPARK. BYOH.
-- Don't stop / delete other pre-existing Brev instances (`vss-skill-validator`
-  itself lives on one).
+- Don't skip a platform because it looks "different". All four — L40S,
+  H100, RTX 6000 Pro, SPARK — are first-class. Every eval spec that claims
+  a platform in its matrix (or makes no claim) dispatches to all four.
+  Platform-specific lifecycle rules (below) don't change dispatch behavior.
+- Instance lifecycle rules per platform:
+  - **L40S, RTX 6000 Pro** — stoppable. `brev stop` after the queue drains.
+  - **H100** (dmz.h100x2.pcie) — non-stoppable. `brev delete` after the
+    queue drains to stop billing.
+  - **SPARK** — BYOH registered node. Never `brev stop`, never `brev delete`,
+    never modify its lifecycle. It stays online across runs.
+  - **Pre-existing non-eval instances** (`vss-skill-validator` — the host
+    this coordinator runs on) — never touch.
 - Don't force-push to `develop`, and don't merge your own adapter PRs —
   human review required.
 - Don't leak `HF_TOKEN` / `ANTHROPIC_API_KEY` into PR comments or commit
