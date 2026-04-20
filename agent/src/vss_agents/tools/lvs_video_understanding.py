@@ -49,6 +49,7 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 
+from vss_agents.utils.hitl import format_hitl_popup_header
 from vss_agents.utils.url_translation import translate_url
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,16 @@ class LVSVideoUnderstandingInput(BaseModel):
         ...,
         description="The sensor ID(s) of the video(s) to understand. Can be a single sensor ID or a list for parallel processing.",
     )
+    request_total_videos: int | None = Field(
+        default=None,
+        description=(
+            "Internal field set by the dispatcher (e.g. video_report_gen's mixed-routing "
+            "path) to the total number of videos in the user's original request when this "
+            "tool is invoked with only a subset. When set and larger than the number of "
+            "sensor_ids, HITL popups render 'Setting prompt for X out of Y videos' instead "
+            "of 'Analyzing X video(s)'. Do not populate this field from LLM tool calls."
+        ),
+    )
 
     @field_validator("sensor_id")
     @classmethod
@@ -338,6 +349,7 @@ async def lvs_video_understanding(
         events: list[str],
         objects_of_interest: list[str],
         sensor_ids: list[str] | None = None,
+        total_videos: int | None = None,
     ) -> str:
         """
         Show all LVS configuration and get user confirmation.
@@ -347,16 +359,17 @@ async def lvs_video_understanding(
             events: List of events to detect
             objects_of_interest: List of objects to focus on
             sensor_ids: Optional list of video sensor IDs to show in the prompt context
+            total_videos: Optional total number of videos in the user's request. When
+                set and larger than ``len(sensor_ids)``, the header becomes
+                "Setting prompt for X out of Y videos" to signal the popup applies to
+                a subset (e.g. the LVS group in a mixed-routing batch).
 
         Returns:
             str: Normalized user choice ("/redo", "/cancel", or empty string for proceed)
         """
         config_summary = _format_lvs_config_summary(scenario, events, objects_of_interest)
 
-        video_context = ""
-        if sensor_ids:
-            video_list = ", ".join(f"`{sid}`" for sid in sensor_ids)
-            video_context = f"**Analyzing {len(sensor_ids)} video(s):** {video_list}\n\n"
+        video_context = format_hitl_popup_header(sensor_ids, total_videos)
 
         hitl_template = config.hitl_confirmation_template or DEFAULT_HITL_CONFIRMATION_TEMPLATE
         prompt_text = f"{video_context}{config_summary}\n\n{hitl_template}"
@@ -373,6 +386,7 @@ async def lvs_video_understanding(
     async def _collect_hitl_parameters(
         current_params: tuple[str, list[str], list[str]] | None = None,
         sensor_ids: list[str] | None = None,
+        total_videos: int | None = None,
     ) -> tuple[str, list[str], list[str]] | None:
         """
         Collect scenario, events, and objects_of_interest via HITL.
@@ -383,6 +397,10 @@ async def lvs_video_understanding(
         Args:
             current_params: Optional current parameters (scenario, events, objects_of_interest)
             sensor_ids: Optional list of video sensor IDs to show in the prompt context
+            total_videos: Optional total number of videos in the user's request. When
+                set and larger than ``len(sensor_ids)``, the header becomes
+                "Setting prompt for X out of Y videos" to signal the popup applies to
+                a subset (e.g. the LVS group in a mixed-routing batch).
 
         Returns:
             tuple: (scenario, events, objects_of_interest), or None if cancelled
@@ -393,10 +411,7 @@ async def lvs_video_understanding(
         cancel_info = "\n\n**Note:** Type `/cancel` at any time to abort the video analysis."
 
         # Build video context header if sensor_ids provided
-        video_context = ""
-        if sensor_ids:
-            video_list = ", ".join(f"`{sid}`" for sid in sensor_ids)
-            video_context = f"**Analyzing {len(sensor_ids)} video(s):** {video_list}\n\n"
+        video_context = format_hitl_popup_header(sensor_ids, total_videos)
 
         # Build prompt with current values if they exist
         if current_params:
@@ -651,6 +666,7 @@ async def lvs_video_understanding(
         # Normalize sensor_id to list for unified handling
         sensor_ids = [lvs_input.sensor_id] if isinstance(lvs_input.sensor_id, str) else lvs_input.sensor_id
         is_multi_video = len(sensor_ids) > 1
+        request_total_videos = lvs_input.request_total_videos
 
         # Get thread_id for state persistence
         thread_id = ContextState.get().conversation_id.get()
@@ -678,7 +694,9 @@ async def lvs_video_understanding(
         while True:
             # Step 1: Collect parameters via HITL
             logger.info("Running HITL workflow to collect/confirm parameters")
-            params_result = await _collect_hitl_parameters(current_params, sensor_ids=sensor_ids)
+            params_result = await _collect_hitl_parameters(
+                current_params, sensor_ids=sensor_ids, total_videos=request_total_videos
+            )
 
             # Handle cancellation
             if params_result is None:
@@ -695,7 +713,13 @@ async def lvs_video_understanding(
 
             # Step 2: Show all configs and get confirmation
             logger.info("Showing LVS configuration for user confirmation")
-            user_choice = await _confirm_lvs_request(scenario, events_list, objects_of_interest, sensor_ids=sensor_ids)
+            user_choice = await _confirm_lvs_request(
+                scenario,
+                events_list,
+                objects_of_interest,
+                sensor_ids=sensor_ids,
+                total_videos=request_total_videos,
+            )
 
             if user_choice == "/redo":
                 # User wants to modify parameters - loop back with current values
