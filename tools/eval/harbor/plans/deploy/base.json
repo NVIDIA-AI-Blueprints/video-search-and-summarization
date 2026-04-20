@@ -56,8 +56,19 @@
         "4. For each execution_group in the COPY where status in ('ready','needs_start','needs_provision'): check brev instance via `brev ls`. Start if STOPPED. If provision fails, set that group's status='skipped_no_gpu' in the COPY and mark all its tasks status='skipped_no_gpu'.",
         "5. Dispatch ONE worker subagent per READY group IN PARALLEL (single message, multiple Agent tool calls). Pass each worker: group_id, brev_instance, queue_order (array), progress_file (absolute path to the COPY), and the worker_prompt_template text.",
         "6. Do NOT run trials yourself. Wait for workers to return. Each worker updates progress_file (the COPY) in-place using the json_update_protocol.",
-        "7. After all workers report back, re-read progress_file, compute summary (passed/failed/skipped/blocked per group + overall), update the COPY's summary block, and produce a one-page report to the user."
+        "7. After all workers report back, re-read progress_file, compute summary (passed/failed/skipped/blocked per group + overall), update the COPY's summary block, and produce a one-page report to the user.",
+        "8. Clean up Brev instances to stop billing. For each group's brev_instance in the COPY: if the instance is stoppable (see meta.brev_instances_known.<name>.stoppable or check the provider: hyperstack_*, dmz.*, massedcompute_*, scaleway_* are non-stoppable), run `brev stop <name>`; otherwise run `brev delete <name>` (non-stoppable instances bill 24/7 until deleted — this is CRITICAL). Do NOT skip this step because the eval succeeded; the instances were created for this run and should be torn down unless the user explicitly asks to keep them. Announce the stop/delete actions to the user before executing so they can cancel if they want to keep one for follow-up."
       ],
+      "cleanup_policy": {
+        "why": "Brev instances accrue charges while existing (non-stoppable) or while running (stoppable). A coordinator that completes the eval but forgets to stop/delete can burn hundreds of dollars before the user notices.",
+        "rules": [
+          "Non-stoppable instances (hyperstack_*, dmz.*, massedcompute_*, scaleway_*): `brev delete <name>` — they bill even when idle.",
+          "Stoppable instances (e.g. l40s-48gb.2x, g7e.12xlarge): `brev stop <name>` — they keep their disk and can be restarted later cheaply.",
+          "Address non-stoppable first (higher ongoing cost).",
+          "Do NOT touch instances the coordinator did not create in this run (pre-existing instances or user-registered external nodes).",
+          "If the user instructs 'keep <name> for follow-up', skip cleanup for that instance and note it in the summary."
+        ]
+      },
       "concurrency_rules": [
         "Groups run concurrently (one worker per group, parallel Agent calls).",
         "Within a group, tasks run STRICTLY sequentially \u2014 no two VSS deploys may run on the same host (they share docker + ports 8000/3000/30888 + VST volume).",
