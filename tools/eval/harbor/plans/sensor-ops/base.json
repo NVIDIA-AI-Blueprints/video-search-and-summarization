@@ -1,0 +1,297 @@
+{
+  "meta": {
+    "skills": ["deploy", "sensor-ops"],
+    "profile": "base",
+    "created_at": "2026-04-20",
+    "schema_version": 1,
+    "is_template": true,
+    "do_not_edit_reason": "This file is the immutable template. Each eval run copies it to tools/eval/harbor/results/<run_id>/sensor-ops-base.json and workers update that copy.",
+    "description": "TEMPLATE for chaining deploy -> sensor-ops evaluation on the base profile. Harbor has no native task-dependency mechanism (TaskConfig has no depends_on field), so the coordinator encodes the chain as each execution_group's queue_order: [deploy task, sensor-ops task] on the same Brev instance. The sensor-ops task ASSUMES the VSS base stack is already up — enforced by the 'requires_previous_passed' field on each sensor-ops task. If the deploy step fails or is skipped, the sensor-ops step is blocked automatically by the coordinator.",
+    "source_eval_spec": "skills/sensor-ops/eval/base_profile_ops.json",
+    "source_adapters": {
+      "deploy": "tools/eval/harbor/adapters/deploy/generate.py",
+      "sensor-ops": "tools/eval/harbor/adapters/sensor-ops/generate.py"
+    },
+    "regenerate_cmd": [
+      "python3 tools/eval/harbor/adapters/deploy/generate.py --output-dir tools/eval/harbor/datasets/deploy --skill-dir skills/deploy --llm-remote-url $LLM_REMOTE_URL --llm-remote-model $LLM_REMOTE_MODEL --vlm-remote-url $VLM_REMOTE_URL --vlm-remote-model $VLM_REMOTE_MODEL",
+      "python3 tools/eval/harbor/adapters/sensor-ops/generate.py --output-dir tools/eval/harbor/datasets/sensor-ops --skill-dir skills/sensor-ops --deploy-skill-dir skills/deploy"
+    ],
+    "env_required_always": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"],
+    "repo_root": "/home/ubuntu/video-search-and-summarization",
+    "env_file": ".env",
+    "results_root": "tools/eval/harbor/results",
+    "harbor_cmd_template": "BREV_INSTANCE=<instance> uvx harbor run --environment-import-path tools.eval.harbor.envs.brev_env:BrevEnvironment -p <dataset_dir> -i <task_id> -a claude-code -n 1 -o <run_dir> --timeout-multiplier 6 --max-retries 0 --model $ANTHROPIC_MODEL --ak api_base=$ANTHROPIC_BASE_URL/v1",
+    "brev_instances_known": {
+      "vss-eval-rtx":  {"gpu": "RTX PRO Server 6000", "gpu_count": 2, "instance_type": "g7e.12xlarge",      "stoppable": true,  "price_per_hour": 9.94},
+      "vss-eval-l40s": {"gpu": "L40S",                 "gpu_count": 2, "instance_type": "l40s-48gb.2x",      "stoppable": true,  "price_per_hour": 3.48},
+      "vss-eval-h100": {"gpu": "H100",                 "gpu_count": 2, "instance_type": "dmz.h100x2.pcie",   "stoppable": false, "price_per_hour": 5.688, "note": "use dmz (driver 580+, 1TB root), NOT hyperstack"},
+      "SPARK":         {"gpu": "GB10",                 "gpu_count": 1, "instance_type": "registered-external-node", "stoppable": false, "price_per_hour": null, "ssh_alias": "spark", "host": "global.stg.ga.launchpad.nvidia.com:11871", "note": "BYOH — coordinator should not delete"}
+    },
+    "coordinator_instructions": {
+      "overview": "You are the coordinator. Your job is NOT to run trials yourself — it is to (1) copy this template to a run-specific path, (2) dispatch ONE worker subagent per execution_group, and (3) aggregate results. Each worker walks its group's queue sequentially on the same Brev instance: deploy task first, then the sensor-ops task that depends on it.",
+      "run_directory_protocol": {
+        "why": "This file is a reusable template. Writing progress back into it would pollute it for future runs.",
+        "steps": [
+          "1. Pick a run_id (UTC timestamp: datetime.utcnow().strftime('%Y-%m-%dT%H-%M-%S')).",
+          "2. RUN_DIR = tools/eval/harbor/results/<run_id>/",
+          "3. Copy this template to <RUN_DIR>/sensor-ops-base.json.",
+          "4. In the COPY, set meta.is_template=false, meta.run_id=<run_id>, meta.run_dir=<RUN_DIR>, meta.started_at=<utcnow>.",
+          "5. Pass the COPY's absolute path as progress_file to every worker. Workers read/write ONLY that file, never the template."
+        ]
+      },
+      "steps": [
+        "1. Validate template: read this file, confirm meta.is_template==true, every task has an execution_group (or status=skipped_*), every group's queue_order references a valid task ID, every sensor-ops task's requires_previous_passed points to a deploy task earlier in the same group.",
+        "2. Regenerate the datasets on disk if they're missing (run both commands under meta.regenerate_cmd). The adapters are the source of truth — task.toml / test.sh / instruction.md are generated, not hand-edited.",
+        "3. Set up the run directory per run_directory_protocol. progress_file = <RUN_DIR>/sensor-ops-base.json.",
+        "4. Ensure .env has ANTHROPIC_API_KEY/BASE_URL/MODEL, NGC_CLI_API_KEY, LLM_REMOTE_URL/MODEL, VLM_REMOTE_URL/MODEL, and (for edge platforms) HF_TOKEN.",
+        "5. For each execution_group where status in ('ready','needs_start','needs_provision'): verify the Brev instance exists (brev ls / brev ls nodes) and is RUNNING+READY. Start if STOPPED. Skip the group if unreachable (status='skipped_no_gpu').",
+        "6. Dispatch ONE worker subagent per READY group IN PARALLEL (single message, multiple Agent tool calls). Pass each worker: group_id, brev_instance, queue_order (array of task IDs), progress_file (absolute path to the COPY), and the worker_prompt_template text.",
+        "7. Workers handle the chain: when a deploy task passes, the paired sensor-ops task is unblocked; when it fails, sensor-ops is marked 'blocked' with a pointer to the failing deploy task.",
+        "8. After all workers report back, re-read progress_file and produce a per-group + overall summary.",
+        "9. Clean up Brev instances (see cleanup_policy). Stoppable -> brev stop. Non-stoppable (hyperstack/dmz/massedcompute/scaleway) -> brev delete to stop billing. Do NOT touch SPARK (BYOH)."
+      ],
+      "cleanup_policy": {
+        "rules": [
+          "Non-stoppable instances (hyperstack_*, dmz.*, massedcompute_*, scaleway_*): brev delete <name> — they bill 24/7 until deleted.",
+          "Stoppable instances (l40s-48gb.2x, g7e.12xlarge): brev stop <name> — keeps disk, cheap to restart.",
+          "Do NOT touch pre-existing instances or user-registered external nodes (SPARK)."
+        ]
+      },
+      "concurrency_rules": [
+        "Groups run concurrently (one worker per group, parallel Agent calls).",
+        "Within a group, tasks run STRICTLY sequentially — VSS deploys bind the host's ports 8000/3000/30888.",
+        "A sensor-ops task MUST run on a host where the matching deploy task just passed — do NOT tear down the VSS stack between the deploy and sensor-ops steps on the same instance."
+      ],
+      "json_update_protocol": [
+        "All writes go to the run copy (progress_file), NEVER to tools/eval/harbor/plans/sensor-ops/base.json.",
+        "Before a task: status='in_progress', append {started_at, harbor_cmd, result_path} to attempts[].",
+        "After a task: status='passed' (reward==1.0) or 'failed' (reward<1.0) or 'blocked' (requires_previous_passed not met).",
+        "Atomic write: read -> modify -> write to progress_file + '.tmp' -> rename.",
+        "If progress_file's meta.is_template==true, ABORT — coordinator forgot to copy."
+      ]
+    },
+    "worker_prompt_template": "You are a worker subagent for plan 'sensor-ops/base' group '<group_id>' targeting Brev instance '<brev_instance>'. Working dir: /home/ubuntu/video-search-and-summarization. Load env: `set -a; source .env; set +a`.\n\nCRITICAL: progress_file = '<progress_file_abs_path>'. Read and write ONLY this file. If its meta.is_template==true, ABORT — coordinator forgot to copy.\n\nYour queue (run in this order, ONE AT A TIME). Each entry is a task ID that you look up in progress_file.tasks[<id>]:\n<queue_order_json>\n\nPer-task workflow:\n1. Re-read progress_file. If status=passed, skip. If status=failed with len(attempts)>=3, skip.\n2. Check `requires_previous_passed` on this task. If set, look up that other task — if its status != passed, set THIS task status='blocked' with error_notes explaining which predecessor failed, then move on.\n3. Atomic update: set status='in_progress', append new attempt {started_at, harbor_cmd, result_path}.\n4. If this is a DEPLOY task (skill=='deploy'): do full teardown of any prior VSS stack first (docker rm -f, remove data-dir, git clean). If this is a SENSOR-OPS task (skill=='sensor-ops'): DO NOT tear down — the paired deploy task just left the stack running, and sensor-ops depends on it.\n5. Build harbor command from task.dataset_dir + task.task_id and the meta.harbor_cmd_template. Example: `BREV_INSTANCE=<instance> uvx harbor run ... -p <task.dataset_dir> -i <task.task_id> ... -o <run_dir>`.\n6. Run harbor in background, tail trial.log + verifier/test-stdout.txt.\n7. When it completes, read verifier/reward.txt and verifier/test-stdout.txt. Need reward==1.0 AND test-stdout says 'Results: N passed, 0 failed (of N)'.\n8. On pass: status='passed', last_reward=1.0, record result_path.\n9. On failure: diagnose (docker logs vss-agent / NIMs / look at agent trajectory). Max 3 attempts per task. After 3 fails: status='failed' with error_notes.\n10. Budget 60 min per deploy task, 30 min per sensor-ops task.\n11. DO NOT modify skills/ or generate.py or test_base.py unless the bug is there (rare).\n12. DO NOT stop/delete the Brev instance (coordinator handles lifecycle). For SPARK (BYOH), NEVER delete.\n\nReport back: per-task summary (status, reward, result_path, issues) + overall pass/fail/blocked count."
+  },
+  "execution_groups": {
+    "A": {
+      "description": "RTX PRO 6000 2-GPU host: deploy base/rtxpro6000bw-shared then run sensor-ops against it",
+      "brev_instance": "vss-eval-rtx",
+      "instance_type": "g7e.12xlarge",
+      "gpu_type": "RTX PRO Server 6000",
+      "gpu_count_available": 2,
+      "stoppable": true,
+      "price_per_hour": 9.94,
+      "status": "needs_start",
+      "queue_order": [
+        "deploy:rtxpro6000bw-shared",
+        "sensor-ops:rtxpro6000bw"
+      ],
+      "skipped_tasks": {}
+    },
+    "B": {
+      "description": "L40S 2-GPU host: deploy base/l40s-remote-all (no local NIM on 48GB) then sensor-ops",
+      "brev_instance": "vss-eval-l40s",
+      "instance_type": "l40s-48gb.2x",
+      "gpu_type": "L40S",
+      "gpu_count_available": 2,
+      "stoppable": true,
+      "price_per_hour": 3.48,
+      "status": "needs_start",
+      "queue_order": [
+        "deploy:l40s-remote-all",
+        "sensor-ops:l40s"
+      ],
+      "skipped_tasks": {}
+    },
+    "C": {
+      "description": "H100 2-GPU host: deploy base/h100-shared (dmz.h100x2.pcie has driver 580+) then sensor-ops",
+      "brev_instance": "vss-eval-h100",
+      "instance_type": "dmz.h100x2.pcie",
+      "gpu_type": "H100",
+      "gpu_count_available": 2,
+      "stoppable": false,
+      "price_per_hour": 5.688,
+      "status": "needs_provision",
+      "queue_order": [
+        "deploy:h100-shared",
+        "sensor-ops:h100"
+      ],
+      "skipped_tasks": {},
+      "warning": "non-stoppable — MUST delete when queue finishes"
+    },
+    "D": {
+      "description": "DGX-Spark (GB10) BYOH via SSH: deploy base/spark-shared (Edge 4B) then sensor-ops",
+      "brev_instance": "SPARK",
+      "instance_type": "registered-external-node",
+      "gpu_type": "GB10",
+      "gpu_count_available": 1,
+      "stoppable": false,
+      "price_per_hour": null,
+      "status": "ready",
+      "queue_order": [
+        "deploy:spark-shared",
+        "sensor-ops:spark"
+      ],
+      "skipped_tasks": {},
+      "notes": "BYOH — leave instance alone in cleanup step. Edge 4B path requires HF_TOKEN."
+    }
+  },
+  "tasks": {
+    "deploy:rtxpro6000bw-shared": {
+      "skill": "deploy",
+      "dataset_dir": "tools/eval/harbor/datasets/deploy/base",
+      "task_id": "rtxpro6000bw-shared",
+      "path": "tools/eval/harbor/datasets/deploy/base/rtxpro6000bw-shared",
+      "execution_group": "A",
+      "queue_order_in_group": 1,
+      "platform": "RTXPRO6000BW",
+      "mode": "shared",
+      "required_env": ["NGC_CLI_API_KEY"],
+      "status": "pending",
+      "requires_previous_passed": null,
+      "notes": "Baseline deploy — LLM+VLM share single RTX PRO 6000.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "sensor-ops:rtxpro6000bw": {
+      "skill": "sensor-ops",
+      "dataset_dir": "tools/eval/harbor/datasets/sensor-ops/base",
+      "task_id": "rtxpro6000bw",
+      "path": "tools/eval/harbor/datasets/sensor-ops/base/rtxpro6000bw",
+      "execution_group": "A",
+      "queue_order_in_group": 2,
+      "platform": "RTXPRO6000BW",
+      "required_env": [],
+      "status": "pending",
+      "requires_previous_passed": "deploy:rtxpro6000bw-shared",
+      "notes": "3 VIOS queries: upload video, snapshot URL at 5s, clip URL 3-5s. All URLs must be Brev secure-link format.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "deploy:l40s-remote-all": {
+      "skill": "deploy",
+      "dataset_dir": "tools/eval/harbor/datasets/deploy/base",
+      "task_id": "l40s-remote-all",
+      "path": "tools/eval/harbor/datasets/deploy/base/l40s-remote-all",
+      "execution_group": "B",
+      "queue_order_in_group": 1,
+      "platform": "L40S",
+      "mode": "remote-all",
+      "required_env": ["LLM_REMOTE_URL", "LLM_REMOTE_MODEL", "VLM_REMOTE_URL", "VLM_REMOTE_MODEL"],
+      "status": "pending",
+      "requires_previous_passed": null,
+      "notes": "L40S can't fit 2 NIMs in 48GB; use remote endpoints for both.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "sensor-ops:l40s": {
+      "skill": "sensor-ops",
+      "dataset_dir": "tools/eval/harbor/datasets/sensor-ops/base",
+      "task_id": "l40s",
+      "path": "tools/eval/harbor/datasets/sensor-ops/base/l40s",
+      "execution_group": "B",
+      "queue_order_in_group": 2,
+      "platform": "L40S",
+      "required_env": [],
+      "status": "pending",
+      "requires_previous_passed": "deploy:l40s-remote-all",
+      "notes": "3 VIOS queries against the remote-all deployment. VIOS runs locally; only LLM/VLM are remote.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "deploy:h100-shared": {
+      "skill": "deploy",
+      "dataset_dir": "tools/eval/harbor/datasets/deploy/base",
+      "task_id": "h100-shared",
+      "path": "tools/eval/harbor/datasets/deploy/base/h100-shared",
+      "execution_group": "C",
+      "queue_order_in_group": 1,
+      "platform": "H100",
+      "mode": "shared",
+      "required_env": ["NGC_CLI_API_KEY"],
+      "status": "pending",
+      "requires_previous_passed": null,
+      "notes": "H100 shared: both NIMs fit on one H100 80GB. Requires dmz.h100x2.pcie (driver 580+).",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "sensor-ops:h100": {
+      "skill": "sensor-ops",
+      "dataset_dir": "tools/eval/harbor/datasets/sensor-ops/base",
+      "task_id": "h100",
+      "path": "tools/eval/harbor/datasets/sensor-ops/base/h100",
+      "execution_group": "C",
+      "queue_order_in_group": 2,
+      "platform": "H100",
+      "required_env": [],
+      "status": "pending",
+      "requires_previous_passed": "deploy:h100-shared",
+      "notes": "3 VIOS queries. H100 host has lots of VRAM headroom — sensor-ops latency should be lowest of any group.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "deploy:spark-shared": {
+      "skill": "deploy",
+      "dataset_dir": "tools/eval/harbor/datasets/deploy/base",
+      "task_id": "spark-shared",
+      "path": "tools/eval/harbor/datasets/deploy/base/spark-shared",
+      "execution_group": "D",
+      "queue_order_in_group": 1,
+      "platform": "DGX-SPARK",
+      "mode": "shared",
+      "required_env": ["NGC_CLI_API_KEY", "HF_TOKEN"],
+      "status": "pending",
+      "requires_previous_passed": null,
+      "notes": "DGX-Spark Edge 4B mandatory: standalone vLLM on port 30081 + local VLM NIM. See skills/deploy/references/edge.md.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    },
+    "sensor-ops:spark": {
+      "skill": "sensor-ops",
+      "dataset_dir": "tools/eval/harbor/datasets/sensor-ops/base",
+      "task_id": "spark",
+      "path": "tools/eval/harbor/datasets/sensor-ops/base/spark",
+      "execution_group": "D",
+      "queue_order_in_group": 2,
+      "platform": "DGX-SPARK",
+      "required_env": [],
+      "status": "pending",
+      "requires_previous_passed": "deploy:spark-shared",
+      "notes": "3 VIOS queries on GB10. VST container runs fine on arm64; Edge 4B handles the chat flow.",
+      "attempts": [],
+      "last_reward": null,
+      "result_path": null,
+      "error_notes": null
+    }
+  },
+  "summary": {
+    "last_updated": null,
+    "total": 8,
+    "pending": 8,
+    "in_progress": 0,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 0,
+    "skipped_no_gpu": 0,
+    "per_group": {
+      "A": {"total": 2, "done": 0, "instance": "vss-eval-rtx"},
+      "B": {"total": 2, "done": 0, "instance": "vss-eval-l40s"},
+      "C": {"total": 2, "done": 0, "instance": "vss-eval-h100"},
+      "D": {"total": 2, "done": 0, "instance": "SPARK"}
+    }
+  }
+}
