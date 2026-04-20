@@ -12,10 +12,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import uuid
 
-from . import front_end_config
-from . import health_endpoint
-from . import rtsp_stream_api
-from . import video_upload_url
 
-__all__ = ["front_end_config", "health_endpoint", "rtsp_stream_api", "video_upload_url"]
+def is_standard_uuid_string(value: object) -> bool:
+    """Return True if ``value`` parses as a UUID (hex digit groups and separators).
+
+    A naive ``len == 36`` and ``count('-') == 4`` check misclassifies camera names that look
+    similar, which skips wildcard/regexp Elasticsearch fallbacks and can yield zero hits.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True

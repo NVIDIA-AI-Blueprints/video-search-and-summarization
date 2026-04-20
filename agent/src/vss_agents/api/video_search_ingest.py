@@ -374,7 +374,7 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
             rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
             rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
             rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
-            logger.info("Using streaming_ingest config from YAML")
+            logger.info("Using streaming_ingest config from YAML for search video ingest routes")
         else:
             # Fallback: streaming_ingest not found (NAT strips unknown fields)
             # Use environment variables

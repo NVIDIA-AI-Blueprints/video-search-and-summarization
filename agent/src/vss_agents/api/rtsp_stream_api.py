@@ -642,7 +642,7 @@ def register_rtsp_stream_api_routes(app: FastAPI, config: Any) -> None:
             default_stream_mode = str(
                 getattr(streaming_config, "stream_mode", None) or os.getenv("STREAM_MODE", "search")
             )
-            logger.info("Using streaming_ingest config from YAML")
+            logger.info("Using streaming_ingest config from YAML for RTSP stream routes")
         else:
             # Fallback to environment variables
             host_ip = os.getenv("HOST_IP")

@@ -39,6 +39,7 @@ from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
 from vss_agents.utils.time_measure import TimeMeasure
+from vss_agents.utils.uuid_string import is_standard_uuid_string
 
 if TYPE_CHECKING:
     from vss_agents.embed.embed import EmbedClient
@@ -277,30 +278,39 @@ def _build_es_query(query_input: QueryInput, query_embedding: list[float], confi
     filters: list[dict[str, Any]] = []
 
     # Add video_sources filter if provided
+    # Two-tier approach: resolved UUIDs get a single `terms` clause (O(1) hash lookup),
+    # unresolved names fall back to wildcard/regexp pattern (expensive scan).
+    # UUIDs are resolved upstream in execute_core_search() via VST streams_info mapping.
     if video_sources:
-        should_clauses = []
-        for vname in video_sources:
-            escaped_vname = vname.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
-            # Check sensor.id (for RTSP streams and video files)
-            should_clauses.append({"term": {"sensor.id.keyword": vname}})
-            should_clauses.append({"wildcard": {"sensor.id.keyword": f"*{escaped_vname}*"}})
-            # Check sensor.info.url (for uploaded video files)
-            should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}"}})
-            should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}*"}})
-            # Check sensor.info.path (for RTSP streams - contains UUID)
-            should_clauses.append({"wildcard": {"sensor.info.path.keyword": f"*{escaped_vname}*"}})
-            regex_escaped = re.escape(vname)
-            should_clauses.append({"regexp": {"sensor.info.url": f".*{regex_escaped}"}})
-            should_clauses.append({"regexp": {"sensor.info.path": f".*{regex_escaped}"}})
+        uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
+        non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
 
-        filters.append(
-            {
-                "bool": {
-                    "should": should_clauses,
-                    "minimum_should_match": 1,
+        if uuid_sources and not non_uuid_sources:
+            # All sources are UUIDs — single terms clause (fastest)
+            filters.append({"terms": {"sensor.id.keyword": uuid_sources}})
+        else:
+            # Mixed or all non-UUID — build should clauses
+            should_clauses: list[dict[str, Any]] = []
+            if uuid_sources:
+                should_clauses.append({"terms": {"sensor.id.keyword": uuid_sources}})
+            for vname in non_uuid_sources:
+                escaped_vname = vname.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
+                should_clauses.append({"term": {"sensor.id.keyword": vname}})
+                should_clauses.append({"wildcard": {"sensor.id.keyword": f"*{escaped_vname}*"}})
+                should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}"}})
+                should_clauses.append({"wildcard": {"sensor.info.url.keyword": f"*{escaped_vname}*"}})
+                should_clauses.append({"wildcard": {"sensor.info.path.keyword": f"*{escaped_vname}*"}})
+                regex_escaped = re.escape(vname)
+                should_clauses.append({"regexp": {"sensor.info.url": f".*{regex_escaped}"}})
+                should_clauses.append({"regexp": {"sensor.info.path": f".*{regex_escaped}"}})
+            filters.append(
+                {
+                    "bool": {
+                        "should": should_clauses,
+                        "minimum_should_match": 1,
+                    }
                 }
-            }
-        )
+            )
 
     # Add description filter
     if description:
@@ -455,11 +465,9 @@ async def _process_search_hit(
 
         # Priority 1: Check sensor.stream_id field (if present, it's the UUID)
         sensor_stream_id = sensor_data.get("stream_id", "")
-        if sensor_stream_id:
-            is_uuid = len(sensor_stream_id) == 36 and sensor_stream_id.count("-") == 4
-            if is_uuid:
-                stream_id = sensor_stream_id
-                logger.debug(f"Found UUID in sensor.stream_id: {stream_id}")
+        if sensor_stream_id and is_standard_uuid_string(sensor_stream_id):
+            stream_id = sensor_stream_id
+            logger.debug(f"Found UUID in sensor.stream_id: {stream_id}")
 
         # Priority 2: Extract UUID from sensor.info.path (works for both RTSP and video files)
         if not stream_id and video_path:
@@ -471,8 +479,7 @@ async def _process_search_hit(
 
         # Priority 3: If no UUID in path, check if sensor.id is a UUID (video file case)
         if not stream_id:
-            is_uuid = len(sensor_id_raw) == 36 and sensor_id_raw.count("-") == 4
-            if is_uuid:
+            if is_standard_uuid_string(sensor_id_raw):
                 # Video file: sensor.id IS the UUID
                 stream_id = sensor_id_raw
                 logger.debug(f"Using sensor.id as UUID: {stream_id}")
@@ -508,8 +515,7 @@ async def _process_search_hit(
         # ============================================================================================
         video_name = response_data.get("video_name", "")
         if not video_name:
-            is_uuid = len(sensor_id_raw) == 36 and sensor_id_raw.count("-") == 4
-            if is_uuid:
+            if is_standard_uuid_string(sensor_id_raw):
                 # Video file: extract filename from path
                 if video_path:
                     video_name = video_path.split("/")[-1]  # e.g., "boxcart_1_20250101_000000_c9b20.mp4"
@@ -652,14 +658,25 @@ async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGen
 
         return EmbedSearchOutput(query_embedding=query_embedding, results=results)
 
-    yield FunctionInfo.create(
-        single_fn=_embed_search,
-        description=_embed_search.__doc__,
-        input_schema=QueryInput,
-        single_output_schema=EmbedSearchOutput,
-        converters=[
-            _str_input_converter,
-            _chat_request_input_converter,
-            _to_str_output,
-        ],
-    )
+    try:
+        yield FunctionInfo.create(
+            single_fn=_embed_search,
+            description=_embed_search.__doc__,
+            input_schema=QueryInput,
+            single_output_schema=EmbedSearchOutput,
+            converters=[
+                _str_input_converter,
+                _chat_request_input_converter,
+                _to_str_output,
+            ],
+        )
+    finally:
+        # Release persistent HTTP client + embedding cache, then close ES client
+        try:
+            await embed_client.aclose()
+        except Exception as e:
+            logger.warning(f"Error closing embed client: {e}")
+        try:
+            await es_client.close()
+        except Exception as e:
+            logger.warning(f"Error closing ES client: {e}")

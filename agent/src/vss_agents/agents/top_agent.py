@@ -1418,8 +1418,6 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
             "Summarize and return the final answer to the user after all steps are completed.\n"
             "- Your final answer MUST answer ALL parts of the user's question (User's Question: {question}). "
             "If the user asked multiple things, you MUST answer each one. "
-            f"Refer to the tool results in '{_TOOL_RESULTS_DELIMITER}' as your "
-            "source of truth when answering the user's question.\n"
         )
         if tool_call_prompt:
             plan_exec_system += "\n\n## Tool call rules:\n " + tool_call_prompt
@@ -1430,7 +1428,7 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
         plan_exec_prompt = ChatPromptTemplate(
             [
                 ("system", plan_exec_system),
-                ("user", "User Question: {question}\n\nExecution Plan and Tool Results:\n{plan_section}\n\n"),
+                ("user", "User Question: {question}\n\nExecution Plan:\n{plan_section}\n\n"),
             ]
         )
 

@@ -76,6 +76,11 @@ class VSTSnapshotConfig(FunctionBaseConfig, name="vst.snapshot"):
         False,
         description="Whether to enable overlay configuration for object detection bounding box overlays",
     )
+    timeout_seconds: float = Field(
+        10.0,
+        description="HTTP request timeout in seconds for snapshot URL requests. "
+        "Increase when multiple snapshots are requested concurrently (they queue on the stream processor).",
+    )
     time_format: Literal["offset", "iso"] = Field(
         "offset",
         description="Timestamp input format: 'iso' for ISO 8601 UTC strings (e.g. '2025-08-25T03:05:55Z'), "
@@ -141,6 +146,7 @@ async def get_snapshot_url(
     start_time: float | str,
     vst_internal_url: str,
     overlay_enabled: bool = False,
+    timeout_seconds: float = 10.0,
 ) -> str:
     """Get the snapshot URL for a given stream ID.
 
@@ -149,6 +155,7 @@ async def get_snapshot_url(
         start_time: Seconds offset (float) or ISO 8601 timestamp (str).
         vst_internal_url: Internal VST URL.
         overlay_enabled: Whether to add bounding box overlay.
+        timeout_seconds: HTTP request timeout in seconds.
 
     Returns:
         The snapshot image URL from VST.
@@ -172,7 +179,7 @@ async def get_snapshot_url(
     if overlay_param:
         url += f"&overlay={overlay_param}"
 
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as session:
         async for attempt in create_retry_strategy(retries=3):
             with attempt:
                 async with session.get(url) as response:
@@ -201,6 +208,7 @@ async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGen
             vst_snapshot_input.start_time,
             config.vst_internal_url,
             overlay_enabled=config.overlay_config,
+            timeout_seconds=config.timeout_seconds,
         )
 
         # Replace internal URL with external URL for client access

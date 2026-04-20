@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 _ARTIFACT_DISPLAY_NOTE = (
     "Do not include or offer to provide report download links in your final response "
-    "since they are already displayed to the user automatically."
+    "since they will be automatically appended to your final response to the user."
 )
 
 
@@ -582,6 +582,9 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         # Format output
         side_effects = {}
 
+        if hasattr(report_result, "lvs_fallback_warning") and report_result.lvs_fallback_warning:
+            side_effects["lvs_fallback_warning"] = report_result.lvs_fallback_warning
+
         # Format HITL prompts if available (from LVS) - used in both side_effects and messages
         hitl_text = None
         if hasattr(report_result, "hitl_prompts") and report_result.hitl_prompts:
@@ -593,8 +596,10 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 prompts_parts.append(f"- Events of interest: {', '.join(hitl['events'])}")
             if hitl.get("objects_of_interest"):
                 prompts_parts.append(f"- Objects of interest: {', '.join(hitl['objects_of_interest'])}")
-            hitl_text = "\n".join(prompts_parts) + "\n"
-            side_effects["hitl_prompts"] = hitl_text
+            # Only show Prompts section if there's actual content beyond the header
+            if len(prompts_parts) > 1:
+                hitl_text = "\n".join(prompts_parts) + "\n"
+                side_effects["hitl_prompts"] = hitl_text
 
         # Handle multi-video vs single-video downloads
         if hasattr(report_result, "all_reports") and report_result.all_reports:
