@@ -175,7 +175,7 @@ source when processing a new skill:
 ```json
 {
   "skills": ["sensor-ops"],
-  "env": "A deployed VSS base profile on a Brev-launchable host. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — sensor-ops exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Pick the cheapest available host (L40S recommended). Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
   "expects": [
     {
       "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
@@ -273,28 +273,38 @@ Read the spec to decide **which platform(s)** the tasks should run on and
 the spec's `env` field (prose) together with any structured hints on the
 spec and the skill's SKILL.md. You're expected to reason, not regex-match.
 
-Three categories you'll see in practice:
+Four categories you'll see in practice:
 
 1. **GPU-only, no deploy** — the task needs a bare GPU host but no VSS
    stack. The spec's `env` describes the hardware ("L40S with 2 GPUs and
    Docker"), not a VSS profile. Dispatch straight to the matching subagent;
    don't inject a deploy task. Example: a GPU driver sanity probe.
-2. **Profile-dependent** — the spec says "a deployed VSS base profile"
-   or similar. The agent must chain a deploy task for that profile on the
-   same subagent queue, ahead of the skill's own tasks. Example:
-   `sensor-ops/base_profile_ops.json` needs `base` deployed.
-3. **Multi-platform matrix** — the spec explicitly lists platforms
-   (`env` says "H100 or RTX 6000 Pro", or `"resources": {"platforms": [...]}`
-   is set). Enqueue the task sequence on each named platform separately.
+2. **Single-platform profile-dependent** — the spec says "a full-remote
+   deployed VSS base profile" or "pick one platform" or explicitly pins a
+   deploy mode (e.g. `prerequisite_deploy_mode = "remote-all"` in the
+   generated task.toml). GPU details don't matter because no local NIMs
+   are involved, so there's no benefit to fan-out. Dispatch to ONE
+   subagent (the cheapest stoppable host that fits — default `l40s`).
+   Example: `sensor-ops/base_profile_ops.json` (VIOS/VST is
+   GPU-independent; running it four times doesn't discover anything).
+3. **Multi-platform profile-dependent** — the spec wants the deploy
+   exercised across hardware (e.g. deploy's own matrix: shared + dedicated
+   + remote-* × H100 + L40S + RTX + Spark). The agent fans out as the
+   spec directs.
+4. **Multi-platform matrix (explicit)** — the spec explicitly lists
+   platforms (`env` says "H100 or RTX 6000 Pro", or
+   `"resources": {"platforms": [...]}` is set). Enqueue the task sequence
+   on each named platform separately.
 
-Default when nothing is stated: dispatch to every subagent that can
-physically run the task. "Physical" means the spec's resource hints
-(`min_vram_gb_per_gpu`, `min_root_disk_gb`, ARM64 support if the NIM
-images are x86-only) all fit the subagent's host.
+Default when nothing is stated: pick the cheapest subagent that
+physically fits (today: `l40s`) — and add a "Subagent suggestions" line
+in the PR comment asking the skill author to tighten the spec's `env` to
+state platform intent explicitly. "Physical fit" means the spec's
+resource hints (`min_vram_gb_per_gpu`, `min_root_disk_gb`, ARM64 support
+when NIM images are x86-only) all fit the chosen subagent's host.
 
-If the spec is ambiguous (e.g. "a GPU host" with no driver floor): pick
-`rtx` as the default single-platform target and add a "Subagent
-suggestions" line asking the skill author to tighten the spec.
+If the spec is truly ambiguous (e.g. "a GPU host" with no driver floor
+and no profile dependency): go with `l40s` + suggestion line.
 
 ### Task sequencing within a spec
 

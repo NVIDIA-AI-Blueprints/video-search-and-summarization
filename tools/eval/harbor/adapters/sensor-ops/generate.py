@@ -2,8 +2,15 @@
 """Generate Harbor tasks for the sensor-ops skill.
 
 Sensor-ops exercises VIOS (VST) API calls — upload video, extract
-snapshot URL, extract clip URL, etc. — against a **pre-deployed VSS
-base profile**. It does NOT deploy VSS itself.
+snapshot URL, extract clip URL, etc. — against a **full-remote-deployed
+VSS base profile** (deploy mode = `remote-all`; LLM and VLM via remote
+endpoints, no local NIMs, no GPU inference on the host). It does NOT
+deploy VSS itself; the coordinator chains a deploy task in front.
+
+Because VIOS/VST is GPU-independent and the deploy is remote-all, this
+adapter targets **ONE platform** by default (L40S — cheapest stoppable
+host). Use `--platform <X>` to override or `--all-platforms` if you
+really want the fan-out (not what the spec asks for).
 
 ## Harbor chaining / dependencies
 
@@ -64,6 +71,12 @@ PLATFORMS: dict[str, dict] = {
     "DGX-SPARK":     {"short_name": "spark",         "gpu_type": "GB10",         "min_vram_per_gpu": 96, "brev_search": "GB10"},
     "IGX-THOR":      {"short_name": "thor",          "gpu_type": "Thor",         "min_vram_per_gpu": 64, "brev_search": "Thor"},
 }
+
+# Sensor-ops exercises VIOS/VST, which is GPU-independent. The spec's
+# env field mandates a `remote-all` deploy (both LLM and VLM via remote
+# endpoints), so there's no value in fanning out to multiple platforms.
+# Default to the single cheapest host.
+DEFAULT_PLATFORM = "L40S"
 
 DEFAULT_VIDEO_URL = (
     "https://videos.pexels.com/video-files/6079421/6079421-sd_640_360_24fps.mp4"
@@ -233,6 +246,10 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         "# coordinator must run a deploy task first on the same Brev",
         "# instance (same group, earlier in queue_order).",
         "requires_deployed_vss = true",
+        '# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — sensor-ops',
+        "# exercises VIOS/VST only, so there's no benefit to running local",
+        "# NIMs. The coordinator should inject a deploy task with mode=remote-all.",
+        'prerequisite_deploy_mode = "remote-all"',
         f'query_count = {n_queries}',
         f'check_count = {n_checks}',
         "",
@@ -288,7 +305,15 @@ def main() -> None:
                              "(default: <skill-dir>/eval/base_profile_ops.json)")
     parser.add_argument("--platform", default=None,
                         choices=list(PLATFORMS.keys()),
-                        help="Generate only for this platform (default: all)")
+                        help=f"Generate for this platform only "
+                             f"(default: {DEFAULT_PLATFORM}; pass --all-platforms "
+                             "to generate across every platform)")
+    parser.add_argument("--all-platforms", action="store_true",
+                        help="Fan out across every platform in PLATFORMS — "
+                             "only useful for skills whose spec explicitly "
+                             "asks for a multi-platform matrix. Sensor-ops "
+                             "does NOT: the base_profile_ops.json env says "
+                             "run on ONE platform.")
     parser.add_argument("--video-url", default=DEFAULT_VIDEO_URL,
                         help="Public .mp4 URL used by the verifier "
                              "(default: Pexels warehouse forklift)")
@@ -304,7 +329,12 @@ def main() -> None:
         sys.exit(1)
     spec = json.loads(spec_path.read_text())
 
-    platforms = [args.platform] if args.platform else list(PLATFORMS.keys())
+    if args.platform:
+        platforms = [args.platform]
+    elif args.all_platforms:
+        platforms = list(PLATFORMS.keys())
+    else:
+        platforms = [DEFAULT_PLATFORM]
     print(f"=== Inputs ===")
     print(f"  output_dir   : {output_root}")
     print(f"  skill_dir    : {skill_dir}")

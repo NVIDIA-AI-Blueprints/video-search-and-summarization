@@ -168,7 +168,7 @@ Three-step thread against a deployed VSS base: upload video → snapshot URL →
 ```json
 {
   "skills": ["sensor-ops"],
-  "env": "A deployed VSS base profile on a Brev-launchable host. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — sensor-ops exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Pick the cheapest available host (L40S recommended). Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
   "expects": [
     {
       "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
@@ -207,9 +207,9 @@ Three-step thread against a deployed VSS base: upload video → snapshot URL →
 Source: [`skills/sensor-ops/eval/base_profile_ops.json`](../../../skills/sensor-ops/eval/base_profile_ops.json)
 
 What the coordinator derives from this spec:
-- `env` names "VSS base profile" → every targeted platform's queue gets a `deploy` task (profile=`base`) prepended.
-- `env` doesn't pin a platform → dispatched to every subagent that can run base (L40S remote-all / H100 shared / RTX 6000 Pro shared / SPARK shared).
-- `expects[]` has 3 entries → 3 sequential sensor-ops tasks per platform, each chained via `requires_previous_passed`.
+- `env` says **"full-remote deployed VSS base profile"** → inject a `deploy` task with `mode=remote-all` + `profile=base` ahead of the sensor-ops tasks.
+- `env` says **"Run on ONE platform only … L40S recommended"** → target a single subagent (`l40s`), not a fan-out. VIOS/VST is GPU-independent, so there's no value in running it four times.
+- `expects[]` has 3 entries → 3 sequential sensor-ops tasks on that one platform, each chained via `requires_previous_passed`.
 - `checks` use regex on Brev-link URLs + HEAD `Content-Type` probing → adapter routes to a Python probe (`skills/sensor-ops/scripts/test_base_profile_ops.py`), not an inline shell tally.
 
 ## Running individual commands
