@@ -51,15 +51,41 @@ Both VLM and LVS requests use the same model name.
 
 **Availability checks** (run both before routing):
 
+**Readiness is determined by the HTTP status code only.** Do not parse
+or inspect the response body — LVS's `/v1/ready` can legitimately return
+`200` with an empty body. Do not treat empty stdout from `curl` as
+"unavailable."
+
 ```bash
-curl -sf --connect-timeout 3 "${VLM_BASE_URL:-http://localhost:30082}/v1/models" >/dev/null \
-  && echo "VLM OK"
-curl -sf --connect-timeout 3 "${LVS_BACKEND_URL:-http://localhost:38111}/v1/ready" >/dev/null \
-  && echo "LVS OK"
+# VLM: 200 on /v1/models
+vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
+  "${VLM_BASE_URL:-http://localhost:30082}/v1/models")
+[ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
+
+# LVS: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
+LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+lvs_code=000
+for i in $(seq 1 10); do
+  lvs_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$LVS/v1/ready")
+  case "$lvs_code" in
+    200) echo "LVS OK"; break ;;
+    503) sleep 3 ;;                 # warming up; keep polling
+    *)   break ;;                   # any other code = not reachable, stop retrying
+  esac
+done
+[ "$lvs_code" = "200" ] || echo "LVS not reachable (HTTP $lvs_code)"
 ```
 
-If the VLM is unreachable, fail — summarization cannot run. If only LVS is
-unreachable, continue with the VLM-fallback path described above.
+**How to interpret the results:**
+
+- `vlm_code = 200` and `lvs_code = 200` → normal routing (Step 2a for
+  `<60s`, Step 2b for `>=60s`).
+- `vlm_code != 200` → fail; summarization cannot run without the VLM.
+- `vlm_code = 200`, `lvs_code != 200` → LVS is truly unavailable; use
+  the VLM fallback path described above for long videos.
+- A non-200 LVS code after the retry loop is the ONLY signal that LVS
+  is unavailable. Empty stdout, missing JSON fields, or a "weird"
+  response body are NOT "unavailable."
 
 ---
 
@@ -212,11 +238,12 @@ and `{duration}` placeholders):
 > parameters first:
 >
 > 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
->    `"traffic monitoring"`, `"activity monitoring"`.
+>    `"traffic monitoring"`
 > 2. **`events`** — a comma-separated list of events to surface, e.g.
->    `accident, pedestrian crossing`.
+>    `accident, pedestrian crossing`, `boxes falling, forklift stuck, accident`
 > 3. **`objects_of_interest`** *(optional)* — things to track, e.g.
->    `cars, trucks, pedestrians`. Reply `skip` to omit.
+>    `cars, trucks, pedestrians` or `forklifts, pallets, workers`.
+>    Leave blank if you don't want to specify any.
 >
 > Or reply `defaults` to use `scenario="activity monitoring"`,
 > `events=["notable activity"]`, no objects. Reply `/cancel` to stop.
@@ -334,7 +361,15 @@ SCENARIO='warehouse monitoring'            # or whatever the user gave
 EVENTS_JSON='["notable activity"]'         # jq-compatible JSON array
 OBJECTS_JSON=''                            # '' to omit, else '["cars","trucks"]'
 
-if curl -sf --connect-timeout 3 "$LVS/v1/ready" >/dev/null; then
+# Readiness = HTTP 200 on /v1/ready. Body may be empty — do not inspect it.
+# Retry on 503 (warmup) for up to ~30s before concluding LVS is unavailable.
+lvs_code=000
+for i in $(seq 1 10); do
+  lvs_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$LVS/v1/ready")
+  case "$lvs_code" in 200) break ;; 503) sleep 3 ;; *) break ;; esac
+done
+
+if [ "$lvs_code" = "200" ]; then
   curl -s -X POST "$LVS/summarize" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg url "$CLIP" \
@@ -352,7 +387,7 @@ if curl -sf --connect-timeout 3 "$LVS/v1/ready" >/dev/null; then
     } + (if $objects == null then {} else {objects_of_interest: $objects} end)')" \
     | jq -r '.choices[0].message.content' | jq '{video_summary, events}'
 else
-  echo "⚠️ Note: video is ${DURATION}s long. LVS is not deployed; falling back to VLM."
+  echo "⚠️ Note: video is ${DURATION}s long. LVS returned HTTP $lvs_code; falling back to VLM."
   # Fall back to the short-video VLM flow above (which itself requires
   # the Step 2a HITL confirmation before calling the VLM).
 fi
@@ -370,17 +405,59 @@ fi
   `503` from LVS typically means it is still warming up — wait and retry
   `v1/ready`.
 
+### Presenting the output to the user (IMPORTANT — do not rewrite)
+
+The VLM and LVS responses are the final user-facing product. Surface
+them with minimal transformation; do not paraphrase, re-voice, add
+emojis, or re-format into bullets/tables that weren't in the source.
+
+**LVS output:**
+
+- **`video_summary`** (string) — render **verbatim** as the narrative
+  summary. It is already a polished, tone-controlled "Observational
+  Report"; the agent rewriting it loses fidelity (e.g., the model's
+  neutral/formal voice becomes the agent's default voice, subtle
+  phrasing gets smoothed out).
+- **`events`** (list) — render each event with its `start_time`,
+  `end_time`, `type`, and the full `description` verbatim. Pick a
+  format that renders cleanly in the current client; you may use a
+  table if the client renders them legibly, otherwise fall back to a
+  per-event list. Do not shorten or paraphrase `description`.
+- You MAY add a one-line header identifying the video (e.g.
+  `**Summary of <name>** (<duration>, scenario: <scenario>)`) and a
+  closing offer to re-run with different parameters. You MAY NOT
+  summarize, reorder, or interpret the content itself.
+
+**VLM output:** `choices[0].message.content` is already the full
+assistant reply — render it verbatim. If the model produced
+`<think>...</think><answer>...</answer>` blocks, strip the `<think>`
+block and show the `<answer>` content (or the whole content if the
+tags are absent).
+
+**Fallback warning**, when applicable, goes **above** the LVS/VLM
+output, not mixed into it.
+
 ## Tips
 
 - **HITL is not optional.** Every summarization starts with the HITL
   message (Step 2a or 2b). Skipping it to "be efficient" is the single
   most common failure mode of this skill — do not do it.
+- **LVS readiness = HTTP 200 on `/v1/ready`. Nothing else.** The body is
+  often empty (`size=0`). Do NOT pipe the readiness check through
+  `head`, `jq`, `grep`, or any other command — bash will report the
+  pipeline's last exit code, not curl's, and an empty body will look
+  identical to a real failure. Use the `curl -s -o /dev/null -w
+  '%{http_code}'` pattern from *Setup → Availability checks* verbatim.
 - **Delegate VIOS to `sensor-ops`.** Do not hand-roll clip-URL, timeline, or
   upload calls here — they'll drift from the canonical recipes.
 - **Duration is authoritative.** Don't route on filename or user hints;
   compute from the timeline returned by `sensor-ops`.
 - **`jq` twice for LVS.** First unwraps the OpenAI-style envelope, second
   parses the JSON string inside `content`.
+- **Do not rewrite LVS / VLM output.** The `video_summary` from LVS and
+  `choices[0].message.content` from VLM are the deliverables. Render
+  them verbatim; don't paraphrase into your own voice or reformat. See
+  *Responses → Presenting the output to the user*.
 
 ## Cross-reference
 
