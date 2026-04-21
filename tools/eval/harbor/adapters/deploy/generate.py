@@ -199,76 +199,28 @@ def effective_mode_spec(platform: str, mode: str) -> dict:
 # Profile definitions
 # ---------------------------------------------------------------------------
 
+# Per-profile verification lives in `skills/deploy/eval/<profile>.json`
+# (loaded + templated at task-generation time). Keep this dict narrow:
+# description drives task.toml; derives_from + debug drive profile
+# chaining. Everything else is the spec's concern.
 PROFILES: dict[str, dict] = {
     "base": {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
-        "expected_containers": [
-            "vss-agent",
-            "metropolis-vss-ui",
-            "mdx-redis",
-            "centralizedb-dev",
-            "phoenix",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
-        ],
     },
     "alerts": {
         "description": "VSS alerts profile — CV perception, alert verification",
-        "expected_containers": [
-            "vss-agent",
-            "mdx-redis",
-            "centralizedb-dev",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-        ],
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
-        "expected_containers": [
-            "vss-agent",
-            "metropolis-vss-ui",
-            "mdx-redis",
-            "centralizedb-dev",
-            "phoenix",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
-        ],
     },
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
-        "expected_containers": [
-            "vss-agent",
-            "metropolis-vss-ui",
-            "mdx-redis",
-            "centralizedb-dev",
-            "phoenix",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
-        ],
     },
     "base-debug": {
         "description": "VSS base profile + debug workflow — deploy, then run the "
                        "/deploy skill's debug script to verify end-to-end video flow",
         "derives_from": "base",
         "debug": True,
-        "expected_containers": [
-            "vss-agent",
-            "metropolis-vss-ui",
-            "mdx-redis",
-            "centralizedb-dev",
-            "phoenix",
-        ],
-        "expected_endpoints": [
-            {"port": 8000, "path": "/docs", "name": "Agent API"},
-            {"port": 3000, "path": "/", "name": "Agent UI"},
-        ],
     },
 }
 
