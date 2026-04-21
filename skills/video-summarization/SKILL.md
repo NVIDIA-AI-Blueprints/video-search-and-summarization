@@ -89,10 +89,29 @@ fails.
 
 ## Step 2a — Short video (< 60s) → VLM direct
 
-### HITL: confirm the VLM prompt first
+### HITL: confirm the VLM prompt first (REQUIRED — do not skip)
 
-Before calling the VLM, **always** pause and show the user the default
-prompt, then let them confirm or edit it.
+**Before any call to the VLM, you MUST show the default prompt to the
+user verbatim and wait for their response.** Do not proceed on silence
+and do not assume defaults.
+
+You MAY reuse a confirmed prompt from earlier in the same chat **only
+if** the user is asking to re-summarize the **same video** (same
+`streamId` / clip URL) — in that case, remind the user what prompt
+you're about to reuse and offer them the chance to change it before
+calling. For any **different video**, re-run the HITL from scratch.
+
+Post the message as follows (literal template — fill the `{video_name}`
+placeholder):
+
+> I'm about to summarize **{video_name}** with this VLM prompt. Reply
+> `Submit` to use it as-is, paste replacement text, `/generate <desc>`
+> to rewrite it from a description, `/refine <instr>` to tweak it, or
+> `/cancel` to stop.
+>
+> ```
+> <default VLM prompt below>
+> ```
 
 **Default VLM prompt** (copy verbatim from the base profile):
 
@@ -107,19 +126,27 @@ EXAMPLE:
 [4.0s-12.0s] <description of the second event>
 ```
 
-**Show the user these options** 
+**User response handling:**
 
 | User input | Effect |
 |---|---|
-| Submit (empty) | Approve the current prompt and call the VLM |
-| New prompt text | Replace the current prompt manually |
-| `/generate <description>` | You (the assistant) write a new prompt from the description, then show it back for confirmation |
-| `/refine <instructions>` | You (the assistant) refine the current prompt per the instructions, then show it back for confirmation |
+| `Submit` (or empty) | Approve the current prompt and call the VLM |
+| Any other free text | Treat as a full replacement prompt; echo it back and ask for `Submit` before calling |
+| `/generate <description>` | You (the assistant) write a new prompt from the description, show it back, and wait for `Submit` |
+| `/refine <instructions>` | You (the assistant) refine the current prompt per the instructions, show it back, and wait for `Submit` |
 | `/cancel` | Cancel summarization |
 
-When handling `/generate` and `/refine`, preserve the `[Xs-Ys] <description>`
-output-format requirement from the default prompt. Show the updated
-prompt and ask the user to confirm before calling the VLM.
+Rules:
+
+- You MAY call the VLM **only** after receiving `Submit` (or an empty
+  confirmation) on a prompt that is currently visible in the chat.
+- `/generate` and `/refine` are not terminal — they produce a new prompt
+  that itself needs `Submit`.
+- When handling `/generate` and `/refine`, preserve the
+  `[Xs-Ys] <description>` output-format requirement from the default
+  prompt.
+- If the user just says "go" / "ok" / "yes" without having seen the
+  prompt, show the prompt first, then wait for `Submit`.
 
 ### Call the VLM
 
@@ -163,9 +190,39 @@ are applied server-side; no client-side prep is required when you pass a
 
 ## Step 2b — Long video (>= 60s) → LVS microservice direct
 
-The LVS microservice requires three analysis parameters. Ask the user for
-them before calling (or use sensible defaults and tell the user what you
-picked).
+### HITL: collect scenario and events first (REQUIRED — do not skip)
+
+**Before any call to `POST /summarize`, you MUST ask the user for
+`scenario`, `events`, and `objects_of_interest`, and wait for their
+response.** Do not call LVS with defaults silently — if the user wants
+defaults, they must say so explicitly (e.g., "use the generic
+defaults").
+
+You MAY reuse previously confirmed `scenario` / `events` /
+`objects_of_interest` from earlier in the same chat **only if** the user
+is asking to re-summarize the **same video** (same `streamId` / clip
+URL) — in that case, remind the user which parameters you're about to
+reuse and let them change them before calling. For any **different
+video**, re-run the HITL from scratch.
+
+Post the message as follows (literal template — fill the `{video_name}`
+and `{duration}` placeholders):
+
+> I'm about to send **{video_name}** ({duration}s) to LVS. I need three
+> parameters first:
+>
+> 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
+>    `"traffic monitoring"`, `"activity monitoring"`.
+> 2. **`events`** — a comma-separated list of events to surface, e.g.
+>    `accident, pedestrian crossing`.
+> 3. **`objects_of_interest`** *(optional)* — things to track, e.g.
+>    `cars, trucks, pedestrians`. Reply `skip` to omit.
+>
+> Or reply `defaults` to use `scenario="activity monitoring"`,
+> `events=["notable activity"]`, no objects. Reply `/cancel` to stop.
+
+Only after the user replies with values (or `defaults`) may you build
+and send the LVS request.
 
 **Required parameters:**
 
@@ -175,10 +232,11 @@ picked).
 | `events` | list[string] (required) | `["notable activity"]`, `["accident", "pedestrian crossing"]` |
 | `objects_of_interest` | list[string] (optional) | `["cars", "trucks", "pedestrians"]` |
 
-If the user just says "summarize this video" with no context, default to
+If the user explicitly replies `defaults` to the HITL prompt above, use
 `scenario="activity monitoring"` and `events=["notable activity"]`, and
 mention in your response that you used generic defaults (offer to redo
-with more specific parameters).
+with more specific parameters). **Do not apply defaults without that
+explicit opt-in** — the HITL message is the gate.
 
 **Request:**
 
@@ -232,9 +290,12 @@ contract from Step 1.
 
 ### Short video (`$DURATION < 60`)
 
+**HITL (required, before the curl):** post the Step 2a message, wait for
+`Submit` (or a `/generate` / `/refine` round-trip that ends in `Submit`),
+then set `PROMPT` to the confirmed text. Do not run the curl below until
+that confirmation has arrived.
+
 ```bash
-# HITL: show the default prompt, let the user confirm or edit,
-# then use the confirmed prompt below.
 PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipments, objects,
 actions, and environmental conditions.
@@ -260,25 +321,40 @@ curl -s -X POST "${VLM_BASE_URL:-http://localhost:30082}/v1/chat/completions" \
 
 ### Long video (`$DURATION >= 60`)
 
+**HITL (required, before the curl):** post the Step 2b message and wait
+for the user's reply. Substitute their values (or the `defaults` opt-in)
+into `$SCENARIO`, `$EVENTS_JSON`, and `$OBJECTS_JSON` below. Do not run
+the curl without that reply.
+
 ```bash
 LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+
+# From HITL reply:
+SCENARIO='warehouse monitoring'            # or whatever the user gave
+EVENTS_JSON='["notable activity"]'         # jq-compatible JSON array
+OBJECTS_JSON=''                            # '' to omit, else '["cars","trucks"]'
 
 if curl -sf --connect-timeout 3 "$LVS/v1/ready" >/dev/null; then
   curl -s -X POST "$LVS/summarize" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg url "$CLIP" \
-          --arg model "${VLM_NAME:-nvidia/cosmos-reason2-8b}" '{
+          --arg model "${VLM_NAME:-nvidia/cosmos-reason2-8b}" \
+          --arg scenario "$SCENARIO" \
+          --argjson events "$EVENTS_JSON" \
+          --argjson objects "${OBJECTS_JSON:-null}" '{
       url: $url,
       model: $model,
-      scenario: "activity monitoring",
-      events: ["notable activity"],
+      scenario: $scenario,
+      events: $events,
       chunk_duration: 10,
       num_frames_per_chunk: 20,
       seed: 1
-    }')" | jq -r '.choices[0].message.content' | jq '{video_summary, events}'
+    } + (if $objects == null then {} else {objects_of_interest: $objects} end)')" \
+    | jq -r '.choices[0].message.content' | jq '{video_summary, events}'
 else
   echo "⚠️ Note: video is ${DURATION}s long. LVS is not deployed; falling back to VLM."
-  # Fall back to the short-video VLM call above, using the same $CLIP.
+  # Fall back to the short-video VLM flow above (which itself requires
+  # the Step 2a HITL confirmation before calling the VLM).
 fi
 ```
 
@@ -296,6 +372,9 @@ fi
 
 ## Tips
 
+- **HITL is not optional.** Every summarization starts with the HITL
+  message (Step 2a or 2b). Skipping it to "be efficient" is the single
+  most common failure mode of this skill — do not do it.
 - **Delegate VIOS to `sensor-ops`.** Do not hand-roll clip-URL, timeline, or
   upload calls here — they'll drift from the canonical recipes.
 - **Duration is authoritative.** Don't route on filename or user hints;
