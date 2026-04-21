@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
-raw-options.root = ".."
+raw-options.root = "../.."
 
 [tool.hatch.metadata]
 allow-direct-references = true

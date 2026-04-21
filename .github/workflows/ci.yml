@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: agent
+        working-directory: services/agent
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: agent
+        working-directory: services/agent
     steps:
       - uses: actions/checkout@v4
 
@@ -117,7 +117,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: agent
+        working-directory: services/agent
     steps:
       - uses: actions/checkout@v4
 
@@ -153,7 +153,7 @@ jobs:
         if: always()
         with:
           name: coverage-report
-          path: agent/coverage.xml
+          path: services/agent/coverage.xml
 
   # ---------------------------------------------------------------------------
   # Job 4: Security scanning (detect-secrets)
@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: agent
+        working-directory: services/agent
     steps:
       - uses: actions/checkout@v4
         with:
@@ -193,7 +193,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: ui
+        working-directory: services/ui
     steps:
       - uses: actions/checkout@v4
 
@@ -202,7 +202,7 @@ jobs:
         with:
           node-version: "lts/*"
           cache: "npm"
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: services/ui/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -222,7 +222,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: ui
+        working-directory: services/ui
     steps:
       - uses: actions/checkout@v4
 
@@ -231,7 +231,7 @@ jobs:
         with:
           node-version: "lts/*"
           cache: "npm"
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: services/ui/package-lock.json
 
       - name: Install dependencies
         run: npm ci
