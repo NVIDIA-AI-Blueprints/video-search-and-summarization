@@ -168,22 +168,27 @@ The adapter emits, **per (platform, expects-entry) pair**:
 
 ```
 datasets/<skill>/<profile>/<platform>/step-<k>/
-  task.toml         # [metadata]: gpu_type, brev_search, min_vram_gb_per_gpu,
-                    #             min_root_disk_gb, min_gpu_driver_version,
-                    #             requires_deployed_vss, profile_dependency,
-                    #             step_index, step_count
-  instruction.md    # derived from this single expects-entry (query + checks);
-                    #             instructs the agent to do exactly this step
-  tests/test.sh     # invokes the probe for this step; tallies PASS/FAIL
-                    #             → /logs/verifier/reward.txt
-  tests/<probe>.py  # copied from skills/<skill>/scripts/<probe>.py
-                    #             — the probe takes --step <k> to scope its checks
-  tests/<spec>.json # copied from skills/<skill>/eval/<profile>.json
-                    #             (so the probe can look up expected checks)
-  solution/solve.sh # gold-standard or no-op
-  skills/<skill>/   # full skill copy
-  skills/deploy/    # included if profile_dependency != null (agent can diagnose)
-  environment/Dockerfile   # FROM scratch (BrevEnvironment takes over)
+  task.toml              # [metadata]: gpu_type, brev_search, min_vram_gb_per_gpu,
+                         #   min_root_disk_gb, min_gpu_driver_version,
+                         #   requires_deployed_vss, profile_dependency,
+                         #   step_index, step_count
+                         # [verifier.env]: ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL /
+                         #   JUDGE_MODEL forwarded so generic_judge.py can call Claude
+  instruction.md         # derived from this single expects-entry (query + checks);
+                         #   instructs the agent to do exactly this step
+  tests/test.sh          # 2-line wrapper: `python3 generic_judge.py --spec <spec>.json
+                         #   --step <k>`. Writes /logs/verifier/reward.txt.
+  tests/generic_judge.py # copied from tools/eval/harbor/verifiers/generic_judge.py
+                         #   — routes each check to shell / trajectory / response /
+                         #   rubric evaluator. Shell-wrapped checks (backtick
+                         #   commands) never call the LLM; only narrative checks do.
+  tests/<spec>.json      # rendered from skills/<skill>/eval/<profile>.json with
+                         #   {{platform}}, {{mode}}, {{llm_mode}}, {{vlm_mode}}, and
+                         #   {{llm,vlm}_remote_{url,model}} substituted in.
+  solution/solve.sh      # gold-standard or no-op
+  skills/<skill>/        # full skill copy
+  skills/deploy/         # included if profile_dependency != null (agent can diagnose)
+  environment/Dockerfile # FROM scratch (BrevEnvironment takes over)
 ```
 
 Where `<k>` is the 1-based index into `expects[]` and `step_count` equals
@@ -193,12 +198,34 @@ Where `<k>` is the 1-based index into `expects[]` and `step_count` equals
 If a spec has only one `expects[]` entry, emit the single dir without the
 `step-<k>` subdir (directly under `<platform>/`) to keep the path flat.
 
-Probe authoring heuristic: if the spec's `checks` can all be evaluated via
-shell one-liners, the test.sh inlines them. If any check requires stateful
-logic (regex on Brev links, HEAD `Content-Type` probing, JSON traversal),
-the skill must ship a Python probe under `scripts/` and the adapter copies
-it into each task's `tests/` dir. The probe should accept `--step <k>` so
-one probe file can drive all steps (keeps disk + diff small).
+**Default verifier = generic judge + eval JSON.** The adapter never hand-rolls
+checks. It ships two files into `tests/`: the skill's rendered eval spec and
+`tools/eval/harbor/verifiers/generic_judge.py`. The judge classifies each
+check by content:
+
+- **Shell checks** — the check contains a backtick-wrapped command starting
+  with a safe verb (`curl`, `docker`, `grep`, `ls`, `cat`, `jq`, `ss`,
+  `netstat`, `nc`, `file`). The judge runs the command and uses its exit
+  code. No LLM call.
+- **Response checks** — the check mentions the agent's final reply (e.g.
+  *"the agent's response contains a URL like ..."*). The judge feeds the
+  trajectory's last assistant message to Claude with the natural-language
+  assertion and a strict JSON schema.
+- **Trajectory checks** — the check mentions tool calls / invocations /
+  traces (e.g. *"the agent called VST's upload API exactly once"*). The
+  judge feeds the full trajectory to Claude.
+
+Skill authors write assertions in plain English; the judge does the routing.
+Both the system prompt and the evidence are XML-quarantined to blunt prompt
+injection from untrusted agent output.
+
+Python probes are the **exception**, not the rule. Reach for one only when
+the check can't be expressed as a one-liner *and* the LLM judge can't see
+enough state (e.g. the check needs to sample a binary file's first bytes,
+or tail a stream across multiple trial containers). When you do ship one,
+place it at `skills/<skill>/scripts/<probe>.py`, have it accept
+`--step <k>`, and have the adapter copy it alongside `generic_judge.py` —
+but budget this as extra skill-author work you need to justify.
 
 After generating, commit nothing yet — § 8 handles the PR.
 
@@ -259,9 +286,9 @@ Three things to extract from any spec before generating the adapter:
    <profile> profile"` phrasing), required env vars (`HF_TOKEN`,
    `BREV_ENV_ID`, etc.). See § 5.
 3. **`expects[]`** — length = task count. Each entry's `query` becomes
-   the task's `instruction.md`; each `checks` list becomes the task's
-   verifier (inline shell when possible, Python probe otherwise — see the
-   "Probe authoring heuristic" above).
+   the task's `instruction.md`; each `checks` list is routed by
+   `generic_judge.py` (shell / trajectory / response) with no adapter
+   cleverness — see the default-verifier block above.
 
 ### Agentic verifiers (LLM-as-judge) — optional
 

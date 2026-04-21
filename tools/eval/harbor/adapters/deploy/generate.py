@@ -33,10 +33,13 @@ Run with Harbor:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
 from pathlib import Path
+
+GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -367,131 +370,65 @@ def generate_instruction(
 # Test script generation
 # ---------------------------------------------------------------------------
 
-def generate_test_script(profile: str, profile_def: dict, platform: str, mode: str) -> str:
-    """Verifier: check .env config, running containers, healthy endpoints."""
-    containers = profile_def["expected_containers"]
-    endpoints = profile_def["expected_endpoints"]
-    mode_spec = effective_mode_spec(platform, mode)
-    # base + base-debug both run the E2E sanity check.
-    underlying = profile_def.get("derives_from", profile)
-    run_e2e = underlying == "base"
-    env_profile = underlying  # .env lives at dev-profile-<underlying>/.env
+def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
+                      mode_spec: dict, llm_remote: dict | None,
+                      vlm_remote: dict | None) -> dict:
+    """Substitute {{platform}}, {{mode}}, {{llm_mode}}, {{vlm_mode}}, and the
+    remote-endpoint placeholders into every string field of the spec. Returns
+    a fully-resolved spec ready to ship to the task's tests/ dir.
 
-    container_checks = "\n".join(
-        'check_container "' + c + '"' for c in containers
-    )
-    endpoint_checks = "\n".join(
-        'check_endpoint ' + str(e["port"]) + ' "' + e["path"] + '" "' + e["name"] + '"'
-        for e in endpoints
-    )
+    `{{mode}}` is the short trial-mode token (e.g. "shared", "remote-all").
+    `{{mode_description}}` is the prose form ("LLM and VLM share a single GPU").
+    """
+    substitutions = {
+        "profile": profile,
+        "platform": platform,
+        "mode": mode,
+        "mode_description": mode_spec.get("description", "") or "",
+        "llm_mode": mode_spec["llm_mode"],
+        "vlm_mode": mode_spec["vlm_mode"],
+        "llm_remote_url":   (llm_remote or {}).get("url", ""),
+        "llm_remote_model": (llm_remote or {}).get("model", ""),
+        "vlm_remote_url":   (vlm_remote or {}).get("url", ""),
+        "vlm_remote_model": (vlm_remote or {}).get("model", ""),
+    }
+    import re as _re
+    pattern = _re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
-    env_checks = [
-        ("HARDWARE_PROFILE", platform),
-        ("LLM_MODE", mode_spec["llm_mode"]),
-        ("VLM_MODE", mode_spec["vlm_mode"]),
-    ]
-    validate_lines = "\n".join(
-        'validate_env "' + k + '" "' + v + '"' for k, v in env_checks
-    )
+    def _sub(value):
+        if isinstance(value, str):
+            return pattern.sub(
+                lambda m: str(substitutions.get(m.group(1), m.group(0))),
+                value,
+            )
+        if isinstance(value, list):
+            return [_sub(v) for v in value]
+        if isinstance(value, dict):
+            return {k: _sub(v) for k, v in value.items()}
+        return value
 
-    lines = [
-        "#!/bin/bash",
-        "# Verifier for deploy: " + profile + " on " + platform + "/" + mode,
-        "# Writes reward to /logs/verifier/reward.txt",
-        "set -uo pipefail",
-        "",
-        "PASS=0",
-        "FAIL=0",
-        "TOTAL=0",
-        "",
-        "mkdir -p /logs/verifier",
-        "",
-        'check_pass() { echo "PASS: $1"; ((PASS++)) || true; ((TOTAL++)) || true; }',
-        'check_fail() { echo "FAIL: $1"; ((FAIL++)) || true; ((TOTAL++)) || true; }',
-        "",
-        "check_container() {",
-        "    local name=$1",
-        "    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q \"$name\"; then",
-        '        check_pass "container $name is running"',
-        "    else",
-        '        check_fail "container $name not found"',
-        "    fi",
-        "}",
-        "",
-        "check_endpoint() {",
-        "    local port=$1 path=$2 name=$3",
-        '    if curl -sf -o /dev/null --max-time 15 "http://localhost:${port}${path}" 2>/dev/null; then',
-        '        check_pass "$name (port $port) responds"',
-        "    else",
-        '        check_fail "$name (port $port) not responding"',
-        "    fi",
-        "}",
-        "",
-        "validate_env() {",
-        "    local key=$1 expected=$2",
-        "    local actual",
-        "    actual=$(grep \"^${key}=\" \"$ENV_FILE\" 2>/dev/null | head -1 | cut -d= -f2- | tr -d \"'\\\"\")",
-        '    if [ "$actual" = "$expected" ]; then',
-        '        check_pass "$key=$expected"',
-        "    else",
-        '        check_fail "$key expected \'$expected\' got \'$actual\'"',
-        "    fi",
-        "}",
-        "",
-        "# --- Find the VSS repository ---",
-        'REPO=""',
-        "for d in /home/*/video-search-and-summarization \\",
-        "         /workspace/video-search-and-summarization; do",
-        '    [ -d "$d/deployments" ] && REPO="$d" && break',
-        "done",
-        "",
-        'if [ -z "$REPO" ]; then',
-        '    check_fail "VSS repository not found"',
-        '    echo 0 > /logs/verifier/reward.txt',
-        "    exit 0",
-        "fi",
-        'check_pass "VSS repository found"',
-        "",
-        'ENV_FILE="$REPO/deployments/developer-workflow/dev-profile-' + env_profile + '/.env"',
-        "",
-        'echo "=== Checking .env ==="',
-        validate_lines,
-        "",
-        'echo ""',
-        'echo "=== Checking containers ==="',
-        container_checks,
-        "",
-        'echo ""',
-        'echo "=== Checking endpoints ==="',
-        endpoint_checks,
-        "",
-        'echo ""',
-    ]
-    if run_e2e:
-        lines += [
-            'echo "=== Warehouse video E2E sanity check ==="',
-            'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"',
-            'python3 -m pip install --quiet websocket-client >/dev/null 2>&1 || true',
-            'if python3 "$TEST_DIR/test_base.py" http://localhost:8000 --profile base; then',
-            '    check_pass "warehouse video E2E"',
-            'else',
-            '    check_fail "warehouse video E2E"',
-            'fi',
-            'echo ""',
-        ]
-    lines += [
-        'echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="',
-        "",
-        'if [ "$TOTAL" -gt 0 ]; then',
-        '    python3 -c "print($PASS / $TOTAL)" > /logs/verifier/reward.txt 2>/dev/null \\',
-        "        || echo 0 > /logs/verifier/reward.txt",
-        "else",
-        "    echo 0 > /logs/verifier/reward.txt",
-        "fi",
-        "",
-        "exit 0",
-    ]
-    return "\n".join(lines) + "\n"
+    return _sub(spec)
+
+
+def generate_test_script(spec_name: str) -> str:
+    """Wrapper test.sh that invokes the generic LLM-as-judge verifier
+    against the rendered eval spec shipped alongside it. Harbor reads
+    /logs/verifier/reward.txt."""
+    return (
+        "#!/bin/bash\n"
+        "# deploy verifier: delegates to the generic LLM-as-judge\n"
+        "# (tools/eval/harbor/verifiers/generic_judge.py). Shell-wrapped\n"
+        "# checks (curl/docker/grep) never call the LLM — only\n"
+        "# trajectory/response-style checks pay the LLM cost.\n"
+        "set -uo pipefail\n"
+        "\n"
+        'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+        "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        "\n"
+        'python3 "$TEST_DIR/generic_judge.py" \\\n'
+        f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+        "exit 0\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -648,7 +585,16 @@ def generate_task(
     if mode_spec["vlm_mode"] == "remote" and vlm_remote:
         meta_lines.append(f'vlm_remote_url = "{vlm_remote["url"]}"')
         meta_lines.append(f'vlm_remote_model = "{vlm_remote["model"]}"')
-    meta_lines.append("")
+    # Forward Anthropic credentials + judge model to the verifier so the
+    # LLM-as-judge in tests/generic_judge.py can call Claude.
+    meta_lines += [
+        "",
+        "[verifier.env]",
+        'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
+        'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
+        'JUDGE_MODEL = "${JUDGE_MODEL:-claude-haiku-4-5}"',
+        "",
+    ]
     (task_dir / "task.toml").write_text("\n".join(meta_lines))
 
     # -- environment/ placeholder (not used with BrevEnvironment) --
@@ -656,18 +602,31 @@ def generate_task(
     env_dir.mkdir(exist_ok=True)
     (env_dir / "Dockerfile").write_text("FROM scratch\n")
 
-    # -- tests/test.sh (+ E2E helper for `base` and `base-debug`) --
+    # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    (tests_dir / "test.sh").write_text(
-        generate_test_script(profile, profile_def, platform, mode),
-    )
     underlying = profile_def.get("derives_from", profile)
-    if underlying == "base" and skill_dir:
-        # Canonical source lives in the /deploy skill: skills/deploy/scripts/.
-        script_src = skill_dir / "scripts" / "test_base.py"
-        if script_src.exists():
-            shutil.copy(script_src, tests_dir / "test_base.py")
+    spec_path = skill_dir / "eval" / f"{underlying}.json" if skill_dir else None
+    if spec_path and spec_path.exists():
+        raw_spec = json.loads(spec_path.read_text())
+        rendered = _render_eval_spec(
+            raw_spec, profile, platform, mode, mode_spec, llm_remote, vlm_remote,
+        )
+        spec_name = spec_path.name
+        (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
+        (tests_dir / "test.sh").write_text(generate_test_script(spec_name))
+        if GENERIC_JUDGE.exists():
+            shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+    else:
+        # No spec yet for this profile — emit a no-op verifier that
+        # reports a clear failure instead of silently passing.
+        (tests_dir / "test.sh").write_text(
+            "#!/bin/bash\n"
+            f"echo 'FAIL: no eval spec at skills/deploy/eval/{underlying}.json' >&2\n"
+            "mkdir -p /logs/verifier\n"
+            "echo 0 > /logs/verifier/reward.txt\n"
+            "exit 0\n"
+        )
 
     # -- solution/solve.sh --
     solution_dir = task_dir / "solution"
