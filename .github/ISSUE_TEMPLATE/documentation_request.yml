@@ -1,0 +1,38 @@
+name: Documentation Request
+description: Report incorrect or missing documentation
+title: "[DOC]: "
+labels: ["documentation", "? - Needs Triage"]
+body:
+  - type: dropdown
+    id: request-type
+    attributes:
+      label: Is this a correction or a request for new documentation?
+      options:
+        - Correction / Update
+        - New Documentation
+    validations:
+      required: true
+  - type: input
+    id: doc-link
+    attributes:
+      label: Link to existing documentation (if applicable)
+      placeholder: "https://..."
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the issue or what documentation is needed
+      description: Provide details about what is incorrect, outdated, or missing.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed correction or content
+      description: If you have a suggestion for the correction or new content, describe it here.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I agree to follow this project's [Code of Conduct](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/CODE_OF_CONDUCT.md)
+          required: true

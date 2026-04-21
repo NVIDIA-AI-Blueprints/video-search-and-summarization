@@ -1,0 +1,6 @@
+blank_issues_enabled: true
+
+contact_links:
+  - name: Ask a Question
+    url: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/discussions
+    about: Please ask any questions here.
