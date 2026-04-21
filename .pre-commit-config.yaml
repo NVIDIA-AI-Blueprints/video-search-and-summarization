@@ -14,29 +14,29 @@ repos:
   # Mirrors CI job "Lint (Python)" step: uv run ruff check .
   - id: ruff-check
     name: ruff check (agent)
-    entry: bash -c 'cd agent && uv run ruff check .'
+    entry: bash -c 'cd services/agent && uv run ruff check .'
     language: system
     types: [python]
-    files: ^agent/
+    files: ^services/agent/
     pass_filenames: false
     require_serial: true
 
   # Mirrors CI job "Lint (Python)" step: uv run ruff format --check .
   - id: ruff-format
     name: ruff format --check (agent)
-    entry: bash -c 'cd agent && uv run ruff format --check .'
+    entry: bash -c 'cd services/agent && uv run ruff format --check .'
     language: system
     types: [python]
-    files: ^agent/
+    files: ^services/agent/
     pass_filenames: false
     require_serial: true
 
   # Mirrors CI job "Type Check (mypy)" step: uv run mypy src/vss_agents/
   - id: mypy
     name: mypy (agent)
-    entry: bash -c 'cd agent && uv run mypy src/vss_agents/'
+    entry: bash -c 'cd services/agent && uv run mypy src/vss_agents/'
     language: system
     types: [python]
-    files: ^agent/src/vss_agents/
+    files: ^services/agent/src/vss_agents/
     pass_filenames: false
     require_serial: true
