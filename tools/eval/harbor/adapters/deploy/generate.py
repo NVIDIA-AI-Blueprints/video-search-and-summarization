@@ -328,37 +328,12 @@ def generate_instruction(
             "## Repository",
             "",
             "If the VSS repository is not already present, clone it from:",
-            f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`)",
+            f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
             "",
-            "## Credentials",
+            "After a clean deploy, exercise the skill's debug workflow "
+            "(`scripts/test_base.py` — see SKILL.md § *Debugging a Deployment*).",
             "",
-            "- `NGC_CLI_API_KEY` is available in the environment for pulling "
-            "NIM containers from `nvcr.io`.",
-            "",
-            "## Workflow",
-            "",
-            f"1. Deploy the `{underlying}` profile end-to-end (`/deploy` skill, "
-            "autonomous — do not stop to confirm).",
-            "2. Once containers are up and the Agent API responds at "
-            "`http://localhost:8000/docs`, run the skill's debug script to "
-            "verify the full video pipeline works:",
-            "",
-            "   ```bash",
-            "   pip install websocket-client",
-            "   python skills/deploy/scripts/test_base.py \\",
-            "       http://localhost:8000 --profile base",
-            "   ```",
-            "",
-            "   (The script is bundled with the `/deploy` skill. See "
-            "`skills/deploy/SKILL.md` → *Debugging a Deployment* and "
-            "`skills/deploy/references/base.md` → *Debugging* for details.)",
-            "",
-            "## Success criteria",
-            "",
-            "- Expected containers are Up",
-            "- Agent API responds at `http://localhost:8000/docs`",
-            "- `test_base.py` exits 0 (video uploaded + both "
-            "WebSocket queries return non-empty content)",
+            "Run autonomously end-to-end — do NOT prompt for confirmation.",
             "",
         ]
         return "\n".join(lines) + "\n"
@@ -378,48 +353,11 @@ def generate_instruction(
         "## Repository",
         "",
         f"If the VSS repository is not already present, clone it from:",
-        f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`)",
+        f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
         "",
-        "## Credentials",
-        "",
-        "- `NGC_CLI_API_KEY` is available in the environment for pulling NIM "
-        "containers from `nvcr.io`.",
-    ]
-    if mode_spec.get("_edge_override"):
-        lines += [
-            "- `HF_TOKEN` is available — required for the Edge 4B vLLM "
-            "container to pull model weights from Hugging Face.",
-            "",
-            "## Edge-platform deployment (mandatory)",
-            "",
-            f"This task runs on `{platform}` in shared mode. The default "
-            "`nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image has a "
-            "broken arm64 manifest — you MUST use the Edge 4B recipe from "
-            "[`skills/deploy/references/edge.md`](../../skills/deploy/references/edge.md):",
-            "",
-            "1. Run the `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` "
-            "model as a standalone vLLM container on port 30081 "
-            "(`nvcr.io/nvidia/vllm:26.02-py3`, `--tool-call-parser qwen3_coder`, "
-            "`--gpu-memory-utilization 0.25`).",
-            f"2. Deploy the agent with `--use-remote-llm --hardware-profile {platform} "
-            "--vlm-env-file deployments/nim/cosmos-reason2-8b/hw-"
-            f"{platform}-shared.env` (LLM_MODE ends up `remote` in .env, VLM_MODE "
-            "stays `local_shared`).",
-            "3. Use `config_edge.yml` if present; if missing, copy `config.yml` "
-            "and simplify the planning prompt.",
-            "",
-            "Do NOT attempt a local Nano 9B NIM — the arm64 image is broken.",
-        ]
-    lines += [
-        "",
-        "## Success criteria",
-        "",
-        "Deployment is successful when the Agent API responds at "
-        "`http://localhost:8000/docs` and the expected core containers "
-        "are running.",
-        "",
-        "Run the deployment end-to-end without prompting for confirmation — "
-        "proceed autonomously from cloning through `docker compose up -d`.",
+        "Run autonomously end-to-end — do NOT prompt for confirmation. "
+        "The `/deploy` skill owns everything else: prerequisites, env vars, "
+        "deployment steps, success checks, teardown.",
         "",
     ]
     return "\n".join(lines) + "\n"
