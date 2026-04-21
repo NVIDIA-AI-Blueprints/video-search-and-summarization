@@ -518,6 +518,30 @@ processing until the coordinator confirms `.env` is fixed. Do NOT try to
 guess keys or run harbor without them — the harbor trial will hang without
 a clear error.
 
+### Trial-side env: `CLAUDE_CODE_DISABLE_THINKING=1` (always on)
+
+`BrevEnvironment.start()` unconditionally writes
+`CLAUDE_CODE_DISABLE_THINKING=1` into the instance's `~/.eval_env`
+(see `tools/eval/harbor/envs/brev_env.py`). Leave it on by default.
+
+**Why:** claude-code 2.1.x emits a `context_management: {"edits":
+[{"type": "clear_thinking_20251015", ...}]}` field in every
+`POST /v1/messages` body to drive server-side thinking-block cleanup.
+The NVIDIA-hosted Anthropic-compatible proxy we route through
+(`${ANTHROPIC_BASE_URL}/v1`, set by harbor's `--ak api_base=...`) rejects
+the field with HTTP 400 `context_management: Extra inputs are not permitted`.
+`CLAUDE_CODE_DISABLE_THINKING=1` is the only CLI toggle confirmed to
+strip the field at the client — `DISABLE_AUTO_COMPACT` / beta header
+tweaks do not. The trade-off is that trials lose extended thinking; our
+deploy/vios evaluations are procedural enough that this is fine.
+
+**When to revisit:** when the NVIDIA proxy upgrades to accept
+`context_management`, or when we move trials to direct Anthropic auth
+(no proxy). At that point delete the entry in `brev_env.py`'s
+`forwarded` list. Do NOT remove it speculatively — a failing
+`HTTP 400 context_management` in `/logs/agent/` is the only reliable
+signal that the fix is still needed.
+
 ### Subagent loop
 
 1. Read its queue file. Find the first `status=pending` task whose
