@@ -273,6 +273,63 @@ PROFILES: dict[str, dict] = {
 # Instruction generation
 # ---------------------------------------------------------------------------
 
+def _env_assignment_block(
+    platform: str,
+    mode_spec: dict,
+    llm_remote: dict | None,
+    vlm_remote: dict | None,
+) -> list[str]:
+    """Produce markdown lines listing the exact `.env` key=value pairs the
+    agent must write, so a semantic "mode=remote-all" instruction can't be
+    misread as "mode=local"."""
+
+    def _mode_to_env(m: str) -> str:
+        # Blueprint `.env` conventions: local_shared / local / remote.
+        return m
+
+    lines: list[str] = ["| Key | Value |", "|---|---|"]
+    lines.append(f"| `HARDWARE_PROFILE` | `{platform}` |")
+    lines.append("| `MDX_SAMPLE_APPS_DIR` | `$REPO/deployments` (absolute path to the repo's deployments dir) |")
+    lines.append("| `MDX_DATA_DIR` | `$REPO/data` (auto-create if missing) |")
+    lines.append("| `HOST_IP` | output of `hostname -I \\| awk '{print $1}'` |")
+
+    llm_mode = _mode_to_env(mode_spec["llm_mode"])
+    vlm_mode = _mode_to_env(mode_spec["vlm_mode"])
+    lines.append(f"| `LLM_MODE` | `{llm_mode}` |")
+    lines.append(f"| `VLM_MODE` | `{vlm_mode}` |")
+
+    if mode_spec.get("_edge_override"):
+        # Edge 4B on localhost:30081 — not a launchpad URL
+        lines.append(
+            "| `LLM_BASE_URL` | `http://localhost:30081` "
+            "(standalone vLLM on THIS host — NOT a launchpad URL) |"
+        )
+        lines.append(
+            "| `LLM_NAME` | `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` |"
+        )
+    elif llm_mode == "remote" and llm_remote:
+        lines.append(
+            f"| `LLM_BASE_URL` | `{llm_remote['url']}` "
+            "(no trailing `/v1` — `config.yml` appends it automatically) |"
+        )
+        lines.append(f"| `LLM_NAME` | `{llm_remote['model']}` |")
+
+    if vlm_mode == "remote" and vlm_remote:
+        lines.append(
+            f"| `VLM_BASE_URL` | `{vlm_remote['url']}` "
+            "(no trailing `/v1`) |"
+        )
+        lines.append(f"| `VLM_NAME` | `{vlm_remote['model']}` |")
+
+    if mode_spec.get("gpus_needed", 0) >= 2 and llm_mode == "local" and vlm_mode == "local":
+        lines.append("| `LLM_DEVICE_ID` | `0` |")
+        lines.append("| `VLM_DEVICE_ID` | `1` |")
+
+    lines.append("| `NGC_CLI_API_KEY` | pass through from the host environment (`$NGC_CLI_API_KEY`) |")
+
+    return lines
+
+
 def _describe_model(role: str, mode: str, remote: dict | None,
                     edge_override: bool = False) -> str:
     """One-line description of the LLM/VLM configuration for the instruction."""
@@ -375,13 +432,21 @@ def generate_instruction(
         _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
                         edge_override=bool(mode_spec.get("_edge_override"))),
         "",
-        "## Env file contract",
+        "## Env file assignments (required — verifier checks these)",
         "",
-        f"The verifier reads `deployments/developer-workflow/dev-profile-"
-        f"{profile_def.get('derives_from', profile)}/.env`. Write your "
-        "`HARDWARE_PROFILE`, `LLM_MODE`, `VLM_MODE` etc. directly to THAT "
-        "file — not to `generated.env` (which `dev-profile.sh` creates and "
-        "uses internally but leaves the base `.env` stale).",
+        f"Write the following key=value pairs directly to "
+        f"`deployments/developer-workflow/dev-profile-"
+        f"{profile_def.get('derives_from', profile)}/.env`. Do NOT write to "
+        "`generated.env` — that file is a scratchpad for `dev-profile.sh` "
+        "and the verifier doesn't read it.",
+        "",
+        *_env_assignment_block(platform, mode_spec, llm_remote, vlm_remote),
+        "",
+        "Apply each line with `sed -i \"s|^<KEY>=.*|<KEY>=<VALUE>|\" <env-file>` "
+        "(or write the whole `.env` from scratch if the template placeholders "
+        "aren't present yet). After every write, `grep -E '^(HARDWARE_PROFILE|"
+        "LLM_MODE|VLM_MODE)=' <env-file>` to confirm the values match the "
+        "table above — the verifier fails the task if they don't.",
         "",
         "## Repository",
         "",
