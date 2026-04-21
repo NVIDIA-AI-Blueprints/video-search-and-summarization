@@ -542,6 +542,29 @@ deploy/vios evaluations are procedural enough that this is fine.
 `HTTP 400 context_management` in `/logs/agent/` is the only reliable
 signal that the fix is still needed.
 
+**Sanity-check the inference-hub wiring.** Run this from the
+coordinator host (or from any subagent's instance) when trials start
+failing with 0 turns / exit 1 and you want to confirm the API path
+itself is alive before blaming the spec:
+
+```bash
+set -a && source /home/ubuntu/eval-coordinator/.env && set +a && \
+CLAUDE_CODE_DISABLE_THINKING=1 claude -p "reply with ok" \
+  --model "$ANTHROPIC_MODEL"
+```
+
+Expected: prints `ok`, exits 0 in under a few seconds. Interpretation:
+
+- `ok` + exit 0 → the NVIDIA proxy path works; the failure is in the
+  spec, dataset, or agent logic. Don't touch `brev_env.py`.
+- `HTTP 400 ... context_management` → the `DISABLE_THINKING` env var
+  didn't reach claude-code; confirm `brev_env.py`'s `forwarded` list
+  still hardcodes it and that `~/.eval_env` is being sourced.
+- `HTTP 401` with a different model alias → the `ANTHROPIC_API_KEY` is
+  scoped to one alias only (`aws/anthropic/bedrock-claude-sonnet-4-6`
+  today). Use `$ANTHROPIC_MODEL` from `.env`, don't hardcode a guess.
+- Network / DNS error → proxy is down; alert, don't dispatch trials.
+
 ### Subagent loop
 
 1. Read its queue file. Find the first `status=pending` task whose
