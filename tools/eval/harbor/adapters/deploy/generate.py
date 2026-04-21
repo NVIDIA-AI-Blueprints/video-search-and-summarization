@@ -375,14 +375,6 @@ def generate_instruction(
         _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
                         edge_override=bool(mode_spec.get("_edge_override"))),
         "",
-        "## Env file contract",
-        "",
-        f"The verifier reads `deployments/developer-workflow/dev-profile-"
-        f"{profile_def.get('derives_from', profile)}/.env`. Write your "
-        "`HARDWARE_PROFILE`, `LLM_MODE`, `VLM_MODE` etc. directly to THAT "
-        "file — not to `generated.env` (which `dev-profile.sh` creates and "
-        "uses internally but leaves the base `.env` stale).",
-        "",
         "## Repository",
         "",
         f"If the VSS repository is not already present, clone it from:",
