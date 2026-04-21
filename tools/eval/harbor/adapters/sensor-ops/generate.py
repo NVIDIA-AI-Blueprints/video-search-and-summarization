@@ -88,103 +88,22 @@ DEFAULT_VIDEO_NAME = "warehouse_forklift_pexels_6079421"
 # Generation
 # ---------------------------------------------------------------------------
 
-def generate_instruction(spec: dict, platform: str, video_url: str) -> str:
-    """Instruction tells the agent to run through the queries using
-    the /sensor-ops skill, one by one, against the already-deployed VSS."""
-    queries = spec.get("expects", [])
-    lines = [
-        "Use the `/sensor-ops` skill to drive VIOS API calls against the "
-        f"VSS base profile already deployed on this `{platform}` host.",
-        "",
-        "**Prerequisite:** VSS base profile must be running (VST reachable "
-        "at `http://localhost:30888/vst/api/v1/sensor/version`). If it's "
-        "not, fail early and report — do NOT deploy VSS yourself.",
-        "",
-        f"The test video is available at: `{video_url}`  ",
-        "Download it to `/tmp/` first if it's not already local.",
-        "",
-        "## Queries to run (sequentially)",
-        "",
-    ]
-    for i, q in enumerate(queries, 1):
-        lines.append(f"### Query {i}")
-        lines.append("")
-        lines.append(q.get("query", ""))
-        lines.append("")
-        lines.append("Expected outcome (the verifier will check these "
-                     "independently — do your best to satisfy them via the "
-                     "skill):")
-        for c in q.get("checks", []):
-            lines.append(f"- {c}")
-        lines.append("")
-    lines += [
-        "## Environment notes",
-        "",
-        spec.get("env", ""),
-        "",
-        "Run autonomously without prompting for confirmation.",
-        "",
-    ]
-    return "\n".join(lines) + "\n"
-
-
-def generate_test_script(spec: dict) -> str:
-    """Shell wrapper that invokes test_base_profile_ops.py and maps its
-    per-check PASS/FAIL lines into the reward.txt tally Harbor expects."""
-    total_checks_hint = sum(len(q.get("checks", []))
-                            for q in spec.get("expects", []))
-    lines = [
-        "#!/bin/bash",
-        "# sensor-ops verifier: runs the VIOS queries from the skill's",
-        "# base_profile_ops.json and tallies per-check PASS/FAIL results.",
-        "set -uo pipefail",
-        "",
-        "mkdir -p /logs/verifier",
-        "",
-        "TEST_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"",
-        'PROBE="$TEST_DIR/test_base_profile_ops.py"',
-        "",
-        "# Resolve the warehouse video: reuse the download that the deploy",
-        "# skill's test_base.py caches at /tmp/vss_test_videos/, otherwise",
-        "# pull it ourselves.",
-        'VIDEO="/tmp/vss_test_videos/' + DEFAULT_VIDEO_NAME + '.mp4"',
-        'if [ ! -f "$VIDEO" ]; then',
-        f'    mkdir -p /tmp/vss_test_videos',
-        f'    curl -sfL -o "$VIDEO" "{DEFAULT_VIDEO_URL}" '
-        f'|| echo "WARN: could not fetch sample video"',
-        "fi",
-        "",
-        "python3 -m pip install --quiet urllib3 2>/dev/null || true",
-        "",
-        "# Capture probe output so we can tally PASS/FAIL lines.",
-        'OUT="/logs/verifier/sensor_ops_probe.out"',
-        'python3 "$PROBE" \\',
-        '    --vst-url "${VST_URL:-http://localhost:30888}" \\',
-        '    --video-path "$VIDEO" \\',
-        '    --brev-link-prefix "${BREV_LINK_PREFIX:-}" \\',
-        '    --brev-env-id "${BREV_ENV_ID:-}" | tee "$OUT"',
-        'PROBE_RC=${PIPESTATUS[0]}',
-        "",
-        "# Tally from the probe output (PASS: / FAIL: prefixes).",
-        'PASS=$(grep -c "^PASS: " "$OUT" 2>/dev/null || echo 0)',
-        'FAIL=$(grep -c "^FAIL: " "$OUT" 2>/dev/null || echo 0)',
-        'TOTAL=$((PASS + FAIL))',
-        "",
-        'echo ""',
-        'echo "=== Results: $PASS passed, $FAIL failed (of $TOTAL) ==="',
-        'echo "  probe exit code: $PROBE_RC"',
-        f'echo "  expected check count from spec: ~{total_checks_hint}"',
-        "",
-        'if [ "$TOTAL" -gt 0 ]; then',
-        '    python3 -c "print($PASS / $TOTAL)" > /logs/verifier/reward.txt \\',
-        "        || echo 0 > /logs/verifier/reward.txt",
-        "else",
-        "    echo 0 > /logs/verifier/reward.txt",
-        "fi",
-        "",
-        "exit 0",
-    ]
-    return "\n".join(lines) + "\n"
+def generate_test_script(step: int, spec_name: str) -> str:
+    """Shell wrapper that invokes the generic LLM-as-judge verifier for a
+    single step's checks. Harbor reads /logs/verifier/reward.txt."""
+    return (
+        "#!/bin/bash\n"
+        f"# sensor-ops verifier (step {step}): delegates to the generic\n"
+        "# LLM-as-judge (tools/eval/harbor/verifiers/generic_judge.py).\n"
+        "set -uo pipefail\n"
+        "\n"
+        'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+        "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
+        "\n"
+        'python3 "$TEST_DIR/generic_judge.py" \\\n'
+        f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+        "exit 0\n"
+    )
 
 
 def generate_solve_script(platform: str) -> str:
@@ -209,82 +128,120 @@ def generate_solve_script(platform: str) -> str:
     )
 
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
+GENERIC_JUDGE = REPO_ROOT / "tools" / "eval" / "harbor" / "verifiers" / "generic_judge.py"
+
+
 def generate_task(platform: str, spec: dict, output_root: Path,
                   skill_dir: Path, deploy_skill_dir: Path | None,
                   video_url: str) -> None:
+    """Emit one Harbor task directory per entry in spec['expects'] — i.e.
+    step-<k>/ subdirs under `base/<platform>/` per AGENTS.md § 4.
+    Single-step specs collapse to a flat `base/<platform>/`."""
     pspec = PLATFORMS[platform]
-    task_id = pspec["short_name"]
-    task_dir = output_root / "base" / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
+    platform_short = pspec["short_name"]
+    expects = spec.get("expects") or []
+    spec_name = Path(spec.get("_source_path", "spec.json")).name or "spec.json"
 
-    # instruction.md
-    (task_dir / "instruction.md").write_text(
-        generate_instruction(spec, platform, video_url)
-    )
+    for idx, expect in enumerate(expects, 1):
+        step_dir = output_root / "base" / platform_short
+        if len(expects) > 1:
+            step_dir = step_dir / f"step-{idx}"
+        step_dir.mkdir(parents=True, exist_ok=True)
 
-    # task.toml
-    n_queries = len(spec.get("expects", []))
-    n_checks = sum(len(q.get("checks", [])) for q in spec.get("expects", []))
-    meta_lines = [
-        "[task]",
-        f'name = "nvidia-vss/sensor-ops-base-{task_id}"',
-        f'description = "Sensor-ops (VIOS) queries against a deployed VSS base on {platform}"',
-        f'keywords = ["sensor-ops", "vios", "base", "{platform}"]',
-        "",
-        "[environment]",
-        'skills_dir = "/skills"',
-        "",
-        "[metadata]",
-        'skill = "sensor-ops"',
-        'profile = "base"',
-        f'platform = "{platform}"',
-        f'gpu_type = "{pspec["gpu_type"]}"',
-        f'brev_search = "{pspec["brev_search"]}"',
-        f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
-        "# The sensor-ops task assumes VSS base is already deployed on the",
-        "# target host. Harbor doesn't express dependencies natively — the",
-        "# coordinator must run a deploy task first on the same Brev",
-        "# instance (same group, earlier in queue_order).",
-        "requires_deployed_vss = true",
-        '# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — sensor-ops',
-        "# exercises VIOS/VST only, so there's no benefit to running local",
-        "# NIMs. The coordinator should inject a deploy task with mode=remote-all.",
-        'prerequisite_deploy_mode = "remote-all"',
-        f'query_count = {n_queries}',
-        f'check_count = {n_checks}',
-        "",
-    ]
-    (task_dir / "task.toml").write_text("\n".join(meta_lines))
+        # instruction.md — one step's query + its expected outcome
+        lines = [
+            f"Use the `/sensor-ops` skill against the VSS base profile "
+            f"already running on this `{platform}` host "
+            "(`http://localhost:30888/vst/api/v1/sensor/version` must respond).",
+            "",
+            f"## Query {idx} of {len(expects)}",
+            "",
+            expect.get("query", ""),
+            "",
+            "Expected outcome (the verifier checks these independently):",
+            "",
+        ]
+        for c in expect.get("checks") or []:
+            lines.append(f"- {c}")
+        lines += [
+            "",
+            "## Environment notes",
+            "",
+            spec.get("env", ""),
+            "",
+            "Run autonomously without prompting for confirmation.",
+            "",
+        ]
+        (step_dir / "instruction.md").write_text("\n".join(lines) + "\n")
 
-    # environment/
-    env_dir = task_dir / "environment"
-    env_dir.mkdir(exist_ok=True)
-    (env_dir / "Dockerfile").write_text("FROM scratch\n")
+        # task.toml
+        step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        meta_lines = [
+            "[task]",
+            f'name = "nvidia-vss/sensor-ops-base-{platform_short}{step_suffix}"',
+            f'description = "Sensor-ops VIOS query {idx}/{len(expects)} on {platform}"',
+            f'keywords = ["sensor-ops", "vios", "base", "{platform}"]',
+            "",
+            "[environment]",
+            'skills_dir = "/skills"',
+            "",
+            "[verifier.env]",
+            'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
+            'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
+            'JUDGE_MODEL = "${JUDGE_MODEL:-claude-haiku-4-5}"',
+            "",
+            "[metadata]",
+            'skill = "sensor-ops"',
+            'profile = "base"',
+            f'platform = "{platform}"',
+            f'gpu_type = "{pspec["gpu_type"]}"',
+            f'brev_search = "{pspec["brev_search"]}"',
+            f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            "requires_deployed_vss = true",
+            "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — sensor-ops",
+            "# exercises VIOS/VST only, so there's no benefit to running local NIMs.",
+            'prerequisite_deploy_mode = "remote-all"',
+            f"step_index = {idx}",
+            f"step_count = {len(expects)}",
+            f"check_count = {len(expect.get('checks') or [])}",
+            "",
+        ]
+        (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
-    # tests/
-    tests_dir = task_dir / "tests"
-    tests_dir.mkdir(exist_ok=True)
-    (tests_dir / "test.sh").write_text(generate_test_script(spec))
-    probe_src = skill_dir / "scripts" / "test_base_profile_ops.py"
-    if probe_src.exists():
-        shutil.copy(probe_src, tests_dir / "test_base_profile_ops.py")
-    spec_src = skill_dir / "eval" / "base_profile_ops.json"
-    if spec_src.exists():
-        shutil.copy(spec_src, tests_dir / "base_profile_ops.json")
+        # environment/
+        env_dir = step_dir / "environment"
+        env_dir.mkdir(exist_ok=True)
+        (env_dir / "Dockerfile").write_text("FROM scratch\n")
 
-    # solution/
-    solution_dir = task_dir / "solution"
-    solution_dir.mkdir(exist_ok=True)
-    (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
+        # tests/ — wrapper + generic judge + spec
+        tests_dir = step_dir / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        if GENERIC_JUDGE.exists():
+            shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
+        spec_src = skill_dir / "eval" / spec_name
+        if spec_src.exists():
+            shutil.copy(spec_src, tests_dir / spec_name)
+        else:
+            # write a copy of the spec even if the source file path differs
+            (tests_dir / "base_profile_ops.json").write_text(
+                json.dumps(spec, indent=2)
+            )
 
-    # skills/ — copy sensor-ops + deploy so agent has the deploy skill
-    # available to diagnose if VSS isn't running.
-    for src, name in ((skill_dir, "sensor-ops"), (deploy_skill_dir, "deploy")):
-        if src and src.exists():
-            dst = task_dir / "skills" / name
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
+        # solution/
+        solution_dir = step_dir / "solution"
+        solution_dir.mkdir(exist_ok=True)
+        (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
+
+        # skills/ — include sensor-ops + deploy (so agent can diagnose
+        # if VSS isn't live).
+        for src, name in ((skill_dir, "sensor-ops"), (deploy_skill_dir, "deploy")):
+            if src and src.exists():
+                dst = step_dir / "skills" / name
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +285,7 @@ def main() -> None:
         print(f"spec not found: {spec_path}", file=sys.stderr)
         sys.exit(1)
     spec = json.loads(spec_path.read_text())
+    spec["_source_path"] = str(spec_path)
 
     if args.platform:
         platforms = [args.platform]
