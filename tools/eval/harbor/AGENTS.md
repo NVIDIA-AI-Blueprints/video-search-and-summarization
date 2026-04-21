@@ -93,12 +93,19 @@ or a commit SHA change on an already-tracked one. The source PR number is
 
 ### Steps
 
-1. **Fetch the mirror-branch diff vs `develop`:**
+1. **Fetch the mirror-branch diff vs the PR's actual base:**
    ```bash
    N=100
-   gh api "repos/<org>/<repo>/compare/develop...pull-request/$N" \
+   BASE=$(gh pr view "$N" --json baseRefName --jq .baseRefName)
+   gh api "repos/<org>/<repo>/compare/${BASE}...pull-request/$N" \
      --jq '.files[].filename'
    ```
+   **Never hardcode `develop` as the base.** Some PRs target `develop` but
+   others target stacked branches like `feat/skills` (PR #102 is an example:
+   feat/skills is its base, and diffing vs `develop` conflates PR #102's
+   delta with the 6+ commits feat/skills already has on top of develop).
+   Always derive `<base>` from `pr.baseRefName`.
+
    Don't use `gh pr diff <N>` — the source PR's `headRefName` is usually
    a contributor-controlled branch (e.g. `feat/foo`), not
    `pull-request/<N>`, so the diff would be correct but conceptually
