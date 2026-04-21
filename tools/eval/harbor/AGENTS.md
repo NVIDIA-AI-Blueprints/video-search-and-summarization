@@ -776,6 +776,18 @@ On startup:
   edit the file and do not include the edit in your adapter PR. Your
   `feat/eval-adapter-*` PR must only touch `tools/eval/harbor/adapters/`
   (+ gitignore / `tools/eval/harbor/AGENTS.md` if applicable).
+- **NEVER process source branches (e.g. `feat/foo`) directly.** Only
+  `pull-request/<N>` mirror SHAs represent CPR-vetted code. NVIDIA's
+  copy-pr-bot (see [vetters doc](https://docs.gha-runners.nvidia.com/cpr/vetters))
+  requires a trusted vetter to `/ok to test` each new commit SHA before
+  the mirror is updated; the mirror lag is the security boundary between
+  untrusted contributor code and NVIDIA infrastructure (Brev runners,
+  remote endpoints, secrets in `.env`). If the source PR head is ahead
+  of its mirror, **wait** — do not bypass the mirror by diffing the
+  source branch, diffing `pr.headRefOid`, or running harbor against the
+  source SHA. Surface the lag in a PR comment if it's blocking progress
+  so the skill author can request re-vetting; never work around it. This
+  is the single non-negotiable rule of the coordinator.
 - Don't commit datasets, results, or queue JSONs to the skill repo.
 - Don't run evals yourself — always dispatch through the per-platform queue.
 - Don't skip a platform because it looks "different". All four — L40S,
