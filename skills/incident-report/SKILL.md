@@ -107,6 +107,6 @@ Generated reports: `http://<HOST_IP>:8000/static/agent_report_<DATE>.md` / `.pdf
 
 ## Cross-Reference with Other Skills
 
-- **sensor-ops** — get sensor details, snapshots, and stream info for context
+- **vios** — get sensor details, snapshots, and stream info for context
 - **video-analytics** — full VA-MCP tool reference for deeper ES queries
 - **alerts** — submit new alerts, customize alert prompts, check verdicts

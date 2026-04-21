@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate Harbor tasks for the sensor-ops skill.
+"""Generate Harbor tasks for the vios skill.
 
-Sensor-ops exercises VIOS (VST) API calls — upload video, extract
+The vios skill exercises VIOS (VST) API calls — upload video, extract
 snapshot URL, extract clip URL, etc. — against a **full-remote-deployed
 VSS base profile** (deploy mode = `remote-all`; LLM and VLM via remote
 endpoints, no local NIMs, no GPU inference on the host). It does NOT
@@ -19,27 +19,27 @@ Harbor has no native mechanism to express inter-task dependencies
 task is independent — Harbor runs exactly one task per trial on a
 clean environment.
 
-Chaining a sensor-ops trial *after* a deploy trial is a
+Chaining a vios trial *after* a deploy trial is a
 **coordinator-level** concern: the coordinator arranges that the
 target Brev instance already has VSS running before dispatching the
-sensor-ops trial. Our eval plan already models this with
+vios trial. Our eval plan already models this with
 `execution_groups[<id>].queue_order` (sequential tasks on the same
 instance share state).
 
 To chain: in the run plan, put deploy tasks first in a group's queue,
-then sensor-ops tasks for the same platform. Each sensor-ops task's
+then vios tasks for the same platform. Each vios task's
 `task.toml [metadata]` records `requires_deployed_vss=true` so a
 validator can refuse to dispatch it in isolation.
 
 ## Directory layout
 
-    datasets/sensor-ops/base/<platform>/
+    datasets/vios/base/<platform>/
         task.toml
         instruction.md
         tests/test.sh
         tests/test_base_profile_ops.py    (copied from skill)
         solution/solve.sh
-        skills/sensor-ops/                (full skill copy)
+        skills/vios/                (full skill copy)
         environment/Dockerfile            (FROM scratch; BrevEnvironment takes over)
 
 One task per platform. All platforms share the same verifier — only
@@ -47,8 +47,8 @@ the `gpu_type` / `brev_search` / resource hints in task.toml differ,
 matching the deploy-adapter convention.
 
 Usage:
-    python3 generate.py --output-dir ../../datasets/sensor-ops \\
-        --skill-dir ../../../../../skills/sensor-ops \\
+    python3 generate.py --output-dir ../../datasets/vios \\
+        --skill-dir ../../../../../skills/vios \\
         --deploy-skill-dir ../../../../../skills/deploy \\
         --video-url https://videos.pexels.com/video-files/6079421/6079421-sd_640_360_24fps.mp4
 """
@@ -61,7 +61,7 @@ import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Platforms — mirrors the deploy adapter so sensor-ops runs on the same hosts
+# Platforms — mirrors the deploy adapter so vios runs on the same hosts
 # ---------------------------------------------------------------------------
 
 PLATFORMS: dict[str, dict] = {
@@ -72,7 +72,7 @@ PLATFORMS: dict[str, dict] = {
     "IGX-THOR":      {"short_name": "thor",          "gpu_type": "Thor",         "min_vram_per_gpu": 64, "brev_search": "Thor"},
 }
 
-# Sensor-ops exercises VIOS/VST, which is GPU-independent. The spec's
+# The vios skill exercises VIOS/VST, which is GPU-independent. The spec's
 # env field mandates a `remote-all` deploy (both LLM and VLM via remote
 # endpoints), so there's no value in fanning out to multiple platforms.
 # Default to the single cheapest host.
@@ -93,7 +93,7 @@ def generate_test_script(step: int, spec_name: str) -> str:
     single step's checks. Harbor reads /logs/verifier/reward.txt."""
     return (
         "#!/bin/bash\n"
-        f"# sensor-ops verifier (step {step}): delegates to the generic\n"
+        f"# vios verifier (step {step}): delegates to the generic\n"
         "# LLM-as-judge (tools/eval/harbor/verifiers/generic_judge.py).\n"
         "set -uo pipefail\n"
         "\n"
@@ -113,7 +113,7 @@ def generate_solve_script(platform: str) -> str:
     the verifier does independently)."""
     return (
         "#!/bin/bash\n"
-        f"# Gold solution: sensor-ops on {platform}\n"
+        f"# Gold solution: vios on {platform}\n"
         "# The verifier drives the VIOS queries directly — the solution\n"
         "# script simply asserts VSS is live, then defers to the verifier.\n"
         "set -euo pipefail\n"
@@ -121,15 +121,14 @@ def generate_solve_script(platform: str) -> str:
         "curl -sf --connect-timeout 5 "
         "${VST_URL:-http://localhost:30888}/vst/api/v1/sensor/version "
         ">/dev/null || {\n"
-        "    echo 'VSS is not deployed — cannot solve sensor-ops task'\n"
+        "    echo 'VSS is not deployed — cannot solve vios task'\n"
         "    exit 1\n"
         "}\n"
         "echo 'VSS is live — verifier will drive the queries.'\n"
     )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-GENERIC_JUDGE = REPO_ROOT / "tools" / "eval" / "harbor" / "verifiers" / "generic_judge.py"
+GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 
 def generate_task(platform: str, spec: dict, output_root: Path,
@@ -151,7 +150,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
 
         # instruction.md — one step's query + its expected outcome
         lines = [
-            f"Use the `/sensor-ops` skill against the VSS base profile "
+            f"Use the `/vios` skill against the VSS base profile "
             f"already running on this `{platform}` host "
             "(`http://localhost:30888/vst/api/v1/sensor/version` must respond).",
             "",
@@ -179,9 +178,9 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         meta_lines = [
             "[task]",
-            f'name = "nvidia-vss/sensor-ops-base-{platform_short}{step_suffix}"',
-            f'description = "Sensor-ops VIOS query {idx}/{len(expects)} on {platform}"',
-            f'keywords = ["sensor-ops", "vios", "base", "{platform}"]',
+            f'name = "nvidia-vss/vios-base-{platform_short}{step_suffix}"',
+            f'description = "VIOS API query {idx}/{len(expects)} on {platform}"',
+            f'keywords = ["vios", "vst", "base", "{platform}"]',
             "",
             "[environment]",
             'skills_dir = "/skills"',
@@ -192,14 +191,14 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             'JUDGE_MODEL = "${JUDGE_MODEL:-claude-haiku-4-5}"',
             "",
             "[metadata]",
-            'skill = "sensor-ops"',
+            'skill = "vios"',
             'profile = "base"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             "requires_deployed_vss = true",
-            "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — sensor-ops",
+            "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vios",
             "# exercises VIOS/VST only, so there's no benefit to running local NIMs.",
             'prerequisite_deploy_mode = "remote-all"',
             f"step_index = {idx}",
@@ -234,9 +233,9 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
 
-        # skills/ — include sensor-ops + deploy (so agent can diagnose
+        # skills/ — include vios + deploy (so agent can diagnose
         # if VSS isn't live).
-        for src, name in ((skill_dir, "sensor-ops"), (deploy_skill_dir, "deploy")):
+        for src, name in ((skill_dir, "vios"), (deploy_skill_dir, "deploy")):
             if src and src.exists():
                 dst = step_dir / "skills" / name
                 if dst.exists():
@@ -252,9 +251,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", required=True,
-                        help="Dataset output root (e.g. tools/eval/harbor/datasets/sensor-ops)")
+                        help="Dataset output root (e.g. tools/eval/harbor/datasets/vios)")
     parser.add_argument("--skill-dir", required=True,
-                        help="Path to skills/sensor-ops")
+                        help="Path to skills/vios")
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/deploy (optional — included for agent debug)")
     parser.add_argument("--spec", default=None,
@@ -268,7 +267,7 @@ def main() -> None:
     parser.add_argument("--all-platforms", action="store_true",
                         help="Fan out across every platform in PLATFORMS — "
                              "only useful for skills whose spec explicitly "
-                             "asks for a multi-platform matrix. Sensor-ops "
+                             "asks for a multi-platform matrix. VIOS "
                              "does NOT: the base_profile_ops.json env says "
                              "run on ONE platform.")
     parser.add_argument("--video-url", default=DEFAULT_VIDEO_URL,
@@ -304,7 +303,7 @@ def main() -> None:
     print()
     for platform in platforms:
         task_id = PLATFORMS[platform]["short_name"]
-        print(f"  GEN  sensor-ops/base/{task_id}")
+        print(f"  GEN  vios/base/{task_id}")
         generate_task(platform, spec, output_root, skill_dir,
                       deploy_skill_dir, args.video_url)
     print()
@@ -313,7 +312,7 @@ def main() -> None:
     print("Note: these tasks assume VSS base is already deployed on the target")
     print("Brev instance. The coordinator (see tools/eval/harbor/AGENTS.md) is")
     print("responsible for injecting a matching deploy task ahead of each")
-    print("sensor-ops task in the same subagent queue.")
+    print("vios task in the same subagent queue.")
 
 
 if __name__ == "__main__":

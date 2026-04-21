@@ -4,9 +4,9 @@ Isolate the problem encountered in video-search then iterate to resolve it. Exam
 
 ## Gotchas
 
-- ALWAYS use the method to list video sources with VST first with `sensor-ops`, before making curl requests to check Elasticsearch embeddings.
+- ALWAYS use the method to list video sources with VST first with `vios`, before making curl requests to check Elasticsearch embeddings.
 - If the video source is not ingested yet, NEVER use the VST upload APIs because they will not generate embeddings. Use the `videos-for-search` endpoint described below for video files (or `rtsp-streams/add` for RTSP streams), and use the term "ingest" instead of "upload" to avoid confusions
-- NEVER try to guess the URL or VST API to check what is available in the system. Use the `sensor-ops` skill instead to list video sources and manage streams feeding into the search pipeline
+- NEVER try to guess the URL or VST API to check what is available in the system. Use the `vios` skill instead to list video sources and manage streams feeding into the search pipeline
 ```bash
 # NEVER guess commands like
 # curl -s "http://<ip>:30888/vst/api/v1/sensors" 
@@ -29,7 +29,7 @@ If further investigation is required, refer to the full components from the `dep
 
 ### Externally accessible
 
-- Ensure VST is running and ensure video source(s) of interest were ingested by listing them in VST via the `sensor-ops` skill.
+- Ensure VST is running and ensure video source(s) of interest were ingested by listing them in VST via the `vios` skill.
   If not, offer the user the option to ingest them via the full pipeline API `videos-for-search` below if they are video files (or `rtsp-streams/add` for RTSP streams)
 
 - If a video source in the system has no embeddings, it means it has not been ingested through the full pipeline. STOP and ask user if video can be re-ingested and if user can provide video source. If yes, carefully follow:
@@ -69,7 +69,7 @@ curl -s -X POST http://${HOST_IP}:8000/api/v1/rtsp-streams/add \
 ```
 
 - Further verifications to determine if returned video sources match the user query. Each step to go deeper:
-    - Check their source names, their video description / tags via the `sensor-ops` skill
+    - Check their source names, their video description / tags via the `vios` skill
     - Download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query  
 
 - Potentially retry by augmenting the user input with a lower similary threshold to include more results. This helps seeing if a clip of interest was filtered out due to a lower score

@@ -1,5 +1,5 @@
 ---
-name: vios-api
+name: vios
 description: "Query VIOS REST APIs: sensor list, recording timelines, video clip extraction, snapshot capture, add/delete sensors and streams"
 metadata:
   { "openclaw": { "emoji": "📷", "os": ["linux"] } }

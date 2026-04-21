@@ -119,7 +119,7 @@ Alert-type prompts are configured in `alert_type_config.json`. Each entry maps a
 
 ## Add a Camera / RTSP Stream
 
-Use the `sensor-ops` skill — it covers all sensor/stream/recording/storage operations for VIOS.
+Use the `vios` skill — it covers all sensor/stream/recording/storage operations for VIOS.
 
 ---
 
