@@ -1,24 +1,22 @@
 ---
 name: report-generation
-description: Produce video analysis reports via direct VLM (chat/completions) using the report vlm_prompt from video_report_gen config, then the standard Video Analysis Report template. For OpenClaw—first confirm the request is about a video and the clip is accessible; then call the VLM; then return the filled template to the user. Does not use the VSS agent /generate endpoint.
+description: Produce video analysis reports by discovering the deployed VSS agent, querying POST /generate for a timestamped captioned summary of the clip, then formatting the agent reply as the standard Video Analysis Report markdown. 
 metadata:
   { "openclaw": { "emoji": "📄", "os": ["linux"] } }
 ---
 
 # Report Generation
 
-Build **timestamped video analysis reports** by calling the **VLM** (`POST …/v1/chat/completions`) with the **`video_report_gen.vlm_prompt`** text from agent configuration (same string **`video_report_gen`** passes as **`user_prompt`** to **`video_understanding`**), then wrap the model output in the **Video Analysis Report** markdown layout.
+Build **timestamped video analysis reports** by **querying the VSS agent** for a description of the video using `POST …/generate`. The agent runs **`video_understanding`** (and related tools) internally. Take the agent’s **caption-style text with timestamps** and paste it into the **Video Analysis Report** template below.
 
 ---
 
 ## When to Use
 
 - "Generate a report for this video" / "for `<sensor-id>`"
-- "Create an analysis report" / "safety report" for a named clip
+- "Create an analysis report"
 - "Report on what happens in the uploaded video"
 - "Give me a report"
-
-If the sensor or video is not mentioned in the user request, assume that the user is referring to a video they mentioned previously. 
 
 ---
 
@@ -26,61 +24,33 @@ If the sensor or video is not mentioned in the user request, assume that the use
 
 Run these steps **in order**:
 
-1. Ensure that the sensor or video is accessible. If it is unclear which sensor/video the user is referring to, confirm with the user before proceeding. Sensor/video is required to proceed.
-2. **Accessibility** — Obtain a **playback/storage URL** the VLM can use (see **sensor-ops** for VST). For **remote** VLM, the URL must be reachable from the VLM host (often **public**). For **local** VLM, use internal URLs consistent with your deployment. Optionally verify the URL (e.g. `HEAD`/`GET`) before analysis.
-3. **VLM call** — **`POST ${VLM_BASE_URL}/v1/chat/completions`** with **`model`**, **`messages`** containing the full report **`vlm_prompt`** as user **`text`** plus **`video_url`** (see **Direct VLM call**). Use the same **`VLM_BASE_URL`** / **`VLM_NAME`** as the stack (compose / `.env`). Add **`system`** content  to match **`video_understanding.system_prompt`** from config and match the vlm settings for `video_understanding` settings in config.yml.
-4. **Report template** — Take the model’s plain-text reply and fill **Basic Information** + **Analysis Results** using the template below; **return that markdown to the user** as the final answer.
+1. **Sensor / clip** — Confirm which **sensor id** or **video** the user means. If unclear, ask before proceeding. If the sensor or video is not mentioned directly in the user request, the user may be referring to a video they mentioned previously.
 
+2. **VSS agent deployment** — Resolve the agent **HTTP base URL**. Read **`VSS_AGENT_PORT`**, **`EXTERNAL_IP` / `HOST_IP`**, or compose / deployment docs for the machine where the stack runs. Typical pattern: **`http://<host>:<port>`** with port from env (often **`8000`** for the agent API).
+
+3. **Query the agent** — **`POST ${VSS_AGENT_BASE_URL}/generate`** with JSON **`{"input_message": "<prompt>"}`**. Ask for a **captioned summary with timestamps** (chronological segments, seconds from clip start), e.g. describe scenes and events with time ranges. Name the **sensor / file** in the message so the agent has the necessary information.
+   - DO NOT mention a report to vss agent
+
+4. **Report template** — Copy the agent’s final text (timestamped caption/summary) into **Analysis Results** and fill **Basic Information**; **return that markdown** to the user.
+0l
 ---
 
-## Video URL notes
-
-- **Remote VLM** (`vlm_mode: remote`): URL must be reachable from the VLM service (often **public**).
-- **Local VLM**: use URLs your deployment expects (internal VST URLs; mirror **`video_understanding`** URL translation rules).
-
----
-
-## Direct VLM call
-
-Agent VLM profiles use **`base_url: ${VLM_BASE_URL}/v1`**, so:
-
-`POST ${VLM_BASE_URL}/v1/chat/completions`
-
-**Example** — report prompt in **`report_vlm_prompt.txt`** (full **`video_report_gen.vlm_prompt`** from config):
+## Query VSS agent (`/generate`)
 
 ```bash
-# NIM/VLM service — often a different port than vss-agent
-export VLM_BASE_URL="http://localhost:8001"
-export VLM_NAME="nvidia/cosmos-reason2-8b"
-export VIDEO_URL="https://example.com/path/accessible-to-vlm.mp4"
+# Set from deployment (compose / .env / host where vss-agent listens)
+export VSS_AGENT_BASE_URL="http://localhost:8000"
 
-curl -s -X POST "${VLM_BASE_URL}/v1/chat/completions" \
+curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
   -H "Content-Type: application/json" \
-  -d "$(jq -n \
-    --rawfile text report_vlm_prompt.txt \
-    --arg model "$VLM_NAME" \
-    --arg vurl "$VIDEO_URL" \
-    '{
-      model: $model,
-      temperature: 0,
-      max_tokens: 4096,
-      messages: [{
-        role: "user",
-        content: [
-          {type: "text", text: $text},
-          {type: "video_url", video_url: {url: $vurl}}
-        ]
-      }]
-    }')" | jq -r '.choices[0].message.content'
+  -d '{"input_message": "Describe in detail what happens in the video for sensor <sensor-id>, with timestamps (start–end in seconds from clip start) for each segment or event."}' | jq .
 ```
-
-**Extras:** **`model`** must match the endpoint. NIM/Cosmos may need **extra JSON** (chunking, resolution) per **`rtvi_vlm`** / **`model_kwargs`** in your deployment docs.
 
 ---
 
 ## Video Analysis Report template
 
-Paste **VLM output** under **Analysis Results**. Fill the table fields (timestamps, source, request). Matches **`video_report_gen._create_report_header`** + body.
+Paste the **agent’s timestamped summary** under **Analysis Results**. Fill the table fields (timestamps, source, request).
 
 ```markdown
 # Video Analysis Report
@@ -92,18 +62,18 @@ Paste **VLM output** under **Analysis Results**. Fill the table fields (timestam
 | **Report Identifier** | vss_report_<YYYYMMDD_HHMMSS> |
 | **Date of Analysis** | <YYYY-MM-DD> |
 | **Time of Analysis** | <HH:MM:SS> |
-| **Reporting AI Agent** | <e.g. openclaw or your label> |
+| **Reporting AI Agent** | <e.g. your label> |
 | **Video Source** | <sensor_id or filename> |
-| **Analysis Request** | <short description> |
+| **Analysis Request** | <description of user's request to you> |
 
 ## Analysis Results
 
-<model output: timestamped lines per your vlm_prompt OUTPUT REQUIREMENTS>
+<agent output: timestamped caption / summary>
 ```
 
 ---
 
 ## Cross-Reference
 
-- **sensor-ops** — VST list/storage/replay URLs so the clip is **accessible** before the VLM call
-- **video-summarization** / **incident-report** — flows that use the **agent** (`/generate`)
+- **sensor-ops** — VST sensors, storage, and clip URLs if you need to verify the video exists before calling the agent.
+- **video-summarization** / **incident-report** — other **`/generate`** patterns; this skill focuses on **timestamped captions → report template**.
