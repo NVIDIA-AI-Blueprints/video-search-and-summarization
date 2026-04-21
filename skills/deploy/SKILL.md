@@ -274,6 +274,21 @@ See the profile reference doc for full env override recipes.
 
 **Env file location:** `<repo>/deployments/developer-workflow/dev-profile-<profile>/.env`
 
+> **This is the authoritative `.env`.** Every verifier, healthcheck, and
+> post-deploy tool reads from this path. When you apply env overrides
+> (from Step 2 or from the user's prompt), write them **directly to this
+> file** — not to `generated.env`.
+>
+> `generated.env` is a scratchpad that `dev-profile.sh` produces during
+> its own internal flow; it is NOT read by the verifier and is wiped on
+> the next invocation. An agent that uses `dev-profile.sh` as a one-shot
+> deploy but leaves the base `.env` untouched will silently fail env
+> checks even when the stack comes up cleanly. If you used
+> `dev-profile.sh` and see `generated.env` on disk, copy its key/value
+> lines back into the base `.env`, or re-apply your `sed` commands
+> against the base `.env` after the fact. The base `.env` is the source
+> of truth.
+
 **MCP mode:**
 ```
 deploy/config(profile=<profile>, env_overrides={...})
