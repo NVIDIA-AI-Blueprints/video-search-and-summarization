@@ -160,7 +160,7 @@ the skill's eval spec changes. Pattern-match from the two existing adapters:
 - **`tools/eval/harbor/adapters/deploy/generate.py`** — matrix generator
   (platform × mode). Only use this shape if the skill's spec declares a
   matrix (e.g., `resources.modes`).
-- **`tools/eval/harbor/adapters/sensor-ops/generate.py`** — single-task-
+- **`tools/eval/harbor/adapters/vios/generate.py`** — single-task-
   per-platform generator. This is the default shape for skills whose spec
   has a flat `expects[]` list.
 
@@ -236,8 +236,8 @@ source when processing a new skill:
 
 ```json
 {
-  "skills": ["sensor-ops"],
-  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — sensor-ops exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Pick the cheapest available host (L40S recommended). Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "skills": ["vios"],
+  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — the vios skill exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Pick the cheapest available host (L40S recommended). Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
   "expects": [
     {
       "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
@@ -274,7 +274,7 @@ source when processing a new skill:
 ```
 
 Source of truth (never edit this — it's skill-author territory, see § 10):
-[`skills/sensor-ops/eval/base_profile_ops.json`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/feat/skills/skills/sensor-ops/eval/base_profile_ops.json)
+[`skills/vios/eval/base_profile_ops.json`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/feat/skills/skills/vios/eval/base_profile_ops.json)
 
 Three things to extract from any spec before generating the adapter:
 
@@ -347,7 +347,7 @@ Four categories you'll see in practice:
    generated task.toml). GPU details don't matter because no local NIMs
    are involved, so there's no benefit to fan-out. Dispatch to ONE
    subagent (the cheapest stoppable host that fits — default `l40s`).
-   Example: `sensor-ops/base_profile_ops.json` (VIOS/VST is
+   Example: `vios/base_profile_ops.json` (VIOS/VST is
    GPU-independent; running it four times doesn't discover anything).
 3. **Multi-platform profile-dependent** — the spec wants the deploy
    exercised across hardware (e.g. deploy's own matrix: shared + dedicated
@@ -591,17 +591,17 @@ When a new result appears:
 Post once per eval-spec batch (not per task). Example body:
 
 ```markdown
-## Harbor Eval — `skills/sensor-ops/eval/base_profile_ops.json`
+## Harbor Eval — `skills/vios/eval/base_profile_ops.json`
 
 Head: `<sha>` · 3 queries × up to 15 checks · dispatched to 4 platforms
 Queued at `<utc-iso>` · first finished at `<utc-iso>` · last finished at `<utc-iso>`
 
 | Platform | Result | Reward | Duration | Trace |
 |---|---|---|---|---|
-| L40S | ✅ passed | 1.0 (15/15) | 13m 42s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-l40s-1__2026-04-20__05-13-22/trials/l40s__abc) |
-| H100 | ✅ passed | 1.0 (15/15) | 11m 05s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-h100-1__2026-04-20__05-17-01/trials/h100__def) |
-| RTX 6000 Pro | ❌ failed | 0.87 (13/15) | 14m 23s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-rtx-1__2026-04-20__05-21-44/trials/rtx__ghi) |
-| DGX Spark | ✅ passed | 1.0 (15/15) | 18m 17s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-spark-1__2026-04-20__05-30-19/trials/spark__jkl) |
+| L40S | ✅ passed | 1.0 (15/15) | 13m 42s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-l40s-1__2026-04-20__05-13-22/trials/l40s__abc) |
+| H100 | ✅ passed | 1.0 (15/15) | 11m 05s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-h100-1__2026-04-20__05-17-01/trials/h100__def) |
+| RTX 6000 Pro | ❌ failed | 0.87 (13/15) | 14m 23s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-rtx-1__2026-04-20__05-21-44/trials/rtx__ghi) |
+| DGX Spark | ✅ passed | 1.0 (15/15) | 18m 17s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-spark-1__2026-04-20__05-30-19/trials/spark__jkl) |
 
 ### Failing checks (RTX 6000 Pro)
 
@@ -778,17 +778,17 @@ Before going autonomous, walk through this once by hand to confirm the
 playbook wiring:
 
 1. Create a dummy PR from `pull-request/sanity-<date>` that touches
-   `skills/sensor-ops/eval/base_profile_ops.json` with a trivial whitespace
+   `skills/vios/eval/base_profile_ops.json` with a trivial whitespace
    change.
 2. Verify PR monitor detects it within 60 s.
 3. Verify adapter regenerates and dataset tree appears under
-   `tools/eval/harbor/datasets/sensor-ops/base/`.
+   `tools/eval/harbor/datasets/vios/base/`.
 4. Verify the right task sequence appears on the right queues:
-   - `sensor-ops/base_profile_ops.json` targets every platform capable of
+   - `vios/base_profile_ops.json` targets every platform capable of
      running the `base` profile (per spec's env). For each such platform,
      the queue should receive:
        - 1 deploy task (profile=`base`) — first
-       - K sensor-ops tasks (K = `len(expects)` = 3 today) — chained via
+       - K vios tasks (K = `len(expects)` = 3 today) — chained via
          `requires_previous_passed`
    - Queues for platforms the spec doesn't target must stay unchanged.
 5. Verify subagents walk the chain in order, blocking downstream tasks on

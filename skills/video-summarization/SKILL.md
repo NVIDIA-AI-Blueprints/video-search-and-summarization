@@ -89,7 +89,7 @@ Generated reports: `http://<HOST_IP>:8000/static/agent_report_<DATE>.md` / `.pdf
 
 ## Cross-Reference with Other Skills
 
-- **sensor-ops** — upload videos, manage streams, get snapshots for context
+- **vios** — upload videos, manage streams, get snapshots for context
 - **video-analytics** — query incidents/events from Elasticsearch for the same timeframe
 - **incident-report** — generate incident-focused reports from alert data
 

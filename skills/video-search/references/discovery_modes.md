@@ -43,7 +43,7 @@ curl -s -X POST http://${HOST_IP}:8000/generate \
 
 Only useful when cameras are tagged with location or category metadata (e.g., "parking lot", "warehouse", "lobby"). Reduce pollution of the semantic search.
 
-When considering this mode, first check if cameras have metadata or tags set using the `sensor-ops` skill to list sensors and show their descriptions. If no tags exist, offer the user the option to add metadata tags via the `sensor-ops` skill before relying on this type of filtering.
+When considering this mode, first check if cameras have metadata or tags set using the `vios` skill to list sensors and show their descriptions. If no tags exist, offer the user the option to add metadata tags via the `vios` skill before relying on this type of filtering.
 
 Mention the camera metadata tag (location, category) explicitly in the query. Can add other filters (camera names, time-ranges for further scoping etc.)
 

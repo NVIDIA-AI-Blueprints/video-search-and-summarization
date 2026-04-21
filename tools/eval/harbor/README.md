@@ -1,6 +1,6 @@
 # VSS Harbor Evaluation
 
-Evaluate VSS skills (deploy, alerts, sensor-ops, incident-report, video-analytics, video-search, video-summarization) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
+Evaluate VSS skills (deploy, alerts, vios, incident-report, video-analytics, video-search, video-summarization) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
 
 The framework:
 
@@ -27,7 +27,7 @@ The deploy skill evaluation requires a running **L40S GPU instance** with at lea
 - Network egress (to pull NIM images from `nvcr.io`)
 - Passwordless `sudo` for the default user (standard on Brev)
 
-The non-deploy skills (alerts, sensor-ops, etc.) run on the same instance after a VSS profile has been deployed there.
+The non-deploy skills (alerts, vios, etc.) run on the same instance after a VSS profile has been deployed there.
 
 ### API keys
 
@@ -124,7 +124,7 @@ tools/eval/harbor/
 │   │   └── search/
 │   └── vss-skills/
 │       ├── alerts/
-│       ├── sensor-ops/
+│       ├── vios/
 │       ├── incident-report/
 │       ├── video-analytics/
 │       ├── video-search/
@@ -161,14 +161,14 @@ Schema (loose — pattern-match from the working example below):
 | `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Shell-runnable or probe-runnable; the adapter decides whether to inline them in `test.sh` or route them through a Python probe under `skills/<skill>/scripts/`. |
 
-### Worked example — `skills/sensor-ops/eval/base_profile_ops.json`
+### Worked example — `skills/vios/eval/base_profile_ops.json`
 
 Three-step thread against a deployed VSS base: upload video → snapshot URL → clip URL. Produces 3 queued tasks per targeted platform.
 
 ```json
 {
-  "skills": ["sensor-ops"],
-  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — sensor-ops exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Pick the cheapest available host (L40S recommended). Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "skills": ["vios"],
+  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — the vios skill exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Pick the cheapest available host (L40S recommended). Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
   "expects": [
     {
       "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
@@ -204,13 +204,13 @@ Three-step thread against a deployed VSS base: upload video → snapshot URL →
 }
 ```
 
-Source: [`skills/sensor-ops/eval/base_profile_ops.json`](../../../skills/sensor-ops/eval/base_profile_ops.json)
+Source: [`skills/vios/eval/base_profile_ops.json`](../../../skills/vios/eval/base_profile_ops.json)
 
 What the coordinator derives from this spec:
-- `env` says **"full-remote deployed VSS base profile"** → inject a `deploy` task with `mode=remote-all` + `profile=base` ahead of the sensor-ops tasks.
+- `env` says **"full-remote deployed VSS base profile"** → inject a `deploy` task with `mode=remote-all` + `profile=base` ahead of the vios tasks.
 - `env` says **"Run on ONE platform only … L40S recommended"** → target a single subagent (`l40s`), not a fan-out. VIOS/VST is GPU-independent, so there's no value in running it four times.
-- `expects[]` has 3 entries → 3 sequential sensor-ops tasks on that one platform, each chained via `requires_previous_passed`.
-- `checks` use regex on Brev-link URLs + HEAD `Content-Type` probing → adapter routes to a Python probe (`skills/sensor-ops/scripts/test_base_profile_ops.py`), not an inline shell tally.
+- `expects[]` has 3 entries → 3 sequential vios tasks on that one platform, each chained via `requires_previous_passed`.
+- `checks` use regex on Brev-link URLs + HEAD `Content-Type` probing → the generic judge (`tools/eval/harbor/verifiers/generic_judge.py`) routes them: the curl-prefixed ones run as shell probes, the regex-style ones go through the LLM judge.
 
 ## Running individual commands
 

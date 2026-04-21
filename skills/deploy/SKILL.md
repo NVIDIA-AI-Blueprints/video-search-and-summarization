@@ -368,7 +368,7 @@ Use workflow skills after deployment:
 - **alerts** / **incident-report** → alert management and incident queries
 - **video-search** → semantic video search
 - **video-summarization** → long video summarization
-- **sensor-ops** → camera/stream management via VIOS
+- **vios** → camera/stream management via VIOS
 - **video-analytics** → Elasticsearch queries
 
 ## Tear Down
