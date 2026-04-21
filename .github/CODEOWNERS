@@ -1,0 +1,9 @@
+# CODEOWNERS — VSS Blueprint
+#
+# Default: all PRs require review from VSS-developers.
+# Refine per-directory owners as teams are onboarded.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default — all files
+* @NVIDIA-AI-Blueprints/VSS-Agent-Dev

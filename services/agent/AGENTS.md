@@ -27,7 +27,7 @@ uv run ruff format --check src/                             # format check
 uv run mypy src/vss_agents/                                 # type check
 
 # Run the agent (dev-profile-base example; see README.md Quick Start)
-nat serve --config_file ../deployments/developer-workflow/dev-profile-base/vss-agent/configs/config.yml \
+nat serve --config_file ../../deploy/developer-workflow/dev-profile-base/vss-agent/configs/config.yml \
   --host 0.0.0.0 --port 8000
 ```
 
@@ -94,7 +94,7 @@ async def get(id, s, e):
   entry point listed under `[project.entry-points.'nat.components']` in `pyproject.toml`.
 - **Agents** are LangGraph state machines (`top_agent.py` routes to tools and sub-agents).
 - **Config** is YAML with `${ENV_VAR}` substitution. Profiles live in
-  `../deployments/developer-workflow/<profile>/vss-agent/configs/config.yml`.
+  `../../deploy/developer-workflow/<profile>/vss-agent/configs/config.yml`.
 - **Stubs**: `stubs/` has Mypy stubs for NAT. When subclassing a NAT base config,
   verify `uv run mypy src/vss_agents/` passes — extend the stub if needed.
 

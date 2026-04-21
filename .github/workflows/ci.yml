@@ -181,7 +181,7 @@ jobs:
       - name: detect-secrets
         run: |
           detect-secrets-hook --no-verify \
-            --exclude-files '(gitleaks-baseline\.json|^deployments/MANIFEST$)' \
+            --exclude-files '(gitleaks-baseline\.json|^deploy/MANIFEST$)' \
             $(git ls-files)
 
   # ---------------------------------------------------------------------------

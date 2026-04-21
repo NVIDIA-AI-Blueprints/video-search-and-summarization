@@ -79,7 +79,7 @@ Note that a dummy workflow is required by NAT.
 Edit the config file variables and then run:
 
 ```bash
-nat mcp serve --config_file deployments/warehouse/vss-agent/configs/va_mcp_server_config.yml
+nat mcp serve --config_file deploy/warehouse/vss-agent/configs/va_mcp_server_config.yml
 ```
 
 The server will start on `http://localhost:9901/mcp` by default.

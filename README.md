@@ -36,7 +36,7 @@ We provide multiple reference [Agent Workflows](https://docs.nvidia.com/vss/3.1.
 
 ## Software Components
 <div align="center">
-  <img src="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/raw/main/assets/vss-architecture.png" width="800">
+  <img src="https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/raw/main/tools/assets/vss-architecture.png" width="800">
 </div>
 
 1. **NIM microservices**: Here are models used in this blueprint:
@@ -63,8 +63,8 @@ This blueprint is designed for ease of setup with extensive configuration option
 |-----------|-------------|
 | `services/agent/` | Video search and summarization agent (Python). Contains `src/vss_agents/` (tools, agents, APIs, embeddings, evaluators, video analytics), `tests/`, `stubs/`, `docker/`, and `3rdparty/`. See [services/agent/README.md](services/agent/README.md). |
 | `services/ui/` | Frontend monorepo (Next.js, Turbo): `apps/` (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui) and shared `packages/`. See [services/ui/README.md](services/ui/README.md). |
-| `deployments/` | Deployment configs and Docker Compose: NIM model configs (`nim/`), developer workflows (`developer-workflow/` — dev-profile-base, dev-profile-search, dev-profile-alerts, dev-profile-lvs), foundational services, LVS, RTVI, VLM-as-verifier, VST, and root `compose.yml`. |
-| `scripts/` | Deployment and patch scripts, including the Brev launchable notebook (`deploy_vss_launchable.ipynb`) and dev-profile / patch scripts. |
+| `deploy/` | Deployment configs and Docker Compose: NIM model configs (`nim/`), developer workflows (`developer-workflow/` — dev-profile-base, dev-profile-search, dev-profile-alerts, dev-profile-lvs), foundational services, LVS, RTVI, VLM-as-verifier, VST, and root `compose.yml`. |
+| `tools/` | Scripts (`tools/scripts/`), assets, and utilities. Includes the Brev launchable notebook and dev-profile helper scripts. |
 
 ## Documentation
 
@@ -88,8 +88,8 @@ The platform requirement can vary depending on the configuration and deployment 
 
 **Ideal for:** Quickly getting started with your own videos without worrying about hardware and software requirements.
 
-Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [scripts](scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
-- [scripts/deploy_vss_launchable.ipynb](scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
+Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [tools/scripts](tools/scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
+- [tools/scripts/deploy_vss_launchable.ipynb](tools/scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
 
 ### Docker Compose Deployment
 
