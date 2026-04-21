@@ -71,7 +71,12 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 }
 ```
 
-### Remote LLM + remote VLM (no local GPU for inference)
+### Remote LLM + remote VLM (`remote-all` — no local GPU for inference)
+
+Fire this recipe when the user says *"deploy in remote-all mode"*,
+*"both LLM and VLM are remote"*, or supplies two endpoint URLs (one per
+role). Both mode vars MUST flip to `remote`; leaving either at `local`
+silently breaks `COMPOSE_PROFILES`.
 
 ```json
 {
@@ -80,12 +85,28 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
   "MDX_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "LLM_MODE": "remote",
-  "LLM_BASE_URL": "https://integrate.api.nvidia.com",
+  "LLM_BASE_URL": "<llm-endpoint-from-user>",
+  "LLM_NAME":     "<llm-model-from-user>",
   "VLM_MODE": "remote",
-  "VLM_BASE_URL": "https://integrate.api.nvidia.com",
-  "NVIDIA_API_KEY": "<key>"
+  "VLM_BASE_URL": "<vlm-endpoint-from-user>",
+  "VLM_NAME":     "<vlm-model-from-user>",
+  "NVIDIA_API_KEY": "<key if endpoints require auth>"
 }
 ```
+
+If the user didn't provide endpoint URLs/models, **ask them** — don't
+guess. For NVIDIA's public API: `https://integrate.api.nvidia.com` (strip
+any trailing `/v1`). For launchpad-style internal endpoints, use the
+exact URL they gave you.
+
+Post-write sanity check:
+```bash
+grep -E '^(LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL|LLM_NAME|VLM_NAME)=' \
+  deployments/developer-workflow/dev-profile-base/.env
+```
+Expect six lines, all non-empty; `LLM_MODE=remote` and `VLM_MODE=remote`
+must both appear. If either is `local`, you didn't overwrite the
+template placeholder — re-run the `sed` with the correct value.
 
 ### Dedicated GPUs (2-GPU system)
 
