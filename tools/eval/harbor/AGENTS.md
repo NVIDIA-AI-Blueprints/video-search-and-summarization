@@ -61,10 +61,20 @@ startup and keep them alive across PR events.
 
 ### Two monitors (your main loop)
 
-1. **PR monitor** — polls `gh pr list --base develop --json number,headRefName,updatedAt`
-   every 60 s. Filters `headRefName` matching `pull-request/*`. Tracks last-seen
-   commit SHA per PR in `/tmp/subagents/_prs_seen.json` to detect new commits
-   on existing PRs.
+1. **Branch monitor** — polls the repo's branch list every 60 s, filtering
+   for branches named `pull-request/<N>`. NVIDIA-AI-Blueprints'
+   `copy-pr-bot` mirrors contributor PRs into these branches **without**
+   opening a mirror PR, so `gh pr list` alone misses them. Query via
+   ```bash
+   gh api "repos/<org>/<repo>/branches?per_page=100" --paginate \
+     --jq '.[] | select(.name | startswith("pull-request/")) |
+             {name: .name, sha: .commit.sha}'
+   ```
+   For each `pull-request/<N>` branch whose commit SHA differs from the
+   one tracked in `/tmp/subagents/_prs_seen.json["#<N>"].head_sha`, fire
+   the §3 workflow with `<N>` as the PR number. The source PR `#<N>`
+   still exists (same number as the branch suffix) for metadata and
+   comment posting.
 2. **Results monitor** — watches `/tmp/subagents/*.json` for new entries in
    the `results` array (tasks a subagent finished). Each new result triggers
    a PR comment and, if the PR's entire task batch is now done, a final PR
@@ -77,16 +87,34 @@ or two long-running `Monitor` background tasks if available to you).
 
 ## 3. PR-event workflow
 
-Fire whenever the PR monitor observes a new PR or a new commit on an
-already-tracked PR whose base is `develop` and whose head branch matches
-`pull-request/*`.
+Fire whenever the branch monitor observes a new `pull-request/<N>` branch
+or a commit SHA change on an already-tracked one. The source PR number is
+`<N>` (from the branch suffix).
 
 ### Steps
 
-1. **Fetch the PR diff:**
+1. **Fetch the mirror-branch diff vs `develop`:**
    ```bash
-   gh pr diff <PR_NUMBER> --name-only
+   N=100
+   gh api "repos/<org>/<repo>/compare/develop...pull-request/$N" \
+     --jq '.files[].filename'
    ```
+   Don't use `gh pr diff <N>` — the source PR's `headRefName` is usually
+   a contributor-controlled branch (e.g. `feat/foo`), not
+   `pull-request/<N>`, so the diff would be correct but conceptually
+   different from the mirror. Always diff the mirror branch so the PR
+   head SHA we're evaluating matches the one recorded in
+   `_prs_seen.json`.
+
+   Also fetch source PR metadata for comment posting and adapter-PR
+   cross-linking:
+   ```bash
+   gh pr view $N --json number,title,author,url,baseRefName,state
+   ```
+   If the source PR is missing or closed, process the branch anyway
+   (skill authors may still want the eval artefacts) but skip the §7
+   comment step and log an alert to
+   `/tmp/subagents/_prs_seen.json["#<N>"].alerts[]`.
 
 2. **Filter to skills touched:**
    ```
