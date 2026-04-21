@@ -564,10 +564,10 @@ Queued at `<utc-iso>` · first finished at `<utc-iso>` · last finished at `<utc
 
 | Platform | Result | Reward | Duration | Trace |
 |---|---|---|---|---|
-| L40S | ✅ passed | 1.0 (15/15) | 13m 42s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-13-22/l40s__abc) |
-| H100 | ✅ passed | 1.0 (15/15) | 11m 05s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-17-01/h100__def) |
-| RTX 6000 Pro | ❌ failed | 0.87 (13/15) | 14m 23s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-21-44/rtx__ghi) |
-| DGX Spark | ✅ passed | 1.0 (15/15) | 18m 17s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/2026-04-20__05-30-19/spark__jkl) |
+| L40S | ✅ passed | 1.0 (15/15) | 13m 42s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-l40s-1__2026-04-20__05-13-22/trials/l40s__abc) |
+| H100 | ✅ passed | 1.0 (15/15) | 11m 05s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-h100-1__2026-04-20__05-17-01/trials/h100__def) |
+| RTX 6000 Pro | ❌ failed | 0.87 (13/15) | 14m 23s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-rtx-1__2026-04-20__05-21-44/trials/rtx__ghi) |
+| DGX Spark | ✅ passed | 1.0 (15/15) | 18m 17s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/sensor-ops-base-spark-1__2026-04-20__05-30-19/trials/spark__jkl) |
 
 ### Failing checks (RTX 6000 Pro)
 
@@ -610,17 +610,55 @@ a named service (not a numbered port) is:
 https://<service-name>-<BREV_ENV_ID>.brevlab.com/<path>
 ```
 
-For this topology: `<service-name>=harbor` and the path is the relative
-result directory harbor wrote to, i.e.
-`jobs/<run_id_dir>/<task_id>__<hash>`. Full URL:
+`<service-name>=harbor` for the Harbor viewer.
+
+**Layout mismatch and the `_viewer/` symlink pattern.** `uvx harbor view`
+indexes exactly one folder and expects `<folder>/<job>/<trial>` (two
+levels). `uvx harbor run -o results/<run_id>` writes
+`results/<run_id>/<date>/<trial>` (three levels — harbor auto-appends its
+own dated subdir). Pointing the viewer at `results/` therefore shows every
+`<run_id>` as an empty top-level entry.
+
+Fix (non-destructive): maintain an aggregation folder
+`tools/eval/harbor/results/_viewer/` containing symlinks named
+`<run_id>__<date>` that point at `../<run_id>/<date>`. After every
+completed harbor trial the coordinator adds one symlink:
+
+```bash
+cd tools/eval/harbor/results
+ln -sfn "../<run_id>/<date>" "_viewer/<run_id>__<date>"
+```
+
+The viewer runs once per host, detached, pointed at `_viewer`:
+
+```bash
+cd /home/ubuntu/video-search-and-summarization
+nohup uvx harbor view tools/eval/harbor/results/_viewer --jobs \
+    --host 0.0.0.0 --port 8080 > /tmp/subagents/harbor-view.log 2>&1 &
+disown
+```
+
+**Trace URL template** (write this into each result entry's
+`harbor_trace_url` and into §7 comment links):
 
 ```
-https://harbor-8yq51k0qt.brevlab.com/jobs/<run_id>/<task_id>__<hash>
+https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>/trials/<trial_name>
 ```
 
-Resolve `BREV_ENV_ID` dynamically from `/etc/environment` — do NOT hardcode
-`8yq51k0qt`; a different deployment of this coordinator would have a
-different id.
+Where:
+- `<BREV_ENV_ID>` — read dynamically from `/etc/environment`, never hardcoded.
+- `<run_id>` — the coordinator-chosen run_id passed to `harbor run -o`.
+- `<date>` — the dated subdir harbor auto-creates, format `YYYY-MM-DD__HH-MM-SS`.
+- `<trial_name>` — the directory harbor assigns to the trial, format
+  `<task_id>__<hash>` (e.g. `l40s-remote-all__au8iahR`).
+
+The Harbor viewer exposes these API routes under the same host; useful
+for programmatic probes:
+
+- `GET /api/jobs` — paginated list, `items[].name` = `<run_id>__<date>`
+- `GET /api/jobs/{job}` — job summary
+- `GET /api/jobs/{job}/trials/{trial}` — trial detail
+- `GET /api/jobs/{job}/trials/{trial}/{trajectory|verifier-output|agent-logs|files|artifacts}`
 
 ---
 
