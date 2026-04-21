@@ -422,24 +422,40 @@ teardown is a queue-drained concern only.
 
 ### Env sourcing (one-time, per subagent process)
 
-Before the first harbor invocation, each subagent must load the repo's
-`.env` so `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`,
-`NGC_CLI_API_KEY`, `HF_TOKEN`, and the remote LLM/VLM URLs are available:
+Before the first harbor invocation, each subagent must load the coordinator's
+`.env` and propagate the git-identity vars as `GIT_AUTHOR_*` /
+`GIT_COMMITTER_*`:
 
 ```bash
+set -a; source /home/ubuntu/eval-coordinator/.env; set +a
+export GH_TOKEN="$GITHUB_TOKEN"
+export GIT_AUTHOR_NAME="$GIT_USER_NAME"     GIT_AUTHOR_EMAIL="$GIT_USER_EMAIL"
+export GIT_COMMITTER_NAME="$GIT_USER_NAME"  GIT_COMMITTER_EMAIL="$GIT_USER_EMAIL"
 cd /home/ubuntu/video-search-and-summarization
-set -a; source .env; set +a
 ```
 
-Skeleton for the `.env` file is at
-[`tools/eval/harbor/.env.example`](.env.example). If `.env` is missing or
-any of `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` is
-empty after sourcing, the subagent must mark every task it picks up as
-`status="blocked"` with `error_notes="missing ANTHROPIC env — .env
-not configured"`, flag the coordinator (a new entry in
-`/tmp/subagents/<name>.json.alerts[]`), and stop processing until the
-coordinator confirms `.env` is fixed. Do NOT try to guess keys or run
-harbor without them — the harbor trial will hang without a clear error.
+The coordinator's `.env` must have:
+- `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` — for the
+  claude-code agent inside the harbor trial.
+- `NGC_CLI_API_KEY`, `HF_TOKEN`, `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL`,
+  `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` — forwarded to the Brev instance
+  by `BrevEnvironment`.
+- `GITHUB_TOKEN` — for the coordinator's `gh` calls (PR comments, adapter
+  PRs). `GH_TOKEN` is the var `gh` actually consults; we alias.
+- `GIT_USER_NAME` / `GIT_USER_EMAIL` — author identity for commits the
+  coordinator raises in § 8. The host's git config has no
+  `user.name` / `user.email` by policy; we propagate identity via
+  per-process env vars instead.
+
+Skeleton at [`tools/eval/harbor/.env.example`](.env.example). If any of
+`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` /
+`GITHUB_TOKEN` / `GIT_USER_NAME` / `GIT_USER_EMAIL` is empty after sourcing,
+the subagent must mark every task it picks up as `status="blocked"` with
+`error_notes="missing env — .env not configured"`, flag the coordinator
+(a new entry in `/tmp/subagents/<name>.json.alerts[]`), and stop
+processing until the coordinator confirms `.env` is fixed. Do NOT try to
+guess keys or run harbor without them — the harbor trial will hang without
+a clear error.
 
 ### Subagent loop
 
