@@ -411,6 +411,26 @@ The VLM and LVS responses are the final user-facing product. Surface
 them with minimal transformation; do not paraphrase, re-voice, add
 emojis, or re-format into bullets/tables that weren't in the source.
 
+**Exactly one backend call, exactly one rendering.** A single confirmed
+prompt (Step 2a) or a single confirmed scenario/events set (Step 2b)
+corresponds to exactly one `POST /v1/chat/completions` or `POST
+/summarize` request, and exactly one block of output to the user. Do
+NOT fan out parallel calls to hedge (e.g., one call for "full scene"
+plus another for "anomalies"), and do NOT render the same response
+twice with different headers. If the user wants a second pass (e.g.,
+"now with a safety-incident focus"), that's a new HITL round → a new
+single call → a new single rendering.
+
+**Header line format.** Start the response with exactly one header:
+
+```
+Summary of <video_name> (<duration>)
+```
+
+Use `<duration>` formatted as `Ns` for durations under 60 seconds (e.g.
+`25s`) and `Mm Ss` for durations ≥60 seconds (e.g. `3m 30s`). Never
+include the same header twice in different formats.
+
 **LVS output:**
 
 - **`video_summary`** (string) — render **verbatim** as the narrative
@@ -458,6 +478,9 @@ output, not mixed into it.
   `choices[0].message.content` from VLM are the deliverables. Render
   them verbatim; don't paraphrase into your own voice or reformat. See
   *Responses → Presenting the output to the user*.
+- **One call, one render.** One confirmed HITL → one backend request →
+  one block of output. No parallel hedging, no duplicate renderings
+  with different headers.
 
 ## Cross-reference
 
