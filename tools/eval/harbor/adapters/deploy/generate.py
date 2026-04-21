@@ -844,19 +844,36 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir) if args.skill_dir else None
 
-    # Resolve remote endpoints (URL + model must be paired)
+    # Resolve remote endpoints (URL + model must be paired). CLI args take
+    # priority; fall back to the standard env vars so `source .env; python3
+    # generate.py` Just Works without re-passing every flag.
+    llm_url   = args.llm_remote_url   or os.environ.get("LLM_REMOTE_URL")
+    llm_model = args.llm_remote_model or os.environ.get("LLM_REMOTE_MODEL")
+    vlm_url   = args.vlm_remote_url   or os.environ.get("VLM_REMOTE_URL")
+    vlm_model = args.vlm_remote_model or os.environ.get("VLM_REMOTE_MODEL")
+
     llm_remote: dict | None = None
-    if args.llm_remote_url:
-        if not args.llm_remote_model:
-            print("--llm-remote-url requires --llm-remote-model", file=sys.stderr)
+    if llm_url:
+        if not llm_model:
+            print(
+                "LLM_REMOTE_URL set but LLM_REMOTE_MODEL is empty — "
+                "set both or neither (pass --llm-remote-url/--llm-remote-model "
+                "or define LLM_REMOTE_URL/LLM_REMOTE_MODEL in .env).",
+                file=sys.stderr,
+            )
             sys.exit(1)
-        llm_remote = {"url": args.llm_remote_url, "model": args.llm_remote_model}
+        llm_remote = {"url": llm_url, "model": llm_model}
+
     vlm_remote: dict | None = None
-    if args.vlm_remote_url:
-        if not args.vlm_remote_model:
-            print("--vlm-remote-url requires --vlm-remote-model", file=sys.stderr)
+    if vlm_url:
+        if not vlm_model:
+            print(
+                "VLM_REMOTE_URL set but VLM_REMOTE_MODEL is empty — "
+                "set both or neither.",
+                file=sys.stderr,
+            )
             sys.exit(1)
-        vlm_remote = {"url": args.vlm_remote_url, "model": args.vlm_remote_model}
+        vlm_remote = {"url": vlm_url, "model": vlm_model}
 
     have_ngc_key = args.assume_ngc_key or bool(os.environ.get("NGC_CLI_API_KEY"))
 
@@ -868,13 +885,15 @@ def main() -> None:
     print(f"  filter platform  : {args.platform or '(all)'}")
     print(f"  filter mode      : {args.mode or '(all)'}")
     if llm_remote:
-        print(f"  LLM remote       : {llm_remote['url']}  ({llm_remote['model']})")
+        llm_src = "CLI" if args.llm_remote_url else "env"
+        print(f"  LLM remote       : {llm_remote['url']}  ({llm_remote['model']}) [{llm_src}]")
     else:
-        print(f"  LLM remote       : (not set — remote-* modes needing LLM will be skipped)")
+        print(f"  LLM remote       : (not set — pass --llm-remote-url or export LLM_REMOTE_URL; remote-* modes needing LLM will be skipped)")
     if vlm_remote:
-        print(f"  VLM remote       : {vlm_remote['url']}  ({vlm_remote['model']})")
+        vlm_src = "CLI" if args.vlm_remote_url else "env"
+        print(f"  VLM remote       : {vlm_remote['url']}  ({vlm_remote['model']}) [{vlm_src}]")
     else:
-        print(f"  VLM remote       : (not set — remote-* modes needing VLM will be skipped)")
+        print(f"  VLM remote       : (not set — pass --vlm-remote-url or export VLM_REMOTE_URL; remote-* modes needing VLM will be skipped)")
     if have_ngc_key:
         source = "--assume-ngc-key" if args.assume_ngc_key else "NGC_CLI_API_KEY env"
         print(f"  NGC key          : available ({source})")
