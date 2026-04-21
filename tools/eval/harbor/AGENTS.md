@@ -137,8 +137,10 @@ or a commit SHA change on an already-tracked one. The source PR number is
      and move on.
 
 4. **For each eval spec `<profile>.json`:**
-   - Generate/refresh the adapter at
-     `tools/eval/harbor/adapters/<name>/generate.py` — see **§ 4**.
+   - If `tools/eval/harbor/adapters/<name>/generate.py` already exists,
+     **re-run it** rather than regenerating. Only synthesize a fresh
+     adapter for skills that don't have one yet — see **§ 4** for the
+     exists-vs-missing decision tree.
    - Run the adapter to materialize datasets under
      `tools/eval/harbor/datasets/<name>/<profile>/<platform>/`.
    - Decide which platforms to dispatch to (see **§ 5**) and **append one
@@ -154,8 +156,33 @@ or a commit SHA change on an already-tracked one. The source PR number is
 
 ## 4. Adapter generation rules
 
-You regenerate `tools/eval/harbor/adapters/<skill>/generate.py` every time
-the skill's eval spec changes. Pattern-match from the two existing adapters:
+**Before generating anything, check if the adapter already exists.**
+List `tools/eval/harbor/adapters/<skill>/` — if a `generate.py` is
+checked in (deploy + vios at time of writing), it is **human-maintained
+and must not be regenerated from scratch**. These adapters encode
+skill-specific structure (deploy's profile × platform × mode matrix;
+vios's single-platform step chain) that would be destroyed by a naive
+rewrite. For existing adapters, the coordinator's job is limited to:
+
+1. Re-run the adapter with the new/refreshed spec as input, e.g.
+   `python3 tools/eval/harbor/adapters/deploy/generate.py
+   --output-dir tools/eval/harbor/datasets/deploy
+   --skill-dir skills/deploy --profile <new-profile>`. The adapter
+   owns the templating — specs travel through its `_render_eval_spec()`
+   substitution pass, and the generated `tests/<spec>.json` is what the
+   trial's generic judge actually reads.
+2. If the existing adapter's CLI doesn't accept what the new spec
+   requires (e.g. a brand-new profile dimension, a mode it doesn't
+   know about), **post a comment on the source PR** asking the skill
+   author to update the adapter. Do NOT edit the adapter yourself
+   (adapters live under `tools/eval/harbor/`, technically coordinator
+   territory — but the deploy/vios adapters encode cross-cutting
+   skill knowledge, so treat them as skill-author-reviewed).
+3. Append enqueue entries (§ 5) using the regenerated dataset paths.
+
+Only regenerate from scratch when `generate.py` does NOT exist yet for
+the skill — i.e., a brand-new skill PR that ships an eval spec but no
+adapter. In that case, pattern-match from the two existing adapters:
 
 - **`tools/eval/harbor/adapters/deploy/generate.py`** — matrix generator
   (platform × mode). Only use this shape if the skill's spec declares a
