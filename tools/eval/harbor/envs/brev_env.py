@@ -227,7 +227,18 @@ class BrevEnvironment(BaseEnvironment):
         # propagates ANTHROPIC_* env vars, so anything else needed
         # during deploy (NGC_CLI_API_KEY, NVIDIA_API_KEY) must land on
         # the instance out-of-band.
-        forwarded: list[tuple[str, str]] = []
+        forwarded: list[tuple[str, str]] = [
+            # claude-code 2.1.x emits a `context_management` field in every
+            # /v1/messages body to drive server-side thinking-block cleanup
+            # (`clear_thinking_20251015`). NVIDIA's Anthropic-compatible
+            # proxy (our subagent trials route through it via
+            # `--ak api_base=${ANTHROPIC_BASE_URL}/v1`) rejects the field
+            # with HTTP 400. Disabling thinking client-side is the only
+            # CLI toggle that stops the field from being sent; trials
+            # don't rely on extended thinking, so the cost is negligible.
+            # Revisit if/when the proxy accepts the field.
+            ("CLAUDE_CODE_DISABLE_THINKING", "1"),
+        ]
         for key in ("NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN"):
             val = os.environ.get(key)
             if val:
