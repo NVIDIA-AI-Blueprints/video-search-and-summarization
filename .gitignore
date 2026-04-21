@@ -1,3 +1,1 @@
-*.pyc
-deployments/data-dir/*
-.orchestrator-artifacts/*
+.claude
