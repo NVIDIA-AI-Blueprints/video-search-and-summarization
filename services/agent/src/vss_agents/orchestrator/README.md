@@ -28,6 +28,18 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
 - `docker_generate` returns `docker_compose_id` (used by `docker_read`, `docker_up`, `docker_down`)
 - `docker_up` / `docker_down` return `docker_compose_ops_id` (used by `docker_status`)
 
+## Tool summary
+
+- `profiles`: List all supported deployment profiles.
+- `prereqs`: Run Docker/GPU prerequisite checks.
+- `docker_generate`: Generate resolved Docker Compose YAML and `.env` artifacts.
+- `docker_read`: Fetch generated env and resolved compose YAML content by `docker_compose_id`.
+- `docker_list`: List Docker container names.
+- `docker_logs`: Fetch Docker logs by container name.
+- `docker_up`: Start Docker Compose services using previously generated artifacts.
+- `docker_status`: Poll status and recent logs for a background `docker_up` or `docker_down` operation.
+- `docker_down`: Stop and remove Docker Compose services.
+
 ## Available tools and payloads
 
 - `profiles`: list supported deployment profiles.
