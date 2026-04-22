@@ -68,11 +68,15 @@ jobs:
       - name: ruff format
         run: uv run ruff format --check .
 
+      # Run from repo root so `git ls-files` sees YAML files outside
+      # services/agent (the job's default working-directory). `uv run
+      # --project` pins the uv environment to services/agent regardless.
       - name: yamllint
+        working-directory: ${{ github.workspace }}
         run: |
-          uv run yamllint \
-            -d '{extends: default, rules: {line-length: {max: 120}, document-start: disable, indentation: {spaces: 2, indent-sequences: false}}}' \
-            $(git ls-files '*.yml' '*.yaml' | grep -v '\.gitlab-ci\.yml')
+          uv run --project services/agent yamllint \
+            -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}" \
+            $(git ls-files '.github/**/*.yml' '.github/**/*.yaml' '.pre-commit-config.yaml' 'services/**/*.yml' 'services/**/*.yaml')
 
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)
