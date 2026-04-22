@@ -148,7 +148,11 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             step_dir = step_dir / f"step-{idx}"
         step_dir.mkdir(parents=True, exist_ok=True)
 
-        # instruction.md — one step's query + its expected outcome
+        # instruction.md — ONE step's query + environment notes ONLY.
+        # Never leak the verifier's `checks[]` into the instruction the agent
+        # sees — they live in the spec, are copied into tests/, and the
+        # verifier evaluates them independently. If the agent sees the checks
+        # it can write to the test rather than do the work.
         lines = [
             f"Use the `/vios` skill against the VSS base profile "
             f"already running on this `{platform}` host "
@@ -157,13 +161,6 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             f"## Query {idx} of {len(expects)}",
             "",
             expect.get("query", ""),
-            "",
-            "Expected outcome (the verifier checks these independently):",
-            "",
-        ]
-        for c in expect.get("checks") or []:
-            lines.append(f"- {c}")
-        lines += [
             "",
             "## Environment notes",
             "",
