@@ -1033,6 +1033,11 @@ async def vss_orchestrator(
                         "error": f"Unknown docker_compose_ops_id '{input.docker_compose_ops_id}'.",
                     }
                 recent_lines = list(op.log_lines)[-input.tail_lines :]
+                raw_log_excerpt = "\n".join(recent_lines)
+                log_excerpt = _truncate_text_to_max_bytes(
+                    raw_log_excerpt,
+                    max_bytes=_MAX_DOCKER_LOG_RESPONSE_BYTES,
+                )
                 status_value = op.status
                 if status_value not in _ALL_KNOWN_STATUSES:
                     status_value = ComposeStatus.ERROR.value
@@ -1046,7 +1051,9 @@ async def vss_orchestrator(
                     "exit_code": op.exit_code,
                     "command": op.command,
                     "tail_lines": input.tail_lines,
-                    "log_excerpt": "\n".join(recent_lines),
+                    "log_excerpt": log_excerpt,
+                    "log_excerpt_truncated": log_excerpt != raw_log_excerpt,
+                    "log_excerpt_bytes": len(log_excerpt.encode("utf-8")),
                 }
 
         group.add_function(name="docker_status", fn=_docker_status, description=_docker_status.__doc__)
