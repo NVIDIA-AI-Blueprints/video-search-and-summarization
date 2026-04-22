@@ -213,8 +213,14 @@ def parse_env_overrides(entries: list[str]) -> dict[str, str]:
         key = key.strip()
         if not VALID_ENV_KEY.match(key):
             raise ValidationError(f"Invalid env key '{key}'. Must match {VALID_ENV_KEY.pattern}.")
-        overrides[key] = value
+        overrides[key] = _validate_env_value(key, value)
     return overrides
+
+
+def _validate_env_value(key: str, value: str) -> str:
+    if "\n" in value or "\r" in value:
+        raise ValidationError(f"Invalid env value for '{key}'. Newlines are not allowed.")
+    return value
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -244,6 +250,7 @@ def first_non_placeholder(values: Iterable[str]) -> str:
 
 
 def _set_env_line(lines: list[str], key: str, value: str) -> None:
+    value = _validate_env_value(key, value)
     exact = re.compile(rf"^{re.escape(key)}=.*$")
     commented = re.compile(rf"^#[ \t]*{re.escape(key)}=.*$")
     for i, line in enumerate(lines):
