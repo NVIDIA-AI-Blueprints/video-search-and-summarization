@@ -49,6 +49,7 @@ from nat.cli.register_workflow import register_function_group
 from nat.data_models.function import FunctionGroupBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import field_validator
 
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
@@ -115,6 +116,14 @@ _ALL_KNOWN_STATUSES: Final[frozenset[str]] = frozenset(status.value for status i
 # Input bounds and defaults
 _COMPOSE_STATUS_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=80, maximum=1000)
 _CONTAINER_LOG_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=100, maximum=10000)
+
+
+def _reject_option_like_docker_positional(arg_name: str, value: str) -> str:
+    """Reject Docker positional arguments that could be parsed as flags."""
+    if value.startswith("-"):
+        raise ValueError(f"{arg_name} must not begin with '-'.")
+    return value
+
 
 # Polling behavior
 _COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S: Final[int] = 5
@@ -191,6 +200,11 @@ class ContainerLogsInput(BaseModel):
         le=_CONTAINER_LOG_TAIL_BOUNDS.maximum,
         description="Number of trailing log lines to return.",
     )
+
+    @field_validator("container_name")
+    @classmethod
+    def _validate_container_name(cls, value: str) -> str:
+        return _reject_option_like_docker_positional("container_name", value)
 
 
 class DockerProfilesInput(BaseModel):
@@ -835,7 +849,7 @@ async def vss_orchestrator(
         async def _docker_logs(input: ContainerLogsInput) -> dict:
             """Fetch docker logs by container name."""
             result = subprocess.run(
-                ["docker", "logs", "--tail", str(input.tail), input.container_name],
+                ["docker", "logs", "--tail", str(input.tail), "--", input.container_name],
                 cwd=str(deployments_dir),
                 capture_output=True,
                 text=True,
