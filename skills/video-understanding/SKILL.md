@@ -1,6 +1,7 @@
 ---
 name: video-understanding
 description: Call the vss agent to run video understanding on video to answer a text question. Use when the user asks about video content, or about visual details that cannot be answered from conversation history, search hits, or metadata alone.
+
 metadata:
   { "openclaw": { "emoji": "👁", "os": ["linux"] } }
 ---
