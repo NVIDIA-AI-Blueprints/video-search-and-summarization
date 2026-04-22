@@ -16,8 +16,8 @@
 # VSS Orchestrator MCP Server
 #
 # Exposes nine tools:
-#   vss_orchestrator__docker_profiles - list all supported deployment profiles
-#   vss_orchestrator__docker_prereqs - run Docker/GPU prerequisite checks
+#   vss_orchestrator__profiles - list all supported deployment profiles
+#   vss_orchestrator__prereqs - run Docker/GPU prerequisite checks
 #   vss_orchestrator__docker_generate - resolve env + compose YAML artifacts
 #   vss_orchestrator__docker_read - fetch generated env/yaml by docker_compose_id
 #   vss_orchestrator__docker_list - list docker container names
@@ -131,8 +131,8 @@ function_groups:
           RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
           VLM_MODEL_TYPE: rtvi
     include:
-    - docker_profiles
-    - docker_prereqs
+    - profiles
+    - prereqs
     - docker_generate
     - docker_read
     - docker_list

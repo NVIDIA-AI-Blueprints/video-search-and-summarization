@@ -16,8 +16,8 @@
 """VSS Orchestrator MCP function group.
 
 Exposes nine tools that wrap the orchestrator utilities:
-  - docker_profiles: list all supported deployment profiles
-  - docker_prereqs: run Docker/GPU prerequisite checks
+  - profiles: list all supported deployment profiles
+  - prereqs: run Docker/GPU prerequisite checks
   - docker_generate : resolve env + compose YAML artifacts
   - docker_read: fetch generated env/yaml by docker_compose_id
   - docker_list: list docker container names
@@ -295,13 +295,13 @@ class ContainerLogsInput(BaseModel):
 
 
 class DockerProfilesInput(BaseModel):
-    """Input for docker_profiles lookup."""
+    """Input for profiles lookup."""
 
     pass
 
 
 class DockerPrereqsInput(BaseModel):
-    """Input for docker_prereqs lookup."""
+    """Input for prereqs lookup."""
 
     pass
 
@@ -393,8 +393,8 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     )
     include: list[str] = Field(
         default=[
-            "docker_profiles",
-            "docker_prereqs",
+            "profiles",
+            "prereqs",
             "docker_generate",
             "docker_read",
             "docker_list",
@@ -771,13 +771,13 @@ async def vss_orchestrator(
         }
 
     # ---------------------------------------------------------------------------
-    # Tool: docker_profiles
+    # Tool: profiles
     # ---------------------------------------------------------------------------
     group = FunctionGroup(config=_config)
 
-    if "docker_profiles" in _config.include:
+    if "profiles" in _config.include:
 
-        async def _docker_profiles(input: DockerProfilesInput) -> dict:
+        async def _profiles(input: DockerProfilesInput) -> dict:
             """List all supported deployment profiles."""
             _ = input
             return {
@@ -785,15 +785,15 @@ async def vss_orchestrator(
                 "profiles": sorted(SUPPORTED_PROFILES),
             }
 
-        group.add_function(name="docker_profiles", fn=_docker_profiles, description=_docker_profiles.__doc__)
+        group.add_function(name="profiles", fn=_profiles, description=_profiles.__doc__)
 
     # ---------------------------------------------------------------------------
-    # Tool: docker_prereqs
+    # Tool: prereqs
     # ---------------------------------------------------------------------------
 
-    if "docker_prereqs" in _config.include:
+    if "prereqs" in _config.include:
 
-        async def _docker_prereqs(input: DockerPrereqsInput) -> dict:
+        async def _prereqs(input: DockerPrereqsInput) -> dict:
             """Run Docker/GPU prerequisite checks."""
             _ = input
             try:
@@ -806,7 +806,7 @@ async def vss_orchestrator(
                 "details": report,
             }
 
-        group.add_function(name="docker_prereqs", fn=_docker_prereqs, description=_docker_prereqs.__doc__)
+        group.add_function(name="prereqs", fn=_prereqs, description=_prereqs.__doc__)
 
     # ---------------------------------------------------------------------------
     # Tool: docker_generate

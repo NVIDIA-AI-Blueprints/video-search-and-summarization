@@ -30,7 +30,7 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
 
 ## Available tools and payloads
 
-- `docker_profiles`: list supported deployment profiles.
+- `profiles`: list supported deployment profiles.
   - Payload: none (use `{}`).
   - Example response:
     ```json
@@ -39,7 +39,7 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
       "profiles": ["alerts", "base", "lvs", "search"]
     }
     ```
-- `docker_prereqs`: run prerequisite checks (GPU, Docker, NVIDIA container toolkit, disk).
+- `prereqs`: run prerequisite checks (GPU, Docker, NVIDIA container toolkit, disk).
   - Payload: none (use `{}`).
   - Example response:
     ```json
