@@ -25,6 +25,7 @@ from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.embed_search import QueryInput
 from vss_agents.tools.embed_search import embed_search
+from vss_agents.utils.es_client import ESClient
 
 
 def _make_es_response(hits):
@@ -51,9 +52,12 @@ class TestEmbedSearchEdgeCases:
         return AsyncMock()
 
     @pytest.fixture
-    def mock_es_client(self):
+    def mock_es(self, monkeypatch):
         client = AsyncMock()
         client.indices.exists.return_value = True
+        monkeypatch.setattr(ESClient, "_instance", client)
+        monkeypatch.setattr(ESClient, "_endpoint", "http://mock:9200")
+        monkeypatch.setattr(ESClient, "close", AsyncMock())
         return client
 
     @pytest.fixture
@@ -62,15 +66,14 @@ class TestEmbedSearchEdgeCases:
         client.get_text_embedding.return_value = [0.1, 0.2, 0.3]
         return client
 
-    async def _get_inner_fn(self, config, mock_builder, mock_es_client, mock_embed_client):
-        with patch("vss_agents.tools.embed_search.AsyncElasticsearch", return_value=mock_es_client):
-            with patch("vss_agents.tools.embed_search.CosmosEmbedClient", return_value=mock_embed_client):
-                gen = embed_search.__wrapped__(config, mock_builder)
-                fi = await gen.__anext__()
-                return fi.single_fn
+    async def _get_inner_fn(self, config, mock_builder, mock_es, mock_embed_client):
+        with patch("vss_agents.tools.embed_search.CosmosEmbedClient", return_value=mock_embed_client):
+            gen = embed_search.__wrapped__(config, mock_builder)
+            fi = await gen.__anext__()
+            return fi.single_fn
 
     @pytest.mark.asyncio
-    async def test_top_k_limits_results(self, config, mock_builder, mock_es_client, mock_embed_client):
+    async def test_top_k_limits_results(self, config, mock_builder, mock_es, mock_embed_client):
         """Test that top_k limits the number of results."""
         hits = []
         for i in range(10):
@@ -97,9 +100,9 @@ class TestEmbedSearchEdgeCases:
                     },
                 }
             )
-        mock_es_client.search.return_value = _make_es_response(hits)
+        mock_es.search.return_value = _make_es_response(hits)
 
-        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es_client, mock_embed_client)
+        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
         query_input = QueryInput(params={"query": "test", "top_k": "3"}, source_type="video_file")
         result = await inner_fn(query_input)
 
@@ -108,7 +111,7 @@ class TestEmbedSearchEdgeCases:
         assert len(result.results) == 3
 
     @pytest.mark.asyncio
-    async def test_empty_response_field(self, config, mock_builder, mock_es_client, mock_embed_client):
+    async def test_empty_response_field(self, config, mock_builder, mock_es, mock_embed_client):
         """Test when response field is empty string."""
         source = {
             "timestamp": "2025-01-01T00:00:00Z",
@@ -118,16 +121,16 @@ class TestEmbedSearchEdgeCases:
                 "visionEmbeddings": [{"vector": [0.1, 0.2]}],
             },
         }
-        mock_es_client.search.return_value = _make_es_response([{"_id": "h1", "_score": 0.95, "_source": source}])
+        mock_es.search.return_value = _make_es_response([{"_id": "h1", "_score": 0.95, "_source": source}])
 
-        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es_client, mock_embed_client)
+        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
         query_input = QueryInput(params={"query": "test"}, source_type="video_file")
         result = await inner_fn(query_input)
 
         assert isinstance(result, EmbedSearchOutput)
 
     @pytest.mark.asyncio
-    async def test_no_sensor_description(self, config, mock_builder, mock_es_client, mock_embed_client):
+    async def test_no_sensor_description(self, config, mock_builder, mock_es, mock_embed_client):
         """Test when no sensor description is available."""
         source = {
             "timestamp": "2025-01-01T00:00:00Z",
@@ -146,16 +149,16 @@ class TestEmbedSearchEdgeCases:
                 "visionEmbeddings": [{"vector": [0.1, 0.2]}],
             },
         }
-        mock_es_client.search.return_value = _make_es_response([{"_id": "h1", "_score": 0.95, "_source": source}])
+        mock_es.search.return_value = _make_es_response([{"_id": "h1", "_score": 0.95, "_source": source}])
 
-        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es_client, mock_embed_client)
+        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
         query_input = QueryInput(params={"query": "test"}, source_type="video_file")
         result = await inner_fn(query_input)
 
         assert isinstance(result, EmbedSearchOutput)
 
     @pytest.mark.asyncio
-    async def test_response_data_not_dict(self, config, mock_builder, mock_es_client, mock_embed_client):
+    async def test_response_data_not_dict(self, config, mock_builder, mock_es, mock_embed_client):
         """Test when response data is not a dict."""
         source = {
             "timestamp": "2025-01-01T00:00:00Z",
@@ -165,20 +168,20 @@ class TestEmbedSearchEdgeCases:
                 "visionEmbeddings": [{"vector": [0.1, 0.2]}],
             },
         }
-        mock_es_client.search.return_value = _make_es_response([{"_id": "h1", "_score": 0.95, "_source": source}])
+        mock_es.search.return_value = _make_es_response([{"_id": "h1", "_score": 0.95, "_source": source}])
 
-        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es_client, mock_embed_client)
+        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
         query_input = QueryInput(params={"query": "test"}, source_type="video_file")
         result = await inner_fn(query_input)
 
         assert isinstance(result, EmbedSearchOutput)
 
     @pytest.mark.asyncio
-    async def test_with_filters_and_timestamps(self, config, mock_builder, mock_es_client, mock_embed_client):
+    async def test_with_filters_and_timestamps(self, config, mock_builder, mock_es, mock_embed_client):
         """Test with multiple filters applied."""
-        mock_es_client.search.return_value = _make_es_response([])
+        mock_es.search.return_value = _make_es_response([])
 
-        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es_client, mock_embed_client)
+        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
         query_input = QueryInput(
             params={
                 "query": "test",
@@ -195,11 +198,11 @@ class TestEmbedSearchEdgeCases:
         assert isinstance(result, EmbedSearchOutput)
 
     @pytest.mark.asyncio
-    async def test_timestamp_without_tz(self, config, mock_builder, mock_es_client, mock_embed_client):
+    async def test_timestamp_without_tz(self, config, mock_builder, mock_es, mock_embed_client):
         """Test timestamps without timezone info."""
-        mock_es_client.search.return_value = _make_es_response([])
+        mock_es.search.return_value = _make_es_response([])
 
-        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es_client, mock_embed_client)
+        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
         query_input = QueryInput(
             params={
                 "query": "test",

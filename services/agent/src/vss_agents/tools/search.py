@@ -47,6 +47,7 @@ from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.vst.utils import get_streams_info
+from vss_agents.utils.es_client import ESClient
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 from vss_agents.utils.reasoning_utils import get_thinking_tag
 from vss_agents.utils.time_convert import datetime_to_iso8601
@@ -955,18 +956,18 @@ async def execute_core_search(
             content=f"Searching for similar objects to: {decomposed.object_ids}",
         )
 
-        from elasticsearch import AsyncElasticsearch
-
         from vss_agents.tools.attribute_search import AttributeSearchResult
         from vss_agents.tools.attribute_search import enrich_attribute_results
         from vss_agents.tools.attribute_search import search_by_object_embedding
+
+        es = await ESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
 
         async def _safe_object_search(oid: int) -> list[AttributeSearchResult]:
             try:
                 return await search_by_object_embedding(
                     object_id=str(oid),
-                    es_client=es_client,
                     behavior_index=config.behavior_index,
+                    es=es,
                     top_k=top_k,
                     min_similarity=search_input.min_cosine_similarity or 0.0,
                     video_sources=search_input.video_sources if search_input.video_sources else None,
@@ -977,20 +978,12 @@ async def execute_core_search(
                 logger.warning(f"Object ID {oid} search failed: {e}")
                 return []
 
-        es_client = AsyncElasticsearch(
-            hosts=[config.behavior_es_endpoint],
-            request_timeout=30,
-            max_retries=1,
-        )
-        try:
-            with TimeMeasure("search: object_ids behavior KNN"):
-                results_list = await asyncio.gather(*[_safe_object_search(oid) for oid in decomposed.object_ids])
+        with TimeMeasure("search: object_ids behavior KNN"):
+            results_list = await asyncio.gather(*[_safe_object_search(oid) for oid in decomposed.object_ids])
 
-            all_results: list[AttributeSearchResult] = []
-            for obj_results in results_list:
-                all_results.extend(obj_results)
-        finally:
-            await es_client.close()
+        all_results: list[AttributeSearchResult] = []
+        for obj_results in results_list:
+            all_results.extend(obj_results)
 
         # Deduplicate by object_id, keep highest similarity
         seen: dict = {}
@@ -1633,6 +1626,9 @@ class SearchOutput(BaseModel):
 
 @register_function(config_type=SearchConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
+    if config.behavior_es_endpoint:
+        await ESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
+
     embed_search = await _builder.get_function(config.embed_search_tool)
 
     agent_llm = None
