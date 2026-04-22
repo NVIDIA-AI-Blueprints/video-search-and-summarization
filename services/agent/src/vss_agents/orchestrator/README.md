@@ -23,6 +23,27 @@ From `agent/`:
 uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_mcp_config.yml --port 9902
 ```
 
+## Call tools manually
+
+You can also invoke the MCP tools directly from the CLI with `uv run nat mcp client tool call`.
+
+Example, call `profiles` against the locally running server:
+
+```bash
+uv run nat mcp client tool call \
+  vss_orchestrator__docker_generate \
+  --url http://localhost:9902/mcp \
+  --transport streamable-http \
+  --json-args '{
+    "env_overrides": [
+      "HARDWARE_PROFILE=RTXPRO6000BW",
+      "VLM_MODE=local_shared"
+    ],
+    "ngc_cli_api_key": "<NGC-CLI-API-KEY>",
+    "profile": "search"
+  }'
+```
+
 ## Key IDs returned by tools
 
 - `docker_generate` returns `docker_compose_id` (used by `docker_read`, `docker_up`, `docker_down`)
