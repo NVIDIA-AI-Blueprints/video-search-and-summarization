@@ -386,6 +386,20 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         description="Subset of tools to expose. All tools are included by default.",
     )
 
+    @field_validator("model_artifacts")
+    @classmethod
+    def _validate_model_artifact_profiles(
+        cls,
+        value: dict[str, tuple[ModelArtifactConfig, ...]],
+    ) -> dict[str, tuple[ModelArtifactConfig, ...]]:
+        unknown_profiles = set(value) - SUPPORTED_PROFILES
+        if unknown_profiles:
+            raise ValueError(
+                "model_artifacts contains unsupported profile key(s): "
+                f"{sorted(unknown_profiles)}. Supported profiles: {sorted(SUPPORTED_PROFILES)}."
+            )
+        return value
+
 
 class ComposeOperationInput(BaseModel):
     """Input for docker_up/docker_down operations."""
