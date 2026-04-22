@@ -22,7 +22,7 @@
 #   vss_orchestrator__docker_read - fetch generated env/yaml by docker_compose_id
 #   vss_orchestrator__docker_list - list docker container names
 #   vss_orchestrator__docker_logs - fetch docker logs by container name
-#   vss_orchestrator__docker_up - docker compose up -d --force-recreate --build
+#   vss_orchestrator__docker_up - docker compose up -d --build --quiet-pull
 #   vss_orchestrator__docker_down - docker compose down -v --remove-orphans
 #   vss_orchestrator__docker_status - poll docker operation status/logs
 #

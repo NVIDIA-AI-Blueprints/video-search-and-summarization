@@ -996,7 +996,7 @@ async def vss_orchestrator(
         async def _docker_up(input: ComposeOperationInput) -> dict:
             """Start docker compose services using previously generated artifacts.
 
-            Runs in background: docker compose up -d --force-recreate --build
+            Runs in background: docker compose up -d --build --quiet-pull
 
             Requires that artifacts for the docker_compose_id already exist.
 
@@ -1006,7 +1006,7 @@ async def vss_orchestrator(
                 return _start_compose_op(
                     docker_compose_id=input.docker_compose_id,
                     action="up",
-                    action_args=["-d", "--force-recreate", "--build", "--quiet-pull"],
+                    action_args=["-d", "--build", "--quiet-pull"],
                 )
             except FileNotFoundError:
                 return {

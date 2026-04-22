@@ -126,6 +126,7 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
     }
     ```
 - `docker_up`: start deployment for a generated compose id (background operation).
+  - Note: `docker_up` currently runs `docker compose up -d --build --quiet-pull`, so every invocation rebuilds images for services with a `build:` section. This is convenient for local dev iteration, but repeated agent retries can be slower than users expect.
   - Payload:
     ```json
     {
@@ -139,7 +140,7 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
       "docker_compose_ops_id": "up-search-abc12345",
       "docker_compose_id": "search-abc12345",
       "action": "up",
-      "command": "docker compose up -d --force-recreate --build --quiet-pull",
+      "command": "docker compose up -d --build --quiet-pull",
       "poll_tool": "docker_status",
       "status_hint": "Poll docker_status with docker_compose_ops_id for progress/completion.",
       "recommended_poll_interval_s": 5,
@@ -164,7 +165,7 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
       "pid": 12345,
       "running": true,
       "exit_code": null,
-      "command": "docker compose up -d --force-recreate --build --quiet-pull",
+      "command": "docker compose up -d --build --quiet-pull",
       "tail_lines": 80,
       "log_excerpt": "..."
     }
