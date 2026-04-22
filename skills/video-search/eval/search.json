@@ -5,8 +5,8 @@
     {
       "query": "Find all instances of forklifts in the ingested video sources.",
       "checks": [
-        "Before any backend call, the agent asks for what host IP to use for the search.",
-        "There should NOT be any POST/GET calls - http://localhost:8000/generate should NOT be queried."
+        "The agent's final reply explicitly asks the user to provide `HOST_IP` / the endpoint of the VSS agent because it cannot infer it from the conversation",
+        "The trajectory contains zero `POST http://.../generate` requests — the agent correctly paused to ask for the missing HOST_IP instead of guessing `localhost` or any other default"
       ]
     },
     {
@@ -17,12 +17,14 @@
         "The /generate response returned HTTP 200 with a body that contains a non-empty array of search hits (each hit has similarity score and timestamped clip metadata)",
         "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers — not a raw JSON dump, not a chat-style bullet list",
         "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the /generate response — no fabricated timestamps, no paraphrased similarity scores",
+        "Every screenshot_url / clip_url cited in the agent's final report matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...) — otherwise the user cannot open them from outside the Brev box",
+        "The agent verified external reachability of at least one cited screenshot_url or clip_url by running curl -sfI against it and observing HTTP 200 — a well-formed URL alone is not sufficient evidence that the Brev secure-link actually resolves",
         "The agent's final reply includes a `Verification Step` offer at the end of the report, telling the user that screenshots can be downloaded and inspected — it does NOT silently download screenshots without opt-in",
         "The agent did NOT call `PUT /api/v1/videos-for-search/...` during this step, it considered the video was in the system already"
       ]
     },
     {
-      "query": "Find a neon-pink monster truck in the ingested sources. This object is almost certainly not present.",
+      "query": "Find a neon-pink monster truck in the ingested sources. This object is almost certainly not present. Agent runs on localhost.",
       "checks": [
         "The agent issued a `POST http://localhost:8000/generate` call with `input_message` containing `neon-pink monster truck` (or an equivalent paraphrase) — it did NOT refuse the query up front",
         "When the /generate response returned zero hits (either because the embed stage found nothing or because the default-enabled critic rejected the low-confidence candidates), the agent did NOT claim success, did NOT fabricate matches, and did NOT silently return an empty report — per the skill's mandatory workflow, zero matches trigger the troubleshooting loop",
