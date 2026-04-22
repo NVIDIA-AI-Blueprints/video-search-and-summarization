@@ -201,8 +201,11 @@ datasets/<skill>/<profile>/<platform>/step-<k>/
                          #   step_index, step_count
                          # [verifier.env]: ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL /
                          #   JUDGE_MODEL forwarded so generic_judge.py can call Claude
-  instruction.md         # derived from this single expects-entry (query + checks);
-                         #   instructs the agent to do exactly this step
+  instruction.md         # derived from this single expects-entry:
+                         #   just the spec's `query` + the spec's `env` (as
+                         #   "Environment notes"). The agent NEVER sees the
+                         #   verifier's `checks[]`. See "Never leak checks[]
+                         #   into instruction.md" below.
   tests/test.sh          # 2-line wrapper: `python3 generic_judge.py --spec <spec>.json
                          #   --step <k>`. Writes /logs/verifier/reward.txt.
   tests/generic_judge.py # copied from tools/eval/harbor/verifiers/generic_judge.py
@@ -224,6 +227,41 @@ Where `<k>` is the 1-based index into `expects[]` and `step_count` equals
 
 If a spec has only one `expects[]` entry, emit the single dir without the
 `step-<k>` subdir (directly under `<platform>/`) to keep the path flat.
+
+**Never leak the verifier's `checks[]` into `instruction.md`.** The agent
+sees `instruction.md`; the verifier sees the spec's `checks[]` (copied into
+`tests/`). Keep them disjoint:
+
+- ✅ `instruction.md` contains: the spec's `query`, the spec's `env`
+  (as "Environment notes"), a platform hint, and a "run autonomously"
+  directive. Nothing else.
+- ❌ `instruction.md` must NOT enumerate `checks[]`, restate the expected
+  status codes, expected JSON field names, regex patterns the verifier will
+  match, Brev-link URL patterns, `Content-Type` expectations, or any other
+  acceptance criteria. If the agent sees the checks, it teaches-to-the-test
+  (writes output that matches the pattern without doing the underlying
+  work), and the eval stops being a real signal.
+- The skill author expresses acceptance in the spec's `checks[]` field;
+  the agent's job is to figure out *how* to satisfy the user-facing query
+  with only the skill's references as guidance. If an instruction would
+  be unambiguous only by citing a check, that's a smell the skill's own
+  docs / references should fill the gap instead.
+
+Example (vios/base/step-2 query *"Extract a snapshot from 5 seconds into
+the uploaded video and return a shareable URL"*):
+
+- Spec's `checks[]` (verifier-only): `imageUrl matches Brev secure-link
+  pattern`, `Content-Length > 2000`, etc.
+- `instruction.md` (agent-facing): the query + env notes. No mention of
+  `imageUrl`, no mention of Brev secure-link, no mention of Content-Length.
+  The skill's own `/vios` references tell the agent how to return a
+  shareable URL; whether that URL happens to match the Brev pattern is
+  what the verifier checks.
+
+Existing adapters that ever shipped `checks[]` in the instruction are a
+bug — fix them and regenerate datasets before the next dispatch.
+
+---
 
 **Default verifier = generic judge + eval JSON.** The adapter never hand-rolls
 checks. It ships two files into `tests/`: the skill's rendered eval spec and
@@ -600,8 +638,8 @@ Expected: prints `ok`, exits 0 in under a few seconds. Interpretation:
      "reward": 1.0,
      "checks_passed": 15,
      "checks_total": 15,
-     "result_path": "tools/eval/harbor/results/<run_id>/<task_id>__<hash>",
-     "harbor_trace_url": "https://harbor-<env_id>.brevlab.com/jobs/<run_id>/<task_id>__<hash>",
+     "result_path": "tools/eval/harbor/results/_viewer/<run_id>__<date>/<trial_name>",
+     "harbor_trace_url": "https://harbor-<env_id>.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<agent>/<model_provider>/<url_encoded_model_name>/<url_encoded_task_name>",
      "attempts": 1,
      "started_at": "<utc-iso>",
      "finished_at": "<utc-iso>",
@@ -672,10 +710,10 @@ Queued at `<utc-iso>` · first finished at `<utc-iso>` · last finished at `<utc
 
 | Platform | Result | Reward | Duration | Trace |
 |---|---|---|---|---|
-| L40S | ✅ passed | 1.0 (15/15) | 13m 42s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-l40s-1__2026-04-20__05-13-22/trials/l40s__abc) |
-| H100 | ✅ passed | 1.0 (15/15) | 11m 05s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-h100-1__2026-04-20__05-17-01/trials/h100__def) |
-| RTX 6000 Pro | ❌ failed | 0.87 (13/15) | 14m 23s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-rtx-1__2026-04-20__05-21-44/trials/rtx__ghi) |
-| DGX Spark | ✅ passed | 1.0 (15/15) | 18m 17s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-spark-1__2026-04-20__05-30-19/trials/spark__jkl) |
+| L40S | ✅ passed | 1.0 (15/15) | 13m 42s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-l40s-1__2026-04-20__05-13-22/tasks/l40s/claude-code/aws/anthropic%2Fbedrock-claude-sonnet-4-6/nvidia-vss%2Fvios-base-l40s-step-2) |
+| H100 | ✅ passed | 1.0 (15/15) | 11m 05s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-h100-1__2026-04-20__05-17-01/tasks/h100/claude-code/aws/anthropic%2Fbedrock-claude-sonnet-4-6/nvidia-vss%2Fvios-base-h100-step-2) |
+| RTX 6000 Pro | ❌ failed | 0.87 (13/15) | 14m 23s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-rtx-1__2026-04-20__05-21-44/tasks/rtx/claude-code/aws/anthropic%2Fbedrock-claude-sonnet-4-6/nvidia-vss%2Fvios-base-rtx-step-2) |
+| DGX Spark | ✅ passed | 1.0 (15/15) | 18m 17s | [traces](https://harbor-8yq51k0qt.brevlab.com/jobs/vios-base-spark-1__2026-04-20__05-30-19/tasks/spark/claude-code/aws/anthropic%2Fbedrock-claude-sonnet-4-6/nvidia-vss%2Fvios-base-spark-step-2) |
 
 ### Failing checks (RTX 6000 Pro)
 
@@ -746,26 +784,63 @@ nohup uvx harbor view tools/eval/harbor/results/_viewer --jobs \
 disown
 ```
 
-**Trace URL template** (write this into each result entry's
-`harbor_trace_url` and into §7 comment links):
+**Trace URL template.** The viewer's React SPA route shape is **not**
+the same as its JSON API route shape. Building a frontend URL from the
+API shape gives a 404 even when the API endpoint returns 200. The SPA
+requires:
 
 ```
-https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>/trials/<trial_name>
+https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<agent>/<model_provider>/<model_name>/<task_name>
 ```
+
+Write exactly this form into each result entry's `harbor_trace_url` and
+into the §7 PR-comment link column. Under `--max-retries 0` there is
+one trial per task, so landing on the task page is equivalent to
+landing on the trial page — the `/trials/<trial_name>` suffix is
+redundant and not needed (the task page auto-focuses the one trial).
 
 Where:
-- `<BREV_ENV_ID>` — read dynamically from `/etc/environment`, never hardcoded.
-- `<run_id>` — the coordinator-chosen run_id passed to `harbor run -o`.
+- `<BREV_ENV_ID>` — read dynamically from `/etc/environment`; never hardcode.
+- `<run_id>` — the coordinator-chosen `-o` dir, e.g. `l40s-vios-step2-20260421-225103`.
 - `<date>` — the dated subdir harbor auto-creates, format `YYYY-MM-DD__HH-MM-SS`.
-- `<trial_name>` — the directory harbor assigns to the trial, format
-  `<task_id>__<hash>` (e.g. `l40s-remote-all__au8iahR`).
+- `<source>`, `<agent>`, `<model_provider>`, `<model_name>`, `<task_name>` —
+  read from `GET /api/jobs/{job}/tasks`'s response (`items[0]` when one
+  task per job, as with our single-trial runs):
+  - `source` — the `source` field (e.g. `l40s`, `base`)
+  - `agent` — e.g. `claude-code`
+  - `model_provider` — e.g. `aws`
+  - `model_name` — e.g. `anthropic/bedrock-claude-sonnet-4-6`
+  - `task_name` — e.g. `nvidia-vss/vios-base-l40s-step-2`
 
-The Harbor viewer exposes these API routes under the same host; useful
-for programmatic probes:
+**URL-encode slashes** inside `model_name` and `task_name` (each has a
+`/` that must become `%2F`, otherwise the SPA's path matcher treats
+them as extra segments and 404s). Python one-liner:
+
+```python
+from urllib.parse import quote
+model = quote("anthropic/bedrock-claude-sonnet-4-6", safe="")
+task  = quote("nvidia-vss/vios-base-l40s-step-2",    safe="")
+```
+
+**Fallback if you don't have task metadata**: link the job overview
+`https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>`. The
+reader lands on the tasks table for that run and clicks through. Cheap
+but less precise.
+
+**API routes** (useful for programmatic probes — same host, same
+`_viewer`-rooted folder, but a completely separate route tree from the
+SPA):
 
 - `GET /api/jobs` — paginated list, `items[].name` = `<run_id>__<date>`
-- `GET /api/jobs/{job}` — job summary
-- `GET /api/jobs/{job}/trials/{trial}` — trial detail
+- `GET /api/jobs/{job}` — job summary (returns 400 "Invalid job name"
+  if the entry under `_viewer/` is a symlink — use `mv` not `ln -sfn`,
+  see "Fix" above)
+- `GET /api/jobs/{job}/tasks` — the metadata you need to construct the
+  SPA URL (`source`, `agent_name`, `model_provider`, `model_name`,
+  `task_name`)
+- `GET /api/jobs/{job}/trials/{trial}` — raw trial detail (works under
+  the symlink too; this is why an earlier wrong URL template looked
+  "right" when probed via `/api/` but 404'd on the SPA)
 - `GET /api/jobs/{job}/trials/{trial}/{trajectory|verifier-output|agent-logs|files|artifacts}`
 
 ---
