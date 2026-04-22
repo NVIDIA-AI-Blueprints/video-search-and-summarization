@@ -54,14 +54,15 @@ def run_text_command(command: list[str], *, timeout_seconds: int = DEFAULT_COMMA
 
 
 def detect_internal_ip() -> str:
-    return run_text_command(
-        [
-            "bash",
-            "-lc",
-            "ip route get 1.1.1.1 | awk '/src/ {for (i=1;i<=NF;i++) if ($i==\"src\") print $(i+1)}'",
-        ],
+    route_info = run_text_command(
+        ["ip", "-o", "route", "get", "1.1.1.1"],
         timeout_seconds=DEFAULT_COMMAND_TIMEOUT_S,
     )
+    fields = route_info.split()
+    for index, field in enumerate(fields):
+        if field == "src" and index + 1 < len(fields):
+            return fields[index + 1]
+    return ""
 
 
 def detect_external_ip() -> str:
