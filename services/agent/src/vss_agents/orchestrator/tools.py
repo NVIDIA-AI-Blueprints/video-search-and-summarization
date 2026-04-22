@@ -31,17 +31,17 @@ import asyncio
 from collections import OrderedDict
 from collections import deque
 from collections.abc import AsyncGenerator
+from collections.abc import Callable
+from collections.abc import ValuesView
 from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
 import os
 from pathlib import Path
-import signal
 import subprocess
 import threading
 import time
-from typing import Callable
 from typing import Final
 from typing import Generic
 from typing import Literal
@@ -81,6 +81,7 @@ class ComposeOperation:
     docker_compose_id: str
     action: str
     pid: int
+    process: subprocess.Popen[str] | None
     status: str
     running: bool
     exit_code: int | None
@@ -95,7 +96,7 @@ RegistryKeyT = TypeVar("RegistryKeyT")
 RegistryValueT = TypeVar("RegistryValueT")
 
 
-class LruRegistry(Generic[RegistryKeyT, RegistryValueT]):
+class LruRegistry(Generic[RegistryKeyT, RegistryValueT]):  # noqa: UP046
     """Ordered key-value store with bounded least-recently-used eviction."""
 
     def __init__(
@@ -143,7 +144,7 @@ class LruRegistry(Generic[RegistryKeyT, RegistryValueT]):
                 break
             self._entries.pop(evict_key, None)
 
-    def values(self):
+    def values(self) -> ValuesView[RegistryValueT]:
         return self._entries.values()
 
 
@@ -495,29 +496,24 @@ async def vss_orchestrator(
         return compose_env
 
     def _terminate_running_op(op: ComposeOperation) -> None:
-        pid = op.pid
-        if pid < 0:
+        process = op.process
+        if process is None or process.poll() is not None:
             return
         try:
-            os.kill(pid, signal.SIGTERM)
+            process.terminate()
         except ProcessLookupError:
             pass
         except OSError:
             return
 
         # Give compose a brief chance to shutdown cleanly before forcing kill.
-        deadline = time.time() + 5.0
-        while time.time() < deadline:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            except OSError:
-                break
-            time.sleep(0.1)
-        else:
-            with suppress(OSError):
-                os.kill(pid, signal.SIGKILL)
+        try:
+            process.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            with suppress(ProcessLookupError, OSError):
+                process.kill()
+            with suppress(subprocess.TimeoutExpired, ProcessLookupError, OSError):
+                process.wait(timeout=1.0)
 
     def _start_compose_op(docker_compose_id: str, action: str, action_args: list[str]) -> dict:
         if action not in _SUPPORTED_COMPOSE_ACTIONS:
@@ -621,6 +617,7 @@ async def vss_orchestrator(
                     docker_compose_id=docker_compose_id,
                     action=action,
                     pid=-1,
+                    process=None,
                     status=ComposeStatus.STARTING.value,
                     running=True,
                     exit_code=None,
@@ -723,6 +720,7 @@ async def vss_orchestrator(
                 op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                 if op is not None:
                     op.pid = process.pid
+                    op.process = process
                     op.status = ComposeStatus.RUNNING.value
 
             if process.stdout is None:
@@ -738,6 +736,7 @@ async def vss_orchestrator(
                     op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                     if op is not None:
                         op.exit_code = exit_code
+                        op.process = None
                         op.running = False
                         if op.status != ComposeStatus.CANCELLED.value:
                             op.status = ComposeStatus.SUCCESS.value if exit_code == 0 else ComposeStatus.ERROR.value
