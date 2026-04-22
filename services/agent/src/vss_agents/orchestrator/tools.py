@@ -27,6 +27,7 @@ Exposes nine tools that wrap the orchestrator utilities:
   - docker_down: docker compose down using generated artifacts
 """
 
+from collections import OrderedDict
 from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import suppress
@@ -39,8 +40,11 @@ import signal
 import subprocess
 import threading
 import time
+from typing import Callable
 from typing import Final
+from typing import Generic
 from typing import Literal
+from typing import TypeVar
 from uuid import uuid4
 
 from nat.builder.builder import Builder
@@ -65,8 +69,9 @@ from .storage import ensure_model_artifacts
 
 _COMPOSE_OPS_LOCK = threading.Lock()
 _COMPOSE_SPECS_LOCK = threading.Lock()
-_COMPOSE_SPECS: dict[str, dict[str, object]] = {}
 _MAX_OPERATION_LOG_LINES = 4000
+_MAX_RETAINED_COMPOSE_OPERATIONS = 200
+_MAX_RETAINED_COMPOSE_SPECS = 500
 
 
 @dataclass
@@ -85,7 +90,69 @@ class ComposeOperation:
     log_lines: deque[str] = field(default_factory=lambda: deque(maxlen=_MAX_OPERATION_LOG_LINES))
 
 
-_COMPOSE_OPERATIONS: dict[str, ComposeOperation] = {}
+RegistryKeyT = TypeVar("RegistryKeyT")
+RegistryValueT = TypeVar("RegistryValueT")
+
+
+class LruRegistry(Generic[RegistryKeyT, RegistryValueT]):
+    """Ordered key-value store with bounded least-recently-used eviction."""
+
+    def __init__(
+        self,
+        *,
+        max_entries: int,
+        can_evict: Callable[[RegistryKeyT, RegistryValueT], bool] | None = None,
+    ) -> None:
+        self._entries: OrderedDict[RegistryKeyT, RegistryValueT] = OrderedDict()
+        self._max_entries = max_entries
+        self._can_evict = can_evict or (lambda _key, _value: True)
+
+    def get(self, key: RegistryKeyT, *, touch: bool = True) -> RegistryValueT | None:
+        value = self._entries.get(key)
+        if value is None:
+            return None
+        if touch:
+            self.touch(key)
+        return value
+
+    def peek(self, key: RegistryKeyT) -> RegistryValueT | None:
+        return self._entries.get(key)
+
+    def set(self, key: RegistryKeyT, value: RegistryValueT) -> None:
+        self._entries[key] = value
+        self.touch(key)
+        self.evict()
+
+    def touch(self, key: RegistryKeyT) -> None:
+        if key not in self._entries:
+            return
+        self._entries.move_to_end(key)
+
+    def evict(self) -> None:
+        while len(self._entries) > self._max_entries:
+            evict_key = next(
+                (
+                    candidate_key
+                    for candidate_key, candidate_value in self._entries.items()
+                    if self._can_evict(candidate_key, candidate_value)
+                ),
+                None,
+            )
+            if evict_key is None:
+                break
+            self._entries.pop(evict_key, None)
+
+    def values(self):
+        return self._entries.values()
+
+
+_COMPOSE_OPERATIONS = LruRegistry[str, ComposeOperation](max_entries=_MAX_RETAINED_COMPOSE_OPERATIONS)
+_COMPOSE_SPECS = LruRegistry[str, dict[str, object]](
+    max_entries=_MAX_RETAINED_COMPOSE_SPECS,
+    can_evict=lambda docker_compose_id, _spec: all(
+        not op.running or op.docker_compose_id != docker_compose_id for op in _COMPOSE_OPERATIONS.values()
+    ),
+)
 
 
 class ComposeAction(StrEnum):
@@ -496,6 +563,7 @@ async def vss_orchestrator(
                         for existing in running_up_ops:
                             existing.running = False
                             existing.status = ComposeStatus.CANCELLED.value
+                        _COMPOSE_SPECS.evict()
                     ops_to_terminate = list(running_up_ops)
                 elif action == ComposeAction.UP.value:
                     if running_down_ops:
@@ -513,18 +581,21 @@ async def vss_orchestrator(
                         return _running_op_error(chosen)
 
             # Reserve a running slot atomically before process spawn.
-            _COMPOSE_OPERATIONS[docker_compose_ops_id] = ComposeOperation(
-                docker_compose_ops_id=docker_compose_ops_id,
-                docker_compose_id=docker_compose_id,
-                action=action,
-                pid=-1,
-                status=ComposeStatus.STARTING.value,
-                running=True,
-                exit_code=None,
-                command=f"docker compose {action} {' '.join(action_args)}".strip(),
-                env_file=str(env_path),
-                compose_file=str(compose_path),
-                started_at_epoch_s=int(time.time()),
+            _COMPOSE_OPERATIONS.set(
+                docker_compose_ops_id,
+                ComposeOperation(
+                    docker_compose_ops_id=docker_compose_ops_id,
+                    docker_compose_id=docker_compose_id,
+                    action=action,
+                    pid=-1,
+                    status=ComposeStatus.STARTING.value,
+                    running=True,
+                    exit_code=None,
+                    command=f"docker compose {action} {' '.join(action_args)}".strip(),
+                    env_file=str(env_path),
+                    compose_file=str(compose_path),
+                    started_at_epoch_s=int(time.time()),
+                ),
             )
 
         for existing in ops_to_terminate:
@@ -534,13 +605,13 @@ async def vss_orchestrator(
             def _append_op_log(line: str) -> None:
                 print(f"[compose_{action}:{docker_compose_ops_id}] {line}", flush=True)
                 with _COMPOSE_OPS_LOCK:
-                    op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
+                    op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                     if op is not None:
                         op.log_lines.append(line)
 
             def _is_cancelled_or_not_running() -> bool:
                 with _COMPOSE_OPS_LOCK:
-                    op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
+                    op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                     if op is None:
                         return True
                     return op.status == ComposeStatus.CANCELLED.value or not op.running
@@ -566,13 +637,15 @@ async def vss_orchestrator(
                         raise RuntimeError(f"Unsupported pre-compose check: {check_type}")
                 except RuntimeError as exc:
                     _append_op_log(f"Pre-compose check failed: {exc}")
-                    with _COMPOSE_OPS_LOCK:
-                        op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
+                    with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
+                        op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                         if op is not None:
                             op.exit_code = 1
                             op.running = False
                             if op.status != ComposeStatus.CANCELLED.value:
                                 op.status = ComposeStatus.ERROR.value
+                        _COMPOSE_OPERATIONS.evict()
+                        _COMPOSE_SPECS.evict()
                     _append_op_log("Compose operation failed (pre-compose check).")
                     return
                 _append_op_log("Pre-compose check succeeded.")
@@ -601,18 +674,20 @@ async def vss_orchestrator(
                 )
             except FileNotFoundError:
                 _append_op_log("docker command not found. Install Docker with Compose v2.")
-                with _COMPOSE_OPS_LOCK:
-                    op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
+                with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
+                    op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                     if op is not None:
                         op.exit_code = 127
                         op.running = False
                         if op.status != ComposeStatus.CANCELLED.value:
                             op.status = ComposeStatus.ERROR.value
+                    _COMPOSE_OPERATIONS.evict()
+                    _COMPOSE_SPECS.evict()
                 _append_op_log("Compose operation failed (docker command not found).")
                 return
 
             with _COMPOSE_OPS_LOCK:
-                op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
+                op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                 if op is not None:
                     op.pid = process.pid
                     op.status = ComposeStatus.RUNNING.value
@@ -626,14 +701,16 @@ async def vss_orchestrator(
             finally:
                 exit_code = process.wait()
                 resolved_status = ComposeStatus.CANCELLED.value
-                with _COMPOSE_OPS_LOCK:
-                    op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
+                with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
+                    op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
                     if op is not None:
                         op.exit_code = exit_code
                         op.running = False
                         if op.status != ComposeStatus.CANCELLED.value:
                             op.status = ComposeStatus.SUCCESS.value if exit_code == 0 else ComposeStatus.ERROR.value
                         resolved_status = op.status
+                    _COMPOSE_OPERATIONS.evict()
+                    _COMPOSE_SPECS.evict()
 
                 status_log_message = (
                     "Compose operation succeeded."
@@ -741,14 +818,16 @@ async def vss_orchestrator(
                     resolved_env["MDX_DATA_DIR"],
                     required_subdirectories=configured_mdx_data_directories,
                 )
-                with _COMPOSE_SPECS_LOCK:
-                    _COMPOSE_SPECS[docker_compose_id] = {
-                        "docker_compose_id": docker_compose_id,
-                        "profile": input.profile,
-                        "env_file": str(env_path),
-                        "compose_file": str(compose_path),
-                        "created_at_epoch_s": int(time.time()),
-                    }
+                with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
+                    _COMPOSE_SPECS.set(
+                        docker_compose_id,
+                        {
+                            "docker_compose_id": docker_compose_id,
+                            "profile": input.profile,
+                            "env_file": str(env_path),
+                            "compose_file": str(compose_path),
+                        },
+                    )
                 result = {
                     "status": ComposeStatus.SUCCESS.value,
                     "docker_compose_id": docker_compose_id,
