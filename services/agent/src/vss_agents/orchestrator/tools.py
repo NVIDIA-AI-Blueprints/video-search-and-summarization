@@ -27,6 +27,7 @@ Exposes nine tools that wrap the orchestrator utilities:
   - docker_down: docker compose down using generated artifacts
 """
 
+import asyncio
 from collections import OrderedDict
 from collections import deque
 from collections.abc import AsyncGenerator
@@ -797,7 +798,7 @@ async def vss_orchestrator(
             """Run Docker/GPU prerequisite checks."""
             _ = input
             try:
-                report = run_prereqs_checks()
+                report = await asyncio.to_thread(run_prereqs_checks)
             except RuntimeError as exc:
                 return {"status": ComposeStatus.ERROR.value, "error": str(exc)}
             return {
@@ -930,7 +931,8 @@ async def vss_orchestrator(
             if input.all_containers:
                 args.insert(2, "--all")
 
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 args,
                 cwd=str(deployments_dir),
                 capture_output=True,
@@ -960,7 +962,8 @@ async def vss_orchestrator(
 
         async def _docker_logs(input: ContainerLogsInput) -> dict:
             """Fetch docker logs by container name."""
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ["docker", "logs", "--tail", str(input.tail), "--", input.container_name],
                 cwd=str(deployments_dir),
                 capture_output=True,
