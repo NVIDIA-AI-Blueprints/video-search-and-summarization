@@ -765,12 +765,13 @@ async def vss_orchestrator(
             """Run Docker/GPU prerequisite checks."""
             _ = input
             try:
-                run_prereqs_checks()
+                report = run_prereqs_checks()
             except RuntimeError as exc:
                 return {"status": ComposeStatus.ERROR.value, "error": str(exc)}
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "message": "Prerequisite checks passed.",
+                "details": report,
             }
 
         group.add_function(name="docker_prereqs", fn=_docker_prereqs, description=_docker_prereqs.__doc__)

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from dataclasses import dataclass
 import shutil
 import subprocess
@@ -31,6 +32,27 @@ class CommandResult:
     stdout: str
     stderr: str
     returncode: int
+
+
+@dataclass(frozen=True)
+class GpuInfo:
+    index: int
+    name: str
+    driver_version: str
+    memory_total_mib: int | None
+    memory_total: str
+
+
+@dataclass(frozen=True)
+class PrereqsReport:
+    gpus: list[GpuInfo]
+    gpu_count: int
+    driver_version: str
+    docker_version: str
+    compose_version: str
+    container_toolkit_ok: bool
+    disk_free_gib: float
+    disk_total_gib: float
 
 
 def run_command(
@@ -65,7 +87,20 @@ def run_command(
     )
 
 
-def _run_gpu_checks() -> None:
+def _parse_memory_total_mib(raw_value: str) -> int | None:
+    normalized = raw_value.strip()
+    if not normalized:
+        return None
+    parts = normalized.split()
+    if not parts:
+        return None
+    try:
+        return int(parts[0])
+    except ValueError:
+        return None
+
+
+def _run_gpu_checks() -> tuple[list[GpuInfo], str]:
     gpu_result = run_command(
         [
             "nvidia-smi",
@@ -76,16 +111,37 @@ def _run_gpu_checks() -> None:
         timeout_seconds=15,
     )
     gpu_lines = [line.strip() for line in gpu_result.stdout.splitlines() if line.strip()]
+    gpus: list[GpuInfo] = []
+    for line in gpu_lines:
+        parts = [part.strip() for part in line.split(",", 3)]
+        if len(parts) != 4:
+            raise RuntimeError(f"Unexpected nvidia-smi output format: '{line}'")
+        index_text, name, driver_version, memory_total = parts
+        try:
+            index = int(index_text)
+        except ValueError as exc:
+            raise RuntimeError(f"Unexpected GPU index from nvidia-smi: '{index_text}'") from exc
+        gpus.append(
+            GpuInfo(
+                index=index,
+                name=name,
+                driver_version=driver_version,
+                memory_total_mib=_parse_memory_total_mib(memory_total),
+                memory_total=memory_total,
+            )
+        )
     print("=== NVIDIA Driver & GPU ===")
     print(gpu_result.stdout.strip())
     print()
 
     print("=== GPU Count ===")
-    print(f"Detected {len(gpu_lines)} GPU(s)")
+    print(f"Detected {len(gpus)} GPU(s)")
     print()
+    driver_version = gpus[0].driver_version if gpus else ""
+    return gpus, driver_version
 
 
-def _run_docker_checks() -> None:
+def _run_docker_checks() -> tuple[str, str]:
     docker_version = run_command(
         ["docker", "--version"],
         error_message="docker --version failed. Install Docker Engine before running this dry-run.",
@@ -100,9 +156,10 @@ def _run_docker_checks() -> None:
     print(docker_version.stdout.strip())
     print(compose_version.stdout.strip())
     print()
+    return docker_version.stdout.strip(), compose_version.stdout.strip()
 
 
-def _run_nvidia_container_toolkit_check() -> None:
+def _run_nvidia_container_toolkit_check() -> bool:
     print("=== NVIDIA Container Toolkit ===")
     try:
         toolkit_check = subprocess.run(
@@ -129,19 +186,35 @@ def _run_nvidia_container_toolkit_check() -> None:
         print("WARNING: NVIDIA Container Toolkit may not be installed.")
         print("Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html")
     print()
+    return toolkit_ok
 
 
-def _run_disk_space_check() -> None:
+def _run_disk_space_check() -> tuple[float, float]:
     total, _, free = shutil.disk_usage("/")
+    free_gib = round(free / (1024**3), 1)
+    total_gib = round(total / (1024**3), 1)
     print("=== Disk Space ===")
-    print(f"Root: {free / (1024**3):.1f} GiB available of {total / (1024**3):.1f} GiB")
+    print(f"Root: {free_gib:.1f} GiB available of {total_gib:.1f} GiB")
     print()
+    return free_gib, total_gib
 
 
-def run_prereqs_checks() -> None:
+def run_prereqs_checks() -> dict[str, object]:
     print("\n=== Prerequisites Check ===")
-    _run_gpu_checks()
-    _run_docker_checks()
-    _run_nvidia_container_toolkit_check()
-    _run_disk_space_check()
+    gpus, driver_version = _run_gpu_checks()
+    docker_version, compose_version = _run_docker_checks()
+    container_toolkit_ok = _run_nvidia_container_toolkit_check()
+    disk_free_gib, disk_total_gib = _run_disk_space_check()
     print("Prerequisites check complete.")
+    return asdict(
+        PrereqsReport(
+            gpus=gpus,
+            gpu_count=len(gpus),
+            driver_version=driver_version,
+            docker_version=docker_version,
+            compose_version=compose_version,
+            container_toolkit_ok=container_toolkit_ok,
+            disk_free_gib=disk_free_gib,
+            disk_total_gib=disk_total_gib,
+        )
+    )
