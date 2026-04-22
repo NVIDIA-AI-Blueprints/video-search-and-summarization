@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
 NEMOCLAW_PROVIDER="ollama"
 NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-qwen3.5}"
@@ -35,8 +35,8 @@ have() {
 usage() {
   cat <<'EOF'
 Usage:
-  bash init_vss_ollama.sh [options]
-  bash init_vss_ollama.sh [sandbox-name] [model]
+  bash init_ollama.sh [options]
+  bash init_ollama.sh [sandbox-name] [model]
 
 Options:
   --sandbox-name NAME         Sandbox name (default: demo)

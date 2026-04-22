@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
 # Nemoclaw onboard/install only accepts: build, openai, … — "build" is NVIDIA Endpoints (integrate.api.nvidia.com).
 NEMOCLAW_ONBOARD_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER:-build}"
