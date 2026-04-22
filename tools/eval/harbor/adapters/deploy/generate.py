@@ -331,6 +331,11 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
 
     `{{mode}}` is the short trial-mode token (e.g. "shared", "remote-all").
     `{{mode_description}}` is the prose form ("LLM and VLM share a single GPU").
+    `{{repo_root}}` is `$HOME/video-search-and-summarization` — a shell-
+    expansion that matches whichever default user the Brev provider assigns
+    (Crusoe → `ubuntu`, Massed Compute → `shadeform`, etc.). The deploy skill
+    clones into `$HOME`, so checks should reference `{{repo_root}}`, not a
+    hardcoded `/home/ubuntu/...` path.
     """
     substitutions = {
         "profile": profile,
@@ -343,16 +348,23 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
         "llm_remote_model": (llm_remote or {}).get("model", ""),
         "vlm_remote_url":   (vlm_remote or {}).get("url", ""),
         "vlm_remote_model": (vlm_remote or {}).get("model", ""),
+        "repo_root": "$HOME/video-search-and-summarization",
     }
     import re as _re
     pattern = _re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
+    # Back-compat: rewrite the old hardcoded Crusoe path so existing specs
+    # survive the CSP change without author-side edits.
+    _LEGACY_REPO = "/home/ubuntu/video-search-and-summarization"
+    _PORTABLE_REPO = "$HOME/video-search-and-summarization"
+
     def _sub(value):
         if isinstance(value, str):
-            return pattern.sub(
+            rendered = pattern.sub(
                 lambda m: str(substitutions.get(m.group(1), m.group(0))),
                 value,
             )
+            return rendered.replace(_LEGACY_REPO, _PORTABLE_REPO)
         if isinstance(value, list):
             return [_sub(v) for v in value]
         if isinstance(value, dict):
@@ -429,7 +441,7 @@ def generate_solve_script(
         "# Gold solution: deploy " + profile + " on " + platform + "/" + mode,
         "set -euo pipefail",
         "",
-        "REPO=/home/ubuntu/video-search-and-summarization",
+        'REPO="$HOME/video-search-and-summarization"',
         "",
         "# --- Prerequisites ---",
         "if ! command -v docker &>/dev/null; then",
