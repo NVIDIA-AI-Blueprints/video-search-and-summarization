@@ -2,13 +2,17 @@ enabled: true
 auto_sync_draft: false
 auto_sync_ready: true
 additional_vetters:
+  - akshayanv
+  - ayyappa-dev
   - daviddu0425
   - hugoverjus
   - jiayin-nvidia
   - kaushikc-nvidia
   - liamy-nv
-  - zac-wang-nv
+  - mansiigo
   - nv-mpandele
   - prisrivastav-nv
-  - ayyappa-dev
-  
+  - soumilinandi
+  - ssmmoo1
+  - vineet-raina
+  - zac-wang-nv
