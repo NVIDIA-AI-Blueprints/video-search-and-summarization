@@ -450,9 +450,7 @@ class TestEmbedSearchInner:
         """Test video_file source_type raises when index doesn't exist."""
         from elasticsearch import NotFoundError as ESNotFoundError
 
-        mock_es.search.side_effect = ESNotFoundError(
-            message="index_not_found_exception", meta=MagicMock(), body={}
-        )
+        mock_es.search.side_effect = ESNotFoundError(message="index_not_found_exception", meta=MagicMock(), body={})
 
         inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
         query_input = QueryInput(params={"query": "test"}, source_type="video_file")
