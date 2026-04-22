@@ -211,18 +211,19 @@ update_openclaw_allowed_origin() {
   local script="${OPENCLAW_CONFIG_UPDATE_SCRIPT}"
 
   if [ ! -f "$script" ]; then
-    log "$script is not available; skipping OpenClaw config update"
-    return
+    log "ERROR: OpenClaw config update script ${script} is not available"
+    return 1
   fi
 
   if ! have python3; then
-    log "python3 is not available; skipping OpenClaw config update"
-    return
+    log "ERROR: python3 is not available; cannot run OpenClaw config update script ${script}"
+    return 1
   fi
 
-  log "Updating OpenClaw config for sandbox $NEMOCLAW_SANDBOX_NAME"
+  log "Updating OpenClaw config for sandbox ${NEMOCLAW_SANDBOX_NAME} using script ${script}"
   if ! python3 "$script" "$NEMOCLAW_SANDBOX_NAME"; then
-    log "OpenClaw config update failed; continuing"
+    log "ERROR: OpenClaw config update failed for sandbox ${NEMOCLAW_SANDBOX_NAME}"
+    return 1
   fi
 }
 
@@ -239,16 +240,16 @@ apply_vss_policy() {
   local policy_file="${NEMOCLAW_POLICY_FILE}"
 
   if ! have openshell; then
-    log "OpenShell is not available; skipping custom policy apply"
-    return
+    log "ERROR: OpenShell is not available; cannot apply custom policy from ${policy_file}"
+    return 1
   fi
 
   if [ ! -f "$policy_file" ]; then
-    log "$policy_file is not available; skipping custom policy apply"
-    return
+    log "ERROR: Policy file ${policy_file} is not available"
+    return 1
   fi
 
-  log "Applying custom policy to sandbox $NEMOCLAW_SANDBOX_NAME"
+  log "Applying custom policy file ${policy_file} to sandbox ${NEMOCLAW_SANDBOX_NAME}"
   openshell policy set --policy "$policy_file" --wait "$NEMOCLAW_SANDBOX_NAME"
 }
 
