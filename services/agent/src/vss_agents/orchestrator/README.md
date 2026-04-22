@@ -45,7 +45,32 @@ uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_
     ```json
     {
       "status": "success",
-      "message": "Prerequisite checks passed."
+      "message": "Prerequisite checks passed.",
+      "details": {
+        "gpus": [
+          {
+            "index": 0,
+            "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+            "driver_version": "580.126.09",
+            "memory_total_mib": 97887,
+            "memory_total": "97887 MiB"
+          },
+          {
+            "index": 1,
+            "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+            "driver_version": "580.126.09",
+            "memory_total_mib": 97887,
+            "memory_total": "97887 MiB"
+          }
+        ],
+        "gpu_count": 2,
+        "driver_version": "580.126.09",
+        "docker_version": "Docker version 29.4.1, build 055a478",
+        "compose_version": "Docker Compose version v5.1.3",
+        "container_toolkit_ok": true,
+        "disk_free_gib": 295.3,
+        "disk_total_gib": 484.4
+      }
     }
     ```
 - `docker_generate`: validate profile/env and generate resolved env + compose artifacts.
