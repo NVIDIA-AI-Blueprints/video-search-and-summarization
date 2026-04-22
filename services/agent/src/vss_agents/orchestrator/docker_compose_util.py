@@ -16,24 +16,29 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
+from pathlib import Path
 import re
 import subprocess
-from dataclasses import dataclass
-from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Dict, Final, Iterable, Literal, Mapping
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import Final
+from typing import Literal
 
 from pydantic import BaseModel
 import yaml
 
-from .network_util import (
-    apply_brev_proxy_env,
-    detect_external_ip,
-    detect_internal_ip,
-    read_etc_environment,
-)
+from .network_util import apply_brev_proxy_env
+from .network_util import detect_external_ip
+from .network_util import detect_internal_ip
+from .network_util import read_etc_environment
 from .storage import resolve_required_absolute_file
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from collections.abc import Mapping
 
 SupportedProfile = Literal["base", "search", "lvs", "alerts"]
 PROFILE_BASE: Final[str] = "base"
@@ -62,8 +67,13 @@ MODE_REMOTE: Final[str] = "remote"
 SUPPORTED_RUNTIME_MODES: Final[frozenset[str]] = frozenset({"local", "local_shared", MODE_REMOTE})
 MODEL_SLUG_NONE: Final[str] = "none"
 THOR_VLM_PORT: Final[int] = 8018
-COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = ("MODE", "BP_PROFILE", "PROXY_MODE", "LLM_NAME_SLUG", "VLM_NAME_SLUG")
-
+COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
+    "MODE",
+    "BP_PROFILE",
+    "PROXY_MODE",
+    "LLM_NAME_SLUG",
+    "VLM_NAME_SLUG",
+)
 
 
 class ValidationError(ValueError):
@@ -101,7 +111,7 @@ class ModelResolutionInput(BaseModel):
 @dataclass(frozen=True)
 class DryRunRecipe:
     profile: SupportedProfile
-    env_overrides: Dict[str, str]
+    env_overrides: dict[str, str]
     ngc_cli_api_key: str | None
     nvidia_api_key: str | None
     output_env_file: Path
@@ -123,7 +133,7 @@ class DryRunRecipe:
 def create_dry_run_recipe(
     *,
     profile: str,
-    env_overrides: Dict[str, str],
+    env_overrides: dict[str, str],
     ngc_cli_api_key: str | None = None,
     nvidia_api_key: str | None = None,
     model_resolution: Any,
@@ -137,7 +147,6 @@ def create_dry_run_recipe(
     profile = profile.strip()
     if profile not in SUPPORTED_PROFILES:
         raise ValidationError(f"Unsupported profile '{profile}'. Supported: {sorted(SUPPORTED_PROFILES)}")
-
 
     deployments_path = Path(deployments_dir).resolve()
     if not deployments_path.is_dir():
@@ -195,8 +204,8 @@ def create_dry_run_recipe(
     )
 
 
-def parse_env_overrides(entries: list[str]) -> Dict[str, str]:
-    overrides: Dict[str, str] = {}
+def parse_env_overrides(entries: list[str]) -> dict[str, str]:
+    overrides: dict[str, str] = {}
     for raw in entries:
         if "=" not in raw:
             raise ValidationError(f"Invalid --env entry '{raw}'. Expected KEY=VALUE.")
@@ -208,8 +217,8 @@ def parse_env_overrides(entries: list[str]) -> Dict[str, str]:
     return overrides
 
 
-def parse_env_file(path: Path) -> Dict[str, str]:
-    env: Dict[str, str] = {}
+def parse_env_file(path: Path) -> dict[str, str]:
+    env: dict[str, str] = {}
     for raw_line in path.read_text().splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -244,7 +253,7 @@ def _set_env_line(lines: list[str], key: str, value: str) -> None:
     lines.append(f"{key}={value}")
 
 
-def build_resolved_env(config: DryRunRecipe) -> Dict[str, str]:
+def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     merged = parse_env_file(config.source_env_file)
     merged.update(config.env_overrides)
     if config.profile == PROFILE_SEARCH and "VLM_MODE" not in config.env_overrides:
@@ -255,7 +264,10 @@ def build_resolved_env(config: DryRunRecipe) -> Dict[str, str]:
     if config.nvidia_api_key and not merged.get("NVIDIA_API_KEY", "").strip():
         merged["NVIDIA_API_KEY"] = config.nvidia_api_key
 
-    host_ip = first_non_placeholder([config.env_overrides.get("HOST_IP", ""), merged.get("HOST_IP", "")]) or detect_internal_ip()
+    host_ip = (
+        first_non_placeholder([config.env_overrides.get("HOST_IP", ""), merged.get("HOST_IP", "")])
+        or detect_internal_ip()
+    )
     if not host_ip:
         raise ValidationError("Could not determine HOST_IP. Set --env HOST_IP=<ip>.")
     external_ip = (
@@ -271,7 +283,9 @@ def build_resolved_env(config: DryRunRecipe) -> Dict[str, str]:
         or host_ip
     )
 
-    merged["MDX_SAMPLE_APPS_DIR"] = first_non_placeholder([merged.get("MDX_SAMPLE_APPS_DIR", ""), str(config.deployments_dir)])
+    merged["MDX_SAMPLE_APPS_DIR"] = first_non_placeholder(
+        [merged.get("MDX_SAMPLE_APPS_DIR", ""), str(config.deployments_dir)]
+    )
     merged["MDX_DATA_DIR"] = first_non_placeholder(
         [
             config.env_overrides.get("MDX_DATA_DIR", ""),
@@ -283,13 +297,22 @@ def build_resolved_env(config: DryRunRecipe) -> Dict[str, str]:
     if external_ip != host_ip:
         merged["EXTERNAL_IP"] = external_ip
 
-    brev_env_id = first_non_placeholder([config.env_overrides.get("BREV_ENV_ID", ""), os.environ.get("BREV_ENV_ID", ""), read_etc_environment().get("BREV_ENV_ID", "")])
+    brev_env_id = first_non_placeholder(
+        [
+            config.env_overrides.get("BREV_ENV_ID", ""),
+            os.environ.get("BREV_ENV_ID", ""),
+            read_etc_environment().get("BREV_ENV_ID", ""),
+        ]
+    )
     if brev_env_id:
         apply_brev_proxy_env(merged, brev_env_id)
 
     if merged.get("HARDWARE_PROFILE", "") not in config.supported_hardware_profiles:
         raise ValidationError(f"Invalid HARDWARE_PROFILE '{merged.get('HARDWARE_PROFILE', '')}'.")
-    if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles and config.profile not in config.edge_allowed_profiles:
+    if (
+        merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles
+        and config.profile not in config.edge_allowed_profiles
+    ):
         raise ValidationError(
             f"Invalid HARDWARE_PROFILE '{merged.get('HARDWARE_PROFILE', '')}' for profile '{config.profile}'. "
             f"Edge hardware profiles are only supported for {sorted(config.edge_allowed_profiles)}."
@@ -345,7 +368,7 @@ def build_resolved_env(config: DryRunRecipe) -> Dict[str, str]:
     return merged
 
 
-def render_generated_env(source_env_file: Path, resolved: Dict[str, str]) -> str:
+def render_generated_env(source_env_file: Path, resolved: dict[str, str]) -> str:
     lines = source_env_file.read_text().splitlines()
     for key, value in sorted(resolved.items()):
         _set_env_line(lines, key, value)
@@ -408,22 +431,22 @@ def sanitize_resolved_compose(compose_text: str) -> str:
             continue
 
         if isinstance(depends_on, list):
-            filtered = [dep for dep in depends_on if dep in defined_services]
-            if filtered:
-                service_def["depends_on"] = filtered
+            filtered_list = [dep for dep in depends_on if dep in defined_services]
+            if filtered_list:
+                service_def["depends_on"] = filtered_list
             else:
                 service_def.pop("depends_on", None)
         elif isinstance(depends_on, dict):
-            filtered = {dep: cfg for dep, cfg in depends_on.items() if dep in defined_services}
-            if filtered:
-                service_def["depends_on"] = filtered
+            filtered_map = {dep: cfg for dep, cfg in depends_on.items() if dep in defined_services}
+            if filtered_map:
+                service_def["depends_on"] = filtered_map
             else:
                 service_def.pop("depends_on", None)
 
     return yaml.safe_dump(parsed, sort_keys=False)
 
 
-def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[Dict[str, str], Path, Path]:
+def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[dict[str, str], Path, Path]:
     resolved_env = build_resolved_env(config)
     config.output_env_file.parent.mkdir(parents=True, exist_ok=True)
     config.output_env_file.write_text(render_generated_env(config.source_env_file, resolved_env))
@@ -432,7 +455,7 @@ def generate_dry_run_artifacts(config: DryRunRecipe) -> tuple[Dict[str, str], Pa
     return resolved_env, config.output_env_file, config.output_compose_file
 
 
-def print_configuration_summary(config: DryRunRecipe, resolved_env: Dict[str, str]) -> None:
+def print_configuration_summary(config: DryRunRecipe, resolved_env: dict[str, str]) -> None:
     print("Configuration valid.")
     print(f"  Profile:  {config.profile}")
     print(f"  Hardware: {resolved_env.get('HARDWARE_PROFILE', '(unset)')}")

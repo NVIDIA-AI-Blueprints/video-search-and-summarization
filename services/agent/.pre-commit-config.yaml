@@ -42,7 +42,10 @@ repos:
   - id: gitleaks
     name: gitleaks
     language: docker_image
-    entry: zricethezav/gitleaks:v8.30.0 protect --staged --redact -v --baseline-path gitleaks-baseline.json
+    entry: >-
+      zricethezav/gitleaks:v8.30.0 protect --staged --redact -v
+      --config services/agent/.gitleaks.toml
+      --baseline-path services/agent/gitleaks-baseline.json
     pass_filenames: false
     stages: [pre-commit]
 
@@ -50,7 +53,7 @@ repos:
   rev: v1.5.0
   hooks:
   - id: detect-secrets
-    args: ['--baseline', '.secrets.baseline']
+    args: ['--baseline', 'services/agent/.secrets.baseline']
     exclude: gitleaks-baseline\.json$
 
 - repo: local

@@ -27,16 +27,18 @@ Exposes nine tools that wrap the orchestrator utilities:
   - docker_down: docker compose down using generated artifacts
 """
 
-import os
-import signal
-import subprocess
-import time
 from collections import deque
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 from dataclasses import dataclass
-from enum import Enum
+from dataclasses import field
+from enum import StrEnum
+import os
 from pathlib import Path
+import signal
+import subprocess
 import threading
+import time
 from typing import Final
 from typing import Literal
 from uuid import uuid4
@@ -48,12 +50,12 @@ from nat.data_models.function import FunctionGroupBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 
+from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
 from .docker_compose_util import create_dry_run_recipe
 from .docker_compose_util import generate_dry_run_artifacts
 from .docker_compose_util import parse_env_file
 from .docker_compose_util import parse_env_overrides
-from .docker_compose_util import SUPPORTED_PROFILES
 from .prereqs_check import run_prereqs_checks
 from .storage import ArtifactKind
 from .storage import ModelArtifact
@@ -61,17 +63,36 @@ from .storage import ensure_data_directories
 from .storage import ensure_model_artifacts
 
 _COMPOSE_OPS_LOCK = threading.Lock()
-_COMPOSE_OPERATIONS: dict[str, dict[str, object]] = {}
 _COMPOSE_SPECS_LOCK = threading.Lock()
 _COMPOSE_SPECS: dict[str, dict[str, object]] = {}
 _MAX_OPERATION_LOG_LINES = 4000
 
-class ComposeAction(str, Enum):
+
+@dataclass
+class ComposeOperation:
+    docker_compose_ops_id: str
+    docker_compose_id: str
+    action: str
+    pid: int
+    status: str
+    running: bool
+    exit_code: int | None
+    command: str
+    env_file: str
+    compose_file: str
+    started_at_epoch_s: int
+    log_lines: deque[str] = field(default_factory=lambda: deque(maxlen=_MAX_OPERATION_LOG_LINES))
+
+
+_COMPOSE_OPERATIONS: dict[str, ComposeOperation] = {}
+
+
+class ComposeAction(StrEnum):
     UP = "up"
     DOWN = "down"
 
 
-class ComposeStatus(str, Enum):
+class ComposeStatus(StrEnum):
     ERROR = "error"
     IGNORED = "ignored"
     STARTED = "started"
@@ -236,16 +257,12 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     source_compose_yaml: str = Field(
         ...,
         min_length=1,
-        description=(
-            "Absolute path to the source docker compose YAML file."
-        ),
+        description=("Absolute path to the source docker compose YAML file."),
     )
     source_env: str = Field(
         ...,
         min_length=1,
-        description=(
-            "Absolute path to the source profile .env file. Supports '{profile}' placeholder."
-        ),
+        description=("Absolute path to the source profile .env file. Supports '{profile}' placeholder."),
     )
     mdx_data_dir: str = Field(
         min_length=1,
@@ -305,7 +322,7 @@ class ComposeOperationInput(BaseModel):
 async def vss_orchestrator(
     _config: OrchestratorToolConfig,
     _builder: Builder,
-) -> AsyncGenerator[FunctionGroup, None]:
+) -> AsyncGenerator[FunctionGroup]:
     """VSS Orchestrator function group for managing docker compose deployments."""
 
     deployments_dir = Path(_config.deployments_dir).resolve()
@@ -363,9 +380,9 @@ async def vss_orchestrator(
         compose_env.setdefault("COMPOSE_ANSI", "never")
         return compose_env
 
-    def _terminate_running_op(op: dict[str, object]) -> None:
-        pid = op.get("pid")
-        if not isinstance(pid, int):
+    def _terminate_running_op(op: ComposeOperation) -> None:
+        pid = op.pid
+        if pid < 0:
             return
         try:
             os.kill(pid, signal.SIGTERM)
@@ -385,10 +402,8 @@ async def vss_orchestrator(
                 break
             time.sleep(0.1)
         else:
-            try:
+            with suppress(OSError):
                 os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
 
     def _start_compose_op(docker_compose_id: str, action: str, action_args: list[str]) -> dict:
         if action not in _SUPPORTED_COMPOSE_ACTIONS:
@@ -397,14 +412,14 @@ async def vss_orchestrator(
                 "error": f"Unsupported action '{action}'. Supported actions: {sorted(_SUPPORTED_COMPOSE_ACTIONS)}.",
             }
 
-        def _running_op_error(existing: dict[str, object], conflicts: list[dict[str, object]]) -> dict:
+        def _running_op_error(existing: ComposeOperation) -> dict:
             return {
                 "status": ComposeStatus.ERROR.value,
                 "error": (
                     f"Compose operation already running for docker_compose_id '{docker_compose_id}' "
-                    f"(action={existing.get('action')}, pid={existing.get('pid')})."
+                    f"(action={existing.action}, pid={existing.pid})."
                 ),
-            }    
+            }
 
         with _COMPOSE_SPECS_LOCK:
             spec = _COMPOSE_SPECS.get(docker_compose_id)
@@ -422,7 +437,7 @@ async def vss_orchestrator(
         missing = _artifacts_exist(env_path, compose_path)
         if missing:
             return {"status": ComposeStatus.ERROR.value, "error": missing}
-        
+
         pre_compose_check: dict[str, str] | None = None
         if action == ComposeAction.UP.value:
             profile = str(spec.get("profile") or "").strip()
@@ -444,29 +459,29 @@ async def vss_orchestrator(
                 }
 
         docker_compose_ops_id = f"{action}-{docker_compose_id}-{uuid4().hex[:8]}"
-        running_ops: list[dict[str, object]] = []
-        running_up_ops: list[dict[str, object]] = []
-        running_down_ops: list[dict[str, object]] = []
-        ops_to_terminate: list[dict[str, object]] = []
+        running_ops: list[ComposeOperation] = []
+        running_up_ops: list[ComposeOperation] = []
+        running_down_ops: list[ComposeOperation] = []
+        ops_to_terminate: list[ComposeOperation] = []
 
         with _COMPOSE_OPS_LOCK:
             for existing in _COMPOSE_OPERATIONS.values():
-                if existing.get("docker_compose_id") == docker_compose_id and bool(existing.get("running")):
+                if existing.docker_compose_id == docker_compose_id and existing.running:
                     running_ops.append(existing)
 
             if running_ops:
-                running_up_ops = [op for op in running_ops if op.get("action") == ComposeAction.UP.value]
-                running_down_ops = [op for op in running_ops if op.get("action") == ComposeAction.DOWN.value]
+                running_up_ops = [op for op in running_ops if op.action == ComposeAction.UP.value]
+                running_down_ops = [op for op in running_ops if op.action == ComposeAction.DOWN.value]
 
                 if action == ComposeAction.DOWN.value:
                     if running_down_ops:
                         chosen = running_down_ops[0]
-                        return _running_op_error(chosen, running_down_ops)
+                        return _running_op_error(chosen)
                     # down preempts all active up ops for this deployment
                     if running_up_ops:
                         for existing in running_up_ops:
-                            existing["running"] = False
-                            existing["status"] = ComposeStatus.CANCELLED.value
+                            existing.running = False
+                            existing.status = ComposeStatus.CANCELLED.value
                     ops_to_terminate = list(running_up_ops)
                 elif action == ComposeAction.UP.value:
                     if running_down_ops:
@@ -475,29 +490,28 @@ async def vss_orchestrator(
                             "status": ComposeStatus.IGNORED.value,
                             "message": (
                                 f"Ignoring incoming compose {action} for docker_compose_id '{docker_compose_id}' "
-                                f"because compose {chosen.get('action')} is already running."
+                                f"because compose {chosen.action} is already running."
                             ),
                             "docker_compose_id": docker_compose_id,
                         }
                     if running_up_ops:
                         chosen = running_up_ops[0]
-                        return _running_op_error(chosen, running_up_ops)
+                        return _running_op_error(chosen)
 
             # Reserve a running slot atomically before process spawn.
-            _COMPOSE_OPERATIONS[docker_compose_ops_id] = {
-                "docker_compose_ops_id": docker_compose_ops_id,
-                "docker_compose_id": docker_compose_id,
-                "action": action,
-                "pid": -1,
-                "status": ComposeStatus.STARTING.value,
-                "running": True,
-                "exit_code": None,
-                "command": f"docker compose {action} {' '.join(action_args)}".strip(),
-                "env_file": str(env_path),
-                "compose_file": str(compose_path),
-                "started_at_epoch_s": int(time.time()),
-                "log_lines": deque(maxlen=_MAX_OPERATION_LOG_LINES),
-            }
+            _COMPOSE_OPERATIONS[docker_compose_ops_id] = ComposeOperation(
+                docker_compose_ops_id=docker_compose_ops_id,
+                docker_compose_id=docker_compose_id,
+                action=action,
+                pid=-1,
+                status=ComposeStatus.STARTING.value,
+                running=True,
+                exit_code=None,
+                command=f"docker compose {action} {' '.join(action_args)}".strip(),
+                env_file=str(env_path),
+                compose_file=str(compose_path),
+                started_at_epoch_s=int(time.time()),
+            )
 
         for existing in ops_to_terminate:
             _terminate_running_op(existing)
@@ -508,14 +522,14 @@ async def vss_orchestrator(
                 with _COMPOSE_OPS_LOCK:
                     op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
                     if op is not None:
-                        op["log_lines"].append(line)
+                        op.log_lines.append(line)
 
             def _is_cancelled_or_not_running() -> bool:
                 with _COMPOSE_OPS_LOCK:
                     op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
                     if op is None:
                         return True
-                    return op.get("status") == ComposeStatus.CANCELLED.value or not bool(op.get("running"))
+                    return op.status == ComposeStatus.CANCELLED.value or not op.running
 
             if pre_compose_check is not None:
                 check_type = pre_compose_check.get("type")
@@ -541,10 +555,10 @@ async def vss_orchestrator(
                     with _COMPOSE_OPS_LOCK:
                         op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
                         if op is not None:
-                            op["exit_code"] = 1
-                            op["running"] = False
-                            if op.get("status") != ComposeStatus.CANCELLED.value:
-                                op["status"] = ComposeStatus.ERROR.value
+                            op.exit_code = 1
+                            op.running = False
+                            if op.status != ComposeStatus.CANCELLED.value:
+                                op.status = ComposeStatus.ERROR.value
                     _append_op_log("Compose operation failed (pre-compose check).")
                     return
                 _append_op_log("Pre-compose check succeeded.")
@@ -576,18 +590,18 @@ async def vss_orchestrator(
                 with _COMPOSE_OPS_LOCK:
                     op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
                     if op is not None:
-                        op["exit_code"] = 127
-                        op["running"] = False
-                        if op.get("status") != ComposeStatus.CANCELLED.value:
-                            op["status"] = ComposeStatus.ERROR.value
+                        op.exit_code = 127
+                        op.running = False
+                        if op.status != ComposeStatus.CANCELLED.value:
+                            op.status = ComposeStatus.ERROR.value
                 _append_op_log("Compose operation failed (docker command not found).")
                 return
 
             with _COMPOSE_OPS_LOCK:
                 op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
                 if op is not None:
-                    op["pid"] = process.pid
-                    op["status"] = ComposeStatus.RUNNING.value
+                    op.pid = process.pid
+                    op.status = ComposeStatus.RUNNING.value
 
             if process.stdout is None:
                 return
@@ -601,11 +615,11 @@ async def vss_orchestrator(
                 with _COMPOSE_OPS_LOCK:
                     op = _COMPOSE_OPERATIONS.get(docker_compose_ops_id)
                     if op is not None:
-                        op["exit_code"] = exit_code
-                        op["running"] = False
-                        if op.get("status") != ComposeStatus.CANCELLED.value:
-                            op["status"] = ComposeStatus.SUCCESS.value if exit_code == 0 else ComposeStatus.ERROR.value
-                        resolved_status = str(op.get("status", resolved_status))
+                        op.exit_code = exit_code
+                        op.running = False
+                        if op.status != ComposeStatus.CANCELLED.value:
+                            op.status = ComposeStatus.SUCCESS.value if exit_code == 0 else ComposeStatus.ERROR.value
+                        resolved_status = op.status
 
                 status_log_message = (
                     "Compose operation succeeded."
@@ -864,7 +878,10 @@ async def vss_orchestrator(
                     action_args=["-d", "--force-recreate", "--build", "--quiet-pull"],
                 )
             except FileNotFoundError:
-                return {"status": ComposeStatus.ERROR.value, "error": "docker command not found. Install Docker with Compose v2."}
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error": "docker command not found. Install Docker with Compose v2.",
+                }
 
         group.add_function(name="docker_up", fn=_docker_up, description=_docker_up.__doc__)
 
@@ -883,19 +900,19 @@ async def vss_orchestrator(
                         "status": ComposeStatus.ERROR.value,
                         "error": f"Unknown docker_compose_ops_id '{input.docker_compose_ops_id}'.",
                     }
-                recent_lines = list(op["log_lines"])[-input.tail_lines:]
-                status_value = str(op.get("status", ComposeStatus.ERROR.value))
+                recent_lines = list(op.log_lines)[-input.tail_lines :]
+                status_value = op.status
                 if status_value not in _ALL_KNOWN_STATUSES:
                     status_value = ComposeStatus.ERROR.value
                 return {
                     "status": status_value,
                     "docker_compose_ops_id": input.docker_compose_ops_id,
-                    "docker_compose_id": op.get("docker_compose_id"),
-                    "action": op.get("action"),
-                    "pid": op.get("pid"),
-                    "running": op.get("running"),
-                    "exit_code": op.get("exit_code"),
-                    "command": op.get("command"),
+                    "docker_compose_id": op.docker_compose_id,
+                    "action": op.action,
+                    "pid": op.pid,
+                    "running": op.running,
+                    "exit_code": op.exit_code,
+                    "command": op.command,
                     "tail_lines": input.tail_lines,
                     "log_excerpt": "\n".join(recent_lines),
                 }
@@ -924,7 +941,10 @@ async def vss_orchestrator(
                     action_args=["-v", "--remove-orphans"],
                 )
             except FileNotFoundError:
-                return {"status": ComposeStatus.ERROR.value, "error": "docker command not found. Install Docker with Compose v2."}
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error": "docker command not found. Install Docker with Compose v2.",
+                }
 
         group.add_function(name="docker_down", fn=_docker_down, description=_docker_down.__doc__)
 

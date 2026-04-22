@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
-import os
+from dataclasses import dataclass
 import shutil
 import subprocess
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -125,17 +127,14 @@ def _run_nvidia_container_toolkit_check() -> None:
         print("NVIDIA Container Toolkit: OK")
     else:
         print("WARNING: NVIDIA Container Toolkit may not be installed.")
-        print(
-            "Install: "
-            "https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
-        )
+        print("Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html")
     print()
 
 
 def _run_disk_space_check() -> None:
     total, _, free = shutil.disk_usage("/")
     print("=== Disk Space ===")
-    print(f"Root: {free / (1024 ** 3):.1f} GiB available of {total / (1024 ** 3):.1f} GiB")
+    print(f"Root: {free / (1024**3):.1f} GiB available of {total / (1024**3):.1f} GiB")
     print()
 
 

@@ -16,11 +16,10 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 import os
-import subprocess
-from enum import Enum
 from pathlib import Path
-from typing import Dict
+import subprocess
 from typing import Final
 
 DEFAULT_COMMAND_TIMEOUT_S: Final[int] = 5
@@ -29,7 +28,7 @@ PROXY_MODE_VALUE: Final[str] = "proxy"
 KIBANA_PROXY_PORT_PREFIX: Final[str] = "56010"
 
 
-class BrevEnvKey(str, Enum):
+class BrevEnvKey(StrEnum):
     BREV_ENV_ID = "BREV_ENV_ID"
     PROXY_PORT = "PROXY_PORT"
     PROXY_MODE = "PROXY_MODE"
@@ -45,6 +44,7 @@ class BrevEnvKey(str, Enum):
     VSS_AGENT_EXTERNAL_URL = "VSS_AGENT_EXTERNAL_URL"
     VSS_AGENT_REPORTS_BASE_URL = "VSS_AGENT_REPORTS_BASE_URL"
 
+
 def run_text_command(command: list[str], *, timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_S) -> str:
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=timeout_seconds)
@@ -58,7 +58,7 @@ def detect_internal_ip() -> str:
         [
             "bash",
             "-lc",
-            'ip route get 1.1.1.1 | awk \'/src/ {for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}\'',
+            "ip route get 1.1.1.1 | awk '/src/ {for (i=1;i<=NF;i++) if ($i==\"src\") print $(i+1)}'",
         ],
         timeout_seconds=DEFAULT_COMMAND_TIMEOUT_S,
     )
@@ -75,8 +75,8 @@ def detect_external_ip() -> str:
     return ""
 
 
-def read_etc_environment() -> Dict[str, str]:
-    env: Dict[str, str] = {}
+def read_etc_environment() -> dict[str, str]:
+    env: dict[str, str] = {}
     path = Path("/etc/environment")
     if not path.is_file():
         return env
@@ -89,7 +89,7 @@ def read_etc_environment() -> Dict[str, str]:
     return env
 
 
-def apply_brev_proxy_env(merged: Dict[str, str], brev_env_id: str) -> None:
+def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
     proxy_port = (
         merged.get(BrevEnvKey.PROXY_PORT.value, "").strip()
         or os.environ.get(BrevEnvKey.PROXY_PORT.value, "").strip()

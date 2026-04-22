@@ -16,16 +16,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import StrEnum
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
-from enum import Enum
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Final
-from typing import Iterable
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 DEFAULT_PERMISSION_RELATIVE_ROOTS: Final[tuple[str, ...]] = ("data_log", "agent_eval", "models")
 DEFAULT_PERMISSION_MODE: Final[int] = 0o777
@@ -35,7 +37,7 @@ NGC_DOWNLOAD_TIMEOUT_S: Final[int] = 1800
 NGC_TMP_DIR_PREFIX: Final[str] = "vss-search-models-"
 
 
-class ArtifactKind(str, Enum):
+class ArtifactKind(StrEnum):
     FILE = "file"
     DIRECTORY = "dir"
 
@@ -76,7 +78,6 @@ def _artifact_is_valid(path: Path, kind: ArtifactKind) -> bool:
         return path.is_file()
     if kind == ArtifactKind.DIRECTORY:
         return path.is_dir()
-    return False
 
 
 def ensure_model_artifacts(
@@ -158,9 +159,7 @@ def ensure_model_artifacts(
                     else:
                         destination_path.unlink()
                 except PermissionError as exc:
-                    raise RuntimeError(
-                        f"Permission denied while replacing model artifact: {destination_path}"
-                    ) from exc
+                    raise RuntimeError(f"Permission denied while replacing model artifact: {destination_path}") from exc
 
             try:
                 shutil.move(str(source_path), str(destination_path))

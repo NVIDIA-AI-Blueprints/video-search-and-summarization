@@ -36,7 +36,7 @@ function_groups:
     mdx_data_dir: "/home/ubuntu/video-search-and-summarization/deployments/data-dir"
     # Required output directory for docker_generate artifacts.
     output_dir: "/home/ubuntu/video-search-and-summarization/.orchestrator-artifacts"
-# ----------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
     _type: vss_orchestrator
     # Absolute path to the deployments/ root. Set HOST_IP separately via env
     # overrides in the docker_generate tool call, or pre-populate the selected profile .env.
@@ -47,70 +47,70 @@ function_groups:
     source_env: "/home/ubuntu/video-search-and-summarization/deployments/developer-workflow/dev-profile-{profile}/.env"
     # MDX_DATA_DIR base directory used by orchestrator (profile .env MDX_DATA_DIR is ignored).
     mdx_data_directories:
-      - data_log/analytics_cache
-      - data_log/calibration_toolkit
-      - data_log/elastic/data
-      - data_log/elastic/logs
-      - data_log/kafka
-      - data_log/redis/data
-      - data_log/redis/log
-      - data_log/vss_video_analytics_api
-      - agent_eval/dataset
-      - agent_eval/results
-      - videos/dev-profile-alerts
-      - models
+    - data_log/analytics_cache
+    - data_log/calibration_toolkit
+    - data_log/elastic/data
+    - data_log/elastic/logs
+    - data_log/kafka
+    - data_log/redis/data
+    - data_log/redis/log
+    - data_log/vss_video_analytics_api
+    - agent_eval/dataset
+    - agent_eval/results
+    - videos/dev-profile-alerts
+    - models
     # Model artifact definitions keyed by profile name.
     model_artifacts:
       search:
-        - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1"
-          downloaded_relative_path: "rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx"
-          output_name: "rtdetr_warehouse_v1.0.1.fp16.onnx"
-          artifact_kind: "file"
-        - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-          downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx"
-          output_name: "radio-clip_v1.0.onnx"
-          artifact_kind: "file"
-        - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-          downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin"
-          output_name: "radio-clip_v1.0_weights.bin"
-          artifact_kind: "file"
-        - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-          downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer"
-          output_name: "radio-clip_v1.0_tokenizer"
-          artifact_kind: "dir"
+      - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1"
+        downloaded_relative_path: "rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx"  # yamllint disable-line rule:line-length
+        output_name: "rtdetr_warehouse_v1.0.1.fp16.onnx"
+        artifact_kind: "file"
+      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
+        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx"
+        output_name: "radio-clip_v1.0.onnx"
+        artifact_kind: "file"
+      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
+        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin"
+        output_name: "radio-clip_v1.0_weights.bin"
+        artifact_kind: "file"
+      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
+        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer"
+        output_name: "radio-clip_v1.0_tokenizer"
+        artifact_kind: "dir"
       alerts:
-        - package_ref: "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
-          downloaded_relative_path: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"
-          output_name: "rtdetr-its/model_epoch_035.fp16.onnx"
-          artifact_kind: "file"
-        - package_ref: "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"
-          downloaded_relative_path: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"
-          output_name: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-          artifact_kind: "file"
+      - package_ref: "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
+        downloaded_relative_path: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"  # yamllint disable-line rule:line-length
+        output_name: "rtdetr-its/model_epoch_035.fp16.onnx"
+        artifact_kind: "file"
+      - package_ref: "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"  # yamllint disable-line rule:line-length
+        downloaded_relative_path: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"  # yamllint disable-line rule:line-length
+        output_name: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+        artifact_kind: "file"
     # Hardware/model resolution rules used by docker_generate.
     model_resolution:
       hardware:
         supported_profiles:
-          - H100
-          - L40S
-          - RTXPRO6000BW
-          - DGX-SPARK
-          - IGX-THOR
-          - AGX-THOR
-          - OTHER
+        - H100
+        - L40S
+        - RTXPRO6000BW
+        - DGX-SPARK
+        - IGX-THOR
+        - AGX-THOR
+        - OTHER
         edge_profiles:
-          - DGX-SPARK
-          - IGX-THOR
-          - AGX-THOR
+        - DGX-SPARK
+        - IGX-THOR
+        - AGX-THOR
         edge_allowed_profiles:
-          - base
-          - alerts
+        - base
+        - alerts
         edge_device_ids:
           llm: "0"
           vlm: "0"
         thor_base_profiles:
-          - IGX-THOR
-          - AGX-THOR
+        - IGX-THOR
+        - AGX-THOR
       llm:
         supported_models:
           nvidia/nvidia-nemotron-nano-9b-v2: nvidia-nemotron-nano-9b-v2
@@ -131,15 +131,15 @@ function_groups:
           RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
           VLM_MODEL_TYPE: rtvi
     include:
-      - docker_profiles
-      - docker_prereqs
-      - docker_generate
-      - docker_read
-      - docker_list
-      - docker_logs
-      - docker_up
-      - docker_down
-      - docker_status
+    - docker_profiles
+    - docker_prereqs
+    - docker_generate
+    - docker_read
+    - docker_list
+    - docker_logs
+    - docker_up
+    - docker_down
+    - docker_status
 
 llms:
   nim_llm:
