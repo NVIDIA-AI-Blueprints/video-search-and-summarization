@@ -183,6 +183,7 @@ _ALL_KNOWN_STATUSES: Final[frozenset[str]] = frozenset(status.value for status i
 # Input bounds and defaults
 _COMPOSE_STATUS_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=80, maximum=1000)
 _CONTAINER_LOG_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=100, maximum=10000)
+_MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 
 
 def _reject_option_like_docker_positional(arg_name: str, value: str) -> str:
@@ -190,6 +191,23 @@ def _reject_option_like_docker_positional(arg_name: str, value: str) -> str:
     if value.startswith("-"):
         raise ValueError(f"{arg_name} must not begin with '-'.")
     return value
+
+
+def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
+    """UTF-8-safe truncation with a fixed-size summary marker."""
+
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+
+    suffix = f"\n... [truncated, original size {len(encoded)} bytes]"
+    suffix_bytes = suffix.encode("utf-8")
+    prefix_budget = max(0, max_bytes - len(suffix_bytes))
+    if prefix_budget == 0:
+        return suffix_bytes[:max_bytes].decode("utf-8", errors="ignore")
+
+    prefix = encoded[:prefix_budget].decode("utf-8", errors="ignore")
+    return prefix + suffix
 
 
 # Polling behavior
@@ -955,11 +973,14 @@ async def vss_orchestrator(
                     "tail": input.tail,
                     "error": result.stderr.strip() or "Failed to fetch container logs.",
                 }
+            logs = _truncate_text_to_max_bytes(result.stdout, max_bytes=_MAX_DOCKER_LOG_RESPONSE_BYTES)
             return {
                 "status": ComposeStatus.SUCCESS.value,
                 "container_name": input.container_name,
                 "tail": input.tail,
-                "logs": result.stdout,
+                "logs": logs,
+                "logs_truncated": logs != result.stdout,
+                "log_bytes": len(logs.encode("utf-8")),
             }
 
         group.add_function(name="docker_logs", fn=_docker_logs, description=_docker_logs.__doc__)
