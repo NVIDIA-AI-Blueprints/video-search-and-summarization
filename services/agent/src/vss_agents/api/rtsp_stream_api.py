@@ -34,6 +34,7 @@ from vss_agents.tools.vst.utils import delete_sensor as vst_delete_sensor
 from vss_agents.tools.vst.utils import delete_storage as vst_delete_storage
 from vss_agents.tools.vst.utils import get_rtsp_url as vst_get_rtsp_url
 from vss_agents.tools.vst.utils import get_stream_info_by_name as vst_get_stream_info_by_name
+from vss_agents.utils.retry import create_retry_strategy
 from vss_agents.utils.time_measure import TimeMeasure
 
 
@@ -212,7 +213,12 @@ async def add_to_rtvi_embed(
     client: httpx.AsyncClient, config: ServiceConfig, sensor_id: str, name: str, sensor_url: str
 ) -> tuple[bool, str, str | None]:
     """
-    Add stream to RTVI-embed.
+    Add stream to RTVI-embed with retries.
+
+    During new stream ingestion the RTSP URL may exist but not yet be ready for
+    consumption.  This function retries the POST to RTVI-embed so transient
+    "stream not ready" failures are tolerated.
+
     Returns: (success, message, rtvi_stream_id)
     """
     if not config.rtvi_embed_url:
@@ -230,25 +236,27 @@ async def add_to_rtvi_embed(
     logger.debug(f"Payload: {payload}")
 
     try:
-        response = await client.post(url, json=payload)
-        if response.status_code not in (200, 201):
-            error = f"RTVI-embed returned {response.status_code}: {response.text}"
-            logger.error(error)
-            return False, error, None
+        async for retry in create_retry_strategy(delay=2, retries=6, exceptions=(Exception,)):
+            with retry:
+                response = await client.post(url, json=payload)
+                if response.status_code not in (200, 201):
+                    error = f"RTVI-embed returned {response.status_code}: {response.text}"
+                    logger.warning(f"RTVI-embed add failed: {error}, retrying...")
+                    raise RuntimeError(error)
 
-        result = response.json()
+                result = response.json()
 
-        # Response format: {"streams": [{"id": "...", ...}]}
-        streams = result.get("streams", [])
-        rtvi_stream_id = (streams[0].get("id") if streams else None) or sensor_id
+                streams = result.get("streams", [])
+                rtvi_stream_id = (streams[0].get("id") if streams else None) or sensor_id
 
-        logger.info(f"RTVI-embed stream registered: {rtvi_stream_id}")
-        return True, "Success", rtvi_stream_id
-
+                logger.info(f"RTVI-embed stream registered: {rtvi_stream_id}")
+                return True, "Success", rtvi_stream_id
     except Exception as e:
         error = f"RTVI-embed request failed: {e!s}"
         logger.error(error, exc_info=True)
         return False, error, None
+
+    return False, "RTVI-embed add failed after retries", None  # pragma: no cover
 
 
 async def start_embedding_generation(
