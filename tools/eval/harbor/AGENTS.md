@@ -912,10 +912,21 @@ On startup:
   is the single non-negotiable rule of the coordinator.
 - Don't commit datasets, results, or queue JSONs to the skill repo.
 - Don't run evals yourself — always dispatch through the per-platform queue.
-- Don't skip a platform because it looks "different". All four — L40S,
-  H100, RTX 6000 Pro, SPARK — are first-class. Every eval spec that claims
-  a platform in its matrix (or makes no claim) dispatches to all four.
-  Platform-specific lifecycle rules (below) don't change dispatch behavior.
+- Don't skip a platform a spec asked for. When a spec declares a platform
+  set (via its `env` matrix narrative or `resources.platforms`), dispatch
+  to every platform it names — all four (L40S, H100, RTX 6000 Pro, SPARK)
+  are first-class, none get dropped for convenience or cost. Platform-
+  specific lifecycle rules (below) don't change dispatch behavior.
+  **Specs that make no platform claim do NOT default to all four** —
+  they fall through to §5's default (one platform, cheapest fit, plus a
+  "Subagent suggestions" line in the PR comment asking the author to
+  tighten the spec's `env`). This matters: many skill evals (`vios`,
+  `video-summarization`, `video-search`) are hardware-agnostic and
+  *explicitly* ask for one-platform dispatch in their `env`; auto-fanning
+  them would quadruple cost without discovering anything. The deploy
+  skill's own matrix (`skills/deploy/eval/*.json`) is the canonical
+  multi-platform case — it declares platform × mode coverage and §5 case
+  3 governs its fan-out.
 - Instance lifecycle rules per platform:
   - **L40S, RTX 6000 Pro** — stoppable. `brev stop` after the queue drains.
   - **H100** (dmz.h100x2.pcie) — non-stoppable. `brev delete` after the
