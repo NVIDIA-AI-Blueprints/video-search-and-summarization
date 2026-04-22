@@ -615,7 +615,10 @@ class TopAgent(AsyncMixin):
             "1. Call `get_sensor_ids` — resolve the camera the user mentioned (camera 3 from prior turn).\n"
             "2. Call `get_event_clips` with sensor_id from step 1 and time range 08:00-09:00 from the query.\n"
             "3. Summarize the clips and return them to the user.\n\n"
-            "Example clarify:\n"
+            "Examples that require a clarifying question:\n"
+            "- Can you generate a report? (And the previous conversation did not mention any video name.)\n"
+            "- Can you show me the video? (And the previous conversation did not mention any video name.)\n"
+            "Example clarifying question:\n"
             "[USER] Which video or camera are you referring to? "
             "Please provide a sensor name or video ID so I can look it up.\n\n"
             "Example direct answer:\n"
@@ -647,7 +650,7 @@ class TopAgent(AsyncMixin):
 
         if state.conversation_history and self.max_history > 0:
             messages.extend(state.conversation_history)
-        messages.append(HumanMessage(content=question))
+        messages.append(HumanMessage(content="User question: " + question))
 
         llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
         llm_to_use = self.llm.bind(**llm_kwargs) if llm_kwargs else self.llm
