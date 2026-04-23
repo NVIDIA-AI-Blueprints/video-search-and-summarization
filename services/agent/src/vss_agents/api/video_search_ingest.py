@@ -56,9 +56,18 @@ class VideoIngestResponse(BaseModel):
 
 
 class VideoUploadCompleteInput(BaseModel):
-    """Input for the upload-complete endpoint (chunked upload post-processing)."""
+    """Input for the upload-complete endpoint (chunked upload post-processing).
 
-    sensor_id: str = Field(..., description="The sensorId returned by VST after chunked upload")
+    The UI forwards the full video-storage upload response as the request body
+    so it stays decoupled from the storage API shape. We extract the single
+    field the post-processing pipeline needs (sensorId) and ignore the rest.
+    Accepts both the camelCase ``sensorId`` (as VST returns it) and the
+    snake_case ``sensor_id`` for backward compatibility.
+    """
+
+    model_config = {"populate_by_name": True, "extra": "ignore"}
+
+    sensor_id: str = Field(..., alias="sensorId", description="Video stream identifier from the upload response")
 
 
 async def _run_post_upload_processing(
