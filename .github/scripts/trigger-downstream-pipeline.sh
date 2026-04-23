@@ -111,13 +111,14 @@ def trigger_pipeline(
     variable_name: str,
     commit_sha: str,
 ) -> dict[str, Any]:
-    payload = urlencode(
-        [
-            ("ref", ref),
-            ("variables[][key]", variable_name),
-            ("variables[][value]", commit_sha),
-        ]
-    ).encode("utf-8")
+    payload_pairs: list[tuple[str, str]] = [
+        ("ref", ref),
+        ("variables[][key]", variable_name),
+        ("variables[][value]", commit_sha),
+    ]
+    for branch_var in ("VSS_COMPARE_BRANCH", "VSS_TARGET_BRANCH"):
+        payload_pairs += [("variables[][key]", branch_var), ("variables[][value]", os.environ.get(branch_var, ""))]
+    payload = urlencode(payload_pairs).encode("utf-8")
     return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
 
 
