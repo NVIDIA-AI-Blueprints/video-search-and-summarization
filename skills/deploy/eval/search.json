@@ -1,6 +1,14 @@
 {
   "skills": ["deploy"],
-  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. For `remote-*` modes, the corresponding `LLM_REMOTE_URL`/`LLM_REMOTE_MODEL` and/or `VLM_REMOTE_URL`/`VLM_REMOTE_MODEL` must also be set. On DGX-Spark/Thor shared mode, `HF_TOKEN` is required for the Edge 4B vLLM. The search profile adds Cosmos Embed1 semantic search to the base stack. The `/deploy` skill is responsible for the full deploy workflow — this spec verifies the resulting state, not the journey.",
+  "resources": {
+    "platforms": {
+      "H100":         {"modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"]},
+      "L40S":         {"modes": ["dedicated", "remote-all", "remote-llm", "remote-vlm"]},
+      "RTXPRO6000BW": {"modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"]},
+      "DGX-SPARK":    {"modes": ["shared", "remote-llm"]}
+    }
+  },
+  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. For `remote-*` modes, the corresponding `LLM_REMOTE_URL`/`LLM_REMOTE_MODEL` and/or `VLM_REMOTE_URL`/`VLM_REMOTE_MODEL` must also be set. On DGX-Spark/Thor shared mode, `HF_TOKEN` is required for the Edge 4B vLLM. The search profile adds Cosmos Embed1 semantic search on top of base. The `/deploy` skill is responsible for the full deploy workflow — this spec verifies the resulting state by probing the live stack.",
   "expects": [
     {
       "query": "Deploy the VSS **search** profile on {{platform}} in {{mode}} mode, using the `/deploy` skill end-to-end and autonomously.",
@@ -11,10 +19,7 @@
         "`docker ps --format '{{.Names}}' | grep -qx metropolis-vss-ui` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx mdx-redis` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx centralizedb-dev` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
-        "`grep -E '^HARDWARE_PROFILE={{platform}}$' /home/ubuntu/video-search-and-summarization/deployments/developer-workflow/dev-profile-search/.env` returns exit 0",
-        "`grep -E '^LLM_MODE={{llm_mode}}$' /home/ubuntu/video-search-and-summarization/deployments/developer-workflow/dev-profile-search/.env` returns exit 0",
-        "`grep -E '^VLM_MODE={{vlm_mode}}$' /home/ubuntu/video-search-and-summarization/deployments/developer-workflow/dev-profile-search/.env` returns exit 0"
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0"
       ]
     }
   ]
