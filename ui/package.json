@@ -1,0 +1,32 @@
+{
+    "name": "nemo-agent-toolkit-ui-monorepo",
+    "version": "0.1.1",
+    "private": true,
+    "workspaces": [
+        "apps/*",
+        "packages/*",
+        "packages/nv-metropolis-bp-vss-ui/*"
+    ],
+    "scripts": {
+        "dev": "turbo run dev",
+        "build": "turbo run build",
+        "start": "turbo run start",
+        "lint": "turbo run lint",
+        "format": "turbo run format",
+        "typecheck": "turbo run typecheck",
+        "test": "turbo run test",
+        "clean": "turbo run clean"
+    },
+    "devDependencies": {
+        "turbo": "2.9.6"
+    },
+    "overrides": {
+        "preact": "10.27.3",
+        "next": "15.5.15",
+        "@tootallnate/once": "3.0.1",
+        "file-type": "21.3.2",
+        "lodash": "4.18.1",
+        "lodash-es": "4.18.1"
+    },
+    "packageManager": "npm@10.9.7"
+}
