@@ -172,6 +172,6 @@ export function shouldRenderAssistantMessage(message: Message): boolean {
  * Extracts the final content from a conversation for display
  */
 export function extractConversationContent(conversation: Conversation): string {
-  const lastMessage = conversation.messages[conversation.messages.length - 1];
-  return lastMessage?.content || '';
+  const lastMessage = conversation.messages.at(-1);
+  return lastMessage?.content ?? '';
 }

@@ -9,8 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SearchData } from '../types';
-import { SearchParams } from '../types';
+import { SearchData, SearchParams } from '../types';
 import { formatDateToLocalISO } from '../utils/Formatter';
 
 /**
@@ -19,6 +18,36 @@ import { formatDateToLocalISO } from '../utils/Formatter';
 interface UseSearchOptions {
   agentApiUrl?: string;
   params?: SearchParams;
+}
+
+function buildRequestBody(searchParams: SearchParams): Record<string, unknown> {
+  const { query, startDate, endDate, videoSources, similarity, topK = 10, agentMode = false, sourceType = 'video_file' } = searchParams;
+  if (agentMode) {
+    return { agent_mode: agentMode, query, top_k: topK, source_type: sourceType };
+  }
+  return {
+    query,
+    video_sources: videoSources || [],
+    timestamp_start: formatDateToLocalISO(startDate || null),
+    timestamp_end: formatDateToLocalISO(endDate || null),
+    min_cosine_similarity: Number(similarity)?.toFixed(2),
+    top_k: topK,
+    agent_mode: agentMode,
+    source_type: sourceType,
+  };
+}
+
+async function getHttpErrorMessage(response: Response): Promise<string> {
+  let errorMessage = `HTTP error! status: ${response.status}`;
+  try {
+    const errorBody = await response.text();
+    if (errorBody) {
+      errorMessage = `${errorMessage}\n\nResponse:\n${errorBody}`;
+    }
+  } catch {
+    // Ignore if can't read response body
+  }
+  return errorMessage;
 }
 
 /**
@@ -60,33 +89,12 @@ export const useSearch = ({ agentApiUrl, params = {} }: UseSearchOptions) => {
     const { signal } = abortControllerRef.current;
     
     try {
-      const { query, startDate, endDate, videoSources, similarity, topK = 10, agentMode = false, sourceType = 'video_file' } = searchParams;
-      let body = {};
-      let data = {data: []};
-      if(!query) {
+      if (!searchParams.query) {
         setSearchResults([]);
         setLoading(false);
         return;
       }
-      if(agentMode) {
-        body = {
-          agent_mode: agentMode,
-          query: query,
-          top_k: topK,
-          source_type: sourceType
-        }
-      } else {
-        body = {
-          query: query,
-          video_sources: videoSources || [],
-          timestamp_start: formatDateToLocalISO(startDate || null),
-          timestamp_end: formatDateToLocalISO(endDate || null),
-          min_cosine_similarity: Number(similarity)?.toFixed(2),
-          top_k: topK,
-          agent_mode: agentMode,
-          source_type: sourceType
-        }
-      }
+      const body = buildRequestBody(searchParams);
       setLoading(true);
       setError(null);
       setSearchResults([]);
@@ -97,41 +105,30 @@ export const useSearch = ({ agentApiUrl, params = {} }: UseSearchOptions) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
-        signal, // Pass the abort signal to fetch
+        signal,
       });
       
       if (!response.ok) {
-        // Try to get error details from response body
-        let errorMessage = `HTTP error! status: ${response.status}`;
-        try {
-          const errorBody = await response.text();
-          if (errorBody) {
-            errorMessage = `${errorMessage}\n\nResponse:\n${errorBody}`;
-          }
-        } catch {
-          // Ignore if can't read response body
-        }
-        throw new Error(errorMessage);
+        throw new Error(await getHttpErrorMessage(response));
       }
-      data = await response.json();
+      const data = await response.json();
       
       // Transform API response to SearchData format
       const transformedSearchResults: SearchData[] = (data.data || []).map((searchResult: any) => ({
         video_name: searchResult.video_name || '',
-        similarity: searchResult.similarity || 0,
+        similarity: Number(searchResult.similarity) || 0,
         screenshot_url: searchResult.screenshot_url || '',
         description: searchResult.description || '',
         start_time: searchResult.start_time || '',
         end_time: searchResult.end_time || '',
         sensor_id: searchResult.sensor_id || '',
         object_ids: searchResult.object_ids || [],
+        critic_result: searchResult.critic_result || undefined,
       }));
       
       setSearchResults(transformedSearchResults);
     } catch (err) {
-      // Don't set error if the request was aborted (cancelled by user)
-      if (err instanceof Error && err.name === 'AbortError') {
-        console.log('Search request was cancelled');
+      if (signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
       }
       setError(err instanceof Error ? err.message : 'Failed to fetch search');

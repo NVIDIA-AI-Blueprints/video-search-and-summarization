@@ -4,7 +4,7 @@ export { AlertsComponent, AlertsSidebarControls } from '@nv-metropolis-bp-vss-ui
 export type { AlertsComponentProps, AlertsSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/alerts';
 
 export { SearchComponent, SearchSidebarControls } from '@nv-metropolis-bp-vss-ui/search';
-export type { SearchComponentProps, SearchSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/search';
+export type { SearchComponentProps, SearchSidebarControlHandlers, QueryDataContext } from '@nv-metropolis-bp-vss-ui/search';
 
 export { DashboardComponent, DashboardSidebarControls } from '@nv-metropolis-bp-vss-ui/dashboard';
 export type { DashboardComponentProps, DashboardSidebarControlHandlers } from '@nv-metropolis-bp-vss-ui/dashboard';

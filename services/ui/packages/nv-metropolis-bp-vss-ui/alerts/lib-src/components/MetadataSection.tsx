@@ -20,6 +20,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import { Button } from '@nvidia/foundations-react-core';
 import { IconChevronDown, IconChevronUp, IconCopy, IconCheck, IconClipboardCopy } from '@tabler/icons-react';
 import { copyToClipboard } from '@nemo-agent-toolkit/ui';
 
@@ -86,11 +87,11 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
   };
 
   return (
-    <div className={`ml-6 rounded p-3 border ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+    <div className={`ml-6 rounded p-3 border ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
       <div className="flex items-center justify-between mb-2">
-        <button 
+        <button
           onClick={() => !isEmpty && setIsCollapsed(!isCollapsed)}
-          className="flex items-center gap-2 text-left hover:opacity-80 transition-opacity"
+          className={`flex items-center gap-1.5 p-1 rounded transition-colors ${!isEmpty ? (isDark ? 'hover:bg-neutral-700' : 'hover:bg-gray-100') + ' cursor-pointer' : 'cursor-default'}`}
         >
           {isEmpty ? (
             <IconChevronDown className={`w-4 h-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
@@ -112,20 +113,16 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
           <div className="flex items-center gap-2">
             {shouldShowCopyPrompt && (
               <div className="relative">
-                <button
+                <Button
+                  kind="primary"
                   onClick={handleCopyPrompt}
                   onMouseEnter={() => setShowTooltip(true)}
                   onMouseLeave={() => setShowTooltip(false)}
-                  className={`px-3 py-1.5 rounded transition-colors text-xs font-medium flex items-center gap-1.5 ${
-                    isDark 
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
-                  }`}
-                  title="Copy Report Prompt"
+                  title="Copy report prompt to clipboard"
                 >
                   {isPromptCopied ? (
                     <>
-                      <IconCheck className="w-3 h-3" />
+                      <IconCheck className={`w-3 h-3 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
                       <span>Copied</span>
                     </>
                   ) : (
@@ -134,11 +131,11 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
                       <span>Copy Report Prompt</span>
                     </>
                   )}
-                </button>
+                </Button>
                 {showTooltip && !isPromptCopied && (
                   <div className={`absolute z-50 bottom-full right-0 mb-2 px-3 py-2 rounded shadow-lg border max-w-xs sm:max-w-md whitespace-pre-wrap break-words text-xs ${
                     isDark 
-                      ? 'bg-gray-800 border-gray-600 text-gray-200' 
+                      ? 'bg-black border-gray-600 text-gray-200' 
                       : 'bg-white border-gray-300 text-gray-800'
                   }`}>
                     {formattedPrompt}
@@ -149,18 +146,14 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
                 )}
               </div>
             )}
-            <button
+            <Button
+              kind="secondary"
               onClick={handleCopy}
-              className={`px-3 py-1.5 rounded transition-colors text-xs font-medium flex items-center gap-1.5 ${
-                isDark 
-                  ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
-                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-              }`}
-              title="Copy Metadata"
+              title="Copy alert metadata to clipboard"
             >
               {isCopied ? (
                 <>
-                  <IconCheck className="w-3 h-3 text-green-500" />
+                  <IconCheck className={`w-3 h-3 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
                   <span>Copied</span>
                 </>
               ) : (
@@ -169,7 +162,7 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
                   <span>Copy Metadata</span>
                 </>
               )}
-            </button>
+            </Button>
           </div>
         )}
       </div>

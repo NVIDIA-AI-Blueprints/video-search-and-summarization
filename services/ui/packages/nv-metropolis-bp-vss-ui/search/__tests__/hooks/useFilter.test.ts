@@ -78,8 +78,8 @@ describe('useFilter', () => {
 
     expect(global.fetch).toHaveBeenCalledWith('http://vst.test/v1/sensor/list');
     expect(result.current.streams).toEqual([
-      { name: 'Camera-1', type: 'sensor_file' },
-      { name: 'Camera-2', type: 'sensor_rtsp' },
+      { sensorId: 'cam-1', name: 'Camera-1', type: 'sensor_file' },
+      { sensorId: 'cam-2', name: 'Camera-2', type: 'sensor_rtsp' },
     ]);
   });
 

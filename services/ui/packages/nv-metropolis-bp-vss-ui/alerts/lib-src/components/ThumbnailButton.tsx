@@ -6,7 +6,8 @@
  * Handles loading states and errors gracefully.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Button } from '@nvidia/foundations-react-core';
 import { IconPlayerPlay, IconPhoto } from '@tabler/icons-react';
 import { AlertData } from '../types';
 
@@ -20,24 +21,24 @@ interface ThumbnailButtonProps {
   showObjectsBbox?: boolean;
 }
 
+/** Fixed size + positioning context so absolute overlays stay inside the cell. */
+const BUTTON_BOX_STYLE = { width: '84px', height: '64px' } as const;
+
 export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
   alert,
   vstApiUrl,
   sensorMap,
   isDark,
   onPlayVideo,
-  isLoading,
+  isLoading = false,
   showObjectsBbox = false
 }) => {
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
 
-  // Button dimensions
-  const buttonStyle = { width: '84px', height: '64px' };
   const spinnerStyle = { width: '24px', height: '24px' };
 
-  // Get thumbnail URL
-  const getThumbnailUrl = () => {
+  const thumbnailUrl = useMemo(() => {
     if (!vstApiUrl || !sensorMap || !alert.sensor || !alert.timestamp) {
       return null;
     }
@@ -49,7 +50,6 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
 
     let url = `${vstApiUrl}/v1/replay/stream/${sensorId}/picture?width=256&height=114&startTime=${alert.timestamp}`;
 
-    // Add overlay with bounding boxes if objectIds are available and feature is enabled
     const objectIds = alert.metadata?.objectIds;
     if (showObjectsBbox && Array.isArray(objectIds) && objectIds.length > 0) {
       const overlay = {
@@ -64,15 +64,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
     }
 
     return url;
-  };
-
-  const thumbnailUrl = getThumbnailUrl();
-
-  const buttonClass = `relative group cursor-pointer rounded border overflow-hidden transition-all ${
-    isDark 
-      ? 'border-gray-600 hover:border-gray-500 bg-gray-700' 
-      : 'border-gray-300 hover:border-gray-400 bg-gray-100'
-  }`;
+  }, [vstApiUrl, sensorMap, alert, showObjectsBbox]);
 
   const handleClick = () => {
     if (isLoading) return;
@@ -83,17 +75,19 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
   if (!thumbnailUrl || imageError) {
     return (
       <button
+        type="button"
+        data-testid="alert-thumbnail"
         onClick={handleClick}
         disabled={isLoading}
-        className={`relative rounded border flex items-center justify-center transition-colors ${
+        title={isLoading ? "Loading video..." : "Play video"}
+        style={BUTTON_BOX_STYLE}
+        className={`relative flex items-center justify-center rounded border p-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ${
           isLoading ? 'cursor-wait opacity-70' : ''
         } ${
-          isDark 
-            ? 'text-gray-300 border-gray-600 hover:border-gray-500 hover:bg-gray-700' 
+          isDark
+            ? 'text-gray-300 border-gray-600 hover:border-gray-500 hover:bg-gray-700'
             : 'text-gray-600 border-gray-300 hover:border-gray-400 hover:bg-gray-100'
         }`}
-        title={isLoading ? "Loading video..." : "Play video"}
-        style={buttonStyle}
       >
         {isLoading ? (
           <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
@@ -105,17 +99,21 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
   }
 
   return (
-    <button
+    <Button
+      data-testid="alert-thumbnail"
+      kind="tertiary"
       onClick={handleClick}
       disabled={isLoading}
-      className={`${buttonClass} ${isLoading ? 'cursor-wait' : ''}`}
       title={isLoading ? "Loading video..." : "Play video"}
-      style={buttonStyle}
+      style={BUTTON_BOX_STYLE}
+      className={`relative overflow-hidden group shrink-0 rounded border p-0 min-h-0 min-w-0 ${
+        isDark ? 'border-gray-600 hover:border-gray-500' : 'border-gray-300 hover:border-gray-400'
+      } ${isLoading ? 'cursor-wait' : ''}`}
     >
       {/* Loading State - Show spinner while loading thumbnail */}
       {imageLoading && !isLoading && (
-        <div className={`absolute inset-0 flex items-center justify-center ${
-          isDark ? 'bg-gray-700' : 'bg-gray-100'
+        <div className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
+          isDark ? 'bg-neutral-900' : 'bg-gray-100'
         }`}>
           <div className="relative">
             <IconPhoto className={`w-6 h-6 ${
@@ -132,7 +130,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
       <img
         src={thumbnailUrl}
         alt="Video thumbnail"
-        className={`w-full h-full object-cover transition-opacity duration-300 ${
+        className={`h-full w-full object-cover transition-opacity duration-300 ${
           imageLoading ? 'opacity-0' : 'opacity-100'
         }`}
         onLoad={() => setImageLoading(false)}
@@ -144,7 +142,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
 
       {/* Video Loading Overlay - Show when checking video URL */}
       {isLoading && (
-        <div className={`absolute inset-0 flex items-center justify-center ${
+        <div className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
           isDark ? 'bg-black/60' : 'bg-black/40'
         }`}>
           <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent" />
@@ -153,7 +151,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
 
       {/* Play Overlay - Only show when not loading */}
       {!imageLoading && !isLoading && (
-        <div className={`absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${
+        <div className={`pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${
           isDark ? 'bg-black/50' : 'bg-black/30'
         }`}>
           <div className="bg-white/90 rounded-full p-2">
@@ -161,7 +159,7 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
           </div>
         </div>
       )}
-    </button>
+    </Button>
   );
 };
 
