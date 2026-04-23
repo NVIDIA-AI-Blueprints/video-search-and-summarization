@@ -40,3 +40,12 @@ repos:
     files: ^services/agent/src/vss_agents/
     pass_filenames: false
     require_serial: true
+
+  # DCO sign-off check — ensures every commit has Signed-off-by
+  - id: dco-signoff
+    name: DCO sign-off check
+    entry: bash -c 'git log -1 --format="%B" | grep -q "^Signed-off-by" || { echo "ERROR - Commit missing DCO sign-off. Use git commit -s"; exit 1; }'
+    language: system
+    always_run: true
+    pass_filenames: false
+    stages: [pre-commit]

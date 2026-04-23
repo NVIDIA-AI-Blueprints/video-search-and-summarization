@@ -257,7 +257,138 @@ jobs:
         run: python3 .github/scripts/check_folder_structure.py
 
   # ---------------------------------------------------------------------------
-  # Job 8: Trigger downstream pipeline on main and poll it to completion
+  # Job 8: Copyright header check
+  # ---------------------------------------------------------------------------
+  copyright-headers:
+    name: Copyright Headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check SPDX headers
+        run: python3 .github/scripts/check_copyright_headers.py
+
+  # ---------------------------------------------------------------------------
+  # Job 9: DCO sign-off check
+  # ---------------------------------------------------------------------------
+  dco:
+    name: DCO Sign-off
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check DCO sign-off
+        run: |
+          # Check all commits in this push (between previous and current SHA)
+          MERGE_BASE=$(git merge-base HEAD origin/develop 2>/dev/null || echo HEAD~1)
+          COMMITS=$(git rev-list "$MERGE_BASE"..HEAD)
+          if [ -z "$COMMITS" ]; then
+            echo "No new commits to check."
+            exit 0
+          fi
+          FAILED=0
+          for sha in $COMMITS; do
+            MSG=$(git log -1 --format="%B" "$sha")
+            if ! echo "$MSG" | grep -q "^Signed-off-by:"; then
+              echo "FAIL: Commit $sha missing DCO sign-off"
+              echo "  Subject: $(git log -1 --format='%s' "$sha")"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "All commits must include a 'Signed-off-by' line."
+            echo "Use: git commit -s -m 'your message'"
+            echo "Or amend: git commit --amend -s --no-edit"
+            exit 1
+          fi
+          echo "OK: All commits have DCO sign-off."
+
+  # ---------------------------------------------------------------------------
+  # Job 10: Dependency license check (Python)
+  # ---------------------------------------------------------------------------
+  license-check-python:
+    name: License Check (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.2"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev pkg-config
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Install pip-licenses
+        run: uv run pip install pip-licenses
+
+      - name: Check Python dependency licenses
+        run: |
+          echo "=== Dependency License Report ==="
+          uv run pip-licenses --format=table --order=license
+
+          echo ""
+          echo "=== Checking for disallowed licenses ==="
+          # Fail if any GPL/AGPL/SSPL packages are found
+          DISALLOWED=$(uv run pip-licenses --format=csv | grep -iE 'GPL|AGPL|SSPL|BUSL' | grep -v 'LGPL' || true)
+          if [ -n "$DISALLOWED" ]; then
+            echo "ERROR: Found packages with disallowed licenses:"
+            echo "$DISALLOWED"
+            exit 1
+          fi
+          echo "OK: No disallowed licenses found."
+
+  # ---------------------------------------------------------------------------
+  # Job 11: Dependency license check (UI)
+  # ---------------------------------------------------------------------------
+  license-check-ui:
+    name: License Check (UI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+          cache-dependency-path: services/ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check UI dependency licenses
+        run: |
+          npx license-checker \
+            --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;CC0-1.0;CC-BY-4.0;CC-BY-3.0;Python-2.0;BlueOak-1.0.0" \
+            --excludePrivatePackages
+
+  # ---------------------------------------------------------------------------
+  # Job 12: Trigger downstream pipeline on main and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
@@ -269,6 +400,10 @@ jobs:
       - frontend-lint
       - frontend-build
       - folder-structure
+      - copyright-headers
+      - dco
+      - license-check-python
+      - license-check-ui
     runs-on: self-hosted
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
