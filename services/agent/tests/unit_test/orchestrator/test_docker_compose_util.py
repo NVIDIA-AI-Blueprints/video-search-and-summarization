@@ -22,6 +22,10 @@ import yaml
 from vss_agents.orchestrator import docker_compose_util as dcu
 
 
+def _env_text(*lines: str) -> str:
+    return "\n".join(lines)
+
+
 def _make_recipe(
     tmp_path: Path,
     env_text: str,
@@ -62,8 +66,8 @@ def _make_recipe(
 
 class TestParseEnvOverrides:
     def test_parse_env_overrides_accepts_valid_entries(self):
-        result = dcu.parse_env_overrides(["HOST_IP=10.0.0.5", "PASSWORD=a=b=c"])
-        assert result == {"HOST_IP": "10.0.0.5", "PASSWORD": "a=b=c"}
+        result = dcu.parse_env_overrides(["HOST_IP=10.0.0.5", "PASSWORD=a=b=c"])  # pragma: allowlist secret
+        assert result == {"HOST_IP": "10.0.0.5", "PASSWORD": "a=b=c"}  # pragma: allowlist secret
 
     def test_parse_env_overrides_rejects_missing_equals(self):
         with pytest.raises(dcu.ValidationError, match="Expected KEY=VALUE"):
@@ -75,7 +79,7 @@ class TestParseEnvOverrides:
 
     def test_parse_env_overrides_rejects_newlines(self):
         with pytest.raises(dcu.ValidationError, match="Newlines are not allowed"):
-            dcu.parse_env_overrides(["TOKEN=line1\nline2"])
+            dcu.parse_env_overrides(["TOKEN=line1\nline2"])  # pragma: allowlist secret
 
 
 class TestParseEnvFile:
@@ -163,23 +167,23 @@ class TestBuildResolvedEnv:
     def test_build_resolved_env_merges_defaults_and_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         recipe = _make_recipe(
             tmp_path,
-            """
-             MODE=local
-             BP_PROFILE=search
-             PROXY_MODE=direct
-             HARDWARE_PROFILE=igx
-             LLM_MODE=local
-             LLM_NAME=llm-a
-             VLM_NAME=vlm-a
-             HOST_IP=<HOST_IP>
-             MDX_SAMPLE_APPS_DIR=/path/to/deployments
-             NGC_CLI_API_KEY=
-             NVIDIA_API_KEY=
-             """,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=search",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=igx",
+                "LLM_MODE=local",
+                "LLM_NAME=llm-a",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=<HOST_IP>",
+                "MDX_SAMPLE_APPS_DIR=/path/to/deployments",
+                "NGC_CLI_API_KEY=",  # pragma: allowlist secret
+                "NVIDIA_API_KEY=",  # pragma: allowlist secret
+            ),
             profile=dcu.PROFILE_SEARCH,
             env_overrides={"HOST_IP": "10.0.0.5"},
-            ngc_cli_api_key="ngc-from-config",
-            nvidia_api_key="nvidia-from-config",
+            ngc_cli_api_key="ngc-from-config",  # pragma: allowlist secret
+            nvidia_api_key="nvidia-from-config",  # pragma: allowlist secret
         )
 
         brev_calls: list[tuple[str, str]] = []
@@ -200,8 +204,8 @@ class TestBuildResolvedEnv:
         assert resolved["EXTERNAL_IP"] == "44.55.66.77"
         assert resolved["MDX_SAMPLE_APPS_DIR"] == str(recipe.deployments_dir)
         assert resolved["MDX_DATA_DIR"] == str(recipe.mdx_data_dir)
-        assert resolved["NGC_CLI_API_KEY"] == "ngc-from-config"
-        assert resolved["NVIDIA_API_KEY"] == "nvidia-from-config"
+        assert resolved["NGC_CLI_API_KEY"] == "ngc-from-config"  # pragma: allowlist secret
+        assert resolved["NVIDIA_API_KEY"] == "nvidia-from-config"  # pragma: allowlist secret
         assert resolved["LLM_NAME_SLUG"] == "llm-a-slug"
         assert resolved["VLM_NAME_SLUG"] == "vlm-a-slug"
         assert resolved["LLM_DEVICE_ID"] == "0"
@@ -216,24 +220,24 @@ class TestBuildResolvedEnv:
     ):
         recipe = _make_recipe(
             tmp_path,
-            """
-             MODE=local
-             BP_PROFILE=base
-             PROXY_MODE=direct
-             HARDWARE_PROFILE=thor
-             LLM_MODE=local
-             LLM_NAME=llm-a
-             VLM_MODE=local
-             VLM_NAME=vlm-a
-             HOST_IP=10.0.0.8
-             EXTERNALLY_ACCESSIBLE_IP=198.51.100.5
-             MDX_SAMPLE_APPS_DIR=/already/set
-             NGC_CLI_API_KEY=from-file
-             NVIDIA_API_KEY=from-file
-             """,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=base",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=thor",
+                "LLM_MODE=local",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.8",
+                "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+                "MDX_SAMPLE_APPS_DIR=/already/set",
+                "NGC_CLI_API_KEY=from-file",  # pragma: allowlist secret
+                "NVIDIA_API_KEY=from-file",  # pragma: allowlist secret
+            ),
             env_overrides={"MDX_DATA_DIR": "/override/data"},
-            ngc_cli_api_key="ignored-ngc",
-            nvidia_api_key="ignored-nvidia",
+            ngc_cli_api_key="ignored-ngc",  # pragma: allowlist secret
+            nvidia_api_key="ignored-nvidia",  # pragma: allowlist secret
         )
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
@@ -248,5 +252,5 @@ class TestBuildResolvedEnv:
         assert "EXTERNAL_IP" in resolved
         assert resolved["MDX_SAMPLE_APPS_DIR"] == "/already/set"
         assert resolved["MDX_DATA_DIR"] == "/override/data"
-        assert resolved["NGC_CLI_API_KEY"] == "from-file"
-        assert resolved["NVIDIA_API_KEY"] == "from-file"
+        assert resolved["NGC_CLI_API_KEY"] == "from-file"  # pragma: allowlist secret
+        assert resolved["NVIDIA_API_KEY"] == "from-file"  # pragma: allowlist secret
