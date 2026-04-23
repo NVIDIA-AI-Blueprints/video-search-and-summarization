@@ -325,7 +325,7 @@ def generate_instruction(
         verb_phrase += f" in **{deploy_flag_m}** mode"
     if hint:
         verb_phrase += f" {hint}"
-    verb_phrase += "."
+    verb_phrase += " autonomously — do not ask for confirmation before running."
 
     body = [
         verb_phrase,
