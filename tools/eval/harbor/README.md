@@ -177,15 +177,43 @@ Each evaluable skill ships a spec at
 author writes** — the coordinator agent (see [`AGENTS.md`](AGENTS.md))
 derives the Harbor adapter, dataset, and queue entries from it.
 
-Schema (loose — pattern-match from the working example below):
+The **spec is the source of truth** for dispatch. Adapters iterate
+exactly what `resources.platforms` lists; they never invent platforms
+or modes a spec did not declare. This keeps PR authors in control of
+which `(platform, mode)` combos actually run.
+
+Schema:
 
 | Key | Type | Description |
 |---|---|---|
 | `skills` | `string[]` | Skill names this spec exercises (usually just one). |
-| `env` | `string` | Prose describing prerequisites: target platform(s), deployed VSS profile (if any), required env vars, Brev secure-link assumptions, etc. The coordinator parses this to pick platforms and inject deploy tasks. |
+| `resources.platforms` | `object` | `{<platform>: {"modes": [...]}}` — the Cartesian matrix the adapter will fan out. E.g. `{"L40S": {"modes": ["remote-all"]}}` produces exactly one dataset. Platforms: `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`. Omitted → adapter falls back to its internal defaults (back-compat only; new specs should declare explicitly). |
+| `env` | `string` | Prose describing prerequisites: target platform(s), deployed VSS profile (if any), required env vars, Brev secure-link assumptions, etc. The coordinator parses this for prerequisite deploy injection and platform intent. |
 | `expects` | `array` | Ordered list — **each entry becomes one Harbor task in the subagent queue**, chained to the previous via `requires_previous_passed`. |
-| `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. |
-| `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Shell-runnable or probe-runnable; the adapter decides whether to inline them in `test.sh` or route them through a Python probe under `skills/<skill>/scripts/`. |
+| `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
+| `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl`/`docker`/`grep`/etc. commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
+
+### Eval-profile vs deploy-profile (deploy adapter only)
+
+The `deploy` adapter also exposes a small `PROFILES` dict that maps
+**eval-profile names** to the underlying `/deploy` invocation:
+
+```python
+PROFILES = {
+  "base":       {"description": "..."},                  # key == deploy profile
+  "alerts_cv":  {"profile": "alerts", "deploy_mode": "verification"},
+  "alerts_vlm": {"profile": "alerts", "deploy_mode": "real-time"},
+  "lvs":        {"description": "..."},
+  "search":     {"description": "..."},
+}
+```
+
+An empty or absent `profile` means the dict key *is* the deploy profile
+(the `base` case). When `profile` is set, the agent is told to invoke
+`/deploy -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`.
+This is how one skill profile (`alerts`) produces multiple eval variants
+(`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct
+container-check sets while still deploying a shared compose stack.
 
 ### Worked example — `skills/vios/eval/base_profile_ops.json`
 

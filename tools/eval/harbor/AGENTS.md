@@ -156,15 +156,58 @@ or a commit SHA change on an already-tracked one. The source PR number is
 
 ## 4. Adapter generation rules
 
-**Before generating anything, check if the adapter already exists.**
-List `tools/eval/harbor/adapters/<skill>/` — if a `generate.py` is
-checked in (deploy + vios at time of writing), it is **human-maintained
-and must not be regenerated from scratch**. These adapters encode
-skill-specific structure (deploy's profile × platform × mode matrix;
-vios's single-platform step chain) that would be destroyed by a naive
-rewrite. For existing adapters, the coordinator's job is limited to:
+### The spec is the source of truth
 
-1. Re-run the adapter with the new/refreshed spec as input, e.g.
+Every eval spec under `skills/<skill>/eval/<profile>.json` is
+self-describing. The spec declares:
+
+- `skills` — which skill(s) the task exercises.
+- `resources.platforms` — a dict of `{platform: {"modes": [...]}}` listing
+  every (platform, mode) combination the skill author wants to test. The
+  adapter reads this verbatim and fans out one dataset per entry. Specs
+  that omit `resources.platforms` fall back to the adapter's default
+  matrix for backward compatibility only — **new specs must declare
+  platforms explicitly.**
+- `env` — prose describing prerequisites the coordinator parses for
+  dispatch (deployed profile, platform intent, required env vars).
+- `expects[]` — per-step `{query, checks}` the verifier evaluates.
+
+The adapter **never invents** platforms or modes the spec did not
+declare. If a spec lists `{"L40S": {"modes": ["remote-all"]}}`, the
+adapter generates exactly one dataset for that combo — not the full
+Cartesian product of every platform × mode in its internal defaults.
+This keeps the PR-author in control of what actually gets dispatched.
+
+The deploy adapter additionally keeps a small `PROFILES` dict keyed by
+**eval-profile name**, mapping to the underlying `/deploy` invocation:
+
+```python
+PROFILES = {
+    "base":       {"description": "..."},                  # key == deploy profile
+    "lvs":        {"description": "..."},
+    "search":     {"description": "..."},
+    "alerts_cv":  {"profile": "alerts", "deploy_mode": "verification"},
+    "alerts_vlm": {"profile": "alerts", "deploy_mode": "real-time"},
+}
+```
+
+`profile` may be empty/absent — when empty, the dict key *is* the deploy
+profile. When present, it's the `/deploy -p <profile>` argument; the
+optional `deploy_mode` becomes `/deploy -m <mode>`. This is how one
+skill profile (`alerts`) can produce multiple eval variants
+(`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct
+`docker ps` check sets, while still invoking a shared compose stack.
+
+### When the adapter already exists
+
+**Check before generating.** List `tools/eval/harbor/adapters/<skill>/` —
+if `generate.py` is checked in (deploy + vios at time of writing), it is
+**human-maintained and must not be regenerated from scratch**. These
+adapters encode skill-specific structure that would be destroyed by a
+naive rewrite. For existing adapters, the coordinator's job is limited
+to:
+
+1. Re-run the adapter with the refreshed spec as input, e.g.
    `python3 tools/eval/harbor/adapters/deploy/generate.py
    --output-dir tools/eval/harbor/datasets/deploy
    --skill-dir skills/deploy --profile <new-profile>`. The adapter
@@ -172,8 +215,8 @@ rewrite. For existing adapters, the coordinator's job is limited to:
    substitution pass, and the generated `tests/<spec>.json` is what the
    trial's generic judge actually reads.
 2. If the existing adapter's CLI doesn't accept what the new spec
-   requires (e.g. a brand-new profile dimension, a mode it doesn't
-   know about), **post a comment on the source PR** asking the skill
+   requires (a brand-new profile dimension, a mode it doesn't know
+   about), **post a comment on the source PR** asking the skill
    author to update the adapter. Do NOT edit the adapter yourself
    (adapters live under `tools/eval/harbor/`, technically coordinator
    territory — but the deploy/vios adapters encode cross-cutting
@@ -185,8 +228,9 @@ the skill — i.e., a brand-new skill PR that ships an eval spec but no
 adapter. In that case, pattern-match from the two existing adapters:
 
 - **`tools/eval/harbor/adapters/deploy/generate.py`** — matrix generator
-  (platform × mode). Only use this shape if the skill's spec declares a
-  matrix (e.g., `resources.modes`).
+  (platform × mode). Use this shape when the spec declares
+  `resources.platforms: {<platform>: {"modes": [...]}}`. The adapter
+  iterates exactly that matrix.
 - **`tools/eval/harbor/adapters/vios/generate.py`** — single-task-
   per-platform generator. This is the default shape for skills whose spec
   has a flat `expects[]` list.
