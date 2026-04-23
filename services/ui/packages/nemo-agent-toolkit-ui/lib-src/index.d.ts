@@ -1,15 +1,16 @@
 // Manual type declarations for exported components
 import React from 'react';
 
-// VideoModal component and props
-export interface VideoModalProps {
-  isOpen: boolean;
-  videoUrl: string;
-  title: string;
-  onClose: () => void;
-}
-
-export const VideoModal: React.FC<VideoModalProps>;
+// VideoModal & useVideoModal (re-exported from common)
+export {
+  VideoModal,
+  type VideoModalProps,
+  useVideoModal,
+  type VideoModalState,
+  type VideoModalData,
+  type AlertLike,
+  type UseVideoModalOptions,
+} from '@aiqtoolkit-ui/common';
 
 // Main app export and types
 export interface ChatSidebarControlHandlers {
@@ -28,9 +29,19 @@ export interface ChatSidebarControlHandlers {
   chatbarContext?: any;
 }
 
+/**
+ * Parent-provided HTML string shown under an assistant response card via `dangerouslySetInnerHTML`.
+ *
+ * **Security:** `CallerInfo` is treated as HTML. Values returned from `onAnswerCompleteWithContent`
+ * MUST be sanitized by the parent before they are returned, or XSS can occur when the UI renders
+ * them. Prefer a robust HTML sanitizer (for example, DOMPurify) on any string that is not already
+ * known-safe static markup. Only pass trusted content or content you have explicitly sanitized.
+ */
+export type CallerInfo = string;
+
 export interface NemoAgentToolkitAppProps {
-  theme?: 'light' | 'dark';
-  onThemeChange?: (theme: 'light' | 'dark') => void;
+  theme: string;
+  onThemeChange?: (theme: string) => void;
   isActive?: boolean;
   initialStateOverride?: Partial<HomeInitialState>;
   /** Optional storage key prefix (e.g. "searchTab") so this instance uses separate sessionStorage; pass at instantiation for reusability. */
@@ -40,14 +51,14 @@ export interface NemoAgentToolkitAppProps {
   onControlsReady?: (handlers: ChatSidebarControlHandlers) => void;
   /** Optional: called when a new assistant answer has finished. */
   onAnswerComplete?: () => void;
-  /** Optional: called when an answer finishes, with the full assistant message text. */
-  onAnswerCompleteWithContent?: (answer: string) => void;
+  /** Optional: called when an answer finishes; may return a renderable HTML string for parent-app caller info. */
+  onAnswerCompleteWithContent?: (answer: string) => CallerInfo | void;
   /** Optional: called when chat is ready; receives a function to programmatically submit a message to the agent. */
   onSubmitMessageReady?: (submitMessage: (message: string) => void) => void;
   /** Optional: called when a message is submitted programmatically (e.g. for attention/highlight). */
   onMessageSubmitted?: () => void;
-  className?: string;
-  style?: React.CSSProperties;
+  /** Optional: called when chat is ready; receives a function the embedder can call to add a query context item to the chat input. */
+  onAddQueryContextReady?: (addItem: (item: { id: string; label: string; type: string; data: Record<string, unknown> }) => void) => void;
 }
 
 export const NemoAgentToolkitApp: React.ComponentType<NemoAgentToolkitAppProps>;
@@ -57,6 +68,61 @@ export const Chat: React.ComponentType<any>;
 export const Chatbar: React.ComponentType<any>;
 export const ChatInput: React.ComponentType<any>;
 export const ChatMessage: React.ComponentType<any>;
+
+export interface UploadFileFieldConfig {
+  'field-name': string;
+  'field-type': 'boolean' | 'string' | 'number' | 'array' | 'select';
+  'field-default-value': boolean | string | number | string[] | number[];
+  'field-options'?: string[] | number[];
+  changeable?: boolean;
+  'tooltip-info'?: string;
+}
+export interface UploadFileConfigTemplate {
+  fields: UploadFileFieldConfig[];
+}
+export interface UploadFilesDialogFileItem {
+  id: string;
+  file: File;
+  formData: Record<string, any>;
+  isExpanded: boolean;
+  uploadFilename?: string;
+  metadataFile?: File | null;
+  isMetadataExpanded?: boolean;
+}
+export interface UploadFilesDialogEntry {
+  id: string;
+  file: File;
+  formData: Record<string, any>;
+  uploadFilename?: string;
+  metadataFile?: File | null;
+}
+export interface UploadFilesDialogMetadataConfig {
+  enabled: true;
+  validateMetadataFile?: (file: File) => Promise<boolean>;
+}
+export interface UploadFilesDialogOptions {
+  title?: string;
+  emptyStateHint?: React.ReactNode;
+  addMoreWithIcon?: boolean;
+}
+export interface UploadFilesDialogHandle {
+  open: (files?: File[]) => void;
+  close: () => void;
+}
+export interface UploadFilesDialogProps {
+  open?: boolean;
+  configTemplate: UploadFileConfigTemplate | null;
+  onClose: () => void;
+  onConfirm: (entries: UploadFilesDialogEntry[]) => void;
+  initialFiles?: File[] | null;
+  accept?: string;
+  validateFile?: (file: File) => boolean;
+  metadata?: UploadFilesDialogMetadataConfig;
+  options?: UploadFilesDialogOptions;
+}
+export const UploadFilesDialog: React.ForwardRefExoticComponent<
+  UploadFilesDialogProps & React.RefAttributes<UploadFilesDialogHandle>
+>;
 
 // Chat sidebar (for external rendering)
 export const ChatSidebarContent: React.ComponentType<ChatSidebarControlHandlers>;
@@ -114,34 +180,14 @@ export interface KeyValuePair {
 // Hooks
 export function useCreateReducer(): any;
 
-// Utils
-export function formatTimestamp(timestamp: string | number): string;
-export function copyToClipboard(text: string): Promise<void>;
-
-// Video Upload Utils
-export interface FileUploadResult {
-  filename: string;
-  bytes: number;
-  sensorId: string;
-  streamId: string;
-  filePath: string;
-  timestamp: string;
-}
-
-export function getUploadUrl(
-  filename: string,
-  uploadUrl: string,
-  formData?: Record<string, any>,
-  signal?: AbortSignal
-): Promise<string>;
-
-export function uploadFile(
-  file: File,
-  uploadUrl: string,
-  formData: Record<string, any>,
-  onProgress?: (progress: number) => void,
-  abortSignal?: AbortSignal
-): Promise<FileUploadResult>;
+// Utils (re-exported from common)
+export {
+  copyToClipboard,
+  formatTimestamp,
+  getUploadUrl,
+  uploadFile,
+  type FileUploadResult,
+} from '@aiqtoolkit-ui/common';
 
 // Re-export next-i18next config
 export const nextI18nConfig: any;

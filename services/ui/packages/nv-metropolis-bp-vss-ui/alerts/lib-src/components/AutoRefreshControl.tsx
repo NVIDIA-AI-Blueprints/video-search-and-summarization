@@ -25,6 +25,7 @@
  */
 
 import React, { useRef, useEffect, useState } from 'react';
+import { Button, TextInput } from '@nvidia/foundations-react-core';
 import { IconRefresh, IconPlayerPlay, IconPlayerPause } from '@tabler/icons-react';
 
 interface AutoRefreshControlProps {
@@ -138,7 +139,7 @@ export const AutoRefreshControl: React.FC<AutoRefreshControlProps> = ({
       ref={containerRef} 
       className={`absolute top-full right-0 mt-2 w-96 rounded-lg shadow-lg border z-50 ${
         isDark 
-          ? 'bg-gray-800 border-gray-600' 
+          ? 'bg-black border-gray-600' 
           : 'bg-white border-gray-200'
       }`}
     >
@@ -147,18 +148,14 @@ export const AutoRefreshControl: React.FC<AutoRefreshControlProps> = ({
         isDark ? 'border-gray-600' : 'border-gray-200'
       }`}>
         <div className="flex items-center gap-2">
-          <IconRefresh className={`w-5 h-5 ${isDark ? 'text-cyan-400' : 'text-blue-600'}`} />
+          <IconRefresh className={`w-5 h-5 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
           <span className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
             Auto-Refresh Settings
           </span>
         </div>
         <button
           onClick={onClose}
-          className={`text-sm px-3 py-1 rounded ${
-            isDark 
-              ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' 
-              : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
-          }`}
+          className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700"
         >
           ✕
         </button>
@@ -179,19 +176,21 @@ export const AutoRefreshControl: React.FC<AutoRefreshControlProps> = ({
             </div>
             <button
               onClick={onToggle}
-              className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors ${
                 isEnabled
-                  ? isDark ? 'bg-cyan-600 focus:ring-cyan-500' : 'bg-blue-600 focus:ring-blue-500'
-                  : isDark ? 'bg-gray-600 focus:ring-gray-500' : 'bg-gray-300 focus:ring-gray-500'
-              } ${isDark ? 'focus:ring-offset-gray-800' : 'focus:ring-offset-white'}`}
+                  ? 'bg-[#76b900]'
+                  : isDark ? 'bg-neutral-600' : 'bg-gray-300'
+              }`}
+              role="switch"
+              aria-checked={isEnabled}
             >
               <span
-                className={`inline-block h-6 w-6 transform rounded-full bg-white transition flex items-center justify-center ${
-                  isEnabled ? 'translate-x-7' : 'translate-x-1'
+                className={`inline-flex h-6 w-6 transform rounded-full bg-white transition items-center justify-center ${
+                  isEnabled ? 'translate-x-9' : 'translate-x-1'
                 }`}
               >
                 {isEnabled ? (
-                  <IconPlayerPlay className="w-3 h-3 text-blue-600" />
+                  <IconPlayerPlay className="w-3 h-3 text-green-600" />
                 ) : (
                   <IconPlayerPause className="w-3 h-3 text-gray-600" />
                 )}
@@ -205,25 +204,16 @@ export const AutoRefreshControl: React.FC<AutoRefreshControlProps> = ({
               Refresh Interval
             </label>
             <div className="flex items-center gap-2">
-              <input
+              <TextInput
                 ref={inputRef}
                 type="number"
-                min="1000"
-                max="3600000"
-                step="1000"
+                min={1000}
+                max={3600000}
+                step={1000}
                 placeholder="e.g. 1000, 5000, 10000"
                 value={tempValue}
-                onChange={(e) => handleInputChange(e.target.value)}
+                onValueChange={(val: string) => handleInputChange(val)}
                 disabled={!isEnabled}
-                className={`flex-1 px-3 py-2 text-sm rounded-md border ${
-                  error
-                    ? isDark 
-                      ? 'bg-gray-900 border-red-500 text-gray-300 focus:ring-red-500' 
-                      : 'bg-white border-red-500 text-gray-600 focus:ring-red-400'
-                    : isDark 
-                      ? 'bg-gray-900 border-gray-600 text-gray-300 focus:ring-cyan-500' 
-                      : 'bg-white border-gray-300 text-gray-600 focus:ring-blue-400'
-                } focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed`}
               />
               <span className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                 ms
@@ -245,18 +235,14 @@ export const AutoRefreshControl: React.FC<AutoRefreshControlProps> = ({
             <div className="mb-1">Quick presets:</div>
             <div className="flex gap-2 flex-wrap">
               {PRESETS.map(([value, label]) => (
-                <button
+                <Button
                   key={value}
+                  kind="tertiary"
                   onClick={() => handleInputChange(value.toString())}
                   disabled={!isEnabled}
-                  className={`px-2 py-1 rounded ${
-                    isDark 
-                      ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
-                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   {label}
-                </button>
+                </Button>
               ))}
             </div>
           </div>

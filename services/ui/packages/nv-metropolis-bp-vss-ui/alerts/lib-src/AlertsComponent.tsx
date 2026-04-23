@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { VideoModal } from '@nemo-agent-toolkit/ui';
+import { VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
 
 // Types
 import { AlertsComponentProps, FilterType, FilterState, VlmVerdict, VLM_VERDICT } from './types';
@@ -17,7 +17,6 @@ import { AlertsComponentProps, FilterType, FilterState, VlmVerdict, VLM_VERDICT 
 // Hooks
 import { useAlerts } from './hooks/useAlerts';
 import { useFilters, createEmptyFilterState } from './hooks/useFilters';
-import { useVideoModal } from './hooks/useVideoModal';
 import { useTimeWindow } from './hooks/useTimeWindow';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
 
@@ -32,8 +31,8 @@ import { AlertsSidebarControls } from './components/AlertsSidebarControls';
  */
 const FILTER_COLORS = {
   sensors: {
-    dark: { bg: 'bg-transparent', border: 'border border-cyan-500', text: 'text-cyan-400', hover: 'hover:text-cyan-300' },
-    light: { bg: 'bg-blue-100', border: 'border border-blue-300', text: 'text-blue-700', hover: 'hover:text-blue-900' }
+    dark: { bg: 'bg-transparent', border: 'border border-green-500', text: 'text-green-400', hover: 'hover:text-green-300' },
+    light: { bg: 'bg-green-100', border: 'border border-green-300', text: 'text-green-700', hover: 'hover:text-green-900' }
   },
   alertTypes: {
     dark: { bg: 'bg-transparent', border: 'border border-orange-500', text: 'text-orange-400', hover: 'hover:text-orange-300' },
@@ -66,7 +65,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     if (typeof window !== 'undefined') {
       try {
         const stored = sessionStorage.getItem('alertsTabVlmVerified');
-        if (stored !== null) {
+        if (stored != null) {
           return JSON.parse(stored);
         }
       } catch (error) {
@@ -200,7 +199,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     onFiltersChange: setActiveFilters,
     sensorList
   });
-  const { videoModal, openVideoModal, closeVideoModal, loadingAlertId } = useVideoModal(vstApiUrl, sensorMap, mediaWithObjectsBbox);
+  const { videoModal, openVideoModalFromAlert, closeVideoModal, loadingAlertId } = useVideoModal(vstApiUrl, { sensorMap, showObjectsBbox: mediaWithObjectsBbox });
   
   // Auto-refresh management
   // Note: autorefresh continues even when tab is hidden (similar to Kibana behavior)
@@ -268,10 +267,11 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
 
   return (
     <div 
-      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-gray-800 text-gray-100' : 'bg-gray-50 text-gray-900'}`}
+      data-testid="alerts-component"
+      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'}`}
     >
       {/* Header with Filters */}
-      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'}`}>
         {/* Filter Controls */}
         <FilterControls
           isDark={isDark}
@@ -346,7 +346,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           isDark={isDark}
           activeFilters={activeFilters}
           onAddFilter={addFilter}
-          onPlayVideo={openVideoModal}
+          onPlayVideo={openVideoModalFromAlert}
           loadingAlertId={loadingAlertId}
           onRefresh={refetch}
           alertReportPromptTemplate={alertReportPromptTemplate}

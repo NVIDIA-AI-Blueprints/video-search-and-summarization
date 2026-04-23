@@ -16,9 +16,11 @@ COPY ui/ ui/
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NEXT_BUILD_TRACES false
 
-WORKDIR /repo/ui
-RUN npm install
-RUN npx turbo build
+RUN npm ci
+# Matches CI: run `bundle` after `build` where defined (e.g. nv-metropolis-bp-vss-ui). The runner
+# stage still COPYs standalone, `.next/static`, and `public` explicitly for custom-server.js, so this
+# mainly keeps Docker builds aligned with `turbo run build bundle` and validates those tasks.
+RUN npx turbo run build bundle
 
 # Set permissions for __ENV.js files to be writable at runtime
 RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
@@ -28,14 +30,14 @@ RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
 
 
 # Conditional runner phase
-FROM nvcr.io/nvidia/distroless/node:22-v3.1.3 as runner-prod
+FROM nvcr.io/nvidia/distroless/node:22-v4.0.5 AS runner-prod
 ARG BUILD_TYPE
 
-FROM nvcr.io/nvidia/distroless/node:22-v3.1.3-dev as runner-dev
+FROM nvcr.io/nvidia/distroless/node:22-v4.0.5-dev AS runner-dev
 ARG BUILD_TYPE
 
 
-FROM runner-${BUILD_TYPE} as runner
+FROM runner-${BUILD_TYPE} AS runner
 ARG USER_ID
 ARG GROUP_ID
 
@@ -75,7 +77,7 @@ ENV HOST 0.0.0.0
 
 
 # Create separate stages for prod and dev commands
-FROM runner as runner-prod-cmd
+FROM runner AS runner-prod-cmd
 ARG USER_ID
 ARG GROUP_ID
 
@@ -84,7 +86,7 @@ USER ${USER_ID}:${GROUP_ID}
 CMD ["node", "custom-server.js"]
 
 
-FROM runner as runner-dev-cmd
+FROM runner AS runner-dev-cmd
 ARG USER_ID
 ARG GROUP_ID
 

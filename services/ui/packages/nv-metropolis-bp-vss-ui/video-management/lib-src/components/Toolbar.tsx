@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React, { useRef, useState, useEffect } from 'react';
+import { Button, TextInput } from '@nvidia/foundations-react-core';
 
 interface ToolbarProps {
   searchQuery: string;
@@ -16,6 +17,10 @@ interface ToolbarProps {
   isDeleting?: boolean;
   enableAddRtspButton?: boolean;
   enableVideoUpload?: boolean;
+  /** Only show Video option when API returned at least one video stream */
+  hasVideoStreams?: boolean;
+  /** Only show RTSP option when API returned at least one RTSP stream */
+  hasRtspStreams?: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -33,6 +38,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isDeleting = false,
   enableAddRtspButton = true,
   enableVideoUpload = true,
+  hasVideoStreams = true,
+  hasRtspStreams = true,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -55,11 +62,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     };
   }, [isFilterDropdownOpen]);
 
-  // Consistent input/select styling matching project patterns
-  const inputClass = 'rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 transition-all bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 focus:ring-blue-400 dark:focus:ring-cyan-500 hover:border-gray-400 dark:hover:border-gray-500';
-
-  const buttonClass = 'inline-flex items-center px-4 py-2 text-sm font-medium rounded-md border focus:outline-none focus:ring-2 focus:ring-offset-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-gray-300 dark:focus:ring-gray-500 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900';
-
   const handleUploadClick = () => {
     fileInputRef.current?.click();
   };
@@ -81,9 +83,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }
   };
 
+  const showVideoOption = enableVideoUpload && hasVideoStreams;
+  const showRtspOption = enableAddRtspButton && hasRtspStreams;
+  const showDisplayFilter = showVideoOption || showRtspOption;
+
   const getFilterLabel = () => {
-    const hasVideo = enableVideoUpload && showVideos;
-    const hasRtsp = enableAddRtspButton && showRtsps;
+    const hasVideo = showVideoOption && showVideos;
+    const hasRtsp = showRtspOption && showRtsps;
     if (hasVideo && hasRtsp) return 'Video, RTSP';
     if (hasVideo) return 'Video';
     if (hasRtsp) return 'RTSP';
@@ -105,22 +111,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Left: primary actions */}
       <div className="flex items-center gap-3">
         {enableVideoUpload && (
-          <button
-            type="button"
+          <Button
+            kind="primary"
             onClick={handleUploadClick}
-            className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 bg-green-600 dark:bg-green-500 hover:bg-green-700 dark:hover:bg-green-600 text-white dark:text-gray-900 focus:ring-green-500 dark:focus:ring-green-400 focus:ring-offset-gray-50 dark:focus:ring-offset-gray-900 cursor-pointer"
           >
             + Upload Video
-          </button>
+          </Button>
         )}
         {enableAddRtspButton && (
-          <button
-            type="button"
+          <Button
+            kind="secondary"
             onClick={onAddRtspClick}
-            className={buttonClass}
           >
             + Add RTSP
-          </button>
+          </Button>
         )}
       </div>
 
@@ -128,19 +132,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="flex items-center gap-2">
         {/* Search input with clear button */}
         <div className="relative">
-          <input
-            type="text"
+          <TextInput
+            data-testid="search-video-input"
             value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onValueChange={(val: string) => onSearchChange(val)}
             onKeyPress={handleKeyPress}
             placeholder="Search Files"
-            className={`w-56 pl-3 pr-8 ${inputClass}`}
           />
           {searchQuery && (
             <button
-              type="button"
               onClick={() => onSearchChange('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700 dark:text-gray-400 dark:hover:text-white dark:hover:bg-neutral-700"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -151,53 +153,54 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         {/* Search button */}
-        <button
-          type="button"
+        <Button
+          data-testid="search-video-button"
+          kind="secondary"
           onClick={onSearch}
-          className={buttonClass}
         >
           Search
-        </button>
+        </Button>
 
-        {(enableVideoUpload || enableAddRtspButton) && (
+        {showDisplayFilter && (
           /* Display filter dropdown - multi-select */
           <div className="relative flex items-center gap-2 ml-2">
             <label htmlFor="display-filter-toggle" className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Display:
             </label>
             <div className="relative" ref={dropdownRef}>
-              <button
+              <Button
+                kind="tertiary"
                 id="display-filter-toggle"
-                type="button"
                 onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
                 aria-expanded={isFilterDropdownOpen}
                 aria-haspopup="true"
                 aria-label={`Display file type: ${getFilterLabel()}`}
-                className="w-40 flex items-center justify-between pl-3 pr-8 py-2 text-sm rounded-md border focus:outline-none focus:ring-2 transition-all cursor-pointer bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 focus:ring-blue-400 dark:focus:ring-cyan-500 hover:border-gray-400 dark:hover:border-gray-500"
+                className="flex items-center gap-2 pr-3" // Add `gap` for spacing between text and chevron, `pr-7` for chevron padding
               >
                 <span className="truncate">{getFilterLabel()}</span>
+                <span className="ml-2" /> {/* Ensures space after the text */}
                 <svg
                   className={`absolute right-2 w-4 h-4 transition-transform ${isFilterDropdownOpen ? 'rotate-180' : ''}`}
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="currentColor"
+                  stroke="#76b900"
                   strokeWidth="2"
                   aria-hidden
                 >
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
-              </button>
+              </Button>
 
               {/* Dropdown menu - multi-select checkboxes */}
               {isFilterDropdownOpen && (
                 <div
                   role="group"
                   aria-label="Display file type"
-                  className="w-40 absolute left-0 top-full mt-1 rounded-md border shadow-lg z-50 py-1 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600"
+                  className="w-40 absolute left-0 top-full mt-1 rounded-md border shadow-lg z-50 py-1 bg-white dark:bg-black border-gray-200 dark:border-gray-600"
                 >
-                    {enableVideoUpload && (
+                    {showVideoOption && (
                       <label
-                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -209,8 +212,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         />
                         <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
                           showVideos
-                            ? 'bg-blue-600 dark:bg-cyan-600 border-blue-600 dark:border-cyan-600'
-                            : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-500'
+                            ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
+                            : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
                         }`} aria-hidden>
                           {showVideos && (
                             <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
@@ -222,9 +225,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       </label>
                     )}
 
-                    {enableAddRtspButton && (
+                    {showRtspOption && (
                       <label
-                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
                       >
                         <input
                           type="checkbox"
@@ -236,8 +239,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         />
                         <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
                           showRtsps
-                            ? 'bg-blue-600 dark:bg-cyan-600 border-blue-600 dark:border-cyan-600'
-                            : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-500'
+                            ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
+                            : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
                         }`} aria-hidden>
                           {showRtsps && (
                             <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
@@ -255,15 +258,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         )}
 
         {/* Delete Selected button */}
-        <button
-          type="button"
+        <Button
+          kind="secondary"
           onClick={onDeleteSelected}
           disabled={selectedCount === 0 || isDeleting}
-          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded border ${
-            selectedCount === 0 || isDeleting
-              ? 'border-gray-300 dark:border-gray-700 text-gray-400 dark:text-gray-600 cursor-not-allowed'
-              : 'border-red-500 text-red-500 hover:bg-red-500 hover:text-white'
-          }`}
         >
           {isDeleting ? (
             <svg
@@ -295,7 +293,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </svg>
           )}
           {isDeleting ? 'Deleting...' : 'Delete Selected'}
-        </button>
+        </Button>
       </div>
     </div>
   );

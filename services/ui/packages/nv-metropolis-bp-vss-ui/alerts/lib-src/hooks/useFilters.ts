@@ -41,14 +41,7 @@ export const createEmptyFilterState = (): FilterState => ({
   alertTriggered: new Set()
 });
 
-/**
- * Default empty unique values state
- */
-const createEmptyUniqueValuesState = (): UniqueValuesState => ({
-  sensors: new Set(),
-  alertTypes: new Set(),
-  alertTriggered: new Set()
-});
+const createEmptyUniqueValuesState = (): UniqueValuesState => createEmptyFilterState();
 
 interface UseFiltersOptions {
   alerts: AlertData[];
@@ -146,9 +139,9 @@ export const useFilters = (options: UseFiltersOptions) => {
       // Use sensorList from API if provided, otherwise use accumulated sensors
       sensors: sensorList && sensorList.length > 0 
         ? sensorList 
-        : [...accumulated.sensors].sort(),
-      alertTypes: [...accumulated.alertTypes].sort(),
-      alertTriggered: [...accumulated.alertTriggered].sort()
+        : [...accumulated.sensors].sort((a, b) => a.localeCompare(b)),
+      alertTypes: [...accumulated.alertTypes].sort((a, b) => a.localeCompare(b)),
+      alertTriggered: [...accumulated.alertTriggered].sort((a, b) => a.localeCompare(b))
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uniqueValuesVersion, sensorList]);
