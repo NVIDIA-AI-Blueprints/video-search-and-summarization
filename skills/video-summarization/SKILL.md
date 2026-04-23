@@ -12,7 +12,7 @@ Single query type: **"Summarize this video."**
 
 ## Routing
 
-Decide purely from video duration (fetch the timeline via the `sensor-ops`
+Decide purely from video duration (fetch the timeline via the `vios`
 skill, then do the math — see Step 1):
 
 | Video duration | Backend | Endpoint |
@@ -35,7 +35,7 @@ into the response, before the summary):
 
 - VLM NIM: `${VLM_BASE_URL}` — default `http://localhost:30082`
 - LVS MS: `${LVS_BACKEND_URL}` — default `http://localhost:38111`
-- VIOS: owned by the `sensor-ops` skill; refer there.
+- VIOS: owned by the `vios` skill; refer there.
 
 **Endpoint resolution order:**
 
@@ -89,13 +89,13 @@ done
 
 ---
 
-## Step 1 — Resolve the video to a clip URL (delegate to `sensor-ops`)
+## Step 1 — Resolve the video to a clip URL (delegate to `vios`)
 
-**Use the `sensor-ops` skill for all VIOS interactions** — it owns the
+**Use the `vios` skill for all VIOS interactions** — it owns the
 canonical curl recipes, parameter defaults, and delete/upload flows. Do not
 fabricate URLs or hand-roll VIOS calls here; they will drift.
 
-From `sensor-ops`, you need exactly three things for summarization:
+From `vios`, you need exactly three things for summarization:
 
 1. **`streamId`** for the video (via `sensor/list` → `sensor/<id>/streams`,
    or directly from an upload response).
@@ -108,7 +108,7 @@ From `sensor-ops`, you need exactly three things for summarization:
    summarization client. Response field: `.videoUrl`.
 
 Everything else (auth, error handling, upload, `disableAudio`, expiry, etc.)
-is covered in the `sensor-ops` skill — refer users there if the VIOS step
+is covered in the `vios` skill — refer users there if the VIOS step
 fails.
 
 ---
@@ -311,7 +311,7 @@ broader `scenario` rather than reporting "no content."
 
 ## End-to-end examples
 
-Assume the `sensor-ops` skill has already given you `$CLIP` (clip URL) and
+Assume the `vios` skill has already given you `$CLIP` (clip URL) and
 `$DURATION` (seconds) for the target video — those two values are the
 contract from Step 1.
 
@@ -468,10 +468,10 @@ output, not mixed into it.
   pipeline's last exit code, not curl's, and an empty body will look
   identical to a real failure. Use the `curl -s -o /dev/null -w
   '%{http_code}'` pattern from *Setup → Availability checks* verbatim.
-- **Delegate VIOS to `sensor-ops`.** Do not hand-roll clip-URL, timeline, or
+- **Delegate VIOS to `vios`.** Do not hand-roll clip-URL, timeline, or
   upload calls here — they'll drift from the canonical recipes.
 - **Duration is authoritative.** Don't route on filename or user hints;
-  compute from the timeline returned by `sensor-ops`.
+  compute from the timeline returned by `vios`.
 - **`jq` twice for LVS.** First unwraps the OpenAI-style envelope, second
   parses the JSON string inside `content`.
 - **Do not rewrite LVS / VLM output.** The `video_summary` from LVS and
@@ -485,6 +485,6 @@ output, not mixed into it.
 ## Cross-reference
 
 - **deploy** — bring up the `base` (VLM only) or `lvs` (VLM + LVS MS) profile
-- **sensor-ops** (VIOS API) — upload videos, list streams, get clip URLs
+- **vios** (VIOS API) — upload videos, list streams, get clip URLs
 - **video-search** — semantic search across the archive (different profile)
 - **video-analytics** — query incidents/events from Elasticsearch
