@@ -327,7 +327,7 @@ jobs:
       - name: Check Python dependency licenses
         run: |
           echo "=== Dependency License Report ==="
-          uv run pip-licenses --format=table --order=license
+          uv run pip-licenses --format=plain --order=license
 
           echo ""
           echo "=== Checking for disallowed licenses ==="
@@ -364,9 +364,34 @@ jobs:
 
       - name: Check UI dependency licenses
         run: |
-          npx license-checker \
-            --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;CC0-1.0;CC-BY-4.0;CC-BY-3.0;Python-2.0;BlueOak-1.0.0" \
-            --excludePrivatePackages
+          # Dump all licenses as JSON, then validate in Node.
+          # OSRB-approved exceptions are filtered by package name prefix.
+          npx license-checker --json --excludePrivatePackages > /tmp/licenses.json
+
+          node -e '
+            const licenses = require("/tmp/licenses.json");
+            const allowed = new Set([
+              "MIT","Apache-2.0","BSD-2-Clause","BSD-3-Clause","ISC","0BSD",
+              "Unlicense","CC0-1.0","CC-BY-4.0","CC-BY-3.0","Python-2.0","BlueOak-1.0.0"
+            ]);
+            // OSRB-approved exceptions (dynamically linked, reviewed)
+            const excludePrefixes = ["@img/sharp-libvips"];
+            const failures = [];
+            for (const [pkg, info] of Object.entries(licenses)) {
+              const name = pkg.replace(/@[^@]+$/, ""); // strip @version
+              if (excludePrefixes.some(p => name.startsWith(p))) continue;
+              const lic = String(info.licenses || "UNKNOWN");
+              const parts = lic.replace(/[()]/g, "").split(/ OR | AND /);
+              const ok = parts.some(p => allowed.has(p.trim()));
+              if (!ok) failures.push(pkg + ": " + lic);
+            }
+            if (failures.length) {
+              console.error("ERROR: " + failures.length + " package(s) with disallowed licenses:\n");
+              failures.forEach(f => console.error("  " + f));
+              process.exit(1);
+            }
+            console.log("OK: " + Object.keys(licenses).length + " packages checked.");
+          '
 
   # ---------------------------------------------------------------------------
   # Job 11: Trigger downstream pipeline on main
