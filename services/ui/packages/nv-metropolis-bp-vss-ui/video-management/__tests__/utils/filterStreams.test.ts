@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: MIT
 import { filterStreams } from '../../lib-src/utils';
-import { makeStream } from '../helpers/streamFixtures';
+import type { StreamInfo } from '../../lib-src/types';
+
+const defaultMetadata = {
+  bitrate: '',
+  codec: 'H264',
+  framerate: '30',
+  govlength: '',
+  resolution: '',
+};
+
+function makeStream(overrides: Partial<StreamInfo> & { name: string; streamId: string }): StreamInfo {
+  return {
+    isMain: false,
+    metadata: defaultMetadata,
+    name: overrides.name,
+    streamId: overrides.streamId,
+    url: overrides.url ?? 'https://example.com/video.mp4',
+    vodUrl: overrides.vodUrl ?? 'https://example.com/vod/video.mp4',
+    sensorId: overrides.sensorId ?? 'sensor-1',
+    ...overrides,
+  };
+}
 
 describe('filterStreams', () => {
   // Filter matches by stream name only (not url, vodUrl, or streamId). Applied when user clicks Search.

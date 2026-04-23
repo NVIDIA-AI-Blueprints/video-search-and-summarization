@@ -20,7 +20,6 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Button } from '@nvidia/foundations-react-core';
 import { IconChevronDown, IconChevronUp, IconCopy, IconCheck, IconClipboardCopy } from '@tabler/icons-react';
 import { copyToClipboard } from '@nemo-agent-toolkit/ui';
 
@@ -87,11 +86,11 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
   };
 
   return (
-    <div className={`ml-6 rounded p-3 border ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
+    <div className={`ml-6 rounded p-3 border ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
       <div className="flex items-center justify-between mb-2">
-        <button
+        <button 
           onClick={() => !isEmpty && setIsCollapsed(!isCollapsed)}
-          className={`flex items-center gap-1.5 p-1 rounded transition-colors ${!isEmpty ? 'hover:bg-neutral-700 cursor-pointer' : 'cursor-default'}`}
+          className="flex items-center gap-2 text-left hover:opacity-80 transition-opacity"
         >
           {isEmpty ? (
             <IconChevronDown className={`w-4 h-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
@@ -113,29 +112,33 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
           <div className="flex items-center gap-2">
             {shouldShowCopyPrompt && (
               <div className="relative">
-                <Button
-                  kind="primary"
+                <button
                   onClick={handleCopyPrompt}
                   onMouseEnter={() => setShowTooltip(true)}
                   onMouseLeave={() => setShowTooltip(false)}
+                  className={`px-3 py-1.5 rounded transition-colors text-xs font-medium flex items-center gap-1.5 ${
+                    isDark 
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
                   title="Copy Report Prompt"
                 >
                   {isPromptCopied ? (
                     <>
-                      <IconCheck className="w-3 h-3" style={{ color: 'black' }} />
-                      <span style={{ color: 'black' }}>Copied</span>
+                      <IconCheck className="w-3 h-3" />
+                      <span>Copied</span>
                     </>
                   ) : (
                     <>
-                      <IconClipboardCopy className="w-3 h-3" style={{ color: 'black' }} />
-                      <span style={{ color: 'black' }}>Copy Report Prompt</span>
+                      <IconClipboardCopy className="w-3 h-3" />
+                      <span>Copy Report Prompt</span>
                     </>
                   )}
-                </Button>
+                </button>
                 {showTooltip && !isPromptCopied && (
                   <div className={`absolute z-50 bottom-full right-0 mb-2 px-3 py-2 rounded shadow-lg border max-w-xs sm:max-w-md whitespace-pre-wrap break-words text-xs ${
                     isDark 
-                      ? 'bg-black border-gray-600 text-gray-200' 
+                      ? 'bg-gray-800 border-gray-600 text-gray-200' 
                       : 'bg-white border-gray-300 text-gray-800'
                   }`}>
                     {formattedPrompt}
@@ -146,23 +149,27 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
                 )}
               </div>
             )}
-            <Button
-              kind="secondary"
+            <button
               onClick={handleCopy}
+              className={`px-3 py-1.5 rounded transition-colors text-xs font-medium flex items-center gap-1.5 ${
+                isDark 
+                  ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
+                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+              }`}
               title="Copy Metadata"
             >
               {isCopied ? (
                 <>
-                  <IconCheck className="w-3 h-3" style={{ color: '#4ade80' }} />
-                  <span style={{ color: 'white' }}>Copied</span>
+                  <IconCheck className="w-3 h-3 text-green-500" />
+                  <span>Copied</span>
                 </>
               ) : (
                 <>
-                  <IconCopy className="w-3 h-3" style={{ color: 'white' }} />
-                  <span style={{ color: 'white' }}>Copy Metadata</span>
+                  <IconCopy className="w-3 h-3" />
+                  <span>Copy Metadata</span>
                 </>
               )}
-            </Button>
+            </button>
           </div>
         )}
       </div>

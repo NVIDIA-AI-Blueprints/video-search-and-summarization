@@ -249,65 +249,7 @@ describe('useSearch', () => {
       end_time: '',
       sensor_id: '',
       object_ids: [],
-      critic_result: undefined,
     });
-  });
-
-  it('passes critic_result through from API response', async () => {
-    const apiResponse = {
-      data: [
-        {
-          video_name: 'critiqued.mp4',
-          similarity: 0.92,
-          screenshot_url: 'http://img.test/thumb.jpg',
-          description: 'A scene',
-          start_time: '2024-01-01T00:00:00',
-          end_time: '2024-01-01T00:05:00',
-          sensor_id: 'sensor-1',
-          object_ids: ['1'],
-          critic_result: {
-            result: 'confirmed',
-            criteria_met: { 'has players': true, 'is outdoor': false },
-          },
-        },
-      ],
-    };
-    global.fetch = mockFetchResponse(apiResponse);
-
-    const { result } = renderHook(() =>
-      useSearch({
-        agentApiUrl: 'http://api.test',
-        params: { query: 'critiqued scene' },
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.searchResults).toHaveLength(1);
-    });
-
-    expect(result.current.searchResults[0].critic_result).toEqual({
-      result: 'confirmed',
-      criteria_met: { 'has players': true, 'is outdoor': false },
-    });
-  });
-
-  it('sets critic_result to undefined when not in API response', async () => {
-    global.fetch = mockFetchResponse({
-      data: [{ video_name: 'no-critique.mp4', similarity: 0.5 }],
-    });
-
-    const { result } = renderHook(() =>
-      useSearch({
-        agentApiUrl: 'http://api.test',
-        params: { query: 'no critique' },
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.searchResults).toHaveLength(1);
-    });
-
-    expect(result.current.searchResults[0].critic_result).toBeUndefined();
   });
 
   it('updates search when params change via onUpdateSearchParams', async () => {

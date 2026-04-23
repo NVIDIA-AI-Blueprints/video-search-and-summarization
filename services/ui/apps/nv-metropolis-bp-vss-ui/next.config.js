@@ -10,7 +10,6 @@ const nextConfig = {
   output: 'standalone',
   // Transpile packages from source for hot reload during development
   transpilePackages: [
-    '@aiqtoolkit-ui/common',
     '@nv-metropolis-bp-vss-ui/all',
     '@nv-metropolis-bp-vss-ui/alerts',
     '@nv-metropolis-bp-vss-ui/search',
@@ -44,7 +43,6 @@ const nextConfig = {
 
       config.resolve.alias = {
         ...config.resolve.alias,
-        '@aiqtoolkit-ui/common': path.join(packagesPath, 'common/lib-src'),
         '@nv-metropolis-bp-vss-ui/alerts': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/alerts/lib-src'),
         '@nv-metropolis-bp-vss-ui/search': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/search/lib-src'),
         '@nv-metropolis-bp-vss-ui/dashboard': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/dashboard/lib-src'),

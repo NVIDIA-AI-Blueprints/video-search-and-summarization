@@ -114,7 +114,7 @@ export const AgentThink = ({ children, title, ...props }: AgentThinkProps) => {
 
   return (
     <div
-      className="my-3 bg-neutral-100 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg shadow-sm overflow-hidden"
+      className="my-3 bg-neutral-100 dark:bg-zinc-700 border border-neutral-300 dark:border-zinc-600 rounded-lg shadow-sm overflow-hidden"
       {...props}
     >
       {/* Header/Summary */}
@@ -122,7 +122,7 @@ export const AgentThink = ({ children, title, ...props }: AgentThinkProps) => {
         className={`flex items-center justify-between p-3 ${
           isStreaming 
             ? 'cursor-default' 
-            : 'cursor-pointer hover:bg-neutral-200 dark:hover:bg-neutral-800'
+            : 'cursor-pointer hover:bg-neutral-200 dark:hover:bg-zinc-600'
         } transition-colors`}
         onClick={handleToggle}
       >
@@ -210,13 +210,13 @@ export const AgentThinkStep = ({ children, title, ...props }: AgentThinkStepProp
       </div>
       
       {/* Content container - no border */}
-      <div className="bg-gray-100/50 dark:bg-neutral-800/50 rounded-md shadow-sm overflow-hidden">
+      <div className="bg-gray-100/50 dark:bg-zinc-600/50 rounded-md shadow-sm overflow-hidden">
         {/* Header/Summary */}
         <div
           className={`flex items-center justify-between px-3 py-2 ${
             isStreaming 
               ? 'cursor-default' 
-              : 'cursor-pointer hover:bg-gray-200/50 dark:hover:bg-neutral-700/50'
+              : 'cursor-pointer hover:bg-gray-200/50 dark:hover:bg-zinc-500/50'
           } transition-colors rounded-md`}
           onClick={handleToggle}
         >

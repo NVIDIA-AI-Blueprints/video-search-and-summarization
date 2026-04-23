@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: MIT
 import React, { useEffect } from 'react';
-import { IconMessageCircle, IconLoader2, IconChevronRight } from '@tabler/icons-react';
-import type { AppChatSidebarApi } from '../hooks/useAppChatSidebar';
+import { IconMessageCircle, IconChevronLeft, IconChevronRight, IconX } from '@tabler/icons-react';
+import type { TabChatSidebarApi } from '../hooks/useTabChatSidebars';
 
 export type TabWithChatSidebarLayoutProps = {
   tabId: string;
   tabLabel: string;
   mainContent: React.ReactNode;
   sidebarEnabled: boolean;
-  sidebarApi: AppChatSidebarApi;
+  sidebarApi: TabChatSidebarApi;
   /** When true and collapsed, the floating Chat icon shows a highlight (e.g. new answer). */
   highlightIcon?: boolean;
-  /** When true, a spinner is shown on the vertical title bar (e.g. chat query executing). */
-  queryExecuting?: boolean;
   /** Called when user opens the sidebar from the floating icon; use to clear highlight. */
   onOpenSidebar?: () => void;
   renderSidebarChat: () => React.ReactNode;
@@ -32,7 +30,6 @@ export function TabWithChatSidebarLayout({
   sidebarEnabled,
   sidebarApi,
   highlightIcon = false,
-  queryExecuting = false,
   onOpenSidebar,
   renderSidebarChat,
   contentAreaRef,
@@ -66,44 +63,60 @@ export function TabWithChatSidebarLayout({
       </div>
       {sidebarEnabled && (
         <>
-          {/* Floating circular chat button at bottom-right when collapsed */}
+          {/* When collapsed: same vertical "Chat" title as open state; full attention signalling (highlight + dismiss) */}
           {collapsed && (
-            <button
-              data-testid="chat-sidebar-open"
-              type="button"
-              className={`fixed bottom-10 right-10 z-50 flex h-[72px] w-[72px] items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#76b900] ${
+            <div
+              className={`relative flex w-10 flex-shrink-0 flex-col items-center justify-center gap-2 border-l border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 text-gray-600 dark:text-gray-400 ${
                 highlightIcon
-                  ? 'bg-amber-500 text-white animate-pulse'
-                  : 'bg-[#76b900] text-black'
-              }`}
-              onClick={handleOpenSidebar}
-              aria-label={`Open Chat sidebar (${tabLabel} tab)`}
-              title={highlightIcon ? `Chat – new message (${tabLabel} Tab)` : `Chat – ${tabLabel} Tab`}
+                  ? 'ring-2 ring-amber-400/70 dark:ring-amber-300/60 ring-offset-1 ring-offset-gray-100 dark:ring-offset-gray-900'
+                  : ''
+              } ${highlightIcon ? 'animate-pulse' : ''}`}
+              style={{ opacity: highlightIcon ? 1 : 0.9 }}
             >
-              {queryExecuting ? (
-                <IconLoader2 className="h-9 w-9 shrink-0 animate-spin" stroke={1.5} aria-hidden />
-              ) : (
-                <IconMessageCircle className="h-9 w-9 shrink-0" stroke={1.5} aria-hidden />
+              <button
+                type="button"
+                className={`flex w-full flex-1 min-h-0 flex-col items-center justify-center gap-2 hover:bg-gray-200 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-gray-400 ${
+                  highlightIcon
+                    ? 'border-amber-500 dark:border-amber-400 rounded border-2'
+                    : ''
+                }`}
+                onClick={handleOpenSidebar}
+                aria-label={`Open Chat sidebar (${tabLabel} tab)`}
+                title={highlightIcon ? `Chat – new message (${tabLabel} Tab)` : `Chat – ${tabLabel} Tab`}
+              >
+                <IconChevronLeft className="h-5 w-5 shrink-0" aria-hidden />
+                <IconMessageCircle className="h-6 w-6 shrink-0" aria-hidden />
+                <span
+                  className="text-sm font-semibold tracking-wide text-gray-700 dark:text-gray-300"
+                  style={{
+                    writingMode: 'vertical-rl',
+                    textOrientation: 'mixed',
+                    letterSpacing: '0.15em',
+                  }}
+                >
+                  Chat
+                </span>
+              </button>
+              {highlightIcon && (
+                <button
+                  type="button"
+                  className="absolute left-0 top-1/2 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-lg"
+                  style={{ transform: 'translate(-50%, -50%)' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenSidebar?.();
+                  }}
+                  aria-label="Mark as seen"
+                  title="Mark as seen"
+                >
+                  <IconX className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                </button>
               )}
-            </button>
-          )}
-          {/* Minimize button: positioned at the top-left edge of the sidebar, in the outer container so sidebar can keep overflow-hidden */}
-          {!collapsed && (
-            <button
-              data-testid="chat-sidebar-close"
-              type="button"
-              onClick={() => setCollapsed(true)}
-              className="absolute z-50 flex h-7 w-7 items-center justify-center rounded-full bg-white dark:bg-neutral-800 shadow-md border border-neutral-300 dark:border-neutral-600 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
-              style={{ top: '50%', transform: 'translateY(-50%)', right: effectiveWidth - 14 }}
-              aria-label="Collapse Chat sidebar"
-              title="Collapse Chat sidebar"
-            >
-              <IconChevronRight size={14} className="text-neutral-600 dark:text-neutral-300" />
-            </button>
+            </div>
           )}
           {/* Sidebar panel: takes fixed width; in DOM when enabled, display:none when collapsed to avoid chat re-mount */}
           <div
-            className="flex flex-shrink-0 flex-row overflow-hidden border-l border-gray-300 dark:border-gray-600 bg-white dark:bg-black"
+            className="flex flex-shrink-0 flex-row overflow-hidden border-l border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
             style={{
               width: collapsed ? 0 : effectiveWidth,
               minWidth: collapsed ? 0 : undefined,
@@ -114,13 +127,33 @@ export function TabWithChatSidebarLayout({
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize Chat sidebar"
-              className="flex w-1.5 flex-shrink-0 cursor-col-resize touch-none select-none border-r border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800 active:bg-neutral-400 dark:active:bg-neutral-700 focus:outline-none"
+              className="flex w-1.5 flex-shrink-0 cursor-col-resize touch-none border-r border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 active:bg-gray-300 dark:active:bg-gray-500"
               onMouseDown={(e) => handleResizeStart(e, effectiveWidth)}
               title="Drag to resize"
             />
             <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden [transform:translateZ(0)] [&>main]:!h-full [&>main]:!w-full">
               {renderSidebarChat()}
             </div>
+            <button
+              type="button"
+              className="flex w-10 flex-shrink-0 flex-col items-center justify-center gap-2 border-l border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-900 hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-gray-400"
+              onClick={() => setCollapsed(true)}
+              aria-label={`Close Chat sidebar (${tabLabel} tab)`}
+              title={`Chat – ${tabLabel} Tab (Click to minimize)`}
+            >
+              <IconChevronRight className="w-5 h-5 shrink-0" aria-hidden />
+              <IconMessageCircle className="w-5 h-5 shrink-0" aria-hidden />
+              <span
+                className="text-sm font-semibold tracking-wide text-gray-700 dark:text-gray-300"
+                style={{
+                  writingMode: 'vertical-rl',
+                  textOrientation: 'mixed',
+                  letterSpacing: '0.15em',
+                }}
+              >
+                Chat
+              </span>
+            </button>
           </div>
         </>
       )}

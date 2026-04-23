@@ -38,10 +38,6 @@ export interface MapComponentProps {
   onControlsReady?: (handlers: MapSidebarControlHandlers) => void;
   // Visibility control for lazy loading iframes
   isActive?: boolean;
-  registerChatAnswerHandler?: (handler: (answer: string) => boolean | void) => void | (() => void);
-  registerSidebarChatEventSubscriber?: (
-    handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
-  ) => void | (() => void);
 }
 
 export const MapComponent: React.FC<MapComponentProps> = ({ 
@@ -83,7 +79,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   }, [onControlsReady, renderControlsInLeftSidebar]);
 
   // Theme colors
-  const bgColor = theme === 'dark' ? 'bg-black' : 'bg-white';
+  const bgColor = theme === 'dark' ? 'bg-[#1a1a1a]' : 'bg-white';
   const textColor = theme === 'dark' ? 'text-gray-200' : 'text-gray-800';
 
   // Sanitize URL by removing quotes and validating format
@@ -91,7 +87,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
     if (!url) return null;
     
     // Remove leading/trailing quotes and whitespace
-    let sanitized = url.trim().replaceAll(/^["']|["']$/g, '');
+    let sanitized = url.trim().replace(/^["']|["']$/g, '');
     
     // Validate URL format
     try {
@@ -142,7 +138,7 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       {isLoading && (
         <div className={`absolute inset-0 flex items-center justify-center ${bgColor}`}>
           <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
             <p className={`mt-4 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
               Loading map...
             </p>

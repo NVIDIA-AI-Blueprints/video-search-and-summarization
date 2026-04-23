@@ -12,7 +12,7 @@ interface UseStreamsResult {
   streams: StreamInfo[];
   isLoading: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  refetch: () => void;
 }
 
 export function useStreams({ vstApiUrl }: UseStreamsOptions = {}): UseStreamsResult {

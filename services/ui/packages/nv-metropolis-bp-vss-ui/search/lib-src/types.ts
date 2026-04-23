@@ -7,21 +7,9 @@
  * props, and state management types.
  */
 
-export interface QueryDataContext {
-  id: string;
-  label: string;
-  type: string;
-  data: Record<string, unknown>;
-}
-
 /**
  * Represents a single search result record from the monitoring system
  */
-export interface CriticResult {
-  result: 'confirmed' | 'rejected' | 'unverified';
-  criteria_met: Record<string, boolean>;
-}
-
 export interface SearchData {
   video_name: string;
   description: string;
@@ -31,7 +19,6 @@ export interface SearchData {
   similarity: number;
   screenshot_url: string;
   object_ids: string[];
-  critic_result?: CriticResult;
 }
 
 /**
@@ -62,18 +49,12 @@ export interface SearchComponentProps {
   onControlsReady?: (handlers: SearchSidebarControlHandlers) => void; // Callback to provide control handlers externally
   /** When provided, Agent Mode + Search sends the query to the Chat sidebar (programmatic submit). */
   submitChatMessage?: (message: string) => void;
-  /** Registers a handler that receives each Chat sidebar answer from the app-wide callback. */
-  registerChatAnswerHandler?: (handler: (answer: string) => boolean | void) => void | (() => void);
-  /** Subscribe to Chat sidebar lifecycle events for this tab (message submitted, answer complete without body). */
-  registerSidebarChatEventSubscriber?: (
-    handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
-  ) => void | (() => void);
+  /** Registers a handler that receives the full agent answer string when the Chat sidebar completes a response. Used to extract Search API–shaped JSON and update the Search tab main content. */
+  registerChatAnswerHandler?: (handler: (answer: string) => void) => void;
   /** When false, the Chat sidebar is open; used to disable search content when sidebar is open or query is running. */
   chatSidebarCollapsed?: boolean;
   /** When true, a message was submitted in the Chat sidebar and the response has not yet finished; keeps search content disabled. */
   chatSidebarBusy?: boolean;
-  /** Adds a search result query context item to the Chat sidebar input. */
-  addChatQueryContext?: (ctx: QueryDataContext) => void;
 }
 
 export interface SearchParams {

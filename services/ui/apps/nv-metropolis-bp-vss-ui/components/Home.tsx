@@ -9,8 +9,7 @@ import type {
   SearchSidebarControlHandlers,
   DashboardSidebarControlHandlers,
   MapSidebarControlHandlers,
-  VideoManagementSidebarControlHandlers,
-  QueryDataContext
+  VideoManagementSidebarControlHandlers
 } from '@nv-metropolis-bp-vss-ui/all';
 import { 
   IconMessageCircle, 
@@ -20,21 +19,18 @@ import {
   IconMapPin,
   IconVideo,
   IconSun,
-  IconMoon,
-  IconMenu2
+  IconMoon
 } from '@tabler/icons-react';
 import { getTabChatInitialStateOverride, getTabChatWorkflow } from '../utils/tabChatEnv';
 import {
-  CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX,
-  SIDEBAR_CHAT_ENV_TAB_KEY,
-  getChatSidebarEnabled,
+  TAB_IDS_WITH_CHAT_SIDEBAR,
+  getTabChatSidebarEnabled,
+  getTabEnvKey,
+  getTabStorageKeyPrefix,
 } from '../utils/tabChatSidebarConfig';
 
 import { useTheme } from '../hooks/useTheme';
-import { useAppChatSidebar } from '../hooks/useAppChatSidebar';
-import { useChatSidebarMainTabBridge } from '../hooks/useChatSidebarMainTabBridge';
-import { parseMainTabIdFromCallerInfoHash } from '../utils/callerInfoMainTabHash';
-import { parseSidebarMainTabId } from '../utils/sidebarMainTabChatSubscribers';
+import { useTabChatSidebars } from '../hooks/useTabChatSidebars';
 import { TabWithChatSidebarLayout } from './TabWithChatSidebarLayout';
 import packageJson from '../package.json';
 import { APPLICATION_TITLE, APPLICATION_SUBTITLE } from '../constants/constants';
@@ -233,11 +229,14 @@ const dynamicComponents = {
   ),
 };
 
-const SidebarNemoAgentToolkitApp = dynamicComponents.NemoAgentToolkitApp;
 
 export default function Home({ alertsData, searchData, dashboardData, mapData, videoManagementData, serverRenderTime }: HomeProps) {
   // Get deployment configuration from environment variables - memoize to prevent recreation
   const deploymentConfig = useMemo(() => {
+    const tabChatSidebarEnabled: Record<string, boolean> = {};
+    TAB_IDS_WITH_CHAT_SIDEBAR.forEach((id) => {
+      tabChatSidebarEnabled[id] = getTabChatSidebarEnabled(id);
+    });
     return {
       enableChatTab: (env('NEXT_PUBLIC_ENABLE_CHAT_TAB') || process.env.NEXT_PUBLIC_ENABLE_CHAT_TAB) !== 'false',
       enableAlertsTab: (env('NEXT_PUBLIC_ENABLE_ALERTS_TAB') || process.env.NEXT_PUBLIC_ENABLE_ALERTS_TAB) !== 'false',
@@ -245,7 +244,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       enableDashboardTab: (env('NEXT_PUBLIC_ENABLE_DASHBOARD_TAB') || process.env.NEXT_PUBLIC_ENABLE_DASHBOARD_TAB) !== 'false',
       enableMapTab: (env('NEXT_PUBLIC_ENABLE_MAP_TAB') || process.env.NEXT_PUBLIC_ENABLE_MAP_TAB) !== 'false',
       enableVideoManagementTab: (env('NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB') || process.env.NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB) !== 'false',
-      chatSidebarEnabled: getChatSidebarEnabled(),
+      tabChatSidebarEnabled,
     };
   }, []); // Empty deps - env vars don't change during runtime
 
@@ -254,7 +253,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     { 
       id: 'chat', 
       label: 'Chat', 
-      icon: <IconMessageCircle size={16} />, 
+      icon: <IconMessageCircle size={18} />, 
       alt: 'Chat with Agent',
       enabled: deploymentConfig.enableChatTab,
       component: 'NemoAgentToolkitApp'
@@ -262,7 +261,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     { 
       id: 'search', 
       label: 'Search', 
-      icon: <IconSearch size={16} />, 
+      icon: <IconSearch size={18} />, 
       alt: 'Search',
       enabled: deploymentConfig.enableSearchTab,
       component: 'SearchComponent'
@@ -270,7 +269,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     { 
       id: 'alerts', 
       label: 'Alerts', 
-      icon: <IconAlertTriangle size={16} />, 
+      icon: <IconAlertTriangle size={18} />, 
       alt: 'Alerts List',
       enabled: deploymentConfig.enableAlertsTab,
       component: 'AlertsComponent'
@@ -278,7 +277,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     { 
       id: 'dashboard', 
       label: 'Dashboard', 
-      icon: <IconLayoutDashboard size={16} />, 
+      icon: <IconLayoutDashboard size={18} />, 
       alt: 'Dashboard',
       enabled: deploymentConfig.enableDashboardTab,
       component: 'DashboardComponent'
@@ -286,7 +285,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     { 
       id: 'map', 
       label: 'Map', 
-      icon: <IconMapPin size={16} />, 
+      icon: <IconMapPin size={18} />, 
       alt: 'Map',
       enabled: deploymentConfig.enableMapTab,
       component: 'MapComponent'
@@ -294,7 +293,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     { 
       id: 'video-management', 
       label: 'Video Management', 
-      icon: <IconVideo size={16} />, 
+      icon: <IconVideo size={18} />, 
       alt: 'Video Management',
       enabled: deploymentConfig.enableVideoManagementTab,
       component: 'VideoManagementComponent'
@@ -306,8 +305,6 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     allTabs.filter(tab => tab.enabled), 
     [allTabs]
   );
-
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Set initial active tab - start with first visible tab for SSR compatibility
   const [activeTab, setActiveTabInternal] = useState(() => {
@@ -338,49 +335,21 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   // Load saved tab from sessionStorage after mount (client-side only)
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = React.useState(false);
 
-  const sidebarApi = useAppChatSidebar();
+  // Shared sidebar state and resize logic for all non-Chat tabs (Search, Alerts, Dashboard, Map, Video Management)
+  const getTabChatSidebar = useTabChatSidebars(TAB_IDS_WITH_CHAT_SIDEBAR);
 
-  const sidebarRuntimeConfig = useMemo(
-    () => ({
-      workflow: getTabChatWorkflow(SIDEBAR_CHAT_ENV_TAB_KEY, 'App Chat'),
-      storageKeyPrefix: CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX,
-    }),
-    [],
-  );
+  // When a new answer finishes in a tab's minimized chat, we set highlight so the floating icon pulses
+  const [chatSidebarHighlight, setChatSidebarHighlight] = React.useState<
+    Record<string, boolean>
+  >({});
 
-  const sidebarChatInitialStateOverride = useMemo(
-    () => getTabChatInitialStateOverride(SIDEBAR_CHAT_ENV_TAB_KEY),
-    [],
-  );
+  // Search tab: Chat sidebar has submitted a message and response not yet complete (keeps search content disabled)
+  const [searchTabChatSidebarBusy, setSearchTabChatSidebarBusy] = React.useState(false);
 
-  const {
-    chatSidebarHighlight,
-    chatSidebarQueryExecuting,
-    searchTabChatSidebarBusy,
-    clearChatSidebarHighlight,
-    submitSidebarMessage,
-    registerSearchTabChatAnswer,
-    registerSearchTabSidebarChatEvents,
-    registerAlertsTabChatAnswer,
-    registerAlertsTabSidebarChatEvents,
-    registerDashboardTabChatAnswer,
-    registerDashboardTabSidebarChatEvents,
-    registerMapTabChatAnswer,
-    registerMapTabSidebarChatEvents,
-    registerVideoManagementTabChatAnswer,
-    registerVideoManagementTabSidebarChatEvents,
-    handleSidebarAnswerComplete,
-    handleSidebarAnswerCompleteWithContent,
-    handleSidebarSubmitMessageReady,
-    handleSidebarMessageSubmitted,
-  } = useChatSidebarMainTabBridge({
-    activeTab,
-    sidebarCollapsed: sidebarApi.collapsed,
-  });
-
-  const appSidebarAddQueryContextRef = React.useRef<
-    ((item: QueryDataContext) => void) | undefined
-  >(undefined);
+  // Per-tab chat sidebar: tab code can register to receive agent answers and can submit messages programmatically
+  const chatSidebarHandlersRef = React.useRef<
+    Record<string, { onAnswer?: (answer: string) => void; submitMessage?: (message: string) => void }>
+  >({});
 
   React.useEffect(() => {
     // Only run once on mount to load from sessionStorage
@@ -460,61 +429,6 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       setTheme(validTheme);
     }
   }, [theme, setTheme]);
-
-  // Caller-info links in embedded chat use `#vss-mt-<tabId>`; switch main tab without toolkit hooks.
-  React.useEffect(() => {
-    const syncMainTabFromCallerInfoHash = () => {
-      const raw = parseMainTabIdFromCallerInfoHash(window.location.hash);
-      if (!raw) return;
-      const parsed = parseSidebarMainTabId(raw);
-      if (!parsed) return;
-      if (!visibleTabs.some((tab) => tab.id === parsed)) return;
-      setActiveTab(parsed);
-      window.history.replaceState(
-        null,
-        '',
-        `${window.location.pathname}${window.location.search}`,
-      );
-    };
-    syncMainTabFromCallerInfoHash();
-    window.addEventListener('hashchange', syncMainTabFromCallerInfoHash);
-    return () =>
-      window.removeEventListener('hashchange', syncMainTabFromCallerInfoHash);
-  }, [visibleTabs, setActiveTab]);
-
-  const renderAppSidebarChat = React.useCallback(
-    () => (
-      <RuntimeConfigProvider value={sidebarRuntimeConfig}>
-        <SidebarNemoAgentToolkitApp
-          theme={theme}
-          onThemeChange={handleThemeChange}
-          isActive={activeTab !== 'chat'}
-          initialStateOverride={sidebarChatInitialStateOverride}
-          storageKeyPrefix={CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX}
-          renderControlsInLeftSidebar={false}
-          renderApplicationHead={false}
-          onAnswerComplete={handleSidebarAnswerComplete}
-          onAnswerCompleteWithContent={handleSidebarAnswerCompleteWithContent}
-          onSubmitMessageReady={handleSidebarSubmitMessageReady}
-          onMessageSubmitted={handleSidebarMessageSubmitted}
-          onAddQueryContextReady={(addItem) => {
-            appSidebarAddQueryContextRef.current = addItem;
-          }}
-        />
-      </RuntimeConfigProvider>
-    ),
-    [
-      theme,
-      handleThemeChange,
-      activeTab,
-      sidebarChatInitialStateOverride,
-      sidebarRuntimeConfig,
-      handleSidebarAnswerComplete,
-      handleSidebarAnswerCompleteWithContent,
-      handleSidebarSubmitMessageReady,
-      handleSidebarMessageSubmitted,
-    ],
-  );
 
   // Update chat handlers when called - memoized handlers in Chatbar.tsx prevent excessive calls
   const chatControlsReadyCallback = React.useCallback((handlers: ChatSidebarControlHandlers) => {
@@ -639,49 +553,101 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.serverRenderTime = serverRenderTime;
       componentProps.renderControlsInLeftSidebar = true;
       componentProps.onControlsReady = isActive ? searchControlsReadyCallback : undefined;
-      componentProps.registerChatAnswerHandler = registerSearchTabChatAnswer;
-      componentProps.registerSidebarChatEventSubscriber = registerSearchTabSidebarChatEvents;
+      componentProps.registerChatAnswerHandler = (handler: (answer: string) => void) => {
+        if (!chatSidebarHandlersRef.current[tabConfig.id]) chatSidebarHandlersRef.current[tabConfig.id] = {};
+        chatSidebarHandlersRef.current[tabConfig.id].onAnswer = handler;
+      };
       componentProps.submitChatMessage = (message: string) => {
-        submitSidebarMessage(message);
+        chatSidebarHandlersRef.current[tabConfig.id]?.submitMessage?.(message);
       };
-      componentProps.addChatQueryContext = (item: QueryDataContext) => {
-        appSidebarAddQueryContextRef.current?.(item);
-      };
-      componentProps.chatSidebarCollapsed = deploymentConfig.chatSidebarEnabled
-        ? sidebarApi.collapsed
-        : true;
+      componentProps.chatSidebarCollapsed = getTabChatSidebar(tabConfig.id).collapsed;
       componentProps.chatSidebarBusy = searchTabChatSidebarBusy;
     } else if (componentName === 'AlertsComponent') {
       componentProps.alertsData = alertsData ?? undefined;
       componentProps.serverRenderTime = serverRenderTime;
       componentProps.renderControlsInLeftSidebar = true;
       componentProps.onControlsReady = isActive ? alertsControlsReadyCallback : undefined;
-      componentProps.registerChatAnswerHandler = registerAlertsTabChatAnswer;
-      componentProps.registerSidebarChatEventSubscriber = registerAlertsTabSidebarChatEvents;
+      componentProps.registerChatAnswerHandler = (handler: (answer: string) => void) => {
+        if (!chatSidebarHandlersRef.current[tabConfig.id]) chatSidebarHandlersRef.current[tabConfig.id] = {};
+        chatSidebarHandlersRef.current[tabConfig.id].onAnswer = handler;
+      };
       componentProps.submitChatMessage = (message: string) => {
-        submitSidebarMessage(message);
+        chatSidebarHandlersRef.current[tabConfig.id]?.submitMessage?.(message);
       };
     } else if (componentName === 'DashboardComponent' && dashboardData) {
       componentProps.dashboardData = dashboardData;
       componentProps.serverRenderTime = serverRenderTime;
       componentProps.renderControlsInLeftSidebar = true;
       componentProps.onControlsReady = isActive ? dashboardControlsReadyCallback : undefined;
-      componentProps.registerChatAnswerHandler = registerDashboardTabChatAnswer;
-      componentProps.registerSidebarChatEventSubscriber = registerDashboardTabSidebarChatEvents;
     } else if (componentName === 'MapComponent' && mapData) {
       componentProps.mapData = mapData;
       componentProps.serverRenderTime = serverRenderTime;
       componentProps.renderControlsInLeftSidebar = true;
       componentProps.onControlsReady = isActive ? mapControlsReadyCallback : undefined;
-      componentProps.registerChatAnswerHandler = registerMapTabChatAnswer;
-      componentProps.registerSidebarChatEventSubscriber = registerMapTabSidebarChatEvents;
     } else if (componentName === 'VideoManagementComponent' && videoManagementData) {
       componentProps.videoManagementData = videoManagementData;
       componentProps.serverRenderTime = serverRenderTime;
       componentProps.renderControlsInLeftSidebar = true;
       componentProps.onControlsReady = isActive ? videoManagementControlsReadyCallback : undefined;
-      componentProps.registerChatAnswerHandler = registerVideoManagementTabChatAnswer;
-      componentProps.registerSidebarChatEventSubscriber = registerVideoManagementTabSidebarChatEvents;
+    }
+
+    const hasChatSidebar = (TAB_IDS_WITH_CHAT_SIDEBAR as readonly string[]).includes(
+      tabConfig.id,
+    );
+    if (hasChatSidebar) {
+      const sidebarApi = getTabChatSidebar(tabConfig.id);
+      const tabEnvKey = getTabEnvKey(tabConfig.id);
+      const tabRuntimeConfig = {
+        workflow: getTabChatWorkflow(tabEnvKey, `${tabConfig.label} Chat`),
+        storageKeyPrefix: getTabStorageKeyPrefix(tabConfig.id),
+      };
+      const tabChatInitialStateOverride = getTabChatInitialStateOverride(tabEnvKey);
+      const ChatApp = dynamicComponents.NemoAgentToolkitApp;
+      return (
+        <TabWithChatSidebarLayout
+          tabId={tabConfig.id}
+          tabLabel={tabConfig.label}
+          mainContent={<DynamicComponent {...componentProps} />}
+          sidebarEnabled={deploymentConfig.tabChatSidebarEnabled[tabConfig.id] ?? false}
+          sidebarApi={sidebarApi}
+          highlightIcon={chatSidebarHighlight[tabConfig.id] ?? false}
+          onOpenSidebar={() =>
+            setChatSidebarHighlight((prev) => ({ ...prev, [tabConfig.id]: false }))
+          }
+          renderSidebarChat={() => (
+            <RuntimeConfigProvider value={tabRuntimeConfig}>
+              <ChatApp
+                theme={theme}
+                onThemeChange={handleThemeChange}
+                isActive={isActive}
+                initialStateOverride={tabChatInitialStateOverride}
+                storageKeyPrefix={tabRuntimeConfig.storageKeyPrefix}
+                renderControlsInLeftSidebar={false}
+                renderApplicationHead={false}
+                onAnswerComplete={() => {
+                  if (tabConfig.id === 'search') setSearchTabChatSidebarBusy(false);
+                  const collapsed = getTabChatSidebar(tabConfig.id).collapsed;
+                  setChatSidebarHighlight((prev) => ({ ...prev, [tabConfig.id]: collapsed }));
+                }}
+                onAnswerCompleteWithContent={(answer: string) => {
+                  chatSidebarHandlersRef.current[tabConfig.id]?.onAnswer?.(answer);
+                }}
+                onSubmitMessageReady={(submitMessage: (message: string) => void) => {
+                  if (!chatSidebarHandlersRef.current[tabConfig.id]) chatSidebarHandlersRef.current[tabConfig.id] = {};
+                  chatSidebarHandlersRef.current[tabConfig.id].submitMessage = submitMessage;
+                }}
+                onMessageSubmitted={() => {
+                  if (tabConfig.id === 'search') setSearchTabChatSidebarBusy(true);
+                  const collapsed = getTabChatSidebar(tabConfig.id).collapsed;
+                  setChatSidebarHighlight((prev) => ({ ...prev, [tabConfig.id]: collapsed }));
+                }}
+              />
+            </RuntimeConfigProvider>
+          )}
+          contentAreaRef={sidebarApi.contentAreaCallbackRef}
+          isActive={isActive}
+        />
+      );
     }
 
     return (
@@ -695,6 +661,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     );
   };
 
+  // Render all tab components (hidden or visible based on activeTab)
   const renderMainAreaComponent = () => {
     if (visibleTabs.length === 0) {
       return (
@@ -705,71 +672,53 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       );
     }
 
-    const tabStack = (
-      <div className="relative flex-1 overflow-hidden">
-        {visibleTabs.map((tab) => renderTabComponent(tab))}
-      </div>
-    );
-
-    const showFloatingChatSidebar =
-      deploymentConfig.chatSidebarEnabled && activeTab !== 'chat';
-
-    if (!showFloatingChatSidebar) {
-      return tabStack;
-    }
-
+    // Render all visible tabs in a relative container, but only show the active one
+    // Using absolute positioning ensures they stack on top of each other
     return (
-      <TabWithChatSidebarLayout
-        tabId="side-bar"
-        tabLabel="App"
-        mainContent={tabStack}
-        sidebarEnabled
-        sidebarApi={sidebarApi}
-        highlightIcon={chatSidebarHighlight}
-        queryExecuting={chatSidebarQueryExecuting}
-        onOpenSidebar={clearChatSidebarHighlight}
-        renderSidebarChat={renderAppSidebarChat}
-        contentAreaRef={sidebarApi.contentAreaCallbackRef}
-        isActive
-      />
+      <div className="relative flex-1 overflow-hidden">
+        {visibleTabs.map(tab => renderTabComponent(tab))}
+      </div>
     );
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-black">
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Top Header */}
       <header 
-        className="relative z-30 shrink-0 bg-white dark:bg-black border-b border-gray-200 dark:border-gray-700" 
+        className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm relative" 
         style={{ 
           height: '75px',
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
           borderBottom: isDark 
-            ? '1px solid rgba(75, 85, 99, 0.8)'
-            : '1px solid rgba(156, 163, 175, 0.6)',
+            ? '6px solid rgba(75, 85, 99, 0.6)'
+            : '6px solid rgba(156, 163, 175, 0.4)',
         }}
       >
+        {/* Blur effect pseudo-element */}
+        <div 
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            boxShadow: isDark 
+              ? 'inset 0 -6px 20px rgba(0, 0, 0, 0.4), inset 0 -6px 20px rgba(0, 0, 0, 0.3)'
+              : 'inset 0 -6px 20px rgba(0, 0, 0, 0.15), inset 0 -6px 20px rgba(0, 0, 0, 0.1)',
+            zIndex: 1
+          }}
+        />
+        
         {/* Header content */}
-        <div className="h-full px-6 flex items-center justify-between relative">
+        <div className="h-full px-6 flex items-center justify-between relative z-10">
           <div className="flex items-center space-x-2 flex-1 min-w-0">
-            {visibleTabs.length > 0 && (
-              <button
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors flex-shrink-0"
-                title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-              >
-                <IconMenu2 size={20} />
-              </button>
-            )}
             <div className="flex items-center gap-2 p-2 flex-shrink-0 relative">
               {/* Render both logos, toggle visibility via CSS for instant switching */}
               <img 
                 src="/NV-logo-white.svg"
                 alt="NVIDIA Logo" 
-                className={`h-5 w-auto transition-opacity duration-150 ${isDark ? 'opacity-100' : 'opacity-0 absolute'}`}
+                className={`h-9 w-auto transition-opacity duration-150 ${isDark ? 'opacity-100' : 'opacity-0 absolute'}`}
               />
               <img 
                 src="/NV-logo-black.svg"
                 alt="NVIDIA Logo" 
-                className={`h-5 w-auto transition-opacity duration-150 ${isDark ? 'opacity-0 absolute' : 'opacity-100'}`}
+                className={`h-9 w-auto transition-opacity duration-150 ${isDark ? 'opacity-0 absolute' : 'opacity-100'}`}
               />
             </div>
             <div className="flex-shrink-0 w-[2px] h-[19px] bg-black dark:bg-white" />
@@ -806,46 +755,45 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
         {/* Left Sidebar with Tabs - Only show if there are visible tabs */}
         {visibleTabs.length > 0 && (
           <aside 
-            className={`bg-white dark:bg-neutral-900 border-r border-gray-300 dark:border-gray-600 flex flex-col shrink-0 overflow-hidden transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-0 min-w-0 border-r-0' : ''}`}
-            style={sidebarCollapsed ? { width: 0, minWidth: 0, maxWidth: 0 } : {
+            className="bg-white dark:bg-gray-800 border-r border-gray-300 dark:border-gray-600 flex flex-col shrink-0"
+            style={{
               width: '260px',
               minWidth: '260px', 
               maxWidth: '260px'
             }}
           >
             {/* Tab Navigation */}
-            <nav data-testid="sidebar-nav" className="border-b border-gray-300 dark:border-gray-600 flex flex-col flex-shrink-0">
-              <div className="px-2 pt-3 pb-2 flex-shrink-0">
+            <nav className="border-b border-gray-300 dark:border-gray-600 flex flex-col flex-shrink-0">
+              <div className="px-4 pt-3 pb-2 flex-shrink-0">
+                <h2 className="text-base font-normal text-gray-500 dark:text-gray-400 uppercase tracking-wider text-left">
+                  
+                </h2>
               </div>
               <div 
                 className="space-y-1 px-2 pb-4"
               >
-                {visibleTabs.map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      data-testid={`sidebar-tab-${tab.id}`}
-                      onClick={() => setActiveTab(tab.id)}
-                      title={tab.alt}
-                      className={`
-                        w-full flex items-center px-3 py-1.5 text-sm rounded
-                        transition-all duration-200 ease-in-out
-                        ${isActive
-                          ? 'bg-neutral-300 dark:bg-neutral-700 text-neutral-900 dark:text-white hover:bg-neutral-400 dark:hover:bg-neutral-600 font-medium ring-1 ring-[#76b900]'
-                          : 'text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800'
-                        }
-                      `}
-                    >
-                      <span className={`mr-2 flex-shrink-0 ${isActive ? 'text-[#76b900]' : ''}`}>
-                        {tab.icon}
-                      </span>
-                      <span className="text-left break-words hyphens-auto leading-tight">
-                        {tab.label}
-                      </span>
-                    </button>
-                  );
-                })}
+                {visibleTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    title={tab.alt}
+                    className={`
+                      w-full flex items-center px-3 py-2 text-[14px] font-medium rounded-md
+                      transition-all duration-200 ease-in-out border-r-4
+                      ${activeTab === tab.id
+                        ? 'bg-gray-300 dark:bg-gray-600 text-gray-900 dark:text-white border-gray-400 dark:border-gray-800 shadow-lg hover:bg-gray-400 dark:hover:bg-gray-700'
+                        : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 hover:shadow-md hover:scale-[1.02] border-transparent'
+                      }
+                    `}
+                  >
+                    <span className="mr-3 flex-shrink-0">
+                      {tab.icon}
+                    </span>
+                    <span className="text-left break-words hyphens-auto leading-tight">
+                      {tab.label}
+                    </span>
+                  </button>
+                ))}
               </div>
             </nav>
 
@@ -862,8 +810,9 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
             
             {/* Version Display */}
             <div 
-              className="px-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-neutral-900 flex items-end justify-center"
+              className="px-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 flex items-end justify-center"
               style={{
+                boxShadow: 'inset 0 8px 12px -2px rgba(0, 0, 0, 0.3)',
                 height: '32px',
                 paddingBottom: '4px'
               }}
@@ -879,7 +828,18 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
         <main 
           className="flex-1 flex flex-col overflow-hidden"
           style={{
-
+            boxShadow: isDark 
+              ? '-6px -6px 20px rgba(0, 0, 0, 0.4), 0 -6px 20px rgba(0, 0, 0, 0.3)'
+              : '-6px -6px 20px rgba(0, 0, 0, 0.15), 0 -6px 20px rgba(0, 0, 0, 0.1)',
+            borderLeft: visibleTabs.length > 0 ? (isDark 
+              ? '6px solid rgba(75, 85, 99, 0.6)'
+              : '6px solid rgba(156, 163, 175, 0.4)') : 'none',
+            borderTop: isDark 
+              ? '6px solid rgba(75, 85, 99, 0.6)'
+              : '6px solid rgba(156, 163, 175, 0.4)',
+            filter: isDark 
+              ? 'drop-shadow(-2px -2px 8px rgba(0, 0, 0, 0.3))'
+              : 'drop-shadow(-2px -2px 8px rgba(0, 0, 0, 0.1))',
             position: 'relative'
           }}
         >

@@ -4,16 +4,10 @@ module.exports = {
     './app/**/*.{js,ts,jsx,tsx}',
     './pages/**/*.{js,ts,jsx,tsx}',
     './components/**/*.{js,ts,jsx,tsx}',
-    '../../packages/common/lib-src/**/*.{ts,tsx}',
-    '../../packages/common/lib/**/*.{js,jsx}',
   ],
   darkMode: 'class',
   theme: {
     extend: {
-      colors: {
-        'brand-green': '#76b900',
-        'brand-green-dark': '#5a8d00',
-      },
       screens: {
         xs: '320px', // Extra small screen breakpoint
         sm: '344px', // Small screen breakpoint

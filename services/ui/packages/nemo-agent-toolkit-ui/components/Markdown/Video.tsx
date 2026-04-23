@@ -26,7 +26,7 @@ export const Video = memo(
           loop={false}
           muted={muted}
           playsInline={false}
-          className="rounded-md border border-slate-400 dark:border-slate-600 shadow-sm object-cover bg-slate-50 dark:bg-slate-800/50"
+          className="rounded-md border border-slate-400 shadow-sm object-cover"
           {...props}
         >
           Your browser does not support the video tag.

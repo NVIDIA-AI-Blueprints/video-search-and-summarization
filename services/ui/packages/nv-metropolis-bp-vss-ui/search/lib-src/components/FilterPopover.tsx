@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-import React, { useMemo, useCallback, useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Button } from '@nvidia/foundations-react-core';
+import React, { useMemo, useCallback, useState, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Stack, DatePicker, CheckPicker, NumberInput } from 'rsuite';
 import { DEFAULT_TOP_K } from '../hooks/useFilter';
@@ -24,6 +23,16 @@ interface FilterDialogProps {
   sourceType?: string;
 }
 
+// Common button styles
+const baseButtonStyle: React.CSSProperties = {
+  fontSize: 14,
+  fontWeight: 500,
+  borderRadius: 6,
+  border: 'none',
+  cursor: 'pointer',
+  transition: 'background-color 0.2s',
+};
+
 export const FilterDialog: React.FC<FilterDialogProps> = ({
   isOpen,
   isDark,
@@ -42,7 +51,9 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
   const [portalPosition, setPortalPosition] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
-    if (isOpen !== wasOpen) {
+    if (isOpen && !wasOpen) {
+      setPendingParams(filterParams);
+    } else if (!isOpen && wasOpen) {
       setPendingParams(filterParams);
     }
     setWasOpen(isOpen);
@@ -105,19 +116,11 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
     close();
   }, [filterParams, close]);
 
-  const popoverRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = popoverRef.current;
-    if (!el) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleApply();
-      }
-    };
-    el.addEventListener('keydown', handleKeyDown);
-    return () => el.removeEventListener('keydown', handleKeyDown);
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleApply();
+    }
   }, [handleApply]);
 
   if (!isOpen) return null;
@@ -126,11 +129,8 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
   if (triggerRef && portalPosition === null) return null;
   const popoverContent = (
     <div
-      data-testid="search-filter-dialog"
-      ref={(el) => {
-        (popoverRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-        if (containerRef) (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-      }}
+      ref={containerRef}
+      onKeyDown={handleKeyDown}
       style={{
         position: usePortal ? 'fixed' : 'absolute',
         ...(usePortal && portalPosition
@@ -149,7 +149,6 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
         <Stack spacing={10} alignItems="center">
           <span style={labelStyle}>From:</span>
           <DatePicker
-            data-testid="search-filter-from"
             disabled={disabled}
             format="MMM dd yyyy hh:mm:ss aa"
             showMeridiem
@@ -166,7 +165,6 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
         <Stack spacing={10} alignItems="center">
           <span style={labelStyle}>To:</span>
           <DatePicker
-            data-testid="search-filter-to"
             disabled={disabled}
             format="MMM dd yyyy hh:mm:ss aa"
             showMeridiem
@@ -184,7 +182,6 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
           <span style={labelStyle}>Video sources:</span>
           <div style={inputStyle}>
             <CheckPicker
-              data-testid="search-filter-video-sources"
               value={videoSources}
               onChange={handleVideoSourcesChange}
               data={filteredStreams.map((stream) => ({ label: stream.name, value: stream.name }))}
@@ -198,11 +195,10 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
         <Stack spacing={10} alignItems="center">
           <span style={labelStyle}>Min Cosine Similarity:</span>
           <NumberInput
-            data-testid="search-filter-similarity"
             disabled={disabled}
             formatter={(value: string | number) => {
               const num = Number(value);
-              return Number.isNaN(num) ? '' : num.toFixed(2);
+              return isNaN(num) ? '' : num.toFixed(2);
             }}
             min={-1}
             max={1}
@@ -218,7 +214,6 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
             <span style={{ color: 'red' }}>*</span> Show top K Results:
           </span>
           <NumberInput
-            data-testid="search-filter-topk"
             min={1}
             step={1}
             value={topK}
@@ -244,20 +239,32 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
         justifyContent: 'flex-end',
         gap: 8,
       }}>
-        <Button
-          data-testid="search-filter-cancel"
-          kind="secondary"
+        <button
           onClick={handleCancel}
+          style={{
+            ...baseButtonStyle,
+            padding: '8px 12px',
+            backgroundColor: 'transparent',
+            color: isDark ? '#d1d5db' : '#374151',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isDark ? '#374151' : '#f3f4f6'}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
         >
           Cancel
-        </Button>
-        <Button
-          data-testid="search-filter-apply"
-          kind="primary"
+        </button>
+        <button
           onClick={handleApply}
+          style={{
+            ...baseButtonStyle,
+            padding: '8px 16px',
+            backgroundColor: isDark ? '#0891b2' : '#2563eb',
+            color: '#fff',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isDark ? '#0e7490' : '#1d4ed8'}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isDark ? '#0891b2' : '#2563eb'}
         >
           Apply
-        </Button>
+        </button>
       </div>
     </div>
   );

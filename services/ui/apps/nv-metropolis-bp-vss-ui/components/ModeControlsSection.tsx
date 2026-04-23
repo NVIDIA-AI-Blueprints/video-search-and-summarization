@@ -53,6 +53,9 @@ export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({
   return (
     <div 
       className="flex flex-col flex-1 overflow-hidden border-b border-gray-300 dark:border-gray-600"
+      style={{
+        boxShadow: 'inset 0 8px 12px -2px rgba(0, 0, 0, 0.3)'
+      }}
     >
       {/* Section Header */}
       <div className="px-4 pt-3 pb-2 flex-shrink-0" title={activeTabLabel ? `${activeTabLabel} Tab Controls` : undefined}>
@@ -63,7 +66,7 @@ export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({
       
       {/* Content Area */}
       {hasActualControlsContent ? (
-        <div className="flex-1 overflow-y-auto overflow-x-auto flex flex-col bg-white dark:bg-neutral-900">
+        <div className="flex-1 overflow-y-auto overflow-x-auto flex flex-col bg-white dark:bg-gray-800">
           {chatHandlers && <ChatSidebarContent {...chatHandlers} />}
           {alertsHandlers && alertsHandlers.controlsComponent}
           {searchHandlers && searchHandlers.controlsComponent}
@@ -72,7 +75,7 @@ export const ModeControlsSection: React.FC<ModeControlsSectionProps> = ({
           {videoManagementHandlers && videoManagementHandlers.controlsComponent}
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center p-8 overflow-y-auto bg-white dark:bg-neutral-900">
+        <div className="flex-1 flex items-center justify-center p-8 overflow-y-auto bg-white dark:bg-gray-800">
           <span className="text-gray-500 dark:text-gray-400 text-sm italic">
             No Controls
           </span>

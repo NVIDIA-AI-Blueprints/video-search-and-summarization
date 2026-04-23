@@ -34,14 +34,11 @@ interface FilterTagProps {
 }
 
 export const FilterTag: React.FC<FilterTagProps> = ({ type, filter, colors, onRemove }) => (
-  <div
-    className={`flex items-center gap-1.5 rounded-lg pl-3 pr-2 py-2 text-sm transition-all ${colors.bg} ${colors.border} ${colors.text}`}
-  >
+  <div className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm ${colors.bg} ${colors.border} ${colors.text}`}>
     <span>{filter}</span>
-    <button
+    <button 
       onClick={() => onRemove(type, filter)}
-      className={`p-0.5 rounded transition-colors focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-1 ${colors.hover}`}
-      aria-label={`Remove filter ${filter}`}
+      className={`transition-colors ${colors.hover}`}
     >
       <IconX className="w-3.5 h-3.5" />
     </button>

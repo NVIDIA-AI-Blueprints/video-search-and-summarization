@@ -17,6 +17,10 @@ import { render, screen } from '@testing-library/react';
 import { SearchComponent } from '../../lib-src/SearchComponent';
 import { SearchComponentProps } from '../../lib-src/types';
 
+// Mock the VideoModal component from @nemo-agent-toolkit/ui
+// The mock is defined in __mocks__/@nemo-agent-toolkit-ui.js
+jest.mock('@nemo-agent-toolkit/ui');
+
 // Mock the hooks
 jest.mock('../../lib-src/hooks/useSearch', () => ({
   useSearch: jest.fn(() => ({
@@ -41,8 +45,7 @@ jest.mock('../../lib-src/hooks/useFilter', () => ({
   })),
 }));
 
-jest.mock('@aiqtoolkit-ui/common', () => ({
-  ...jest.requireActual('@aiqtoolkit-ui/common'),
+jest.mock('../../lib-src/hooks/useVideoModal', () => ({
   useVideoModal: jest.fn(() => ({
     videoModal: {
       isOpen: false,

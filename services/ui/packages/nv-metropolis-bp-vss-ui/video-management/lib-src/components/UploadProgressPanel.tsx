@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { Button } from '@nvidia/foundations-react-core';
 import type { UploadProgress } from '../types';
 
 // Format bytes to MB string - defined outside component to avoid recreation
@@ -31,13 +30,13 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
   const hasActiveUploads = inProgressCount > 0 || pendingCount > 0;
 
   return (
-    <div className="fixed bottom-4 right-4 w-96 rounded-lg shadow-lg border z-50 bg-white dark:bg-black border-gray-200 dark:border-gray-600">
+    <div className="fixed bottom-4 right-4 w-96 rounded-lg shadow-lg border z-50 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-600">
         <div className="flex items-center gap-2">
           {!allDone ? (
             <svg
-              className="animate-spin w-4 h-4 text-green-500"
+              className="animate-spin w-4 h-4 text-cyan-500"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -71,17 +70,19 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
         </div>
         <div className="flex items-center gap-2">
           {hasActiveUploads && (
-            <Button
-              kind="secondary"
+            <button
+              type="button"
               onClick={onCancel}
+              className="px-3 py-1.5 text-sm font-medium rounded border border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
             >
               Cancel All
-            </Button>
+            </button>
           )}
           {allDone && (
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700 dark:text-gray-400 dark:hover:text-white dark:hover:bg-neutral-700"
+              className="p-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -126,7 +127,7 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
                     </span>
                   )}
                   {upload.status === 'uploading' && (
-                    <span className="text-xs text-green-500">{upload.progress}%</span>
+                    <span className="text-xs text-cyan-500">{upload.progress}%</span>
                   )}
                   {upload.status === 'success' && (
                     <svg
@@ -166,7 +167,7 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
               {upload.status === 'uploading' && (
                 <div className="h-1.5 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700">
                   <div
-                    className="h-full rounded-full transition-all duration-300 bg-green-500"
+                    className="h-full rounded-full transition-all duration-300 bg-cyan-500"
                     style={{ 
                       width: `${upload.progress}%`,
                       minWidth: upload.progress > 0 ? '8px' : '0'

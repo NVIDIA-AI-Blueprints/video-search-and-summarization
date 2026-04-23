@@ -2,11 +2,32 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { StreamsGrid } from '../../lib-src/components/StreamsGrid';
-import { makeStream } from '../helpers/streamFixtures';
+import type { StreamInfo } from '../../lib-src/types';
 
 jest.mock('../../lib-src/components/StreamCard', () => ({
   StreamCard: () => <div data-testid="stream-card" />,
 }));
+
+const defaultMetadata = {
+  bitrate: '',
+  codec: 'H264',
+  framerate: '30',
+  govlength: '',
+  resolution: '',
+};
+
+function makeStream(overrides: Partial<StreamInfo> & { name: string; streamId: string }): StreamInfo {
+  return {
+    isMain: false,
+    metadata: defaultMetadata,
+    name: overrides.name,
+    streamId: overrides.streamId,
+    url: overrides.url ?? 'https://example.com/video.mp4',
+    vodUrl: overrides.vodUrl ?? 'https://example.com/vod/video.mp4',
+    sensorId: overrides.sensorId ?? 'sensor-1',
+    ...overrides,
+  };
+}
 
 const defaultProps = {
   streams: [

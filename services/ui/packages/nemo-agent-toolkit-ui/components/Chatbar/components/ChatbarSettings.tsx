@@ -45,10 +45,9 @@ export const ChatbarSettings = ({
 
   return (
     <div className="flex flex-col items-center space-y-1 border-t border-gray-300 dark:border-white/20 pt-1 text-sm">
-      <ClearConversations
-        onClearConversations={handleClearConversations}
-        disabled={conversations.filter((conversation) => !conversation.isHomepageConversation).length === 0}
-      />
+      {conversations.length > 0 ? (
+        <ClearConversations onClearConversations={handleClearConversations} />
+      ) : null}
 
       <Import onImport={handleImportConversations} />
 

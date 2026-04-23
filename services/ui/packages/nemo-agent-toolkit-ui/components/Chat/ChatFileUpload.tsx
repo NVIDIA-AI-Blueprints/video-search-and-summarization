@@ -1,19 +1,28 @@
-import { useRef, useState, useCallback, useContext, useMemo, useEffect, useId } from 'react';
-import { flushSync } from 'react-dom';
+import { useRef, useState, useCallback, useContext, useMemo, useEffect } from 'react';
 
 import toast from 'react-hot-toast';
-import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react';
-import {
-  UploadFilesDialog,
-  copyToClipboard,
-  uploadFile,
-  type UploadFileConfigTemplate,
-  type FileUploadResult,
-} from '@aiqtoolkit-ui/common';
-
-export type { UploadFileConfigTemplate, UploadFileFieldConfig } from '@aiqtoolkit-ui/common';
+import { IconVideoPlus, IconX, IconFileCode, IconCheck, IconChevronDown, IconCopy, IconPlus, IconVideo } from '@tabler/icons-react';
 
 import HomeContext from '@/pages/api/home/home.context';
+import { copyToClipboard } from '@/utils/shared/clipboard';
+import { uploadFile, type FileUploadResult } from '@/utils/shared/videoUpload';
+
+// Types for upload file config template
+export type UploadFileFieldType = 'boolean' | 'string' | 'number' | 'array' | 'select';
+
+export interface UploadFileFieldConfig {
+  'field-name': string;
+  'field-type': UploadFileFieldType;
+  'field-default-value': boolean | string | number | string[] | number[];
+  'field-options'?: string[] | number[];
+  'changeable'?: boolean;
+  'tooltip-info'?: string;
+}
+
+// Interface for upload file config template
+export interface UploadFileConfigTemplate {
+  fields: UploadFileFieldConfig[];
+}
 
 // Upload status for each file
 type FileUploadStatus = 'pending' | 'uploading' | 'success' | 'error' | 'cancelled';
@@ -26,255 +35,15 @@ interface FileWithFormData {
   isExpanded: boolean;
   metadataFile?: File | null;
   isMetadataExpanded?: boolean;
-  /** Filename sent to upload API (defaults to file.name) */
-  uploadFilename?: string;
   uploadProgress?: number;
   uploadStatus?: FileUploadStatus;
   uploadError?: string;
 }
 
 // CSS class constants
+const INPUT_CLASS = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-[#76b900] focus:outline-none focus:ring-1 focus:ring-[#76b900] dark:border-gray-600 dark:bg-[#343541] dark:text-gray-300';
 const POPUP_OVERLAY_CLASS = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
-const POPUP_CONTAINER_CLASS = 'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-black';
-
-// Upload status display config for progress bar and label styling
-const UPLOAD_STATUS_STYLE: Record<FileUploadStatus, { progressBarClass: string; textClass: string }> = {
-  pending: { progressBarClass: 'bg-gray-300', textClass: 'text-gray-400' },
-  uploading: { progressBarClass: 'bg-[#76b900]', textClass: 'text-[#76b900]' },
-  success: { progressBarClass: 'bg-green-500', textClass: 'text-green-500' },
-  error: { progressBarClass: 'bg-red-500', textClass: 'text-red-500' },
-  cancelled: { progressBarClass: 'bg-orange-500', textClass: 'text-orange-500' },
-};
-
-function getUploadStatusLabel(status: FileUploadStatus, progress?: number): string {
-  switch (status) {
-    case 'uploading': return `${progress ?? 0}%`;
-    case 'success': return 'Done';
-    case 'error': return 'Failed';
-    case 'cancelled': return 'Cancelled';
-    default: return 'Pending';
-  }
-}
-
-type UploadResultItem = { filename: string; result?: FileUploadResult; error?: string; cancelled?: boolean };
-
-function getUploadStatusIcon(status: FileUploadStatus, textClass: string) {
-  switch (status) {
-    case 'uploading':
-      return <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-[#76b900]" />;
-    case 'success':
-      return <IconCheck size={16} className="flex-shrink-0 text-green-500" />;
-    case 'error':
-    case 'cancelled':
-      return <IconX size={16} className={`flex-shrink-0 ${textClass}`} />;
-    default:
-      return <div className="h-4 w-4 rounded-full border-2 border-gray-300" />;
-  }
-}
-
-function UploadProgressPopup({
-  files,
-  onCancelAll,
-  onCancelSingle,
-}: Readonly<{
-  files: FileWithFormData[];
-  onCancelAll: () => void;
-  onCancelSingle: (fileId: string) => void;
-}>) {
-  const hasActive = files.some(f => f.uploadStatus === 'pending' || f.uploadStatus === 'uploading');
-  return (
-    <div className={POPUP_OVERLAY_CLASS}>
-      <div className={POPUP_CONTAINER_CLASS}>
-        <h3 className="mb-4 text-center text-lg font-semibold text-gray-900 dark:text-white">
-          Uploading Files...
-        </h3>
-        {hasActive && (
-          <div className="mb-4 flex justify-center">
-            <button
-              type="button"
-              onClick={onCancelAll}
-              className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 dark:border-red-700 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-            >
-              <IconX size={16} />
-              Cancel All
-            </button>
-          </div>
-        )}
-        <div className="max-h-96 space-y-3 overflow-y-auto">
-          {files.map((fileItem) => {
-            const status = fileItem.uploadStatus ?? 'pending';
-            const style = UPLOAD_STATUS_STYLE[status];
-            const label = getUploadStatusLabel(status, fileItem.uploadProgress);
-            return (
-              <div key={fileItem.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-600">
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    {getUploadStatusIcon(status, style.textClass)}
-                    <span className="truncate text-sm text-gray-700 dark:text-gray-300">{fileItem.uploadFilename ?? fileItem.file.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-medium ${style.textClass}`}>{label}</span>
-                    {(status === 'uploading' || status === 'pending') && (
-                      <button
-                        type="button"
-                        onClick={() => onCancelSingle(fileItem.id)}
-                        className="flex-shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-700"
-                        title="Cancel upload"
-                      >
-                        <IconX size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
-                  <div
-                    className={`h-1.5 rounded-full transition-all duration-300 ${style.progressBarClass}`}
-                    style={{ width: `${fileItem.uploadProgress ?? 0}%` }}
-                  />
-                </div>
-                {fileItem.uploadError && <p className="mt-1 text-xs text-red-500">{fileItem.uploadError}</p>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function getUploadStatusBanner(allSuccess: boolean, allFailed: boolean, allCancelled: boolean) {
-  if (allSuccess) return { bg: 'bg-green-100 dark:bg-green-900', icon: <IconCheck size={24} className="text-green-600 dark:text-green-400" />, title: 'Upload Complete!', titleClass: 'text-green-700 dark:text-green-400' };
-  if (allFailed) return { bg: 'bg-red-100 dark:bg-red-900', icon: <IconX size={24} className="text-red-600 dark:text-red-400" />, title: 'Upload Failed', titleClass: 'text-red-700 dark:text-red-400' };
-  if (allCancelled) return { bg: 'bg-orange-100 dark:bg-orange-900', icon: <IconX size={24} className="text-orange-600 dark:text-orange-400" />, title: 'Upload Cancelled', titleClass: 'text-orange-700 dark:text-orange-400' };
-  return { bg: 'bg-orange-100 dark:bg-orange-900', icon: <IconCheck size={24} className="text-orange-600 dark:text-orange-400" />, title: 'Upload Partially Complete', titleClass: 'text-gray-900 dark:text-white' };
-}
-
-function getResultItemStyle(item: UploadResultItem) {
-  if (item.result) {
-    return {
-      borderClass: 'border-green-300 dark:border-green-700',
-      bgClass: 'bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30',
-      icon: <IconCheck size={16} className="flex-shrink-0 text-green-500" />,
-      textClass: 'text-green-500',
-      label: 'Success',
-      content: JSON.stringify(item.result, null, 2),
-    };
-  }
-  if (item.cancelled) {
-    return {
-      borderClass: 'border-orange-300 dark:border-orange-700',
-      bgClass: 'bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:hover:bg-orange-900/30',
-      icon: <IconX size={16} className="flex-shrink-0 text-orange-500" />,
-      textClass: 'text-orange-500',
-      label: 'Cancelled',
-      content: 'Upload was cancelled',
-    };
-  }
-  return {
-    borderClass: 'border-red-300 dark:border-red-700',
-    bgClass: 'bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30',
-    icon: <IconX size={16} className="flex-shrink-0 text-red-500" />,
-    textClass: 'text-red-500',
-    label: 'Failed',
-    content: `Error: ${item.error}`,
-  };
-}
-
-function UploadSuccessPopup({
-  results,
-  expandedResults,
-  copiedResultIndex,
-  onToggleExpanded,
-  onCopyJson,
-  onClose,
-}: Readonly<{
-  results: UploadResultItem[];
-  expandedResults: Set<number>;
-  copiedResultIndex: number | null;
-  onToggleExpanded: (index: number) => void;
-  onCopyJson: (text?: string, index?: number) => Promise<void>;
-  onClose: () => void;
-}>) {
-  const successCount = results.filter(r => r.result).length;
-  const cancelledCount = results.filter(r => r.cancelled).length;
-  const failedCount = results.length - successCount - cancelledCount;
-  const totalCount = results.length;
-
-  const statusConfig = getUploadStatusBanner(
-    successCount === totalCount,
-    failedCount === totalCount,
-    cancelledCount === totalCount,
-  );
-
-  return (
-    <div className={POPUP_OVERLAY_CLASS}>
-      <div className={POPUP_CONTAINER_CLASS}>
-        <div className="mb-4 flex justify-center">
-          <div className={`flex h-12 w-12 items-center justify-center rounded-full ${statusConfig.bg}`}>
-            {statusConfig.icon}
-          </div>
-        </div>
-        <h3 className={`mb-2 text-center text-lg font-semibold ${statusConfig.titleClass}`}>
-          {statusConfig.title}
-        </h3>
-        <p className="mb-4 text-center text-sm text-gray-600 dark:text-gray-400">
-          {successCount} / {totalCount} files uploaded successfully
-          {cancelledCount > 0 && <span className="ml-1 text-orange-500">({cancelledCount} cancelled)</span>}
-          {failedCount > 0 && <span className="ml-1 text-red-500">({failedCount} failed)</span>}
-        </p>
-        <div className="mb-4 max-h-96 space-y-2 overflow-y-auto">
-          {results.map((item, index) => {
-            const rs = getResultItemStyle(item);
-            return (
-              <div
-                key={`${item.filename}-${index}`}
-                className={`overflow-hidden rounded-lg border ${rs.borderClass}`}
-              >
-                <button
-                  type="button"
-                  onClick={() => onToggleExpanded(index)}
-                  className={`flex w-full items-center justify-between p-3 text-left transition-colors ${rs.bgClass}`}
-                >
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <IconChevronDown size={14} className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${expandedResults.has(index) ? 'rotate-180' : ''}`} />
-                    {rs.icon}
-                    <span className="truncate text-sm font-medium text-gray-700 dark:text-gray-300">{item.filename}</span>
-                  </div>
-                  <span className={`text-xs font-medium ${rs.textClass}`}>{rs.label}</span>
-                </button>
-                {expandedResults.has(index) && (
-                  <div className="border-t border-gray-200 bg-gray-50 p-2 dark:border-gray-600 dark:bg-[#1e1e28]">
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => onCopyJson(rs.content, index)}
-                        className={`absolute right-1 top-1 rounded p-1 transition-colors ${copiedResultIndex === index ? 'text-green-500' : 'text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'}`}
-                        title={copiedResultIndex === index ? 'Copied!' : 'Copy JSON'}
-                      >
-                        {copiedResultIndex === index ? <IconCheck size={14} /> : <IconCopy size={14} />}
-                      </button>
-                      <pre className="max-h-40 overflow-auto rounded bg-gray-100 p-2 pr-8 text-xs text-gray-800 dark:bg-[#0d0d12] dark:text-gray-300">
-                        {rs.content}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <button
-          data-testid="upload-close-button"
-          type="button"
-          onClick={onClose}
-          className="w-full rounded-lg bg-[#76b900] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5a8f00]"
-        >
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
+const POPUP_CONTAINER_CLASS = 'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-[#343541]';
 
 interface ChatFileUploadProps {
   /** Callback when upload completes successfully */
@@ -290,8 +59,6 @@ interface ChatFileUploadProps {
   children: (props: { 
     triggerUpload: () => void;
     triggerFilePicker: () => void;
-    /** Use with <label htmlFor={fileInputId}> so click opens file picker without programmatic click */
-    fileInputId: string;
     isUploading: boolean;
     uploadProgress: number;
     isDragging: boolean;
@@ -316,8 +83,9 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     state: { agentApiUrlBase, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
   } = useContext(HomeContext);
 
-  const fileInputId = useId();
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const metadataInputRef = useRef<HTMLInputElement>(null);
+  const [pendingMetadataFileId, setPendingMetadataFileId] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showProgressPopup, setShowProgressPopup] = useState(false);
@@ -327,12 +95,19 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   const [copiedResultIndex, setCopiedResultIndex] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
-
+  
+  // Store AbortControllers for each file to enable cancellation
   const abortControllerMapRef = useRef<Map<string, AbortController>>(new Map());
+  // Track cancelled file IDs to prevent upload after cancellation
   const cancelledFileIdsRef = useRef<Set<string>>(new Set());
-
+  
+  // File selection popup state
   const [showFileSelectPopup, setShowFileSelectPopup] = useState(false);
-  const [initialFilesForDialog, setInitialFilesForDialog] = useState<File[] | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<FileWithFormData[]>([]);
+  
+  // Drag states for drop zones in popup
+  const [isDraggingMedia, setIsDraggingMedia] = useState(false);
+  const [draggingMetadataFileId, setDraggingMetadataFileId] = useState<string | null>(null);
 
   // Warn user before leaving page while uploading
   useEffect(() => {
@@ -340,6 +115,8 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      // Required in most browsers to trigger the confirmation dialog
+      e.returnValue = '';
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -358,6 +135,33 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     return null;
   }, [chatUploadFileConfigTemplateJson]);
 
+  // Generate default form data from config template
+  const generateDefaultFormData = useCallback((): Record<string, any> => {
+    if (!configTemplate || !Array.isArray(configTemplate.fields)) return {};
+    return configTemplate.fields.reduce((acc, field) => {
+      acc[field['field-name']] = field['field-default-value'];
+      return acc;
+    }, {} as Record<string, any>);
+  }, [configTemplate]);
+
+  // Generate unique ID for file
+  const generateFileId = useCallback(() => {
+    return `file_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  }, []);
+
+  // Create FileWithFormData from File
+  const createFileWithFormData = useCallback((file: File): FileWithFormData => ({
+    id: generateFileId(),
+    file,
+    formData: generateDefaultFormData(),
+    isExpanded: false,
+  }), [generateFileId, generateDefaultFormData]);
+
+  // Get field value from formData or default
+  const getFieldValue = useCallback((formData: Record<string, any>, field: UploadFileFieldConfig) => {
+    return formData[field['field-name']] ?? field['field-default-value'];
+  }, []);
+
   const triggerUpload = useCallback(() => {
     if (disabled || isUploading) return;
     setShowFileSelectPopup(true);
@@ -369,42 +173,147 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     videoInputRef.current?.click();
   }, [disabled, isUploading]);
 
+  const handleCancelFileSelect = useCallback(() => {
+    setShowFileSelectPopup(false);
+    setSelectedFiles([]);
+  }, []);
+
+  // Check if file is an allowed video format (only .mp4 and .mkv)
   const isAllowedVideoFile = useCallback((file: File) => {
     const allowedExtensions = /\.(mp4|mkv)$/i;
     const allowedMimeTypes = ['video/mp4', 'video/x-matroska'];
     return allowedExtensions.test(file.name) || allowedMimeTypes.includes(file.type);
   }, []);
 
-  const openDialogWithFiles = useCallback(
-    (fileList: FileList | File[]) => {
-      const list = Array.from(fileList);
-      if (!list.length) return;
-      const valid = list.filter(isAllowedVideoFile);
-      if (valid.length < list.length) toast.error('Please drop video files only (mp4, mkv)');
-      if (valid.length > 0) {
-        flushSync(() => {
-          setInitialFilesForDialog(valid);
-          setShowFileSelectPopup(true);
-        });
+  // Shared logic to process dropped/selected files
+  const processDroppedFiles = useCallback((files: FileList | File[], openPopup = false) => {
+    const allFiles = Array.from(files);
+    const validFiles = allFiles.filter(isAllowedVideoFile);
+    const hasInvalidFiles = allFiles.length > validFiles.length;
+    
+    if (hasInvalidFiles) {
+      toast.error('Please drop video files only (mp4, mkv)');
+    }
+    
+    if (validFiles.length > 0) {
+      const newFiles = validFiles.map(createFileWithFormData);
+      setSelectedFiles(prev => [...prev, ...newFiles]);
+      if (openPopup) {
+        setShowFileSelectPopup(true);
       }
-    },
-    [isAllowedVideoFile]
-  );
+    }
+  }, [createFileWithFormData, isAllowedVideoFile]);
 
-  const handleVideoFileChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const list = event.target.files;
-      const files = list ? Array.from(list) : [];
-      event.target.value = '';
-      if (files.length) openDialogWithFiles(files);
-    },
-    [openDialogWithFiles]
-  );
+  const handleVideoFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      processDroppedFiles(files, true);
+    }
+    event.target.value = '';
+  }, [processDroppedFiles]);
 
-  const handleDialogClose = useCallback(() => {
-    setShowFileSelectPopup(false);
-    setInitialFilesForDialog(null);
+  const handleRemoveFile = useCallback((fileId: string) => {
+    setSelectedFiles(prev => prev.filter(f => f.id !== fileId));
   }, []);
+
+  const handleToggleFileExpand = useCallback((fileId: string) => {
+    setSelectedFiles(prev => prev.map(f => 
+      f.id === fileId ? { ...f, isExpanded: !f.isExpanded } : f
+    ));
+  }, []);
+
+  const handleFileFormDataChange = useCallback((fileId: string, fieldName: string, value: any) => {
+    setSelectedFiles(prev => prev.map(f => 
+      f.id === fileId ? { ...f, formData: { ...f.formData, [fieldName]: value } } : f
+    ));
+  }, []);
+
+  // Toggle metadata section for a file
+  const handleToggleFileMetadataExpand = useCallback((fileId: string) => {
+    setSelectedFiles(prev => prev.map(f => 
+      f.id === fileId ? { ...f, isMetadataExpanded: !f.isMetadataExpanded } : f
+    ));
+  }, []);
+
+  // Validate and set metadata file for a specific file
+  const validateAndSetFileMetadata = useCallback(async (fileId: string, file: File) => {
+    if (!file.name.endsWith('.json')) {
+      toast.error('Please select a JSON file');
+      return false;
+    }
+    try {
+      const content = await file.text();
+      JSON.parse(content);
+      setSelectedFiles(prev => prev.map(f => 
+        f.id === fileId ? { ...f, metadataFile: file } : f
+      ));
+      return true;
+    } catch {
+      toast.error('Invalid JSON format. Please check your file.');
+      return false;
+    }
+  }, []);
+
+  // Remove metadata file from a specific file
+  const handleRemoveFileMetadata = useCallback((fileId: string) => {
+    setSelectedFiles(prev => prev.map(f => 
+      f.id === fileId ? { ...f, metadataFile: null } : f
+    ));
+  }, []);
+
+  // Open file picker for metadata
+  const handleMetadataFileSelect = useCallback((fileId: string) => {
+    setPendingMetadataFileId(fileId);
+    metadataInputRef.current?.click();
+  }, []);
+
+  // Handle metadata file input change
+  const handleMetadataInputChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && pendingMetadataFileId) {
+      await validateAndSetFileMetadata(pendingMetadataFileId, file);
+    }
+    event.target.value = '';
+    setPendingMetadataFileId(null);
+  }, [pendingMetadataFileId, validateAndSetFileMetadata]);
+
+  // Common drag prevention handler
+  const preventDragDefault = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleMediaDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingMedia(false);
+    
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processDroppedFiles(files, false);
+    }
+  }, [processDroppedFiles]);
+
+  // Handle metadata drop for a specific file
+  const handleFileMetadataDrop = useCallback(async (fileId: string, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraggingMetadataFileId(null);
+    
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      await validateAndSetFileMetadata(fileId, files[0]);
+    }
+  }, [validateAndSetFileMetadata]);
+
+  const handleConfirmUpload = useCallback(() => {
+    if (selectedFiles.length === 0) {
+      toast.error('Please select at least one file');
+      return;
+    }
+    processFilesParallel(selectedFiles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFiles]);
 
   const handleClosePopup = useCallback(() => {
     setShowSuccessPopup(false);
@@ -459,33 +368,26 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     }
   }, []);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-      dragCounterRef.current = 0;
-      if (disabled || isUploading) return;
-      const list = e.dataTransfer.files;
-      if (list?.length) openDialogWithFiles(list);
-    },
-    [disabled, isUploading, openDialogWithFiles]
-  );
-
-  const preventDragDefault = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-  }, []);
+    setIsDragging(false);
+    dragCounterRef.current = 0;
 
-  const dragHandlers = useMemo(
-    () => ({
-      onDragEnter: handleDragEnter,
-      onDragLeave: handleDragLeave,
-      onDragOver: preventDragDefault,
-      onDrop: handleDrop,
-    }),
-    [handleDragEnter, handleDragLeave, preventDragDefault, handleDrop]
-  );
+    if (disabled || isUploading) return;
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      processDroppedFiles(files, true);
+    }
+  }, [disabled, isUploading, processDroppedFiles]);
+
+  const dragHandlers = {
+    onDragEnter: handleDragEnter,
+    onDragLeave: handleDragLeave,
+    onDragOver: preventDragDefault,
+    onDrop: handleDrop,
+  };
 
 
   // Update uploading files progress (for progress popup)
@@ -537,7 +439,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   // Upload a single file (for progress popup)
   const uploadSingleFileWithTracking = async (fileItem: FileWithFormData): Promise<{ filename: string; result?: FileUploadResult; error?: string; cancelled?: boolean }> => {
     const { id: fileId, file, formData } = fileItem;
-    const filename = fileItem.uploadFilename ?? file.name;
+    const filename = file.name;
     const cancelledResult = { filename, error: 'Upload was cancelled', cancelled: true };
 
     // Check if already cancelled before starting
@@ -559,14 +461,13 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       const abortController = new AbortController();
       abortControllerMapRef.current.set(fileId, abortController);
 
-      // Use shared upload utility (uploadFilename from dialog when user edited it)
+      // Use shared upload utility
       const result = await uploadFile(
         file,
         agentApiUrlBase,
         formData,
         (progress) => updateUploadingFileProgress(fileId, progress),
-        abortController.signal,
-        fileItem.uploadFilename
+        abortController.signal
       );
       
       // Clean up AbortController after successful upload
@@ -666,6 +567,9 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
         }
       }, 1000);
 
+      // Clear selected files
+      setSelectedFiles([]);
+
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Unknown error');
       toast.error(`Upload failed: ${err.message}`);
@@ -679,25 +583,10 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     }
   };
 
-  const handleDialogConfirm = useCallback(
-    (entries: { id: string; file: File; formData: Record<string, any>; uploadFilename?: string; metadataFile?: File | null }[]) => {
-      const filesToUpload: FileWithFormData[] = entries.map((e) => ({
-        id: e.id,
-        file: e.file,
-        formData: e.formData,
-        isExpanded: false,
-        uploadFilename: e.uploadFilename,
-        metadataFile: e.metadataFile ?? undefined,
-      }));
-      processFilesParallel(filesToUpload);
-    },
-    [] // processFilesParallel is stable (uses refs and state setters)
-  );
-
   return (
     <>
+      {/* Hidden file inputs */}
       <input
-        id={fileInputId}
         type="file"
         ref={videoInputRef}
         className="hidden"
@@ -706,38 +595,551 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
         disabled={disabled || isUploading}
         multiple
       />
-      {children({ triggerUpload, triggerFilePicker, fileInputId, isUploading, uploadProgress: 0, isDragging, dragHandlers })}
-
-      <UploadFilesDialog
-        open={showFileSelectPopup}
-        configTemplate={configTemplate}
-        onClose={handleDialogClose}
-        onConfirm={handleDialogConfirm}
-        initialFiles={initialFilesForDialog}
-        accept={accept}
-        metadata={
-          chatUploadFileMetadataEnabled ? { enabled: true } : undefined
-        }
+      <input
+        type="file"
+        ref={metadataInputRef}
+        className="hidden"
+        accept=".json,application/json"
+        onChange={handleMetadataInputChange}
+        disabled={disabled || isUploading}
       />
+      {children({ triggerUpload, triggerFilePicker, isUploading, uploadProgress: 0, isDragging, dragHandlers })}
 
+      {/* File Selection Popup */}
+      {showFileSelectPopup && (
+        <div className={POPUP_OVERLAY_CLASS}>
+          <div className={POPUP_CONTAINER_CLASS}>
+            {/* Title */}
+            <h3 className="mb-6 text-center text-lg font-semibold text-gray-900 dark:text-white">
+              Upload Files
+            </h3>
+
+            {/* Media File Section */}
+            <div className="mb-4">
+              <div className="mb-2 flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Files <span className="text-red-500">*</span>
+                  {selectedFiles.length > 0 && (
+                    <span className="ml-2 rounded-full bg-[#76b900] px-2 py-0.5 text-xs text-white">
+                      {selectedFiles.length}
+                    </span>
+                  )}
+                </label>
+                {selectedFiles.length > 0 && (
+                  <button
+                    onClick={triggerFilePicker}
+                    className="flex items-center gap-1 rounded-lg bg-[#76b900] px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-[#5a8f00]"
+                  >
+                    <IconPlus size={14} />
+                    Add More
+                  </button>
+                )}
+              </div>
+
+              {/* File List */}
+              {selectedFiles.length > 0 ? (
+                <div className="max-h-96 space-y-2 overflow-y-auto">
+                  {selectedFiles.map((fileItem) => (
+                    <div 
+                      key={fileItem.id} 
+                      className="overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600"
+                    >
+                      {/* File Header */}
+                      {(() => {
+                        const hasExpandableContent = chatUploadFileMetadataEnabled || (configTemplate && Array.isArray(configTemplate.fields) && configTemplate.fields.length > 0);
+                        
+                        return (
+                          <>
+                            <div className="flex items-center justify-between bg-white p-3 dark:bg-[#343541]">
+                              <div 
+                                className={`flex flex-1 items-center gap-2 overflow-hidden ${hasExpandableContent ? 'cursor-pointer' : ''}`}
+                                onClick={() => hasExpandableContent && handleToggleFileExpand(fileItem.id)}
+                              >
+                                {hasExpandableContent && (
+                                  <IconChevronDown
+                                    size={16}
+                                    className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${fileItem.isExpanded ? 'rotate-180' : ''}`}
+                                  />
+                                )}
+                                <IconVideo size={18} className="flex-shrink-0 text-[#76b900]" />
+                                <span className="truncate text-sm text-gray-700 dark:text-gray-300">
+                                  {fileItem.file.name}
+                                </span>
+                                <span className="flex-shrink-0 text-xs text-gray-400">
+                                  ({(fileItem.file.size / 1024 / 1024).toFixed(2)} MB)
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => handleRemoveFile(fileItem.id)}
+                                className="ml-2 flex-shrink-0 text-gray-500 hover:text-red-500"
+                              >
+                                <IconX size={18} />
+                              </button>
+                            </div>
+
+                            {/* File Form - Collapsible */}
+                            {hasExpandableContent && fileItem.isExpanded && (
+                        <div className="border-t border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-[#2a2a36]">
+                          {/* Form Fields */}
+                          {configTemplate && Array.isArray(configTemplate.fields) && configTemplate.fields.length > 0 && (
+                            <div className="mb-3 space-y-3">
+                              {configTemplate.fields.map((field) => {
+                                const value = getFieldValue(fileItem.formData, field);
+                                const fieldName = field['field-name'];
+                                const isChangeable = field['changeable'] !== false;
+                                const tooltipInfo = field['tooltip-info'] || '';
+                                return (
+                                  <div key={fieldName} className="flex items-center gap-3">
+                                    <label 
+                                      className="w-24 flex-shrink-0 text-xs font-medium text-gray-600 dark:text-gray-400"
+                                      title={tooltipInfo}
+                                    >
+                                      {fieldName.charAt(0).toUpperCase() + fieldName.slice(1)}
+                                    </label>
+                                    <div className="flex-1" title={tooltipInfo}>
+                                      {field['field-type'] === 'boolean' ? (
+                                        <label className={`flex items-center gap-2 ${isChangeable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                                          <button
+                                            type="button"
+                                            role="switch"
+                                            aria-checked={value}
+                                            disabled={!isChangeable}
+                                            onClick={() => isChangeable && handleFileFormDataChange(fileItem.id, fieldName, !value)}
+                                            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#76b900] focus:ring-offset-2 ${
+                                              value ? 'bg-[#76b900]' : 'bg-gray-300 dark:bg-gray-600'
+                                            } ${isChangeable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                                          >
+                                            <span
+                                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                                value ? 'translate-x-4' : 'translate-x-0'
+                                              }`}
+                                            />
+                                          </button>
+                                          <span className="text-sm text-gray-700 dark:text-gray-300">
+                                            {value ? 'Yes' : 'No'}
+                                          </span>
+                                        </label>
+                                      ) : field['field-type'] === 'select' ? (
+                                        <select
+                                          value={value}
+                                          disabled={!isChangeable}
+                                          onChange={(e) => handleFileFormDataChange(fileItem.id, fieldName, e.target.value)}
+                                          className={`${INPUT_CLASS} ${!isChangeable ? 'cursor-not-allowed opacity-60' : ''}`}
+                                        >
+                                          {field['field-options']?.map((option) => (
+                                            <option key={String(option)} value={String(option)}>
+                                              {String(option)}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      ) : field['field-type'] === 'number' ? (
+                                        <input
+                                          type="number"
+                                          value={value}
+                                          disabled={!isChangeable}
+                                          onChange={(e) => handleFileFormDataChange(fileItem.id, fieldName, Number(e.target.value))}
+                                          className={`${INPUT_CLASS} ${!isChangeable ? 'cursor-not-allowed opacity-60' : ''}`}
+                                        />
+                                      ) : (
+                                        <input
+                                          type="text"
+                                          value={value}
+                                          disabled={!isChangeable}
+                                          onChange={(e) => handleFileFormDataChange(fileItem.id, fieldName, e.target.value)}
+                                          className={`${INPUT_CLASS} ${!isChangeable ? 'cursor-not-allowed opacity-60' : ''}`}
+                                          placeholder={`Enter ${fieldName}`}
+                                        />
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+
+                          {/* Metadata File Section - Per file (only show when enabled via env) */}
+                          {chatUploadFileMetadataEnabled && (
+                            <div className="overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600">
+                              {/* Metadata Accordion Header */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleFileMetadataExpand(fileItem.id)}
+                                className="flex w-full items-center gap-2 bg-white px-3 py-2 text-left transition-colors hover:bg-gray-50 dark:bg-[#343541] dark:hover:bg-[#3d3d4a]"
+                              >
+                                <IconChevronDown
+                                  size={14}
+                                  className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${fileItem.isMetadataExpanded ? 'rotate-180' : ''}`}
+                                />
+                                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                                  Metadata (JSON)
+                                </span>
+                                {fileItem.metadataFile && (
+                                  <span className="rounded-full bg-blue-500 px-1.5 py-0.5 text-xs text-white">1</span>
+                                )}
+                                <span className="text-xs text-gray-400">(optional)</span>
+                              </button>
+                              
+                              {/* Metadata Content */}
+                              {fileItem.isMetadataExpanded && (
+                                <div className="border-t border-gray-200 bg-white p-2 dark:border-gray-600 dark:bg-[#343541]">
+                                  {fileItem.metadataFile ? (
+                                    <div className="flex items-center justify-between rounded-lg border border-blue-500 bg-blue-500/10 p-2">
+                                      <div className="flex items-center gap-2 overflow-hidden">
+                                        <IconFileCode size={16} className="flex-shrink-0 text-blue-500" />
+                                        <span className="truncate text-xs text-gray-700 dark:text-gray-300">{fileItem.metadataFile.name}</span>
+                                      </div>
+                                      <button
+                                        onClick={() => handleRemoveFileMetadata(fileItem.id)}
+                                        className="ml-2 flex-shrink-0 text-gray-500 hover:text-red-500"
+                                      >
+                                        <IconX size={16} />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div
+                                      onClick={() => handleMetadataFileSelect(fileItem.id)}
+                                      onDragOver={preventDragDefault}
+                                      onDragEnter={(e) => { preventDragDefault(e); setDraggingMetadataFileId(fileItem.id); }}
+                                      onDragLeave={(e) => { preventDragDefault(e); setDraggingMetadataFileId(null); }}
+                                      onDrop={(e) => handleFileMetadataDrop(fileItem.id, e)}
+                                      className={`w-full cursor-pointer rounded-lg border-2 border-dashed p-3 text-center transition-colors ${
+                                        draggingMetadataFileId === fileItem.id
+                                          ? 'border-blue-500 bg-blue-500/10'
+                                          : 'border-gray-300 hover:border-blue-500 hover:bg-gray-50 dark:border-gray-600 dark:hover:border-blue-500 dark:hover:bg-[#3d3d4a]'
+                                      }`}
+                                    >
+                                      <IconFileCode size={24} className="mx-auto text-gray-400" />
+                                      <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+                                        {draggingMetadataFileId === fileItem.id ? 'Drop JSON here' : 'Click or drag JSON metadata'}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  onClick={triggerFilePicker}
+                  onDragOver={preventDragDefault}
+                  onDragEnter={(e) => { preventDragDefault(e); setIsDraggingMedia(true); }}
+                  onDragLeave={(e) => { preventDragDefault(e); setIsDraggingMedia(false); }}
+                  onDrop={handleMediaDrop}
+                  className={`w-full cursor-pointer rounded-lg border-2 border-dashed p-4 text-center transition-colors ${
+                    isDraggingMedia
+                      ? 'border-[#76b900] bg-[#76b900]/10'
+                      : 'border-gray-300 hover:border-[#76b900] hover:bg-gray-50 dark:border-gray-600 dark:hover:border-[#76b900] dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <IconVideoPlus size={40} className="mx-auto text-gray-400" />
+                  <span className="mt-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {isDraggingMedia ? 'Drop files here' : 'Click or drag files here'}
+                  </span>
+                  <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="rounded bg-gray-100 px-2 py-0.5 dark:bg-gray-700">Movie Files (mp4, mkv)</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelFileSelect}
+                className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmUpload}
+                disabled={selectedFiles.length === 0}
+                className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
+                  selectedFiles.length > 0
+                    ? 'bg-[#76b900] hover:bg-[#5a8f00]'
+                    : 'bg-gray-400'
+                }`}
+              >
+                Upload {selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Progress Popup */}
       {showProgressPopup && (
-        <UploadProgressPopup
-          files={uploadingFiles}
-          onCancelAll={handleCancelAllUploads}
-          onCancelSingle={handleCancelSingleUpload}
-        />
+        <div className={POPUP_OVERLAY_CLASS}>
+          <div className={POPUP_CONTAINER_CLASS}>
+            {/* Title */}
+            <h3 className="mb-4 text-center text-lg font-semibold text-gray-900 dark:text-white">
+              Uploading Files...
+            </h3>
+
+            {/* Cancel All Button */}
+            {uploadingFiles.some(f => f.uploadStatus === 'pending' || f.uploadStatus === 'uploading') && (
+              <div className="mb-4 flex justify-center">
+                <button
+                  onClick={handleCancelAllUploads}
+                  className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 dark:border-red-700 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+                >
+                  <IconX size={16} />
+                  Cancel All
+                </button>
+              </div>
+            )}
+
+            {/* File Progress List */}
+            <div className="max-h-96 space-y-3 overflow-y-auto">
+              {uploadingFiles.map((fileItem) => (
+                <div key={fileItem.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-600">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      {fileItem.uploadStatus === 'uploading' ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-[#76b900]" />
+                      ) : fileItem.uploadStatus === 'success' ? (
+                        <IconCheck size={16} className="flex-shrink-0 text-green-500" />
+                      ) : fileItem.uploadStatus === 'error' ? (
+                        <IconX size={16} className="flex-shrink-0 text-red-500" />
+                      ) : fileItem.uploadStatus === 'cancelled' ? (
+                        <IconX size={16} className="flex-shrink-0 text-orange-500" />
+                      ) : (
+                        <div className="h-4 w-4 rounded-full border-2 border-gray-300" />
+                      )}
+                      <span className="truncate text-sm text-gray-700 dark:text-gray-300">
+                        {fileItem.file.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-medium ${
+                        fileItem.uploadStatus === 'success' ? 'text-green-500' 
+                        : fileItem.uploadStatus === 'error' ? 'text-red-500'
+                        : fileItem.uploadStatus === 'cancelled' ? 'text-orange-500'
+                        : fileItem.uploadStatus === 'uploading' ? 'text-[#76b900]'
+                        : 'text-gray-400'
+                      }`}>
+                        {fileItem.uploadStatus === 'success' ? 'Done' 
+                         : fileItem.uploadStatus === 'error' ? 'Failed'
+                         : fileItem.uploadStatus === 'cancelled' ? 'Cancelled'
+                         : fileItem.uploadStatus === 'uploading' ? `${fileItem.uploadProgress || 0}%`
+                         : 'Pending'}
+                      </span>
+                      {/* Cancel button for uploading/pending files */}
+                      {(fileItem.uploadStatus === 'uploading' || fileItem.uploadStatus === 'pending') && (
+                        <button
+                          onClick={() => handleCancelSingleUpload(fileItem.id)}
+                          className="flex-shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-500 dark:hover:bg-gray-700"
+                          title="Cancel upload"
+                        >
+                          <IconX size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {/* Progress Bar */}
+                  <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+                    <div 
+                      className={`h-1.5 rounded-full transition-all duration-300 ${
+                        fileItem.uploadStatus === 'success' ? 'bg-green-500'
+                        : fileItem.uploadStatus === 'error' ? 'bg-red-500'
+                        : fileItem.uploadStatus === 'cancelled' ? 'bg-orange-500'
+                        : 'bg-[#76b900]'
+                      }`}
+                      style={{ width: `${fileItem.uploadProgress || 0}%` }}
+                    />
+                  </div>
+                  {fileItem.uploadError && (
+                    <p className="mt-1 text-xs text-red-500">{fileItem.uploadError}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
-      {showSuccessPopup && allUploadResults.length > 0 && (
-        <UploadSuccessPopup
-          results={allUploadResults}
-          expandedResults={expandedResults}
-          copiedResultIndex={copiedResultIndex}
-          onToggleExpanded={toggleResultExpanded}
-          onCopyJson={handleCopyJson}
-          onClose={handleClosePopup}
-        />
-      )}
+      {/* Success Popup */}
+      {showSuccessPopup && allUploadResults.length > 0 && (() => {
+        const successCount = allUploadResults.filter(r => r.result).length;
+        const cancelledCount = allUploadResults.filter(r => r.cancelled).length;
+        const failedCount = allUploadResults.length - successCount - cancelledCount;
+        const totalCount = allUploadResults.length;
+        
+        // Determine overall status
+        const allSuccess = successCount === totalCount;
+        const allFailed = failedCount === totalCount;
+        const allCancelled = cancelledCount === totalCount;
+        
+        return (
+        <div className={POPUP_OVERLAY_CLASS}>
+          <div className={POPUP_CONTAINER_CLASS}>
+            {/* Status Icon - changes based on result */}
+            <div className="mb-4 flex justify-center">
+              <div className={`flex h-12 w-12 items-center justify-center rounded-full ${
+                allSuccess 
+                  ? 'bg-green-100 dark:bg-green-900' 
+                  : allFailed 
+                    ? 'bg-red-100 dark:bg-red-900'
+                    : allCancelled
+                      ? 'bg-orange-100 dark:bg-orange-900'
+                      : 'bg-orange-100 dark:bg-orange-900'
+              }`}>
+                {allSuccess ? (
+                  <IconCheck size={24} className="text-green-600 dark:text-green-400" />
+                ) : allFailed ? (
+                  <IconX size={24} className="text-red-600 dark:text-red-400" />
+                ) : allCancelled ? (
+                  <IconX size={24} className="text-orange-600 dark:text-orange-400" />
+                ) : (
+                  <IconCheck size={24} className="text-orange-600 dark:text-orange-400" />
+                )}
+              </div>
+            </div>
+
+            {/* Title - changes based on result */}
+            <h3 className={`mb-2 text-center text-lg font-semibold ${
+              allSuccess 
+                ? 'text-green-700 dark:text-green-400' 
+                : allFailed 
+                  ? 'text-red-700 dark:text-red-400'
+                  : allCancelled
+                    ? 'text-orange-700 dark:text-orange-400'
+                    : 'text-gray-900 dark:text-white'
+            }`}>
+              {allSuccess 
+                ? 'Upload Complete!' 
+                : allFailed 
+                  ? 'Upload Failed'
+                  : allCancelled
+                    ? 'Upload Cancelled'
+                    : 'Upload Partially Complete'}
+            </h3>
+            
+            {/* Description */}
+            <p className="mb-4 text-center text-sm text-gray-600 dark:text-gray-400">
+              {successCount} / {totalCount} files uploaded successfully
+              {cancelledCount > 0 && (
+                <span className="ml-1 text-orange-500">
+                  ({cancelledCount} cancelled)
+                </span>
+              )}
+              {failedCount > 0 && (
+                <span className="ml-1 text-red-500">
+                  ({failedCount} failed)
+                </span>
+              )}
+            </p>
+
+            {/* File Results List */}
+            <div className="mb-4 max-h-96 space-y-2 overflow-y-auto">
+              {allUploadResults.map((item, index) => (
+                <div 
+                  key={index} 
+                  className={`overflow-hidden rounded-lg border ${
+                    item.result 
+                      ? 'border-green-300 dark:border-green-700' 
+                      : item.cancelled 
+                        ? 'border-orange-300 dark:border-orange-700'
+                        : 'border-red-300 dark:border-red-700'
+                  }`}
+                >
+                  {/* File Header - Clickable to expand/collapse */}
+                  <button
+                    type="button"
+                    onClick={() => toggleResultExpanded(index)}
+                    className={`flex w-full items-center justify-between p-3 text-left transition-colors ${
+                      item.result 
+                        ? 'bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30' 
+                        : item.cancelled
+                          ? 'bg-orange-50 hover:bg-orange-100 dark:bg-orange-900/20 dark:hover:bg-orange-900/30'
+                          : 'bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <IconChevronDown
+                        size={14}
+                        className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${
+                          expandedResults.has(index) ? 'rotate-180' : ''
+                        }`}
+                      />
+                      {item.result ? (
+                        <IconCheck size={16} className="flex-shrink-0 text-green-500" />
+                      ) : item.cancelled ? (
+                        <IconX size={16} className="flex-shrink-0 text-orange-500" />
+                      ) : (
+                        <IconX size={16} className="flex-shrink-0 text-red-500" />
+                      )}
+                      <span className="truncate text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {item.filename}
+                      </span>
+                    </div>
+                    <span className={`text-xs font-medium ${
+                      item.result 
+                        ? 'text-green-500' 
+                        : item.cancelled 
+                          ? 'text-orange-500'
+                          : 'text-red-500'
+                    }`}>
+                      {item.result ? 'Success' : item.cancelled ? 'Cancelled' : 'Failed'}
+                    </span>
+                  </button>
+                  {/* JSON Response or Error - Collapsible */}
+                  {expandedResults.has(index) && (
+                    <div className="border-t border-gray-200 bg-gray-50 p-2 dark:border-gray-600 dark:bg-[#1e1e28]">
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyJson(
+                            item.result 
+                              ? JSON.stringify(item.result, null, 2)
+                              : item.cancelled
+                                ? 'Upload was cancelled'
+                                : `Error: ${item.error}`,
+                            index
+                          )}
+                          className={`absolute right-1 top-1 rounded p-1 transition-colors ${
+                            copiedResultIndex === index
+                              ? 'text-green-500'
+                              : 'text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+                          }`}
+                          title={copiedResultIndex === index ? 'Copied!' : 'Copy JSON'}
+                        >
+                          {copiedResultIndex === index ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                        </button>
+                        <pre className="max-h-40 overflow-auto rounded bg-gray-100 p-2 pr-8 text-xs text-gray-800 dark:bg-[#0d0d12] dark:text-gray-300">
+                          {item.result 
+                            ? JSON.stringify(item.result, null, 2)
+                            : item.cancelled
+                              ? 'Upload was cancelled'
+                              : `Error: ${item.error}`
+                          }
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Button */}
+            <button
+              onClick={handleClosePopup}
+              className="w-full rounded-lg bg-[#76b900] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5a8f00]"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        );
+      })()}
     </>
   );
 };

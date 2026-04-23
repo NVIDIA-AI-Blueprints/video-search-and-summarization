@@ -5,7 +5,7 @@ import { createApiEndpoints } from './api';
 
 export function getFileExtension(path: string): string {
   const parts = path.split('.');
-  return parts.length > 1 ? parts.at(-1)!.toUpperCase() : '';
+  return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : '';
 }
 
 export function isRtspStream(stream: StreamInfo): boolean {
@@ -55,59 +55,59 @@ export function parseStreamsResponse(data: StreamsApiResponse): StreamInfo[] {
   return allStreams;
 }
 
-interface ParsedErrorObj {
-  error_code?: string;
-  error_message?: string;
-  message?: string;
-  detail?: Array<{ type?: string; loc?: unknown[]; msg?: string }>;
-}
-
-/** FastAPI-style validation errors: { "detail": [ { "loc": ["body", "name"], "msg": "Field required" } ] } */
-function parseValidationDetail(detail: ParsedErrorObj['detail']): string | null {
-  if (!Array.isArray(detail) || detail.length === 0) return null;
-
-  const first = detail[0];
-  const msg = first?.msg ?? '';
-  const loc = first?.loc;
-
-  if (Array.isArray(loc)) {
-    const field = loc.at(-1);
-    const isNameRequired = field === 'name' && (msg.toLowerCase().includes('required') || first?.type === 'missing');
-    if (isNameRequired) return 'Sensor Name is required.';
-    if (msg) return `${String(field)}: ${msg}`;
-  }
-
-  return msg || null;
-}
-
-function parseErrorCodeMessage(errorObj: ParsedErrorObj): string | null {
-  const rawMessage = errorObj.error_message || errorObj.message;
-  const isDuplicate =
-    errorObj.error_code === 'InvalidParameterError' &&
-    (rawMessage ?? '').toLowerCase().includes('exists');
-
-  if (isDuplicate) return 'A sensor with this RTSP URL already exists.';
-  return rawMessage || null;
-}
-
 export function parseApiError(text: string, defaultMessage: string): string {
   try {
     const parsed: unknown = JSON.parse(text);
-    if (typeof parsed !== 'object' || parsed === null) return text;
 
-    const errorObj = parsed as ParsedErrorObj;
+    if (typeof parsed === 'object' && parsed !== null) {
+      const errorObj = parsed as {
+        error_code?: string;
+        error_message?: string;
+        message?: string;
+        detail?: Array<{ type?: string; loc?: unknown[]; msg?: string }>;
+      };
 
-    const detailMessage = parseValidationDetail(errorObj.detail);
-    if (detailMessage) return detailMessage;
+      // FastAPI-style validation errors: { "detail": [ { "loc": ["body", "name"], "msg": "Field required" } ] }
+      const detail = errorObj.detail;
+      if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0];
+        const loc = first?.loc;
+        const msg = first?.msg ?? '';
+        if (Array.isArray(loc)) {
+          const field = loc[loc.length - 1];
+          if (field === 'name' && (msg.toLowerCase().includes('required') || first?.type === 'missing')) {
+            return 'Sensor Name is required.';
+          }
+          if (msg) return `${String(field)}: ${msg}`;
+        }
+        if (msg) return msg;
+      }
 
-    return parseErrorCodeMessage(errorObj) ?? text;
+      const rawMessage = errorObj.error_message || errorObj.message;
+
+      if (
+        errorObj.error_code === 'InvalidParameterError' &&
+        (rawMessage ?? '').toLowerCase().includes('exists')
+      ) {
+        return 'A sensor with this RTSP URL already exists.';
+      } else if (rawMessage) {
+        return rawMessage;
+      } else {
+        return text;
+      }
+    }
+    return text;
   } catch {
     return text || defaultMessage;
   }
 }
 
 function generateUUID(): string {
-  return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 export function generateUploadId(): string {
@@ -182,10 +182,10 @@ export async function uploadFile(
 
 // Rate-limited picture fetch queue with request deduplication
 class PictureFetchQueue {
-  private readonly queue: Array<() => Promise<void>> = [];
+  private queue: Array<() => Promise<void>> = [];
   private activeCount = 0;
-  private readonly maxConcurrent: number;
-  private readonly inFlight = new Map<string, Promise<Blob>>();
+  private maxConcurrent: number;
+  private inFlight = new Map<string, Promise<Blob>>();
 
   constructor(maxConcurrent: number = NUM_PARALLEL_GET_PICTURES) {
     this.maxConcurrent = maxConcurrent;

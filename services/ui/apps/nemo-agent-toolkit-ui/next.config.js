@@ -15,8 +15,6 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
-    // Serialize static generation; parallel workers can hit missing build-manifest during i18n prerender.
-    cpus: 1,
     serverActions: {
       bodySizeLimit: '5mb',
     },

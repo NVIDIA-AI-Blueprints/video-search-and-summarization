@@ -15,7 +15,7 @@ import { useState, useEffect, useRef } from 'react';
  */
 interface UseAutoRefreshOptions {
   defaultInterval?: number; // in milliseconds
-  onRefresh: () => Promise<boolean> | Promise<void> | void;
+  onRefresh: () => void;
   enabled?: boolean; // default enabled state
   isActive?: boolean; // whether the component is currently active/visible
 }
@@ -82,51 +82,35 @@ export const useAutoRefresh = ({
   const [intervalValue, setIntervalValue] = useState<number>(() => 
     loadFromStorage(STORAGE_KEY_INTERVAL, defaultInterval)
   );
-  const timeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onRefreshRef = useRef(onRefresh);
 
+  // Keep onRefresh ref up to date
   useEffect(() => {
     onRefreshRef.current = onRefresh;
   }, [onRefresh]);
 
-  // Uses setTimeout-based scheduling so the next refresh only fires after
-  // the previous onRefresh call completes (success or failure).
-  // This prevents overlapping API calls when a request takes longer than the interval.
+  // Clear existing interval when settings change or component unmounts
+  // Also pause when isActive is false (tab is hidden)
   useEffect(() => {
-    if (timeoutIdRef.current) {
-      clearTimeout(timeoutIdRef.current);
-      timeoutIdRef.current = null;
+    // Clear any existing interval
+    if (intervalIdRef.current) {
+      clearInterval(intervalIdRef.current);
+      intervalIdRef.current = null;
     }
 
-    if (!isEnabled || !isActive || intervalValue <= 0) return;
-
-    let cancelled = false;
-
-    const scheduleNext = () => {
-      if (cancelled) return;
-
-      timeoutIdRef.current = setTimeout(async () => {
-        if (cancelled) return;
-
-        try {
-          await Promise.resolve(onRefreshRef.current());
-        } catch {
-          // Ignore errors — continue the chain regardless
-        }
-
-        if (!cancelled) {
-          scheduleNext();
-        }
+    // Set up new interval if enabled AND active (visible)
+    if (isEnabled && isActive && intervalValue > 0) {
+      intervalIdRef.current = setInterval(() => {
+        onRefreshRef.current();
       }, intervalValue);
-    };
+    }
 
-    scheduleNext();
-
+    // Cleanup function
     return () => {
-      cancelled = true;
-      if (timeoutIdRef.current) {
-        clearTimeout(timeoutIdRef.current);
-        timeoutIdRef.current = null;
+      if (intervalIdRef.current) {
+        clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
       }
     };
   }, [isEnabled, intervalValue, isActive]);

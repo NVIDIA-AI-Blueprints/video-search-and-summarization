@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { CustomProvider, Whisper, Button, Tooltip } from 'rsuite';
-import { Select, Button as KaizenButton, TextInput, Tag as KaizenTag } from '@nvidia/foundations-react-core';
-import { IconX } from '@tabler/icons-react';
+import { Input, InputGroup, CustomProvider, Whisper, Button, Tag, Tooltip, SelectPicker } from 'rsuite';
 import { Search as SearchIcon, Funnel as FunnelIcon, Close as CloseIcon, InfoRound as InfoRoundIcon } from '@rsuite/icons';
 import { IconRefresh } from '@tabler/icons-react';
 import { FilterDialog } from './FilterPopover';
@@ -56,7 +54,6 @@ const SEARCH_HEADER_SPIN_STYLE_ID = 'search-header-spin-keyframes';
 let searchHeaderSpinRefCount = 0;
 
 export const SearchHeader: React.FC<SearchHeaderProps> = ({ onUpdateSearchParams, theme, streams, filterParams, setFilterParams, addFilter, removeFilterTag, filterTags, isSearching = false, onCancelSearch, onGetPendingQuery, submitChatMessage, contentDisabled = false }) => {
-    const [mounted, setMounted] = useState(false);
     const [query, setQuery] = useState(filterParams.query || '');
     const [hasQueryError, setHasQueryError] = useState(false);
     const [isPopoverOpen, setIsPopoverOpen] = useState(false);
@@ -95,8 +92,6 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ onUpdateSearchParams
             // ignore
         }
     }, [streams, sourceType, setFilterParams]);
-
-    useEffect(() => { setMounted(true); }, []);
 
     // Inject keyframes once per document; remove when last instance unmounts (ref-count)
     useEffect(() => {
@@ -265,6 +260,17 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ onUpdateSearchParams
       setFilterParams(newParams);
     }, [filterParams, removeFilterTag, setFilterParams]);
 
+    const inputGroupAddonStyle = useMemo(() => ({
+      background: theme === 'dark' ? '#1a1d24' : '#fff',
+      border: 'none' as const,
+      paddingRight: 0,
+    }), [theme]);
+
+    const inputGroupStyle = useMemo(() => ({
+      width: 400,
+      ...(hasQueryError ? { borderColor: '#f44336', boxShadow: '0 0 0 1px #f44336' } : {}),
+    }), [hasQueryError]);
+
     const visibleTags = useMemo(
       () => (contentDisabled ? filterTags.filter((tag: FilterTag) => tag.key !== 'topK') : filterTags),
       [contentDisabled, filterTags]
@@ -273,46 +279,50 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ onUpdateSearchParams
     return (
         <CustomProvider theme={theme}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-                <div style={{ width: 400, ...(hasQueryError ? { borderColor: '#f44336', boxShadow: '0 0 0 1px #f44336', borderRadius: 6 } : {}) }}>
-                  <TextInput
-                    data-testid="search-input"
-                    value={query}
-                    onValueChange={handleUpdateQuery}
-                    placeholder="Search Files"
-                    disabled={contentDisabled}
-                    status={hasQueryError ? 'error' : undefined}
-                    slotLeft={<SearchIcon />}
-                    slotRight={
-                      (query || isSearching) ? (
-                        <CloseIcon
-                          style={{
-                            cursor: isSearching ? 'not-allowed' : 'pointer',
-                            fontSize: 18,
-                            color: theme === 'dark' ? '#ef4444' : '#dc2626',
-                            transition: 'opacity 0.2s',
-                            opacity: isSearching ? 0.4 : 0.7,
-                          }}
-                          onMouseEnter={isSearching ? undefined : (e: any) => (e.currentTarget.style.opacity = '1')}
-                          onMouseLeave={isSearching ? undefined : (e: any) => (e.currentTarget.style.opacity = '0.7')}
-                          onClick={isSearching ? undefined : () => handleUpdateQuery('')}
-                        />
-                      ) : contentDisabled ? undefined : (
-                        <Whisper placement="bottom" speaker={<Tooltip>Ask a natural language query like "a person in green jacket carrying boxes"</Tooltip>}>
-                          <InfoRoundIcon style={{ cursor: 'help', transition: 'opacity 0.2s' }} />
-                        </Whisper>
-                      )
-                    }
-                    onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') handleSearch(); }}
-                  />
-                </div>
-                <KaizenButton
-                  data-testid="search-button"
-                  onClick={isSearching && onCancelSearch ? onCancelSearch : handleSearch}
-                  disabled={isSearching && onCancelSearch ? false : contentDisabled}
-                  kind={isSearching && onCancelSearch ? 'secondary' : 'primary'}
-                >
-                  {isSearching && onCancelSearch ? 'Cancel' : 'Search'}
-                </KaizenButton>
+                <InputGroup style={inputGroupStyle}>
+                    <InputGroup.Addon style={inputGroupAddonStyle}>
+                        <SearchIcon />
+                    </InputGroup.Addon>
+                    <Input 
+                        onChange={handleUpdateQuery} 
+                        value={query} 
+                        placeholder="Search Files" 
+                        autoComplete="off"
+                        onPressEnter={handleSearch}
+                        disabled={contentDisabled}
+                    />
+                    <InputGroup.Addon style={inputGroupAddonStyle}>
+                        {(query || isSearching) ? (
+                          <CloseIcon 
+                            style={{ 
+                              cursor: isSearching ? 'not-allowed' : 'pointer',
+                              fontSize: 18,
+                              color: theme === 'dark' ? '#ef4444' : '#dc2626',
+                              transition: 'opacity 0.2s',
+                              opacity: isSearching ? 0.4 : 0.7
+                            }}
+                            onMouseEnter={isSearching ? undefined : (e) => e.currentTarget.style.opacity = '1'}
+                            onMouseLeave={isSearching ? undefined : (e) => e.currentTarget.style.opacity = '0.7'}
+                            onClick={isSearching ? undefined : () => handleUpdateQuery('')}
+                          />
+                        ) : contentDisabled ? null : (
+                          <Whisper placement="bottom" speaker={<Tooltip>Ask a natural language query like "a person in green jacket carrying boxes"</Tooltip>}>
+                        <InfoRoundIcon style={{ 
+                          cursor: 'help',
+                          transition: 'opacity 0.2s',
+                        }} />
+                      </Whisper>
+                        )}
+                    </InputGroup.Addon>
+                    <InputGroup.Button
+                      onClick={isSearching && onCancelSearch ? onCancelSearch : handleSearch}
+                      loading={!onCancelSearch && isSearching}
+                      disabled={isSearching && onCancelSearch ? false : contentDisabled}
+                      color={isSearching && onCancelSearch ? 'red' : undefined}
+                    >
+                      {isSearching && onCancelSearch ? 'Cancel' : 'Search'}
+                    </InputGroup.Button>
+                </InputGroup>
                 {isSearching && (
                   <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                     <IconRefresh
@@ -327,22 +337,19 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ onUpdateSearchParams
                   </span>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ whiteSpace: 'nowrap' }}>Source Type:</span>
-                    {mounted && (
-                      <Select
-                          data-testid="search-source-type"
-                          value={sourceType}
-                          onValueChange={(val) => handleSourceTypeChange(val)}
-                          disabled={contentDisabled}
-                          items={SOURCE_TYPE_OPTIONS.map(opt => ({
-                            value: opt.value,
-                            children: opt.label,
-                          }))}
-                      />
-                    )}
+                    <span>Source Type:</span>
+                    <SelectPicker
+                        data={SOURCE_TYPE_OPTIONS}
+                        value={sourceType}
+                        onChange={handleSourceTypeChange}
+                        cleanable={false}
+                        searchable={false}
+                        placeholder="Source Type"
+                        disabled={contentDisabled}
+                    />
                 </div>
                 <div style={{ position: 'relative' }} ref={filterButtonRef}>
-                    <KaizenButton data-testid="search-filter-button" onClick={togglePopover} disabled={contentDisabled}>Filter <FunnelIcon /></KaizenButton>
+                    <Button onClick={togglePopover} endIcon={<FunnelIcon />} disabled={contentDisabled}>Filter</Button>
                     <FilterDialog
                       isOpen={isPopoverOpen}
                       isDark={theme === 'dark'}
@@ -358,7 +365,7 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ onUpdateSearchParams
                     />
                 </div>
                 {visibleTags.length > 0 && (
-                  <div data-testid="search-filter-tags" style={{ 
+                  <div style={{ 
                     display: 'flex', 
                     flexWrap: 'wrap', 
                     gap: 5, 
@@ -366,20 +373,12 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ onUpdateSearchParams
                     pointerEvents: contentDisabled ? 'none' : 'auto'
                   }}>
                     {visibleTags.map((tag: FilterTag, index: number) => (
-                      <KaizenTag
-                        key={tag.key ?? index}
-                        kind="outline"
-                        color="gray"
-                        readOnly={tag.key === 'topK' || contentDisabled}
-                        style={{ opacity: contentDisabled ? 0.5 : 1 }}
-                        onClick={!contentDisabled && tag.key !== 'topK' ? () => removeTag(tag) : undefined}
-                      >
+                      <Tag style={{ opacity: contentDisabled ? 0.5 : 1 }} key={tag.key ?? index} closable={!contentDisabled && tag.key !== 'topK'} onClose={() => removeTag(tag)}>
                         {tag.title}: <span style={{ color: theme === 'dark' ? '#84E1BC' : 'green' }}>{tag.value}</span>
-                        {!contentDisabled && tag.key !== 'topK' && <IconX size={14} />}
-                      </KaizenTag>
+                      </Tag>
                     ))}
                     {visibleTags.length > 1 && (
-                      <Button data-testid="search-clear-all-filters" size="sm" appearance="primary" color="red" onClick={onClearAll} disabled={contentDisabled}>
+                      <Button size="sm" appearance="primary" color="red" onClick={onClearAll} disabled={contentDisabled}>
                         Clear All
                       </Button>
                     )}

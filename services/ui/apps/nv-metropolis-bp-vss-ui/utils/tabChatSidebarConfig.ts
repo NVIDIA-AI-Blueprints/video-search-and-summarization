@@ -2,53 +2,52 @@
 import { env } from 'next-runtime-env';
 
 /**
- * SessionStorage prefix for the single embedded chat instance (NemoAgentToolkitApp storage keys).
+ * Tab ids that support the floating Chat sidebar.
  */
-export const CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX = 'side-bar';
+export const TAB_IDS_WITH_CHAT_SIDEBAR = ['search', 'alerts'] as const;
 
-/**
- * Env namespace for the shared sidebar chat: NEXT_PUBLIC_SIDEBAR_CHAT_* (see tabChatEnv).
- */
-export const SIDEBAR_CHAT_ENV_TAB_KEY = 'SIDEBAR';
+export type TabIdWithChatSidebar = (typeof TAB_IDS_WITH_CHAT_SIDEBAR)[number];
 
 /** Map tab id to env key suffix, e.g. 'search' -> 'SEARCH_TAB', 'video-management' -> 'VIDEO_MANAGEMENT_TAB'. */
 export function getTabEnvKey(tabId: string): string {
   return tabId.toUpperCase().replace(/-/g, '_') + '_TAB';
 }
 
-/** App-wide floating Chat sidebar (all tabs except main Chat). NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR === 'true'. */
-export function getChatSidebarEnabled(): boolean {
-  const key = 'NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR';
+/** Whether the Chat sidebar is enabled for this tab (env NEXT_PUBLIC_${TAB}_CHAT_SIDEBAR_ENABLE === 'true'; default false). */
+export function getTabChatSidebarEnabled(tabId: string): boolean {
+  const key = `NEXT_PUBLIC_${getTabEnvKey(tabId)}_CHAT_SIDEBAR_ENABLE`;
   return (env(key) || process?.env?.[key as keyof NodeJS.ProcessEnv]) === 'true';
 }
 
-/** Default open state: NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT === 'true' means open on first visit. */
-export function getChatSidebarOpenDefault(): boolean {
-  const key = 'NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT';
+/** Default open state for this tab's sidebar (env NEXT_PUBLIC_${TAB}_CHAT_SIDEBAR_OPEN_DEFAULT === 'true' means open). Used for fresh launch (new tab / new session). */
+export function getTabChatSidebarOpenDefault(tabId: string): boolean {
+  const key = `NEXT_PUBLIC_${getTabEnvKey(tabId)}_CHAT_SIDEBAR_OPEN_DEFAULT`;
   return (env(key) || process?.env?.[key as keyof NodeJS.ProcessEnv]) === 'true';
 }
 
-const CHAT_SIDEBAR_OPEN_SESSION_KEY = 'nvMetropolis_chatSidebarOpen';
+const CHAT_SIDEBAR_OPEN_SESSION_KEY_PREFIX = 'nvMetropolis_chatSidebarOpen_';
 
-export function getChatSidebarOpenSessionKey(): string {
-  return CHAT_SIDEBAR_OPEN_SESSION_KEY;
+/** Session storage key for this tab's last user-selected sidebar open state (used on same-tab refresh). */
+export function getTabChatSidebarOpenSessionKey(tabId: string): string {
+  return CHAT_SIDEBAR_OPEN_SESSION_KEY_PREFIX + tabId;
 }
 
-/** Reads last user-selected sidebar open state. Returns null if unset. */
-export function getChatSidebarOpenFromSession(): boolean | null {
+/** Reads the last user-selected sidebar open state from session storage. Returns null if not set (e.g. fresh tab). */
+export function getTabChatSidebarOpenFromSession(tabId: string): boolean | null {
   if (typeof window === 'undefined' || !window.sessionStorage) return null;
-  const raw = window.sessionStorage.getItem(CHAT_SIDEBAR_OPEN_SESSION_KEY);
+  const raw = window.sessionStorage.getItem(getTabChatSidebarOpenSessionKey(tabId));
   if (raw === 'true') return true;
   if (raw === 'false') return false;
   return null;
 }
 
-export function setChatSidebarOpenInSession(open: boolean): void {
+/** Persists the sidebar open state to session storage (so same-tab refresh restores it). */
+export function setTabChatSidebarOpenInSession(tabId: string, open: boolean): void {
   if (typeof window === 'undefined' || !window.sessionStorage) return;
-  window.sessionStorage.setItem(CHAT_SIDEBAR_OPEN_SESSION_KEY, String(open));
+  window.sessionStorage.setItem(getTabChatSidebarOpenSessionKey(tabId), String(open));
 }
 
-/** Storage key prefix for legacy per-tab helpers (tests only). */
+/** Storage key prefix for this tab's chat instance (e.g. 'searchTab', 'alertsTab', 'videoManagementTab'). */
 export function getTabStorageKeyPrefix(tabId: string): string {
   const camel = tabId
     .split('-')

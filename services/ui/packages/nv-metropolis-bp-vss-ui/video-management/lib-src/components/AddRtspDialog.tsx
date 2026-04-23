@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import React, { useState } from 'react';
-import { Button, TextInput } from '@nvidia/foundations-react-core';
 import { parseApiError } from '../utils';
 import { addRtspStream } from '../rtspStream';
 
@@ -23,22 +22,34 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const extractNameFromUrl = (url: string): string =>
-    url.split('?')[0].split('/').filter((p) => p.trim()).pop() ?? '';
+  // Extract the last part of the RTSP URL path as the sensor name
+  const extractNameFromUrl = (url: string): string => {
+    try {
+      // Remove query params and get the path
+      const urlWithoutQuery = url.split('?')[0];
+      const parts = urlWithoutQuery.split('/');
+      // Get the last non-empty part
+      const lastPart = parts.filter((p) => p.trim()).pop() || '';
+      return lastPart;
+    } catch {
+      return '';
+    }
+  };
 
   const handleRtspUrlChange = (value: string) => {
     setRtspUrl(value);
     if (error) setError(null);
+    
     // Auto-fill sensor name if user hasn't manually edited it and URL is valid
     if (!userEditedName && value.trim().startsWith('rtsp://')) {
-      setSensorName(extractNameFromUrl(value.trim()));
+      const extractedName = extractNameFromUrl(value.trim());
+      setSensorName(extractedName);
     }
   };
 
   const handleSensorNameChange = (value: string) => {
     setSensorName(value);
-    setUserEditedName(true);
-    if (error) setError(null);
+    setUserEditedName(true); // User has manually edited the name
   };
 
   const handleClose = () => {
@@ -52,37 +63,40 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
 
   const handleSubmit = async () => {
     const trimmed = rtspUrl.trim();
-    const trimmedName = sensorName.trim();
-    const validationError =
-      !trimmed
-        ? 'RTSP URL is required.'
-        : !trimmed.startsWith('rtsp://')
-          ? 'RTSP URL must start with "rtsp://".'
-          : !trimmedName
-            ? 'Sensor Name is required.'
-            : !agentApiUrl
-              ? 'Agent API URL not configured.'
-              : null;
-    if (validationError) {
-      setError(validationError);
+
+    if (!trimmed) {
+      setError('RTSP URL is required.');
+      return;
+    }
+    if (!trimmed.startsWith('rtsp://')) {
+      setError('RTSP URL must start with "rtsp://".');
+      return;
+    }
+    if (!agentApiUrl) {
+      setError('Agent API URL not configured.');
       return;
     }
 
     setError(null);
     setIsSubmitting(true);
+
     try {
-      await addRtspStream(agentApiUrl!, { sensorUrl: trimmed, name: trimmedName });
+      // Single API call to agent - backend handles VST and RTVI services
+      await addRtspStream(agentApiUrl, {
+        sensorUrl: trimmed,
+        ...(sensorName.trim() ? { name: sensorName.trim() } : {}),
+      });
+
       handleClose();
       onSuccess?.();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Error adding RTSP sensor via agent API:', err);
-      setError(
-        parseApiError(
-          err instanceof Error ? err.message : '',
-          'Failed to add RTSP. Please check the URL and try again.'
-        )
+      const friendlyMessage = parseApiError(
+        err instanceof Error ? err.message : '',
+        'Failed to add RTSP. Please check the URL and try again.'
       );
+      setError(friendlyMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -97,8 +111,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
 
       {/* Dialog panel */}
       <div
-        data-testid="add-rtsp-dialog"
-        className="relative z-50 rounded-lg shadow-lg border bg-white dark:bg-black border-gray-200 dark:border-gray-600 w-[720px] max-w-[calc(100vw-32px)]"
+        className="relative z-50 rounded-lg shadow-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 w-[720px] max-w-[calc(100vw-32px)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-600">
@@ -124,9 +137,10 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
             </span>
           </div>
           <button
+            type="button"
             onClick={handleClose}
+            className="text-sm px-3 py-1 rounded text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
             aria-label="Close"
-            className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700 dark:text-gray-400 dark:hover:text-white dark:hover:bg-neutral-700"
           >
             ✕
           </button>
@@ -140,10 +154,12 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
               RTSP URL <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <TextInput
+              <input
+                type="text"
                 value={rtspUrl}
-                onValueChange={(val: string) => handleRtspUrlChange(val)}
+                onChange={(e) => handleRtspUrlChange(e.target.value)}
                 placeholder="rtsp://cam-warehouse.example.com:554/warehouse/cam01"
+                className="w-full rounded px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-green-500 focus:border-green-500"
               />
               {/* Info icon */}
               <div className="absolute right-4 top-1/2 -translate-y-1/2">
@@ -172,18 +188,17 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
             </p>
           </div>
 
-          {/* Sensor Name (required) */}
+          {/* Sensor Name (optional) */}
           <div>
-            <label className="block text-sm mb-3 text-gray-700 dark:text-gray-300" htmlFor="add-rtsp-sensor-name">
-              Sensor Name <span className="text-red-500" aria-hidden="true">*</span>
+            <label className="block text-sm mb-3 text-gray-700 dark:text-gray-300">
+              Sensor Name <span className="text-xs text-gray-400 dark:text-gray-500">(optional)</span>
             </label>
-            <TextInput
-              id="add-rtsp-sensor-name"
+            <input
+              type="text"
               value={sensorName}
-              onValueChange={(val: string) => handleSensorNameChange(val)}
+              onChange={(e) => handleSensorNameChange(e.target.value)}
               placeholder="e.g. Warehouse Camera 01"
-              required
-              aria-required="true"
+              className="w-full rounded px-4 py-3 text-sm focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:ring-green-500 focus:border-green-500"
             />
           </div>
 
@@ -196,19 +211,25 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-600">
-          <Button
-            kind="secondary"
+          <button
+            type="button"
             onClick={handleClose}
+            className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
           >
             Cancel
-          </Button>
-          <Button
-            kind="primary"
+          </button>
+          <button
+            type="button"
             onClick={handleSubmit}
             disabled={isSubmitting}
+            className={`px-4 py-2 text-sm font-medium rounded border ${
+              !isSubmitting
+                ? 'border-green-500 text-green-500 hover:bg-green-500 hover:text-white'
+                : 'border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+            }`}
           >
             {isSubmitting ? 'Adding...' : 'Add RTSP'}
-          </Button>
+          </button>
         </div>
       </div>
     </div>

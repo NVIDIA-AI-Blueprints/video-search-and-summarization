@@ -3,23 +3,25 @@ require('@testing-library/jest-dom');
 require('whatwg-fetch');
 
 // Mock IntersectionObserver
-globalThis.IntersectionObserver = jest.fn(() => ({
-  disconnect: jest.fn(),
-  observe: jest.fn(),
-  unobserve: jest.fn(),
-}));
+global.IntersectionObserver = class IntersectionObserver {
+  constructor() {}
+  disconnect() {}
+  observe() {}
+  unobserve() {}
+};
 
 // Mock ResizeObserver
-globalThis.ResizeObserver = jest.fn(() => ({
-  disconnect: jest.fn(),
-  observe: jest.fn(),
-  unobserve: jest.fn(),
-}));
+global.ResizeObserver = class ResizeObserver {
+  constructor() {}
+  disconnect() {}
+  observe() {}
+  unobserve() {}
+};
 
 // Mock window-specific globals (only in browser/jsdom environment)
-if (globalThis.window !== undefined) {
+if (typeof window !== 'undefined') {
   // Mock window.matchMedia
-  Object.defineProperty(globalThis, 'matchMedia', {
+  Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: jest.fn().mockImplementation((query) => ({
       matches: false,
@@ -34,7 +36,7 @@ if (globalThis.window !== undefined) {
   });
 
   // Mock window.scrollTo
-  Object.defineProperty(globalThis, 'scrollTo', {
+  Object.defineProperty(window, 'scrollTo', {
     writable: true,
     value: jest.fn(),
   });
@@ -47,16 +49,16 @@ if (globalThis.window !== undefined) {
     clear: jest.fn(),
   };
 
-  Object.defineProperty(globalThis, 'sessionStorage', {
+  Object.defineProperty(window, 'sessionStorage', {
     value: localStorageMock,
   });
 
-  Object.defineProperty(globalThis, 'localStorage', {
+  Object.defineProperty(window, 'localStorage', {
     value: localStorageMock,
   });
 
   // Mock window.open for OAuth testing
-  Object.defineProperty(globalThis, 'open', {
+  Object.defineProperty(window, 'open', {
     writable: true,
     value: jest.fn(() => ({
       close: jest.fn(),
@@ -66,14 +68,14 @@ if (globalThis.window !== undefined) {
 }
 
 // Mock TextEncoder and TextDecoder for Edge runtime compatibility
-globalThis.TextEncoder = class TextEncoder {
+global.TextEncoder = class TextEncoder {
   encode(string) {
     return new Uint8Array(Buffer.from(string, 'utf8'));
   }
 };
 
-globalThis.TextDecoder = class TextDecoder {
-  decode(bytes) {
+global.TextDecoder = class TextDecoder {
+  decode(bytes, options = {}) {
     return Buffer.from(bytes).toString('utf8');
   }
 };
@@ -81,10 +83,10 @@ globalThis.TextDecoder = class TextDecoder {
 // Reset all mocks before each test
 beforeEach(() => {
   jest.clearAllMocks();
-  if (globalThis.window !== undefined && globalThis.localStorage) {
-    globalThis.localStorage.getItem.mockClear();
-    globalThis.localStorage.setItem.mockClear();
-    globalThis.localStorage.removeItem.mockClear();
-    globalThis.localStorage.clear.mockClear();
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.getItem.mockClear();
+    window.localStorage.setItem.mockClear();
+    window.localStorage.removeItem.mockClear();
+    window.localStorage.clear.mockClear();
   }
 });

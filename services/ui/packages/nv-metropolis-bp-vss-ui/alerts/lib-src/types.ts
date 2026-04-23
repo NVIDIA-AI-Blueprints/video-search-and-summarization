@@ -60,11 +60,15 @@ export interface AlertsComponentProps {
   // External controls rendering
   renderControlsInLeftSidebar?: boolean; // Default: false - set true to render controls in external left sidebar
   onControlsReady?: (handlers: AlertsSidebarControlHandlers) => void; // Callback to provide control handlers externally
-  submitChatMessage?: (message: string) => void;
-  registerChatAnswerHandler?: (handler: (answer: string) => boolean | void) => void | (() => void);
-  registerSidebarChatEventSubscriber?: (
-    handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
-  ) => void | (() => void);
+}
+
+/**
+ * State interface for video modal functionality
+ */
+export interface VideoModalState {
+  isOpen: boolean;
+  videoUrl: string;
+  title: string;
 }
 
 /**

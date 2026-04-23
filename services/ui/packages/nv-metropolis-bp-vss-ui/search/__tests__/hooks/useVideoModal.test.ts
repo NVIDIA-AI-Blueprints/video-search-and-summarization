@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 import { renderHook, act } from '@testing-library/react';
-import { useVideoModal, VideoModalData } from '@aiqtoolkit-ui/common';
+import { useVideoModal } from '../../lib-src/hooks/useVideoModal';
+import { SearchData } from '../../lib-src/types';
 
-const makeSearchData = (overrides: Partial<VideoModalData> = {}): VideoModalData => ({
+const makeSearchData = (overrides: Partial<SearchData> = {}): SearchData => ({
   video_name: 'test-video.mp4',
+  similarity: 0.9,
+  screenshot_url: 'http://example.com/thumb.jpg',
+  description: 'Test video',
   start_time: '2024-01-15T09:00:00',
   end_time: '2024-01-15T09:05:00',
   sensor_id: 'sensor-001',
@@ -166,86 +170,6 @@ describe('useVideoModal', () => {
     expect(result.current.videoModal.isOpen).toBe(false);
     expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
-  });
-
-  it('replaces video URL base with vstApiUrl base when data.videoUrl is absolute', async () => {
-    global.fetch = mockFetchResponse({
-      videoUrl: 'http://other-host:30888/vst/storage/xyz/segment.mp4?token=abc',
-    });
-
-    const { result } = renderHook(() => useVideoModal('http://vst.test/vst/api'));
-
-    await act(async () => {
-      await result.current.openVideoModal(makeSearchData());
-    });
-
-    expect(result.current.videoModal.isOpen).toBe(true);
-    expect(result.current.videoModal.videoUrl).toBe(
-      'http://vst.test/vst/storage/xyz/segment.mp4?token=abc'
-    );
-  });
-
-  it('replaces video URL base when data.videoUrl is relative path', async () => {
-    global.fetch = mockFetchResponse({
-      videoUrl: '/vst/storage/xyz/segment.mp4?token=abc',
-    });
-
-    const { result } = renderHook(() => useVideoModal('http://vst.test/vst/api'));
-
-    await act(async () => {
-      await result.current.openVideoModal(makeSearchData());
-    });
-
-    expect(result.current.videoModal.isOpen).toBe(true);
-    expect(result.current.videoModal.videoUrl).toBe(
-      'http://vst.test/vst/storage/xyz/segment.mp4?token=abc'
-    );
-  });
-
-  it('keeps original data.videoUrl when /vst is not found in vstApiUrl', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    global.fetch = mockFetchResponse({
-      videoUrl: 'http://stream.test/vst/storage/segment.mp4',
-    });
-
-    const { result } = renderHook(() => useVideoModal('http://vst.test/api'));
-
-    await act(async () => {
-      await result.current.openVideoModal(makeSearchData());
-    });
-
-    expect(result.current.videoModal.videoUrl).toBe('http://stream.test/vst/storage/segment.mp4');
-    consoleSpy.mockRestore();
-  });
-
-  it('keeps original data.videoUrl when /vst is not found in data.videoUrl', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    global.fetch = mockFetchResponse({
-      videoUrl: 'http://stream.test/storage/segment.mp4',
-    });
-
-    const { result } = renderHook(() => useVideoModal('http://vst.test/vst/api'));
-
-    await act(async () => {
-      await result.current.openVideoModal(makeSearchData());
-    });
-
-    expect(result.current.videoModal.videoUrl).toBe('http://stream.test/storage/segment.mp4');
-    consoleSpy.mockRestore();
-  });
-
-  it('handles relative videoUrl with relative vstApiUrl', async () => {
-    global.fetch = mockFetchResponse({
-      videoUrl: '/vst/segment.mp4',
-    });
-
-    const { result } = renderHook(() => useVideoModal('/vst/api'));
-
-    await act(async () => {
-      await result.current.openVideoModal(makeSearchData());
-    });
-
-    expect(result.current.videoModal.videoUrl).toBe('/vst/segment.mp4');
   });
 
   it('aborts previous request when opening a new video', async () => {

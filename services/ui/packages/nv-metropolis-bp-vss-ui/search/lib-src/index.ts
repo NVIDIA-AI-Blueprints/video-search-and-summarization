@@ -17,4 +17,4 @@
 export { SearchComponent } from './SearchComponent';
 export type { SearchComponentProps } from './SearchComponent';
 export { SearchSidebarControls } from './components/SearchSidebarControls';
-export type { SearchSidebarControlHandlers, QueryDataContext } from './types';
+export type { SearchSidebarControlHandlers } from './types';

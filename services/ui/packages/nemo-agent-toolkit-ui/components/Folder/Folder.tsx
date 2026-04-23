@@ -79,7 +79,7 @@ const Folder = ({
 
   const highlightDrop = (e: any) => {
     const isDark = document.documentElement.classList.contains('dark');
-    e.target.style.background = isDark ? '#171717' : '#e5e7eb';
+    e.target.style.background = isDark ? '#343541' : '#e5e7eb';
   };
 
   const removeHighlight = (e: any) => {
@@ -114,7 +114,7 @@ const Folder = ({
     <>
       <div className="relative flex items-center">
         {isRenaming ? (
-          <div className="flex w-full items-center gap-3 bg-gray-200 dark:bg-black/90 p-3 text-gray-900 dark:text-white">
+          <div className="flex w-full items-center gap-3 bg-gray-200 dark:bg-[#343541]/90 p-3 text-gray-900 dark:text-white">
             {isOpen ? (
               <IconCaretDown size={18} />
             ) : (
@@ -131,7 +131,7 @@ const Folder = ({
           </div>
         ) : (
           <button
-            className={`flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-sm text-gray-900 dark:text-white transition-colors duration-200 hover:bg-gray-200 dark:hover:bg-black/90`}
+            className={`flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-sm text-gray-900 dark:text-white transition-colors duration-200 hover:bg-gray-200 dark:hover:bg-[#343541]/90`}
             onClick={() => setIsOpen(!isOpen)}
             onDrop={(e) => dropHandler(e)}
             onDragOver={allowDrop}
@@ -207,7 +207,7 @@ const Folder = ({
         <>
           <button
             type="button"
-            className="ml-5 flex w-full cursor-pointer items-center gap-2 rounded-md border-0 px-2 py-1.5 text-left text-[12.5px] text-gray-600 dark:text-gray-400 transition-colors hover:bg-gray-200 dark:hover:bg-black/90"
+            className="ml-5 flex w-full cursor-pointer items-center gap-2 rounded-md border-0 px-2 py-1.5 text-left text-[12.5px] text-gray-600 dark:text-gray-400 transition-colors hover:bg-gray-200 dark:hover:bg-[#343541]/90"
             onClick={(e) => {
               e.stopPropagation();
               handleNewConversation(currentFolder.id);

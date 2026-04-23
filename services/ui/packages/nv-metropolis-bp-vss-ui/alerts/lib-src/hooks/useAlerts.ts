@@ -29,7 +29,7 @@ interface UseAlertsOptions {
  * Escapes quotes, backslashes, and HTML special characters to prevent XSS
  */
 const escapeFilterValue = (value: string): string => {
-  return value.replaceAll(/[\\"]/g, String.raw`\$&`).replaceAll(/[<>&'"]/g, (match) => {
+  return value.replace(/[\\"]/g, '\\$&').replace(/[<>&'"]/g, (match) => {
     const escapeMap: Record<string, string> = {
       '<': '&lt;',
       '>': '&gt;',
@@ -93,9 +93,9 @@ const buildQueryString = (activeFilters?: FilterState): string => {
 const serializeFilters = (filters?: FilterState): string => {
   if (!filters) return '';
   return JSON.stringify({
-    sensors: Array.from(filters.sensors).sort((a, b) => a.localeCompare(b)),
-    alertTypes: Array.from(filters.alertTypes).sort((a, b) => a.localeCompare(b)),
-    alertTriggered: Array.from(filters.alertTriggered).sort((a, b) => a.localeCompare(b))
+    sensors: Array.from(filters.sensors).sort(),
+    alertTypes: Array.from(filters.alertTypes).sort(),
+    alertTriggered: Array.from(filters.alertTriggered).sort()
   });
 };
 
@@ -138,7 +138,7 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
       });
       
       setSensorMap(map);
-      setSensorList([...sensorNameSet].sort((a, b) => a.localeCompare(b)));
+      setSensorList([...sensorNameSet].sort()); // Convert Set to sorted array
     } catch (err) {
       console.error('Error fetching sensor list:', err);
     }
@@ -146,30 +146,34 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
 
   /**
    * Fetches alerts data from the incidents API with time-based filtering
+   * 
    */
-  const fetchAlerts = useCallback(async (): Promise<boolean> => {
+  const fetchAlerts = useCallback(async () => {
     if (!apiUrl) {
-      setError('API URL is not configured');
+      setError('API URL is not configured. Please set NEXT_PUBLIC_ALERTS_API_URL in your environment.');
       setLoading(false);
-      return false;
+      return;
     }
 
     try {
       setLoading(true);
       setError(null);
       
+      // Calculate timestamps
       const now = new Date();
       const toTimestamp = now.toISOString();
-      const fromTime = new Date(now.getTime() - (timeWindow * 60 * 1000));
+      const fromTime = new Date(now.getTime() - (timeWindow * 60 * 1000)); // timeWindow in minutes
       const fromTimestamp = fromTime.toISOString();
       
+      // Build API URL with verdict filter if vlmVerified is true and verdict is selected
       let mdxWebApiIncidents = `${apiUrl}/incidents?vlmVerified=${vlmVerified}&fromTimestamp=${fromTimestamp}&toTimestamp=${toTimestamp}&maxResultSize=${maxResults}`;
       if (vlmVerified && vlmVerdict && vlmVerdict !== VLM_VERDICT.ALL) {
         mdxWebApiIncidents += `&vlmVerdict=${vlmVerdict}`;
       }
       
+      // Add queryString for sensor/alertType/alertTriggered filters (already memoized)
       if (queryString) {
-        mdxWebApiIncidents += `&queryString=${encodeURIComponent(queryString).replaceAll(/[()]/g, encodeURIComponent)}`;
+        mdxWebApiIncidents += `&queryString=${encodeURIComponent(queryString).replace(/[()]/g, encodeURIComponent)}`;
       }
       
       const response = await fetch(mdxWebApiIncidents);
@@ -179,6 +183,7 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
       }
       const data = await response.json();
       
+      // Transform API response to AlertData format
       const transformedAlerts: AlertData[] = (data.incidents || []).map((incident: any, index: number) => ({
         id: incident.Id || incident.uniqueId || `alert-${incident.timestamp}-${incident.sensorId}-${index}`,
         timestamp: incident.timestamp || '',
@@ -191,10 +196,9 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
       }));
       
       setAlerts(transformedAlerts);
-      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch alerts');
-      return false;
+      console.error('Error fetching alerts:', err);
     } finally {
       setLoading(false);
     }
@@ -211,12 +215,11 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
   }, [fetchAlerts]);
 
   // Refetch function - only refetches alerts by default, optionally refetches sensor list too
-  // Returns true if fetch succeeded, false otherwise (used by auto-refresh to avoid overlapping calls)
-  const refetch = useCallback(async (options?: { includeSensorList?: boolean }): Promise<boolean> => {
+  const refetch = useCallback(async (options?: { includeSensorList?: boolean }) => {
     if (options?.includeSensorList) {
       await fetchSensorList();
     }
-    return fetchAlerts();
+    await fetchAlerts();
   }, [fetchSensorList, fetchAlerts]);
 
   return {

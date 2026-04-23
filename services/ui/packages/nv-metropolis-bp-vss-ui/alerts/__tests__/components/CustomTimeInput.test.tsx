@@ -125,7 +125,7 @@ describe('CustomTimeInput', () => {
     );
 
     const input = screen.getByPlaceholderText('e.g. 40m, 4h, 1d, 1w, 1M, 1y');
-    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyPress(input, { key: 'Enter', charCode: 13 });
 
     expect(onApply).not.toHaveBeenCalled();
   });
@@ -156,6 +156,6 @@ describe('CustomTimeInput', () => {
 
   it('renders with dark theme', () => {
     const { container } = render(<CustomTimeInput {...defaultProps} isDark={true} />);
-    expect(container.querySelector('.bg-black')).toBeInTheDocument();
+    expect(container.querySelector('.bg-gray-800')).toBeInTheDocument();
   });
 });

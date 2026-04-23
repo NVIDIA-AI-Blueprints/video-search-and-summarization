@@ -71,11 +71,9 @@ export const getReactMarkDownCustomComponents = (
 
       table: memo(
         ({ children }) => (
-          <div className="w-full overflow-x-auto">
-            <table className="border-collapse border border-black px-3 py-1 dark:border-white">
-              {children}
-            </table>
-          </div>
+          <table className="border-collapse border border-black px-3 py-1 dark:border-white">
+            {children}
+          </table>
         ),
         (prevProps, nextProps) =>
           isEqual(prevProps.children, nextProps.children),
@@ -83,7 +81,7 @@ export const getReactMarkDownCustomComponents = (
 
       th: memo(
         ({ children }) => (
-          <th className="break-words border border-black bg-gray-500 dark:bg-neutral-800 px-3 py-1 text-white dark:border-white">
+          <th className="break-words border border-black bg-gray-500 px-3 py-1 text-white dark:border-white">
             {children}
           </th>
         ),
@@ -102,19 +100,15 @@ export const getReactMarkDownCustomComponents = (
       ),
 
       a: memo(
-        ({ href, children, ...props }) => {
-          const isPdf = typeof href === 'string' && href.toLowerCase().endsWith('.pdf');
-          return (
-            <a
-              href={href}
-              className="text-[#76b900] no-underline hover:underline"
-              {...(isPdf ? { 'data-testid': 'pdf-report-link' } : {})}
-              {...props}
-            >
-              {children}
-            </a>
-          );
-        },
+        ({ href, children, ...props }) => (
+          <a
+            href={href}
+            className="text-[#76b900] no-underline hover:underline"
+            {...props}
+          >
+            {children}
+          </a>
+        ),
         (prevProps, nextProps) =>
           isEqual(prevProps.children, nextProps.children),
       ),

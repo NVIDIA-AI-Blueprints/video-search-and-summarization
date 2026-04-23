@@ -16,10 +16,9 @@ interface UseStorageTimelinesResult {
   timelines: Map<string, StreamStorageInfo>;
   isLoading: boolean;
   error: string | null;
-  refetch: () => Promise<void>;
+  refetch: () => void;
   getEndTimeForStream: (streamId: string) => string | null;
   getTimelineRangeForStream: (streamId: string) => TimelineRange | null;
-  getLastTimelineForStream: (streamId: string) => TimelineRange | null;
 }
 
 export function useStorageTimelines({ vstApiUrl }: UseStorageTimelinesOptions = {}): UseStorageTimelinesResult {
@@ -103,17 +102,6 @@ export function useStorageTimelines({ vstApiUrl }: UseStorageTimelinesOptions = 
     };
   }, []);
 
-  const getLastTimelineForStream = useCallback((streamId: string): TimelineRange | null => {
-    const storageInfo = timelinesRef.current.get(streamId);
-    if (!storageInfo?.timelines?.length) return null;
-
-    const lastTimeline = storageInfo.timelines[storageInfo.timelines.length - 1];
-    return {
-      startTime: lastTimeline.startTime,
-      endTime: lastTimeline.endTime,
-    };
-  }, []);
-
   return {
     timelines,
     isLoading,
@@ -121,7 +109,6 @@ export function useStorageTimelines({ vstApiUrl }: UseStorageTimelinesOptions = 
     refetch: fetchTimelines,
     getEndTimeForStream,
     getTimelineRangeForStream,
-    getLastTimelineForStream,
   };
 }
 

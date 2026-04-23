@@ -3,7 +3,6 @@ import { Dispatch, createContext } from 'react';
 import { ActionType } from '@/hooks/useCreateReducer';
 
 import { Conversation } from '@/types/chat';
-import type { CallerInfo } from '@/types/chat';
 import { KeyValuePair } from '@/types/data';
 import { FolderType } from '@/types/folder';
 
@@ -25,14 +24,12 @@ export interface HomeContextProps {
   ) => void;
   /** Optional: called when a new assistant answer has finished. */
   onAnswerComplete?: () => void;
-  /** Optional: called when an answer finishes; may return a renderable HTML string for parent-app caller info. */
-  onAnswerCompleteWithContent?: (answer: string) => CallerInfo | void;
+  /** Optional: called when an answer finishes, with the full assistant message text. */
+  onAnswerCompleteWithContent?: (answer: string) => void;
   /** Optional: called when chat is ready; receives a function to programmatically submit a message to the agent. */
   onSubmitMessageReady?: (submitMessage: (message: string) => void) => void;
   /** Optional: called when a message is submitted programmatically (e.g. so embedder can show attention/highlight). */
   onMessageSubmitted?: () => void;
-  /** Optional: called when chat is ready; receives a function the embedder can call to add a query context item to the chat input. */
-  onAddQueryContextReady?: (addItem: (item: { id: string; label: string; type: string; data: Record<string, unknown> }) => void) => void;
 }
 
 const HomeContext = createContext<HomeContextProps>(undefined!);

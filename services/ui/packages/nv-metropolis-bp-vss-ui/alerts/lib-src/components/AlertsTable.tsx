@@ -26,7 +26,6 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Button } from '@nvidia/foundations-react-core';
 import { IconChevronDown, IconChevronUp, IconPlayerPlay, IconRefresh, IconInfoCircle, IconArrowsUpDown, IconArrowUp, IconArrowDown } from '@tabler/icons-react';
 import { AlertData, FilterState, FilterType, VLM_VERDICT } from '../types';
 import { formatAlertTimestamp } from '../utils/timeUtils';
@@ -125,17 +124,19 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
 
   // Theme-based styles
   const thClass = `text-left py-3 px-4 text-xs uppercase tracking-wider ${
-    isDark ? 'text-neutral-300 font-normal' : 'text-gray-600 font-semibold'
+    isDark ? 'text-gray-300 font-normal' : 'text-gray-600 font-semibold'
   }`;
-  const tdTextClass = `py-3 px-4 text-sm ${isDark ? 'text-neutral-300' : 'text-gray-600'}`;
-
+  const tdTextClass = `py-3 px-4 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`;
+  const buttonTextClass = `transition-colors ${
+    isDark ? 'text-gray-300 hover:text-gray-100' : 'text-gray-600 hover:text-gray-800'
+  }`;
 
   if (loading && alerts.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <IconRefresh className={`w-8 h-8 animate-spin [animation-direction:reverse] mx-auto mb-3 ${isDark ? 'text-green-400' : 'text-green-500'}`} />
-          <p className={`text-base font-medium ${isDark ? 'text-neutral-300' : 'text-gray-700'}`}>Loading alerts...</p>
+          <IconRefresh className={`w-8 h-8 animate-spin mx-auto mb-3 ${isDark ? 'text-blue-400' : 'text-blue-500'}`} />
+          <p className={`text-base font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>Loading alerts...</p>
         </div>
       </div>
     );
@@ -146,15 +147,15 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
       <div className="flex items-center justify-center h-full">
         <div className={`text-center p-6 rounded-lg ${isDark ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50'}`}>
           <p className={`font-bold text-lg mb-2 ${isDark ? 'text-red-400' : 'text-red-700'}`}>Error loading alerts</p>
-          <div className={`text-sm mb-4 max-h-24 overflow-auto rounded p-3 break-words whitespace-pre-wrap ${isDark ? 'bg-black/50 text-gray-300' : 'bg-red-100/50 text-red-600 border border-red-200'}`}>
+          <div className={`text-sm mb-4 max-h-24 overflow-auto rounded p-3 break-words whitespace-pre-wrap ${isDark ? 'bg-gray-800/50 text-gray-300' : 'bg-red-100/50 text-red-600 border border-red-200'}`}>
             <p className={isDark ? 'text-gray-300' : 'text-red-600'}>{error}</p>
           </div>
-          <Button 
-            kind="primary"
+          <button 
             onClick={onRefresh}
+            className="px-5 py-2.5 rounded-md font-medium transition-colors bg-blue-600 hover:bg-blue-700 text-white"
           >
             Retry
-          </Button>
+          </button>
         </div>
       </div>
     );
@@ -173,30 +174,30 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
   return (
     <div className="w-full">
       <div className={`px-4 py-2 border-b ${
-        isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-300'
+        isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'
       }`}>
         <div className={`inline-flex items-center gap-3 px-3.5 py-1.5 rounded-lg transition-all ${
           isDark 
-            ? 'bg-black/30 hover:bg-black/40' 
+            ? 'bg-gray-700/30 hover:bg-gray-700/40' 
             : 'bg-gray-100/60 hover:bg-gray-100'
         }`}>
           <label className={`text-sm font-medium whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
             Alerts Displayed:
           </label>
-          <span data-testid="alerts-displayed-count" className={`inline-flex items-center justify-center px-3.5 py-0.5 rounded-full text-xs font-semibold border ${
-            isDark ? 'bg-black text-white border-white' : 'bg-white text-gray-800 border-gray-400'
+          <span className={`inline-flex items-center justify-center px-3.5 py-0.5 rounded-full text-xs font-semibold border ${
+            isDark ? 'bg-gray-900 text-white border-white' : 'bg-white text-gray-800 border-gray-400'
           }`}>{sortedAlerts.length}</span>
         </div>
       </div>
-      <table data-testid="alerts-table" className="w-full border-collapse">
+      <table className="w-full border-collapse">
         <thead className={`sticky top-0 z-10 border-b ${
-          isDark ? 'bg-black border-neutral-700' : 'bg-gray-100 border-gray-300'
+          isDark ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-300'
         }`}>
         <tr>
           <th className={`${thClass} w-8`}></th>
           <th className={`${thClass} w-8`}></th>
           <th className={`${thClass} cursor-pointer select-none hover:bg-opacity-10 ${
-            isDark ? 'hover:bg-neutral-800' : 'hover:bg-gray-200'
+            isDark ? 'hover:bg-gray-600' : 'hover:bg-gray-200'
           }`} onClick={() => handleSort('timestamp')}>
             <div className="flex items-center gap-2">
               <span>Timestamp</span>
@@ -210,7 +211,7 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
             </div>
           </th>
           <th className={`${thClass} cursor-pointer select-none hover:bg-opacity-10 ${
-            isDark ? 'hover:bg-neutral-800' : 'hover:bg-gray-200'
+            isDark ? 'hover:bg-gray-600' : 'hover:bg-gray-200'
           }`} onClick={() => handleSort('end')}>
             <div className="flex items-center gap-2">
               <span>End</span>
@@ -236,13 +237,13 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
           const isExpanded = expandedRows.has(alert.id);
           return (
             <React.Fragment key={alert.id}>
-              <tr data-testid="alert-row" className={`border-b transition-colors ${
+              <tr className={`border-b transition-colors ${
                 isDark 
-                  ? `border-neutral-700 hover:bg-neutral-800 ${index % 2 === 0 ? 'bg-black' : 'bg-neutral-950'}`
-                  : `border-gray-200 hover:bg-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`
+                  ? `border-gray-700 hover:bg-gray-600 ${index % 2 === 0 ? 'bg-gray-700' : 'bg-gray-750'}`
+                  : `border-gray-200 hover:bg-blue-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`
               }`}>
                 <td className="py-3 px-4 text-sm">
-                  <button onClick={() => toggleRow(alert.id)} className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700">
+                  <button onClick={() => toggleRow(alert.id)} className={buttonTextClass}>
                     {isExpanded ? <IconChevronUp className="w-4 h-4" /> : <IconChevronDown className="w-4 h-4" />}
                   </button>
                 </td>
@@ -260,40 +261,40 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
                 <td className={tdTextClass}>{alert.timestamp ? formatAlertTimestamp(alert.timestamp, timeFormat === 'utc') : 'N/A'}</td>
                 <td className={tdTextClass}>{alert.end ? formatAlertTimestamp(alert.end, timeFormat === 'utc') : 'N/A'}</td>
                 <td className="py-3 px-4 text-sm">
-                  <Button
-                    kind="tertiary"
+                  <button
                     onClick={() => {
                       if (!activeFilters.sensors.has(alert.sensor)) {
                         onAddFilter('sensors', alert.sensor);
                       }
                     }}
+                    className={buttonTextClass}
                   >
                     {alert.sensor ? alert.sensor : 'N/A'}
-                  </Button>
+                  </button>
                 </td>
                 <td className="py-3 px-4 text-sm">
-                  <Button
-                    kind="tertiary"
+                  <button
                     onClick={() => {
                       if (!activeFilters.alertTypes.has(alert.alertType)) {
                         onAddFilter('alertTypes', alert.alertType);
                       }
                     }}
+                    className={buttonTextClass}
                   >
                     {alert.alertType ? alert.alertType : 'N/A'}
-                  </Button>
+                  </button>
                 </td>
                 <td className="py-3 px-4 text-sm">
-                  <Button
-                    kind="tertiary"
+                  <button
                     onClick={() => {
                       if (!activeFilters.alertTriggered.has(alert.alertTriggered)) {
                         onAddFilter('alertTriggered', alert.alertTriggered);
                       }
                     }}
+                    className={buttonTextClass}
                   >
                     {alert.alertTriggered ? alert.alertTriggered : 'N/A'}
-                  </Button>
+                  </button>
                 </td>
                 <td className={tdTextClass}>
                   {(() => {
@@ -316,7 +317,7 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
                     ).join(' ');
                     
                     return (
-                      <span data-testid="alert-vlm-verdict" className={`inline-block px-2 py-1 rounded text-xs font-medium border ${style}`}>
+                      <span className={`inline-block px-2 py-1 rounded text-xs font-medium border ${style}`}>
                         {displayText}
                       </span>
                     );
@@ -326,13 +327,13 @@ export const AlertsTable: React.FC<AlertsTableProps> = ({
                   {alert.alertDescription ? alert.alertDescription : 'N/A'}
                 </td>
                 <td className="py-3 px-4 text-sm">
-                  <button onClick={() => toggleRow(alert.id)} className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700">
+                  <button onClick={() => toggleRow(alert.id)} className={buttonTextClass}>
                     <IconInfoCircle className="w-4 h-4" />
                   </button>
                 </td>
               </tr>
               {isExpanded && (
-                <tr data-testid="alert-row-expanded" className={isDark ? 'bg-black border-b border-neutral-700' : 'bg-gray-100 border-b border-gray-200'}>
+                <tr className={isDark ? 'bg-gray-700 border-b border-gray-700' : 'bg-gray-100 border-b border-gray-200'}>
                   <td></td>
                   <td></td>
                   <td colSpan={8} className="py-4 pr-4">

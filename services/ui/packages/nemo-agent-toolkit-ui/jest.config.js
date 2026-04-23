@@ -16,13 +16,11 @@ const customJestConfig = {
     '^@/types/(.*)$': '<rootDir>/types/$1',
     '^@/hooks/(.*)$': '<rootDir>/hooks/$1',
     '^@/constants/(.*)$': '<rootDir>/constants/$1',
-    '^@aiqtoolkit-ui/common$': '<rootDir>/../common/lib-src/index.ts',
     '^react-markdown$': '<rootDir>/__mocks__/react-markdown.js',
     '^next-i18next$': '<rootDir>/__mocks__/next-i18next.js',
-    '^uuid$': '<rootDir>/__mocks__/uuid.js',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(react-markdown|remark-.*|rehype-.*|unified|vfile.*|micromark.*|mdast-.*|hast-.*|next-i18next|react-i18next|uuid)/)'
+    'node_modules/(?!(react-markdown|remark-.*|rehype-.*|unified|vfile.*|micromark.*|mdast-.*|hast-.*|next-i18next|react-i18next)/)'
   ],
   testMatch: [
     '**/__tests__/**/*.(ts|tsx|js)',

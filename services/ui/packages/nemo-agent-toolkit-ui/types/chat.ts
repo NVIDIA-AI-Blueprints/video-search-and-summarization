@@ -1,13 +1,3 @@
-export interface QueryDataContext {
-  id: string;
-  label: string;
-  type: string;
-  data: Record<string, unknown>;
-}
-
-/** Parent-provided renderable HTML snippet shown under an assistant response card. */
-export type CallerInfo = string;
-
 export interface Message {
   id?: string;
   role: Role;
@@ -17,8 +7,6 @@ export interface Message {
   errorMessages?: any;
   timestamp?: number;
   parentId?: string;
-  /** Parent app supplied metadata to render caller-info section on assistant responses. */
-  callerInfo?: CallerInfo;
   hidden?: boolean; // If true, message will not be displayed in chat UI but will still be sent to API
 }
 

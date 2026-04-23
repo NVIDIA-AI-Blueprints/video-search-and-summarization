@@ -8,7 +8,7 @@
  * 
  */
 import React from 'react';
-import { VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
+import { VideoModal } from '@nemo-agent-toolkit/ui';
 
 // Types
 import { SearchComponentProps, SearchData } from './types';
@@ -16,6 +16,7 @@ import { SearchComponentProps, SearchData } from './types';
 // Hooks
 import { useSearch } from './hooks/useSearch';
 import { extractSearchResultsFromAgentResponse } from './utils/agentResponseParser';
+import { useVideoModal } from './hooks/useVideoModal';
 
 // Components
 import { SearchHeader } from './components/SearchHeader';
@@ -32,10 +33,8 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   onControlsReady,
   submitChatMessage,
   registerChatAnswerHandler,
-  registerSidebarChatEventSubscriber,
   chatSidebarCollapsed = true,
   chatSidebarBusy = false,
-  addChatQueryContext,
 }) => {
   const isDark = theme === 'dark';
   const [agentSearchResults, setAgentSearchResults] = React.useState<SearchData[] | null>(null);
@@ -75,69 +74,34 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     }
   }, [filterParams.agentMode]);
 
-  // Clear video results only when a new search starts (loading transitions to true), not on every render while loading.
-  const prevLoadingRef = React.useRef(loading);
+  // Clear video results when Search button is pressed (loading started).
   React.useEffect(() => {
-    const becameLoading = loading && !prevLoadingRef.current;
-    prevLoadingRef.current = loading;
-    if (becameLoading) {
+    if (loading) {
       setAgentSearchResults(null);
     }
   }, [loading]);
 
-  // Only clear results when an agent-mode search query was submitted (via submitChatMessage),
-  // not when the user sends a regular chat message (e.g. "Add to Chat" + question).
-  const agentSearchSubmittedRef = React.useRef(false);
-  const wrappedSubmitChatMessage = React.useMemo(() => {
-    if (!submitChatMessage) return undefined;
-    return (message: string) => {
-      agentSearchSubmittedRef.current = true;
-      submitChatMessage(message);
-    };
-  }, [submitChatMessage]);
-
+  // Clear video results as soon as a new message is submitted in the Chat sidebar (transition to busy).
   const prevChatSidebarBusyRef = React.useRef(chatSidebarBusy);
   React.useEffect(() => {
     const becameBusy = chatSidebarBusy && !prevChatSidebarBusyRef.current;
     prevChatSidebarBusyRef.current = chatSidebarBusy;
-    if (becameBusy && agentSearchSubmittedRef.current) {
-      agentSearchSubmittedRef.current = false;
+    if (becameBusy) {
       setAgentSearchResults(null);
       clearSearchResults?.();
     }
   }, [chatSidebarBusy, clearSearchResults]);
 
-  // Stable forwarder + ref so Home's register callback stays identity-stable while we always invoke the latest parser/setState.
-  const deliverAgentAnswerRef = React.useRef<(answer: string) => boolean>(() => false);
-  deliverAgentAnswerRef.current = (answer: string) => {
-    const results = extractSearchResultsFromAgentResponse(answer);
-    if (results !== null) {
-      setAgentSearchResults(results);
-      return true;
-    }
-    return false;
-  };
-  const forwardAgentAnswer = React.useCallback((answer: string) => {
-    return deliverAgentAnswerRef.current(answer);
-  }, []);
-
+  // Register handler to extract Search API–shaped JSON from agent answers and update main content.
   React.useEffect(() => {
     if (!registerChatAnswerHandler) return;
-    return registerChatAnswerHandler(forwardAgentAnswer);
-  }, [registerChatAnswerHandler, forwardAgentAnswer]);
-
-  // Clear main results on any Chat sidebar send (bridge emits messageSubmitted to Search even when another tab is focused).
-  // Header-driven submit also sets agentSearchSubmittedRef for the chatSidebarBusy path.
-  React.useEffect(() => {
-    if (!registerSidebarChatEventSubscriber) return;
-    const unsubscribe = registerSidebarChatEventSubscriber((event) => {
-      if (event.type === 'messageSubmitted') {
-        setAgentSearchResults(null);
-        clearSearchResults?.();
+    return registerChatAnswerHandler((answer: string) => {
+      const results = extractSearchResultsFromAgentResponse(answer);
+      if (results !== null) {
+        setAgentSearchResults(results);
       }
     });
-    return typeof unsubscribe === 'function' ? unsubscribe : undefined;
-  }, [registerSidebarChatEventSubscriber, clearSearchResults]);
+  }, [registerChatAnswerHandler]);
 
   const controlsComponent = React.useMemo(
     () => (
@@ -168,10 +132,9 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   
   return (
     <div 
-      data-testid="search-component"
-      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
+      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-gray-800 text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
-      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
+      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
         <SearchHeader 
           theme={isDark ? 'dark' : 'light'} 
           streams={streams}
@@ -184,7 +147,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
           isSearching={loading}
           onCancelSearch={cancelSearch}
           onGetPendingQuery={handleGetPendingQuery}
-          submitChatMessage={wrappedSubmitChatMessage}
+          submitChatMessage={submitChatMessage}
           contentDisabled={!chatSidebarCollapsed || loading || chatSidebarBusy}
         />
       </div>
@@ -197,7 +160,6 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
           onRefresh={refetch}
           onPlayVideo={openVideoModal}
           showObjectsBbox={mediaWithObjectsBbox}
-          onAddContext={addChatQueryContext}
         />
       </div>
       {/* Video Modal */}

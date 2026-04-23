@@ -88,9 +88,5 @@ export interface VideoManagementComponentProps {
   videoManagementData?: VideoManagementData;
   renderControlsInLeftSidebar?: boolean;
   onControlsReady?: (handlers: VideoManagementSidebarControlHandlers) => void;
-  registerChatAnswerHandler?: (handler: (answer: string) => boolean | void) => void | (() => void);
-  registerSidebarChatEventSubscriber?: (
-    handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
-  ) => void | (() => void);
 }
 

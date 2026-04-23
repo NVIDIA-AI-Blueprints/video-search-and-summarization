@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// TODO: Refactor by create new package for utils in ticket https://jirasw.nvidia.com/browse/MOEUI-81
 
 /**
  * Time utility functions for formatting and parsing time windows
@@ -88,41 +89,6 @@ export const formatTimeWindow = (minutes: number): string => {
 };
 
 /**
- * Verify that matched tokens (with optional whitespace between them) fully cover the input.
- * Rejects inputs with stray characters that don't form valid time tokens.
- */
-function tokensFullyCoverInput(trimmed: string, tokens: RegExpMatchArray[]): boolean {
-  let position = 0;
-  for (const token of tokens) {
-    while (position < trimmed.length && (trimmed[position] === ' ' || trimmed[position] === '\t')) {
-      position++;
-    }
-    if (token.index == null || token.index !== position) {
-      return false;
-    }
-    position += token[0].length;
-  }
-  return position === trimmed.length;
-}
-
-const UNIT_ORDER: Record<string, number> = { y: 0, M: 1, w: 2, d: 3, h: 4, m: 5 };
-
-/**
- * Validate that units appear in descending order (y > M > w > d > h > m).
- * Also rejects duplicate units.
- */
-function hasValidUnitOrder(tokens: RegExpMatchArray[]): boolean {
-  for (let i = 1; i < tokens.length; i++) {
-    const previousUnit = tokens[i - 1][0].slice(-1);
-    const currentUnit = tokens[i][0].slice(-1);
-    if (UNIT_ORDER[previousUnit] >= UNIT_ORDER[currentUnit]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
  * Core function to parse time string to minutes
  * Supports: minutes (m), hours (h), days (d), weeks (w), months (M), years (y)
  * 
@@ -135,44 +101,62 @@ function parseTimeString(input: string): TimeParseResult {
   if (!trimmed) {
     return { minutes: 0, error: 'Please enter a time value' };
   }
-
+  
+  // Validate format: number + unit, optional space between units
+  // Supports: "40m", "1h 30m", "1h30m", "1w2d"
+  // Rejects: "1 h", "1 2h", invalid characters
+  const validPattern = /^\d+[yMwdhm](\s*\d+[yMwdhm])*$/;
+  if (!validPattern.test(trimmed)) {
+    return { minutes: 0, error: 'Invalid format. Use: 40m, 4h, 1d, 1w, 1M, 1y or combinations like 1h 30m or 1h30m' };
+  }
+  
+  // Additional check: reject uppercase letters except 'M'
   if (/[YWDH]/.test(trimmed)) {
     return { minutes: 0, error: 'Invalid format. Use lowercase letters (y, w, d, h, m) except M for months' };
   }
-
-  // Cap input length to prevent quadratic regex cost on adversarial strings
-  if (trimmed.length > 50) {
-    return { minutes: 0, error: 'Input is too long' };
+  
+  // Validate unit order: must be descending (y > M > w > d > h > m)
+  // Extract all units with their positions
+  const unitOrder = { y: 0, M: 1, w: 2, d: 3, h: 4, m: 5 };
+  const matches = Array.from(trimmed.matchAll(/\d+([yMwdhm])/g));
+  
+  for (let i = 1; i < matches.length; i++) {
+    const prevUnit = matches[i - 1][1];
+    const currUnit = matches[i][1];
+    
+    if (unitOrder[prevUnit as keyof typeof unitOrder] >= unitOrder[currUnit as keyof typeof unitOrder]) {
+      return { minutes: 0, error: 'Units must be in descending order (e.g., 1y 2M or 1h 30m, not 1m 2h)' };
+    }
   }
-
-  // \d+ and [yMwdhm] are disjoint char classes — no exponential backtracking possible.
-  // Worst case is O(n²) on digit-only strings, mitigated by the length cap above.
-  const tokens = Array.from(trimmed.matchAll(/\d+[yMwdhm]/g));
-  const invalidFormatError = 'Invalid format. Use: 40m, 4h, 1d, 1w, 1M, 1y or combinations like 1h 30m or 1h30m';
-
-  if (tokens.length === 0) {
-    return { minutes: 0, error: invalidFormatError };
-  }
-
-  if (!tokensFullyCoverInput(trimmed, tokens)) {
-    return { minutes: 0, error: invalidFormatError };
-  }
-
-  if (!hasValidUnitOrder(tokens)) {
-    return { minutes: 0, error: 'Units must be in descending order (e.g., 1y 2M or 1h 30m, not 1m 2h)' };
-  }
-
+  
   let totalMinutes = 0;
-  for (const token of tokens) {
-    const value = Number.parseInt(token[0], 10);
-    const unit = token[0].slice(-1) as keyof typeof TIME_CONVERSIONS;
-    totalMinutes += value * TIME_CONVERSIONS[unit];
+  
+  // Match patterns for all supported time units (case-sensitive)
+  // Strict format: lowercase only, except 'M' (uppercase) for months
+  const yearMatch = trimmed.match(/(\d+)y/);    // Only lowercase 'y'
+  const monthMatch = trimmed.match(/(\d+)M/);   // Only uppercase 'M'
+  const weekMatch = trimmed.match(/(\d+)w/);    // Only lowercase 'w'
+  const dayMatch = trimmed.match(/(\d+)d/);     // Only lowercase 'd'
+  const hourMatch = trimmed.match(/(\d+)h/);    // Only lowercase 'h'
+  const minuteMatch = trimmed.match(/(\d+)m/);  // Only lowercase 'm'
+  
+  // Check if input contains at least one valid time format
+  if (!yearMatch && !monthMatch && !weekMatch && !dayMatch && !hourMatch && !minuteMatch) {
+    return { minutes: 0, error: 'Use format like: 40m, 4h, 1d, 1w, 1M, 1y' };
   }
-
+  
+  // Convert to minutes using TIME_CONVERSIONS
+  if (yearMatch) totalMinutes += parseInt(yearMatch[1]) * TIME_CONVERSIONS.y;
+  if (monthMatch) totalMinutes += parseInt(monthMatch[1]) * TIME_CONVERSIONS.M;
+  if (weekMatch) totalMinutes += parseInt(weekMatch[1]) * TIME_CONVERSIONS.w;
+  if (dayMatch) totalMinutes += parseInt(dayMatch[1]) * TIME_CONVERSIONS.d;
+  if (hourMatch) totalMinutes += parseInt(hourMatch[1]) * TIME_CONVERSIONS.h;
+  if (minuteMatch) totalMinutes += parseInt(minuteMatch[1]) * TIME_CONVERSIONS.m;
+  
   if (totalMinutes === 0) {
     return { minutes: 0, error: 'Time must be greater than 0' };
   }
-
+  
   return { minutes: totalMinutes, error: '' };
 }
 
@@ -270,7 +254,7 @@ const LOCALE_OPTS = {
 export const formatAlertTimestamp = (timestamp: string | number, useUtc: boolean): string => {
   try {
     const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) return String(timestamp);
+    if (isNaN(date.getTime())) return String(timestamp);
     const dateStr = date.toLocaleDateString('en-US', useUtc ? { ...LOCALE_OPTS.date, timeZone: 'UTC' } : LOCALE_OPTS.date);
     const timeStr = date.toLocaleTimeString('en-US', useUtc ? { ...LOCALE_OPTS.time, timeZone: 'UTC' } : LOCALE_OPTS.time);
     return `${dateStr} ${timeStr}`;
