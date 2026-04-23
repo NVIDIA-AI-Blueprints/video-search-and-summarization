@@ -53,7 +53,12 @@ When using this skill, ALWAYS follow this high-level workflow:
 ## Input resolution
 
 Infer these inputs only from the conversation or user query (no other files unless provided). If some cannot be inferred, ask the user immediately:
-- $HOST_IP: where the VSS agent backend runs
+
+- $HOST_IP: where the VSS agent backend runs (Always)
+
+- Video source(s) (Optional): if user wants to filter/scope search results to one or multiple video source(s)
+  - When a potential video name (or descriptive reference / informal label) is provided in the user query, use the `vios` skill to list the available sources and match the user desired scope with the exact source name. If there is ambiguity among these source names, ask user to clarify/choose
+  - If no video source is mentioned by user query, then assume the search is across sources
 
 ---
 

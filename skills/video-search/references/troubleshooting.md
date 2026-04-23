@@ -4,7 +4,7 @@ Isolate the problem encountered in video-search then iterate to resolve it. Exam
 
 ## Gotchas
 
-- ALWAYS use the method to list video sources with VST first with `vios`, before making curl requests to check Elasticsearch embeddings.
+- ALWAYS use the method to list video sources with VST first with the `vios` skill, before making curl requests to check Elasticsearch embeddings.
 - If the video source is not ingested yet, NEVER use the VST upload APIs because they will not generate embeddings. Use the `videos-for-search` endpoint described below for video files (or `rtsp-streams/add` for RTSP streams), and use the term "ingest" instead of "upload" to avoid confusions
 - NEVER try to guess the URL or VST API to check what is available in the system. Use the `vios` skill instead to list video sources and manage streams feeding into the search pipeline
 ```bash
