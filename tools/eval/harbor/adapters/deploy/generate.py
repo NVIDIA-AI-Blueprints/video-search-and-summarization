@@ -272,6 +272,31 @@ def _describe_model(role: str, mode: str, remote: dict | None,
     return f"- {role}: mode `{mode}`"
 
 
+def _hw_hint(mode_spec: dict, platform: str) -> str:
+    """Describe the target LLM/VLM placement in natural hardware terms.
+
+    The goal: tell the agent *what hardware shape* to aim for (1 local GPU,
+    2 local GPUs, remote endpoints, …), not *which mode name* to pass. The
+    deploy skill reads the hint plus the live `nvidia-smi` + available env
+    vars and picks the actual `LLM_MODE` / `VLM_MODE` combination that fits.
+    If the combination is infeasible (e.g. LLM+VLM don't fit on a single
+    L40S 48GB GPU), the skill stops and reports the blocker.
+    """
+    llm = mode_spec["llm_mode"]       # "remote" | "local" | "local_shared"
+    vlm = mode_spec["vlm_mode"]
+    if llm == "remote" and vlm == "remote":
+        return f"using remote endpoints for both LLM and VLM (no local GPU for inference)"
+    if llm == "remote" and vlm != "remote":
+        return f"with the LLM served remotely, and the VLM running locally on one {platform} GPU"
+    if llm != "remote" and vlm == "remote":
+        return f"with the VLM served remotely, and the LLM running locally on one {platform} GPU"
+    if llm == "local_shared" and vlm == "local_shared":
+        return f"with the LLM and VLM **sharing one {platform} GPU** (single-GPU local inference)"
+    if llm == "local" and vlm == "local":
+        return f"with the LLM and VLM **on two separate {platform} GPUs** (dedicated layout)"
+    return f"with LLM={llm}, VLM={vlm} on {platform}"
+
+
 def generate_instruction(
     profile: str,
     platform: str,
@@ -279,67 +304,56 @@ def generate_instruction(
     llm_remote: dict | None,
     vlm_remote: dict | None,
 ) -> str:
-    """High-level goal + context. Agent uses /deploy skill for the workflow."""
-    mode_spec = effective_mode_spec(platform, mode)
+    """High-level goal + hardware shape. Agent uses /deploy skill for the workflow.
+
+    The instruction is deliberately hardware-centric — no mode names, no
+    env-var values. It tells the agent **what the target looks like** (e.g.
+    "deploy base with LLM and VLM sharing one H100 GPU"). The /deploy skill
+    picks the mode, validates feasibility, and reports back if the hardware
+    can't support the target.
+    """
     profile_def = PROFILES[profile]
     is_debug = bool(profile_def.get("debug"))
     underlying = deploy_profile(profile)
     deploy_flag_m = profile_def.get("deploy_mode")
+    mode_spec = effective_mode_spec(platform, mode)
+    hw_hint = _hw_hint(mode_spec, platform)
 
-    if is_debug:
-        lines = [
-            f"Use the `/deploy` skill to **deploy and debug** the VSS "
-            f"**{underlying}** profile on this machine.",
-            "",
-            "## Target configuration",
-            "",
-            f"- Hardware profile: `{platform}`",
-            f"- GPU mode: **{mode}** — {mode_spec['description']}",
-            _describe_model("LLM", mode_spec["llm_mode"], llm_remote,
-                            edge_override=bool(mode_spec.get("_edge_override"))),
-            _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
-                            edge_override=bool(mode_spec.get("_edge_override"))),
-            "",
-            "## Repository",
-            "",
-            "If the VSS repository is not already present, clone it from:",
-            f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
-            "",
-            "Run autonomously end-to-end — do NOT prompt for confirmation.",
-            "",
-        ]
-        return "\n".join(lines) + "\n"
-
-    deploy_cmd = f"/deploy -p {underlying}"
-    if deploy_flag_m:
-        deploy_cmd += f" -m {deploy_flag_m}"
-    lines = [
-        f"Use the `/deploy` skill to deploy the VSS **{underlying}** profile "
+    header = (
+        f"Deploy the VSS **{underlying}** profile on this machine "
         + (f"in **{deploy_flag_m}** mode " if deploy_flag_m else "")
-        + "on this machine.",
+        + f"{hw_hint}."
+    )
+
+    body = [
+        header,
         "",
-        f"Invoke it as: `{deploy_cmd}`.",
+        "Use the `/deploy` skill. It should:",
         "",
-        "## Target configuration",
-        "",
-        f"- Hardware profile: `{platform}`",
-        f"- GPU mode: **{mode}** — {mode_spec['description']}",
-        _describe_model("LLM", mode_spec["llm_mode"], llm_remote,
-                        edge_override=bool(mode_spec.get("_edge_override"))),
-        _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
-                        edge_override=bool(mode_spec.get("_edge_override"))),
+        "1. Discover what's available on the host (GPU count + VRAM via "
+        "`nvidia-smi`, remote endpoints via `$LLM_REMOTE_URL` / "
+        "`$VLM_REMOTE_URL`, credentials via `$NGC_CLI_API_KEY`).",
+        "2. Pick the `LLM_MODE` / `VLM_MODE` combination that matches the "
+        "target shape above. If the target isn't feasible on this hardware "
+        "(e.g. LLM + VLM can't fit on one L40S 48GB GPU locally), **stop "
+        "and report the blocker** — don't silently deploy something else.",
+        "3. Run end-to-end autonomously: prerequisites, env setup, compose "
+        "config dry-run, compose up, wait for health.",
         "",
         "## Repository",
         "",
-        f"If the VSS repository is not already present, clone it from:",
-        f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
+        f"If the VSS repo isn't already present, clone it: "
+        f"`{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
         "",
-        "Run autonomously end-to-end — do NOT prompt for confirmation. "
-        "The `/deploy` skill owns everything else: prerequisites, env vars, "
-        "deployment steps, success checks, teardown.",
+        "Do NOT prompt for confirmation.",
         "",
     ]
-    return "\n".join(lines) + "\n"
+
+    if is_debug:
+        body.insert(2, "After deploy, also run the skill's debug workflow to "
+                       "verify the full video path end-to-end.\n")
+
+    return "\n".join(body)
 
 
 # ---------------------------------------------------------------------------
