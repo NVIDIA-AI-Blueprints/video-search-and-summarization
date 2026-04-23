@@ -97,6 +97,45 @@ to choose a deployment shape that fits.
 | AGX | `AGX-THOR` | **Edge 4B** (vLLM) — see [`references/edge.md`](references/edge.md) |
 | Other | `OTHER` | — |
 
+**Minimum GPU count per (profile × mode × platform).** Canonical source
+is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.1.0/prerequisites.html);
+reproduced here so the skill can fail fast when the host is too small:
+
+| Profile | Mode | H100 / RTX PRO 6000 (Blackwell) | L40S | DGX-Spark / IGX-Thor / AGX-Thor |
+|---|---|---|---|---|
+| `base` | shared (`local_shared` LLM + VLM) | **1** | — (48 GB/GPU too small) | **1** (Edge 4B + VLM, unified memory) |
+| `base` | dedicated (`local` LLM + VLM) | **2** | **2** | — |
+| `base` | `remote-llm` | **1** (VLM local) | **1** (VLM local) | **1** (remote LLM only) |
+| `base` | `remote-vlm` | **1** (LLM local) | **1** (LLM local) | — |
+| `base` | `remote-all` | **0** | **0** | **0** |
+| `lvs` | shared | **1** | — | **1** (Edge 4B) |
+| `lvs` | dedicated | **2** | **2** | — |
+| `lvs` | `remote-*` | 0–1 per which side is remote | 0–1 | **1** (remote LLM) |
+| `alerts` (verification / CV) | shared | **2** (CV on GPU 0 + LLM+VLM shared on GPU 1) | — | — |
+| `alerts` (verification / CV) | dedicated | **2** | **3** (CV + LLM + VLM each dedicated) | — |
+| `alerts` (real-time / VLM) | shared | **1** | — | — |
+| `alerts` (real-time / VLM) | dedicated | **2** | **3** (NVStreamer + LLM + VLM) | — |
+| `alerts` (any) | `remote-all` | **0** | **0** | — |
+| `search` | shared | **2** (Cosmos Embed1 on GPU 0 + LLM+VLM shared on GPU 1) | — | **1** (remote LLM) |
+| `search` | dedicated | **2** | **3** (Embed1 + LLM + VLM) | — |
+| `search` | `remote-*` | **1** (Embed1 always runs locally — it's CPU-bound but pinned to a GPU) | **1** | **1** |
+
+A few hard rules encoded in the table:
+
+- **L40S can't do `shared`.** 48 GB is not enough VRAM for LLM + VLM
+  on a single GPU. Fall back to `dedicated` or a `remote-*` mode.
+- **L40S needs +1 GPU for alerts / search vs H100** because the
+  shared-on-one-GPU trick doesn't work — RT-CV / Embed1 must take
+  their own GPU, and LLM+VLM still need a second.
+- **DGX-Spark / Thor are early-access for most profiles.** Only
+  `base` + `lvs` are expected to fully land locally; `alerts` /
+  `search` currently require a remote LLM. See
+  [`references/edge.md`](references/edge.md).
+
+If the host's (GPU count × VRAM) combination doesn't appear above,
+**stop and report the blocker** — don't silently pick a different
+mode.
+
 > **Edge shared mode requires Edge 4B + `HF_TOKEN`.** On DGX Spark and AGX/IGX
 > Thor, both LLM and VLM must fit in unified memory, AND the standard
 > `nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2:1` image has a broken arm64
