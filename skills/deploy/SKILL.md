@@ -302,9 +302,14 @@ Show the user a summary of what will be deployed:
 - GPU device assignment
 - Key endpoints (UI port, agent port)
 
-Ask: **"Looks good — deploy now?"**
+Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 
-Do NOT proceed without user confirmation.
+**Exception — autonomous mode.** If the user's request already asks
+you to run autonomously (e.g. "deploy X autonomously", "run without
+confirmation", "non-interactive"), skip the confirmation prompt and
+proceed straight to Step 5. This path exists so automated eval /
+CI invocations don't hang waiting for a human reply they'll never
+get. In all other cases, a human must approve.
 
 ### Step 5 — Deploy
 
