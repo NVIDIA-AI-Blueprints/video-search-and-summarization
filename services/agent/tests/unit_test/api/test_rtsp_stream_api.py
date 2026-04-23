@@ -392,6 +392,118 @@ class TestAddToRtviEmbed:
         assert mock_client.post.call_count == 2
 
 
+class TestAddToRtviEmbedRealRetry:
+    """Tests that exercise the real create_retry_strategy to pin configured retry parameters."""
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.utils.retry.wait_random", return_value=wait_none())
+    async def test_retries_on_transport_error(self, _mock_wait):
+        """Real retry strategy retries httpx.TransportError and eventually succeeds."""
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+        ok_response.json = MagicMock(return_value={"streams": [{"id": "rtvi-stream-123"}]})
+
+        mock_client.post = AsyncMock(
+            side_effect=[
+                httpx.ConnectError("connection refused"),
+                httpx.ConnectError("connection refused"),
+                ok_response,
+            ]
+        )
+
+        success, _msg, stream_id = await add_to_rtvi_embed(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is True
+        assert stream_id == "rtvi-stream-123"
+        assert mock_client.post.call_count == 3
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.utils.retry.wait_random", return_value=wait_none())
+    async def test_retries_on_timeout(self, _mock_wait):
+        """httpx.TimeoutException (subclass of TransportError) is retried."""
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+        ok_response.json = MagicMock(return_value={"streams": [{"id": "rtvi-stream-123"}]})
+
+        mock_client.post = AsyncMock(side_effect=[httpx.ReadTimeout("timed out"), ok_response])
+
+        success, _msg, stream_id = await add_to_rtvi_embed(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is True
+        assert stream_id == "rtvi-stream-123"
+        assert mock_client.post.call_count == 2
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.utils.retry.wait_random", return_value=wait_none())
+    async def test_does_not_retry_on_non_retryable_exception(self, _mock_wait):
+        """Real retry strategy does NOT retry exceptions outside the configured tuple."""
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+
+        mock_client.post = AsyncMock(side_effect=KeyError("unexpected"))
+
+        success, _msg, stream_id = await add_to_rtvi_embed(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is False
+        assert stream_id is None
+        mock_client.post.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.utils.retry.wait_random", return_value=wait_none())
+    async def test_exhausts_all_six_retries_on_server_error(self, _mock_wait):
+        """Real retry strategy attempts exactly 6 times before giving up on 500s."""
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+
+        fail_response = MagicMock()
+        fail_response.status_code = 500
+        fail_response.text = "Internal Server Error"
+
+        mock_client.post = AsyncMock(return_value=fail_response)
+
+        success, _msg, stream_id = await add_to_rtvi_embed(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is False
+        assert stream_id is None
+        assert mock_client.post.call_count == 6
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.utils.retry.wait_random", return_value=wait_none())
+    async def test_4xx_not_retried(self, _mock_wait):
+        """Real retry strategy returns immediately on 4xx client errors."""
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_embed_base_url="http://rtvi-embed:8017")
+
+        bad_request = MagicMock()
+        bad_request.status_code = 400
+        bad_request.text = "Bad Request"
+
+        mock_client.post = AsyncMock(return_value=bad_request)
+
+        success, msg, stream_id = await add_to_rtvi_embed(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is False
+        assert "400" in msg
+        assert stream_id is None
+        mock_client.post.assert_called_once()
+
+
 class TestStartEmbeddingGeneration:
     """Test start_embedding_generation function."""
 

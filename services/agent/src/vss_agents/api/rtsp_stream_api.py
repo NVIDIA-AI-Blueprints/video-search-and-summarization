@@ -236,9 +236,7 @@ async def add_to_rtvi_embed(
     logger.debug(f"Payload: {payload}")
 
     try:
-        async for retry in create_retry_strategy(
-            delay=2, retries=6, exceptions=(httpx.TransportError, httpx.TimeoutException, RuntimeError)
-        ):
+        async for retry in create_retry_strategy(delay=2, retries=6, exceptions=(httpx.TransportError, RuntimeError)):
             with retry:
                 response = await client.post(url, json=payload)
                 if response.status_code not in (200, 201):
