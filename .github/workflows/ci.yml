@@ -280,6 +280,8 @@ jobs:
       DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
       DOWNSTREAM_REF: main
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
+      VSS_TARGET_BRANCH: ${{ github.ref_name }}
+      VSS_COMPARE_BRANCH: ${{ github.base_ref || 'develop' }}
     steps:
       - uses: actions/checkout@v4
 
