@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy, debug, or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Also debug/verify a running deployment end-to-end using `scripts/test_base.py` (upload a sample warehouse video, exercise the agent's video-Q&A path, confirm the stack is healthy). Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", "test the deployed agent", or "why is my vss deploy broken". Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
+description: Deploy, debug, or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken". Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
 metadata:
   { "openclaw": { "emoji": "🚀", "os": ["linux"] } }
 ---
@@ -412,40 +412,11 @@ curl -sf http://localhost:30081/v1/models | python3 -m json.tool
 
 ### End-to-end video sanity check
 
-`scripts/test_base.py` is the canonical end-to-end probe. It:
-
-1. Waits for the agent `/health` endpoint
-2. Asks the agent for a VST upload URL (`POST /api/v1/videos`)
-3. Uploads a public warehouse video (Pexels CC0, ~1 MB) directly to VST
-4. Verifies the video is visible via `GET /vst/api/v1/sensor/streams`
-5. Sends the blueprint queries over the agent WebSocket
-   (`"What videos are available?"` / `"Generate a report for video <name>"`)
-6. Handles HITL prompts (VLM-prompt for `base`, scenario/events/objects for `lvs`)
-7. Prints pass/fail and a response snippet
-
-Usage:
-
-```bash
-# Install once
-pip install websocket-client
-
-# base profile
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --profile base
-
-# lvs profile
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --profile lvs
-
-# Use a local video instead of the default Pexels download
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --video-path /path/to/my_video.mp4 --profile base
-```
-
-The script exits non-zero on any failure, so it can also be wired into CI or
-an eval verifier. If any step fails, cross-reference the vss-agent log
-(`docker logs vss-agent`) for the error line — the script prints which
-step (upload / VST check / query) tripped.
+After the quick checks above pass, drive a real query through the agent — e.g.
+ask it over the REST API or UI to describe a video you've uploaded to VST.
+If the agent returns a non-empty answer, the upload → ingest → inference →
+reply path is healthy. If it fails, `docker logs vss-agent` shows which stage
+tripped.
 
 ## Troubleshooting
 

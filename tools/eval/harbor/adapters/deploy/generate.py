@@ -285,9 +285,6 @@ def generate_instruction(
             "If the VSS repository is not already present, clone it from:",
             f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
             "",
-            "After a clean deploy, exercise the skill's debug workflow "
-            "(`scripts/test_base.py` — see SKILL.md § *Debugging a Deployment*).",
-            "",
             "Run autonomously end-to-end — do NOT prompt for confirmation.",
             "",
         ]
