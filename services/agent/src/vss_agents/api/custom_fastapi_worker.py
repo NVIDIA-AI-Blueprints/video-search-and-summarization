@@ -27,6 +27,7 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 
 from vss_agents.api.rtsp_stream_api import register_rtsp_stream_api_routes
 from vss_agents.api.video_delete import register_video_delete_routes
+from vss_agents.api.video_search_ingest import register_generic_video_routes
 from vss_agents.api.video_search_ingest import register_streaming_routes
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,14 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
 
         if enable_videos_for_search:
             register_streaming_routes(app, self.config)
+
+        # Register generic (profile-agnostic) video upload routes used by the
+        # Chat upload path: POST /api/v1/videos/chunked/upload proxies to VST
+        # and POST /api/v1/videos/{filename}/complete runs post-processing.
+        # Registers unconditionally — each post-processing step skips
+        # gracefully if its backing service isn't configured, so this works
+        # on search/alerts/lvs/base alike.
+        register_generic_video_routes(app, self.config)
 
         if enable_rtsp_streams:
             register_rtsp_stream_api_routes(app, self.config)
