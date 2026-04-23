@@ -24,7 +24,9 @@ export declare function fetchAlertsData(): Promise<{
     defaultAutoRefreshInterval: number;
     defaultVlmVerified: boolean;
     maxResults: number;
+    pageSize: number;
     alertReportPromptTemplate: string;
     maxSearchTimeLimit: string;
+    mediaWithObjectsBbox: boolean;
 }>;
 //# sourceMappingURL=server.d.ts.map

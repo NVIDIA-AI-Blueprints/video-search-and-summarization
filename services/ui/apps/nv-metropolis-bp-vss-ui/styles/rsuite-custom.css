@@ -1,4 +1,11 @@
 /* SPDX-License-Identifier: MIT */
+/* Override rsuite font to use NVIDIA Sans */
+.rs-theme-dark,
+.rs-theme-light,
+[class*="rs-"] {
+  font-family: 'NVIDIA Sans', system-ui, -apple-system, sans-serif !important;
+}
+
 /* Custom rsuite theme - Light mode darker */
 :root {
   /* Light mode - darker backgrounds */
@@ -21,22 +28,26 @@
   --rs-btn-default-hover-bg: #a3a3a3;
 }
 
-/* Dark mode - keep or adjust as needed */
+/* Dark mode - true neutral grays with NVIDIA green accents */
 .rs-theme-dark {
   --rs-bg-card: #262626;
   --rs-bg-overlay: #171717;
   --rs-bg-well: #262626;
   --rs-bg-active: #404040;
   
-  /* --rs-input-bg: #262626;
-  --rs-input-focus-border: #525252; */
+  --rs-input-bg: #171717;
+  --rs-input-focus-border: #76b900;
+  --rs-border-primary: #404040;
   
-  --rs-dropdown-bg: #262626;
-  --rs-dropdown-item-bg-hover: #404040;
-  --rs-dropdown-item-bg-active: #525252;
+  --rs-dropdown-bg: #171717;
+  --rs-dropdown-item-bg-hover: #262626;
+  --rs-dropdown-item-bg-active: #404040;
   
-  --rs-btn-default-bg: rgb(107 114 128);
-  --rs-btn-default-hover-bg: rgb(75 85 99);
+  --rs-btn-default-bg: #262626;
+  --rs-btn-default-hover-bg: #404040;
+  --rs-btn-default-text: #e5e5e5;
+
+  --rs-picker-value: #e5e5e5;
 }
 
 /* Alternative: Direct class overrides */
@@ -63,6 +74,21 @@
 .rs-btn-default:hover {
   background-color: var(--rs-btn-default-hover-bg);
 } */
+
+/* SelectPicker toggle: true neutral gray background and green focus border */
+.rs-theme-dark .rs-picker-default .rs-picker-toggle {
+  background-color: #171717;
+  border-color: #404040;
+  color: #e5e5e5;
+}
+.rs-theme-dark .rs-picker-default .rs-picker-toggle:hover {
+  border-color: #76b900;
+}
+.rs-theme-dark .rs-picker-default .rs-picker-toggle:focus,
+.rs-theme-dark .rs-picker-default.rs-picker-focused .rs-picker-toggle {
+  border-color: #76b900;
+  box-shadow: none;
+}
 
 /* Increase z-index for DatePicker/CheckPicker popup to appear above Filters popover (FILTER_POPOVER_Z_INDEX = 10600) */
 .rs-picker-popup {

@@ -28,13 +28,13 @@ const Loading = ({ message = 'Loading', type = 'text' }) => {
           </div>
         </div>
       ) : (
-        <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 flex items-center justify-center rounded-md shadow-md animate-none">
+        <div className="relative w-full max-w-[600px] h-[300px] sm:h-[400px] bg-gray-100 dark:bg-slate-800 flex items-center justify-center rounded-md border border-slate-200 dark:border-slate-600 shadow-md animate-none">
           <span
-            className={`font-medium focus:outline-none transition-colors duration-300 dark:text-white text-center`}
+            className={`font-medium focus:outline-none transition-colors duration-300 text-gray-700 dark:text-gray-200 text-center`}
           >
             Loading
             <div className="relative mt-1 mb-2">
-              <div className="h-1 w-32 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-1 w-32 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
                 <div className="h-full bg-green-500 animate-loadingBar"></div>
               </div>
             </div>

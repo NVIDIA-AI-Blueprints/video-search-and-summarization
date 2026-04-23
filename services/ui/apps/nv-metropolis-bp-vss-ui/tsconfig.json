@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "es2019",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -10,28 +14,20 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "node",
-    "baseUrl": ".",
-    "paths": {
-      "@nemo-agent-toolkit/ui": ["../../packages/nemo-agent-toolkit-ui/lib-src/index.d.ts"],
-      "@nemo-agent-toolkit/ui/server": ["../../packages/nemo-agent-toolkit-ui/lib-src/server.d.ts"],
-      "@nv-metropolis-bp-vss-ui/all": ["../../packages/nv-metropolis-bp-vss-ui/all/lib-src/index.d.ts"],
-      "@nv-metropolis-bp-vss-ui/all/server": ["../../packages/nv-metropolis-bp-vss-ui/all/lib-src/server.d.ts"],
-      "next": ["../../node_modules/next"],
-      "next/*": ["../../node_modules/next/*"],
-      "next-i18next": ["../../node_modules/next-i18next"],
-      "next-i18next/*": ["../../node_modules/next-i18next/*"],
-      "react": ["../../node_modules/react"],
-      "react/*": ["../../node_modules/react/*"],
-      "react-dom": ["../../node_modules/react-dom"],
-      "react-dom/*": ["../../node_modules/react-dom/*"]
-    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "types": ["jest", "node"]
+    "types": [
+      "jest",
+      "node"
+    ]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
   "exclude": [
     "node_modules",
     ".next",

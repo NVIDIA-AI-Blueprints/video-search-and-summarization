@@ -3,19 +3,20 @@ import { Toaster } from 'react-hot-toast';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { appWithTranslation } from 'next-i18next';
 import type { AppProps } from 'next/app';
-import { Inter } from 'next/font/google';
-
+import Head from 'next/head';
+import { APPLICATION_TITLE } from '../constants/constants';
 import '../styles/globals.css';
 import 'rsuite/dist/rsuite.min.css';
 import '../styles/rsuite-custom.css';
 
-const inter = Inter({ subsets: ['latin'] });
-
-function App({ Component, pageProps }: AppProps) {
+function App({ Component, pageProps }: AppProps<{}>) {
   const queryClient = new QueryClient();
 
   return (
-    <div className={inter.className}>
+    <div>
+      <Head>
+        <title>{APPLICATION_TITLE}</title>
+      </Head>
       <Toaster
         toastOptions={{
           style: {

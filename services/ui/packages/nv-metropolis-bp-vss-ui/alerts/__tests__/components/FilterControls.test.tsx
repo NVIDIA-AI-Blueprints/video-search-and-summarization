@@ -6,12 +6,53 @@ import { VLM_VERDICT, VlmVerdict } from '../../lib-src/types';
 
 jest.mock('@nemo-agent-toolkit/ui');
 
+jest.mock('@nvidia/foundations-react-core', () => {
+  const React = require('react');
+  return {
+    Button: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, 'data-foundation': 'Button' }, children),
+    ),
+    Select: React.forwardRef(({ items, onValueChange, value, ...rest }: any, ref: any) =>
+      React.createElement(
+        'select',
+        {
+          ...rest,
+          ref,
+          'data-foundation': 'Select',
+          value,
+          onChange: (e: any) => onValueChange?.(e.target.value),
+        },
+        items?.map((item: any) =>
+          React.createElement('option', { key: item.value, value: item.value }, item.children),
+        ),
+      ),
+    ),
+    Switch: React.forwardRef(({ checked, onCheckedChange, ...rest }: any, ref: any) =>
+      React.createElement('input', {
+        ...rest,
+        ref,
+        type: 'checkbox',
+        checked,
+        'data-foundation': 'Switch',
+        onChange: (e: any) => onCheckedChange?.(e.target.checked),
+      }),
+    ),
+    TextInput: React.forwardRef(({ onValueChange, ...rest }: any, ref: any) =>
+      React.createElement('input', {
+        ...rest,
+        ref,
+        'data-foundation': 'TextInput',
+        onChange: (e: any) => onValueChange?.(e.target.value),
+      }),
+    ),
+  };
+});
+
 const defaultProps = {
   isDark: false,
   vlmVerified: true,
   vlmVerdict: VLM_VERDICT.ALL as VlmVerdict,
   timeWindow: 10,
-  timeFormat: 'local' as const,
   showCustomTimeInput: false,
   customTimeValue: '',
   customTimeError: '',
@@ -26,7 +67,6 @@ const defaultProps = {
   onVlmVerifiedChange: jest.fn(),
   onVlmVerdictChange: jest.fn(),
   onTimeWindowChange: jest.fn(),
-  onTimeFormatChange: jest.fn(),
   onCustomTimeValueChange: jest.fn(),
   onCustomTimeApply: jest.fn(),
   onCustomTimeCancel: jest.fn(),
@@ -35,6 +75,8 @@ const defaultProps = {
   onRefresh: jest.fn(),
   onAutoRefreshToggle: jest.fn(),
   onAutoRefreshIntervalChange: jest.fn(),
+  fetchSize: 500,
+  onFetchSizeChange: jest.fn(),
 };
 
 describe('FilterControls', () => {
@@ -56,12 +98,9 @@ describe('FilterControls', () => {
     const onVlmVerifiedChange = jest.fn();
     render(<FilterControls {...defaultProps} onVlmVerifiedChange={onVlmVerifiedChange} />);
 
-    const toggleButtons = document.querySelectorAll('button');
-    const toggleButton = Array.from(toggleButtons).find((btn) =>
-      btn.className.includes('rounded-full')
-    );
+    const toggleButton = screen.getByTestId('vlm-verified-toggle');
     expect(toggleButton).toBeTruthy();
-    fireEvent.click(toggleButton!);
+    fireEvent.click(toggleButton);
     expect(onVlmVerifiedChange).toHaveBeenCalledWith(false);
   });
 
@@ -75,9 +114,9 @@ describe('FilterControls', () => {
     expect(screen.queryByText('Verdict:')).not.toBeInTheDocument();
   });
 
-  it('renders Period label and time window selector', () => {
+  it('renders settings button', () => {
     render(<FilterControls {...defaultProps} />);
-    expect(screen.getByText('Period:')).toBeInTheDocument();
+    expect(screen.getByTitle('Query range & fetch size settings')).toBeInTheDocument();
   });
 
   it('renders sensor filter dropdown with options', () => {
@@ -119,49 +158,49 @@ describe('FilterControls', () => {
     const onRefresh = jest.fn();
     render(<FilterControls {...defaultProps} onRefresh={onRefresh} />);
 
-    const refreshButton = screen.getByTitle('Refresh now');
+    const refreshButton = screen.getByTitle('Refresh alerts now');
     fireEvent.click(refreshButton);
 
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onTimeWindowChange when a predefined time is selected', () => {
+  it('calls onTimeWindowChange when a predefined time is selected in settings', () => {
     const onTimeWindowChange = jest.fn();
     render(<FilterControls {...defaultProps} onTimeWindowChange={onTimeWindowChange} />);
 
-    const selects = document.querySelectorAll('select');
-    const periodSelect = Array.from(selects).find((s) =>
-      Array.from(s.options).some((o) => o.text === '10m')
-    );
+    fireEvent.click(screen.getByTitle('Query range & fetch size settings'));
+
+    const periodSelect = document.getElementById('settings-period-select')!;
     expect(periodSelect).toBeTruthy();
-    fireEvent.change(periodSelect!, { target: { value: '60' } });
+    fireEvent.change(periodSelect, { target: { value: '60' } });
     expect(onTimeWindowChange).toHaveBeenCalledWith(60);
   });
 
-  it('calls onOpenCustomTime when Custom is selected', () => {
+  it('calls onOpenCustomTime when Custom is selected in settings', () => {
     const onOpenCustomTime = jest.fn();
     render(<FilterControls {...defaultProps} onOpenCustomTime={onOpenCustomTime} />);
 
-    const selects = document.querySelectorAll('select');
-    const periodSelect = Array.from(selects).find((s) =>
-      Array.from(s.options).some((o) => o.text === 'Custom')
-    );
+    fireEvent.click(screen.getByTitle('Query range & fetch size settings'));
+
+    const periodSelect = document.getElementById('settings-period-select')!;
     expect(periodSelect).toBeTruthy();
-    fireEvent.change(periodSelect!, { target: { value: '-1' } });
+    fireEvent.change(periodSelect, { target: { value: '-1' } });
     expect(onOpenCustomTime).toHaveBeenCalledTimes(1);
   });
 
   it('shows auto-refresh indicator when enabled', () => {
     render(<FilterControls {...defaultProps} autoRefreshEnabled={true} />);
-    // When enabled, there's a pulse indicator dot
-    const pulseDot = document.querySelector('.animate-pulse');
-    expect(pulseDot).toBeInTheDocument();
+    expect(screen.getByTestId('auto-refresh-indicator')).toBeInTheDocument();
   });
 
   it('does not show auto-refresh indicator when disabled', () => {
     render(<FilterControls {...defaultProps} autoRefreshEnabled={false} />);
-    const pulseDot = document.querySelector('.animate-pulse');
-    expect(pulseDot).not.toBeInTheDocument();
+    expect(screen.queryByTestId('auto-refresh-indicator')).not.toBeInTheDocument();
+  });
+
+  it('shows auto-refresh interval in tooltip when enabled', () => {
+    render(<FilterControls {...defaultProps} autoRefreshEnabled autoRefreshInterval={5000} />);
+    expect(screen.getByTitle('Auto-refresh every 5s')).toBeInTheDocument();
   });
 
   it('renders with dark theme', () => {

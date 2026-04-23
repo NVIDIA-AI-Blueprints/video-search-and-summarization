@@ -2,6 +2,16 @@
 import { renderHook, act } from '@testing-library/react';
 import { useAutoRefresh } from '../../lib-src/hooks/useAutoRefresh';
 
+/**
+ * Advance fake timers and flush the microtask queue so async setTimeout
+ * callbacks (Promise-based) are fully resolved before assertions.
+ */
+async function advanceAndFlush(milliseconds: number) {
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(milliseconds);
+  });
+}
+
 describe('useAutoRefresh', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -30,38 +40,38 @@ describe('useAutoRefresh', () => {
     expect(result.current.isEnabled).toBe(false);
   });
 
-  it('calls onRefresh at the configured interval', () => {
-    const onRefresh = jest.fn();
+  it('calls onRefresh at the configured interval', async () => {
+    const onRefresh = jest.fn().mockResolvedValue(true);
     renderHook(() =>
       useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true })
     );
 
     expect(onRefresh).not.toHaveBeenCalled();
 
-    jest.advanceTimersByTime(1000);
+    await advanceAndFlush(1000);
     expect(onRefresh).toHaveBeenCalledTimes(1);
 
-    jest.advanceTimersByTime(1000);
+    await advanceAndFlush(1000);
     expect(onRefresh).toHaveBeenCalledTimes(2);
   });
 
-  it('does not call onRefresh when disabled', () => {
+  it('does not call onRefresh when disabled', async () => {
     const onRefresh = jest.fn();
     renderHook(() =>
       useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: false })
     );
 
-    jest.advanceTimersByTime(5000);
+    await advanceAndFlush(5000);
     expect(onRefresh).not.toHaveBeenCalled();
   });
 
-  it('does not call onRefresh when isActive is false', () => {
+  it('does not call onRefresh when isActive is false', async () => {
     const onRefresh = jest.fn();
     renderHook(() =>
       useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true, isActive: false })
     );
 
-    jest.advanceTimersByTime(5000);
+    await advanceAndFlush(5000);
     expect(onRefresh).not.toHaveBeenCalled();
   });
 
@@ -84,8 +94,8 @@ describe('useAutoRefresh', () => {
     expect(result.current.isEnabled).toBe(true);
   });
 
-  it('setInterval updates the interval', () => {
-    const onRefresh = jest.fn();
+  it('setInterval updates the interval', async () => {
+    const onRefresh = jest.fn().mockResolvedValue(true);
     const { result } = renderHook(() =>
       useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true })
     );
@@ -97,39 +107,39 @@ describe('useAutoRefresh', () => {
     expect(result.current.interval).toBe(3000);
     onRefresh.mockClear();
 
-    jest.advanceTimersByTime(2999);
+    await advanceAndFlush(2999);
     expect(onRefresh).not.toHaveBeenCalled();
 
-    jest.advanceTimersByTime(1);
+    await advanceAndFlush(1);
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('stops calling onRefresh when disabled after being enabled', () => {
-    const onRefresh = jest.fn();
+  it('stops calling onRefresh when disabled after being enabled', async () => {
+    const onRefresh = jest.fn().mockResolvedValue(true);
     const { result } = renderHook(() =>
       useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true })
     );
 
-    jest.advanceTimersByTime(1000);
+    await advanceAndFlush(1000);
     expect(onRefresh).toHaveBeenCalledTimes(1);
 
     act(() => {
       result.current.setIsEnabled(false);
     });
 
-    jest.advanceTimersByTime(5000);
-    expect(onRefresh).toHaveBeenCalledTimes(1); // no new calls
+    await advanceAndFlush(5000);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('cleans up interval on unmount', () => {
-    const onRefresh = jest.fn();
+  it('cleans up timeout on unmount', async () => {
+    const onRefresh = jest.fn().mockResolvedValue(true);
     const { unmount } = renderHook(() =>
       useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true })
     );
 
     unmount();
 
-    jest.advanceTimersByTime(5000);
+    await advanceAndFlush(5000);
     expect(onRefresh).not.toHaveBeenCalled();
   });
 
@@ -163,5 +173,66 @@ describe('useAutoRefresh', () => {
       'alertAutoRefreshInterval',
       '5000'
     );
+  });
+
+  it('waits for previous onRefresh to complete before scheduling next', async () => {
+    let resolveRefresh!: (value: boolean) => void;
+    const onRefresh = jest.fn().mockImplementation(
+      () => new Promise<boolean>((resolve) => { resolveRefresh = resolve; })
+    );
+
+    renderHook(() =>
+      useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true })
+    );
+
+    // First timeout fires, onRefresh called but pending
+    await advanceAndFlush(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    // Second interval elapses but previous call is still pending — no new call
+    await advanceAndFlush(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    // Resolve the pending call — scheduleNext will now queue the next timeout
+    await act(async () => {
+      resolveRefresh(true);
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+    // Next interval fires
+    await advanceAndFlush(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues auto-refresh chain when onRefresh returns false', async () => {
+    const onRefresh = jest.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    renderHook(() =>
+      useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true })
+    );
+
+    await advanceAndFlush(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    await advanceAndFlush(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues auto-refresh chain when onRefresh throws', async () => {
+    const onRefresh = jest.fn()
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValueOnce(true);
+
+    renderHook(() =>
+      useAutoRefresh({ onRefresh, defaultInterval: 1000, enabled: true })
+    );
+
+    await advanceAndFlush(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    await advanceAndFlush(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(2);
   });
 });

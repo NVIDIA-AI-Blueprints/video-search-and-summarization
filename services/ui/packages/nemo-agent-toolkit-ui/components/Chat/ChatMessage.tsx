@@ -26,6 +26,7 @@ import { BotAvatar } from '@/components/Avatar/BotAvatar';
 import { getReactMarkDownCustomComponents } from '../Markdown/CustomComponents';
 import { MemoizedReactMarkdown } from '../Markdown/MemoizedReactMarkdown';
 
+import DOMPurify from 'isomorphic-dompurify';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -62,6 +63,11 @@ export const ChatMessage: FC<Props> = memo(
       return getReactMarkDownCustomComponents(messageIndex, message?.id, isStreaming);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [messageIndex, message?.id]); // Intentionally excluding isStreaming
+
+    const safeHtml = useMemo(
+      () => DOMPurify.sanitize(message.callerInfo || ''),
+      [message.callerInfo],
+    );
 
     // return if the there is nothing to show
     // no message and no intermediate steps
@@ -186,10 +192,11 @@ export const ChatMessage: FC<Props> = memo(
 
     return (
       <div
+        data-testid={message.role === 'assistant' ? 'chat-message-assistant' : 'chat-message-user'}
         className={`group md:px-4 ${
           message.role === 'assistant'
-            ? 'border-b border-black/10 bg-gray-50 text-gray-800 dark:border-gray-900/50 dark:bg-[#444654] dark:text-gray-100'
-            : 'border-b border-black/10 bg-white text-gray-800 dark:border-gray-900/50 dark:bg-[#343541] dark:text-gray-100'
+            ? 'border-b border-black/10 bg-gray-50 text-gray-800 dark:border-gray-900/50 dark:bg-black dark:text-gray-100'
+            : 'border-b border-black/10 bg-white text-gray-800 dark:border-gray-900/50 dark:bg-black dark:text-gray-100'
         }`}
         style={{ overflowWrap: 'anywhere' }}
       >
@@ -202,14 +209,14 @@ export const ChatMessage: FC<Props> = memo(
             )}
           </div>
 
-          <div className="w-full dark:prose-invert overflow-hidden">
+          <div className="w-full min-w-0 dark:prose-invert overflow-hidden">
             {message.role === 'user' ? (
               <div className="flex w-full">
                 {isEditing ? (
                   <div className="flex w-full flex-col">
                     <textarea
                       ref={textareaRef}
-                      className="w-full resize-none whitespace-pre-wrap border-none dark:bg-[#343541]"
+                      className="w-full resize-none whitespace-pre-wrap border-none dark:bg-black"
                       value={messageContent}
                       onChange={handleInputChange}
                       onKeyDown={handlePressEnter}
@@ -276,96 +283,106 @@ export const ChatMessage: FC<Props> = memo(
                 )}
               </div>
             ) : (
-              <div className="flex flex-col w-[90%]">
-                <div className="flex flex-col gap-2">
-                  {/* for intermediate steps content  */}
-                  <div className="w-full overflow-x-hidden overflow-y-auto prose dark:prose-invert max-w-none break-words">
-                    <MemoizedReactMarkdown
-                      rehypePlugins={[rehypeRaw] as any}
-                      remarkPlugins={[
-                        remarkGfm,
-                        [
-                          remarkMath,
-                          {
-                            singleDollarTextMath: false,
-                          },
-                        ],
-                      ]}
-                      components={markdownComponents}
-                    >
-                      {prepareContent({
-                        message,
-                        role: 'assistant',
-                        intermediateStepsContent: true,
-                        responseContent: false,
-                      })}
-                    </MemoizedReactMarkdown>
-                  </div>
-                  {/* for response content */}
-                  <div className="overflow-x-auto prose dark:prose-invert flex-1 w-full flex-grow max-w-full whitespace-normal">
-                    <MemoizedReactMarkdown
-                      rehypePlugins={[rehypeRaw] as any}
-                      remarkPlugins={[
-                        remarkGfm,
-                        [
-                          remarkMath,
-                          {
-                            singleDollarTextMath: false,
-                          },
-                        ],
-                      ]}
-                      components={markdownComponents}
-                    >
-                      {prepareContent({
-                        message,
-                        role: 'assistant',
-                        intermediateStepsContent: false,
-                        responseContent: true,
-                      })}
-                    </MemoizedReactMarkdown>
-                  </div>
-                  {(showMessageCopy || showMessageSpeaker) && (
-                    <div className="mt-1 flex gap-1">
-                      {!isStreaming && (
-                        <>
-                          {showMessageCopy && (messagedCopied ? (
-                            <IconCheck
-                              size={20}
-                              className="text-[#76b900] dark:text-[#76b900]"
-                              id={message?.id}
-                            />
-                          ) : (
-                            <button
-                              className="text-[#76b900] hover:text-gray-700 dark:text-[#76b900] dark:hover:round-gray-300"
-                              onClick={copyOnClick}
-                              title="Copy to clipboard"
-                              id={message?.id}
-                            >
-                              <IconCopy size={20} />
-                            </button>
-                          ))}
-                          {showMessageSpeaker && (
-                            <button
-                              className="text-[#76b900] hover:text-gray-700 dark:text-[#76b900] dark:hover:text-gray-300"
-                              onClick={handleTextToSpeech}
-                              aria-label={
-                                isPlaying ? 'Stop speaking' : 'Start speaking'
-                              }
-                            >
-                              {isPlaying ? (
-                                <IconPlayerPause
-                                  size={20}
-                                  className="animate-pulse text-red-400"
-                                />
-                              ) : (
-                                <IconVolume2 size={20} />
-                              )}
-                            </button>
-                          )}
-                        </>
-                      )}
+              <div className="min-w-0 w-full max-w-full">
+                <div className="flex flex-col w-[90%]">
+                  <div className="flex flex-col gap-2">
+                    {/* for intermediate steps content  */}
+                    <div className="w-full overflow-x-hidden overflow-y-auto prose dark:prose-invert max-w-none break-words" style={{ fontSize: '18px' }}>
+                      <MemoizedReactMarkdown
+                        rehypePlugins={[rehypeRaw] as any}
+                        remarkPlugins={[
+                          remarkGfm,
+                          [
+                            remarkMath,
+                            {
+                              singleDollarTextMath: false,
+                            },
+                          ],
+                        ]}
+                        components={markdownComponents}
+                      >
+                        {prepareContent({
+                          message,
+                          role: 'assistant',
+                          intermediateStepsContent: true,
+                          responseContent: false,
+                        })}
+                      </MemoizedReactMarkdown>
                     </div>
-                  )}
+                    {/* for response content */}
+                    <div className="overflow-x-auto prose dark:prose-invert flex-1 w-full flex-grow max-w-full whitespace-normal" style={{ fontSize: '18px' }}>
+                      <MemoizedReactMarkdown
+                        rehypePlugins={[rehypeRaw] as any}
+                        remarkPlugins={[
+                          remarkGfm,
+                          [
+                            remarkMath,
+                            {
+                              singleDollarTextMath: false,
+                            },
+                          ],
+                        ]}
+                        components={markdownComponents}
+                      >
+                        {prepareContent({
+                          message,
+                          role: 'assistant',
+                          intermediateStepsContent: false,
+                          responseContent: true,
+                        })}
+                      </MemoizedReactMarkdown>
+                    </div>
+                    {message.callerInfo && (
+                      <div className="mt-2 rounded-md border border-black/10 bg-neutral-100 px-4 py-2.5 text-sm text-neutral-800 dark:border-white/10 dark:bg-transparent dark:text-neutral-200 sm:px-5">
+                        <div
+                          className="caller-info-html [&>div]:text-neutral-900 dark:[&>div]:text-neutral-100 [&_ul]:mt-2 [&_ul]:mb-0 [&_ul]:list-disc [&_ul]:space-y-0.5 [&_ul]:pl-5 [&_ul]:marker:text-neutral-600 dark:[&_ul]:marker:text-neutral-400"
+                          dangerouslySetInnerHTML={{ __html: safeHtml }}
+                        />
+                      </div>
+                    )}
+                    {(showMessageCopy || showMessageSpeaker) && (
+                      <div className="mt-1 flex gap-1">
+                        {!isStreaming && (
+                          <>
+                            {showMessageCopy && (messagedCopied ? (
+                              <IconCheck
+                                size={20}
+                                className="text-[#76b900] dark:text-[#76b900]"
+                                id={message?.id}
+                              />
+                            ) : (
+                              <button
+                                className="text-[#76b900] hover:text-gray-700 dark:text-[#76b900] dark:hover:round-gray-300"
+                                onClick={copyOnClick}
+                                title="Copy to clipboard"
+                                id={message?.id}
+                              >
+                                <IconCopy size={20} />
+                              </button>
+                            ))}
+                            {showMessageSpeaker && (
+                              <button
+                                className="text-[#76b900] hover:text-gray-700 dark:text-[#76b900] dark:hover:text-gray-300"
+                                onClick={handleTextToSpeech}
+                                aria-label={
+                                  isPlaying ? 'Stop speaking' : 'Start speaking'
+                                }
+                              >
+                                {isPlaying ? (
+                                  <IconPlayerPause
+                                    size={20}
+                                    className="animate-pulse text-red-400"
+                                  />
+                                ) : (
+                                  <IconVolume2 size={20} />
+                                )}
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

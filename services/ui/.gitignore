@@ -1,5 +1,6 @@
 .venv/
 node_modules/
+.npm-cache/
 .turbo/
 .idea/
 
@@ -15,6 +16,7 @@ lib/
 
 # Environment files
 .env*
+**/__ENV.js
 
 # OS files
 .DS_Store
@@ -36,3 +38,6 @@ out/
 
 # SWC
 .swc/
+
+__pycache__/
+*.py[cod]

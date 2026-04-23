@@ -4,7 +4,9 @@ module.exports = {
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
-    '^@nemo-agent-toolkit/ui$': '<rootDir>/__mocks__/@nemo-agent-toolkit-ui.js',
+    '^@nemo-agent-toolkit/ui$': '<rootDir>/../__mocks__/@nemo-agent-toolkit-ui.js',
+    '^@aiqtoolkit-ui/common$': '<rootDir>/../../common/lib-src/index.ts',
+    '^@nvidia/foundations-react-core$': '<rootDir>/../__mocks__/@nvidia-foundations-react-core.js',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },
   testMatch: [

@@ -1,6 +1,6 @@
 {
   "name": "@nv-metropolis-bp-vss-ui/all",
-  "version": "3.1-EA",
+  "version": "3.2-dev",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
@@ -30,11 +30,13 @@
     "@nv-metropolis-bp-vss-ui/map": "*",
     "@nv-metropolis-bp-vss-ui/search": "*",
     "@nv-metropolis-bp-vss-ui/video-management": "*",
+    "jsdom": "27.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@swc/cli": "^0.8.0",
+    "jest-environment-jsdom": "^30.3.0",
     "@swc/core": "^1.13.19",
     "@types/react": "18.0.28",
     "@types/react-dom": "18.0.11",

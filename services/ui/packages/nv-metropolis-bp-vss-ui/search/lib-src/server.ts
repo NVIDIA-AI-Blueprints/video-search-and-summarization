@@ -21,6 +21,7 @@ import { env } from 'next-runtime-env';
 
 const VST_API_URL = env('NEXT_PUBLIC_VST_API_URL') || process?.env?.NEXT_PUBLIC_VST_API_URL;
 const AGENT_API_URL_BASE = env('NEXT_PUBLIC_AGENT_API_URL_BASE') || process?.env?.NEXT_PUBLIC_AGENT_API_URL_BASE;
+const MDX_WEB_API_URL = env('NEXT_PUBLIC_MDX_WEB_API_URL') || process?.env?.NEXT_PUBLIC_MDX_WEB_API_URL;
 const SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX = env('NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX') || process?.env?.NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX;
 
 export async function fetchSearchData() {
@@ -31,6 +32,7 @@ export async function fetchSearchData() {
     systemStatus: 'operational',
     agentApiUrl: AGENT_API_URL_BASE || null,
     vstApiUrl: VST_API_URL || null,
+    mdxWebApiUrl: MDX_WEB_API_URL || null,
     mediaWithObjectsBbox: SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX
   };
 }

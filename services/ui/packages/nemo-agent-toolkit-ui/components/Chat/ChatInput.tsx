@@ -12,6 +12,7 @@ import {
   IconMicrophone2,
   IconUpload,
   IconBrain,
+  IconX,
 } from '@tabler/icons-react';
 import {
   KeyboardEvent,
@@ -31,7 +32,7 @@ import { useWorkflowName } from '@/contexts/RuntimeConfigContext';
 import { appConfig } from '@/utils/app/const';
 import { compressImage } from '@/utils/app/helper';
 
-import { Message } from '@/types/chat';
+import { Message, QueryDataContext } from '@/types/chat';
 
 import HomeContext from '@/pages/api/home/home.context';
 import { ChatFileUpload } from './ChatFileUpload';
@@ -51,6 +52,8 @@ interface Props {
   showScrollDownButton: boolean;
   controller: Ref<AbortController>;
   onStopConversation: () => void;
+  queryContextItems?: QueryDataContext[];
+  onRemoveQueryContext?: (itemId: string) => void;
 }
 
 export const ChatInput = ({
@@ -61,6 +64,8 @@ export const ChatInput = ({
   showScrollDownButton,
   controller,
   onStopConversation,
+  queryContextItems = [],
+  onRemoveQueryContext,
 }: Props) => {
   const { t } = useTranslation('chat');
 
@@ -145,7 +150,7 @@ export const ChatInput = ({
       setIsRecording(false);
     }
 
-    if (!content.trim() && !inputFile && !inputFileContent) {
+    if (!content.trim() && !inputFile && !inputFileContent && queryContextItems.length === 0) {
       toast.error(t('Please enter a message'));
       return;
     }
@@ -401,16 +406,22 @@ export const ChatInput = ({
     };
   }, []);
 
+  const leftButtonCount = (chatInputMicEnabled ? 1 : 0) + (chatUploadFileEnabled ? 1 : 0);
+  const hasLeftButtons = leftButtonCount > 0;
+  // Padding so 8px gap between last icon and text: 0 = minimal, 1 = pl-11 (44px), 2 = pl-[76px]
+  const leftPaddingClass =
+    leftButtonCount === 0 ? 'pl-3 sm:pl-4' : leftButtonCount === 2 ? 'pl-[76px]' : 'pl-11';
+
   return (
     <div
-      className={`absolute bottom-0 left-0 w-full border-transparent bg-gradient-to-b from-transparent via-white to-white pt-6 dark:border-white/20 dark:via-[#343541] dark:to-[#343541] pointer-events-none ${
+      className={`absolute bottom-0 left-0 w-full border-transparent bg-gradient-to-b from-transparent via-white to-white pt-6 dark:border-white/20 dark:via-black dark:to-black pointer-events-none ${
         isMobile() ? 'pb-14' : 'pb-4'
       }`}
     >
       <div className="stretch mx-auto mt-4 flex flex-row gap-3 last:mb-2 md:mt-[52px] w-full max-w-[95%] pointer-events-auto">
         {messageIsStreaming && (
           <button
-            className="absolute top-0 left-0 right-0 mx-auto mb-3 flex w-fit items-center gap-3 rounded border border-neutral-200 bg-white py-2 px-4 text-black hover:opacity-50 dark:border-neutral-600 dark:bg-[#343541] dark:text-white md:mb-0 md:mt-2"
+            className="absolute top-0 left-0 right-0 mx-auto mb-3 flex w-fit items-center gap-3 rounded border border-neutral-200 bg-white py-2 px-4 text-black hover:opacity-50 dark:border-neutral-600 dark:bg-black dark:text-white md:mb-0 md:mt-2"
             onClick={handleStopConversation}
           >
             <IconPlayerStop size={16} /> {t('Stop Generating')}
@@ -422,21 +433,17 @@ export const ChatInput = ({
           selectedConversation.messages.length > 1 && (
             // selectedConversation.messages[selectedConversation.messages.length - 1].role === 'assistant' &&
             <button
-              className="absolute top-0 left-0 right-0 mx-auto mb-3 flex w-fit items-center gap-3 rounded border border-neutral-200 bg-white py-2 px-4 text-black hover:opacity-50 dark:border-neutral-600 dark:bg-[#343541] dark:text-white md:mb-0 md:mt-2"
+              className="absolute top-0 left-0 right-0 mx-auto mb-3 flex w-fit items-center gap-3 rounded border border-neutral-200 bg-white py-2 px-4 text-black hover:opacity-50 dark:border-neutral-600 dark:bg-black dark:text-white md:mb-0 md:mt-2"
               onClick={onRegenerate}
             >
               <IconRepeat size={16} /> {t('Regenerate response')}
             </button>
           )}
 
-        <div className="relative mx-2 flex w-full flex-grow flex-col rounded-md border border-black/10 bg-white shadow-[0_0_10px_rgba(0,0,0,0.10)] dark:border-gray-900/50 dark:bg-[#40414F] dark:text-white dark:shadow-[0_0_15px_rgba(0,0,0,0.10)] sm:mx-4">
-          {!content && !isRecording && (
+        <div className="relative mx-2 flex w-full flex-grow flex-col rounded-md border border-black/10 bg-white shadow-[0_0_10px_rgba(0,0,0,0.10)] dark:border-neutral-700 dark:bg-black dark:text-white dark:shadow-[0_0_15px_rgba(0,0,0,0.10)] sm:mx-4">
+          {!content && !isRecording && queryContextItems.length === 0 && (
             <div
-              className={`pointer-events-none absolute inset-0 flex items-center py-2 text-gray-500 dark:text-gray-400 md:py-3 ${
-                chatUploadFileEnabled
-                  ? 'pl-12 sm:pl-18 md:pl-20'
-                  : 'pl-10 sm:pl-12 md:pl-14'
-              } ${paramFields.length > 0 ? 'pr-20' : 'pr-12'}`}
+              className={`pointer-events-none absolute inset-0 flex items-center py-2 text-gray-500 dark:text-gray-400 md:py-3 ${leftPaddingClass} ${paramFields.length > 0 ? 'pr-20' : 'pr-12'}`}
               aria-hidden
             >
               <span className="min-w-0 truncate">
@@ -444,13 +451,35 @@ export const ChatInput = ({
               </span>
             </div>
           )}
-          <textarea
-            ref={textareaRef}
-            className={`m-0 w-full resize-none border-0 bg-transparent p-0 py-2 text-black dark:bg-transparent dark:text-white md:py-3 outline-none ${
-              chatUploadFileEnabled 
-                ? 'pl-12 sm:pl-18 md:pl-20' 
+          {queryContextItems.length > 0 && (
+            <div className={`flex flex-wrap gap-1.5 pt-2 pr-12 ${
+              chatUploadFileEnabled
+                ? 'pl-12 sm:pl-18 md:pl-20'
                 : 'pl-10 sm:pl-12 md:pl-14'
-            } ${paramFields.length > 0 ? 'pr-20' : 'pr-12'}`}
+            }`}>
+              {queryContextItems.map((item) => (
+                <span
+                  key={item.id}
+                  className="inline-flex items-center gap-1 rounded-md bg-gray-100 dark:bg-gray-600 text-xs text-gray-700 dark:text-gray-200 pl-2 pr-1 py-1 max-w-[200px]"
+                  title={`${item.label} (${item.type})`}
+                >
+                  <span className="truncate">{item.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveQueryContext?.(item.id)}
+                    className="flex-shrink-0 rounded hover:bg-gray-300 dark:hover:bg-gray-500 p-0.5"
+                    aria-label={`Remove ${item.label}`}
+                  >
+                    <IconX size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <textarea
+            data-testid="chat-textarea"
+            ref={textareaRef}
+            className={`m-0 w-full resize-none border-0 bg-transparent p-0 py-2 text-black dark:bg-transparent dark:text-white md:py-3 outline-none ${leftPaddingClass} ${paramFields.length > 0 ? 'pr-20' : 'pr-12'}`}
             style={{
               resize: 'none',
               bottom: `${textareaRef?.current?.scrollHeight}px`,
@@ -511,6 +540,7 @@ export const ChatInput = ({
               />
             </>
           )}
+          {hasLeftButtons && (
           <div className="absolute left-2 top-2 flex gap-1">
             {chatInputMicEnabled && (
               <button
@@ -555,6 +585,7 @@ export const ChatInput = ({
               </ChatFileUpload>
             )}
           </div>
+          )}
           {/* Settings Button - only show when there are enabled params */}
           {paramFields.length > 0 && (
             <div className="absolute right-10 top-2">
@@ -583,7 +614,7 @@ export const ChatInput = ({
             onClick={handleSend}
           >
             {messageIsStreaming ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-t-2 border-neutral-800 opacity-60 dark:border-neutral-100"></div>
+              <div data-testid="chat-loading-spinner" className="h-4 w-4 animate-spin rounded-full border-t-2 border-neutral-800 opacity-60 dark:border-neutral-100"></div>
             ) : (
               <IconSend size={18} />
             )}
@@ -592,7 +623,7 @@ export const ChatInput = ({
           {showScrollDownButton && (
             <div className="absolute bottom-12 right-0 lg:bottom-2 lg:-right-10">
               <button
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-300 text-gray-800 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-neutral-200"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-300 text-gray-800 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-900 dark:text-neutral-200"
                 onClick={onScrollDownClick}
               >
                 <IconArrowDown size={18} />

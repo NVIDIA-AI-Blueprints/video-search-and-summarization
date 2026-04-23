@@ -15,13 +15,20 @@ export default function Document(props: Props) {
   return (
     <Html lang={currentLocale}>
       <Head>
-        <title>{APPLICATION_TITLE}</title>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-title"
           content={APPLICATION_TITLE}
         />
         <link rel="icon" type="image/jpeg" href="/favicon.jpg" />
+        <link
+          rel="stylesheet"
+          href="https://webassets.nvidia.com/kaizen-ui-foundations/0.600.0/theme.css"
+        />
+        <link
+          rel="stylesheet"
+          href="https://webassets.nvidia.com/kaizen-ui-foundations/0.600.0/components.css"
+        />
       </Head>
       <body>
         <Script src="/__ENV.js" strategy="beforeInteractive" />
