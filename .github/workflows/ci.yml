@@ -372,7 +372,8 @@ jobs:
             const licenses = require("/tmp/licenses.json");
             const allowed = new Set([
               "MIT","Apache-2.0","BSD-2-Clause","BSD-3-Clause","ISC","0BSD",
-              "Unlicense","CC0-1.0","CC-BY-4.0","CC-BY-3.0","Python-2.0","BlueOak-1.0.0"
+              "Unlicense","CC0-1.0","CC-BY-4.0","CC-BY-3.0","Python-2.0",
+              "BlueOak-1.0.0","MPL-2.0"
             ]);
             // OSRB-approved exceptions (dynamically linked, reviewed)
             const excludePrefixes = ["@img/sharp-libvips"];
@@ -381,8 +382,9 @@ jobs:
               const name = pkg.replace(/@[^@]+$/, "");
               if (excludePrefixes.some(p => name.startsWith(p))) continue;
               const lic = String(info.licenses || "UNKNOWN");
+              // license-checker appends * when license is inferred from file (e.g. "MIT*")
               const parts = lic.replace(/[()]/g, "").split(/ OR | AND /);
-              const ok = parts.some(p => allowed.has(p.trim()));
+              const ok = parts.some(p => allowed.has(p.trim().replace(/\*$/, "")));
               if (!ok) failures.push(pkg + ": " + lic);
             }
             if (failures.length) {
