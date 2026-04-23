@@ -2,10 +2,10 @@
   "skills": ["deploy"],
   "resources": {
     "platforms": {
-      "H100":         {"modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"]},
-      "L40S":         {"modes": ["dedicated", "remote-all", "remote-llm", "remote-vlm"]},
-      "RTXPRO6000BW": {"modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"]},
-      "DGX-SPARK":    {"modes": ["shared", "remote-llm"]}
+      "H100":         {"modes": ["shared", "dedicated", "remote-all"]},
+      "L40S":         {"modes": ["dedicated", "remote-all"]},
+      "RTXPRO6000BW": {"modes": ["shared", "dedicated", "remote-all"]},
+      "DGX-SPARK":    {"modes": ["remote-llm"]}
     }
   },
   "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. For `remote-*` modes, the corresponding `LLM_REMOTE_URL`/`LLM_REMOTE_MODEL` and/or `VLM_REMOTE_URL`/`VLM_REMOTE_MODEL` must also be set. On DGX-Spark/Thor shared mode, `HF_TOKEN` is required for the Edge 4B vLLM. The `/deploy` skill is responsible for the full deploy workflow — this spec verifies the resulting state by probing the live stack, not the contents of any `.env` file.",
