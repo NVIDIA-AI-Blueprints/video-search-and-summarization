@@ -1,0 +1,111 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the skills eval agent (tools/eval/harbor/skills_eval_agent.py) on every
+# push to a pull-request/<N> mirror branch that touches anything under
+# skills/ or the eval harness. See tools/eval/harbor/AGENTS.md for the
+# agent's system prompt and behaviour.
+
+name: Skills Eval
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+    paths:
+      - "skills/**"
+      - "tools/eval/harbor/adapters/**"
+      - "tools/eval/harbor/verifiers/**"
+      - "tools/eval/harbor/envs/**"
+
+# Only one eval runs per PR at a time. A fresh push cancels the in-flight
+# run (lock on /tmp/brev/<id>.lock will be released by the agent's trap).
+concurrency:
+  group: skills-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  eval:
+    name: Eval changed skills against PR
+    runs-on: [self-hosted, vss-eval]
+
+    # 1 hour hard cap on the whole job. The agent targets ~40m plus a 5m
+    # post-eval wait before brev teardown; 60m gives a margin.
+    timeout-minutes: 60
+
+    # Extra safety: only run on the mirror branches, never on develop/main.
+    if: startsWith(github.ref, 'refs/heads/pull-request/')
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # agent needs full history to diff against base
+
+      - name: Extract PR number + base
+        id: pr
+        run: |
+          REF="${{ github.ref_name }}"         # "pull-request/100"
+          PR="${REF##pull-request/}"
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          # Query the source PR for its base branch (never hardcode develop).
+          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+        env:
+          # Repo-scoped token from the workflow context is fine for `gh pr view`.
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        run: |
+          # The runner lives on vss-skill-validator; the coordinator keeps
+          # its secrets in a single .env file there. Don't echo contents.
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          # Propagate non-secret context to later steps; secrets stay in
+          # the agent's own process env (exported below).
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          # Safety: Anthropic path for claude-agent-sdk in the trial + judge.
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run skills eval agent
+        id: agent
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # re-source; GH step env is isolated
+          set +a
+          export PR_NUMBER="${{ steps.pr.outputs.number }}"
+          export PR_BASE="${{ steps.pr.outputs.base }}"
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          export GH_TOKEN="${GITHUB_TOKEN}"
+          mkdir -p /tmp/brev   # lock dir
+          python3 tools/eval/harbor/skills_eval_agent.py
+
+      - name: Collect results for workflow artifact
+        if: always()
+        run: |
+          # Agent writes harbor output under tools/eval/harbor/results/<run_id>/
+          # in the checked-out workspace. Surface the bundle for download.
+          RESULTS=$(find tools/eval/harbor/results -maxdepth 2 -name "result.json" 2>/dev/null | head -50)
+          if [ -n "$RESULTS" ]; then
+            tar czf /tmp/skills-eval-results.tar.gz -C . tools/eval/harbor/results
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files"
+          else
+            echo "no results to archive"
+          fi
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-results-pr-${{ steps.pr.outputs.number }}-${{ github.run_id }}
+          path: /tmp/skills-eval-results.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7
