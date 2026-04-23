@@ -26,10 +26,14 @@ npx turbo dev --filter=./apps/nv-metropolis-bp-vss-ui
 
 In production mode (full production build, then production server):
 
-From repo root, build all packages, build this app, then start the production server:
+From repo root, build all packages, build this app (including the standalone `bundle` step), then start the production server:
 ```bash
-npx turbo build --filter=./packages/** && npx turbo build --filter=./apps/nv-metropolis-bp-vss-ui && npx turbo start --filter=./apps/nv-metropolis-bp-vss-ui
+npx turbo build --filter=./packages/** \
+  && npx turbo run build bundle --filter=./apps/nv-metropolis-bp-vss-ui \
+  && npx turbo start --filter=./apps/nv-metropolis-bp-vss-ui
 ```
+
+The Turbo task `bundle` (repo root `turbo.json`, plus this app’s `turbo.json`) runs the `bundle` npm script here and copies `.next/static` and `public/` into the standalone output expected by `npm run start`.
 
 The application will be available at `http://localhost:3000`
 

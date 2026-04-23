@@ -12,8 +12,24 @@ export { Chat } from './components/Chat/Chat';
 export { Chatbar } from './components/Chatbar/Chatbar';
 export { ChatInput } from './components/Chat/ChatInput';
 export { ChatMessage } from './components/Chat/ChatMessage';
-export { VideoModal } from './components/Markdown/VideoModal';
-export type { VideoModalProps } from './components/Markdown/VideoModal';
+export {
+  VideoModal,
+  type VideoModalProps,
+  useVideoModal,
+  type VideoModalState,
+  type VideoModalData,
+  type AlertLike,
+  type UseVideoModalOptions,
+  UploadFilesDialog,
+  type UploadFilesDialogFileItem,
+  type UploadFilesDialogEntry,
+  type UploadFilesDialogProps,
+  type UploadFilesDialogHandle,
+  type UploadFilesDialogMetadataConfig,
+  type UploadFilesDialogOptions,
+  type UploadFileConfigTemplate,
+  type UploadFileFieldConfig,
+} from '@aiqtoolkit-ui/common';
 
 // Chat sidebar (for external rendering)
 export { ChatSidebarContent } from './components/Chatbar/components/ChatSidebarContent';
@@ -32,7 +48,7 @@ export type { RuntimeConfig, RuntimeConfigProviderProps } from './contexts/Runti
 export { initialState, type HomeInitialState } from './pages/api/home/home.state';
 
 // Types
-export type { Conversation, Message, ChatBody } from './types/chat';
+export type { Conversation, Message, ChatBody, CallerInfo } from './types/chat';
 export type { FolderInterface, FolderType } from './types/folder';
 export type { KeyValuePair } from './types/data';
 
@@ -45,9 +61,13 @@ export * from './utils/app/settings';
 export * from './utils/app/clean';
 export * from './utils/app/folders';
 export * from './utils/app/helper';
-export * from './utils/shared/clipboard';
-export * from './utils/shared/formatters';
-export * from './utils/shared/videoUpload';
+export {
+  copyToClipboard,
+  formatTimestamp,
+  getUploadUrl,
+  uploadFile,
+  type FileUploadResult,
+} from '@aiqtoolkit-ui/common';
 
 // Constants
 export * from './constants/constants';

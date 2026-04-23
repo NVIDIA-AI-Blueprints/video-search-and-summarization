@@ -10,6 +10,61 @@ interface SearchApiShape {
   data?: unknown[];
 }
 
+function findMatchingBrace(text: string, startIndex: number): number {
+  let depth = 0;
+  for (let i = startIndex; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function extractJsonFromCodeBlock(text: string): SearchApiShape | null {
+  const openFence = text.indexOf('```');
+  if (openFence === -1) return null;
+  let contentStart = openFence + 3;
+  if (text.slice(contentStart, contentStart + 4).toLowerCase() === 'json'
+    && (contentStart + 4 >= text.length || /\s/.test(text[contentStart + 4]))) {
+    contentStart += 4;
+  }
+  const closeFence = text.indexOf('```', contentStart);
+  if (closeFence === -1) return null;
+  try {
+    return JSON.parse(text.slice(contentStart, closeFence).trim()) as SearchApiShape;
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonFromText(text: string): SearchApiShape | null {
+  const firstBrace = text.indexOf('{');
+  if (firstBrace === -1) return null;
+  const end = findMatchingBrace(text, firstBrace);
+  if (end === -1) return null;
+  try {
+    return JSON.parse(text.slice(firstBrace, end + 1)) as SearchApiShape;
+  } catch {
+    return null;
+  }
+}
+
+function transformToSearchData(data: unknown[]): SearchData[] {
+  return data.map((item: any) => ({
+    video_name: item.video_name || '',
+    similarity: Number(item.similarity) || 0,
+    screenshot_url: item.screenshot_url || '',
+    description: item.description || '',
+    start_time: item.start_time || '',
+    end_time: item.end_time || '',
+    sensor_id: item.sensor_id || '',
+    object_ids: Array.isArray(item.object_ids) ? item.object_ids : [],
+    critic_result: item.critic_result || undefined,
+  }));
+}
+
 /**
  * Tries to extract a JSON object from text that has the Search API shape { data: [...] }.
  * Tries: (1) ```json ... ``` block, (2) first top-level { ... } in the text.
@@ -18,51 +73,12 @@ interface SearchApiShape {
 export function extractSearchResultsFromAgentResponse(responseText: string): SearchData[] | null {
   if (!responseText || typeof responseText !== 'string') return null;
   const trimmed = responseText.trim();
-  let parsed: SearchApiShape | null = null;
 
-  const jsonBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (jsonBlockMatch) {
-    try {
-      parsed = JSON.parse(jsonBlockMatch[1].trim()) as SearchApiShape;
-    } catch {
-      // ignore
-    }
-  }
+  let parsed = extractJsonFromCodeBlock(trimmed);
   if (!parsed || !Array.isArray(parsed.data)) {
-    const firstBrace = trimmed.indexOf('{');
-    if (firstBrace !== -1) {
-      let depth = 0;
-      let end = -1;
-      for (let i = firstBrace; i < trimmed.length; i++) {
-        if (trimmed[i] === '{') depth++;
-        else if (trimmed[i] === '}') {
-          depth--;
-          if (depth === 0) {
-            end = i;
-            break;
-          }
-        }
-      }
-      if (end !== -1) {
-        try {
-          parsed = JSON.parse(trimmed.slice(firstBrace, end + 1)) as SearchApiShape;
-        } catch {
-          parsed = null;
-        }
-      }
-    }
+    parsed = extractJsonFromText(trimmed);
   }
-
   if (!parsed || !Array.isArray(parsed.data)) return null;
-  const transformed: SearchData[] = (parsed.data || []).map((item: any) => ({
-    video_name: item.video_name || '',
-    similarity: item.similarity ?? 0,
-    screenshot_url: item.screenshot_url || '',
-    description: item.description || '',
-    start_time: item.start_time || '',
-    end_time: item.end_time || '',
-    sensor_id: item.sensor_id || '',
-    object_ids: Array.isArray(item.object_ids) ? item.object_ids : [],
-  }));
-  return transformed;
+
+  return transformToSearchData(parsed.data);
 }

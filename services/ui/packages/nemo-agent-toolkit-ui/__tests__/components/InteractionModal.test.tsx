@@ -446,7 +446,7 @@ describe('InteractionModal and Human-in-the-Loop Functionality', () => {
       const stopButton = screen.getByRole('button', { name: 'Stop' });
 
       expect(continueButton).toHaveClass('bg-[#76b900]');
-      expect(stopButton).toHaveClass('bg-slate-800');
+      expect(stopButton).toHaveClass('bg-neutral-700');
     });
   });
 
@@ -712,7 +712,7 @@ describe('InteractionModal and Human-in-the-Loop Functionality', () => {
         />
       );
 
-      expect(document.querySelector('.fixed')).toBeInTheDocument();
+      expect(screen.getByTestId('hitl-modal')).toBeInTheDocument();
     });
   });
 
@@ -1271,10 +1271,7 @@ describe('InteractionModal and Human-in-the-Loop Functionality', () => {
 
         // Text and radio types should have a Cancel button
         const cancelButtons = screen.queryAllByRole('button', { name: 'Cancel' });
-        const actualCancelButtons = cancelButtons.filter(btn => 
-          btn.classList.contains('bg-gray-500')
-        );
-        expect(actualCancelButtons.length).toBeGreaterThanOrEqual(1);
+        expect(cancelButtons.length).toBeGreaterThanOrEqual(1);
 
         unmount();
       });
@@ -1299,11 +1296,11 @@ describe('InteractionModal and Human-in-the-Loop Functionality', () => {
       );
 
       // Find the backdrop (the outer fixed div)
-      const backdrop = document.querySelector('.fixed.inset-0');
+      const backdrop = screen.getByTestId('hitl-modal');
       expect(backdrop).toBeInTheDocument();
 
       // Click on backdrop
-      fireEvent.click(backdrop!);
+      fireEvent.click(backdrop);
 
       // onClose should NOT be called from backdrop click
       // (It might be called 0 times if no click handler, which is correct)

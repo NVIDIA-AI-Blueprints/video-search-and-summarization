@@ -154,7 +154,7 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm z-50 dark:bg-opacity-20">
       <div
         ref={modalRef}
-        className="w-full max-w-md bg-white dark:bg-[#202123] rounded-2xl shadow-lg p-6 transform transition-all relative"
+        className="w-full max-w-md bg-white dark:bg-black rounded-2xl shadow-lg p-6 transform transition-all relative"
       >
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
           {t('Settings')}
@@ -166,7 +166,7 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
               {t('Theme')}
             </label>
             <select
-              className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none"
+              className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-black text-gray-900 dark:text-white focus:outline-none"
               value={theme}
               onChange={(e) => setTheme(e.target.value as 'light' | 'dark')}
             >
@@ -183,7 +183,7 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
           type="text"
           value={chatCompletionEndPoint}
           onChange={(e) => setChatCompletionEndPoint(e.target.value)}
-          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none"
+          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-black text-gray-900 dark:text-white focus:outline-none"
         />
 
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">
@@ -193,14 +193,14 @@ export const SettingDialog: FC<Props> = ({ open, onClose }) => {
           type="text"
           value={webSocketEndPoint}
           onChange={(e) => setWebSocketEndPoint(e.target.value)}
-          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none"
+          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-black text-gray-900 dark:text-white focus:outline-none"
         />
 
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4">
           {t('WebSocket Schema')}
         </label>
         <select
-          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none"
+          className="w-full mt-1 p-2 rounded-lg bg-gray-100 dark:bg-black text-gray-900 dark:text-white focus:outline-none"
           value={webSocketSchema}
           onChange={(e) => {
             setWebSocketSchema(e.target.value);
