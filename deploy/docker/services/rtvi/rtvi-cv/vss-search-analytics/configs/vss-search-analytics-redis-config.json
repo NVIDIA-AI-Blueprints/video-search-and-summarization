@@ -1,0 +1,116 @@
+
+{
+	"redis": {
+		"host": "localhost",
+		"port": 6379,
+		"group": "mdx-fusion-search-analytics-app",
+		"consumer": {
+			"readCount": 200,
+			"readBlockMs": 100
+		},
+		"producer": {
+			"maxLen": 10000
+		},
+		"streams": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "embed",
+				"value": "mdx-embed"
+			},
+			{
+				"name": "embedFiltered",
+				"value": "mdx-embed-filtered"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			}
+		]
+	},
+	"sensors": [],
+	"app": [
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorStateTimeout",
+			"value": "10"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "200"
+		},
+		{
+			"name": "objectConfidenceThreshold",
+			"value": "0.5"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "euclidean"
+		},
+		{
+			"name": "embedEnableDownsampling",
+			"value": "false"
+		},
+		{
+			"name": "embedDownsamplerType",
+			"value": "window"
+		},
+		{
+			"name": "embedSensorTTLSec",
+			"value": "3600"
+		},
+		{
+			"name": "embedDownsampleToleranceMode",
+			"value": "cosine"
+		},
+		{
+			"name": "embedDownsampleSimilarityThreshold",
+			"value": "0.90"
+		},
+		{
+			"name": "embedDownsampleMaxIntervalSec",
+			"value": "300"
+		},
+		{
+			"name": "embedDownsampleWindowSize",
+			"value": "60"
+		},
+		{
+			"name": "embedDownsampleMinNeighbours",
+			"value": "3"
+		},
+		{
+			"name": "sourceType",
+			"value": "redis"
+		},
+		{
+			"name": "sinkType",
+			"value": "redis"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForEmbedFiltering",
+			"value": "1"
+		},
+		{
+			"name": "inSimulationMode",
+			"value": "true"
+		},
+		{
+			"name": "stateManagementFilter",
+			"value": "[\"Person\"]"
+		}
+	]
+}

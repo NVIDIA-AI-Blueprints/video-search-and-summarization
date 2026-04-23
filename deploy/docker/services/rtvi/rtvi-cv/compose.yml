@@ -1,0 +1,183 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+
+  vss-search-analytics-2d-fusion:
+    image: nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.1.0
+    network_mode: "host"
+    profiles: ["bp_developer_search_2d"]
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
+    restart: always
+    container_name: vss-behavior-analytics
+    command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json 
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  nvstreamer-2d-fusion:
+    container_name: vss-vios-nvstreamer
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    user: "0:0"
+    #runtime: nvidia
+    profiles: ["bp_developer_search_2d"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+    network_mode: "host"
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
+      resources:
+        reservations:
+          devices:
+          - capabilities: [gpu]
+            device_ids: ["0"]
+    volumes:    
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - $MDX_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  # perception-sdr-2d-fusion:
+  #   image: nvcr.io/nvidia/vss-core/sdr:3.1.0
+  #   profiles: ["bp_developer_search_2d"]
+  #   network_mode: "host"
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "8192m"
+  #       max-file: "3"
+  #   container_name: vss-rtvi-cv-sdr
+  #   volumes:
+  #     - $MDX_SAMPLE_APPS_DIR/warehouse/warehouse-2d-app/sdr:/wdm-configs
+  #     - $MDX_SAMPLE_APPS_DIR/warehouse/warehouse-2d-app/sdr:/wdm-data
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     PORT: 4001
+  #     OTEL_SDK_DISABLED: true
+  #     WDM_INITIALIZE_FROM_VST: false
+  #     WDM_WL_SPEC: /wdm-data/ds-data_wl.yaml
+  #     WDM_CLUSTER_CONFIG_FILE: /wdm-configs/docker_cluster_config.json
+  #     WDM_MSG_KEY: vst.event
+  #     WDM_WL_REDIS_MSG_FIELD: sensor.id
+  #     WDM_WL_ADD_URL: /api/v1/stream/add
+  #     WDM_WL_DELETE_URL: /api/v1/stream/remove
+  #     WDM_WL_HEALTH_CHECK_URL: /api/v1/stream/add
+  #     VST_STREAMS_ENDPOINT: http://localhost:30888/vst/api/v1/live/streams
+  #     VST_STATUS_ENDPOINT: http://localhost:30888/vst/api/v1/sensor/status
+  #     WDM_WL_CHANGE_ID_ADD: camera_streaming
+  #     WDM_PRELOAD_WORKLOAD: ./tests/event_pre-roll.json
+  #     WDM_CLEAR_DATA_WL: true
+  #     WDM_KFK_ENABLE: true
+  #     WDM_DS_SWAP_ID_NAME: false
+  #     WDM_VALIDATE_BEFORE_ADD: true
+  #     WDM_PRELOAD_DELAY_FOR_DS_API: false
+  #     WDM_WL_THRESHOLD: 10
+  #     WDM_CLUSTER_TYPE: docker
+  #     WDM_POD_WATCH_DOCKER_DELAY: 0.05
+  #     WDM_DS_STATUS_CHECK: true
+  #     WDM_RESTART_DS_ON_ADD_FAIL: false
+  #     WDM_DISABLE_WERKZEUG_LOGGING: true
+  #     WDM_WL_OBJECT_NAME: sdr-perception
+  #     WDM_CONSUMER_GRP_ID: sdr-perception-cg
+  #     WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+  #     WDM_MSG_TOPIC: mdx-notification
+  #     WDM_CONFIG_PORT: 9003
+  #     WDM_ADD_REMOVE_RETRY_ATTEMPTS: 100
+  #     WDM_ADD_CALL_DELAY: 10
+  #     WDM_REAPPLY_ON_WL_RESTART: true
+  #     WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv"]'
+  #     WDM_CALL_WL_WEBHOOK: true
+  #     WDM_WL_WEBHOOK_ENDPOINT: http://10.21.84.235:8000/api/v1/rtvi-embed/ingest
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 300M
+  #     restart_policy:
+  #       condition: always
+  #   entrypoint: []
+  #   command: sh -c '/wdm/dist/sdr'
+  #   depends_on:
+  #     broker-health-check:
+  #       condition: service_completed_successfully
+
+  perception-2d-fusion:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv
+      args:
+        PERCEPTION_IMAGE: $PERCEPTION_IMAGE
+        PERCEPTION_TAG: $PERCEPTION_TAG
+      dockerfile: Dockerfiles/perception.Dockerfile
+    network_mode: "host"
+    runtime: nvidia
+    profiles: ["bp_developer_search_2d"]
+    container_name: vss-rtvi-cv
+    deploy:
+      restart_policy:
+          condition: on-failure
+          max_attempts: 2
+      resources:
+        reservations:
+          devices:
+          - capabilities:
+            - gpu
+            device_ids:
+            - "${RT_CV_DEVICE_ID:-0}"
+    volumes:
+        # Config file mounts
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/deepstream/configs/ds-detector-labels.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-detector-labels.txt
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/deepstream/configs/ds-kafka-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-kafka-config.txt
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/deepstream/configs/ds-main-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config.txt
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/deepstream/configs/ds-main-redis-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-redis-config.txt
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/deepstream/configs/ds-nvdcf-accuracy-tracker-config.yml:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-nvdcf-accuracy-tracker-config.yml
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/deepstream/configs/ds-ppl-analytics-pgie-config.yml:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-ppl-analytics-pgie-config.yml
+      - $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/deepstream/configs/ds-redis-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-redis-config.txt
+
+      # Model file mounts
+      - $MDX_DATA_DIR/models/rtdetr_warehouse_v1.0.1.fp16.onnx:/opt/storage/rtdetr_warehouse_v1.0.1.fp16.onnx
+      - $MDX_DATA_DIR/models/radio-clip_v1.0.onnx:/opt/storage/radio-clip_v1.0.onnx
+      - $MDX_DATA_DIR/models/radio-clip_v1.0_weights.bin:/opt/storage/radio-clip_v1.0_weights.bin
+      - $MDX_DATA_DIR/models/radio-clip_v1.0_tokenizer:/opt/storage/radio-clip_v1.0_tokenizer
+
+    environment:
+      STREAM_TYPE: ${STREAM_TYPE}
+      DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "1"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
+      OTEL_SERVICE_NAME: "rtvi-cv"
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
+      TRANSFORMERS_OFFLINE: 0
+      HF_HUB_OFFLINE: 0
+    command: ["bash", "-c", "./ds-start.sh"]
+    depends_on:
+      sensor-ms-dev:
+        condition: service_started
+      broker-health-check:
+        condition: service_completed_successfully
+
+
+volumes:
+  mdx-nvstreamer-data:        
+  mdx-nvstreamer-videos: 
+  perception-2d:
