@@ -86,6 +86,18 @@ def _ensure_sdk() -> None:
         )
 
 
+def _disable_server_thinking() -> None:
+    """The NVIDIA Anthropic proxy rejects requests that carry the
+    `context_management` field claude-code ≥ 2.1.x emits by default
+    ("context_management: Extra inputs are not permitted", HTTP 400).
+    Setting `CLAUDE_CODE_DISABLE_THINKING=1` strips the field before
+    the request goes out. The CI workflow already exports this, but
+    set it here defensively so local smoke-tests work against the
+    NVIDIA proxy too."""
+    if "CLAUDE_CODE_DISABLE_THINKING" not in os.environ:
+        os.environ["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+
+
 # ---------------------------------------------------------------------------
 # Agent loop
 # ---------------------------------------------------------------------------
@@ -274,6 +286,7 @@ def cleanup_instances() -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    _disable_server_thinking()
     _ensure_sdk()
     try:
         rc = asyncio.run(run_agent())
