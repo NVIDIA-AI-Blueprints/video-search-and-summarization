@@ -211,10 +211,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Skip nemo-agent-toolkit lint in CI: two workspaces (library + app) — exclude both package names.
+      # UI: only three workspaces define `lint` (all run `eslint` without ESLint 9 flat config in-tree).
+      # Exclude them so CI does not run eslint here; no changes under services/ui required.
       # TODO: remove this once the dev source is fixed for linting.
       - name: Lint
-        run: npm run lint -- --filter='!@nemo-agent-toolkit/ui' --filter='!nemo-agent-toolkit-ui'
+        run: npm run lint -- --filter='!@nemo-agent-toolkit/ui' --filter='!nemo-agent-toolkit-ui' --filter='!nv-metropolis-bp-vss-ui'
 
       - name: Typecheck
         run: npm run typecheck
