@@ -1,6 +1,8 @@
 ---
 name: video-summarization
 description: Summarize long videos, generate shift reports, and analyze extended recordings. Use when asked to summarize a video, generate a shift summary, analyze a long recording, or create a daily activity report. Requires the LVS profile to be deployed.
+version: "3.1.0"
+license: "Apache License 2.0"
 ---
 
 # Video Summarization Workflows
