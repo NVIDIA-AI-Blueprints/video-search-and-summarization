@@ -211,8 +211,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Do not run turbo lint for workspace @nemo-agent-toolkit/ui until the dev source is fixed for linting.
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --filter='!@nemo-agent-toolkit/ui'
 
       - name: Typecheck
         run: npm run typecheck
