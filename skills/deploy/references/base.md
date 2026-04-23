@@ -166,34 +166,11 @@ The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automati
 
 ## Debugging
 
-After a base deploy is up, use `scripts/test_base.py` to confirm the
-full pipeline (VST upload → VLM → agent report) is working end-to-end.
-
-```bash
-# From the repo root, against a locally deployed agent:
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --profile base
-
-# If the agent is behind a Brev secure link:
-python skills/deploy/scripts/test_base.py \
-    https://80-<BREV_ENV_ID>.brevlab.com --profile base
-
-# Use a different sample video instead of the default Pexels download:
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --video-path /path/to/warehouse.mp4 --profile base
-```
-
-What it does, in order:
-
-1. Waits on `http://<agent>:8000/health`.
-2. `POST /api/v1/videos` → gets a signed VST upload URL.
-3. `PUT` the bytes to that VST URL (bypasses `/videos-for-search` → avoids RTVI-CV).
-4. Confirms the video appears in `GET /vst/api/v1/sensor/streams`.
-5. Sends the two base-profile queries over the agent WebSocket:
-   - `"What videos are available?"`
-   - `"Generate a report for video <video_name>"`
-6. Auto-responds to the VLM-prompt HITL with the default prompt.
-7. Exits 0 if both queries return non-empty content.
+After a base deploy is up, confirm the full pipeline (VST upload → VLM →
+agent report) by driving a real query through the agent — e.g. ask it over
+the REST API or UI to describe a video you've uploaded to VST. If the
+agent returns a non-empty answer, the upload → ingest → inference → reply
+path is healthy.
 
 Common failure modes and what they mean for base:
 
@@ -205,13 +182,6 @@ Common failure modes and what they mean for base:
 | WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2-shared-gpu` / `cosmos-reason2-8b-shared-gpu` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |
-
-For remote LLM/VLM deploys, add `--vst-url` if VST isn't on localhost:
-
-```bash
-python skills/deploy/scripts/test_base.py http://<host>:8000 \
-    --vst-url http://<host>:30888 --profile base
-```
 
 ## Known Issues
 

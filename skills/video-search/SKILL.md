@@ -1,8 +1,8 @@
 ---
 name: video-search
 description: Search video archives using natural language — find events, objects, actions, and people across recorded video using fusion search (Cosmos Embed1 semantic search + CV attribute search). Use when asked to search for something in video, find actions and events, locate objects and people, or query video archives. For these types of questions, default to this top-level fusion search unless user specifies otherwise. Requires the search profile to be deployed.
-metadata:
-  { "openclaw": { "os": ["linux"] } }
+version: "3.1.0"
+license: "Apache License 2.0"
 ---
 
 # Video Search Workflows

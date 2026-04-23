@@ -1,8 +1,6 @@
 ---
 name: ngc
 description: Install, configure, or verify NVIDIA NGC CLI and API key access. Use when NGC CLI is missing, the NGC API key needs to be set or tested, or NGC resource access fails.
-metadata:
-  { "openclaw": { "emoji": "🔑", "os": ["linux"] } }
 ---
 
 # NGC CLI — Install, Configure, Verify
@@ -11,7 +9,7 @@ Manages NVIDIA NGC CLI setup and API key access. Required before deploying any V
 
 ## When to Use
 
-✅ Use this skill when:
+Use this skill when:
 
 - NGC CLI is not installed (`ngc: command not found`)
 - NGC API key is missing or needs to be verified
@@ -72,7 +70,7 @@ export NGC_CLI_API_KEY='<key>'
 echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
 ```
 
-> ⚠️ Do not store the raw key in `TOOLS.md` or any workspace file.
+> Do not store the raw key in `TOOLS.md` or any workspace file.
 
 ---
 

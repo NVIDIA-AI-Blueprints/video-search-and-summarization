@@ -1,8 +1,8 @@
 ---
 name: video-summarization
 description: Summarize a video by calling the VLM NIM or the Long Video Summarization (LVS) microservice directly. For short videos (<60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (>=60s) call the LVS microservice. Use when asked to summarize a video, describe what happens in a video, or analyze a recording.
-metadata:
-  { "openclaw": { "emoji": "📹", "os": ["linux"] } }
+version: "3.1.0"
+license: "Apache License 2.0"
 ---
 
 You are a video summarization assistant. You call the VLM NIM or the LVS

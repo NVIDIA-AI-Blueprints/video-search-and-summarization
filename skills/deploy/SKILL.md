@@ -1,8 +1,8 @@
 ---
 name: deploy
-description: Deploy, debug, or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Also debug/verify a running deployment end-to-end using `scripts/test_base.py` (upload a sample warehouse video, exercise the agent's video-Q&A path, confirm the stack is healthy). Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", "test the deployed agent", or "why is my vss deploy broken". Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
-metadata:
-  { "openclaw": { "emoji": "🚀", "os": ["linux"] } }
+description: Deploy, debug, or tear down any VSS profile using a compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken".
+version: "3.1.0"
+license: "Apache License 2.0"
 ---
 
 # VSS Deploy
@@ -34,21 +34,9 @@ when memory allows.
 - Tear down a running deployment
 - **Debug or verify** an existing deployment (see [Debugging a Deployment](#debugging-a-deployment))
 
-## Execution Modes
+## How it works
 
-The workflow is identical — only the transport differs.
-
-**MCP mode** (OpenClaw in sandbox) — call orchestrator-mcp tools via JSON-RPC on port 8090:
-
-```
-deploy/prereqs  → check system readiness
-deploy/config   → generate env + resolved compose (dry-run)
-deploy/compose-read  → review resolved compose
-deploy/compose-edit  → modify before deploying
-deploy/up       → start containers
-```
-
-**Direct mode** (Claude Code on host) — run docker compose commands directly:
+Run docker compose commands directly on the host:
 
 ```bash
 # 1. Apply env overrides to the profile .env file
@@ -57,13 +45,11 @@ deploy/up       → start containers
 # 4. docker compose -f resolved.yml up -d
 ```
 
-Use MCP mode inside an OpenClaw/NemoClaw sandbox. Use Direct mode as Claude Code on the host.
-
 ## Before Deploying
 
 1. **Repo path** — find `video-search-and-summarization/` on disk. Check `TOOLS.md` if available.
 2. **NGC CLI & API key** — see [`references/ngc.md`](references/ngc.md). Check `$NGC_CLI_API_KEY` is set.
-3. **System prerequisites** — see [`references/prerequisites.md`](references/prerequisites.md) for GPU, Docker, NVIDIA Container Toolkit.
+3. **System prerequisites (GPU VRAM, driver, Docker, NVIDIA Container Toolkit)** — canonical reference is the [**VSS prerequisites page**](https://docs.nvidia.com/vss/3.1.0/prerequisites.html). That page lists supported hardware, per-profile GPU requirements, and the minimum driver/CUDA version per NIM. Read it and pick the LLM/VLM placement that fits the host — don't guess thresholds from this skill.
 
 ### Pre-flight Check
 
@@ -88,12 +74,16 @@ Always follow this sequence. Never skip the dry-run.
 
 ### Step 1 — Gather context
 
+Discover what's available on the host and cross-reference with the
+[VSS prerequisites page](https://docs.nvidia.com/vss/3.1.0/prerequisites.html)
+to choose a deployment shape that fits.
+
 | Value | How to determine |
 |---|---|
 | **Profile** | Match user intent to routing table above. Default: `base` |
 | **Repo path** | Find `video-search-and-summarization/` on disk |
-| **Hardware** | `nvidia-smi --query-gpu=name --format=csv,noheader` → map to profile |
-| **LLM/VLM mode** | `local_shared` (default), `local` (dedicated GPUs), or `remote` |
+| **Hardware** | `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` → look up per-GPU VRAM against the prerequisites page |
+| **LLM/VLM placement** | Pick `local_shared`, `local`, or `remote` per LLM/VLM based on available GPUs + `$LLM_REMOTE_URL` / `$VLM_REMOTE_URL` / `$NGC_CLI_API_KEY`. If no combination on this host satisfies the prerequisites, stop and report the blocker instead of silently picking another shape. |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
 | **Host IP** | `hostname -I \| awk '{print $1}'` |
 
@@ -108,6 +98,48 @@ Always follow this sequence. Never skip the dry-run.
 | IGX | `IGX-THOR` | **Edge 4B** (vLLM) — see [`references/edge.md`](references/edge.md) |
 | AGX | `AGX-THOR` | **Edge 4B** (vLLM) — see [`references/edge.md`](references/edge.md) |
 | Other | `OTHER` | — |
+
+**Minimum GPU count per (profile × mode × platform).** Canonical source
+is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.1.0/prerequisites.html);
+reproduced here so the skill can fail fast when the host is too small:
+
+| Profile | Mode | H100 / RTX PRO 6000 (Blackwell) | L40S | DGX-Spark / IGX-Thor / AGX-Thor |
+|---|---|---|---|---|
+| `base` | shared (`local_shared` LLM + VLM) | **1** | — (48 GB/GPU too small) | **1** (Edge 4B + VLM, unified memory) |
+| `base` | dedicated (`local` LLM + VLM) | **2** | **2** | — |
+| `base` | `remote-llm` | **1** (VLM local) | **1** (VLM local) | **1** (remote LLM only) |
+| `base` | `remote-vlm` | **1** (LLM local) | **1** (LLM local) | — |
+| `base` | `remote-all` | **0** | **0** | **0** |
+| `lvs` | shared | **1** | — | - |
+| `lvs` | dedicated | **2** | **2** | — |
+| `lvs` | `remote-llm/vlm` | 1 | 1 | - |
+| `lvs` | `remote-all` | 0 | 0 | - |
+| `alerts` (verification / CV) | shared | **2**  | — | — |
+| `alerts` (verification / CV) | dedicated | **3** | **3**  | — |
+| `alerts` (verification / CV) | `remote-all` | 1 | 1 | 1 |
+| `alerts` (verification / CV) | `remote-llm/vlm` | 2 | 2 | 1 |
+| `alerts` (real-time / VLM) | shared | **2** | — | — |
+| `alerts` (real-time / VLM) | dedicated | **3** | **3**  | — |
+| `alerts` (real-time / VLM) | `remote-llm` | 2 | 2 | 1 |
+| `search` | shared | **2** | — | - |
+| `search` | dedicated | **3** | **3**  | — |
+| `search` | `remote-*` | **2**  | **2** | - |
+
+A few hard rules encoded in the table:
+
+- **L40S can't do `shared`.** 48 GB is not enough VRAM for LLM + VLM
+  on a single GPU. Fall back to `dedicated` or a `remote-*` mode.
+- **L40S needs +1 GPU for alerts / search vs H100** because the
+  shared-on-one-GPU trick doesn't work — RT-CV / Embed1 must take
+  their own GPU, and LLM+VLM still need a second.
+- **DGX-Spark / Thor are early-access for most profiles.** Only
+  `base` + `lvs` are expected to fully land locally; `alerts` /
+  `search` currently require a remote LLM. See
+  [`references/edge.md`](references/edge.md).
+
+If the host's (GPU count × VRAM) combination doesn't appear above,
+**stop and report the blocker** — don't silently pick a different
+mode.
 
 > **Edge shared mode requires Edge 4B + `HF_TOKEN`.** On DGX Spark and AGX/IGX
 > Thor, both LLM and VLM must fit in unified memory, AND the standard
@@ -148,7 +180,7 @@ chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
 # If you created $DATA/models above, also: chmod -R 777 "$DATA/models"
 ```
 
-> **❌ FORBIDDEN: `chown -R ubuntu:ubuntu $MDX_DATA_DIR` (or any recursive chown).**
+> **FORBIDDEN: `chown -R ubuntu:ubuntu $MDX_DATA_DIR` (or any recursive chown).**
 >
 > This is "good housekeeping" to a shell-admin instinct but is **the** deploy-
 > breaking command in this stack. You will observe a "healthy" deploy
@@ -289,12 +321,6 @@ See the profile reference doc for full env override recipes.
 > against the base `.env` after the fact. The base `.env` is the source
 > of truth.
 
-**MCP mode:**
-```
-deploy/config(profile=<profile>, env_overrides={...})
-```
-
-**Direct mode:**
 ```bash
 REPO=/path/to/video-search-and-summarization
 PROFILE=base
@@ -320,18 +346,17 @@ Show the user a summary of what will be deployed:
 - GPU device assignment
 - Key endpoints (UI port, agent port)
 
-Ask: **"Looks good — deploy now?"**
+Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 
-Do NOT proceed without user confirmation.
+**Exception — autonomous mode.** If the user's request already asks
+you to run autonomously (e.g. "deploy X autonomously", "run without
+confirmation", "non-interactive"), skip the confirmation prompt and
+proceed straight to Step 5. This path exists so automated eval /
+CI invocations don't hang waiting for a human reply they'll never
+get. In all other cases, a human must approve.
 
 ### Step 5 — Deploy
 
-**MCP mode:**
-```
-deploy/up()
-```
-
-**Direct mode:**
 ```bash
 cd $REPO/deployments
 docker compose -f resolved.yml up -d
@@ -373,12 +398,6 @@ Use workflow skills after deployment:
 
 ## Tear Down
 
-**MCP mode:**
-```
-deploy/down()
-```
-
-**Direct mode:**
 ```bash
 cd $REPO/deployments
 docker compose -f resolved.yml down
@@ -412,45 +431,16 @@ curl -sf http://localhost:30081/v1/models | python3 -m json.tool
 
 ### End-to-end video sanity check
 
-`scripts/test_base.py` is the canonical end-to-end probe. It:
-
-1. Waits for the agent `/health` endpoint
-2. Asks the agent for a VST upload URL (`POST /api/v1/videos`)
-3. Uploads a public warehouse video (Pexels CC0, ~1 MB) directly to VST
-4. Verifies the video is visible via `GET /vst/api/v1/sensor/streams`
-5. Sends the blueprint queries over the agent WebSocket
-   (`"What videos are available?"` / `"Generate a report for video <name>"`)
-6. Handles HITL prompts (VLM-prompt for `base`, scenario/events/objects for `lvs`)
-7. Prints pass/fail and a response snippet
-
-Usage:
-
-```bash
-# Install once
-pip install websocket-client
-
-# base profile
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --profile base
-
-# lvs profile
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --profile lvs
-
-# Use a local video instead of the default Pexels download
-python skills/deploy/scripts/test_base.py http://localhost:8000 \
-    --video-path /path/to/my_video.mp4 --profile base
-```
-
-The script exits non-zero on any failure, so it can also be wired into CI or
-an eval verifier. If any step fails, cross-reference the vss-agent log
-(`docker logs vss-agent`) for the error line — the script prints which
-step (upload / VST check / query) tripped.
+After the quick checks above pass, drive a real query through the agent — e.g.
+ask it over the REST API or UI to describe a video you've uploaded to VST.
+If the agent returns a non-empty answer, the upload → ingest → inference →
+reply path is healthy. If it fails, `docker logs vss-agent` shows which stage
+tripped.
 
 ## Troubleshooting
 
 - `unknown or invalid runtime name: nvidia` → NVIDIA Container Toolkit not installed or Docker not restarted. See [`references/prerequisites.md`](references/prerequisites.md).
 - NGC auth error → re-export `NGC_CLI_API_KEY` or follow [`references/ngc.md`](references/ngc.md).
 - GPU not detected → run `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then retry.
-- `deploy/up` fails with "no resolved compose" → must run `deploy/config` (Step 3) first.
+- `docker compose up` fails with "no resolved.yml" → run the dry-run (`docker compose config > resolved.yml`, Step 3) first.
 - cosmos-reason2-8b crash → must redeploy the full stack (known issue: NIM cannot restart alone).

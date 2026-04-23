@@ -199,16 +199,31 @@ def effective_mode_spec(platform: str, mode: str) -> dict:
 # Profile definitions
 # ---------------------------------------------------------------------------
 
-# Per-profile verification lives in `skills/deploy/eval/<profile>.json`
+# Per-(eval-)profile verification lives in `skills/deploy/eval/<profile>.json`
 # (loaded + templated at task-generation time). Keep this dict narrow:
-# description drives task.toml; derives_from + debug drive profile
-# chaining. Everything else is the spec's concern.
+#   - description      → task.toml metadata
+#   - profile          → real `/deploy -p <profile>` argument when the eval key
+#                        differs (e.g. eval profile `alerts_cv` deploys
+#                        `-p alerts -m verification`). Empty or absent means
+#                        the dict key is itself the deploy profile.
+#   - deploy_mode      → value of `/deploy -m ...` for this eval variant
+# Everything else (platforms, modes, checks) lives in the spec.
 PROFILES: dict[str, dict] = {
     "base": {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
+        # "profile" omitted → the dict key ("base") is also the deploy profile
     },
-    "alerts": {
-        "description": "VSS alerts profile — CV perception, alert verification",
+    "alerts_cv": {
+        "description": "VSS alerts profile, CV mode (`deploy -m verification`) — "
+                       "RT-CV generates candidate alerts, VLM reviews each",
+        "profile": "alerts",
+        "deploy_mode": "verification",
+    },
+    "alerts_vlm": {
+        "description": "VSS alerts profile, VLM mode (`deploy -m real-time`) — "
+                       "VLM continuously processes live video",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
@@ -216,13 +231,17 @@ PROFILES: dict[str, dict] = {
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
     },
-    "base-debug": {
-        "description": "VSS base profile + debug workflow — deploy, then run the "
-                       "/deploy skill's debug script to verify end-to-end video flow",
-        "derives_from": "base",
-        "debug": True,
-    },
 }
+
+
+def deploy_profile(eval_profile: str) -> str:
+    """Real `/deploy` profile name for an eval-profile entry.
+
+    Eval keys like `alerts_cv` map to the underlying `-p alerts` argument
+    of `/deploy`; plain keys like `base` map to themselves. Respects the
+    optional `profile` field in PROFILES (empty/absent ⇒ key is the profile)."""
+    override = PROFILES.get(eval_profile, {}).get("profile")
+    return override or eval_profile
 
 # ---------------------------------------------------------------------------
 # Instruction generation
@@ -253,6 +272,32 @@ def _describe_model(role: str, mode: str, remote: dict | None,
     return f"- {role}: mode `{mode}`"
 
 
+def _query_hint(mode_spec: dict, llm_remote: dict | None,
+                vlm_remote: dict | None) -> str:
+    """One-line English suffix describing the eval target for this mode.
+
+    Intentionally minimal — no feasibility advice, no GPU counts, no mode
+    names. The `/deploy` skill reads the host's real hardware + env vars and
+    decides the actual compose configuration. See `skills/deploy/SKILL.md`
+    and the VSS prerequisites page for the decision table."""
+    llm = mode_spec["llm_mode"]
+    vlm = mode_spec["vlm_mode"]
+    llm_url = (llm_remote or {}).get("url") or "$LLM_REMOTE_URL"
+    vlm_url = (vlm_remote or {}).get("url") or "$VLM_REMOTE_URL"
+
+    if llm == "remote" and vlm == "remote":
+        return f"with a remote LLM at {llm_url} and a remote VLM at {vlm_url}"
+    if llm == "remote":
+        return f"with a remote LLM at {llm_url}"
+    if vlm == "remote":
+        return f"with a remote VLM at {vlm_url}"
+    if llm == "local_shared" and vlm == "local_shared":
+        return "on a single GPU"
+    if llm == "local" and vlm == "local":
+        return "on dedicated GPUs"
+    return ""
+
+
 def generate_instruction(
     profile: str,
     platform: str,
@@ -260,62 +305,39 @@ def generate_instruction(
     llm_remote: dict | None,
     vlm_remote: dict | None,
 ) -> str:
-    """High-level goal + context. Agent uses /deploy skill for the workflow."""
-    mode_spec = effective_mode_spec(platform, mode)
+    """Short, query-style instruction. The agent + `/deploy` skill pick
+    the right compose configuration from the available hardware and env.
+
+    Shape: "Deploy the <profile> profile <hint>."  No step-by-step recipe,
+    no feasibility rules — the skill owns that decision (SKILL.md cites the
+    VSS prerequisites doc). If the host can't support the target, the
+    skill reports the blocker.
+    """
     profile_def = PROFILES[profile]
     is_debug = bool(profile_def.get("debug"))
-    underlying = profile_def.get("derives_from", profile)
+    underlying = deploy_profile(profile)
+    deploy_flag_m = profile_def.get("deploy_mode")
+    mode_spec = effective_mode_spec(platform, mode)
+    hint = _query_hint(mode_spec, llm_remote, vlm_remote)
 
-    if is_debug:
-        lines = [
-            f"Use the `/deploy` skill to **deploy and debug** the VSS "
-            f"**{underlying}** profile on this machine.",
-            "",
-            "## Target configuration",
-            "",
-            f"- Hardware profile: `{platform}`",
-            f"- GPU mode: **{mode}** — {mode_spec['description']}",
-            _describe_model("LLM", mode_spec["llm_mode"], llm_remote,
-                            edge_override=bool(mode_spec.get("_edge_override"))),
-            _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
-                            edge_override=bool(mode_spec.get("_edge_override"))),
-            "",
-            "## Repository",
-            "",
-            "If the VSS repository is not already present, clone it from:",
-            f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
-            "",
-            "After a clean deploy, exercise the skill's debug workflow "
-            "(`scripts/test_base.py` — see SKILL.md § *Debugging a Deployment*).",
-            "",
-            "Run autonomously end-to-end — do NOT prompt for confirmation.",
-            "",
-        ]
-        return "\n".join(lines) + "\n"
+    verb_phrase = f"Deploy the **{underlying}** profile"
+    if deploy_flag_m:
+        verb_phrase += f" in **{deploy_flag_m}** mode"
+    if hint:
+        verb_phrase += f" {hint}"
+    verb_phrase += " autonomously — do not ask for confirmation before running."
 
-    lines = [
-        f"Use the `/deploy` skill to deploy the VSS **{profile}** profile on this machine.",
+    body = [
+        verb_phrase,
         "",
-        "## Target configuration",
-        "",
-        f"- Hardware profile: `{platform}`",
-        f"- GPU mode: **{mode}** — {mode_spec['description']}",
-        _describe_model("LLM", mode_spec["llm_mode"], llm_remote,
-                        edge_override=bool(mode_spec.get("_edge_override"))),
-        _describe_model("VLM", mode_spec["vlm_mode"], vlm_remote,
-                        edge_override=bool(mode_spec.get("_edge_override"))),
-        "",
-        "## Repository",
-        "",
-        f"If the VSS repository is not already present, clone it from:",
-        f"  `{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
-        "",
-        "Run autonomously end-to-end — do NOT prompt for confirmation. "
-        "The `/deploy` skill owns everything else: prerequisites, env vars, "
-        "deployment steps, success checks, teardown.",
-        "",
+        "Use the `/deploy` skill.",
     ]
-    return "\n".join(lines) + "\n"
+    if is_debug:
+        body.append(
+            "After the stack is up, also run the skill's debug workflow "
+            "to verify the video path end-to-end."
+        )
+    return "\n".join(body) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +353,11 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
 
     `{{mode}}` is the short trial-mode token (e.g. "shared", "remote-all").
     `{{mode_description}}` is the prose form ("LLM and VLM share a single GPU").
+    `{{repo_root}}` is `$HOME/video-search-and-summarization` — a shell-
+    expansion that matches whichever default user the Brev provider assigns
+    (Crusoe → `ubuntu`, Massed Compute → `shadeform`, etc.). The deploy skill
+    clones into `$HOME`, so checks should reference `{{repo_root}}`, not a
+    hardcoded `/home/ubuntu/...` path.
     """
     substitutions = {
         "profile": profile,
@@ -343,16 +370,23 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
         "llm_remote_model": (llm_remote or {}).get("model", ""),
         "vlm_remote_url":   (vlm_remote or {}).get("url", ""),
         "vlm_remote_model": (vlm_remote or {}).get("model", ""),
+        "repo_root": "$HOME/video-search-and-summarization",
     }
     import re as _re
     pattern = _re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
+    # Back-compat: rewrite the old hardcoded Crusoe path so existing specs
+    # survive the CSP change without author-side edits.
+    _LEGACY_REPO = "/home/ubuntu/video-search-and-summarization"
+    _PORTABLE_REPO = "$HOME/video-search-and-summarization"
+
     def _sub(value):
         if isinstance(value, str):
-            return pattern.sub(
+            rendered = pattern.sub(
                 lambda m: str(substitutions.get(m.group(1), m.group(0))),
                 value,
             )
+            return rendered.replace(_LEGACY_REPO, _PORTABLE_REPO)
         if isinstance(value, list):
             return [_sub(v) for v in value]
         if isinstance(value, dict):
@@ -396,7 +430,7 @@ def generate_solve_script(
 ) -> str:
     """Gold solution: configure .env + deploy."""
     mode_spec = effective_mode_spec(platform, mode)
-    env_profile = PROFILES[profile].get("derives_from", profile)
+    env_profile = deploy_profile(profile)
 
     overrides: dict[str, str] = {
         "HARDWARE_PROFILE": platform,
@@ -429,7 +463,7 @@ def generate_solve_script(
         "# Gold solution: deploy " + profile + " on " + platform + "/" + mode,
         "set -euo pipefail",
         "",
-        "REPO=/home/ubuntu/video-search-and-summarization",
+        'REPO="$HOME/video-search-and-summarization"',
         "",
         "# --- Prerequisites ---",
         "if ! command -v docker &>/dev/null; then",
@@ -557,8 +591,10 @@ def generate_task(
     # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    underlying = profile_def.get("derives_from", profile)
-    spec_path = skill_dir / "eval" / f"{underlying}.json" if skill_dir else None
+    # The spec file is keyed on the EVAL-profile name (e.g. alerts_cv.json),
+    # not the underlying deploy-profile — different modes of the same deploy
+    # profile can ship distinct spec files (alerts_cv.json vs alerts_vlm.json).
+    spec_path = skill_dir / "eval" / f"{profile}.json" if skill_dir else None
     if spec_path and spec_path.exists():
         raw_spec = json.loads(spec_path.read_text())
         rendered = _render_eval_spec(
@@ -609,6 +645,26 @@ def _mode_needs_local_nim(mode_spec: dict) -> bool:
     return mode_spec["llm_mode"] != "remote" or mode_spec["vlm_mode"] != "remote"
 
 
+def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[str]] | None:
+    """If the skill's `eval/<profile>.json` declares `resources.platforms`,
+    return {platform: [modes...]}. Else return None (adapter falls back to
+    PLATFORMS defaults below). Gives the spec author control over which
+    platforms/modes to exercise — e.g. `alerts_cv` only on 2-GPU hosts."""
+    if skill_dir is None:
+        return None
+    spec_path = skill_dir / "eval" / f"{profile}.json"
+    if not spec_path.exists():
+        return None
+    try:
+        spec = json.loads(spec_path.read_text())
+    except Exception:
+        return None
+    resources = (spec.get("resources") or {}).get("platforms")
+    if not isinstance(resources, dict) or not resources:
+        return None
+    return {p: list((v or {}).get("modes") or []) for p, v in resources.items()}
+
+
 def expand_matrix(
     profile_filter: str | None,
     platform_filter: str | None,
@@ -616,23 +672,43 @@ def expand_matrix(
     have_llm_remote: bool,
     have_vlm_remote: bool,
     have_ngc_key: bool,
+    skill_dir: Path | None = None,
 ) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
     """Return (included, skipped) where:
         included = list of (profile, platform, mode) that will be generated
         skipped  = list of (profile, platform, mode, reason)
-    Filters applied: --profile/--platform/--mode + per-platform supported_modes
-    + remote URL availability for modes that need them
-    + NGC_CLI_API_KEY availability for modes that pull local NIMs."""
+    For each profile, the platform × mode matrix comes from:
+      - `spec.resources.platforms` if declared in `skills/deploy/eval/<profile>.json`
+      - otherwise falls back to the full PLATFORMS × supported_modes defaults
+    Also filters: --profile/--platform/--mode CLI, remote URL availability for
+    modes that need them, and NGC_CLI_API_KEY for modes that pull local NIMs."""
     included: list[tuple[str, str, str]] = []
     skipped: list[tuple[str, str, str, str]] = []
     for profile in PROFILES:
         if profile_filter and profile != profile_filter:
             continue
-        for platform, pspec in PLATFORMS.items():
+
+        # Prefer the spec's own declaration; fall back to the adapter defaults.
+        spec_matrix = _spec_platforms_for(profile, skill_dir)
+        if spec_matrix is not None:
+            platform_modes = spec_matrix
+        else:
+            platform_modes = {
+                p: list(pspec["supported_modes"])
+                for p, pspec in PLATFORMS.items()
+            }
+
+        for platform, modes in platform_modes.items():
             if platform_filter and platform != platform_filter:
                 continue
-            for mode in pspec["supported_modes"]:
+            if platform not in PLATFORMS:
+                skipped.append((profile, platform, "-", f"unknown platform {platform!r}"))
+                continue
+            for mode in modes:
                 if mode_filter and mode != mode_filter:
+                    continue
+                if mode not in MODES:
+                    skipped.append((profile, platform, mode, f"unknown mode {mode!r}"))
                     continue
                 mspec = MODES[mode]
                 reason = None
@@ -747,6 +823,7 @@ def main() -> None:
         have_llm_remote=llm_remote is not None,
         have_vlm_remote=vlm_remote is not None,
         have_ngc_key=have_ngc_key,
+        skill_dir=skill_dir,
     )
 
     # --- Print skip decisions ---

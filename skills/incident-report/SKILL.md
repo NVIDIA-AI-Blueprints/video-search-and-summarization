@@ -1,8 +1,8 @@
 ---
 name: incident-report
 description: Generate and query incident reports from VSS — look up incidents in Elasticsearch, analyze incident patterns, generate narrative reports. Use when asked about incidents, incident reports, PPE violations, safety events, or "what happened". Requires the alerts profile to be deployed.
-metadata:
-  { "openclaw": { "emoji": "📋", "os": ["linux"] } }
+version: "3.1.0"
+license: "Apache License 2.0"
 ---
 
 # Incident Report Workflows

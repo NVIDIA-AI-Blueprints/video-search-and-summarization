@@ -2,32 +2,40 @@
 
 Evaluate VSS skills (deploy, alerts, vios, incident-report, video-analytics, video-search, video-summarization) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
 
-The framework:
+The framework is run by a **long-running coordinator agent** ([`AGENTS.md`](AGENTS.md) is the playbook). You launch it once with `claude` + `/loop AGENTS.md`, and it:
 
-1. Provisions (or reuses) a Brev GPU instance
-2. Copies each skill into the instance's Claude Code config so the agent can invoke it via slash command
-3. Runs Claude Code against a goal-oriented instruction
-4. Verifies the outcome (containers running, endpoints healthy, etc.)
-5. Scores each trial as a float 0.0–1.0 and writes a `result.json`
+1. Watches the `pull-request/<N>` mirror branches for CPR-vetted contributor PRs
+2. Detects which skill specs changed, generates Harbor datasets per spec via the adapters
+3. Provisions / reuses Brev GPU instances per platform (L40S, H100, RTX 6000 Pro, SPARK)
+4. Fans out eval tasks to per-platform subagents, each of which invokes Claude Code against a goal-oriented instruction
+5. Verifies the outcome (containers running, endpoints healthy, trajectory checks, etc.) and scores each trial 0.0–1.0
+6. Posts a Markdown results summary as a PR comment, with links to traces served by `harbor view`
+7. Stops / deletes Brev instances when queues drain
+
+You don't run skills manually — you let the coordinator pick them up from PRs.
 
 ## Prerequisites
 
-Run these on **any machine** that has network access to Brev:
+Run these on the **coordinator host** (a long-running Brev CPU instance; `vss-skill-validator` in the NVIDIA org serves this role):
 
 - **[uv](https://github.com/astral-sh/uv)** (Python package manager) — harbor is invoked via `uvx harbor`
-- **[Brev CLI](https://docs.brev.nvidia.com/)** — authenticated via `brev login`
-- **`git`** — to clone this repo
-- **Python 3** — to run the dataset generators
+- **[Brev CLI](https://docs.brev.nvidia.com/)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level systemd timer `brev-keepalive.timer` runs `brev ls` every 15 min to keep the access token warm)
+- **[Claude Code](https://docs.claude.com/claude-code)** — the coordinator runs as a `claude` session using `/loop AGENTS.md`
+- **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo fork
+- **Python 3** — for the dataset generators
 
-### GPU requirement
+### GPU requirements (eval targets, not the coordinator host)
 
-The deploy skill evaluation requires a running **L40S GPU instance** with at least **48 GB VRAM** (e.g. Brev's `l40s-48gb.1x`, `massedcompute_L40S`). The instance needs:
+The coordinator dispatches across four first-class platform subagents. You don't need all four running at all times — the coordinator spins them up on demand:
 
-- Ubuntu / Debian-based OS
-- Network egress (to pull NIM images from `nvcr.io`)
-- Passwordless `sudo` for the default user (standard on Brev)
+| Subagent | Instance type | Lifecycle |
+|---|---|---|
+| `l40s` | `l40s-48gb.2x` (2× L40S 48 GB) | `brev start` on demand, `brev stop` after queue drains |
+| `h100` | `dmz.h100x2.pcie` (2× H100 80 GB) | non-stoppable; `brev delete` after queue drains |
+| `rtx` | `g7e.12xlarge` (RTX PRO Server 6000) | `brev start` / `brev stop` like L40S |
+| `spark` | BYOH DGX Spark node | never stopped; stays online across runs |
 
-The non-deploy skills (alerts, vios, etc.) run on the same instance after a VSS profile has been deployed there.
+Each instance needs Ubuntu/Debian, network egress to `nvcr.io`, and passwordless `sudo` for the default user (standard on Brev).
 
 ### API keys
 
@@ -51,55 +59,75 @@ The eval script auto-loads `.env` at the repo root.
 
 ## Quick start
 
-From a fresh clone on any machine:
+From a fresh clone on the coordinator host:
 
 ```bash
-# 1. Clone the repo
+# 1. Clone the repo (feat/skills until the skills work merges to develop)
 git clone --branch feat/skills https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 
-# 2. Log in to Brev
-brev login
+# 2. Log in to Brev (needs to be repeated every ~30 days when the refresh token expires)
+brev login --auth nvidia
 
-# 3. Create your .env (see Prerequisites above)
-cp tools/eval/harbor/.env.example .env
-$EDITOR .env
+# 3. Create your .env — place it at the coordinator's eval-coordinator workspace,
+#    not in the VSS repo (the coordinator sources it on every wake).
+cp tools/eval/harbor/.env.example ~/eval-coordinator/.env
+$EDITOR ~/eval-coordinator/.env
 
-# 4. Run the eval for a specific skill
-./scripts/eval_all_skills.sh --skill deploy
-
-# Or run all skills
-./scripts/eval_all_skills.sh
+# 4. Launch the coordinator agent inside a `claude` session:
+claude --dangerously-skip-permissions
+# then at the prompt:
+/loop AGENTS.md
 ```
 
-The script will:
+`/loop AGENTS.md` starts the self-paced coordinator loop described in [`AGENTS.md`](AGENTS.md). Each wake-up it:
 
-- Load `.env`
-- Create (or reuse) the Brev instance named in `$BREV_INSTANCE`
-- Configure credentials on the instance
-- Generate harbor task datasets
-- Invoke `uvx harbor run` for each task
+- Sources `~/eval-coordinator/.env` (API keys, remote endpoints, git identity)
+- Lists `pull-request/<N>` mirror branches and diffs any with new SHAs against their base
+- For each changed skill with an eval spec, regenerates the Harbor dataset via the adapter and enqueues tasks in the per-platform queue JSON under `/tmp/subagents/`
+- Spawns a subagent per platform with pending tasks (using the `Agent` tool in background mode)
+- Monitors results, posts PR comments, raises adapter PRs as needed
+- Tears down Brev instances when queues drain
+- Sleeps 25 min when idle, wakes immediately on subagent completion events
+
+You interact with the coordinator by pushing commits to PRs, adding `/ok to test` for the copy-pr-bot to re-mirror, and reading the comments it posts. It does not need imperative CLI commands.
 
 ## Architecture
 
 ```
-Your machine                 Brev L40S instance
-───────────                  ──────────────────
+Coordinator host                     Per-platform Brev instance
+(vss-skill-validator)                (vss-eval-l40s, -h100, -rtx, spark)
+────────────────────                 ──────────────────────────────────
 
-eval_all_skills.sh           (pre-existing, reused across tasks)
+claude /loop AGENTS.md               (provisioned on demand)
   │
-  ├── Load .env                ~/.eval_env  ← API keys written here
-  ├── brev create/verify       Claude Code installed
+  ├── Sources .env                   Claude Code + NIMs/Docker stack
+  ├── gh api branches                Per-trial: /tests /skills /logs
+  │     pull-request/*
+  ├── python3 adapters/*/generate.py
+  │     → datasets/<skill>/<profile>/<platform>/<mode>/
   │
-  ├── generate.py              /skills/deploy/     ← uploaded on each run
-  │   └─ tasks/base/...        /tests/test.sh      ← harbor uploads
-  │                            /logs/verifier/reward.txt ← agent writes
+  ├── Agent tool (background)
+  │     └── platform subagent
+  │           └── uvx harbor run
+  │                 └── BrevEnvironment (tools/eval/harbor/envs/brev_env.py)
+  │                       └── brev exec → Claude Code on the GPU host
+  │                             └── /<skill> executes the task
   │
-  └── uvx harbor run
-      └── BrevEnvironment
-          └── brev exec → runs Claude Code agent on the instance
-              └── /deploy skill executes the deployment
+  ├── Watches results/<run_id>/
+  │     → moves to results/_viewer/<run_id>__<date>/
+  │     → posts PR comment with trace URLs
+  │
+  └── harbor view (persistent, port 8080, Cloudflare-tunnelled)
+        → https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>
 ```
+
+State lives on the coordinator host in `/tmp/subagents/`:
+
+- `{l40s,h100,rtx,spark}.json` — per-platform queue + results
+- `_prs_seen.json` — PR → (head_sha, batches, draft comment) ledger
+- `<platform>.pid` — subagent liveness markers
+- `_alerts.json` — blocker alerts the coordinator can't self-resolve (e.g. expired Brev auth)
 
 `tools/eval/harbor/envs/brev_env.py` is the Harbor environment provider. It connects to a pre-existing Brev instance (does not create one per trial) and transfers files via `tar` over `brev exec` (faster and more reliable than `brev copy`).
 
@@ -108,31 +136,29 @@ eval_all_skills.sh           (pre-existing, reused across tasks)
 ```
 tools/eval/harbor/
 ├── README.md              ← you are here
-├── .env.example           ← template for repo-root .env
-├── adapters/
-│   ├── deploy/            ← deploy skill task generator (per profile)
+├── AGENTS.md              ← coordinator playbook (source of truth for /loop)
+├── .env.example           ← template for the coordinator's .env
+├── adapters/              ← skill-specific dataset generators (human-maintained)
+│   ├── deploy/            ← profile × platform × mode matrix
 │   │   └── generate.py
-│   └── vss-skills/        ← non-deploy skill task generator
-│       └── generate.py
+│   ├── vios/              ← single-task-per-platform, step-chained
+│   │   └── generate.py
+│   └── <skill>/           ← coordinator may raise an adapter PR when a new
+│       └── generate.py      eval spec lands for a skill that lacks one
 ├── envs/
 │   └── brev_env.py        ← Harbor environment for pre-existing Brev instances
-├── datasets/              ← generated by scripts (gitignored)
-│   ├── deploy/
-│   │   ├── base/
-│   │   ├── alerts/
-│   │   ├── lvs/
-│   │   └── search/
-│   └── vss-skills/
-│       ├── alerts/
-│       ├── vios/
-│       ├── incident-report/
-│       ├── video-analytics/
-│       ├── video-search/
-│       └── video-summarization/
-└── results/               ← harbor run outputs (gitignored)
-    └── <timestamp>/
-        └── <skill>/
-            └── result.json
+├── verifiers/
+│   └── generic_judge.py   ← routes checks to shell / trajectory /
+│                            response / rubric evaluators
+├── datasets/              ← generated per spec, gitignored
+│   └── <skill>/<profile>/<platform>-<mode>/
+│       ├── environment/Dockerfile  (placeholder; Brev env pre-exists)
+│       ├── skills/<skill>/         (uploaded into the trial)
+│       ├── solution/solve.sh       (gold solution, for oracle agent)
+│       └── tests/{instruction.md, task.toml, test.sh, <spec>.json}
+└── results/               ← harbor run outputs, gitignored
+    ├── <run_id>/<date>/…            (raw harbor output)
+    └── _viewer/<run_id>__<date>/…   (flattened for `harbor view`)
 ```
 
 Each generated task contains:
@@ -151,15 +177,43 @@ Each evaluable skill ships a spec at
 author writes** — the coordinator agent (see [`AGENTS.md`](AGENTS.md))
 derives the Harbor adapter, dataset, and queue entries from it.
 
-Schema (loose — pattern-match from the working example below):
+The **spec is the source of truth** for dispatch. Adapters iterate
+exactly what `resources.platforms` lists; they never invent platforms
+or modes a spec did not declare. This keeps PR authors in control of
+which `(platform, mode)` combos actually run.
+
+Schema:
 
 | Key | Type | Description |
 |---|---|---|
 | `skills` | `string[]` | Skill names this spec exercises (usually just one). |
-| `env` | `string` | Prose describing prerequisites: target platform(s), deployed VSS profile (if any), required env vars, Brev secure-link assumptions, etc. The coordinator parses this to pick platforms and inject deploy tasks. |
+| `resources.platforms` | `object` | `{<platform>: {"modes": [...]}}` — the Cartesian matrix the adapter will fan out. E.g. `{"L40S": {"modes": ["remote-all"]}}` produces exactly one dataset. Platforms: `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`. Omitted → adapter falls back to its internal defaults (back-compat only; new specs should declare explicitly). |
+| `env` | `string` | Prose describing prerequisites: target platform(s), deployed VSS profile (if any), required env vars, Brev secure-link assumptions, etc. The coordinator parses this for prerequisite deploy injection and platform intent. |
 | `expects` | `array` | Ordered list — **each entry becomes one Harbor task in the subagent queue**, chained to the previous via `requires_previous_passed`. |
-| `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. |
-| `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Shell-runnable or probe-runnable; the adapter decides whether to inline them in `test.sh` or route them through a Python probe under `skills/<skill>/scripts/`. |
+| `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
+| `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl`/`docker`/`grep`/etc. commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
+
+### Eval-profile vs deploy-profile (deploy adapter only)
+
+The `deploy` adapter also exposes a small `PROFILES` dict that maps
+**eval-profile names** to the underlying `/deploy` invocation:
+
+```python
+PROFILES = {
+  "base":       {"description": "..."},                  # key == deploy profile
+  "alerts_cv":  {"profile": "alerts", "deploy_mode": "verification"},
+  "alerts_vlm": {"profile": "alerts", "deploy_mode": "real-time"},
+  "lvs":        {"description": "..."},
+  "search":     {"description": "..."},
+}
+```
+
+An empty or absent `profile` means the dict key *is* the deploy profile
+(the `base` case). When `profile` is set, the agent is told to invoke
+`/deploy -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`.
+This is how one skill profile (`alerts`) produces multiple eval variants
+(`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct
+container-check sets while still deploying a shared compose stack.
 
 ### Worked example — `skills/vios/eval/base_profile_ops.json`
 
@@ -214,44 +268,76 @@ What the coordinator derives from this spec:
 
 ## Running individual commands
 
-### Generate datasets only
+The coordinator does all of this automatically — these manual commands are for debugging or bootstrapping a new skill's adapter.
+
+### Generate a dataset for one spec
 
 ```bash
-./scripts/eval_all_skills.sh --generate-only
+set -a && source ~/eval-coordinator/.env && set +a
+
+# Deploy skill — profile × platform × mode matrix
+python3 tools/eval/harbor/adapters/deploy/generate.py \
+  --output-dir tools/eval/harbor/datasets/deploy \
+  --skill-dir skills/deploy \
+  --profile base --platform L40S
+
+# Single-platform skill (e.g. vios)
+python3 tools/eval/harbor/adapters/vios/generate.py \
+  --output-dir tools/eval/harbor/datasets/vios \
+  --skill-dir skills/vios \
+  --platform L40S
 ```
 
-### Run a single skill
+### Run a single Harbor trial by hand
 
 ```bash
-./scripts/eval_all_skills.sh --skill deploy
-./scripts/eval_all_skills.sh --skill alerts
-```
+set -a && source ~/eval-coordinator/.env && set +a
+export BREV_INSTANCE=vss-eval-l40s
 
-### Dry run (print commands, don't execute)
-
-```bash
-./scripts/eval_all_skills.sh --dry-run
-```
-
-### Run multiple skills in parallel
-
-```bash
-./scripts/eval_all_skills.sh --parallel 3
-```
-
-### Manual harbor invocation
-
-After generating datasets, you can call harbor directly:
-
-```bash
-BREV_INSTANCE=eval-gpu uvx harbor run \
+uvx harbor run \
   --environment-import-path "tools.eval.harbor.envs.brev_env:BrevEnvironment" \
-  -p tools/eval/harbor/datasets/deploy \
-  -i base \
+  -p tools/eval/harbor/datasets/deploy/base \
+  -i l40s-remote-all \
   -a claude-code \
-  --model aws/anthropic/bedrock-claude-sonnet-4-6 \
-  --ak api_base=https://inference-api.nvidia.com/v1 \
-  -n 1
+  --model "$ANTHROPIC_MODEL" \
+  --ak api_base="$ANTHROPIC_BASE_URL/v1" \
+  --ae CLAUDE_CODE_DISABLE_THINKING=1 \
+  --max-retries 0 -n 1 --yes \
+  -o tools/eval/harbor/results/manual-$(date +%Y%m%d-%H%M%S)
+```
+
+`CLAUDE_CODE_DISABLE_THINKING=1` is required when routing through the NVIDIA Anthropic proxy — claude-code ≥ 2.1.x otherwise emits a `context_management` field the proxy rejects with HTTP 400.
+
+### Inspect a result
+
+After harbor exits, flatten the run into the viewer directory so `harbor view` can index it:
+
+```bash
+cd tools/eval/harbor/results
+mv "<run_id>/<date>" "_viewer/<run_id>__<date>"
+rmdir "<run_id>" 2>/dev/null || true
+```
+
+Then browse `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/<run_id>__<date>`. The viewer is launched once per coordinator host:
+
+```bash
+nohup uvx harbor view tools/eval/harbor/results/_viewer --jobs \
+  --host 0.0.0.0 --port 8080 > /tmp/harbor-view.log 2>&1 &
+disown
+```
+
+### Spawn the coordinator headlessly
+
+If you want the coordinator running in the background of a tmux session (so it survives your ssh disconnect):
+
+```bash
+tmux new -d -s coordinator \
+  "cd ~/eval-coordinator && claude --dangerously-skip-permissions"
+# then attach and type:
+tmux attach -t coordinator
+# at the claude prompt:
+/loop AGENTS.md
+# detach: Ctrl-b d
 ```
 
 ## Interpreting results
@@ -300,10 +386,10 @@ Your API endpoint doesn't support Claude Code's beta headers. Harbor's `--ak api
 File upload/download to the Brev instance failed. Check `brev exec <instance> "echo ok"` works manually. Clear `/tests /logs /skills` on the instance and retry.
 
 **Instance creation fails**
-Some Brev providers have capacity issues. Try a different instance type:
-```bash
-BREV_INSTANCE_TYPE=verda_L40S ./scripts/eval_all_skills.sh --skill deploy
-```
+Some Brev providers have capacity issues. Retry manually, or flag it in the PR comment — the coordinator won't auto-select an alternate instance type; platform → instance mapping is fixed in AGENTS.md §2.
+
+**Brev auth expired mid-run**
+Look for a `brev_auth_expired` entry in `/tmp/subagents/_alerts.json`. Fix by running `brev login --auth nvidia` on the coordinator host. The `brev-keepalive.timer` systemd user unit fires `brev ls` every 15 min to keep the access token warm, but it cannot recover when the refresh token itself expires — only an interactive login can.
 
 **Agent deployment fails with "pull access denied"**
 `NGC_CLI_API_KEY` missing or invalid. The agent needs it to pull VSS NIM containers from `nvcr.io`.
