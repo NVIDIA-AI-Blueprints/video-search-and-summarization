@@ -108,17 +108,20 @@ reproduced here so the skill can fail fast when the host is too small:
 | `base` | `remote-llm` | **1** (VLM local) | **1** (VLM local) | **1** (remote LLM only) |
 | `base` | `remote-vlm` | **1** (LLM local) | **1** (LLM local) | — |
 | `base` | `remote-all` | **0** | **0** | **0** |
-| `lvs` | shared | **1** | — | **1** (Edge 4B) |
+| `lvs` | shared | **1** | — | - |
 | `lvs` | dedicated | **2** | **2** | — |
-| `lvs` | `remote-*` | 0–1 per which side is remote | 0–1 | **1** (remote LLM) |
-| `alerts` (verification / CV) | shared | **2** (CV on GPU 0 + LLM+VLM shared on GPU 1) | — | — |
-| `alerts` (verification / CV) | dedicated | **2** | **3** (CV + LLM + VLM each dedicated) | — |
-| `alerts` (real-time / VLM) | shared | **1** | — | — |
-| `alerts` (real-time / VLM) | dedicated | **2** | **3** (NVStreamer + LLM + VLM) | — |
-| `alerts` (any) | `remote-all` | **0** | **0** | — |
-| `search` | shared | **2** (Cosmos Embed1 on GPU 0 + LLM+VLM shared on GPU 1) | — | **1** (remote LLM) |
-| `search` | dedicated | **2** | **3** (Embed1 + LLM + VLM) | — |
-| `search` | `remote-*` | **1** (Embed1 always runs locally — it's CPU-bound but pinned to a GPU) | **1** | **1** |
+| `lvs` | `remote-llm/vlm` | 1 | 1 | - |
+| `lvs` | `remote-all` | 0 | 0 | - |
+| `alerts` (verification / CV) | shared | **2**  | — | — |
+| `alerts` (verification / CV) | dedicated | **3** | **3**  | — |
+| `alerts` (verification / CV) | `remote-all` | 1 | 1 | 1 |
+| `alerts` (verification / CV) | `remote-llm/vlm` | 2 | 2 | 1 |
+| `alerts` (real-time / VLM) | shared | **2** | — | — |
+| `alerts` (real-time / VLM) | dedicated | **3** | **3**  | — |
+| `alerts` (real-time / VLM) | `remote-llm` | 2 | 2 | 1 |
+| `search` | shared | **2** | — | - |
+| `search` | dedicated | **3** | **3**  | — |
+| `search` | `remote-*` | **2**  | **2** | - |
 
 A few hard rules encoded in the table:
 
