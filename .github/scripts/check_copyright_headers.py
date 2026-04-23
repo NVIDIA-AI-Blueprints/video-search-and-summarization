@@ -39,6 +39,8 @@ EXCLUDE_PATTERNS = (
     "**/package-lock.json",
     # Stubs (third-party type stubs)
     "**/stubs/**",
+    # UI — original MIT-licensed code; headers will be added incrementally
+    "services/ui/**",
 )
 
 
