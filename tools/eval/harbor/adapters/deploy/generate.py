@@ -199,24 +199,30 @@ def effective_mode_spec(platform: str, mode: str) -> dict:
 # Profile definitions
 # ---------------------------------------------------------------------------
 
-# Per-profile verification lives in `skills/deploy/eval/<profile>.json`
+# Per-(eval-)profile verification lives in `skills/deploy/eval/<profile>.json`
 # (loaded + templated at task-generation time). Keep this dict narrow:
-# description drives task.toml; derives_from + debug drive profile
-# chaining. Everything else is the spec's concern.
+#   - description      → task.toml metadata
+#   - profile          → real `/deploy -p <profile>` argument when the eval key
+#                        differs (e.g. eval profile `alerts_cv` deploys
+#                        `-p alerts -m verification`). Empty or absent means
+#                        the dict key is itself the deploy profile.
+#   - deploy_mode      → value of `/deploy -m ...` for this eval variant
+# Everything else (platforms, modes, checks) lives in the spec.
 PROFILES: dict[str, dict] = {
     "base": {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
+        # "profile" omitted → the dict key ("base") is also the deploy profile
     },
     "alerts_cv": {
         "description": "VSS alerts profile, CV mode (`deploy -m verification`) — "
                        "RT-CV generates candidate alerts, VLM reviews each",
-        "derives_from": "alerts",
+        "profile": "alerts",
         "deploy_mode": "verification",
     },
     "alerts_vlm": {
         "description": "VSS alerts profile, VLM mode (`deploy -m real-time`) — "
                        "VLM continuously processes live video",
-        "derives_from": "alerts",
+        "profile": "alerts",
         "deploy_mode": "real-time",
     },
     "lvs": {
@@ -226,6 +232,16 @@ PROFILES: dict[str, dict] = {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
     },
 }
+
+
+def deploy_profile(eval_profile: str) -> str:
+    """Real `/deploy` profile name for an eval-profile entry.
+
+    Eval keys like `alerts_cv` map to the underlying `-p alerts` argument
+    of `/deploy`; plain keys like `base` map to themselves. Respects the
+    optional `profile` field in PROFILES (empty/absent ⇒ key is the profile)."""
+    override = PROFILES.get(eval_profile, {}).get("profile")
+    return override or eval_profile
 
 # ---------------------------------------------------------------------------
 # Instruction generation
@@ -267,7 +283,8 @@ def generate_instruction(
     mode_spec = effective_mode_spec(platform, mode)
     profile_def = PROFILES[profile]
     is_debug = bool(profile_def.get("debug"))
-    underlying = profile_def.get("derives_from", profile)
+    underlying = deploy_profile(profile)
+    deploy_flag_m = profile_def.get("deploy_mode")
 
     if is_debug:
         lines = [
@@ -293,8 +310,15 @@ def generate_instruction(
         ]
         return "\n".join(lines) + "\n"
 
+    deploy_cmd = f"/deploy -p {underlying}"
+    if deploy_flag_m:
+        deploy_cmd += f" -m {deploy_flag_m}"
     lines = [
-        f"Use the `/deploy` skill to deploy the VSS **{profile}** profile on this machine.",
+        f"Use the `/deploy` skill to deploy the VSS **{underlying}** profile "
+        + (f"in **{deploy_flag_m}** mode " if deploy_flag_m else "")
+        + "on this machine.",
+        "",
+        f"Invoke it as: `{deploy_cmd}`.",
         "",
         "## Target configuration",
         "",
@@ -408,7 +432,7 @@ def generate_solve_script(
 ) -> str:
     """Gold solution: configure .env + deploy."""
     mode_spec = effective_mode_spec(platform, mode)
-    env_profile = PROFILES[profile].get("derives_from", profile)
+    env_profile = deploy_profile(profile)
 
     overrides: dict[str, str] = {
         "HARDWARE_PROFILE": platform,
@@ -569,8 +593,10 @@ def generate_task(
     # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    underlying = profile_def.get("derives_from", profile)
-    spec_path = skill_dir / "eval" / f"{underlying}.json" if skill_dir else None
+    # The spec file is keyed on the EVAL-profile name (e.g. alerts_cv.json),
+    # not the underlying deploy-profile — different modes of the same deploy
+    # profile can ship distinct spec files (alerts_cv.json vs alerts_vlm.json).
+    spec_path = skill_dir / "eval" / f"{profile}.json" if skill_dir else None
     if spec_path and spec_path.exists():
         raw_spec = json.loads(spec_path.read_text())
         rendered = _render_eval_spec(
