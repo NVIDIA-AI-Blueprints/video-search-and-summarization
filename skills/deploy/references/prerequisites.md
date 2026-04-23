@@ -1,8 +1,6 @@
 ---
 name: vss-prerequisites
 description: Check VSS system prerequisites — GPU driver, Docker, NVIDIA Container Toolkit, and NGC access. Use when troubleshooting a deploy failure, after a system change, or to verify the system is ready for VSS.
-metadata:
-  { "openclaw": { "os": ["linux"] } }
 ---
 
 # VSS Prerequisites Check

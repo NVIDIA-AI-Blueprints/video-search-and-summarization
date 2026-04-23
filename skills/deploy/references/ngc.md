@@ -1,8 +1,6 @@
 ---
 name: ngc
 description: Install, configure, or verify NVIDIA NGC CLI and API key access. Use when NGC CLI is missing, the NGC API key needs to be set or tested, or NGC resource access fails.
-metadata:
-  { "openclaw": { "os": ["linux"] } }
 ---
 
 # NGC CLI — Install, Configure, Verify

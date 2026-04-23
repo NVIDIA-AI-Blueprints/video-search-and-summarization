@@ -1,8 +1,6 @@
 ---
 name: video-analytics
 description: Query video analytics incidents, alerts, sensor data, and metrics from Elasticsearch via the VA-MCP server (port 9901). Use for any question about what happened in video — PPE violations, alerts, incidents, object counts, speeds, occupancy, or anything that requires looking up recorded events. This is the primary way to answer "what happened", "show me alerts", "any violations", "how many people", etc.
-metadata:
-  { "openclaw": { "os": ["linux"] } }
 ---
 
 # Video Analytics (VA-MCP)
