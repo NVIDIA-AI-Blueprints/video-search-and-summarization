@@ -93,12 +93,19 @@ jobs:
         run: |
           # Agent writes harbor output under tools/eval/harbor/results/<run_id>/
           # in the checked-out workspace. Surface the bundle for download.
-          RESULTS=$(find tools/eval/harbor/results -maxdepth 2 -name "result.json" 2>/dev/null | head -50)
+          # Blocker paths (missing_platforms_declaration, missing_probe, etc.)
+          # finish without producing a results dir — that's a success, not a
+          # failure of this step.
+          if [ ! -d tools/eval/harbor/results ]; then
+            echo "no results dir — agent blocked before running trials (expected for blocker outcomes)"
+            exit 0
+          fi
+          RESULTS=$(find tools/eval/harbor/results -maxdepth 2 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
             tar czf /tmp/skills-eval-results.tar.gz -C . tools/eval/harbor/results
             echo "archived $(echo "$RESULTS" | wc -l) result.json files"
           else
-            echo "no results to archive"
+            echo "results dir exists but empty — nothing to archive"
           fi
 
       - name: Upload results artifact
