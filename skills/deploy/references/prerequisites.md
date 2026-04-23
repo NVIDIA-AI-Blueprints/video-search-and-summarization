@@ -2,7 +2,7 @@
 name: vss-prerequisites
 description: Check VSS system prerequisites — GPU driver, Docker, NVIDIA Container Toolkit, and NGC access. Use when troubleshooting a deploy failure, after a system change, or to verify the system is ready for VSS.
 metadata:
-  { "openclaw": { "emoji": "🔍", "os": ["linux"] } }
+  { "openclaw": { "os": ["linux"] } }
 ---
 
 # VSS Prerequisites Check
@@ -11,7 +11,7 @@ Verifies system readiness for any VSS developer profile. For NGC CLI setup speci
 
 ## When to Use
 
-✅ Use this skill when:
+Use this skill when:
 
 - A VSS deploy failed and you need to diagnose why
 - User asks to verify GPU, Docker, or system setup
@@ -153,5 +153,5 @@ Use the `ngc` skill to check NGC CLI and API key access.
 
 ## Summary
 
-- ✅ All pass → "System ready. You can deploy base, lvs, search, or alerts."
-- ❌ Any fail → report the item, provide the fix, re-run that check before continuing.
+- All pass → "System ready. You can deploy base, lvs, search, or alerts."
+- Any fail → report the item, provide the fix, re-run that check before continuing.

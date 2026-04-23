@@ -2,7 +2,7 @@
 name: deploy
 description: Deploy, debug, or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken". Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
 metadata:
-  { "openclaw": { "emoji": "🚀", "os": ["linux"] } }
+  { "openclaw": { "os": ["linux"] } }
 ---
 
 # VSS Deploy
@@ -148,7 +148,7 @@ chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
 # If you created $DATA/models above, also: chmod -R 777 "$DATA/models"
 ```
 
-> **❌ FORBIDDEN: `chown -R ubuntu:ubuntu $MDX_DATA_DIR` (or any recursive chown).**
+> **FORBIDDEN: `chown -R ubuntu:ubuntu $MDX_DATA_DIR` (or any recursive chown).**
 >
 > This is "good housekeeping" to a shell-admin instinct but is **the** deploy-
 > breaking command in this stack. You will observe a "healthy" deploy

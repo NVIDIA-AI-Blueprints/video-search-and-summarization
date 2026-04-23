@@ -1,6 +1,6 @@
 # VSS Search Profile — Reference
 
-> ⚠️ **Alpha Feature** — not recommended for production.
+> **Alpha Feature** — not recommended for production.
 
 ## What Gets Deployed
 
