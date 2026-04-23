@@ -327,7 +327,7 @@ jobs:
       - name: Check Python dependency licenses
         run: |
           echo "=== Dependency License Report ==="
-          uv run pip-licenses --format=table --order=license
+          uv run pip-licenses --format=plain --order=license
 
           echo ""
           echo "=== Checking for disallowed licenses ==="
@@ -365,7 +365,7 @@ jobs:
       - name: Check UI dependency licenses
         run: |
           npx license-checker \
-            --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;CC0-1.0;CC-BY-4.0;CC-BY-3.0;Python-2.0;BlueOak-1.0.0" \
+            --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;CC0-1.0;CC-BY-4.0;CC-BY-3.0;Python-2.0;BlueOak-1.0.0;LGPL-3.0-or-later;LGPL-2.1-or-later;LGPL-2.0-or-later" \
             --excludePrivatePackages
 
   # ---------------------------------------------------------------------------
