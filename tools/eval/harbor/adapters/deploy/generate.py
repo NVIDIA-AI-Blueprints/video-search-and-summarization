@@ -207,20 +207,23 @@ PROFILES: dict[str, dict] = {
     "base": {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
     },
-    "alerts": {
-        "description": "VSS alerts profile — CV perception, alert verification",
+    "alerts_cv": {
+        "description": "VSS alerts profile, CV mode (`deploy -m verification`) — "
+                       "RT-CV generates candidate alerts, VLM reviews each",
+        "derives_from": "alerts",
+        "deploy_mode": "verification",
+    },
+    "alerts_vlm": {
+        "description": "VSS alerts profile, VLM mode (`deploy -m real-time`) — "
+                       "VLM continuously processes live video",
+        "derives_from": "alerts",
+        "deploy_mode": "real-time",
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
     },
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
-    },
-    "base-debug": {
-        "description": "VSS base profile + debug workflow — deploy, then run the "
-                       "/deploy skill's debug script to verify end-to-end video flow",
-        "derives_from": "base",
-        "debug": True,
     },
 }
 
@@ -618,6 +621,26 @@ def _mode_needs_local_nim(mode_spec: dict) -> bool:
     return mode_spec["llm_mode"] != "remote" or mode_spec["vlm_mode"] != "remote"
 
 
+def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[str]] | None:
+    """If the skill's `eval/<profile>.json` declares `resources.platforms`,
+    return {platform: [modes...]}. Else return None (adapter falls back to
+    PLATFORMS defaults below). Gives the spec author control over which
+    platforms/modes to exercise — e.g. `alerts_cv` only on 2-GPU hosts."""
+    if skill_dir is None:
+        return None
+    spec_path = skill_dir / "eval" / f"{profile}.json"
+    if not spec_path.exists():
+        return None
+    try:
+        spec = json.loads(spec_path.read_text())
+    except Exception:
+        return None
+    resources = (spec.get("resources") or {}).get("platforms")
+    if not isinstance(resources, dict) or not resources:
+        return None
+    return {p: list((v or {}).get("modes") or []) for p, v in resources.items()}
+
+
 def expand_matrix(
     profile_filter: str | None,
     platform_filter: str | None,
@@ -625,23 +648,43 @@ def expand_matrix(
     have_llm_remote: bool,
     have_vlm_remote: bool,
     have_ngc_key: bool,
+    skill_dir: Path | None = None,
 ) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
     """Return (included, skipped) where:
         included = list of (profile, platform, mode) that will be generated
         skipped  = list of (profile, platform, mode, reason)
-    Filters applied: --profile/--platform/--mode + per-platform supported_modes
-    + remote URL availability for modes that need them
-    + NGC_CLI_API_KEY availability for modes that pull local NIMs."""
+    For each profile, the platform × mode matrix comes from:
+      - `spec.resources.platforms` if declared in `skills/deploy/eval/<profile>.json`
+      - otherwise falls back to the full PLATFORMS × supported_modes defaults
+    Also filters: --profile/--platform/--mode CLI, remote URL availability for
+    modes that need them, and NGC_CLI_API_KEY for modes that pull local NIMs."""
     included: list[tuple[str, str, str]] = []
     skipped: list[tuple[str, str, str, str]] = []
     for profile in PROFILES:
         if profile_filter and profile != profile_filter:
             continue
-        for platform, pspec in PLATFORMS.items():
+
+        # Prefer the spec's own declaration; fall back to the adapter defaults.
+        spec_matrix = _spec_platforms_for(profile, skill_dir)
+        if spec_matrix is not None:
+            platform_modes = spec_matrix
+        else:
+            platform_modes = {
+                p: list(pspec["supported_modes"])
+                for p, pspec in PLATFORMS.items()
+            }
+
+        for platform, modes in platform_modes.items():
             if platform_filter and platform != platform_filter:
                 continue
-            for mode in pspec["supported_modes"]:
+            if platform not in PLATFORMS:
+                skipped.append((profile, platform, "-", f"unknown platform {platform!r}"))
+                continue
+            for mode in modes:
                 if mode_filter and mode != mode_filter:
+                    continue
+                if mode not in MODES:
+                    skipped.append((profile, platform, mode, f"unknown mode {mode!r}"))
                     continue
                 mspec = MODES[mode]
                 reason = None
@@ -756,6 +799,7 @@ def main() -> None:
         have_llm_remote=llm_remote is not None,
         have_vlm_remote=vlm_remote is not None,
         have_ngc_key=have_ngc_key,
+        skill_dir=skill_dir,
     )
 
     # --- Print skip decisions ---
