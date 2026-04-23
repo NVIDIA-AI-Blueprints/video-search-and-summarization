@@ -301,7 +301,30 @@ Note: `startTime` in the response reflects the actual segment boundary, which ma
 | `disableAudio` | No | Always pass `true` — VIOS does not support audio for files with B-frames; disabled by default to avoid failures |
 | `transcode` | No | `none` (default, fastest) or `full` (re-encode) |
 | `fullLength` | No | boolean; if true, snaps to full segment boundaries |
+| `blocking` | No | `true` waits until the rendered file is ready before returning the URL (useful with `configuration` overlays) |
+| `configuration` | No | URL-encoded JSON; enables server-side overlays (see below) |
 | `expiryMinutes` | No (URL only) | minutes until URL expires, default 10080 (7 days) |
+
+**Clip with bounding-box overlays** — pass a `configuration` JSON blob (nested under an `overlay` key) to have VST bake bboxes and object-ID labels into the returned video. Useful for disambiguating candidate objects visually.
+
+```bash
+curl -sG "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<streamId>/url" \
+  --data-urlencode 'startTime=<startTime>' \
+  --data-urlencode 'endTime=<endTime>' \
+  --data-urlencode 'blocking=true' \
+  --data-urlencode 'disableAudio=true' \
+  --data-urlencode 'configuration={"overlay":{"bbox":{"showAll":false,"objectId":[38,97,41],"showObjId":true,"objIdTextColor":"white","objIdTextBGColor":"red"},"color":"red","thickness":6}}' \
+  | python3 -m json.tool
+```
+
+Fields (all nested under `overlay`):
+- `bbox.showAll` — `true` = all tracked objects, `false` = only `objectId` list
+- `bbox.objectId` — integer ids from `mdx-raw-*` / `mdx-behavior-*` or search results
+- `bbox.showObjId` — label each bbox with its object ID
+- `bbox.classType` (optional) — class allowlist, e.g. `["Person"]`
+- `color`, `thickness` — bbox style
+
+The same schema also works on `/live/stream/<id>/picture?configuration=...` and `/replay/stream/<id>/picture?configuration=...` for single-frame thumbnails with overlays.
 
 ---
 
