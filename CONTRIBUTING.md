@@ -25,7 +25,7 @@ This project uses a dual-license model:
 - **Apache-2.0** — applies to all code in the repository except the `services/ui/` directory.
 - **MIT** — applies to the original code under the `services/ui/` directory, which is derived from [NVIDIA NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI/).
 
-**All contributions to this repository, regardless of which directory they target, are accepted under the Apache-2.0 license.** Even if you are contributing changes to the `services/ui/` directory, your contribution will be licensed under Apache-2.0. The original `ui/` code retains its MIT license, but any additions or modifications contributed through this repository are Apache-2.0.
+**All contributions to this repository, regardless of which directory they target, are accepted under the Apache-2.0 license.** Even if you are contributing changes to the `services/ui/` directory, your contribution will be licensed under Apache-2.0. The original `services/ui/` code retains its MIT license, but any additions or modifications contributed through this repository are Apache-2.0.
 
 See the [LICENSE](LICENSE) file for the full license texts.
 
