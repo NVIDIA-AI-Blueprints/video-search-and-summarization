@@ -732,15 +732,30 @@ decides when the queue is drained.
 
 ## 7. Results workflow
 
+**Comments carry results, not plans.** Never post a PR comment at
+queue-dispatch time, on a mirror re-sync, or to announce "I'm queueing
+N trials now". Coordinator comments are a **results artifact** — one
+per `(pr_number, eval_spec)` batch, posted only when every task in
+that batch has a result entry. Plan announcements, "v5 refresh"
+preambles, and "here's the plan" messages clutter the PR and waste
+contributor-notification budget.
+
+The only non-results comment the coordinator is allowed to post is a
+**blocker notice** (`missing_probe`, `env_blocker`, spec-requires-
+coordinator-action) where the PR cannot be dispatched at all and the
+skill author needs to act — those go up immediately because they're
+actionable requests, not status narration.
+
 The results monitor watches the four queue JSONs for growth in `results[]`.
 When a new result appears:
 
 1. Cross-reference the result `id` with `_prs_seen.json` to find the PR and
    eval-spec batch it belongs to.
 2. Append a per-task line to the PR's pending comment draft.
-3. If this result completes the batch (all tasks in
-   `_prs_seen.json[<pr>].batches[<spec>]` have results), finalize the comment
-   and post it.
+3. **Only when every task in `_prs_seen.json[<pr>].batches[<spec>]` has a
+   matching `results[]` entry** (across all dispatched platforms), finalize
+   the comment and post it via `gh pr comment <N> --body-file …`. Until
+   that moment, hold the draft in state — never publish a partial.
 
 ### Result comment format
 
