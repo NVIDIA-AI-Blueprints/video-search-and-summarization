@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy, debug, or tear down any VSS profile using the compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken". Works via orchestrator-mcp tools (OpenClaw sandbox) or direct docker compose (Claude Code on host).
+description: Deploy, debug, or tear down any VSS profile using a compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken".
 metadata:
   { "openclaw": { "os": ["linux"] } }
 ---
@@ -34,21 +34,9 @@ when memory allows.
 - Tear down a running deployment
 - **Debug or verify** an existing deployment (see [Debugging a Deployment](#debugging-a-deployment))
 
-## Execution Modes
+## How it works
 
-The workflow is identical — only the transport differs.
-
-**MCP mode** (OpenClaw in sandbox) — call orchestrator-mcp tools via JSON-RPC on port 8090:
-
-```
-deploy/prereqs  → check system readiness
-deploy/config   → generate env + resolved compose (dry-run)
-deploy/compose-read  → review resolved compose
-deploy/compose-edit  → modify before deploying
-deploy/up       → start containers
-```
-
-**Direct mode** (Claude Code on host) — run docker compose commands directly:
+Run docker compose commands directly on the host:
 
 ```bash
 # 1. Apply env overrides to the profile .env file
@@ -57,13 +45,11 @@ deploy/up       → start containers
 # 4. docker compose -f resolved.yml up -d
 ```
 
-Use MCP mode inside an OpenClaw/NemoClaw sandbox. Use Direct mode as Claude Code on the host.
-
 ## Before Deploying
 
 1. **Repo path** — find `video-search-and-summarization/` on disk. Check `TOOLS.md` if available.
 2. **NGC CLI & API key** — see [`references/ngc.md`](references/ngc.md). Check `$NGC_CLI_API_KEY` is set.
-3. **System prerequisites** — see [`references/prerequisites.md`](references/prerequisites.md) for GPU, Docker, NVIDIA Container Toolkit.
+3. **System prerequisites (GPU VRAM, driver, Docker, NVIDIA Container Toolkit)** — canonical reference is the [**VSS prerequisites page**](https://docs.nvidia.com/vss/3.1.0/prerequisites.html). That page lists supported hardware, per-profile GPU requirements, and the minimum driver/CUDA version per NIM. Read it and pick the LLM/VLM placement that fits the host — don't guess thresholds from this skill.
 
 ### Pre-flight Check
 
@@ -88,12 +74,16 @@ Always follow this sequence. Never skip the dry-run.
 
 ### Step 1 — Gather context
 
+Discover what's available on the host and cross-reference with the
+[VSS prerequisites page](https://docs.nvidia.com/vss/3.1.0/prerequisites.html)
+to choose a deployment shape that fits.
+
 | Value | How to determine |
 |---|---|
 | **Profile** | Match user intent to routing table above. Default: `base` |
 | **Repo path** | Find `video-search-and-summarization/` on disk |
-| **Hardware** | `nvidia-smi --query-gpu=name --format=csv,noheader` → map to profile |
-| **LLM/VLM mode** | `local_shared` (default), `local` (dedicated GPUs), or `remote` |
+| **Hardware** | `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` → look up per-GPU VRAM against the prerequisites page |
+| **LLM/VLM placement** | Pick `local_shared`, `local`, or `remote` per LLM/VLM based on available GPUs + `$LLM_REMOTE_URL` / `$VLM_REMOTE_URL` / `$NGC_CLI_API_KEY`. If no combination on this host satisfies the prerequisites, stop and report the blocker instead of silently picking another shape. |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
 | **Host IP** | `hostname -I \| awk '{print $1}'` |
 
@@ -289,12 +279,6 @@ See the profile reference doc for full env override recipes.
 > against the base `.env` after the fact. The base `.env` is the source
 > of truth.
 
-**MCP mode:**
-```
-deploy/config(profile=<profile>, env_overrides={...})
-```
-
-**Direct mode:**
 ```bash
 REPO=/path/to/video-search-and-summarization
 PROFILE=base
@@ -326,12 +310,6 @@ Do NOT proceed without user confirmation.
 
 ### Step 5 — Deploy
 
-**MCP mode:**
-```
-deploy/up()
-```
-
-**Direct mode:**
 ```bash
 cd $REPO/deployments
 docker compose -f resolved.yml up -d
@@ -373,12 +351,6 @@ Use workflow skills after deployment:
 
 ## Tear Down
 
-**MCP mode:**
-```
-deploy/down()
-```
-
-**Direct mode:**
 ```bash
 cd $REPO/deployments
 docker compose -f resolved.yml down
@@ -423,5 +395,5 @@ tripped.
 - `unknown or invalid runtime name: nvidia` → NVIDIA Container Toolkit not installed or Docker not restarted. See [`references/prerequisites.md`](references/prerequisites.md).
 - NGC auth error → re-export `NGC_CLI_API_KEY` or follow [`references/ngc.md`](references/ngc.md).
 - GPU not detected → run `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then retry.
-- `deploy/up` fails with "no resolved compose" → must run `deploy/config` (Step 3) first.
+- `docker compose up` fails with "no resolved.yml" → run the dry-run (`docker compose config > resolved.yml`, Step 3) first.
 - cosmos-reason2-8b crash → must redeploy the full stack (known issue: NIM cannot restart alone).

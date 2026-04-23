@@ -272,29 +272,30 @@ def _describe_model(role: str, mode: str, remote: dict | None,
     return f"- {role}: mode `{mode}`"
 
 
-def _hw_hint(mode_spec: dict, platform: str) -> str:
-    """Describe the target LLM/VLM placement in natural hardware terms.
+def _query_hint(mode_spec: dict, llm_remote: dict | None,
+                vlm_remote: dict | None) -> str:
+    """One-line English suffix describing the eval target for this mode.
 
-    The goal: tell the agent *what hardware shape* to aim for (1 local GPU,
-    2 local GPUs, remote endpoints, …), not *which mode name* to pass. The
-    deploy skill reads the hint plus the live `nvidia-smi` + available env
-    vars and picks the actual `LLM_MODE` / `VLM_MODE` combination that fits.
-    If the combination is infeasible (e.g. LLM+VLM don't fit on a single
-    L40S 48GB GPU), the skill stops and reports the blocker.
-    """
-    llm = mode_spec["llm_mode"]       # "remote" | "local" | "local_shared"
+    Intentionally minimal — no feasibility advice, no GPU counts, no mode
+    names. The `/deploy` skill reads the host's real hardware + env vars and
+    decides the actual compose configuration. See `skills/deploy/SKILL.md`
+    and the VSS prerequisites page for the decision table."""
+    llm = mode_spec["llm_mode"]
     vlm = mode_spec["vlm_mode"]
+    llm_url = (llm_remote or {}).get("url") or "$LLM_REMOTE_URL"
+    vlm_url = (vlm_remote or {}).get("url") or "$VLM_REMOTE_URL"
+
     if llm == "remote" and vlm == "remote":
-        return f"using remote endpoints for both LLM and VLM (no local GPU for inference)"
-    if llm == "remote" and vlm != "remote":
-        return f"with the LLM served remotely, and the VLM running locally on one {platform} GPU"
-    if llm != "remote" and vlm == "remote":
-        return f"with the VLM served remotely, and the LLM running locally on one {platform} GPU"
+        return f"with a remote LLM at {llm_url} and a remote VLM at {vlm_url}"
+    if llm == "remote":
+        return f"with a remote LLM at {llm_url}"
+    if vlm == "remote":
+        return f"with a remote VLM at {vlm_url}"
     if llm == "local_shared" and vlm == "local_shared":
-        return f"with the LLM and VLM **sharing one {platform} GPU** (single-GPU local inference)"
+        return "on a single GPU"
     if llm == "local" and vlm == "local":
-        return f"with the LLM and VLM **on two separate {platform} GPUs** (dedicated layout)"
-    return f"with LLM={llm}, VLM={vlm} on {platform}"
+        return "on dedicated GPUs"
+    return ""
 
 
 def generate_instruction(
@@ -304,56 +305,39 @@ def generate_instruction(
     llm_remote: dict | None,
     vlm_remote: dict | None,
 ) -> str:
-    """High-level goal + hardware shape. Agent uses /deploy skill for the workflow.
+    """Short, query-style instruction. The agent + `/deploy` skill pick
+    the right compose configuration from the available hardware and env.
 
-    The instruction is deliberately hardware-centric — no mode names, no
-    env-var values. It tells the agent **what the target looks like** (e.g.
-    "deploy base with LLM and VLM sharing one H100 GPU"). The /deploy skill
-    picks the mode, validates feasibility, and reports back if the hardware
-    can't support the target.
+    Shape: "Deploy the <profile> profile <hint>."  No step-by-step recipe,
+    no feasibility rules — the skill owns that decision (SKILL.md cites the
+    VSS prerequisites doc). If the host can't support the target, the
+    skill reports the blocker.
     """
     profile_def = PROFILES[profile]
     is_debug = bool(profile_def.get("debug"))
     underlying = deploy_profile(profile)
     deploy_flag_m = profile_def.get("deploy_mode")
     mode_spec = effective_mode_spec(platform, mode)
-    hw_hint = _hw_hint(mode_spec, platform)
+    hint = _query_hint(mode_spec, llm_remote, vlm_remote)
 
-    header = (
-        f"Deploy the VSS **{underlying}** profile on this machine "
-        + (f"in **{deploy_flag_m}** mode " if deploy_flag_m else "")
-        + f"{hw_hint}."
-    )
+    verb_phrase = f"Deploy the **{underlying}** profile"
+    if deploy_flag_m:
+        verb_phrase += f" in **{deploy_flag_m}** mode"
+    if hint:
+        verb_phrase += f" {hint}"
+    verb_phrase += "."
 
     body = [
-        header,
+        verb_phrase,
         "",
-        "Use the `/deploy` skill. It should:",
-        "",
-        "1. Discover what's available on the host (GPU count + VRAM via "
-        "`nvidia-smi`, remote endpoints via `$LLM_REMOTE_URL` / "
-        "`$VLM_REMOTE_URL`, credentials via `$NGC_CLI_API_KEY`).",
-        "2. Pick the `LLM_MODE` / `VLM_MODE` combination that matches the "
-        "target shape above. If the target isn't feasible on this hardware "
-        "(e.g. LLM + VLM can't fit on one L40S 48GB GPU locally), **stop "
-        "and report the blocker** — don't silently deploy something else.",
-        "3. Run end-to-end autonomously: prerequisites, env setup, compose "
-        "config dry-run, compose up, wait for health.",
-        "",
-        "## Repository",
-        "",
-        f"If the VSS repo isn't already present, clone it: "
-        f"`{VSS_REPO_URL}` (branch `{VSS_BRANCH}`).",
-        "",
-        "Do NOT prompt for confirmation.",
-        "",
+        "Use the `/deploy` skill.",
     ]
-
     if is_debug:
-        body.insert(2, "After deploy, also run the skill's debug workflow to "
-                       "verify the full video path end-to-end.\n")
-
-    return "\n".join(body)
+        body.append(
+            "After the stack is up, also run the skill's debug workflow "
+            "to verify the video path end-to-end."
+        )
+    return "\n".join(body) + "\n"
 
 
 # ---------------------------------------------------------------------------
