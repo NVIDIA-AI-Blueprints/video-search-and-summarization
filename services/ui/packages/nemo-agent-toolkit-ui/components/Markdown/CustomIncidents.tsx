@@ -9,8 +9,7 @@
 
 import React, { memo, useState, useMemo } from 'react';
 import { IconChevronDown, IconChevronUp, IconPlayerPlay, IconCopy } from '@tabler/icons-react';
-import { VideoModal } from './VideoModal';
-import { copyToClipboard } from '../../utils/shared/clipboard';
+import { VideoModal, copyToClipboard, formatTimestamp } from '@aiqtoolkit-ui/common';
 
 // Constants
 const INITIAL_VISIBLE_COUNT = 3;
@@ -52,23 +51,6 @@ interface CustomIncidentsProps {
   payload?: IncidentsData;
   [key: string]: any;
 }
-
-const formatTimestamp = (timestamp: string): string => {
-  try {
-    const date = new Date(timestamp);
-    return date.toLocaleString('en-US', {
-      month: '2-digit',
-      day: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-    });
-  } catch {
-    return timestamp;
-  }
-};
 
 export const CustomIncidents = memo<CustomIncidentsProps>(
   ({ payload, ...props }) => {
@@ -183,7 +165,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
           const timestamp = formatTimestamp(incident['Clip Information'].Timestamp);
 
           return (
-            <div key={index} className="rounded-lg overflow-hidden bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all hover:shadow-md border border-gray-200 dark:border-gray-600">
+            <div key={index} className="rounded-lg overflow-hidden bg-white dark:bg-black hover:bg-gray-50 dark:hover:bg-neutral-800 transition-all hover:shadow-md border border-gray-200 dark:border-gray-600">
               {/* Alert Header */}
               <div 
                 className="flex items-center justify-between p-2 cursor-pointer transition-colors"
@@ -201,7 +183,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
                 </div>
                 <div className="flex items-center space-x-2">
                   <button 
-                    className="flex items-center justify-center w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors group border border-gray-200 dark:border-gray-500"
+                    className="flex items-center justify-center w-8 h-8 bg-gray-100 dark:bg-gray-900 rounded-md hover:bg-gray-200 dark:hover:bg-neutral-800 transition-colors group border border-gray-200 dark:border-gray-500"
                     onClick={(e) => {
                       e.stopPropagation();
                       const videoUrl = incident['Clip Information'].video_url;
@@ -218,10 +200,10 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
 
               {/* Expanded Content */}
               {isExpanded && (
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg ml-8 mb-3 mr-3 border border-gray-200 dark:border-gray-600">
+                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg ml-8 mb-3 mr-3 border border-gray-200 dark:border-gray-600">
                   {/* Clip Information */}
                   <div 
-                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors rounded-t-lg"
+                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors rounded-t-lg"
                     onClick={(e) => {
                       e.preventDefault();
                       toggleClipInfo(index);
@@ -241,7 +223,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          copyToClipboard(incident['Clip Information']);
+                          copyToClipboard(JSON.stringify(incident['Clip Information'], null, 2));
                         }}
                         title="Copy Clip Information JSON"
                       >
@@ -251,7 +233,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
                   </div>
                   {isClipInfoExpanded && (
                     <div className="px-4 pb-4 pt-2">
-                      <div className="bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-100 p-4 rounded-md font-mono text-xs whitespace-pre-wrap">
+                      <div className="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100 p-4 rounded-md font-mono text-xs whitespace-pre-wrap">
                         {JSON.stringify(incident['Clip Information'], null, 2)}
                       </div>
                     </div>
@@ -259,7 +241,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
 
                   {/* Alert Details */}
                   <div 
-                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors rounded-t-lg"
+                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors rounded-t-lg"
                     onClick={(e) => {
                       e.preventDefault();
                       toggleAlertDetails(index);
@@ -279,7 +261,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          copyToClipboard(incident['Alert Details']);
+                          copyToClipboard(JSON.stringify(incident['Alert Details'], null, 2));
                         }}
                         title="Copy Alert Details JSON"
                       >
@@ -289,7 +271,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
                   </div>
                   {isAlertDetailsExpanded && (
                     <div className="px-4 pb-4 pt-2">
-                      <div className="bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-100 p-4 rounded-md font-mono text-xs whitespace-pre-wrap">
+                      <div className="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100 p-4 rounded-md font-mono text-xs whitespace-pre-wrap">
                         {JSON.stringify(incident['Alert Details'], null, 2)}
                       </div>
                     </div>
@@ -306,7 +288,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
             {hasMoreItems && (
               <button 
                 onClick={handleViewMore}
-                className="px-6 py-3 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-lg border border-gray-300 dark:border-gray-600 transition-all hover:shadow-md font-medium"
+                className="px-6 py-3 bg-white dark:bg-black hover:bg-gray-50 dark:hover:bg-neutral-800 text-gray-800 dark:text-gray-100 rounded-lg border border-gray-300 dark:border-gray-600 transition-all hover:shadow-md font-medium"
               >
                 Show more ({incidents.length - visibleCount} more)
               </button>
@@ -314,7 +296,7 @@ export const CustomIncidents = memo<CustomIncidentsProps>(
             {canShowLess && (
               <button 
                 onClick={handleViewLess}
-                className="px-6 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-300 dark:border-gray-600 transition-all hover:shadow-md font-medium"
+                className="px-6 py-3 bg-gray-100 dark:bg-gray-900 hover:bg-gray-200 dark:hover:bg-neutral-800 text-gray-700 dark:text-gray-200 rounded-lg border border-gray-300 dark:border-gray-600 transition-all hover:shadow-md font-medium"
               >
                 Show less
               </button>

@@ -9,6 +9,10 @@ const nextConfig = {
     // !! WARN !!
     ignoreBuildErrors: true,
   },
+  // Run `npm run lint` in CI or locally; ESLint debt should not block `next build`.
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: '5mb',

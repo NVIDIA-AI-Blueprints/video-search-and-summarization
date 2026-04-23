@@ -30,6 +30,8 @@ export interface AlertsSidebarControlHandlers {
   timeWindow: number;
   autoRefreshEnabled: boolean;
   autoRefreshInterval: number;
+  /** When true, manual refresh and auto-refresh UI should be disabled (e.g. table on page 2+). */
+  refreshControlsSuspended: boolean;
   onVlmVerifiedChange: (value: boolean) => void;
   onTimeWindowChange: (value: number) => void;
   onRefresh: () => void;
@@ -52,6 +54,8 @@ export interface AlertsComponentProps {
     defaultAutoRefreshInterval?: number; // in milliseconds
     defaultVlmVerified?: boolean;
     maxResults?: number;
+    /** Rows per page for the alerts table (client-side pagination). Default 100 from server when unset. */
+    pageSize?: number;
     alertReportPromptTemplate?: string;
     maxSearchTimeLimit?: string; // Format: "0" (unlimited), "10m", "2h", "3d", "1w", "2M", "1y"
     mediaWithObjectsBbox?: boolean; // Enable overlay bounding boxes on thumbnails and videos
@@ -60,15 +64,11 @@ export interface AlertsComponentProps {
   // External controls rendering
   renderControlsInLeftSidebar?: boolean; // Default: false - set true to render controls in external left sidebar
   onControlsReady?: (handlers: AlertsSidebarControlHandlers) => void; // Callback to provide control handlers externally
-}
-
-/**
- * State interface for video modal functionality
- */
-export interface VideoModalState {
-  isOpen: boolean;
-  videoUrl: string;
-  title: string;
+  submitChatMessage?: (message: string) => void;
+  registerChatAnswerHandler?: (handler: (answer: string) => boolean | void) => void | (() => void);
+  registerSidebarChatEventSubscriber?: (
+    handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
+  ) => void | (() => void);
 }
 
 /**

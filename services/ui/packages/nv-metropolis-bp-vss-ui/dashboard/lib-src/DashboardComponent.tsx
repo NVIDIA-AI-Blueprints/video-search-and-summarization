@@ -16,6 +16,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Button, Select } from '@nvidia/foundations-react-core';
 import { DashboardSidebarControls } from './components/DashboardSidebarControls';
 
 export interface SavedDashboard {
@@ -47,6 +48,10 @@ export interface DashboardComponentProps {
   onControlsReady?: (handlers: DashboardSidebarControlHandlers) => void;
   // Visibility control for lazy loading iframes
   isActive?: boolean;
+  registerChatAnswerHandler?: (handler: (answer: string) => boolean | void) => void | (() => void);
+  registerSidebarChatEventSubscriber?: (
+    handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
+  ) => void | (() => void);
 }
 
 export const DashboardComponent: React.FC<DashboardComponentProps> = ({ 
@@ -57,6 +62,8 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
   renderControlsInLeftSidebar = false,
   onControlsReady,
   isActive = true,
+  registerChatAnswerHandler,
+  registerSidebarChatEventSubscriber,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -138,8 +145,28 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onControlsReady, renderControlsInLeftSidebar]);
 
+  const handleDashboardChatAnswer = useCallback((_answer: string) => {
+    return false;
+  }, []);
+
+  const handleSidebarChatEvent = useCallback(
+    (_event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => {},
+    [],
+  );
+
+  React.useEffect(() => {
+    if (!registerChatAnswerHandler) return;
+    return registerChatAnswerHandler(handleDashboardChatAnswer);
+  }, [registerChatAnswerHandler, handleDashboardChatAnswer]);
+
+  React.useEffect(() => {
+    if (!registerSidebarChatEventSubscriber) return;
+    const unsubscribe = registerSidebarChatEventSubscriber(handleSidebarChatEvent);
+    return typeof unsubscribe === 'function' ? unsubscribe : undefined;
+  }, [registerSidebarChatEventSubscriber, handleSidebarChatEvent]);
+
   // Theme colors
-  const bgColor = theme === 'dark' ? 'bg-[#1a1a1a]' : 'bg-white';
+  const bgColor = theme === 'dark' ? 'bg-black' : 'bg-white';
   const textColor = theme === 'dark' ? 'text-gray-200' : 'text-gray-800';
 
   // Sanitize URL by removing quotes and validating format
@@ -147,7 +174,7 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
     if (!url) return null;
     
     // Remove leading/trailing quotes and whitespace
-    let sanitized = url.trim().replace(/^["']|["']$/g, '');
+    let sanitized = url.trim().replaceAll(/^["']|["']$/g, '');
     
     // Validate URL format
     try {
@@ -170,13 +197,6 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
   const handleIframeError = () => {
     setError('Failed to load dashboard. Please check the URL and network connection.');
     setIsLoading(false);
-  };
-
-  const handleDashboardChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newDashboardId = event.target.value;
-    setSelectedDashboardId(newDashboardId);
-    setIsLoading(true);
-    setError(null);
   };
 
   useEffect(() => {
@@ -217,29 +237,27 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
       {dashboards.length > 1 && (
         <div className={`w-full px-4 py-3 border-b flex items-center gap-3 shrink-0 ${
           theme === 'dark' 
-            ? 'bg-[#252525] border-gray-700' 
+            ? 'bg-black border-gray-700' 
             : 'bg-gray-50 border-gray-200'
         }`}>
-          <label className={`text-sm font-medium ${
+          <label htmlFor="dashboard-selector" className={`text-sm font-medium ${
             theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
           }`}>
             Dashboard
           </label>
-          <select
+          <Select
+            id="dashboard-selector"
             value={selectedDashboardId || ''}
-            onChange={handleDashboardChange}
-            className={`px-3 py-1.5 rounded-md border text-sm transition-colors cursor-pointer min-w-[240px] ${
-              theme === 'dark'
-                ? 'bg-gray-800 border-gray-600 text-gray-200 hover:border-gray-500 focus:border-blue-500'
-                : 'bg-white border-gray-300 text-gray-800 hover:border-gray-400 focus:border-blue-500'
-            } focus:outline-none focus:ring-2 focus:ring-blue-500/20`}
-          >
-            {dashboards.map((dashboard) => (
-              <option key={dashboard.id} value={dashboard.id}>
-                {dashboard.attributes.title}
-              </option>
-            ))}
-          </select>
+            onValueChange={(val: string) => {
+              setSelectedDashboardId(val);
+              setIsLoading(true);
+              setError(null);
+            }}
+            items={dashboards.map((dashboard) => ({
+              value: dashboard.id,
+              children: dashboard.attributes.title,
+            }))}
+          />
         </div>
       )}
 
@@ -249,7 +267,7 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
         {isLoading && (
           <div className={`absolute inset-0 flex items-center justify-center ${bgColor}`} style={{ zIndex: 10 }}>
             <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
               <p className={`mt-4 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
                 Loading dashboard...
               </p>
@@ -270,20 +288,16 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
                   {error}
                 </p>
               </div>
-              <button
+              <Button
+                kind="primary"
                 onClick={() => {
                   setError(null);
                   setIsLoading(true);
-                  setIframeKey(prev => prev + 1); // Force iframe to reload
+                  setIframeKey(prev => prev + 1);
                 }}
-                className={`px-4 py-2 rounded-lg transition-colors ${
-                  theme === 'dark'
-                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                    : 'bg-blue-500 hover:bg-blue-600 text-white'
-                }`}
               >
                 Retry
-              </button>
+              </Button>
             </div>
           </div>
         )}

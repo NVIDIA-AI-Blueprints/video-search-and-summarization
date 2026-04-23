@@ -45,11 +45,11 @@ export const Image = memo(
     // Early return for loading state
     if (src === 'loading') {
       return (
-        <div className="flex items-center justify-center p-8 bg-slate-50 rounded-lg border border-slate-200 min-h-[200px]">
+        <div className="flex items-center justify-center p-8 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600 min-h-[200px]">
           <div className="text-center">
             <svg
               aria-hidden="true"
-              className="w-10 h-10 text-gray-200 animate-spin fill-green-500 mx-auto"
+              className="w-10 h-10 text-gray-200 dark:text-gray-600 animate-spin fill-green-500 mx-auto"
               viewBox="0 0 100 101"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
@@ -63,7 +63,7 @@ export const Image = memo(
                 fill="currentFill"
               />
             </svg>
-            <p className="mt-3 text-sm text-gray-600">Loading...</p>
+            <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">Loading...</p>
           </div>
         </div>
       );
@@ -72,9 +72,9 @@ export const Image = memo(
     return (
       <span className="relative block my-4">
         {error ? (
-          <span className="inline-flex items-center justify-center p-4 bg-slate-50 rounded-lg border border-slate-200">
+          <span className="inline-flex items-center justify-center p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600">
             <IconExclamationCircle className="w-5 h-5 text-red-500 mr-2" />
-            <span className="text-red-600 text-sm">
+            <span className="text-red-600 dark:text-red-400 text-sm">
               Failed to load image with src:{' '}
               {src.slice(0, 50) + (src.length > 50 ? '...' : '')}
             </span>
@@ -91,7 +91,7 @@ export const Image = memo(
               onLoad={handleImageLoad}
               loading="eager"  // Changed from lazy - lazy + hidden causes loading issues
               decoding="async"
-              className="object-cover rounded-lg border border-slate-100 shadow-xs cursor-pointer"
+              className="object-cover rounded-lg border border-slate-100 dark:border-slate-600 shadow-xs cursor-pointer"
               onClick={toggleFullscreen}
               style={{ 
                 maxWidth: '100%', 
@@ -107,11 +107,11 @@ export const Image = memo(
             />
             {/* Loading indicator while image loads - shown behind/instead of image */}
             {!isLoaded && !error && (
-              <div className="flex items-center justify-center p-8 bg-slate-50 rounded-lg border border-slate-200 min-h-[200px]">
+              <div className="flex items-center justify-center p-8 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600 min-h-[200px]">
                 <div className="text-center">
                   <svg
                     aria-hidden="true"
-                    className="w-10 h-10 text-gray-200 animate-spin fill-green-500 mx-auto"
+                    className="w-10 h-10 text-gray-200 dark:text-gray-600 animate-spin fill-green-500 mx-auto"
                     viewBox="0 0 100 101"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
@@ -125,7 +125,7 @@ export const Image = memo(
                       fill="currentFill"
                     />
                   </svg>
-                  <p className="mt-3 text-sm text-gray-600">Loading image...</p>
+                  <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">Loading image...</p>
                 </div>
               </div>
             )}

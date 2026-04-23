@@ -8,18 +8,19 @@
  * 
  */
 
-import React, { useState, useEffect } from 'react';
-import { VideoModal } from '@nemo-agent-toolkit/ui';
+import React, { useEffect } from 'react';
+import { VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
 
 // Types
-import { AlertsComponentProps, FilterType, FilterState, VlmVerdict, VLM_VERDICT } from './types';
+import { AlertsComponentProps, FilterType, VlmVerdict, VLM_VERDICT, isValidVlmVerdict } from './types';
 
 // Hooks
 import { useAlerts } from './hooks/useAlerts';
-import { useFilters, createEmptyFilterState } from './hooks/useFilters';
-import { useVideoModal } from './hooks/useVideoModal';
+import { useFilters } from './hooks/useFilters';
 import { useTimeWindow } from './hooks/useTimeWindow';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
+import { useSessionState, parseIntRange } from './hooks/useSessionState';
+import { useSessionFilterState } from './hooks/useSessionFilterState';
 
 // Components
 import { FilterTag } from './components/FilterTag';
@@ -32,8 +33,8 @@ import { AlertsSidebarControls } from './components/AlertsSidebarControls';
  */
 const FILTER_COLORS = {
   sensors: {
-    dark: { bg: 'bg-transparent', border: 'border border-cyan-500', text: 'text-cyan-400', hover: 'hover:text-cyan-300' },
-    light: { bg: 'bg-blue-100', border: 'border border-blue-300', text: 'text-blue-700', hover: 'hover:text-blue-900' }
+    dark: { bg: 'bg-transparent', border: 'border border-green-500', text: 'text-green-400', hover: 'hover:text-green-300' },
+    light: { bg: 'bg-green-100', border: 'border border-green-300', text: 'text-green-700', hover: 'hover:text-green-900' }
   },
   alertTypes: {
     dark: { bg: 'bg-transparent', border: 'border border-orange-500', text: 'text-orange-400', hover: 'hover:text-orange-300' },
@@ -49,6 +50,8 @@ const getFilterColors = (type: FilterType, isDark: boolean) => {
   return FILTER_COLORS[type][isDark ? 'dark' : 'light'];
 };
 
+const FILTERS_STORAGE_KEY = 'alertsTabActiveFilters';
+
 export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   theme = 'light',
   onThemeChange,
@@ -60,82 +63,19 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
 }) => {
   const isDark = theme === 'dark';
   
-  // VLM Verified state - persist in sessionStorage
-  const [vlmVerified, setVlmVerified] = useState<boolean>(() => {
-    // Try to load from sessionStorage first, fallback to default
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = sessionStorage.getItem('alertsTabVlmVerified');
-        if (stored !== null) {
-          return JSON.parse(stored);
-        }
-      } catch (error) {
-        console.warn('Failed to load vlmVerified from sessionStorage:', error);
-      }
-    }
-    return alertsData?.defaultVlmVerified ?? true;
-  });
-
-  // Save vlmVerified to sessionStorage whenever it changes
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        sessionStorage.setItem('alertsTabVlmVerified', JSON.stringify(vlmVerified));
-      } catch (error) {
-        console.warn('Failed to save vlmVerified to sessionStorage:', error);
-      }
-    }
-  }, [vlmVerified]);
-
-  // VLM Verdict state - persist in sessionStorage
-  const [vlmVerdict, setVlmVerdict] = useState<VlmVerdict>(() => {
-    // Try to load from sessionStorage first, fallback to default
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = sessionStorage.getItem('alertsTabVlmVerdict');
-        if (stored !== null) {
-          return stored as VlmVerdict;
-        }
-      } catch (error) {
-        console.warn('Failed to load vlmVerdict from sessionStorage:', error);
-      }
-    }
-    return VLM_VERDICT.ALL;
-  });
-
-  // Save vlmVerdict to sessionStorage whenever it changes
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        sessionStorage.setItem('alertsTabVlmVerdict', vlmVerdict);
-      } catch (error) {
-        console.warn('Failed to save vlmVerdict to sessionStorage:', error);
-      }
-    }
-  }, [vlmVerdict]);
-
-  // Time format (UTC vs Local) - persist in sessionStorage
-  const [timeFormat, setTimeFormat] = useState<'local' | 'utc'>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = sessionStorage.getItem('alertsTabTimeFormat');
-        if (stored === 'utc' || stored === 'local') return stored;
-      } catch (error) {
-        console.warn('Failed to load timeFormat from sessionStorage:', error);
-      }
-    }
-    return 'local';
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        sessionStorage.setItem('alertsTabTimeFormat', timeFormat);
-      } catch (error) {
-        console.warn('Failed to save timeFormat to sessionStorage:', error);
-      }
-    }
-  }, [timeFormat]);
+  // Session-persisted UI states (reads from sessionStorage in useState initializer)
+  const [vlmVerified, setVlmVerified] = useSessionState<boolean>(
+    'alertsTabVlmVerified', alertsData?.defaultVlmVerified ?? true,
+    (s) => s === 'true' ? true : s === 'false' ? false : null,
+  );
+  const [vlmVerdict, setVlmVerdict] = useSessionState<VlmVerdict>(
+    'alertsTabVlmVerdict', VLM_VERDICT.ALL,
+    (s) => isValidVlmVerdict(s) ? s : null,
+  );
+  const [timeFormat, setTimeFormat] = useSessionState<'local' | 'utc'>(
+    'alertsTabTimeFormat', 'local',
+    (s) => s === 'local' || s === 'utc' ? s : null,
+  );
   
   // Time window management
   const {
@@ -157,40 +97,54 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   // Extract API URLs and config from alertsData
   const apiUrl = alertsData?.apiUrl;
   const vstApiUrl = alertsData?.vstApiUrl;
-  const maxResults = alertsData?.maxResults;
+  const defaultMaxResults = alertsData?.maxResults ?? 100;
+  const defaultPageSize = alertsData?.pageSize ?? 20;
   const alertReportPromptTemplate = alertsData?.alertReportPromptTemplate;
   const mediaWithObjectsBbox = alertsData?.mediaWithObjectsBbox ?? false;
 
-  // Active filters state - managed at component level for server-side filtering
-  const [activeFilters, setActiveFilters] = useState<FilterState>(createEmptyFilterState);
+  const [pageSize, setPageSize] = useSessionState('alertsTabPageSize', defaultPageSize, parseIntRange(1, 500));
+  const [maxResults, setMaxResults] = useSessionState('alertsTabMaxResults', defaultMaxResults, parseIntRange(10, 5000));
+
+  // Active filters state - persisted to sessionStorage so filters survive refreshes.
+  const [activeFilters, setActiveFilters] = useSessionFilterState(FILTERS_STORAGE_KEY);
+
+  /** Incremented when "Show more" succeeds so AlertsTable resets column sort but keeps current page. */
+  const [loadMoreCompletionCount, setLoadMoreCompletionCount] = React.useState(0);
 
   // Custom hooks for data and functionality
   // Pass activeFilters to useAlerts for server-side filtering via queryString
-  const { alerts, loading, error, sensorMap, sensorList, refetch } = useAlerts({ 
-    apiUrl, 
-    vstApiUrl, 
+  const {
+    alerts,
+    loading,
+    loadingMore,
+    error,
+    sensorMap,
+    sensorList,
+    refetch,
+    loadMoreAlerts,
+    canLoadMore,
+  } = useAlerts({
+    apiUrl,
+    vstApiUrl,
     vlmVerified,
     vlmVerdict,
     timeWindow,
     maxResults,
-    activeFilters
+    activeFilters,
   });
 
-  // Refetch data (including sensor list) when tab becomes active
-  // This ensures fresh data when user navigates to the Alerts tab
-  const isFirstRender = React.useRef(true);
+  // Refetch data (including sensor list) when tab transitions from inactive → active.
+  // Only react to `isActive` changes; `refetch` is deliberately excluded to avoid
+  // duplicate API calls (useAlerts already refetches when its deps change).
+  const prevIsActiveRef = React.useRef(isActive);
   useEffect(() => {
-    // Skip first render (initial mount already fetches data)
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-    
-    // When tab becomes active, refetch everything including sensor list
-    if (isActive) {
+    const wasActive = prevIsActiveRef.current;
+    prevIsActiveRef.current = isActive;
+
+    if (isActive && !wasActive) {
       refetch({ includeSensorList: true });
     }
-  }, [isActive, refetch]);
+  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // useFilters now uses external state management
   // sensorList from API is used for sensors dropdown instead of accumulating from data
@@ -200,10 +154,31 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     onFiltersChange: setActiveFilters,
     sensorList
   });
-  const { videoModal, openVideoModal, closeVideoModal, loadingAlertId } = useVideoModal(vstApiUrl, sensorMap, mediaWithObjectsBbox);
+
+  const paginationResetKey = React.useMemo(
+    () =>
+      JSON.stringify({
+        tw: timeWindow,
+        vv: vlmVerified,
+        vx: vlmVerdict,
+        ps: pageSize,
+        s: [...activeFilters.sensors].sort((a, b) => a.localeCompare(b)),
+        a: [...activeFilters.alertTypes].sort((a, b) => a.localeCompare(b)),
+        t: [...activeFilters.alertTriggered].sort((a, b) => a.localeCompare(b)),
+      }),
+    [timeWindow, vlmVerified, vlmVerdict, pageSize, activeFilters],
+  );
+  const { videoModal, openVideoModalFromAlert, closeVideoModal, loadingAlertId } = useVideoModal(vstApiUrl, { sensorMap, showObjectsBbox: mediaWithObjectsBbox });
+
+  const handleTableLoadMore = React.useCallback(async () => {
+    const ok = await loadMoreAlerts();
+    if (ok) {
+      setLoadMoreCompletionCount((c) => c + 1);
+    }
+  }, [loadMoreAlerts]);
   
-  // Auto-refresh management
-  // Note: autorefresh continues even when tab is hidden (similar to Kibana behavior)
+  // Auto-refresh management: paused on client-side table pages 2+ so paging is stable; resumes on page 1.
+  // Tab visibility is unchanged (isActive prop on AlertsComponent is separate from this).
   const {
     isEnabled: autoRefreshEnabled,
     interval: autoRefreshInterval,
@@ -212,8 +187,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   } = useAutoRefresh({
     defaultInterval: alertsData?.defaultAutoRefreshInterval || 1000,
     onRefresh: refetch,
-    enabled: true
-    // isActive not passed - defaults to true, so autorefresh always runs
+    enabled: true,
+    isActive: true,
   });
 
   // Memoize the controls component to prevent unnecessary re-renders
@@ -253,6 +228,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         timeWindow,
         autoRefreshEnabled,
         autoRefreshInterval,
+        refreshControlsSuspended: false,
         onVlmVerifiedChange: setVlmVerified,
         onTimeWindowChange: setTimeWindow,
         onRefresh: refetch,
@@ -264,21 +240,22 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   }, [
     onControlsReady,
     renderControlsInLeftSidebar,
+    controlsComponent,
   ]);
 
   return (
     <div 
-      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-gray-800 text-gray-100' : 'bg-gray-50 text-gray-900'}`}
+      data-testid="alerts-component"
+      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'}`}
     >
       {/* Header with Filters */}
-      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+      <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'}`}>
         {/* Filter Controls */}
         <FilterControls
           isDark={isDark}
           vlmVerified={vlmVerified}
           vlmVerdict={vlmVerdict}
           timeWindow={timeWindow}
-          timeFormat={timeFormat}
           showCustomTimeInput={showCustomTimeInput}
           customTimeValue={customTimeValue}
           customTimeError={customTimeError}
@@ -290,7 +267,6 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           onVlmVerifiedChange={setVlmVerified}
           onVlmVerdictChange={setVlmVerdict}
           onTimeWindowChange={setTimeWindow}
-          onTimeFormatChange={setTimeFormat}
           onCustomTimeValueChange={handleCustomTimeChange}
           onCustomTimeApply={handleSetCustomTime}
           onCustomTimeCancel={handleCancelCustomTime}
@@ -299,6 +275,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           onRefresh={refetch}
           onAutoRefreshToggle={toggleAutoRefresh}
           onAutoRefreshIntervalChange={setAutoRefreshInterval}
+          fetchSize={maxResults}
+          onFetchSizeChange={setMaxResults}
         />
 
         {/* Active Filter Tags */}
@@ -346,7 +324,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           isDark={isDark}
           activeFilters={activeFilters}
           onAddFilter={addFilter}
-          onPlayVideo={openVideoModal}
+          onPlayVideo={openVideoModalFromAlert}
           loadingAlertId={loadingAlertId}
           onRefresh={refetch}
           alertReportPromptTemplate={alertReportPromptTemplate}
@@ -354,6 +332,16 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           sensorMap={sensorMap}
           showObjectsBbox={mediaWithObjectsBbox}
           timeFormat={timeFormat}
+          onTimeFormatChange={setTimeFormat}
+          pageSize={pageSize}
+          onPageSizeChange={setPageSize}
+          paginationResetKey={paginationResetKey}
+          loadMoreBatchSize={maxResults}
+          canLoadMore={canLoadMore}
+          loadingMore={loadingMore}
+          onLoadMore={handleTableLoadMore}
+          loadMoreCompletionCount={loadMoreCompletionCount}
+          autoRefreshEnabled={autoRefreshEnabled}
         />
       </div>
 

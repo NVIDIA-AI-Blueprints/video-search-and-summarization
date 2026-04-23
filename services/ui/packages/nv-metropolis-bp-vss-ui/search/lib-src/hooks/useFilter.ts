@@ -6,18 +6,55 @@ import { formatDatetime } from '../utils/Formatter';
 // Centralized default constant - exported for use in other components
 export const DEFAULT_TOP_K = 10;
 
+const TOP_K_STORAGE_KEY = 'vss_filter_topK';
+
+function getStoredTopK(): number {
+  if (typeof sessionStorage === 'undefined') return DEFAULT_TOP_K;
+  try {
+    const stored = sessionStorage.getItem(TOP_K_STORAGE_KEY);
+    if (stored == null) return DEFAULT_TOP_K;
+    const num = Number(stored);
+    return Number.isFinite(num) && num >= 1 ? num : DEFAULT_TOP_K;
+  } catch {
+    return DEFAULT_TOP_K;
+  }
+}
+
+function setStoredTopK(value: number): void {
+  try {
+    sessionStorage.setItem(TOP_K_STORAGE_KEY, String(value));
+  } catch {
+    // ignore
+  }
+}
+
 export const useFilter = ({vstApiUrl}: FilterProps) => {
   const [streams, setStreams] = useState<StreamInfo[]>([]);
-  const [filterParams, setFilterParams] = useState({
+  const [filterParams, setFilterParamsState] = useState<SearchParams>(() => ({
     startDate: null,
     endDate: null,
     videoSources: [],
     similarity: 0,
     agentMode: false,
     query: '',
-    topK: DEFAULT_TOP_K
-  })
-  const [filterTags, setFilterTags] = useState([{key: 'topK', title: 'Show top K Results', value: DEFAULT_TOP_K.toString()}]);
+    topK: getStoredTopK()
+  }));
+
+  const setFilterParams = useCallback((params: SearchParams | ((prev: SearchParams) => SearchParams)) => {
+    setFilterParamsState((prev) => {
+      const next = typeof params === 'function' ? params(prev) : { ...prev, ...(params ?? {}) };
+      const topK = next?.topK ?? prev?.topK;
+      if (topK !== undefined && topK !== null) {
+        const num = Number(topK);
+        const prevNum = prev?.topK != null ? Number(prev.topK) : NaN;
+        if (Number.isFinite(num) && num >= 1 && num !== prevNum) setStoredTopK(num);
+      }
+      return next;
+    });
+  }, []);
+  const [filterTags, setFilterTags] = useState(() => [
+    { key: 'topK', title: 'Show top K Results', value: String(filterParams.topK) }
+  ]);
 
   const fetchSensorList = useCallback(async () => {
     if (!vstApiUrl) return;
@@ -34,6 +71,7 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
       sensors.forEach((sensor: any) => {
         if (sensor.name && sensor.sensorId && sensor.state === 'online') {
           streamList.push({
+            sensorId: sensor.sensorId,
             name: sensor.name,
             type: sensor.type || ''
           });

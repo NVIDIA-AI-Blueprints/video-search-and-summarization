@@ -90,12 +90,9 @@ describe('VideoSearchList', () => {
 
     render(<VideoSearchList {...defaultProps} data={[item]} onPlayVideo={onPlayVideo} />);
 
-    const playOverlays = document.querySelectorAll('.absolute.inset-0.flex');
-    const clickableOverlay = Array.from(playOverlays).find(
-      (el) => el.getAttribute('class')?.includes('items-center')
-    );
-    expect(clickableOverlay).toBeTruthy();
-    fireEvent.click(clickableOverlay!);
+    const playOverlay = screen.getByTestId('video-play-overlay');
+    expect(playOverlay).toBeTruthy();
+    fireEvent.click(playOverlay);
     expect(onPlayVideo).toHaveBeenCalledWith(item, false);
   });
 
@@ -112,12 +109,9 @@ describe('VideoSearchList', () => {
       />
     );
 
-    const playOverlays = document.querySelectorAll('.absolute.inset-0.flex');
-    const clickableOverlay = Array.from(playOverlays).find(
-      (el) => el.getAttribute('class')?.includes('items-center')
-    );
-    expect(clickableOverlay).toBeTruthy();
-    fireEvent.click(clickableOverlay!);
+    const playOverlay = screen.getByTestId('video-play-overlay');
+    expect(playOverlay).toBeTruthy();
+    fireEvent.click(playOverlay);
     expect(onPlayVideo).toHaveBeenCalledWith(item, true);
   });
 
@@ -133,5 +127,161 @@ describe('VideoSearchList', () => {
 
     const placeholders = screen.getAllByText('--:--:--');
     expect(placeholders.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('sorts results by critic status (confirmed > unverified > rejected) then by similarity', () => {
+    const data = [
+      makeItem({ video_name: 'rejected-low', similarity: 0.60, critic_result: { result: 'rejected', criteria_met: {} } }),
+      makeItem({ video_name: 'unverified-high', similarity: 0.90, critic_result: { result: 'unverified', criteria_met: {} } }),
+      makeItem({ video_name: 'confirmed-low', similarity: 0.70, critic_result: { result: 'confirmed', criteria_met: { players: true } } }),
+      makeItem({ video_name: 'confirmed-high', similarity: 0.95, critic_result: { result: 'confirmed', criteria_met: { players: true } } }),
+      makeItem({ video_name: 'unverified-low', similarity: 0.65, critic_result: { result: 'unverified', criteria_met: {} } }),
+    ];
+
+    render(<VideoSearchList {...defaultProps} data={data} />);
+
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((el) => el.textContent);
+    expect(titles).toEqual([
+      'confirmed-high',
+      'confirmed-low',
+      'unverified-high',
+      'unverified-low',
+      'rejected-low',
+    ]);
+  });
+
+  it('preserves original order when no critic results are present', () => {
+    const data = [
+      makeItem({ video_name: 'second', similarity: 0.95 }),
+      makeItem({ video_name: 'first', similarity: 0.60 }),
+    ];
+
+    render(<VideoSearchList {...defaultProps} data={data} />);
+
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((el) => el.textContent);
+    expect(titles).toEqual(['second', 'first']);
+  });
+
+  describe('critic result rendering', () => {
+    it('shows green border for confirmed results', () => {
+      const item = makeItem({
+        critic_result: { result: 'confirmed', criteria_met: {} },
+      });
+      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+      const card = container.querySelector('[class*="border-green-"]');
+      expect(card).toBeTruthy();
+    });
+
+    it('shows red border for rejected results', () => {
+      const item = makeItem({
+        critic_result: { result: 'rejected', criteria_met: {} },
+      });
+      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+      const card = container.querySelector('[class*="border-red-"]');
+      expect(card).toBeTruthy();
+    });
+
+    it('shows yellow border for unverified results', () => {
+      const item = makeItem({
+        critic_result: { result: 'unverified', criteria_met: {} },
+      });
+      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+      const card = container.querySelector('[class*="border-yellow-"]');
+      expect(card).toBeTruthy();
+    });
+
+    it('shows default gray border when no critic result', () => {
+      const item = makeItem();
+      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+      const card = container.querySelector('[class*="border-gray-200"]');
+      expect(card).toBeTruthy();
+    });
+
+    it('renders critic status badge with "Confirmed" text and checkmark', () => {
+      const item = makeItem({
+        critic_result: { result: 'confirmed', criteria_met: {} },
+      });
+      render(<VideoSearchList {...defaultProps} data={[item]} />);
+      expect(screen.getByText(/Confirmed/)).toBeInTheDocument();
+      expect(screen.getByText(/✓/)).toBeInTheDocument();
+    });
+
+    it('renders critic status badge with "Rejected" text and cross', () => {
+      const item = makeItem({
+        critic_result: { result: 'rejected', criteria_met: {} },
+      });
+      render(<VideoSearchList {...defaultProps} data={[item]} />);
+      expect(screen.getByText(/Rejected/)).toBeInTheDocument();
+      expect(screen.getByText(/✗/)).toBeInTheDocument();
+    });
+
+    it('renders critic status badge with "Unverified" text and question mark', () => {
+      const item = makeItem({
+        critic_result: { result: 'unverified', criteria_met: {} },
+      });
+      render(<VideoSearchList {...defaultProps} data={[item]} />);
+      expect(screen.getByText(/Unverified/)).toBeInTheDocument();
+      expect(screen.getByText(/\?/)).toBeInTheDocument();
+    });
+
+    it('does not render critic badge when critic_result is absent', () => {
+      const item = makeItem();
+      render(<VideoSearchList {...defaultProps} data={[item]} />);
+      expect(screen.queryByText(/Confirmed|Rejected|Unverified/)).toBeNull();
+    });
+
+    it('renders criteria met/not-met tags', () => {
+      const item = makeItem({
+        critic_result: {
+          result: 'confirmed',
+          criteria_met: { 'has players': true, 'is outdoor': false },
+        },
+      });
+      render(<VideoSearchList {...defaultProps} data={[item]} />);
+      expect(screen.getByText(/has players/)).toBeInTheDocument();
+      expect(screen.getByText(/is outdoor/)).toBeInTheDocument();
+    });
+
+    it('shows checkmark for met criteria and cross for unmet criteria', () => {
+      const item = makeItem({
+        critic_result: {
+          result: 'confirmed',
+          criteria_met: { 'motion detected': true, 'face visible': false },
+        },
+      });
+      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+
+      const metTag = screen.getByText(/motion detected/);
+      expect(metTag.textContent).toContain('✓');
+
+      const unmetTag = screen.getByText(/face visible/);
+      expect(unmetTag.textContent).toContain('✗');
+    });
+
+    it('uses green styling for met criteria and red for unmet', () => {
+      const item = makeItem({
+        critic_result: {
+          result: 'confirmed',
+          criteria_met: { 'passed check': true, 'failed check': false },
+        },
+      });
+      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+
+      const metTag = screen.getByText(/passed check/);
+      expect(metTag.className).toContain('text-green-');
+
+      const unmetTag = screen.getByText(/failed check/);
+      expect(unmetTag.className).toContain('text-red-');
+    });
+
+    it('does not render criteria section when criteria_met is empty', () => {
+      const item = makeItem({
+        critic_result: { result: 'confirmed', criteria_met: {} },
+      });
+      const { container } = render(<VideoSearchList {...defaultProps} data={[item]} />);
+      expect(screen.getByText(/Confirmed/)).toBeInTheDocument();
+      const criteriaWrap = container.querySelector('.flex.flex-wrap.gap-1');
+      expect(criteriaWrap).toBeNull();
+    });
   });
 });

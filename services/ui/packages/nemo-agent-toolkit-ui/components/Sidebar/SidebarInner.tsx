@@ -47,7 +47,7 @@ export const SidebarInner = <T,>({
 
   const highlightDrop = (e: any) => {
     const isDark = document.documentElement.classList.contains('dark');
-    e.target.style.background = isDark ? '#343541' : '#e5e7eb';
+    e.target.style.background = isDark ? '#171717' : '#e5e7eb';
   };
 
   const removeHighlight = (e: any) => {
@@ -55,7 +55,7 @@ export const SidebarInner = <T,>({
   };
 
   return (
-    <div className="flex h-full w-full flex-col space-y-2 bg-gray-50 dark:bg-[#202123] p-2 text-[14px]">
+    <div className="flex h-full w-full flex-col space-y-2 bg-gray-50 dark:bg-neutral-900 p-2 text-[14px]">
       <div className="flex items-center">
         <button
           className="text-sidebar flex w-[190px] flex-shrink-0 cursor-pointer select-none items-center gap-3 rounded-md border border-gray-300 dark:border-white/20 p-3 text-gray-900 dark:text-white transition-colors duration-200 hover:bg-gray-200 dark:hover:bg-gray-500/10"

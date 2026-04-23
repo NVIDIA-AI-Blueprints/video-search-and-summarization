@@ -1,6 +1,6 @@
 {
   "name": "@nv-metropolis-bp-vss-ui/dashboard",
-  "version": "3.1-EA",
+  "version": "3.2-dev",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@nvidia/foundations-react-core": "0.600.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

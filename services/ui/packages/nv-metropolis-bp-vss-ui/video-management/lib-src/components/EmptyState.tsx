@@ -50,7 +50,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onFilesSelected, enableV
 
   if (!enableVideoUpload) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div data-testid="video-empty-state" className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <p className="text-sm text-gray-500 dark:text-gray-400">
             No videos available
@@ -73,6 +73,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onFilesSelected, enableV
       />
 
       <div
+        data-testid="video-empty-state"
         onClick={handleClick}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}

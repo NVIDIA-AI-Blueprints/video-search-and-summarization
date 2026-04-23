@@ -3,25 +3,23 @@ require('@testing-library/jest-dom');
 require('whatwg-fetch');
 
 // Mock IntersectionObserver
-global.IntersectionObserver = class IntersectionObserver {
-  constructor() {}
-  disconnect() {}
-  observe() {}
-  unobserve() {}
-};
+globalThis.IntersectionObserver = jest.fn(() => ({
+  disconnect: jest.fn(),
+  observe: jest.fn(),
+  unobserve: jest.fn(),
+}));
 
 // Mock ResizeObserver
-global.ResizeObserver = class ResizeObserver {
-  constructor() {}
-  disconnect() {}
-  observe() {}
-  unobserve() {}
-};
+globalThis.ResizeObserver = jest.fn(() => ({
+  disconnect: jest.fn(),
+  observe: jest.fn(),
+  unobserve: jest.fn(),
+}));
 
 // Mock window-specific globals (only in browser/jsdom environment)
-if (typeof window !== 'undefined') {
+if (globalThis.window !== undefined) {
   // Mock window.matchMedia
-  Object.defineProperty(window, 'matchMedia', {
+  Object.defineProperty(globalThis, 'matchMedia', {
     writable: true,
     value: jest.fn().mockImplementation((query) => ({
       matches: false,
@@ -36,7 +34,7 @@ if (typeof window !== 'undefined') {
   });
 
   // Mock window.scrollTo
-  Object.defineProperty(window, 'scrollTo', {
+  Object.defineProperty(globalThis, 'scrollTo', {
     writable: true,
     value: jest.fn(),
   });
@@ -49,16 +47,16 @@ if (typeof window !== 'undefined') {
     clear: jest.fn(),
   };
 
-  Object.defineProperty(window, 'sessionStorage', {
+  Object.defineProperty(globalThis, 'sessionStorage', {
     value: localStorageMock,
   });
 
-  Object.defineProperty(window, 'localStorage', {
+  Object.defineProperty(globalThis, 'localStorage', {
     value: localStorageMock,
   });
 
   // Mock window.open for OAuth testing
-  Object.defineProperty(window, 'open', {
+  Object.defineProperty(globalThis, 'open', {
     writable: true,
     value: jest.fn(() => ({
       close: jest.fn(),
@@ -67,15 +65,23 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// Mock URL.createObjectURL / revokeObjectURL (not available in jsdom)
+if (typeof URL.createObjectURL === 'undefined') {
+  URL.createObjectURL = jest.fn(() => 'blob:mock-url');
+}
+if (typeof URL.revokeObjectURL === 'undefined') {
+  URL.revokeObjectURL = jest.fn();
+}
+
 // Mock TextEncoder and TextDecoder for Edge runtime compatibility
-global.TextEncoder = class TextEncoder {
+globalThis.TextEncoder = class TextEncoder {
   encode(string) {
     return new Uint8Array(Buffer.from(string, 'utf8'));
   }
 };
 
-global.TextDecoder = class TextDecoder {
-  decode(bytes, options = {}) {
+globalThis.TextDecoder = class TextDecoder {
+  decode(bytes) {
     return Buffer.from(bytes).toString('utf8');
   }
 };
@@ -83,11 +89,10 @@ global.TextDecoder = class TextDecoder {
 // Reset all mocks before each test
 beforeEach(() => {
   jest.clearAllMocks();
-  if (typeof window !== 'undefined' && window.localStorage) {
-    window.localStorage.getItem.mockClear();
-    window.localStorage.setItem.mockClear();
-    window.localStorage.removeItem.mockClear();
-    window.localStorage.clear.mockClear();
+  if (globalThis.window !== undefined && globalThis.localStorage) {
+    globalThis.localStorage.getItem.mockClear();
+    globalThis.localStorage.setItem.mockClear();
+    globalThis.localStorage.removeItem.mockClear();
+    globalThis.localStorage.clear.mockClear();
   }
 });
-
