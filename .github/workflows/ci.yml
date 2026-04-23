@@ -218,12 +218,14 @@ jobs:
         run: npm run lint -- --filter='!@nemo-agent-toolkit/ui' --filter='!nemo-agent-toolkit-ui' --filter='!nv-metropolis-bp-vss-ui'
 
       # Skip nv-metropolis-bp-vss-ui workspaces: `tsc` cannot resolve sibling `@nv-metropolis-bp-vss-ui/*`
-      # packages in CI without the full local build graph (see @nv-metropolis-bp-vss-ui/all).
-      # TODO: remove this once the dev source is fixed for typechecking.
+      # without the full local build graph. Skip nemo-agent-toolkit-ui app: `tsc` cannot resolve workspace
+      # package `@nemo-agent-toolkit/ui` / `.../server` in CI without built `lib` + path setup.
+      # TODO: remove these filters once the dev source is fixed for typechecking.
       - name: Typecheck
         run: |
           npm run typecheck -- \
             --filter='!nv-metropolis-bp-vss-ui' \
+            --filter='!nemo-agent-toolkit-ui' \
             --filter='!@nv-metropolis-bp-vss-ui/alerts' \
             --filter='!@nv-metropolis-bp-vss-ui/all' \
             --filter='!@nv-metropolis-bp-vss-ui/dashboard' \
