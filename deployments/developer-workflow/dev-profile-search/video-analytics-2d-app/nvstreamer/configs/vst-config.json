@@ -56,7 +56,7 @@
 	  "onvif_request_timeout_secs": 10,
 	  "device_discovery_freq_secs": 5,
 	  "device_discovery_interfaces": [],
-	  "max_devices_supported": 8,
+	  "max_devices_supported": 16,
 	  "bitrate_kbps": 8000,
 	  "framerate": 30,
 	  "resolution": "1920x1080",
