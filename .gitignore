@@ -1,11 +1,5 @@
 .claude
 
-# Harbor eval outputs (generated at runtime)
-tools/eval/harbor/results/
-tools/eval/harbor/datasets/
-tools/eval/harbor/worker_*_logs/
-jobs/
-
 # Local secrets
 .env
 
