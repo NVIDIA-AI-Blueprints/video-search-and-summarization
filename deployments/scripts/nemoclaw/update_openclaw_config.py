@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import re
 import shlex
 import socket
@@ -47,14 +48,50 @@ def shell_quote_multiline(text: str) -> str:
     return text
 
 
+def read_etc_environment() -> dict[str, str]:
+    env: dict[str, str] = {}
+    try:
+        with open("/etc/environment", encoding="utf-8") as fp:
+            for raw in fp:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                env[key.strip()] = value.strip().strip('"').strip("'")
+    except OSError:
+        return env
+    return env
+
+
 def get_brev_env_id() -> str:
-    hostname = socket.gethostname().strip()
-    prefix = "brev-"
-    if not hostname.startswith(prefix) or len(hostname) <= len(prefix):
-        raise ValueError(
-            f"Unable to derive Brev environment ID from hostname: {hostname!r}"
-        )
-    return hostname[len(prefix) :]
+    env_id = os.environ.get("BREV_ENV_ID", "").strip()
+    if env_id:
+        return env_id
+
+    env_id = read_etc_environment().get("BREV_ENV_ID", "").strip()
+    if env_id:
+        return env_id
+
+    hostname_candidates = [
+        os.environ.get("HOSTNAME", ""),
+        socket.getfqdn(),
+        socket.gethostname(),
+    ]
+    for hostname in hostname_candidates:
+        host = hostname.strip().lower().rstrip(".")
+        if not host:
+            continue
+        if host.endswith(".brevlab.com"):
+            host = host[: -len(".brevlab.com")]
+        if not host:
+            continue
+        if "-" in host:
+            return host.split("-", 1)[1]
+
+    raise ValueError(
+        "Unable to resolve Brev environment ID. "
+        "Set BREV_ENV_ID in the environment, add it to /etc/environment, "
+    )
 
 
 def read_remote_file(
