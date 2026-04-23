@@ -3,7 +3,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { VideoManagementComponentProps, UploadProgress, StreamInfo } from './types';
 import { useStreams, useStorageTimelines } from './hooks';
 import { filterStreams, isRtspStream } from './utils';
-import { uploadFile } from '@nemo-agent-toolkit/ui';
+import { uploadFile, UploadFilesDialog, VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
 import { deleteRtspStream } from './rtspStream';
 import { deleteVideo } from './videoDelete';
 import { NUM_PARALLEL_FILE_UPLOADS } from './constants';
@@ -77,6 +77,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const [isDeleting, setIsDeleting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [loadingStreamId, setLoadingStreamId] = useState<string | null>(null);
 
   const isUploadingRef = useRef(false);
   const uploadSessionIdRef = useRef(0);
@@ -96,12 +97,19 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   }, [enableVideoUpload]);
 
   const { streams, isLoading, error, refetch } = useStreams({ vstApiUrl });
-  const { getEndTimeForStream, getTimelineRangeForStream, refetch: refetchTimelines } = useStorageTimelines({ vstApiUrl });
+  const { getEndTimeForStream, getLastTimelineForStream, refetch: refetchTimelines } = useStorageTimelines({ vstApiUrl });
+  const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl ?? undefined);
 
   const filteredStreams = useMemo(
     () => filterStreams(streams, showVideos, showRtsps, appliedSearchQuery),
     [streams, showVideos, showRtsps, appliedSearchQuery]
   );
+
+  const { hasVideoStreams, hasRtspStreams } = useMemo(() => {
+    const hasVideo = streams.some((stream) => !isRtspStream(stream));
+    const hasRtsp = streams.some(isRtspStream);
+    return { hasVideoStreams: hasVideo, hasRtspStreams: hasRtsp };
+  }, [streams]);
 
   const refetchRef = useRef(refetch);
   const refetchTimelinesRef = useRef(refetchTimelines);
@@ -287,6 +295,41 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     refetchTimelinesRef.current();
   }, []);
 
+  const handlePlayStream = useCallback(async (stream: StreamInfo) => {
+    let startTime: string;
+    let endTime: string;
+
+    if (isRtspStream(stream)) {
+      const now = new Date();
+      endTime = new Date(now.getTime() - 5000).toISOString();
+      startTime = new Date(now.getTime() - 35000).toISOString();
+    } else {
+      const range = getLastTimelineForStream(stream.streamId);
+      if (!range) return;
+      startTime = range.startTime;
+      const rangeStart = new Date(range.startTime).getTime();
+      const rangeEnd = new Date(range.endTime).getTime();
+      endTime =
+        rangeEnd - rangeStart > 30000
+          ? new Date(rangeStart + 30000).toISOString()
+          : range.endTime;
+    }
+
+    setLoadingStreamId(stream.streamId);
+    try {
+      await openVideoModal({
+        video_name: stream.name,
+        start_time: startTime,
+        end_time: endTime,
+        sensor_id: stream.sensorId,
+      });
+    } catch {
+      // openVideoModal handles errors internally; catch to prevent unhandled rejection
+    } finally {
+      setLoadingStreamId(null);
+    }
+  }, [getLastTimelineForStream, openVideoModal]);
+
   const handleSelectionChange = useCallback((streamId: string, selected: boolean) => {
     setSelectedStreams((prev) => {
       const next = new Set(prev);
@@ -406,12 +449,14 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         showVideos={showVideos}
         showRtsps={showRtsps}
         getEndTimeForStream={getEndTimeForStream}
+        onPlayStream={handlePlayStream}
+        loadingStreamId={loadingStreamId}
       />
     );
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="flex-1 flex flex-col h-full bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100">
       {/* Hidden input for upload dialog add-more */}
       <input
         ref={fileInputRef}
@@ -450,6 +495,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         isDeleting={isDeleting}
         enableAddRtspButton={enableAddRtspButton}
         enableVideoUpload={enableVideoUpload}
+        hasVideoStreams={hasVideoStreams}
+        hasRtspStreams={hasRtspStreams}
       />
 
       {/* Upload dialog */}
@@ -458,6 +505,15 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           files={selectedFiles}
           configTemplate={configTemplate}
           onAddMore={() => fileInputRef.current?.click()}
+          onFilesDropped={(droppedFiles: File[]) => {
+            const newItems = droppedFiles.map((file) => ({
+              id: generateFileId(),
+              file,
+              isExpanded: false,
+              formData: generateDefaultFormData(),
+            }));
+            setSelectedFiles((prev) => [...prev, ...newItems]);
+          }}
           onClose={() => {
             setShowUploadDialog(false);
             setSelectedFiles([]);
@@ -492,13 +548,13 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
             setShowUploadDialog(false);
             setSelectedFiles([]);
           }}
-          onToggleExpand={(id) =>
+          onToggleExpand={(id: string) =>
             setSelectedFiles((prev) =>
               prev.map((f) => (f.id === id ? { ...f, isExpanded: !f.isExpanded } : f))
             )
           }
-          onRemoveFile={(id) => setSelectedFiles((prev) => prev.filter((f) => f.id !== id))}
-          onFieldChange={(fileId, fieldName, value) =>
+          onRemoveFile={(id: string) => setSelectedFiles((prev) => prev.filter((f) => f.id !== id))}
+          onFieldChange={(fileId: string, fieldName: string, value: any) =>
             setSelectedFiles((prev) =>
               prev.map((f) =>
                 f.id === fileId ? { ...f, formData: { ...f.formData, [fieldName]: value } } : f
@@ -524,6 +580,14 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         uploads={uploadProgress}
         onClose={handleClearUploadProgress}
         onCancel={handleCancelUploads}
+      />
+
+      {/* Video Playback Modal */}
+      <VideoModal
+        isOpen={videoModal.isOpen}
+        videoUrl={videoModal.videoUrl}
+        title={videoModal.title}
+        onClose={closeVideoModal}
       />
     </div>
   );

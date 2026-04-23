@@ -5,6 +5,26 @@ This is the monorepo for the Nemo Agent Toolkit UI and other apps (example: VSS 
 
 This is forked from the original [NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI) repository.
 
+## Node version (nvm)
+
+This project uses the Node version specified in `.nvmrc`. With [nvm](https://github.com/nvm-sh/nvm) installed:
+
+```bash
+# Install and use the Node version from .nvmrc
+nvm install
+nvm use
+```
+
+If you don't have nvm yet, install it, then run the commands above:
+
+```bash
+# Install nvm (typically run the install script from https://github.com/nvm-sh/nvm#installing-and-updating)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+# Restart your shell or source ~/.bashrc / ~/.zshrc, then:
+nvm install
+nvm use
+```
+
 ## Getting Started
 
 ```bash
@@ -20,6 +40,7 @@ npm install
 
 # Then build all packages
 npx turbo build --filter=./packages/**
+```
 
 To get a list of packages, run:
 ```bash
@@ -47,15 +68,27 @@ npx turbo dev --filter=./apps/*
 
 ### Full production build and run production server
 
-To do a full production build (all packages and the app) and then run the production Next server, run from repo root:
+To do a full production build (all packages and the app) and then run the production Next standalone server, run from repo root.
+
+For **`nv-metropolis-bp-vss-ui`**, the app splits **`next build`** (`build`) from copying static assets and `public/` into the standalone output (`bundle`). Run both Turbo tasks:
 
 ```bash
-npx turbo build --filter=./packages/** && npx turbo build --filter=./apps/<APP_NAME> && npx turbo start --filter=./apps/<APP_NAME>
+npx turbo build --filter=./packages/** \
+  && npx turbo run build bundle --filter=./apps/nv-metropolis-bp-vss-ui \
+  && npx turbo start --filter=./apps/nv-metropolis-bp-vss-ui
 ```
 
-Replace `<APP_NAME>` with the app you want to run. This builds all packages, builds the app, then starts the production server (`next start`).
+For **`nemo-agent-toolkit-ui`**, bundling those assets is already part of the app `build` script, so only `build` is required:
+
+```bash
+npx turbo build --filter=./packages/** \
+  && npx turbo build --filter=./apps/nemo-agent-toolkit-ui \
+  && npx turbo start --filter=./apps/nemo-agent-toolkit-ui
+```
 
 **Possible app names:** `nemo-agent-toolkit-ui`, `nv-metropolis-bp-vss-ui`
+
+Note: Root `npm run build` runs `turbo run build` only (no `bundle`). Use the commands above—or CI’s `npx turbo run build bundle`—when you need a runnable standalone tree for **`nv-metropolis-bp-vss-ui`**.
 
 ## Testing
 

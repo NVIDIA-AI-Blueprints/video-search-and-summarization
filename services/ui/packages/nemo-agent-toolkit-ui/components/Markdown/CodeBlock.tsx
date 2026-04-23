@@ -9,7 +9,7 @@ import {
   generateRandomString,
   programmingLanguages,
 } from '@/utils/app/codeblock';
-import { copyToClipboard as copyToClipboardUtil } from '@/utils/shared/clipboard';
+import { copyToClipboard as copyToClipboardUtil } from '@aiqtoolkit-ui/common';
 
 interface Props {
   language: string;
@@ -116,7 +116,7 @@ export const CodeBlock: FC<Props> = memo(({ language, value, isStreaming = false
 
   return (
     <div className="codeblock relative font-sans text-[16px] w-full">
-      <div className="flex items-center justify-between py-1.5 px-4 bg-gray-800 text-white">
+      <div className="flex items-center justify-between py-1.5 px-4 bg-neutral-800 text-white">
         <span className="text-xs lowercase">
           {language}
           {isVeryLarge && (
@@ -128,14 +128,14 @@ export const CodeBlock: FC<Props> = memo(({ language, value, isStreaming = false
 
         <div className="flex items-center gap-1">
           <button
-            className="flex gap-1.5 items-center rounded bg-none p-1 text-xs text-white hover:bg-gray-700"
+            className="flex gap-1.5 items-center rounded bg-none p-1 text-xs text-white hover:bg-neutral-800"
             onClick={(e) => copyToClipboard(e)}
           >
             {isCopied ? <IconCheck size={18} /> : <IconClipboard size={18} />}
             {isCopied ? t('Copied!') : t('Copy code')}
           </button>
           <button
-            className="flex items-center rounded bg-none p-1 text-xs text-white hover:bg-gray-700"
+            className="flex items-center rounded bg-none p-1 text-xs text-white hover:bg-neutral-800"
             onClick={(e) => downloadAsFile(e)}
           >
             <IconDownload size={18} />
@@ -155,7 +155,7 @@ export const CodeBlock: FC<Props> = memo(({ language, value, isStreaming = false
             style={{
               margin: 0,
               padding: '16px',
-              background: '#1f2937',
+              background: '#262626',
               fontSize: '14px',
               lineHeight: '1.5',
               fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
@@ -175,7 +175,7 @@ export const CodeBlock: FC<Props> = memo(({ language, value, isStreaming = false
             customStyle={{
               margin: 0,
               padding: '16px',
-              background: '#1f2937', // matches bg-gray-800
+              background: '#262626',
               fontSize: '14px',
               lineHeight: '1.5',
               fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',

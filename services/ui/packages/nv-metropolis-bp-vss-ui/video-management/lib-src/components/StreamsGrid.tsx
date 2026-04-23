@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { Button } from '@nvidia/foundations-react-core';
 import type { StreamInfo } from '../types';
 import { StreamCard } from './StreamCard';
 
@@ -17,6 +18,8 @@ interface StreamsGridProps {
   showVideos: boolean;
   showRtsps: boolean;
   getEndTimeForStream: (streamId: string) => string | null;
+  onPlayStream?: (stream: StreamInfo) => void;
+  loadingStreamId?: string | null;
 }
 
 export const StreamsGrid: React.FC<StreamsGridProps> = ({
@@ -28,6 +31,8 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
   showVideos,
   showRtsps,
   getEndTimeForStream,
+  onPlayStream,
+  loadingStreamId,
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerRow, setItemsPerRow] = useState(0); // 0 means not yet calculated
@@ -185,22 +190,20 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
               className="w-4 h-4 rounded border-2 cursor-pointer bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-green-600 dark:text-green-500 focus:ring-green-500"
             />
             {canSelectAll && (
-              <button
-                type="button"
+              <Button
+                kind="tertiary"
                 onClick={() => onSelectAll(true)}
-                className="text-sm text-gray-700 dark:text-gray-300 hover:underline focus:outline-none focus:underline"
               >
                 Select All
-              </button>
+              </Button>
             )}
             {canDeselectAll && (
-              <button
-                type="button"
+              <Button
+                kind="tertiary"
                 onClick={() => onSelectAll(false)}
-                className="text-sm text-gray-700 dark:text-gray-300 hover:underline focus:outline-none focus:underline"
               >
                 Deselect All
-              </button>
+              </Button>
             )}
           </div>
           <span className="mx-4 text-gray-300 dark:text-gray-600">|</span>
@@ -220,6 +223,7 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
       {/* Grid - scrollable */}
       <div className="flex-1 overflow-auto px-6 pt-1 pb-4">
         <div
+          data-testid="video-streams-grid"
           ref={gridRef}
           className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4"
         >
@@ -231,6 +235,8 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
               vstApiUrl={vstApiUrl}
               onSelectionChange={onSelectionChange}
               getEndTimeForStream={getEndTimeForStream}
+              onPlay={onPlayStream}
+              isLoadingPlay={loadingStreamId === stream.streamId}
             />
           ))}
         </div>
@@ -240,18 +246,13 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
           {/* Previous button */}
-          <button
-            type="button"
+          <Button
+            kind="tertiary"
             onClick={handlePrevPage}
             disabled={currentPage === 1}
-            className={`px-3 py-1.5 text-sm rounded ${
-              currentPage === 1
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
           >
             Previous
-          </button>
+          </Button>
 
           {/* Page numbers */}
           <div className="flex items-center gap-1">
@@ -264,35 +265,25 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
                   ...
                 </span>
               ) : (
-                <button
+                <Button
                   key={page}
-                  type="button"
+                  kind="tertiary"
                   onClick={() => handlePageClick(page)}
-                  className={`min-w-[32px] px-2 py-1.5 text-sm rounded font-medium ${
-                    currentPage === page
-                      ? 'bg-cyan-600 text-white'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                  }`}
                 >
                   {page}
-                </button>
+                </Button>
               )
             )}
           </div>
 
           {/* Next button */}
-          <button
-            type="button"
+          <Button
+            kind="tertiary"
             onClick={handleNextPage}
             disabled={currentPage === totalPages}
-            className={`px-3 py-1.5 text-sm rounded ${
-              currentPage === totalPages
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
           >
             Next
-          </button>
+          </Button>
         </div>
       )}
     </div>
