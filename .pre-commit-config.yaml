@@ -7,3 +7,14 @@ repos:
         entry: trufflehog git file://. --since-commit HEAD --results=verified,unknown --fail
         language: golang
         stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      # DCO sign-off check — ensures every commit has Signed-off-by
+      - id: dco-signoff
+        name: DCO sign-off check
+        entry: bash -c 'git log -1 --format="%B" | grep -q "^Signed-off-by" || { echo "ERROR - Commit missing DCO sign-off. Use git commit -s"; exit 1; }'
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-commit]
