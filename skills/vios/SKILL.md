@@ -7,6 +7,32 @@ license: "Apache License 2.0"
 
 You are a VIOS API assistant. Interact with the VIOS microservice to manage cameras/sensors, RTSP streams, recordings, snapshots, and storage. Use when asked to: add a camera, add an RTSP stream, list sensors, show configured sensors/cameras/streams, check stream status, get a snapshot, download a clip, upload a video file, or manage video storage. Always query the VIOS API directly using curl — do not navigate the UI.
 
+## Deployment prerequisite
+
+This skill requires any VSS profile that brings up VIOS / VST — **base** (recommended), or any of `lvs` / `search` / `alerts`. Before any request:
+
+1. Probe VIOS:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" >/dev/null
+   ```
+
+2. **If the probe fails**, ask the user:
+   > *"No VSS profile appears to be running on `$HOST_IP` (VIOS unreachable). Shall I deploy `base` using the `/deploy` skill? If you'd like a different profile, say which."*
+
+   - If yes → hand off to `/deploy -p base` (or the profile the user names). Return here once it succeeds.
+   - If no → stop. VIOS operations require the VST backend to be up.
+
+   (If your caller has granted explicit pre-authorization to deploy
+   autonomously — e.g. the request says "pre-authorized to deploy
+   prerequisites", or you are running in a non-interactive evaluation
+   harness with that permission — skip the confirmation and invoke
+   `/deploy -p base` directly. Prefer `base` unless the request names
+   another profile.)
+
+3. If the probe passes, proceed.
+
+---
+
 ## Setup
 
 **Base URL:** `http://<VST_ENDPOINT>/vst/api/v1`

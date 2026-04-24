@@ -72,6 +72,35 @@ If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisi
 
 Always follow this sequence. Never skip the dry-run.
 
+### Step 0 — Tear down any existing deployment
+
+Before every deploy, **always** stop any prior VSS stack. This is
+mandatory even if you think the host is clean, and especially when
+switching profiles (`base` → `search`, `alerts` verification →
+`alerts` real-time, etc.). Compose profile flags only *start* the
+services listed under the selected profile — they do NOT stop
+services from a previously-active profile, so containers from the
+prior deploy linger and pass unrelated container-name checks,
+contaminate results, and can bind ports the new deploy needs.
+
+```bash
+# If a resolved.yml from a prior deploy exists, prefer it — it
+# knows about all compose-profile services that were brought up.
+if [ -f "$REPO/deployments/resolved.yml" ]; then
+  docker compose -f "$REPO/deployments/resolved.yml" down --remove-orphans
+fi
+
+# Catch-all: remove any VSS-stack containers that survived
+# (leftovers from a crashed prior run or manual docker runs).
+docker ps -a --format '{{.Names}}' \
+  | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-)' \
+  | xargs -r docker rm -f
+```
+
+If this is the host's first deploy, the `docker compose down`
+line is a no-op (exit 0 with no containers to stop) — safe to run
+unconditionally.
+
 ### Step 1 — Gather context
 
 Discover what's available on the host and cross-reference with the
