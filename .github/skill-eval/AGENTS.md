@@ -212,12 +212,27 @@ nothing matches. Reuse is wired into the trial via
 `export BREV_INSTANCE=<name>` **before** the `uvx harbor run` call
 — see § Harbor invocation. Without that export, BrevEnvironment
 auto-provisions a fresh `harbor-*` per trial regardless of what
-the snapshot showed. Match rules enforced by
-`envs/brev_env.py::_check_instance_matches`:
+the snapshot showed.
+
+**Name prefix is an anchored match, not a substring.** Only
+instances whose name starts with `vss-eval-` are eligible for
+reuse (e.g. `vss-eval-l40s`, `vss-eval-h100`, `vss-eval-rtx`).
+Anything else in the snapshot — other users' personal GPU boxes,
+unrelated `l40s-*` / `h100-*` rentals, stray `harbor-*` from prior
+runs — **must be ignored**, even if the gpu_type or resources look
+compatible. The `gpu_count == 0` rule below skips the GPU-type
+check, which makes non-anchored matching especially dangerous
+(e.g. a user's `l40s-48gb2x` with an L4 and a 40 GB disk passes
+the match but runs `/deploy` 2–3× slower and trips the agent-exec
+timeout). If no name matches `^vss-eval-`, fall through to
+`brev create`.
+
+Match rules enforced by `envs/brev_env.py::_check_instance_matches`
+(applied **after** the name-prefix filter):
 
 - `gpu_count == 0` (`base`/`lvs` in `remote-all`): GPU-type check
-  is skipped — any RUNNING+READY box works, even CPU-only. Reuse
-  freely.
+  is skipped — any RUNNING+READY `vss-eval-*` box works, even
+  CPU-only. Reuse freely.
 - `gpu_count >= 1` (every other profile × mode combo, including
   `alerts_*`/`search` in `remote-all` because RT-CV / Embed1 run
   locally): **match `gpu_type` exactly.** The check is a
@@ -263,6 +278,7 @@ uvx harbor run \
   --ak api_base="$ANTHROPIC_BASE_URL/v1" \
   --ae CLAUDE_CODE_DISABLE_THINKING=1 \
   --environment-build-timeout-multiplier 3.0 \
+  --agent-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
   -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
 ```
@@ -298,6 +314,15 @@ Notes that have burned prior runs:
   `harbor/trial/trial.py::_start_environment_with_retry` on a fresh
   box. Our internal `_wait_for_running` polls to 2400s, but the
   outer harbor wrapper is what actually trips first.
+- `--agent-timeout-multiplier 3.0` raises the per-trial agent-exec
+  ceiling (the one that bounds the `claude --print` subprocess
+  harbor spawns) by the same factor. `/deploy` on a cold box —
+  especially `lvs` / `alerts_*` which pull multiple local NIMs — can
+  legitimately need 20+ min of `docker pull` + NGC auth + container
+  start; the stock ceiling SIGTERMs it mid-pull and harbor records a
+  `NonZeroAgentExitCodeError` (exit 124). Mirrors the env-build
+  multiplier so trials don't trip on cold-box runtime cost the same
+  way they don't trip on cold-box provision cost.
 - Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
   Then migrate to the viewer (see § Harbor viewer).
 
