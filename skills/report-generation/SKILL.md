@@ -1,7 +1,7 @@
 ---
 name: report-generation
 description: Produce video analysis reports by discovering the deployed VSS agent, querying POST /generate for a timestamped captioned summary of the clip, then formatting the agent reply as the standard Video Analysis Report markdown. 
-version: "3.1.0"
+version: "3.2.0"
 license: "Apache License 2.0"
 ---
 

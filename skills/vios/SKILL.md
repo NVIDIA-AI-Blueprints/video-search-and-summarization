@@ -1,7 +1,7 @@
 ---
 name: vios
 description: "Query VIOS REST APIs: sensor list, recording timelines, video clip extraction, snapshot capture, add/delete sensors and streams"
-version: "3.1.0"
+version: "3.2.0"
 license: "Apache License 2.0"
 ---
 

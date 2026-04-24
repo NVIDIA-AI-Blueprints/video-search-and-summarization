@@ -1,7 +1,7 @@
 ---
 name: video-analytics
 description: Query video analytics data and metrics from Elastic search via the VA-MCP server (port 9901). This includes incidents, alerts, sensor data, and metrics. Use for any question about violations, alerts, incidents, object counts, speeds, occupancy, or anything that requires looking up recorded events. This is the primary way to answer a question that requires incidents, alerts and other metrics such as people counts and violations.
-version: "3.1.0"
+version: "3.2.0"
 license: "Apache License 2.0"
 ---
 

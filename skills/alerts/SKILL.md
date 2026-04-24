@@ -1,7 +1,7 @@
 ---
 name: alerts
 description: Manage and monitor VSS alerts after the alerts profile is deployed. The deployment's mode (CV vs VLM real-time) is fixed at deploy time and determines the workflow — start/stop real-time alerts via the VSS Agent on a VLM deployment, onboard CV alerts by adding RTSP streams to VIOS on a CV deployment, query incidents, customize verifier prompts. Use when asked to start/stop a real-time alert, check or list alerts, add a camera, customize alert prompts, or view verdicts.
-version: "3.1.0"
+version: "3.2.0"
 license: "Apache License 2.0"
 ---
 

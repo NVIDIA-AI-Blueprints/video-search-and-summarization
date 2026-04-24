@@ -1,7 +1,7 @@
 ---
 name: deploy
 description: Deploy, debug, or tear down any VSS profile using a compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken".
-version: "3.1.0"
+version: "3.2.0"
 license: "Apache License 2.0"
 ---
 
