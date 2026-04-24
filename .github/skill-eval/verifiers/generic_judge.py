@@ -248,18 +248,36 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
 
 
 def _parse_verdict_json(text: str) -> dict | None:
-    """Grab the last `{...}` block from the agent's text. The agent's
-    system prompt asks for one JSON object, but models sometimes add
-    prose; last-match is the safest pick."""
-    matches = list(re.finditer(r"\{[^{}]*\"pass\"\s*:[^{}]*\}", text, re.DOTALL))
-    if not matches:
-        # fall back to any {...}
-        matches = list(re.finditer(r"\{.*?\}", text, re.DOTALL))
-    for match in reversed(matches):
+    """Grab the judge's verdict JSON object from agent prose.
+
+    Walks every `{` in the text and tries `json.JSONDecoder().raw_decode`
+    forward — this correctly handles nested braces (e.g. when the judge
+    quotes an API response body into `matched`), which the previous
+    regex-only approach could not. Returns the **last** successfully
+    decoded object containing a `"pass"` key; falls back to the last
+    decodable object overall if no candidate has `"pass"`."""
+    decoder = json.JSONDecoder()
+    candidates: list[dict] = []
+    all_objects: list[dict] = []
+    idx = 0
+    while True:
+        idx = text.find("{", idx)
+        if idx == -1:
+            break
         try:
-            return json.loads(match.group(0))
-        except Exception:
+            obj, end = decoder.raw_decode(text, idx)
+        except ValueError:
+            idx += 1
             continue
+        if isinstance(obj, dict):
+            all_objects.append(obj)
+            if "pass" in obj:
+                candidates.append(obj)
+        idx = end
+    if candidates:
+        return candidates[-1]
+    if all_objects:
+        return all_objects[-1]
     return None
 
 
