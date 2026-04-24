@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Configures NemoClaw to use NVIDIA's hosted Nemotron model via the NVIDIA API.
-# Requires a valid NVIDIA API key passed via --api-key, NVIDIA_API_KEY env var, or interactive prompt.
+# Requires a valid NVIDIA API key passed via --nvidia-api-key, NVIDIA_API_KEY env var, or interactive prompt.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -40,7 +40,7 @@ Usage:
   NVIDIA_API_KEY=<key> bash init_nemoclaw.sh [options]
 
   The API key is resolved in this order:
-    1. --nvidia-api-key / --api-key flag (overrides env)
+    1. --nvidia-api-key flag (overrides env)
     2. NVIDIA_API_KEY environment variable
     3. Interactive prompt (if neither is set)
 

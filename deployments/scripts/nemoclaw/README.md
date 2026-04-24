@@ -1,6 +1,6 @@
 # NemoClaw VSS Installer
 
-`init_nemoclaw.sh` bootstraps a NemoClaw sandbox on a Brev instance and installs the Video Search and Summarization OpenClaw plugin into it.
+`init_nemoclaw.sh` bootstraps a NemoClaw sandbox on a Brev instance, configures its NVIDIA-hosted model provider, uploads the repository `skills/`, and updates OpenClaw allowed origins.
 
 It currently uses a remote NVIDIA-hosted model via `NVIDIA_API_KEY`.
 
@@ -11,7 +11,7 @@ When you run `init_nemoclaw.sh`, it:
 1. Runs NemoClaw onboarding if `nemoclaw` is already available, or falls back to `/home/ubuntu/NemoClaw/install.sh`.
 2. Configures the OpenShell inference provider to use the remote NVIDIA-hosted model API.
 3. Applies the VSS sandbox policy from `assets/vss_nemoclaw_policy.yaml`.
-4. Packages and installs the VSS OpenClaw plugin from `.openclaw/` and `skills/`.
+4. Uploads the repository `skills/` into the sandbox workspace.
 5. Updates OpenClaw's allowed origins and prints the final OpenClaw UI URL when available.
 
 ## Expected Environment
@@ -20,7 +20,6 @@ This script is meant to run on a NemoClaw-ready Ubuntu machine, typically a Brev
 
 The following repo content is expected to exist:
 
-- `.openclaw/`
 - `skills/`
 - `assets/vss_nemoclaw_policy.yaml`
 - `deployments/scripts/nemoclaw/update_openclaw_config.py`
@@ -40,10 +39,10 @@ Run from the repo checkout on the Brev instance:
 bash deployments/scripts/nemoclaw/init_nemoclaw.sh
 ```
 
-You can also pass the sandbox name and model positionally:
+You can also pass the sandbox name positionally:
 
 ```bash
-bash deployments/scripts/nemoclaw/init_nemoclaw.sh demo nvidia/nvidia-nemotron-nano-9b-v2
+bash deployments/scripts/nemoclaw/init_nemoclaw.sh demo
 ```
 
 Or use explicit flags:
@@ -51,7 +50,7 @@ Or use explicit flags:
 ```bash
 bash deployments/scripts/nemoclaw/init_nemoclaw.sh \
   --sandbox-name demo \
-  --model nvidia/nvidia-nemotron-nano-9b-v2 \
+  --model nvidia/nemotron-3-super-120b-a12b \
   --nvidia-api-key "$NVIDIA_API_KEY"
 ```
 
@@ -67,8 +66,8 @@ nohup bash /home/ubuntu/video-search-and-summarization/deployments/scripts/nemoc
 | Option | Description | Default |
 |---|---|---|
 | `--sandbox-name NAME` | Target sandbox name | `demo` |
-| `--model NAME` | NemoClaw inference model | `nvidia/nvidia-nemotron-nano-9b-v2` |
-| `--remote-base-url URL` | OpenAI-compatible base URL for remote provider | `https://integrate.api.nvidia.com/v1` |
+| `--model NAME` | NemoClaw inference model | `nvidia/nemotron-3-super-120b-a12b` |
+| `--nvidia-base-url URL` | NVIDIA API base URL for the remote provider | `https://integrate.api.nvidia.com/v1` |
 | `--nvidia-api-key KEY` | API key for remote provider | `NVIDIA_API_KEY` env fallback |
 | `--openclaw-config-script PATH` | Path to `update_openclaw_config.py` | `deployments/scripts/nemoclaw/update_openclaw_config.py` |
 | `--policy-file PATH` | Custom sandbox policy file | `assets/vss_nemoclaw_policy.yaml` |
@@ -80,9 +79,10 @@ The script also honors these environment variables:
 
 - `VSS_REPO_DIR`: repo root used to resolve plugin assets and the default policy file
 - `NEMOCLAW_SANDBOX_NAME`
+- `NEMOCLAW_ONBOARD_PROVIDER`
+- `OPENSHELL_PROVIDER_NAME`
 - `NEMOCLAW_MODEL`
-- `NEMOCLAW_REMOTE_BASE_URL`
-- `NEMOCLAW_REMOTE_API_KEY`
+- `NVIDIA_BASE_URL`
 - `NVIDIA_API_KEY`
 - `OPENCLAW_CONFIG_UPDATE_SCRIPT`
 - `NEMOCLAW_POLICY_FILE`
@@ -94,12 +94,11 @@ The script also honors these environment variables:
 Successful runs usually include log lines like:
 
 ```text
-[run_nemoclaw_install] Using remote NVIDIA-hosted model provider
-[run_nemoclaw_install] Start installing/onboarding NemoClaw
-[run_nemoclaw_install] Finished installing/onboarding NemoClaw
-[run_nemoclaw_install] Applying custom policy to sandbox demo
-[run_nemoclaw_install] VSS OpenClaw plugin installed
-[run_nemoclaw_install] Updating OpenClaw config for sandbox demo
+[init_nvidia_remote] Start installing/onboarding NemoClaw
+[init_nvidia_remote] Finished installing/onboarding NemoClaw
+[init_nvidia_remote] Applying custom policy file /home/ubuntu/video-search-and-summarization/assets/vss_nemoclaw_policy.yaml to sandbox demo
+[init_nvidia_remote] VSS skills installed
+[init_nvidia_remote] Updating OpenClaw config for sandbox demo using script /home/ubuntu/video-search-and-summarization/deployments/scripts/nemoclaw/update_openclaw_config.py
 OpenClaw UI at https://openclaw0-<brev-id>.brevlab.com/#token=<token>
 ```
 
@@ -115,6 +114,6 @@ If the config update succeeds, the helper also prints:
 - Verify `NVIDIA_API_KEY` is set before running the installer.
 - If NemoClaw onboarding fails, verify `nemoclaw` is resolvable or that `/home/ubuntu/NemoClaw/install.sh` exists and is executable.
 - If the custom policy is skipped, confirm `assets/vss_nemoclaw_policy.yaml` exists or pass `--policy-file`.
-- If plugin installation is skipped, verify the repo checkout includes both `.openclaw/` and `skills/`.
-- If the plugin install cannot find a gateway container, set `VSS_CONTAINER_NAME` explicitly.
+- If the skills upload is skipped, verify the repo checkout includes `skills/`.
+- If the skills upload cannot determine a gateway container, set `VSS_CONTAINER_NAME` explicitly.
 - If the OpenClaw origin update fails, run `python3 deployments/scripts/nemoclaw/update_openclaw_config.py demo` directly to inspect the underlying error.
