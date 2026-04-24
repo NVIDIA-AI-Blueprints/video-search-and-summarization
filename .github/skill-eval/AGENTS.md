@@ -121,7 +121,12 @@ template is in § Harbor invocation below.
    c. Drive harbor one trial at a time (they share GPU/ports on the
       host). Use the canonical invocation in § Harbor invocation
       below — **do not improvise flags**. If a trial fails, read the
-      trial log, fix the adapter (not the flags), rerun.
+      trial log, fix the adapter (not the flags), rerun. While a
+      trial is running, do NOT babysit the remote box (no
+      `brev exec` polling, no `Monitor` on remote logs); harbor has
+      its own agent-execution timeout and will fail the trial
+      cleanly. Spend turns on the next trial's setup or on reading
+      already-completed trial logs instead.
    d. After each trial, parse
       `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
       and `test-stdout.txt`. Record `(spec, platform, mode, reward,
