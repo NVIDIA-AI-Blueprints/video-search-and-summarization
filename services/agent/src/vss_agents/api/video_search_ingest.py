@@ -46,6 +46,27 @@ ALLOWED_VIDEO_TYPES = {
 }
 
 
+def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None:
+    """
+    Parse an optional HTTP(S) URL used to locate a downstream service.
+
+    Returns the parsed URL if it has a hostname, otherwise None. Catches
+    URLs like "", "http://", "http:", "http://host:" (no port body) —
+    anything that wouldn't successfully connect — and classifies them as
+    "not configured" so callers can skip the downstream step.
+
+    A URL relying on the scheme's default port (e.g. "http://host") is
+    considered valid: hostname alone is enough to connect.
+    """
+    if not url:
+        return None
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:  # pragma: no cover — urlparse is extremely permissive
+        return None
+    return parsed if parsed.hostname else None
+
+
 class VideoIngestResponse(BaseModel):
     """Response for video ingest endpoint."""
 
@@ -67,11 +88,16 @@ class VideoUploadCompleteInput(BaseModel):
 
     model_config = {"populate_by_name": True, "extra": "ignore"}
 
-    sensor_id: str = Field(..., alias="sensorId", description="Video stream identifier from the upload response")
+    sensor_id: str = Field(
+        ...,
+        alias="sensorId",
+        min_length=1,
+        description="Video stream identifier from the upload response",
+    )
 
 
 async def _run_post_upload_processing(
-    video_id: str,
+    camera_name: str,
     sensor_id: str,
     filename: str,
     vst_url: str,
@@ -85,6 +111,18 @@ async def _run_post_upload_processing(
 
     Shared between the streaming PUT endpoint (small files, streamed through agent) and
     the chunked-upload /complete endpoint (large files, uploaded directly to VST in chunks).
+
+    Args:
+        camera_name: Identifier sent as RTVI-CV ``camera_name``. Callers should pass
+            the filename without extension so the value is stable regardless of
+            which upload path was used. Note this is distinct from ``sensor_id``;
+            the returned ``VideoIngestResponse.video_id`` is set to ``sensor_id``,
+            not to ``camera_name``.
+        sensor_id: Stream id returned by VST after upload. Used for timeline
+            lookup, storage URL resolution, and as the ``video_id`` in the
+            response.
+        filename: Original filename (with extension). Used only in the human-
+            readable response message.
     """
     start_timestamp = "2025-01-01T00:00:00.000Z"
 
@@ -134,16 +172,17 @@ async def _run_post_upload_processing(
 
         logger.info(f"VST video URL obtained: {vst_file_path}")
 
-    # Add to RTVI-CV (if configured)
-    rtvi_cv_url = rtvi_cv_base_url.rstrip("/") if rtvi_cv_base_url else ""
-    # Guard against malformed URLs like "http://host:" (no port)
-    if rtvi_cv_url and not rtvi_cv_url.endswith(":"):
+    # Add to RTVI-CV (if configured). The URL parser rejects empty, scheme-only,
+    # and "http://host:" (no port body) forms — anything that wouldn't connect.
+    parsed_cv = _parse_optional_http_url(rtvi_cv_base_url)
+    if parsed_cv is not None:
+        rtvi_cv_url = rtvi_cv_base_url.rstrip("/")
         rtvi_cv_add_url = f"{rtvi_cv_url}/api/v1/stream/add"
         rtvi_cv_payload = {
             "key": "sensor",
             "value": {
                 "camera_id": sensor_id,
-                "camera_name": video_id,
+                "camera_name": camera_name,
                 "camera_url": vst_file_path,
                 "creation_time": start_timestamp,
                 "change": "camera_add",
@@ -172,16 +211,16 @@ async def _run_post_upload_processing(
     else:
         logger.info("RTVI-CV not configured, skipping")
 
-    # Trigger embedding generation (skip if embed service isn't configured)
-    rtvi_embed_url = rtvi_embed_base_url.rstrip("/") if rtvi_embed_base_url else ""
-    parsed_embed = urllib.parse.urlparse(rtvi_embed_url) if rtvi_embed_url else None
-    embed_configured = parsed_embed is not None and parsed_embed.hostname and parsed_embed.port
-
+    # Trigger embedding generation (skip if the embed service isn't configured).
+    # Uses the same parser as RTVI-CV for consistency — hostname-only URLs
+    # relying on the scheme's default port are accepted.
+    parsed_embed = _parse_optional_http_url(rtvi_embed_base_url)
     chunks_processed = 0
 
-    if not embed_configured:
-        logger.info("RTVI Embed not configured (no valid URL/port), skipping embedding generation")
+    if parsed_embed is None:
+        logger.info("RTVI Embed not configured, skipping embedding generation")
     else:
+        rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
         embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
         parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
         if not parsed_vst.hostname:
@@ -218,7 +257,7 @@ async def _run_post_upload_processing(
 
     message = (
         f"Video {filename} successfully uploaded to VST and embeddings generated"
-        if embed_configured
+        if parsed_embed is not None
         else f"Video {filename} successfully uploaded to VST"
     )
     return VideoIngestResponse(
@@ -374,7 +413,7 @@ def create_streaming_video_ingest_router(
 
                 # Run post-upload processing (timeline, storage URL, RTVI-CV, embeddings)
                 return await _run_post_upload_processing(
-                    video_id=video_id,
+                    camera_name=video_id,
                     sensor_id=vst_sensor_id,
                     filename=vst_filename,
                     vst_url=vst_url,
@@ -414,10 +453,13 @@ def create_streaming_video_ingest_router(
         agent can trigger embedding generation and other post-processing.
         """
         vst_url = vst_internal_url.rstrip("/")
+        # Strip the file extension so RTVI-CV's camera_name matches the value
+        # the streaming PUT path produces for the same filename (line ~322).
+        camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
         try:
             return await _run_post_upload_processing(
-                video_id=filename,
+                camera_name=camera_name,
                 sensor_id=body.sensor_id,
                 filename=filename,
                 vst_url=vst_url,

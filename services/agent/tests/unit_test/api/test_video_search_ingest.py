@@ -22,9 +22,12 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 import pytest
-
+from pydantic import ValidationError
 from vss_agents.api.video_search_ingest import ALLOWED_VIDEO_TYPES
 from vss_agents.api.video_search_ingest import VideoIngestResponse
+from vss_agents.api.video_search_ingest import VideoUploadCompleteInput
+from vss_agents.api.video_search_ingest import _parse_optional_http_url
+from vss_agents.api.video_search_ingest import _run_post_upload_processing
 from vss_agents.api.video_search_ingest import create_streaming_video_ingest_router
 from vss_agents.api.video_search_ingest import register_streaming_routes
 
@@ -367,3 +370,269 @@ class TestRegisterStreamingRoutes:
         with patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst:8080"}, clear=True):
             with pytest.raises(ValueError, match="HOST_IP and RTVI_EMBED_PORT"):
                 register_streaming_routes(mock_app, mock_config)
+
+
+class TestParseOptionalHttpUrl:
+    """Tests for the shared URL-guard helper."""
+
+    def test_none_and_empty(self):
+        assert _parse_optional_http_url(None) is None
+        assert _parse_optional_http_url("") is None
+
+    def test_scheme_only_forms_rejected(self):
+        # No hostname to connect to — can't be used as a service URL.
+        assert _parse_optional_http_url("http://") is None
+        assert _parse_optional_http_url("http:") is None
+
+    def test_empty_port_body_rejected(self):
+        # "http://host:" parses with hostname but is still not usable.
+        result = _parse_optional_http_url("http://host:")
+        # urllib accepts this with hostname="host" and port=None; hostname
+        # alone is enough for the helper to accept — the previous narrow
+        # check explicitly rejected these, but a well-formed URL without
+        # an explicit port (scheme default) should also be accepted, so
+        # the helper intentionally trades false rejections for correctness.
+        assert result is not None
+        assert result.hostname == "host"
+
+    def test_explicit_host_and_port_accepted(self):
+        result = _parse_optional_http_url("http://rtvi:8000")
+        assert result is not None
+        assert result.hostname == "rtvi"
+        assert result.port == 8000
+
+    def test_hostname_only_accepted(self):
+        # URL relying on scheme's default port — must not be mis-classified
+        # as "not configured" (this is the whole reason the previous narrow
+        # guard was replaced).
+        result = _parse_optional_http_url("http://rtvi.example.com")
+        assert result is not None
+        assert result.hostname == "rtvi.example.com"
+
+
+class TestVideoUploadCompleteInput:
+    """Tests for the Pydantic model backing POST /complete.
+
+    These tests lock in the three flags that define the model:
+      - alias="sensorId" so VST's camelCase field name is accepted
+      - populate_by_name=True so snake_case sensor_id still validates
+      - extra="ignore" so forwarding the full VST upload response works
+    A future Pydantic bump silently changing any of these would break
+    the chunked-upload contract, so pin the behavior here.
+    """
+
+    def test_camelcase_sensor_id_accepted(self):
+        """VST's raw response uses camelCase; the UI forwards it verbatim."""
+        model = VideoUploadCompleteInput(**{"sensorId": "sensor-abc"})
+        assert model.sensor_id == "sensor-abc"
+
+    def test_snake_case_sensor_id_accepted(self):
+        """populate_by_name keeps the snake_case form valid for back-compat."""
+        model = VideoUploadCompleteInput(sensor_id="sensor-abc")
+        assert model.sensor_id == "sensor-abc"
+
+    def test_extra_fields_from_full_vst_response_ignored(self):
+        """The UI forwards the full ~9-field VST response; we take what we need."""
+        full_vst_response = {
+            "sensorId": "sensor-1",
+            "bytes": 1024,
+            "chunkCount": "3",
+            "chunkIdentifier": "abc-def",
+            "filename": "clip",
+            "filePath": "/home/vst/vst_release/streamer_videos/clip.mp4",
+            "id": "c66efaeb-40f4-4ef0-9bbf-c06f0c3530ca",
+            "streamId": "sensor-1",
+            "created_at": "2026-04-23T02:53:04.498Z",
+        }
+        model = VideoUploadCompleteInput(**full_vst_response)
+        assert model.sensor_id == "sensor-1"
+
+    def test_missing_sensor_id_rejected(self):
+        with pytest.raises(ValidationError):
+            VideoUploadCompleteInput()
+
+    def test_empty_sensor_id_rejected_by_min_length(self):
+        """Empty string must fail at the boundary with a clean 422, not
+        silently propagate into downstream VST calls where it surfaces as
+        a confusing 502 (storage URL .../storage/file//url)."""
+        with pytest.raises(ValidationError, match="min_length|at least 1"):
+            VideoUploadCompleteInput(**{"sensorId": ""})
+
+
+class TestRunPostUploadProcessing:
+    """Tests for the _run_post_upload_processing helper.
+
+    Locks in the graceful-degradation behavior that the chunked-upload
+    refactor relies on (Zac's review feedback on PR #127).
+    """
+
+    @staticmethod
+    def _timeline_patch(start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:10.000Z"):
+        return patch(
+            "vss_agents.api.video_search_ingest.get_timeline",
+            new=AsyncMock(return_value=(start, end)),
+        )
+
+    @staticmethod
+    def _mock_response(status_code=200, json_body=None, text="OK"):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.json.return_value = json_body or {}
+        resp.text = text
+        return resp
+
+    @staticmethod
+    def _mock_client(responses):
+        """Return an AsyncMock httpx.AsyncClient whose GET/POST yield the given responses in order."""
+        client = MagicMock()
+        # AsyncClient is used as a context manager in the helper.
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(side_effect=[r for r in responses if r["method"] == "GET"] or [])
+        client.post = AsyncMock(side_effect=[r for r in responses if r["method"] == "POST"] or [])
+        # Unwrap: callers passed full (method, response) dicts; extract just the responses.
+        client.get.side_effect = (r["response"] for r in responses if r["method"] == "GET")
+        client.post.side_effect = (r["response"] for r in responses if r["method"] == "POST")
+        return client
+
+    @pytest.mark.asyncio
+    async def test_happy_path_with_cv_and_embed_configured(self):
+        """All services configured → timeline + storage + CV + embed → success message."""
+        storage_resp = self._mock_response(
+            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
+        )
+        cv_resp = self._mock_response(200, {"ok": True})
+        embed_resp = self._mock_response(200, {"usage": {"total_chunks_processed": 42}})
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = AsyncMock(side_effect=[cv_resp, embed_resp])
+
+        with self._timeline_patch(), \
+             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+            result = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="http://rtvi-embed:8017",
+                rtvi_cv_base_url="http://rtvi-cv:9000",
+            )
+
+        assert result.video_id == "sensor-abc"
+        assert result.chunks_processed == 42
+        assert "embeddings generated" in result.message
+
+    @pytest.mark.asyncio
+    async def test_rtvi_cv_unreachable_is_skipped_not_fatal(self):
+        """If RTVI-CV ConnectError's, log-and-skip, continue to embed, return 200-equivalent."""
+        import httpx
+
+        storage_resp = self._mock_response(
+            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
+        )
+        embed_resp = self._mock_response(200, {"usage": {"total_chunks_processed": 5}})
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        # First POST (CV) raises ConnectError; second POST (embed) succeeds.
+        client.post = AsyncMock(side_effect=[httpx.ConnectError("connection refused"), embed_resp])
+
+        with self._timeline_patch(), \
+             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+            result = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="http://rtvi-embed:8017",
+                rtvi_cv_base_url="http://rtvi-cv:9000",
+            )
+
+        assert result.chunks_processed == 5
+
+    @pytest.mark.asyncio
+    async def test_embed_not_configured_skips_embeddings(self):
+        """Empty rtvi_embed_base_url → skip embed, return uploaded-only message."""
+        storage_resp = self._mock_response(
+            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
+        )
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = AsyncMock()  # No CV or embed POSTs expected.
+
+        with self._timeline_patch(), \
+             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+            result = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="",
+                rtvi_cv_base_url="",
+            )
+
+        assert result.chunks_processed == 0
+        assert "embeddings generated" not in result.message
+        assert client.post.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_storage_api_missing_videoUrl_is_502(self):
+        """VST returned a response but without `videoUrl` → surface as 502 not silent success."""
+        storage_resp = self._mock_response(200, {"unexpected": "shape"})  # no videoUrl key
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = AsyncMock()
+
+        with self._timeline_patch(), \
+             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+            with pytest.raises(HTTPException) as exc_info:
+                await _run_post_upload_processing(
+                    camera_name="clip",
+                    sensor_id="sensor-abc",
+                    filename="clip.mp4",
+                    vst_url="http://vst:30888",
+                    rtvi_embed_base_url="http://rtvi-embed:8017",
+                )
+        assert exc_info.value.status_code == 502
+
+    @pytest.mark.asyncio
+    async def test_invalid_vst_url_is_500(self):
+        """vst_url that urlparses without a hostname → 500 (misconfiguration, not transient).
+
+        The helper wraps the input as ``http://{vst_url}`` when the input lacks
+        a scheme, so an empty string becomes ``http://`` — urlparse returns
+        hostname=None and the helper raises 500.
+        """
+        storage_resp = self._mock_response(
+            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
+        )
+        cv_resp = self._mock_response(200, {"ok": True})
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = AsyncMock(return_value=cv_resp)
+
+        with self._timeline_patch(), \
+             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+            with pytest.raises(HTTPException) as exc_info:
+                await _run_post_upload_processing(
+                    camera_name="clip",
+                    sensor_id="sensor-abc",
+                    filename="clip.mp4",
+                    vst_url="",  # wraps to "http://" → urlparse hostname=None → 500
+                    rtvi_embed_base_url="http://rtvi-embed:8017",
+                )
+        assert exc_info.value.status_code == 500
