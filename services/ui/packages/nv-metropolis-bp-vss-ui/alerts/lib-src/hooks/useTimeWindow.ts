@@ -7,8 +7,9 @@
  * selection interface.
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { parseTimeInput, parseTimeLimit, formatTimeWindow } from '../utils/timeUtils';
+import { useSessionState } from './useSessionState';
 
 interface UseTimeWindowOptions {
   defaultTimeWindow?: number;
@@ -20,7 +21,11 @@ interface UseTimeWindowOptions {
  * 
  */
 export const useTimeWindow = ({ defaultTimeWindow = 10, maxSearchTimeLimit }: UseTimeWindowOptions = {}) => {
-  const [timeWindow, setTimeWindow] = useState<number>(defaultTimeWindow);
+  const [timeWindow, setTimeWindow] = useSessionState<number>(
+    'alertsTabTimeWindow', defaultTimeWindow,
+    (s) => { const n = Number(s); return Number.isInteger(n) && n > 0 ? n : null; },
+  );
+
   const [showCustomTimeInput, setShowCustomTimeInput] = useState<boolean>(false);
   const [customTimeValue, setCustomTimeValue] = useState<string>('');
   const [customTimeError, setCustomTimeError] = useState<string>('');
@@ -28,16 +33,10 @@ export const useTimeWindow = ({ defaultTimeWindow = 10, maxSearchTimeLimit }: Us
   // Parse max time limit (0 means unlimited)
   const maxTimeLimitInMinutes = parseTimeLimit(maxSearchTimeLimit);
 
-  /**
-   * Handles changes to the custom time input field with real-time validation
-   * 
-   */
-  const handleCustomTimeChange = (value: string) => {
+  const handleCustomTimeChange = useCallback((value: string) => {
     setCustomTimeValue(value);
     if (value.trim()) {
       const result = parseTimeInput(value);
-      
-      // Check if input exceeds max time limit (if limit is set)
       if (!result.error && maxTimeLimitInMinutes > 0 && result.minutes > maxTimeLimitInMinutes) {
         setCustomTimeError(`Time cannot exceed ${formatTimeWindow(maxTimeLimitInMinutes)}`);
       } else {
@@ -46,45 +45,28 @@ export const useTimeWindow = ({ defaultTimeWindow = 10, maxSearchTimeLimit }: Us
     } else {
       setCustomTimeError('');
     }
-  };
+  }, [maxTimeLimitInMinutes]);
 
-  /**
-   * Applies the custom time input if validation passes
-   */
-  const handleSetCustomTime = () => {
-    // Don't apply if there's already an error in state
-    if (customTimeError) {
-      return;
-    }
-    
+  const handleSetCustomTime = useCallback(() => {
+    if (customTimeError) return;
     const result = parseTimeInput(customTimeValue);
-    
-    // Apply if valid (validation already done in handleCustomTimeChange)
     if (result.minutes > 0 && !result.error) {
       setTimeWindow(result.minutes);
       setShowCustomTimeInput(false);
       setCustomTimeValue('');
       setCustomTimeError('');
     }
-  };
+  }, [customTimeError, customTimeValue, setTimeWindow]);
 
-  /**
-   * Cancels custom time input and resets the modal state
-   * 
-   */
-  const handleCancelCustomTime = () => {
+  const handleCancelCustomTime = useCallback(() => {
     setShowCustomTimeInput(false);
     setCustomTimeValue('');
     setCustomTimeError('');
-  };
+  }, []);
 
-  /**
-   * Opens the custom time input modal
-   * 
-   */
-  const openCustomTimeInput = () => {
+  const openCustomTimeInput = useCallback(() => {
     setShowCustomTimeInput(true);
-  };
+  }, []);
 
   return {
     timeWindow,

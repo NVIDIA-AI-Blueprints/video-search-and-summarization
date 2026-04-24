@@ -8,7 +8,14 @@ import { MemoizedChatMessage } from './MemoizedChatMessage';
 import { CustomAgentParamsValues } from './CustomAgentParams';
 import { InteractionModal } from '@/components/Chat/ChatInteractionMessage';
 import HomeContext from '@/pages/api/home/home.context';
-import { ChatBody, Conversation, Message, CustomAgentParams } from '@/types/chat';
+import {
+  ChatBody,
+  Conversation,
+  Message,
+  CustomAgentParams,
+  QueryDataContext,
+  type CallerInfo,
+} from '@/types/chat';
 import {
   WebSocketInbound,
   validateWebSocketMessage,
@@ -175,7 +182,23 @@ export const Chat = () => {
     onAnswerCompleteWithContent,
     onSubmitMessageReady,
     onMessageSubmitted,
+    onAddQueryContextReady,
   } = useContext(HomeContext);
+
+  const [queryContextItems, setQueryContextItems] = useState<QueryDataContext[]>([]);
+  const queryContextRef = useRef<QueryDataContext[]>([]);
+  useEffect(() => { queryContextRef.current = queryContextItems; }, [queryContextItems]);
+
+  const handleAddQueryContext = useCallback((item: QueryDataContext) => {
+    setQueryContextItems((prev) => {
+      if (prev.some((c) => c.id === item.id)) return prev;
+      return [...prev, item];
+    });
+  }, []);
+
+  const handleRemoveQueryContext = useCallback((itemId: string) => {
+    setQueryContextItems((prev) => prev.filter((c) => c.id !== itemId));
+  }, []);
 
   const [currentMessage, setCurrentMessage] = useState<Message>();
   const [autoScrollEnabled, setAutoScrollEnabled] = useState<boolean>(true);
@@ -725,7 +748,7 @@ export const Chat = () => {
         const lastMsg = conv?.messages?.slice(-1)[0];
         if (lastMsg?.role === 'assistant' && typeof lastMsg.content === 'string') {
           onAnswerComplete?.();
-          onAnswerCompleteWithContent?.(lastMsg.content);
+          handleCompletedAnswerWithContent(lastMsg.content);
         }
       }, 200);
       return;
@@ -821,6 +844,54 @@ export const Chat = () => {
       }
     }
   };
+
+  // CallerInfo is what the parent app passes to the Chat sidebar.
+  // It can be used to annotate the latest assistant message with the caller info.
+  const annotateLatestAssistantMessageWithCallerInfo = useCallback(
+    (callerInfo?: CallerInfo) => {
+      if (!callerInfo) return;
+      const conversation = selectedConversationRef.current;
+      const allConversations = conversationsRef.current;
+      if (!conversation) return;
+      const assistantIdx = conversation.messages
+        .map((msg) => msg.role)
+        .lastIndexOf('assistant');
+      if (assistantIdx < 0) return;
+
+      const currentInfo = conversation.messages[assistantIdx].callerInfo;
+      if (currentInfo === callerInfo) return;
+
+      const updatedMessages = [...conversation.messages];
+      updatedMessages[assistantIdx] = {
+        ...updatedMessages[assistantIdx],
+        callerInfo,
+      };
+      const updatedConversation = { ...conversation, messages: updatedMessages };
+      const { single, all } = updateConversation(
+        updatedConversation,
+        allConversations || [],
+        storageKeyPrefix,
+      );
+      selectedConversationRef.current = single;
+      conversationsRef.current = all;
+      homeDispatch({ field: 'selectedConversation', value: single });
+      homeDispatch({ field: 'conversations', value: all });
+    },
+    [storageKeyPrefix, homeDispatch],
+  );
+
+  const handleCompletedAnswerWithContent = useCallback(
+    (answer: string) => {
+      const callerInfo = onAnswerCompleteWithContent?.(answer);
+      annotateLatestAssistantMessageWithCallerInfo(
+        typeof callerInfo === 'string' ? callerInfo : undefined,
+      );
+    },
+    [
+      annotateLatestAssistantMessageWithCallerInfo,
+      onAnswerCompleteWithContent,
+    ],
+  );
 
   const handleSend = useCallback(
     async (message: Message, deleteCount = 0, retry = false) => {
@@ -1024,7 +1095,7 @@ export const Chat = () => {
               'Conversation-Id': selectedConversation?.id || '',
               'User-Message-ID': messageWithNewId?.id || '',
             },
-            signal: controllerRef.current.signal, // Use ref here
+            signal: controllerRef.current.signal,
             body,
           });
 
@@ -1351,7 +1422,7 @@ export const Chat = () => {
               homeDispatch({ field: 'messageIsStreaming', value: false });
               homeDispatch({ field: 'loading', value: false });
               onAnswerComplete?.();
-              onAnswerCompleteWithContent?.(text);
+              handleCompletedAnswerWithContent(text);
             }, 200);
           } else {
             const { answer } = await response?.json();
@@ -1387,7 +1458,7 @@ export const Chat = () => {
             homeDispatch({ field: 'loading', value: false });
             homeDispatch({ field: 'messageIsStreaming', value: false });
             onAnswerComplete?.();
-            onAnswerCompleteWithContent?.(answer);
+            handleCompletedAnswerWithContent(answer);
           }
         } catch (error) {
           saveConversation(updatedConversation, storageKeyPrefix);
@@ -1414,7 +1485,7 @@ export const Chat = () => {
       enableIntermediateSteps,
       storageKeyPrefix,
       onAnswerComplete,
-      onAnswerCompleteWithContent,
+      handleCompletedAnswerWithContent,
       onMessageSubmitted,
     ]
   );
@@ -1435,6 +1506,12 @@ export const Chat = () => {
     };
     onSubmitMessageReady(submitMessage);
   }, [onSubmitMessageReady, selectedConversation?.id, onMessageSubmitted]);
+
+  // Expose addQueryContext to embedder so external panels can add context items to the chat input
+  useEffect(() => {
+    if (!onAddQueryContextReady) return;
+    onAddQueryContextReady(handleAddQueryContext);
+  }, [onAddQueryContextReady, handleAddQueryContext]);
 
   // Create stable onEdit callback to prevent unnecessary re-renders of MemoizedChatMessage
   // Uses ref to access the latest handleSend without depending on it directly
@@ -1499,16 +1576,22 @@ export const Chat = () => {
       setAutoScrollEnabled(false);
       homeDispatch({ field: 'autoScroll', value: false });
       // Fallback: when streaming just ended, notify embedder so attention signal is not missed
-      if (wasStreaming && (onAnswerComplete || onAnswerCompleteWithContent)) {
+      const shouldNotifyCompletion = onAnswerComplete || onAnswerCompleteWithContent;
+      if (wasStreaming && shouldNotifyCompletion) {
         const conv = selectedConversationRef.current;
         const lastMsg = conv?.messages?.slice(-1)[0];
         if (lastMsg?.role === 'assistant' && typeof lastMsg.content === 'string') {
           onAnswerComplete?.();
-          onAnswerCompleteWithContent?.(lastMsg.content);
+          handleCompletedAnswerWithContent(lastMsg.content);
         }
       }
     }
-  }, [messageIsStreaming, onAnswerComplete, onAnswerCompleteWithContent]);
+  }, [
+    messageIsStreaming,
+    onAnswerComplete,
+    onAnswerCompleteWithContent,
+    handleCompletedAnswerWithContent,
+  ]);
 
   // Add an effect to set up wheel and touchmove event listeners
   useEffect(() => {
@@ -1637,19 +1720,34 @@ export const Chat = () => {
     };
   }, [autoScrollEnabled, messageIsStreaming]);
 
+  /** Matches ChatHeader: welcome vs conversation layout */
+  const hasConversationMessages =
+    (selectedConversation?.messages?.length ?? 0) > 0;
+
   return (
-    <div className="relative flex-1 overflow-hidden bg-white dark:bg-[#343541] transition-all duration-300 ease-in-out">
+    <div className="relative flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden bg-white dark:bg-black transition-all duration-300 ease-in-out">
       <>
         <div
-          className="max-h-full overflow-x-hidden"
-          ref={chatContainerRef}
-          onScroll={handleScroll}
+          className={
+            hasConversationMessages
+              ? 'w-full shrink-0'
+              : 'flex min-h-0 flex-1 flex-col'
+          }
         >
-          <ChatHeader 
+          <ChatHeader
             webSocketModeRef={webSocketModeRef}
             onSend={(message) => handleSend(message, 0)}
           />
-          
+        </div>
+        <div
+          className={
+            hasConversationMessages
+              ? 'min-h-0 flex-1 overflow-x-hidden overflow-y-auto'
+              : 'h-0 shrink-0 overflow-hidden'
+          }
+          ref={chatContainerRef}
+          onScroll={handleScroll}
+        >
           {selectedConversation?.messages.map((message, index, arr) => {
             // Hide hidden messages (used for auto-generated prompts like video upload)
             if (message.hidden) {
@@ -1680,13 +1778,26 @@ export const Chat = () => {
           })}
           {loading && <ChatLoader statusUpdateText={`Thinking...`} />}
           <div
-            className="h-[162px] bg-white dark:bg-[#343541]"
+            className={`bg-white dark:bg-black ${
+              (selectedConversation?.messages?.length ?? 0) > 0 || loading
+                ? 'h-[162px]'
+                : 'h-0'
+            }`}
             ref={messagesEndRef}
           ></div>
         </div>
         <ChatInput
           textareaRef={textareaRef}
+          queryContextItems={queryContextItems}
+          onRemoveQueryContext={handleRemoveQueryContext}
           onSend={(message, customParams) => {
+            const items = queryContextRef.current;
+            if (items.length > 0) {
+              const contextJson = JSON.stringify(items.map(({ label, type, data }) => ({ label, type, ...data })));
+              const prefix = `[Context: ${contextJson}]`;
+              message = { ...message, content: message.content ? `${prefix}\n\n${message.content}` : prefix };
+              setQueryContextItems([]);
+            }
             setCurrentMessage(message);
             if (customParams) {
               customAgentParamsRef.current = customParams;

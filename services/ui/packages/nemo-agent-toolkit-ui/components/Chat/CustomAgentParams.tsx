@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 // Type definitions matching .env format
 export type ParamType = 'string' | 'number' | 'boolean' | 'select';
@@ -31,14 +32,36 @@ interface CustomAgentParamsProps {
 const generateId = () => Math.random().toString(36).substring(2, 11);
 
 // Reusable input styles
-const inputClass = "w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#76b900]";
+const inputClass = "w-full px-2 py-1.5 text-sm bg-gray-50 dark:bg-black border border-gray-200 dark:border-gray-600 rounded-md text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#76b900]";
+
+const OVERLAY_Z = 100; // Above ChatHeader menu bar (z-20)
 
 export const CustomAgentParams: React.FC<CustomAgentParamsProps> = ({
   isOpen,
   onClose,
   fields,
   onFieldsChange,
+  anchorRef,
 }) => {
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+
+  // Position dialog from anchor (for portal)
+  useLayoutEffect(() => {
+    if (!isOpen || !anchorRef?.current) {
+      setAnchorRect(null);
+      return;
+    }
+    const anchorElement = anchorRef.current;
+    const updatePosition = () => setAnchorRect(anchorElement.getBoundingClientRect());
+    updatePosition();
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(anchorElement);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen, anchorRef]);
 
   // Handle escape key
   useEffect(() => {
@@ -54,6 +77,25 @@ export const CustomAgentParams: React.FC<CustomAgentParamsProps> = ({
       document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen, onClose]);
+
+  // Re-run position when window resizes so inline style (window.innerWidth/innerHeight + anchorRect) stays correct
+  useEffect(() => {
+    if (!isOpen || !anchorRef?.current) return;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const handleResize = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        if (anchorRef?.current) setAnchorRect(anchorRef.current.getBoundingClientRect());
+      }, 50);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(timeoutId);
+    };
+  }, [isOpen, anchorRef]);
 
   const handleFieldChange = useCallback((id: string, value: string | number | boolean) => {
     onFieldsChange(
@@ -129,43 +171,64 @@ export const CustomAgentParams: React.FC<CustomAgentParamsProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  const dialogContent = (
     <>
       {/* Invisible backdrop to capture outside clicks */}
-      <div 
-        className="fixed inset-0 z-40" 
+      <div
+        className="fixed inset-0"
+        style={{ zIndex: OVERLAY_Z }}
         onClick={onClose}
+        aria-hidden
       />
-      {/* Dialog */}
-      <div className="absolute bottom-full right-0 mb-2 min-w-60 max-w-80 bg-white dark:bg-[#2d2d30] rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
-        {/* Form Content */}
+      {/* Dialog - fixed position when portaled so it stacks above menu bar */}
+      <div
+        className="min-w-60 max-w-80 bg-white dark:bg-black rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+        style={
+          anchorRect
+            ? {
+                position: 'fixed',
+                bottom: window.innerHeight - anchorRect.top + 8,
+                right: window.innerWidth - anchorRect.right,
+                zIndex: OVERLAY_Z + 1,
+              }
+            : undefined
+        }
+        role="dialog"
+        aria-label="Agent parameters"
+      >
         <div className="p-4 space-y-4 max-h-[400px] overflow-y-auto">
-          {fields.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-              No parameters configured.
-            </p>
-          ) : (
-            fields.map((field) => (
-              <div key={field.id} className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label 
-                    className="text-sm font-medium text-gray-700 dark:text-gray-300"
-                    title={field['tooltip-info']}
-                  >
-                    {field.label}
-                  </label>
-                  {field.type === 'boolean' && renderValueInput(field)}
+            {fields.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+                No parameters configured.
+              </p>
+            ) : (
+              fields.map((field) => (
+                <div key={field.id} className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label
+                      className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                      title={field['tooltip-info']}
+                    >
+                      {field.label}
+                    </label>
+                    {field.type === 'boolean' && renderValueInput(field)}
+                  </div>
+                  {field.type !== 'boolean' && (
+                    <div>{renderValueInput(field)}</div>
+                  )}
                 </div>
-                {field.type !== 'boolean' && (
-                  <div>{renderValueInput(field)}</div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
+              ))
+            )}
+          </div>
       </div>
     </>
   );
+
+  // Portal to body so z-index stacks above ChatHeader menu bar
+  if (typeof document !== 'undefined') {
+    return createPortal(dialogContent, document.body);
+  }
+  return dialogContent;
 };
 
 // Helper function to convert fields to payload object

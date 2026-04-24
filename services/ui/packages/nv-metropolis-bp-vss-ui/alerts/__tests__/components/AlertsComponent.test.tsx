@@ -17,17 +17,62 @@ import { render, screen } from '@testing-library/react';
 import { AlertsComponent } from '../../lib-src/AlertsComponent';
 import { AlertsComponentProps } from '../../lib-src/types';
 
-// Mock the VideoModal component from @nemo-agent-toolkit/ui
-// The mock is defined in __mocks__/@nemo-agent-toolkit-ui.js
-jest.mock('@nemo-agent-toolkit/ui');
+// Mock @nvidia/foundations-react-core (Button, Select, Switch used by FilterControls)
+jest.mock('@nvidia/foundations-react-core', () => {
+  const React = require('react');
+  return {
+    Button: React.forwardRef(({ children, ...rest }: any, ref: any) =>
+      React.createElement('button', { ...rest, ref, 'data-foundation': 'Button' }, children),
+    ),
+    Select: React.forwardRef(({ items, onValueChange, value, ...rest }: any, ref: any) =>
+      React.createElement(
+        'select',
+        {
+          ...rest,
+          ref,
+          'data-foundation': 'Select',
+          value,
+          onChange: (e: any) => onValueChange?.(e.target.value),
+        },
+        items?.map((item: any) =>
+          React.createElement('option', { key: item.value, value: item.value }, item.children),
+        ),
+      ),
+    ),
+    Switch: React.forwardRef(({ checked, onCheckedChange, ...rest }: any, ref: any) =>
+      React.createElement('input', {
+        ...rest,
+        ref,
+        type: 'checkbox',
+        checked,
+        'data-foundation': 'Switch',
+        onChange: (e: any) => onCheckedChange?.(e.target.checked),
+      }),
+    ),
+  };
+});
+
+// Mock @aiqtoolkit-ui/common (VideoModal + useVideoModal)
+jest.mock('@aiqtoolkit-ui/common', () => ({
+  VideoModal: jest.fn(() => null),
+  useVideoModal: jest.fn(() => ({
+    videoModal: { isOpen: false, videoUrl: '', title: '' },
+    openVideoModalFromAlert: jest.fn(),
+    closeVideoModal: jest.fn(),
+    loadingAlertId: null,
+  })),
+}));
 
 // Mock the hooks
 jest.mock('../../lib-src/hooks/useAlerts', () => ({
   useAlerts: jest.fn(() => ({
     alerts: [],
     loading: false,
+    loadingMore: false,
     error: null,
     refetch: jest.fn(),
+    loadMoreAlerts: jest.fn(),
+    canLoadMore: false,
   })),
 }));
 
@@ -52,18 +97,6 @@ jest.mock('../../lib-src/hooks/useFilters', () => ({
     sensors: new Set(),
     alertTypes: new Set(),
     alertTriggered: new Set(),
-  })),
-}));
-
-jest.mock('../../lib-src/hooks/useVideoModal', () => ({
-  useVideoModal: jest.fn(() => ({
-    videoModal: {
-      isOpen: false,
-      videoUrl: '',
-      title: '',
-    },
-    openVideoModal: jest.fn(),
-    closeVideoModal: jest.fn(),
   })),
 }));
 

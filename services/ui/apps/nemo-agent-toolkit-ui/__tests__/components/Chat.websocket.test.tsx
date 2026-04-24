@@ -1651,7 +1651,7 @@ describe('WebSocket Functionality', () => {
         );
 
         // Modal should still render with basic structure
-        expect(document.querySelector('.fixed')).toBeInTheDocument();
+        expect(screen.getByTestId('hitl-modal')).toBeInTheDocument();
       });
     });
 

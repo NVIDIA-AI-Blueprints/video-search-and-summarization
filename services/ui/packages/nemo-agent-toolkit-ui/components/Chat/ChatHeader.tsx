@@ -65,22 +65,26 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
   // Shared content for the header
   const renderHeaderContent = (uploadProps?: { 
     triggerFilePicker: () => void; 
+    fileInputId: string;
     isUploading: boolean; 
     isDragging: boolean; 
     dragHandlers: any;
   }) => (
     <div
+      className={hasMessages ? 'relative' : 'relative min-h-full'}
+    >
+      <div
       className={`top-0 z-10 flex justify-center items-center h-12 ${
         hasMessages
-          ? 'bg-[#76b900] sticky'
+          ? 'bg-white border-b border-gray-200'
           : 'bg-none'
-      }  py-2 px-4 text-sm text-white dark:border-none dark:bg-black dark:text-neutral-200`}
+      }  py-2 px-4 text-sm text-black dark:border-none dark:bg-black dark:text-neutral-200`}
     >
       {hasMessages ? (
         <div
           className={`absolute top-6 left-1/2 transform -translate-x-1/2 -translate-y-1/2`}
         >
-          <span className="text-lg font-semibold text-white">{workflow}</span>
+          <span className="text-lg font-semibold text-black dark:text-white">{workflow}</span>
         </div>
       ) : (
         /* Welcome screen */
@@ -97,14 +101,14 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
           
           {/* File Upload Drop Zone - only show when upload is enabled  */}
           {chatUploadFileEnabled && uploadProps && (
-            <div
-              onClick={uploadProps.triggerFilePicker}
+            <label
+              htmlFor={uploadProps.fileInputId}
               className={`
-                w-full max-w-md cursor-pointer rounded-xl border-2 border-dashed p-8 
+                w-full max-w-md cursor-pointer rounded-xl border-2 border-dashed p-8 block
                 transition-all duration-300 ease-in-out
                 ${uploadProps.isDragging 
                   ? 'border-[#76b900] bg-[#76b900]/10 scale-105 shadow-lg shadow-[#76b900]/20' 
-                  : 'border-gray-300 dark:border-gray-600 hover:border-[#76b900] hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                  : 'border-gray-300 dark:border-gray-600 hover:border-[#76b900] hover:bg-gray-50 dark:hover:bg-black/50'
                 }
                 ${uploadProps.isUploading ? 'opacity-50 pointer-events-none' : ''}
               `}
@@ -114,13 +118,13 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
                   p-4 rounded-2xl transition-all duration-300
                   ${uploadProps.isDragging 
                     ? 'bg-[#76b900]/20 text-[#76b900]' 
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
+                    : 'bg-[#76b900]/15 text-[#76b900]'
                   }
                 `}>
                   <IconUpload size={48} stroke={1.5} />
                 </div>
                 
-                <div className="text-center">
+                <div data-testid="upload-drop-zone-text" className="text-center">
                   <p className={`text-base font-medium mb-1 transition-colors duration-300 ${
                     uploadProps.isDragging 
                       ? 'text-[#76b900]' 
@@ -135,16 +139,14 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
                   Movie Files (mp4, mkv)
                 </p>
               </div>
-            </div>
+            </label>
           )}
         </div>
       )}
 
       {/* Collapsible Menu - opaque background so it hides the title when expanded */}
       <div
-        className={`fixed right-0 top-0 h-12 pl-6 flex items-center transition-all duration-300 z-20 ${
-          hasMessages ? 'bg-[#76b900] dark:bg-black' : 'bg-white dark:bg-black'
-        }`}
+        className={`absolute right-0 top-0 h-12 pl-6 flex items-center transition-all duration-300 z-20 bg-white dark:bg-black`}
       >
         <button
           onClick={() => {
@@ -243,7 +245,7 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
                     value: newMode,
                   });
                 }}
-                className="rounded-full flex items-center justify-center bg-none dark:bg-gray-700 transition-colors duration-300 focus:outline-none"
+                className="rounded-full flex items-center justify-center bg-none dark:bg-gray-900 transition-colors duration-300 focus:outline-none"
               >
                 {lightMode === 'dark' ? (
                   <IconSun className="w-6 h-6 text-yellow-500 transition-transform duration-300" />
@@ -263,11 +265,11 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
               <IconUserFilled size={20} />
             </button>
             {isMenuOpen && (
-              <div className="absolute right-0 mt-2 px-2 w-auto rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
+              <div className="absolute right-0 mt-2 px-2 w-auto rounded-md shadow-lg bg-white dark:bg-black ring-1 ring-black ring-opacity-5">
                 <div className="py-1">
                   <button
                     onClick={handleLogin}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-neutral-800"
                   >
                     Login
                   </button>
@@ -277,6 +279,7 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 
@@ -288,8 +291,8 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
           onSend({ role: 'user', content: message, hidden: true });
         } : undefined}
       >
-        {({ triggerFilePicker, isUploading, isDragging, dragHandlers }) => 
-          renderHeaderContent({ triggerFilePicker, isUploading, isDragging, dragHandlers })
+        {({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers }) => 
+          renderHeaderContent({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers })
         }
       </ChatFileUpload>
     );

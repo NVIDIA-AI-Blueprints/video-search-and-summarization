@@ -19,7 +19,7 @@ import { saveFolders } from '@/utils/app/folders';
 
 import { APPLICATION_NAME } from '@/constants/constants';
 
-import { Conversation } from '@/types/chat';
+import { Conversation, type CallerInfo } from '@/types/chat';
 import { KeyValuePair } from '@/types/data';
 import { FolderInterface, FolderType } from '@/types/folder';
 
@@ -79,9 +79,9 @@ export interface NemoAgentToolkitAppProps {
 
   /**
    * Optional: called when an answer finishes, with the full assistant message text.
-   * The embedder can use this for any custom logic (e.g. update UI, trigger actions).
+   * The embedder can return a renderable HTML string for parent-app caller info.
    */
-  onAnswerCompleteWithContent?: (answer: string) => void;
+  onAnswerCompleteWithContent?: (answer: string) => CallerInfo | void;
 
   /**
    * Optional: called when the chat is ready; receives a function the embedder can call
@@ -94,7 +94,13 @@ export interface NemoAgentToolkitAppProps {
    * The embedder can use this to e.g. show an attention/highlight signal (new activity expected in chat).
    */
   onMessageSubmitted?: () => void;
-  
+
+  /**
+   * Optional: called when the chat is ready; receives a function the embedder can call
+   * to add a query context item (e.g. search result) to the chat input area.
+   */
+  onAddQueryContextReady?: (addItem: (item: { id: string; label: string; type: string; data: Record<string, unknown> }) => void) => void;
+
   // Other optional props for future extensibility
   className?: string;
   style?: React.CSSProperties;
@@ -113,6 +119,7 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     onAnswerCompleteWithContent,
     onSubmitMessageReady,
     onMessageSubmitted,
+    onAddQueryContextReady,
     className = '', 
     style = {} 
   } = props;
@@ -430,6 +437,7 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     onAnswerCompleteWithContent,
     onSubmitMessageReady,
     onMessageSubmitted,
+    onAddQueryContextReady,
   }), [
     contextValue,
     storageKeyPrefix,
@@ -443,6 +451,7 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     onAnswerCompleteWithContent,
     onSubmitMessageReady,
     onMessageSubmitted,
+    onAddQueryContextReady,
   ]);
 
   return (
@@ -461,20 +470,22 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
       )}
       {selectedConversation && (
         <main
-          className={`flex h-screen w-screen flex-col text-sm text-white dark:text-white ${lightMode} ${className}`}
+          className={`flex ${renderApplicationHead ? 'h-screen w-screen' : 'h-full w-full'} flex-col text-sm text-white dark:text-white ${lightMode} ${className}`}
           style={style}
         >
-          <div className="fixed top-0 w-full sm:hidden">
-            <Navbar
-              selectedConversation={selectedConversation}
-              onNewConversation={handleNewConversation}
-            />
-          </div>
+          {renderApplicationHead && (
+            <div className="fixed top-0 w-full sm:hidden">
+              <Navbar
+                selectedConversation={selectedConversation}
+                onNewConversation={handleNewConversation}
+              />
+            </div>
+          )}
 
-          <div className="flex h-full w-full sm:pt-0">
+          <div className="flex h-full w-full min-w-0 sm:pt-0">
             <Chatbar renderControlsInLeftSidebar={renderControlsInLeftSidebar} onControlsReady={onControlsReady} />
 
-            <div className="flex flex-1">
+            <div className="flex flex-1 min-w-0">
               <Chat />
             </div>
           </div>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Button } from '@nvidia/foundations-react-core';
 import type { StreamInfo } from '../types';
 import { getFileExtension, isRtspStream, fetchPictureWithQueue } from '../utils';
 import { createApiEndpoints } from '../api';
@@ -12,6 +13,8 @@ interface StreamCardProps {
   vstApiUrl?: string | null;
   onSelectionChange: (streamId: string, selected: boolean) => void;
   getEndTimeForStream: (streamId: string) => string | null;
+  onPlay?: (stream: StreamInfo) => void;
+  isLoadingPlay?: boolean;
 }
 
 export const StreamCard: React.FC<StreamCardProps> = ({
@@ -20,6 +23,8 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   vstApiUrl,
   onSelectionChange,
   getEndTimeForStream,
+  onPlay,
+  isLoadingPlay = false,
 }) => {
   const extension = getFileExtension(stream.url);
   const isRtsp = isRtspStream(stream);
@@ -30,8 +35,9 @@ export const StreamCard: React.FC<StreamCardProps> = ({
 
   useEffect(() => {
     let isMounted = true;
+    let retryTimer: NodeJS.Timeout | undefined;
 
-    const fetchThumbnail = async () => {
+    const fetchThumbnail = async (retryCount = 0) => {
       if (!vstApiUrl) {
         setThumbnailError(true);
         setIsLoadingThumbnail(false);
@@ -49,7 +55,13 @@ export const StreamCard: React.FC<StreamCardProps> = ({
           pictureUrl = apiEndpoints.LIVE_PICTURE(stream.streamId);
         } else {
           const endTime = getEndTimeForStream(stream.streamId);
-          if (!endTime) throw new Error('No timeline available');
+          if (!endTime) {
+            if (retryCount < 5 && isMounted) {
+              retryTimer = setTimeout(() => fetchThumbnail(retryCount + 1), 1000);
+              return;
+            }
+            throw new Error('No timeline available');
+          }
           pictureUrl = apiEndpoints.REPLAY_PICTURE(stream.streamId, endTime);
         }
 
@@ -73,7 +85,10 @@ export const StreamCard: React.FC<StreamCardProps> = ({
     };
 
     fetchThumbnail();
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [stream.streamId, isRtsp, vstApiUrl, getEndTimeForStream]);
 
   useEffect(() => {
@@ -121,9 +136,9 @@ export const StreamCard: React.FC<StreamCardProps> = ({
 
   return (
     <div
-      className={`rounded-lg border overflow-hidden bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 ${isSelected ? 'ring-2 ring-green-500' : ''}`}
+      className={`rounded-lg border overflow-hidden bg-white dark:bg-neutral-900 border-gray-200 dark:border-gray-700 ${isSelected ? 'ring-2 ring-green-500' : ''}`}
     >
-      <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800">
+      <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-neutral-900">
         <input
           type="checkbox"
           checked={isSelected}
@@ -136,25 +151,25 @@ export const StreamCard: React.FC<StreamCardProps> = ({
         >
           {stream.name}
         </p>
-        <button
-          type="button"
+        <Button
+          kind="tertiary"
+          size="small"
           onClick={handleCopyContext}
-          className="flex-shrink-0 px-2 py-1 rounded transition-colors text-[11px] font-medium flex items-center gap-1 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white"
           title="Copy sensor context"
         >
           {copyState === 'success' ? (
-            <IconCheck className="w-2.5 h-2.5" />
+            <IconCheck className="w-2.5 h-2.5" style={{ color: 'inherit' }} />
           ) : (
-            <IconCopy className="w-2.5 h-2.5" />
+            <IconCopy className="w-2.5 h-2.5" style={{ color: 'inherit' }} />
           )}
-          <span>
+          <span className="text-xs">
             {copyState === 'success' ? 'Copied' : copyState === 'error' ? 'Failed' : 'Copy'}
           </span>
-        </button>
+        </Button>
       </div>
 
       <div
-        className="relative flex items-center justify-center bg-gray-100 dark:bg-gray-900 pb-[56.25%]"
+        className="group relative flex items-center justify-center bg-gray-100 dark:bg-neutral-900 pb-[56.25%]"
       >
         {thumbnailUrl && !thumbnailError ? (
           <img src={thumbnailUrl} alt={stream.name} className="absolute inset-0 w-full h-full object-cover" />
@@ -163,7 +178,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
             <div className="animate-pulse w-8 h-8 rounded-full bg-gray-600" />
           </div>
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-neutral-900">
             <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gray-300 dark:bg-gray-700">
               <svg
                 className="text-gray-500 dark:text-gray-400"
@@ -187,17 +202,46 @@ export const StreamCard: React.FC<StreamCardProps> = ({
         <div className="absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
           {isRtsp ? 'RTSP' : extension || 'VIDEO'}
         </div>
+
+        {onPlay && (
+          <button
+            type="button"
+            onClick={() => !isLoadingPlay && onPlay(stream)}
+            disabled={isLoadingPlay}
+            className={`absolute inset-0 flex items-center justify-center transition-colors duration-200 ${
+              isLoadingPlay
+                ? 'bg-black/40 cursor-wait'
+                : 'bg-black/0 group-hover:bg-black/40 cursor-pointer'
+            }`}
+            aria-label={isLoadingPlay ? `Loading ${stream.name}` : `Play ${stream.name}`}
+          >
+            <div className={`w-12 h-12 flex items-center justify-center rounded-full bg-white/90 dark:bg-gray-800/90 shadow-lg transition-opacity duration-200 ${
+              isLoadingPlay ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}>
+              {isLoadingPlay ? (
+                <svg className="w-6 h-6 text-gray-800 dark:text-white animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6 text-gray-800 dark:text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
+            </div>
+          </button>
+        )}
       </div>
 
       <div className="px-3 py-2">
         <div className="flex items-center justify-end gap-2">
           {stream.metadata.codec && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {stream.metadata.codec.toUpperCase()}
             </span>
           )}
           {stream.metadata.framerate && (
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {parseFloat(stream.metadata.framerate).toFixed(0)} fps
             </span>
           )}

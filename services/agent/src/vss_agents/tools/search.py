@@ -681,6 +681,9 @@ async def fusion_search_rerank(
     return final_results
 
 
+_SIMILARITY_RATIO_THRESHOLD = 0.9
+
+
 def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchResult"]:
     """Merge consecutive/overlapping SearchResult chunks from the same sensor.
 
@@ -695,59 +698,61 @@ def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchRes
         return results
 
     # Results without timestamps (or with malformed ones) cannot be time-merged; pass them through as-is
-    timestamped: list[tuple[int, SearchResult]] = []
-    no_timestamp: list[tuple[int, SearchResult]] = []
-    for i, r in enumerate(results):
+    timestamped: list[SearchResult] = []
+    no_timestamp: list[SearchResult] = []
+    for r in results:
         if not r.start_time or not r.end_time:
-            no_timestamp.append((i, r))
+            no_timestamp.append(r)
             continue
         try:
             iso8601_to_datetime(r.start_time)
             iso8601_to_datetime(r.end_time)
-            timestamped.append((i, r))
+            timestamped.append(r)
         except (ValueError, TypeError) as e:
             logger.warning(f"Skipping merge for result with malformed timestamp (sensor={r.sensor_id}): {e}")
-            no_timestamp.append((i, r))
+            no_timestamp.append(r)
 
-    merged_with_pos: list[tuple[int, SearchResult]] = list(no_timestamp)
+    merged: list[SearchResult] = list(no_timestamp)
 
     if not timestamped:
-        merged_with_pos.sort(key=lambda x: x[0])
-        return [r for _, r in merged_with_pos]
+        merged.sort(key=lambda r: r.similarity, reverse=True)
+        return merged
 
-    # Group by sensor_id, tracking original list position for final ordering
-    by_sensor: dict[str, list[tuple[int, SearchResult]]] = {}
-    for i, result in timestamped:
-        by_sensor.setdefault(result.sensor_id, []).append((i, result))
+    # Group by sensor_id
+    by_sensor: dict[str, list[SearchResult]] = {}
+    for result in timestamped:
+        by_sensor.setdefault(result.sensor_id, []).append(result)
 
-    for sensor_id, indexed_results in by_sensor.items():
+    for sensor_id, sensor_results in by_sensor.items():
         # Sort by start_time within each sensor group
-        sorted_results = sorted(indexed_results, key=lambda x: x[1].start_time)
+        sorted_results = sorted(sensor_results, key=lambda r: r.start_time)
 
         # Build contiguous groups of overlapping/adjacent chunks
-        groups: list[tuple[int, list[SearchResult]]] = []  # (min original index, chunks)
-        group_min_idx = sorted_results[0][0]
-        group_chunks: list[SearchResult] = [sorted_results[0][1]]
-        group_end_dt = iso8601_to_datetime(sorted_results[0][1].end_time)
+        groups: list[list[SearchResult]] = []
+        group_chunks: list[SearchResult] = [sorted_results[0]]
+        group_end_dt = iso8601_to_datetime(sorted_results[0].end_time)
 
-        for idx, result in sorted_results[1:]:
+        for result in sorted_results[1:]:
             result_start_dt = iso8601_to_datetime(result.start_time)
-            if result_start_dt <= group_end_dt:
-                # Overlapping or adjacent — extend the current group
+            group_avg_sim = sum(c.similarity for c in group_chunks) / len(group_chunks)
+            pair_max = max(group_avg_sim, result.similarity)
+            pair_min = min(group_avg_sim, result.similarity)
+            sim_compatible = pair_max == 0 or (pair_min / pair_max) >= _SIMILARITY_RATIO_THRESHOLD
+
+            if result_start_dt <= group_end_dt and sim_compatible:
+                # Overlapping or adjacent with compatible similarity — extend the current group
                 result_end_dt = iso8601_to_datetime(result.end_time)
                 if result_end_dt > group_end_dt:
                     group_end_dt = result_end_dt
                 group_chunks.append(result)
-                group_min_idx = min(group_min_idx, idx)
             else:
-                groups.append((group_min_idx, group_chunks))
-                group_min_idx = idx
+                groups.append(group_chunks)
                 group_chunks = [result]
                 group_end_dt = iso8601_to_datetime(result.end_time)
-        groups.append((group_min_idx, group_chunks))
+        groups.append(group_chunks)
 
         # Collapse each group into a single SearchResult
-        for min_idx, group in groups:
+        for group in groups:
             first = group[0]
             end_dt = max(iso8601_to_datetime(g.end_time) for g in group)
             similarity = sum(g.similarity for g in group) / len(group)
@@ -760,28 +765,23 @@ def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchRes
                         merged_object_ids.append(oid)
                         seen_ids.add(oid)
 
-            merged_critic = None
-
-            merged_with_pos.append(
-                (
-                    min_idx,
-                    SearchResult(
-                        video_name=first.video_name,
-                        description=first.description,
-                        start_time=first.start_time,
-                        end_time=datetime_to_iso8601(end_dt),
-                        sensor_id=sensor_id,
-                        screenshot_url=first.screenshot_url,
-                        similarity=similarity,
-                        object_ids=merged_object_ids,
-                        critic_result=merged_critic,
-                    ),
+            merged.append(
+                SearchResult(
+                    video_name=first.video_name,
+                    description=first.description,
+                    start_time=first.start_time,
+                    end_time=datetime_to_iso8601(end_dt),
+                    sensor_id=sensor_id,
+                    screenshot_url=first.screenshot_url,
+                    similarity=similarity,
+                    object_ids=merged_object_ids,
+                    critic_result=None,
                 )
             )
 
-    # Restore ranking order by minimum original index of each merged group
-    merged_with_pos.sort(key=lambda x: x[0])
-    return [r for _, r in merged_with_pos]
+    # Sort by descending similarity so best matches come first
+    merged.sort(key=lambda r: r.similarity, reverse=True)
+    return merged
 
 
 # ===== SHARED CORE SEARCH LOGIC =====
