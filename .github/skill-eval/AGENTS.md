@@ -279,6 +279,7 @@ uvx harbor run \
   --ae CLAUDE_CODE_DISABLE_THINKING=1 \
   --environment-build-timeout-multiplier 3.0 \
   --agent-timeout-multiplier 3.0 \
+  --verifier-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
   -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
 ```
@@ -323,6 +324,17 @@ Notes that have burned prior runs:
   `NonZeroAgentExitCodeError` (exit 124). Mirrors the env-build
   multiplier so trials don't trip on cold-box runtime cost the same
   way they don't trip on cold-box provision cost.
+- `--verifier-timeout-multiplier 3.0` raises harbor's verifier
+  execution ceiling from the 600s default to 1800s. Our
+  `generic_judge.py` spawns a claude-agent-sdk judge **per check**
+  with `Bash` + `Read` + `Grep` tools — specs like `vios` carry 4-6
+  checks, each potentially probing the live stack, so the aggregate
+  verify pass compounds past 600s and harbor raises
+  `VerifierTimeoutError`. This is the third of three timeout
+  multipliers we lift for cold-box + LLM-judge realities: env-build
+  (provision), agent (runtime), verifier (judge). All three match
+  at 3.0 so any one bumped individually doesn't become the new
+  bottleneck.
 - Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
   Then migrate to the viewer (see § Harbor viewer).
 
