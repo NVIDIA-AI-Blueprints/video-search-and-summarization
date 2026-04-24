@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# LVS profile — install overrides (equiv. dev-profile.sh up -p lvs -H H100, bp_developer_lvs_2d)
+# Install: helm upgrade --install vss . -f values-lvs.yaml -n vss --create-namespace
+#
+# Set ngc.apiKey, global.storageClass, global.externalHost (+ optional scheme/port), global.kibanaPublicUrl, and vssIngress as needed.
+# Stack + NIM defaults live in chart values.yaml.
+
+profile: lvs
+mode: ""
+llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
+vlmNameSlug: <replace-with-vlm-name> # e.g. nvidia-cosmos-reason2-8b (chart key under nims/charts/)
+vlmName: "nvidia/cosmos-reason2-8b"
+
+ngc:
+  createSecrets: true
+  apiKey: ""
+
+global:
+  storageClass: "" # e.g. oci-bv-high, gp3, standard, local-path
+  externalScheme: "http" # http or https
+  externalHost: "EXTERNAL_HOST" # e.g. vss.140.238.75.84.nip.io
+  externalPort: "" # Default 80 (http) / 443 (https): use "" — chart omits :port in URLs. Non-default port only: e.g. "8080", "8443".
+  # Must be a real browser URL; Helm does not substitute EXTERNAL_HOST here from global.externalHost. Match your ingress host (often http://kibana.<same-as-externalHost>).
+  kibanaPublicUrl: "http://kibana.EXTERNAL_HOST"
+  # Remote NIM: one place for vss-agent + vss-summarization. Use the same base URL for both (e.g. http://host:31081); vss-summarization adds /v1 internally when absent.
+  llmBaseUrl: ""
+  vlmBaseUrl: ""
+  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  vlmName: "nvidia/cosmos-reason2-8b"
+
+
+# Shared umbrella helm/services/nims — override gpuType here (see dev-profile-lvs/values.yaml for full nims.* defaults).
+nims:
+  enabled: true
+  gpuType: RTXPRO6000BW
+
+# VIOS umbrella (../../services/vios): parent Chart.yaml uses condition: vios.enabled — keep true here or in values.yaml or the whole VST stack is skipped.
+vios:
+  enabled: true
+
+# vss-agent / vss-summarization model ids: set global.llmName / global.vlmName above (override with agent.vss-agent.llmName or vss-summarization.llmName if needed).
+
+# In-cluster LVS → LLM/VLM: optional llmService / vlmService slugs under vss-summarization (defaults match nims). Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
+# LVS backend routes VLM calls through vss-rtvi-vlm by default (USE_RTVI_VLM / RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
+vss-summarization:
+  llmService: ""
+  vlmService: ""
+
+# LVS always enables vss-rtvi-vlm (shared NIM, no Kafka). Override here only when you need a different image tag,
+# a dedicated GPU (useSharedNim: false), or edge VLM_INPUT_* defaults. See values.yaml for the full env list.
+rtvi:
+  enabled: true
+  vss-rtvi-vlm:
+    enabled: true
+    useSharedNim: true
+
+# Helm-managed Ingress (uses existing IngressClass). Set ingressClassName to match your controller (default haproxy).
+vssIngress:
+  enabled: true
+  ingressClassName: haproxy
+  host: ""
+  vssUiPort: 3000
+  vssAgentPort: 8000
+  vstIngressPort: 30888
+  kibanaHost: ""
+  phoenixHost: ""
+  kibanaPort: 5601
+  phoenixPort: 6006

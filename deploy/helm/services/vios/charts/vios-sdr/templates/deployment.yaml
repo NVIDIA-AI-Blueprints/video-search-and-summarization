@@ -1,0 +1,202 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-vios-sdr.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-vios-sdr
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-vios-sdr
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-vios-sdr
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- if eq .Values.clusterType "kubernetes" }}
+      serviceAccountName: {{ include "vss-vios-sdr.fullname" . }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.initContainers (ne false .Values.initContainers.enabled) }}
+      initContainers:
+        - name: wait-redis
+          image: {{ .Values.initContainers.image | default "busybox:1.37.0" }}
+          command: ['sh', '-c', 'until nc -z -w 2 {{ .Values.redisServer | default (include "vss-vios-sdr.peerShort" (dict "root" . "short" "redis")) }} {{ .Values.redisPort | default "6379" }}; do echo "Waiting for Redis..."; sleep 2; done']
+        - name: wait-streamprocessing
+          image: {{ .Values.initContainers.image | default "busybox:1.37.0" }}
+          command: ['sh', '-c', 'until nc -z -w 2 {{ include "vss-vios-sdr.peerShort" (dict "root" . "short" "vss-vios-streamprocessing") }} {{ .Values.streamprocessingPort | default "30001" }}; do echo "Waiting for vss-vios-streamprocessing..."; sleep 2; done']
+      {{- end }}
+      containers:
+        - name: vss-vios-sdr
+          image: {{ include "vss-vios-sdr.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.service.port | quote }}
+            {{- if not .Values.k8sHeadlessBaseDomain }}
+            # Only set when NOT using headless discovery (SDR uses StatefulSet API).
+            - name: WDM_CLUSTER_CONFIG_FILE
+              value: {{ if eq .Values.clusterType "kubernetes" }}/wdm-configs/kubernetes_cluster_config.json{{ else }}/wdm-configs/docker_cluster_config.json{{ end }}
+            {{- end }}
+            # WDM app.py cluster.py: "k8s" = StatefulSet API (metadata.name == WDM_WL_OBJECT_NAME); "k8s-headless" = DNS via WDM_K8S_HEADLESS_BASE_DOMAIN.
+            - name: WDM_CLUSTER_TYPE
+              value: {{ if and (eq .Values.clusterType "kubernetes") .Values.k8sHeadlessBaseDomain }}k8s-headless{{ else if eq .Values.clusterType "kubernetes" }}k8s{{ else }}docker{{ end }}
+            - name: CONTAINER_NAME
+              value: vss-vios-sdr
+            - name: WDM_MSG_KEY
+              value: {{ .Values.wdmMsgKey | default "vst.event" | quote }}
+            - name: WDM_WL_REDIS_SERVER
+              value: {{ .Values.redisServer | default (include "vss-vios-sdr.peerShort" (dict "root" . "short" "redis")) | quote }}
+            - name: WDM_WL_REDIS_PORT
+              value: {{ .Values.redisPort | default "6379" | quote }}
+            - name: WDM_WL_REDIS_MSG_FIELD
+              value: sensor.id
+            - name: WDM_WL_ADD_URL
+              value: /api/v1/proxy/stream/add
+            - name: WDM_WL_DELETE_URL
+              value: /api/v1/proxy/stream/
+            - name: WDM_WL_HEALTH_CHECK_URL
+              value: /api/v1/proxy/configuration
+            - name: WDM_WL_CHANGE_ID_ADD
+              value: camera_proxy
+            - name: WDM_WL_CHANGE_ID_DEL
+              value: camera_remove
+            - name: WDM_PRELOAD_WORKLOAD
+              value: ./tests/event_pre-roll.json
+            - name: WDM_CLEAR_DATA_WL
+              value: "true"
+            - name: WDM_KFK_BOOTSTRAP_URL
+              value: {{ .Values.kafkaBootstrapUrl | default (printf "%s:9092" (include "vss-vios-sdr.peerShort" (dict "root" . "short" "kafka-kafka"))) | quote }}
+            - name: WDM_KFK_ENABLE
+              value: {{ .Values.kafkaEnabled | default false | quote }}
+            - name: WDM_MSG_TOPIC
+              value: vst_events
+            - name: WDM_DS_SWAP_ID_NAME
+              value: "false"
+            - name: WDM_WL_THRESHOLD
+              value: "100"
+            - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+              value: "50"
+            - name: WDM_RESTART_DS_ON_ADD_FAIL
+              value: "false"
+            - name: WDM_DISABLE_WERKZEUG_LOGGING
+              value: "true"
+            - name: WDM_WL_OBJECT_NAME
+              value: vss-vios-streamprocessing
+            - name: WDM_CONSUMER_GRP_ID
+              value: vss-vios-sdr-cg
+            - name: WDM_CLUSTER_CONTAINER_NAMES
+              value: '["vss-vios-streamprocessing"]'
+            - name: VST_STREAMS_ENDPOINT
+              value: {{ .Values.vstStreamsEndpoint | default (printf "http://%s:30000/api/v1/sensor/streams" (include "vss-vios-sdr.peerShort" (dict "root" . "short" "vss-vios-sensor"))) | quote }}
+            - name: VST_STATUS_ENDPOINT
+              value: {{ .Values.vstStatusEndpoint | default (printf "http://%s:30000/api/v1/sensor/status" (include "vss-vios-sdr.peerShort" (dict "root" . "short" "vss-vios-sensor"))) | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: "true"
+            - name: WDM_INITIALIZE_FROM_VST
+              value: "false"
+            - name: ENVOY_REQUEST_TIMEOUT
+              value: "300"
+            {{- if and (eq .Values.clusterType "kubernetes") .Values.k8sHeadlessBaseDomain }}
+            # Headless discovery: SDR uses DNS (WDM_CLUSTER_TYPE=k8s-headless) instead of StatefulSet API.
+            - name: WDM_K8S_HEADLESS_BASE_DOMAIN
+              value: {{ .Values.k8sHeadlessBaseDomain | quote }}
+            - name: WDM_K8S_HEADLESS_DEFAULT_POD_PORT
+              value: {{ .Values.k8sHeadlessPodPort | default "30001" | quote }}
+            - name: WDM_TARGET_PORT_MAPPING
+              value: {{ printf "{\"default\": %s}" (.Values.k8sHeadlessPodPort | default "30001") | quote }}
+            {{- else }}
+            - name: WDM_TARGET_PORT_MAPPING
+              value: {{ printf "{\"vss-vios-streamprocessing-0\": %s}" (.Values.streamprocessingPort | default "30001") | quote }}
+            {{- end }}
+            - name: OTEL_SERVICE_NAME
+              value: SDR_AGENT
+            - name: WDM_REDIS_CACHE_OBJECT
+              value: streamprocessing-data
+            - name: WDM_WL_NAME_IGNORE_REGEX
+              value: ""
+            {{- if and (eq .Values.clusterType "kubernetes") (not .Values.k8sHeadlessBaseDomain) }}
+            # K8s API mode: API server is always kubernetes.default.svc; NAMESPACE is only for list_namespaced_* (where workload runs).
+            - name: KUBERNETES_HOST
+              value: {{ .Values.kubernetesHost | default "kubernetes.default.svc" | quote }}
+            - name: KUBERNETES_PORT
+              value: {{ .Values.kubernetesPort | default "443" | quote }}
+            # Port on vss-vios-streamprocessing pods for add/remove (k8sclient uses WDM_WL_CONFIG_PORT as podPort). Must match vss-vios-streamprocessing service port.
+            - name: WDM_WL_CONFIG_PORT
+              value: {{ .Values.streamprocessingPort | default "30001" | quote }}
+            - name: NAMESPACE
+              value: {{ .Values.wdmNamespace | default .Release.Namespace | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: wdm-configs
+              mountPath: /wdm-configs
+              {{- if .Values.k8sHeadlessBaseDomain }}
+              # Headless discovery: no cluster config; emptyDir so path exists
+              {{- else }}
+              readOnly: true
+              {{- end }}
+            - name: log
+              mountPath: /log
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 60
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: wdm-configs
+          {{- if .Values.k8sHeadlessBaseDomain }}
+          emptyDir: {}
+          {{- else }}
+          configMap:
+            name: {{ include "vss-vios-sdr.fullname" . }}-wdm-configs
+          {{- end }}
+        - name: log
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

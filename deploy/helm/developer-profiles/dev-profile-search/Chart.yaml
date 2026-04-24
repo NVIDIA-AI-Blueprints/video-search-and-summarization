@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v2
+name: dev-profile-search
+description: |
+  NVIDIA Metropolis Developer Workflow - Search Profile
+
+  All-in-one umbrella chart deploying the complete bp_developer_search_2d stack:
+    - vios                  : VST microservices umbrella (vss-vios-postgres, streamprocessing, sdr, envoy-proxy, sensor, ingress, mcp, nvstreamer)
+    - infra                 : Infra stack (Phoenix, Redis, Elasticsearch, Kibana, Kafka, Logstash)
+    - rtvi                  : RTVI umbrella (vss-rtvi-cv, vss-rtvi-embed, …)
+    - analytics             : VSS analytics umbrella (vss-behavior-analytics fusion_search for Search + vss-video-analytics-api)
+    - agent                 : VSS agent umbrella (vss-agent; vss-va-mcp off by default)
+    - vss-agent-ui          : VSS UI frontend
+    - nims                  : NVIDIA NIM models (Nemotron Nano 9B v2 LLM + Cosmos Reason2 8B VLM)
+
+  Installation – select GPU type with a single flag:
+    # H100 (default)
+    helm install vss-search ./dev-profile-search \
+      --set global.externalHost=<NODE_IP> \
+      --set global.ngcApiKey=<NGC_KEY> \
+      --set nims.gpuType=H100 \
+      -n metropolis --create-namespace
+
+    # L40S
+    helm install vss-search ./dev-profile-search \
+      --set global.externalHost=<NODE_IP> \
+      --set global.ngcApiKey=<NGC_KEY> \
+      --set nims.gpuType=L40S \
+      -n metropolis --create-namespace
+
+    # RTX PRO 6000 Blackwell Workstation
+    helm install vss-search ./dev-profile-search \
+      --set global.externalHost=<NODE_IP> \
+      --set global.ngcApiKey=<NGC_KEY> \
+      --set nims.gpuType=RTXPRO6000BW \
+      -n metropolis --create-namespace
+
+type: application
+version: 26.04.2
+appVersion: "26.02.3"
+keywords:
+  - metropolis
+  - developer-workflow
+  - search-profile
+  - vss
+  - video-search
+maintainers:
+  - name: NVIDIA
+
+# =============================================================================
+# Subcharts live in charts/ except the shared VIOS umbrella in ../../services/vios (see dependencies).
+# Use conditions below to enable/disable individual components.
+# =============================================================================
+dependencies:
+  # ---------------------------------------------------------------------------
+  # Infrastructure (shared with base profile)
+  # ---------------------------------------------------------------------------
+  - name: vios
+    version: 26.04.2
+    repository: "file://../../services/vios"
+    condition: vios.enabled
+
+  - name: infra
+    version: 26.04.2
+    repository: "file://../../services/infra"
+    condition: infra.enabled
+
+  # ---------------------------------------------------------------------------
+  # VST pipeline (VIOS umbrella: streamprocessing, SDR, ingress, nvstreamer, …)
+  # ---------------------------------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # Search-specific video pipeline
+  # ---------------------------------------------------------------------------
+  - name: rtvi
+    version: 26.04.2
+    repository: "file://../../services/rtvi"
+    condition: rtvi.enabled
+
+  - name: analytics
+    version: 26.04.2
+    repository: "file://../../services/analytics"
+    condition: analytics.enabled
+
+  # ---------------------------------------------------------------------------
+  # Agent services (search blueprint)
+  # ---------------------------------------------------------------------------
+  - name: agent
+    version: 26.04.2
+    repository: "file://../../services/agent"
+    condition: agent.enabled
+
+  - name: vss-agent-ui
+    version: 26.04.2
+    repository: "file://../../services/ui"
+    condition: vss-agent-ui.enabled
+
+  # ---------------------------------------------------------------------------
+  # NIM models (LLM + VLM) via NVIDIA NIM Operator CRDs
+  # Requires: NVIDIA NIM Operator installed in the cluster
+  # ---------------------------------------------------------------------------
+  - name: nims
+    version: 26.04.2
+    repository: "file://../../services/nims"
+    condition: nims.enabled

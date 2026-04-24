@@ -1,0 +1,9 @@
+dependencies:
+- name: nemotron-nano-9b-v2
+  repository: file://./charts/nemotron-nano-9b-v2
+  version: 26.04.2
+- name: cosmos-reason2-8b
+  repository: file://./charts/cosmos-reason2-8b
+  version: 26.04.2
+digest: sha256:8a73eb23736774155cdfe921d76955ae0cd4f2f1e8b2eaf6aef424a776baa30b
+generated: "2026-04-20T18:59:24.094041+05:30"

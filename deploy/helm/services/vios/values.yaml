@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Master switch when this chart is a dependency of a developer profile.
+enabled: true
+
+# Shared VST PVCs for sensor + streamprocessing (same claim names as vss-vios-streamprocessing helpers).
+# Parent profiles pass overrides under vios.vstStorage. Set createSharedPvcs false when using only emptyDir / per-subchart PVCs.
+vstStorage:
+  createSharedPvcs: true
+  accessMode: ReadWriteOnce
+  vstData:
+    size: 10Gi
+    storageClass: ""
+  vstVideo:
+    size: 20Gi
+    storageClass: ""
+  streamerVideos:
+    size: 20Gi
+    storageClass: ""
+
+# Per-service toggles (REQUIRED for Chart.yaml dependency `condition: <chart>.enabled`).
+# Helm resolves those paths from this file when deciding which vios subcharts to load; parent
+# `vios.<chart>.*` merges on top. NVStreamer defaults off unless a profile sets it true (e.g. alerts).
+vss-vios-postgres:
+  enabled: true
+vss-vios-envoy-proxy:
+  enabled: true
+vss-vios-sdr:
+  enabled: true
+vss-vios-sensor:
+  enabled: true
+vss-vios-streamprocessing:
+  enabled: true
+vss-vios-ingress:
+  enabled: true
+vss-vios-mcp:
+  enabled: true
+vss-vios-nvstreamer:
+  enabled: false
+
+# Per-service non-toggle defaults live in each subchart’s own values.yaml (images, resources, …).

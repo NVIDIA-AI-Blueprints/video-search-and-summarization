@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Parent charts (dev-profile-*) should set enabled: true under their infra: values
+# to install this umbrella; individual components use phoenix.enabled / redis.enabled /
+# elasticsearch.enabled / kibana.enabled / kafka.enabled / logstash.enabled.
+enabled: true
+
+# Defaults for the phoenix subchart. fullnameOverride keeps Service/Deployment
+# names as "phoenix" (no umbrella-release prefix).
+phoenix:
+  enabled: true
+  fullnameOverride: phoenix
+  useReleaseNamePrefix: false
+  replicas: 1
+  image:
+    repository: arizephoenix/phoenix
+    tag: "version-8.12.1"
+    pullPolicy: IfNotPresent
+  phoenixHost: "0.0.0.0"
+  env: []
+  port: 6006
+  service:
+    type: ClusterIP
+  persistence:
+    storageClass: ""
+    size: 10Gi
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+
+# Redis subchart (StatefulSet + PVC). Service name stays "redis" when useReleaseNamePrefix is false.
+redis:
+  enabled: false
+  replicas: 1
+  image:
+    repository: redis
+    tag: 8.2.2-alpine
+    pullPolicy: IfNotPresent
+  port: 6379
+  persistence:
+    storageClass: ""
+    size: 5Gi
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+
+# Elasticsearch (StatefulSet + elasticsearch.yml + optional bootstrap Job). Profiles override via infra.elasticsearch.
+elasticsearch:
+  enabled: false
+
+# Kibana (Deployment + kibana.yml + optional dashboard import Job). Profiles set infra.kibana.init.objectsBundle (alerts|search|lvs) when init.enabled.
+kibana:
+  enabled: false
+
+# Kafka (KRaft StatefulSet + optional topic bootstrap Job). Profiles set infra.kafka.topics as a YAML list (or a JSON string for backward compatibility).
+kafka:
+  enabled: false
+
+# Logstash (Kafka → Elasticsearch pipeline). Requires Elasticsearch reachable at infra.elasticsearch service DNS when kafka input is used.
+logstash:
+  enabled: false
+
+# Optional Job: wait until Kafka and Redis are reachable (e.g. alerts profile). Disabled by default for other stacks.
+vss-broker-health-check:
+  enabled: false

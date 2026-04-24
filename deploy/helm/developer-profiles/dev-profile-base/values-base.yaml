@@ -1,0 +1,71 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Base profile — single values file for install
+# Single-file install: helm upgrade --install vss . -f values-base.yaml -n vss --create-namespace
+#
+# Before install: set ngc.apiKey, global.storageClass, global.externalHost (+ optional externalScheme/externalPort), vssIngress.enabled true.
+# Image tags aligned with release_3.1.0 dev-profile-base .env and agent_ui compose (see CROSS-VERIFICATION-83d604da.md).
+profile: base
+mode: ""
+llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
+vlmNameSlug: <replace-with-vlm-name> # e.g. nvidia-cosmos-reason2-8b, nvidia-cosmos-reason2-8b-mini, nvidia-cosmos-reason2-8b-mini-2
+vlmName: "nvidia/cosmos-reason2-8b"
+# NGC: set apiKey (createSecrets=true lets the chart create pull secrets from it). Do not commit the key.
+ngc:
+  createSecrets: true
+  apiKey: ""   # set your NGC API key (do not commit real keys)
+
+global:
+  storageClass: "" # e.g. oci-bv-high, gp3, standard, local-path
+  externalScheme: "http" # http or https
+  externalHost: "EXTERNAL_HOST" # e.g. vss.140.238.75.84.nip.io
+  externalPort: "" # Default 80 (http) / 443 (https): use "" — chart omits :port in URLs. Non-default port only: e.g. "8080", "8443".
+  # Remote NIM: one place for vss-agent (same pattern as dev-profile-lvs values-lvs.yaml). Set nims.enabled false when using remote endpoints only.
+  llmBaseUrl: ""
+  vlmBaseUrl: ""
+  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  vlmName: "nvidia/cosmos-reason2-8b"
+
+# Shared NIM umbrella: helm/services/nims. Set nims.global.ngcApiKey to the same value as ngc.apiKey so NIMCache/NIMService can pull models (or rely on pre-created ngc-secret / ngc-api).
+nims:
+  enabled: true
+  gpuType: RTXPRO6000BW
+  global:
+    ngcApiKey: ""
+  nemotron:
+    enabled: true
+  cosmos:
+    enabled: true
+
+# VIOS umbrella (helm/services/vios): parent Chart.yaml uses condition: vios.enabled — that key must stay true here or in values.yaml or the whole VST stack is skipped (no postgres/sensor/ingress/…).
+vios:
+  enabled: true
+
+# vss-agent-ui defaults (NEXT_PUBLIC_*): see chart values.yaml envOverrides; override per install with -f or --set.
+
+# Remote LLM/VLM: set global.llmBaseUrl / global.vlmBaseUrl / global.llmName / global.vlmName above. Optional per-agent overrides: agent.vss-agent.llmBaseUrl, etc.
+
+# Base-profile Ingress
+vssIngress:
+  enabled: true
+  ingressClassName: haproxy
+  # If empty, uses global.externalHost. Set only if the Ingress host must differ.
+  host: ""
+  vssUiPort: 3000
+  vssAgentPort: 8000
+  vstIngressPort: 30888
+  phoenixHost: ""
+  phoenixPort: 6006

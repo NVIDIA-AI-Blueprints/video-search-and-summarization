@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-vios-mcp
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+service:
+  port: 8001
+  type: ClusterIP
+# Compose parity: environment block
+vstIngressUrl: ""   # e.g. http://<RELEASE>-vss-vios-ingress:30888/vst
+# MCP_GATEWAY_CPP_API_BASE_URL is set by the template from vstIngressUrl
+env:
+  - name: MCP_GATEWAY_CPP_API_TIMEOUT
+    value: "30"
+  - name: MCP_GATEWAY_SERVER_NAME
+    value: vst-mcp-server
+  - name: MCP_GATEWAY_SERVER_VERSION
+    value: 1.0.0
+  - name: MCP_GATEWAY_LOG_LEVEL
+    value: INFO
+  - name: MCP_GATEWAY_ENABLE_JSONRPC_LOGGING
+    value: "true"
+  - name: MCP_GATEWAY_SERVER_HOST
+    value: "0.0.0.0"
+  - name: MCP_GATEWAY_SERVER_PORT
+    value: "8001"
+resources: {}
+nodeSelector: {}
+tolerations: []
