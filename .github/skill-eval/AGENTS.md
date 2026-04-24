@@ -85,6 +85,15 @@ template is in § Harbor invocation below.
    surfaces in the workflow artifact; the skill author reviews it
    before merging.
 
+   When cloning the vios template for a new skill, the `[metadata]`
+   block's `profile` and `prerequisite_deploy_mode` fields **must be
+   read from the spec JSON**, not hardcoded:
+   `spec.get("profile", "base")`,
+   `spec.get("prerequisite_deploy_mode", "remote-all")`. Hardcoding
+   breaks the `/deploy -p <profile>` chain for skills like
+   `video-search` (profile: `search`) and `video-summarization`
+   (profile: `lvs`) that share the vios shape but not its profile.
+
 4. **Regenerate the dataset** for each `(skill, spec, platform,
    mode)` the spec's `resources.platforms` enumerates. Datasets land
    at `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>-<mode>/`,
