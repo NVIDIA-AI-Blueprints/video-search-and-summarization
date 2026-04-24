@@ -1,7 +1,7 @@
 ---
 name: lvs-api
 description: >
-  Interact with the Long Video Summarization (LVS) API from the lvs-3.1.0-rc1 OpenAPI spec.
+  Interact with the Long Video Summarization (LVS) API from the LVS 3.1.0 GA OpenAPI spec.
   Use this skill when calling LVS summarize endpoints, listing LVS models, checking LVS health,
   getting recommended chunk sizes, querying LVS metrics, or debugging LVS API responses.
 argument-hint: "[endpoint or workflow description]"
@@ -10,10 +10,9 @@ allowed-tools: Bash(curl *), Bash(jq *)
 
 # Long Video Summarization (LVS) API
 
-This skill documents only the API surface present in
-`~/repos/long-video-summarization/api_spec/openapi.json` while the repo is checked out at
-tag `lvs-3.1.0-rc1`. Do not infer fields or behaviors from newer branches, deployment
-runbooks, or implementation code unless the user explicitly asks to go beyond this OpenAPI spec.
+This skill documents the LVS 3.1.0 GA OpenAPI surface. Do not infer fields or behaviors from
+newer branches, deployment runbooks, or implementation code unless the user explicitly asks to
+go beyond this OpenAPI spec.
 
 LVS provides video summarization and insight extraction endpoints. It accepts a summarization
 query, returns OpenAI-style completion objects, lists configured models, exposes health probes,
@@ -21,11 +20,17 @@ returns Prometheus metrics, and recommends chunking parameters.
 
 ## Setup
 
-The OpenAPI spec declares a relative server URL (`/`), so set `BASE_URL` to the deployed LVS
-host and port.
+The OpenAPI spec declares a relative server URL (`/`), so `BASE_URL` is deployment-specific.
+Confirm the deployed LVS host and port from the compose/Helm output, service runbook, or the
+operator before calling the API. Common deployments expose LVS on a host port such as `38111`,
+but some dev containers use `8000`.
+
+If an Agent's sandbox cannot reach `localhost:<port>`, do not assume LVS is down. The sandbox
+may have a different network view than the host. Confirm the port from the host/deployment
+context and retry from a host-visible shell or with the externally reachable host:port.
 
 ```bash
-export BASE_URL="http://localhost:8000"
+export BASE_URL="http://localhost:38111"
 export API_KEY="your-bearer-token"
 ```
 
