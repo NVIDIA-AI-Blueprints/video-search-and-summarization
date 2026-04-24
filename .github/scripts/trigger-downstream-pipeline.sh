@@ -2,6 +2,8 @@
 
 import json
 import os
+import socket
+import ssl
 import sys
 from typing import Any
 from urllib.error import ContentTooShortError
@@ -35,6 +37,42 @@ def api_base_url(raw_url: str) -> str:
     if not base.endswith("/api/v4"):
         base = f"{base}/api/v4"
     return base
+
+
+def connection_error_detail(exc: URLError | ContentTooShortError) -> str:
+    """Return a safe, non-secret hint about the connection failure."""
+    if isinstance(exc, ContentTooShortError):
+        return "truncated response body"
+
+    reason = exc.reason
+
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return "timeout"
+    if isinstance(reason, socket.gaierror):
+        errno = getattr(reason, "errno", None)
+        suffix = f", errno {errno}" if errno is not None else ""
+        return f"DNS resolution error ({reason.__class__.__name__}{suffix})"
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return "TLS certificate verification failed"
+    if isinstance(reason, ssl.SSLError):
+        return f"TLS error ({reason.__class__.__name__})"
+    if isinstance(reason, ConnectionRefusedError):
+        return "connection refused"
+    if isinstance(reason, OSError):
+        errno = getattr(reason, "errno", None)
+        suffix = f", errno {errno}" if errno is not None else ""
+        return f"network error ({reason.__class__.__name__}{suffix})"
+    if isinstance(reason, str):
+        lowered = reason.lower()
+        if "timed out" in lowered:
+            return "timeout"
+        if "tunnel connection failed" in lowered or "proxy" in lowered:
+            return "proxy error"
+        if "unknown url type" in lowered or "no host given" in lowered:
+            return "invalid URL configuration"
+        return "network error (string reason)"
+
+    return f"network error ({reason.__class__.__name__})"
 
 
 def request_json(
@@ -79,8 +117,7 @@ def request_json(
         emit_error(f"{action} failed with status {exc.code}{suffix}")
         raise SystemExit(1) from exc
     except (URLError, ContentTooShortError) as exc:
-        _ = exc
-        emit_error(f"{action} failed due to a connection error")
+        emit_error(f"{action} failed due to a connection error: {connection_error_detail(exc)}")
         raise SystemExit(1) from exc
 
     try:
@@ -111,13 +148,14 @@ def trigger_pipeline(
     variable_name: str,
     commit_sha: str,
 ) -> dict[str, Any]:
-    payload = urlencode(
-        [
-            ("ref", ref),
-            ("variables[][key]", variable_name),
-            ("variables[][value]", commit_sha),
-        ]
-    ).encode("utf-8")
+    payload_pairs: list[tuple[str, str]] = [
+        ("ref", ref),
+        ("variables[][key]", variable_name),
+        ("variables[][value]", commit_sha),
+    ]
+    for branch_var in ("VSS_COMPARE_BRANCH", "VSS_TARGET_BRANCH"):
+        payload_pairs += [("variables[][key]", branch_var), ("variables[][value]", os.environ.get(branch_var, ""))]
+    payload = urlencode(payload_pairs).encode("utf-8")
     return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
 
 

@@ -8,14 +8,33 @@ module.exports = {
     '../../packages/nv-metropolis-bp-vss-ui/*/lib/**/*.{js,jsx}',
     '../../packages/nv-metropolis-bp-vss-ui/*/lib-src/**/*.{ts,tsx}',
     '../../packages/nemo-agent-toolkit-ui/components/**/*.{js,jsx,ts,tsx}',
+    '../../packages/common/lib/**/*.{js,jsx}',
+    '../../packages/common/lib-src/**/*.{ts,tsx}',
   ],
   darkMode: 'class',
   theme: {
+    fontFamily: {
+      sans: ['"NVIDIA Sans"', 'system-ui', '-apple-system', 'sans-serif'],
+      mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+    },
+    borderRadius: {
+      'none': '0',
+      'sm': '0.0625rem',
+      DEFAULT: '0.125rem',
+      'md': '0.1875rem',
+      'lg': '0.25rem',
+      'xl': '0.375rem',
+      '2xl': '0.5rem',
+      '3xl': '0.75rem',
+      'full': '9999px',
+    },
     extend: {
       colors: {
         gray: {
           750: '#2d3748',
-        }
+        },
+        'brand-green': '#76b900',
+        'brand-green-dark': '#5a8d00',
       },
       screens: {
         xs: '320px',

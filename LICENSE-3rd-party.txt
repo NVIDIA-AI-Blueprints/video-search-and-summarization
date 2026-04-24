@@ -1,7 +1,7 @@
 This file contains the list of third party software with their licenses used in this project.
 
 See below files for the licenses:
-- agent/LICENSE-3rd-party.txt
-- ui/LICENSE-3rd-party.txt
-- scripts/LICENSE-3rd-party-dev-profile.txt
+- services/agent/LICENSE-3rd-party.txt
+- services/ui/LICENSE-3rd-party.txt
+- deployments/scripts/LICENSE-3rd-party-dev-profile.txt
 - deployments/LICENSE-3rd-party.txt

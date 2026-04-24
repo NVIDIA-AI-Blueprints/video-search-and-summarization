@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-import React from 'react';
+import React, { useState, useCallback } from 'react';
+import { Button, TextInput, Select } from '@nvidia/foundations-react-core';
 import { IconChevronDown, IconVideo, IconX } from '@tabler/icons-react';
 
-const INPUT_CLASS =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-[#76b900] focus:outline-none focus:ring-1 focus:ring-[#76b900] dark:border-gray-600 dark:bg-[#343541] dark:text-gray-300';
+const ACCEPTED_EXTENSIONS = ['.mp4', '.mkv'];
+
 const POPUP_OVERLAY_CLASS = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
-const POPUP_CONTAINER_CLASS = 'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-[#343541]';
+const POPUP_CONTAINER_CLASS = 'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900';
 
 interface AgentUploadFileItem {
   id: string;
@@ -19,6 +20,7 @@ interface AgentUploadDialogProps {
   files: AgentUploadFileItem[];
   configTemplate: any;
   onAddMore: () => void;
+  onFilesDropped: (files: File[]) => void;
   onClose: () => void;
   onConfirmUpload: () => void;
   onToggleExpand: (fileId: string) => void;
@@ -31,12 +33,45 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
   files,
   configTemplate,
   onAddMore,
+  onFilesDropped,
   onClose,
   onConfirmUpload,
   onToggleExpand,
   onRemoveFile,
   onFieldChange,
 }) => {
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const dropped = Array.from(e.dataTransfer.files).filter((f) =>
+      ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext)),
+    );
+    if (dropped.length > 0) onFilesDropped(dropped);
+  }, [onFilesDropped]);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onAddMore();
+    }
+  }, [onAddMore]);
+
   if (!open) return null;
 
   const renderField = (fileItem: AgentUploadFileItem, field: any) => {
@@ -47,7 +82,7 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
     if (field['field-type'] === 'boolean') {
       return (
         <label
-          className={`flex items-center gap-2 ${
+          className={`flex items-center gap-3 ${
             isChangeable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
           }`}
         >
@@ -57,57 +92,48 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
             aria-checked={value}
             disabled={!isChangeable}
             onClick={() => isChangeable && onFieldChange(fileItem.id, fieldName, !value)}
-            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[#76b900] focus:ring-offset-2 ${
-              value ? 'bg-[#76b900]' : 'bg-gray-300 dark:bg-gray-600'
-            } ${isChangeable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              value ? 'bg-[#76b900]' : 'bg-neutral-600'
+            } ${!isChangeable ? 'opacity-60 cursor-not-allowed' : ''}`}
           >
             <span
               className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                value ? 'translate-x-4' : 'translate-x-0'
+                value ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
           </button>
-          <span className="text-sm text-gray-700 dark:text-gray-300">{value ? 'Yes' : 'No'}</span>
+          <span className="text-sm text-gray-400 dark:text-gray-400">{value ? 'Yes' : 'No'}</span>
         </label>
       );
     }
 
     if (field['field-type'] === 'select') {
       return (
-        <select
-          value={value}
+        <Select
+          value={String(value)}
           disabled={!isChangeable}
-          onChange={(e) => onFieldChange(fileItem.id, fieldName, e.target.value)}
-          className={`${INPUT_CLASS} ${!isChangeable ? 'cursor-not-allowed opacity-60' : ''}`}
-        >
-          {field['field-options']?.map((opt: any) => (
-            <option key={String(opt)} value={String(opt)}>
-              {String(opt)}
-            </option>
-          ))}
-        </select>
+          onValueChange={(val: string) => onFieldChange(fileItem.id, fieldName, val)}
+          items={field['field-options']?.map((opt: any) => String(opt)) ?? []}
+        />
       );
     }
 
     if (field['field-type'] === 'number') {
       return (
-        <input
+        <TextInput
           type="number"
-          value={value}
+          value={String(value)}
           disabled={!isChangeable}
-          onChange={(e) => onFieldChange(fileItem.id, fieldName, Number(e.target.value))}
-          className={`${INPUT_CLASS} ${!isChangeable ? 'cursor-not-allowed opacity-60' : ''}`}
+          onValueChange={(val: string) => onFieldChange(fileItem.id, fieldName, Number(val))}
         />
       );
     }
 
     return (
-      <input
-        type="text"
-        value={value}
+      <TextInput
+        value={String(value ?? '')}
         disabled={!isChangeable}
-        onChange={(e) => onFieldChange(fileItem.id, fieldName, e.target.value)}
-        className={`${INPUT_CLASS} ${!isChangeable ? 'cursor-not-allowed opacity-60' : ''}`}
+        onValueChange={(val: string) => onFieldChange(fileItem.id, fieldName, val)}
         placeholder={`Enter ${fieldName}`}
       />
     );
@@ -132,12 +158,12 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
               )}
             </label>
             {files.length > 0 && (
-              <button
+              <Button
+                kind="primary"
                 onClick={onAddMore}
-                className="flex items-center gap-1 rounded-lg bg-[#76b900] px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-[#5a8f00]"
               >
                 + Add More
-              </button>
+              </Button>
             )}
           </div> 
 
@@ -150,7 +176,7 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
                     key={item.id}
                     className="overflow-hidden rounded-lg border border-gray-300 dark:border-gray-600"
                   >
-                    <div className="flex items-center justify-between bg-white p-3 dark:bg-[#343541]">
+                    <div className="flex items-center justify-between bg-white p-3 dark:bg-neutral-900">
                       <div
                         className={`flex flex-1 items-center gap-2 overflow-hidden ${hasExpandableContent ? 'cursor-pointer' : ''}`}
                         onClick={() => hasExpandableContent && onToggleExpand(item.id)}
@@ -173,15 +199,15 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
                       </div>
                       <button
                         onClick={() => onRemoveFile(item.id)}
-                        className="ml-2 flex-shrink-0 text-gray-500 hover:text-red-500"
                         aria-label="Remove file"
+                        className="p-1.5 rounded transition-colors text-gray-400 hover:text-gray-200 hover:bg-neutral-700 dark:text-gray-400 dark:hover:text-white dark:hover:bg-neutral-700"
                       >
                         <IconX size={18} />
                       </button>
                     </div>
 
                     {hasExpandableContent && item.isExpanded && (
-                      <div className="border-t border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-[#2a2a36]">
+                      <div className="border-t border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-neutral-800">
                         <div className="mb-3 space-y-3">
                           {configTemplate.fields.map((field: any) => (
                             <div key={field['field-name']} className="flex items-center gap-3">
@@ -200,8 +226,20 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
             </div>
           ) : (
             <div
+              role="button"
+              tabIndex={0}
+              aria-label="Click or drag movie files here to upload (mp4, mkv)"
               onClick={onAddMore}
-              className="w-full cursor-pointer rounded-lg border-2 border-dashed p-4 text-center transition-colors border-gray-300 hover:border-[#76b900] hover:bg-gray-50 dark:border-gray-600 dark:hover:border-[#76b900] dark:hover:bg-gray-800"
+              onKeyDown={handleKeyDown}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`w-full cursor-pointer rounded-lg border-2 border-dashed p-4 text-center transition-colors ${
+                isDragOver
+                  ? 'border-[#76b900] bg-[#76b900]/10 dark:border-[#76b900] dark:bg-[#76b900]/10'
+                  : 'border-gray-300 hover:border-[#76b900] hover:bg-gray-50 dark:border-gray-600 dark:hover:border-[#76b900] dark:hover:bg-black'
+              }`}
             >
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Click or drag files here
@@ -212,21 +250,19 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
         </div>
 
         <div className="flex gap-3">
-          <button
+          <Button
+            kind="secondary"
             onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            kind="primary"
             onClick={onConfirmUpload}
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
-              files.length > 0 ? 'bg-[#76b900] hover:bg-[#5a8f00]' : 'bg-gray-400 cursor-not-allowed'
-            }`}
             disabled={files.length === 0}
           >
             Upload {files.length > 0 ? `(${files.length})` : ''}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
