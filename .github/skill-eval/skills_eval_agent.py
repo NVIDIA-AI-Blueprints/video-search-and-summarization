@@ -51,10 +51,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 
-# Hard cap on the agent's tool loop — one `/deploy` trial is ~15 min of
-# `Bash(uvx harbor run ...)`, plus its own tool calls. 300 turns covers
-# a full fan-out with room for retries.
-MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "300"))
+# Hard cap on the agent's tool loop — one trial burns ~20-30 harness
+# turns (startup + brev wait + `uvx harbor run` exec + reading results +
+# migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
+# recon/retry overhead exceeds the previous 300 ceiling. Run
+# 24879743425 burned ~270 turns on only 3 trials before hitting it
+# mid-lvs with 10+ trials unstarted. 600 is a safety valve against
+# runaway loops, not a budget knob — the workflow's 3h wall-clock
+# (skills-eval.yml timeout-minutes: 180) is the real ceiling.
+MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "600"))
 
 # How long to sleep after the agent exits before stopping/deleting Brev
 # instances it spun up. Lets a human see last-minute logs / traces.

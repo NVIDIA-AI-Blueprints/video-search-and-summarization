@@ -236,6 +236,15 @@ Notes that have burned prior runs:
   the adapter (usually `<platform>-<mode>`, e.g. `l40s-remote-all`).
   `-i` / `--include` is a different flag and will silently match
   nothing or everything.
+- For multi-step specs (e.g. `vios`, `video-search`,
+  `video-summarization`), `-p` points at the **platform directory**
+  (`.../<spec_stem>/<platform>-<mode>/`) and harbor auto-discovers
+  the `step-1/ step-2/ ...` subdirs beneath it, each as its own
+  task. To run a specific step, pass
+  `--include-task-name "<platform>-<mode>-step-<N>"`. Do NOT point
+  `-p` at a single `step-N/` dir — harbor then can't see sibling
+  steps and chaining breaks. This matches how
+  `adapters/vios/generate.py` lays out step dirs.
 - `--environment-import-path` is a **Python module spec**
   (`envs.brev_env:BrevEnvironment`), not a filesystem path. Do not
   prepend `.github.skill-eval.` — `.github` isn't a valid Python
