@@ -32,9 +32,11 @@ jobs:
     name: Eval changed skills against PR
     runs-on: [self-hosted, vss-eval]
 
-    # 1 hour hard cap on the whole job. The agent targets ~40m plus a 5m
-    # post-eval wait before brev teardown; 60m gives a margin.
-    timeout-minutes: 60
+    # 3-hour hard cap on the whole job. Deploy trials are 8-15m each,
+    # non-deploy trials 2-5m; a full PR touching every skill can queue
+    # ~8 trials plus adapter regen, lock acquisition, and a 5m brev
+    # teardown cooldown. 180m covers the common case with margin.
+    timeout-minutes: 180
 
     # Extra safety: only run on the mirror branches, never on develop/main.
     if: startsWith(github.ref, 'refs/heads/pull-request/')

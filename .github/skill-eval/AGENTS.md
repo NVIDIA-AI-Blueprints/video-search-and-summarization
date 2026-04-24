@@ -10,7 +10,7 @@ You run **once per push**, from start to finish, on the
 `vss-skill-validator` self-hosted runner. Your workspace is already
 checked out at the mirror head. You have `Bash`, `Read`, `Edit`,
 `Write`, `Glob`, `Grep`; no human is in the loop while you work. The
-workflow runs your invocation with a 1-hour hard timeout.
+workflow runs your invocation with a 3-hour hard timeout.
 
 ## Startup hygiene (do this first, before step 1)
 
@@ -102,13 +102,13 @@ template is in § Harbor invocation below.
    b. **Acquire a lock** before running anything on the instance:
       ```bash
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
-      flock -w 3600 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
+      flock -w 10800 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
       # ... trials ...
       exec {LFD}>&-        # release on exit; trap so SIGINT doesn't strand it
       ```
-      60-minute max hold. If another CI run already holds the lock,
-      wait up to 60 min; beyond that, emit `BLOCKED: lock timeout` on
-      the PR and exit.
+      3-hour max hold (matches the job timeout). If another CI run
+      already holds the lock, wait up to 3 h; beyond that, emit
+      `BLOCKED: lock timeout` on the PR and exit.
    c. Drive harbor one trial at a time (they share GPU/ports on the
       host). Use the canonical invocation in § Harbor invocation
       below — **do not improvise flags**. If a trial fails, read the
@@ -325,7 +325,7 @@ separate; don't conflate the two.
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.
 - **Lock contention** (another CI run holds the Brev lock). Wait up
-  to 60 min (flock `-w 3600`). If you time out, emit `BLOCKED: lock
+  to 3 h (flock `-w 10800`). If you time out, emit `BLOCKED: lock
   timeout on <instance>`.
 
 ## Output requirements
