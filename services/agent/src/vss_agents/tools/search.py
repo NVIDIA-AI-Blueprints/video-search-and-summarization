@@ -960,7 +960,7 @@ async def execute_core_search(
         from vss_agents.tools.attribute_search import enrich_attribute_results
         from vss_agents.tools.attribute_search import search_by_object_embedding
 
-        es = await VSSESClient.get_es_client(es_endpoint=config.behavior_es_endpoint, max_retries=1)
+        es = await VSSESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
 
         async def _safe_object_search(oid: int) -> list[AttributeSearchResult]:
             try:

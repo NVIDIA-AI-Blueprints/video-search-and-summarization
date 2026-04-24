@@ -49,7 +49,7 @@ class VSSESClient:
     async def get_es_client(
         es_endpoint: str,
         request_timeout: int = 30,
-        max_retries: int = 0,
+        max_retries: int = 1,
     ) -> AsyncElasticsearch:
         """Return a shared ES client for the given endpoint, creating one if needed.
 
