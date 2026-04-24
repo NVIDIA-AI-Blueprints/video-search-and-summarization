@@ -13,6 +13,33 @@ Queries incidents, alerts, and metrics stored in Elasticsearch via MCP JSON-RPC 
 
 ---
 
+## Deployment prerequisite
+
+This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **alerts** profile (either `verification` or `real-time` mode). Before any query:
+
+1. Probe the VA-MCP endpoint:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:9901/mcp" >/dev/null 2>&1 || \
+     curl -sf --max-time 5 "http://${HOST_IP}:9901/" >/dev/null
+   ```
+
+2. **If the probe fails**, ask the user:
+   > *"The VSS `alerts` profile isn't running on `$HOST_IP` (VA-MCP unreachable). Which mode should I deploy — `verification` (CV) or `real-time` (VLM)?"*
+
+   - Answer → hand off to the `/deploy` skill with `-p alerts -m <mode>`. Return here once it succeeds.
+   - If the user declines → stop. No incidents/alerts/metrics to query without the alerts stack up.
+
+   (If your caller has granted explicit pre-authorization to deploy
+   autonomously — e.g. the request says "pre-authorized to deploy
+   prerequisites", or you are running in a non-interactive evaluation
+   harness with that permission — skip the confirmation and invoke
+   `/deploy` directly. Default the mode to `verification` unless the
+   request specifies otherwise.)
+
+3. If the probe passes, proceed.
+
+---
+
 ## REQUIRED: Two-Step Pattern (copy this exactly)
 
 **Every query requires two shell commands run in sequence:**
