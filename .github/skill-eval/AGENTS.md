@@ -12,6 +12,30 @@ checked out at the mirror head. You have `Bash`, `Read`, `Edit`,
 `Write`, `Glob`, `Grep`; no human is in the loop while you work. The
 workflow runs your invocation with a 1-hour hard timeout.
 
+## Startup hygiene (do this first, before step 1)
+
+The CI runner host reuses `/tmp/skill-eval/` across runs. Prior
+runs — including cancelled ones — leave datasets and partial results
+behind that will confuse you if you read them as "current". Clean at
+startup, then never look at `<other_run_id>` artifacts again:
+
+```bash
+# Drop every dataset — you're regenerating in step 4 anyway.
+rm -rf /tmp/skill-eval/datasets/*
+
+# Keep your own run's results; drop everything else.
+find /tmp/skill-eval/results -mindepth 1 -maxdepth 1 -type d \
+  ! -name "${GITHUB_RUN_ID}" ! -name "_viewer" -exec rm -rf {} +
+
+# One authoritative brev snapshot — don't re-list repeatedly.
+brev ls > /tmp/skill-eval/brev-snapshot.txt
+```
+
+If you find yourself reading files under `/tmp/skill-eval/results/<other_id>/`
+to figure out what "used to work", stop — that path belongs to a
+different run and its invocation may be stale. The canonical command
+template is in § Harbor invocation below.
+
 ## Your job, in order
 
 1. **Diff against the PR's base branch** (`$PR_BASE`, passed in the
@@ -28,11 +52,27 @@ workflow runs your invocation with a 1-hour hard timeout.
    and exit cleanly. No PR comment.
 
 2. **For each changed skill, decide whether it has a dispatchable
-   eval spec** — `skills/<skill>/eval/<profile>.json`. If the skill
-   lacks a spec, skip it (the skill is a runtime library, not
-   evaluable). If the skill has specs but they don't declare
-   `resources.platforms`, flag it once on the PR with a
-   `missing_platforms_declaration` comment and skip that skill.
+   eval spec** — any `skills/<skill>/eval/<name>.json`. The filename
+   is free; it doesn't need to match a deploy profile or any
+   convention. A skill can ship multiple specs side-by-side.
+
+   Hard requirements on a spec: `skills` (list), `resources.platforms`
+   (matrix), `env` (prose), `expects` (ordered query/checks list).
+   If the skill has specs but one of them lacks
+   `resources.platforms`, post a `missing_platforms_declaration`
+   blocker comment once for that spec and skip it — the others on
+   the same skill still run.
+
+   Optional: `profile` (string — the `/deploy -p <profile>`
+   argument, e.g. `"alerts"`) and `deploy_mode` (string — the
+   `/deploy -m <mode>` argument, e.g. `"verification"`). If the spec
+   sets `profile`, the adapter prepends a deploy task ahead of the
+   spec's `expects`. If `profile` is absent, there is **no deploy
+   prerequisite** — the trial runs directly on a bare Brev instance
+   (the skill author is asserting their checks don't need a
+   pre-deployed VSS stack).
+
+   Skills with no specs at all are runtime libraries — skip them.
 
 3. **For each evaluable skill × spec, ensure an adapter exists under
    `.github/skill-eval/adapters/<skill>/generate.py`.** You may modify
@@ -45,9 +85,10 @@ workflow runs your invocation with a 1-hour hard timeout.
    surfaces in the workflow artifact; the skill author reviews it
    before merging.
 
-4. **Regenerate the dataset** for each `(skill, profile, platform,
+4. **Regenerate the dataset** for each `(skill, spec, platform,
    mode)` the spec's `resources.platforms` enumerates. Datasets land
-   at `/tmp/skill-eval/datasets/<skill>/<profile>/<platform>-<mode>/`.
+   at `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>-<mode>/`,
+   where `<spec_stem>` is the spec filename with `.json` dropped.
 
 5. **Acquire a Brev lock and run harbor trials.** For each target
    platform:
@@ -69,19 +110,9 @@ workflow runs your invocation with a 1-hour hard timeout.
       wait up to 60 min; beyond that, emit `BLOCKED: lock timeout` on
       the PR and exit.
    c. Drive harbor one trial at a time (they share GPU/ports on the
-      host) via `uvx harbor run` with the standard invocation:
-      ```bash
-      uvx harbor run \
-        --environment-import-path "envs.brev_env:BrevEnvironment" \
-        -p /tmp/skill-eval/datasets/<skill>/<profile> \
-        -i <platform>-<mode> \
-        -a claude-code \
-        --model "$ANTHROPIC_MODEL" \
-        --ak api_base="$ANTHROPIC_BASE_URL/v1" \
-        --ae CLAUDE_CODE_DISABLE_THINKING=1 \
-        --max-retries 0 -n 1 --yes \
-        -o /tmp/skill-eval/results/<run_id>
-      ```
+      host). Use the canonical invocation in § Harbor invocation
+      below — **do not improvise flags**. If a trial fails, read the
+      trial log, fix the adapter (not the flags), rerun.
    d. After each trial, parse
       `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
       and `test-stdout.txt`. Record `(spec, platform, mode, reward,
@@ -90,8 +121,8 @@ workflow runs your invocation with a 1-hour hard timeout.
 6. **Post ONE results comment per `(PR, eval_spec)` batch** when every
    `(platform, mode)` tuple in that spec's matrix has a result. Format
    per § Result comment format below. Use `gh pr comment $PR_NUMBER
-   --body-file …`. Do NOT post a planning / queue-state / "refresh"
-   comment up front — comments carry results, not intent.
+   --body-file …`. Do NOT post a planning / "refresh" comment up
+   front — comments carry results, not intent.
 
 7. **Release all locks; leave instance IDs in `started-by-${RUN_ID}.txt`
    for the CI step's 5-minute cooldown teardown.** You don't run
@@ -113,8 +144,8 @@ workflow runs your invocation with a 1-hour hard timeout.
   the skill author to pick up and commit on their branch.
 - **Never leak `ANTHROPIC_API_KEY`, `NGC_CLI_API_KEY`, `GH_TOKEN`,
   `HF_TOKEN`** in comments, logs you echo back, or commit messages.
-- **Never touch `vss-skill-validator`** (the coordinator host running
-  you — that's the runner).
+- **Never touch `vss-skill-validator`** (the CI runner host — killing
+  it kills this job).
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -123,7 +154,7 @@ workflow runs your invocation with a 1-hour hard timeout.
 
 ## Tools you have
 
-- `Bash` — shell on the coordinator host. Has `brev`, `gh`, `docker`,
+- `Bash` — shell on the CI runner host. Has `brev`, `gh`, `docker`,
   `uvx`, `python3`, `git`. PATH includes `/home/ubuntu/.local/bin`.
 - `Read`, `Write`, `Edit` — file ops on the workspace checkout.
   Obviously bounded by the hard rule above (no `skills/` writes).
@@ -131,16 +162,24 @@ workflow runs your invocation with a 1-hour hard timeout.
 
 ## Platform topology
 
-| Subagent | Brev instance | Lifecycle | Notes |
+| Platform | Brev instance | Lifecycle | Notes |
 |---|---|---|---|
-| `l40s` | `vss-eval-l40s` (`massedcompute_L40Sx2`) | **non-stoppable — delete after queue drains** (MC doesn't support stop) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48GB GPU. |
-| `h100` | `vss-eval-h100` (launchpad `dmz.h100x2.pcie` preferred) | **non-stoppable — delete after queue drains** | 2× H100 80 GB. Full matrix incl. `shared`. |
-| `rtx` | `vss-eval-rtx` (`g7e.12xlarge`) | **stop after queue drains** | RTX PRO 6000 BW, 2× GPU, full matrix. |
+| `l40s` | `vss-eval-l40s` (`massedcompute_L40Sx2`) | **non-stoppable — delete after trials complete** (MC doesn't support stop) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48GB GPU. |
+| `h100` | `vss-eval-h100` (launchpad `dmz.h100x2.pcie` preferred) | **non-stoppable — delete after trials complete** | 2× H100 80 GB. Full matrix incl. `shared`. |
+| `rtx` | `vss-eval-rtx` (`g7e.12xlarge`) | **stop after trials complete** | RTX PRO 6000 BW, 2× GPU, full matrix. |
 | `spark` | BYOH registered node `SPARK` | **no-op — never stop, never delete** | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 | `H100-VLM` | BYOH registered node | **no-op** | Secondary H100 node if the cloud one is slow. |
 
-`vss-skill-validator` is the coordinator host — **never** touch it,
+`vss-skill-validator` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
+
+**Instance reuse (prefer reuse over create):** For `remote-all`
+mode the task file sets `gpu_count=0`, so `_check_live_resources`
+only enforces disk + RAM; any RUNNING+READY GPU-class instance works
+even if its GPU label doesn't match (e.g. reusing an `L4` box for an
+`L40S` remote-all trial is fine — the verifier never hits the local
+GPU). Scan `/tmp/skill-eval/brev-snapshot.txt` first; only
+`brev create` when nothing matches.
 
 **Fallback chain for `brev create` (if the default fails):**
 - H100: `dmz.h100x2.pcie,scaleway_H100x2,gpu-h100-sxm.1gpu-16vcpu-200gb`
@@ -150,9 +189,57 @@ even though it shows up in `brev ls`.
 `brev create` supports `--type type1,type2,type3` for automatic
 fallback. Always use `--timeout 600` and `-d` (detached).
 
+## Harbor invocation
+
+The one command that drives a trial. Copy this verbatim — harbor's
+flag names have bitten multiple runs (`--include-task-name`, not
+`--include`; the environment import is a Python **module** path, not
+a file path).
+
+```bash
+# PYTHONPATH lets uvx harbor resolve envs.brev_env:BrevEnvironment.
+# The workflow step already exports it, but re-export defensively in
+# case you're driving harbor from a subshell.
+export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+
+uvx harbor run \
+  --environment-import-path "envs.brev_env:BrevEnvironment" \
+  -p /tmp/skill-eval/datasets/<skill>/<spec_stem> \
+  --include-task-name "<platform>-<mode>" \
+  -a claude-code \
+  --model "$ANTHROPIC_MODEL" \
+  --ak api_base="$ANTHROPIC_BASE_URL/v1" \
+  --ae CLAUDE_CODE_DISABLE_THINKING=1 \
+  --max-retries 0 -n 1 --yes \
+  -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
+```
+
+Notes that have burned prior runs:
+- `--include-task-name` takes the full trial task name as emitted by
+  the adapter (usually `<platform>-<mode>`, e.g. `l40s-remote-all`).
+  `-i` / `--include` is a different flag and will silently match
+  nothing or everything.
+- `--environment-import-path` is a **Python module spec**
+  (`envs.brev_env:BrevEnvironment`), not a filesystem path. Do not
+  prepend `.github.skill-eval.` — `.github` isn't a valid Python
+  package and `PYTHONPATH` already points past it.
+- `--ak api_base="…"` passes the Anthropic base URL to claude-code.
+  Always append `/v1`.
+- `--max-retries 0 -n 1` means one trial, one attempt. Harbor retries
+  on harness errors (not agent errors) if `--max-retries > 0`, which
+  double-counts in the reward table. Keep it 0.
+- Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
+  Then migrate to the viewer (see § Harbor viewer).
+
+If a trial errors out, read
+`/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/trial.log` —
+it has the harness + adapter traceback. Fix the adapter
+(`.github/skill-eval/adapters/<skill>/generate.py`), regenerate the
+dataset for that spec, rerun. Do not start modifying flags.
+
 ## Harbor viewer
 
-`harbor view` runs persistently on the coordinator host at
+`harbor view` runs persistently on the CI runner host at
 `http://localhost:8080` (tunneled to
 `https://harbor-<BREV_ENV_ID>.brevlab.com`). For the viewer to pick
 up a trial, its directory must live under
@@ -183,7 +270,7 @@ One comment per `(PR, eval_spec)` batch, posted only after every
 (platform, mode) tuple in the spec's matrix has a recorded result.
 
 ```markdown
-## Harbor Eval — `skills/<skill>/eval/<profile>.json`
+## Harbor Eval — `skills/<skill>/eval/<spec>.json`
 
 Head: `<short-sha>` · N platforms × M modes · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
@@ -206,8 +293,8 @@ First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
 
 <sub>Generated by the skills-eval agent. Adapter/verifier changes (if
 any) live in the workflow artifact at
-`skills-eval-results-pr-<N>-<run_id>.tar.gz` — the coordinator never
-commits to `skills/`.</sub>
+`skills-eval-results-pr-<N>-<run_id>.tar.gz` — the skills-eval agent
+never commits to `skills/`.</sub>
 ```
 
 Use `gh pr comment $PR_NUMBER --body-file /tmp/pr-<spec>.md`. Never
@@ -225,8 +312,8 @@ separate; don't conflate the two.
   next fallback type. If all exhausted, comment a `csp_unavailable`
   blocker and exit.
 - **Brev auth expired mid-run.** Emit `BLOCKED: brev auth expired` —
-  the `brev-keepalive.timer` systemd unit on the coordinator host
-  will retry; a human needs to `brev login --auth nvidia`.
+  the `brev-keepalive.timer` systemd unit on the CI runner host will
+  retry; a human needs to `brev login --auth nvidia`.
 - **Claude-agent-sdk / API rate limit.** Back off 60s, retry up to
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.

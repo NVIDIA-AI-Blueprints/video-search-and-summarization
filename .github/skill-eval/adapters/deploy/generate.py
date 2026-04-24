@@ -612,7 +612,7 @@ def generate_task(
         # reports a clear failure instead of silently passing.
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
-            f"echo 'FAIL: no eval spec at skills/deploy/eval/{underlying}.json' >&2\n"
+            f"echo 'FAIL: no eval spec at skills/deploy/eval/{profile}.json' >&2\n"
             "mkdir -p /logs/verifier\n"
             "echo 0 > /logs/verifier/reward.txt\n"
             "exit 0\n"
