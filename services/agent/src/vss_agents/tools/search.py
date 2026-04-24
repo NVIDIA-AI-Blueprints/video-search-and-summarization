@@ -47,7 +47,7 @@ from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.vst.utils import get_streams_info
-from vss_agents.utils.es_client import ESClient
+from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 from vss_agents.utils.reasoning_utils import get_thinking_tag
 from vss_agents.utils.time_convert import datetime_to_iso8601
@@ -960,7 +960,7 @@ async def execute_core_search(
         from vss_agents.tools.attribute_search import enrich_attribute_results
         from vss_agents.tools.attribute_search import search_by_object_embedding
 
-        es = await ESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
+        es = await VSSESClient.get_es_client(es_endpoint=config.behavior_es_endpoint, max_retries=1)
 
         async def _safe_object_search(oid: int) -> list[AttributeSearchResult]:
             try:
@@ -1626,9 +1626,6 @@ class SearchOutput(BaseModel):
 
 @register_function(config_type=SearchConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
-    if config.behavior_es_endpoint:
-        await ESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
-
     embed_search = await _builder.get_function(config.embed_search_tool)
 
     agent_llm = None
@@ -1681,16 +1678,22 @@ async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[Func
         logger.info(f"Chat response chunk output: {response}")
         return ChatResponseChunk.from_string(_output_converter(response))
 
-    yield FunctionInfo.create(
-        single_fn=_search,
-        description=_search.__doc__,
-        input_schema=SearchInput,
-        single_output_schema=SearchOutput,
-        converters=[
-            _str_input_converter,
-            _chat_request_input_converter,
-            _output_converter,
-            _chat_response_output_converter,
-            _chat_response_chunk_output_converter,
-        ],
-    )
+    try:
+        yield FunctionInfo.create(
+            single_fn=_search,
+            description=_search.__doc__,
+            input_schema=SearchInput,
+            single_output_schema=SearchOutput,
+            converters=[
+                _str_input_converter,
+                _chat_request_input_converter,
+                _output_converter,
+                _chat_response_output_converter,
+                _chat_response_chunk_output_converter,
+            ],
+        )
+    finally:
+        try:
+            await VSSESClient.close_all()
+        except Exception as e:
+            logger.warning(f"Error closing ES clients: {e}")

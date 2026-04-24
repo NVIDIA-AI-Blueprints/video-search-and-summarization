@@ -35,7 +35,7 @@ from pydantic import Field
 
 from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
-from vss_agents.utils.es_client import ESClient
+from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_convert import iso8601_to_datetime
 from vss_agents.utils.time_measure import TimeMeasure
@@ -598,7 +598,7 @@ async def _process_search_hit(
 @register_function(config_type=EmbedSearchConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
     logger.info(f"Embed search config: {config}")
-    es = await ESClient.get_es_client(es_endpoint=config.es_endpoint)
+    es = await VSSESClient.get_es_client(es_endpoint=config.es_endpoint)
     embed_client: EmbedClient = CosmosEmbedClient(config.cosmos_embed_endpoint)
 
     async def _embed_search(query_input: QueryInput) -> EmbedSearchOutput:
@@ -676,6 +676,6 @@ async def embed_search(config: EmbedSearchConfig, _builder: Builder) -> AsyncGen
         except Exception as e:
             logger.warning(f"Error closing embed client: {e}")
         try:
-            await ESClient.close()
+            await VSSESClient.close_all()
         except Exception as e:
-            logger.warning(f"Error closing ES client: {e}")
+            logger.warning(f"Error closing ES clients: {e}")

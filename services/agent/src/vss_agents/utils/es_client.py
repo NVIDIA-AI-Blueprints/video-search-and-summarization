@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared Elasticsearch client for all search operations."""
+"""Shared Elasticsearch client registry for all search operations."""
 
 import asyncio
 import logging
@@ -24,12 +24,26 @@ from elasticsearch import AsyncElasticsearch
 logger = logging.getLogger(__name__)
 
 
-class ESClient:
-    """Shared async Elasticsearch singleton with lazy initialization."""
+class VSSESClient:
+    """Endpoint-keyed async Elasticsearch client registry with lazy initialization.
 
-    _instance: ClassVar[AsyncElasticsearch | None] = None
-    _endpoint: ClassVar[str] = ""
-    _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
+    Each distinct endpoint gets its own AsyncElasticsearch instance. Callers sharing
+    the same endpoint share the same client. Transport settings (request_timeout,
+    max_retries) are fixed at first initialization per endpoint; subsequent callers
+    reuse the existing client.
+
+    Teardown: all callers should call close_all() in their finally blocks. The method
+    is idempotent — first caller closes all clients, subsequent callers no-op.
+    """
+
+    _clients: ClassVar[dict[str, AsyncElasticsearch]] = {}
+    _lock: ClassVar[asyncio.Lock | None] = None
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     @staticmethod
     async def get_es_client(
@@ -37,30 +51,37 @@ class ESClient:
         request_timeout: int = 30,
         max_retries: int = 0,
     ) -> AsyncElasticsearch:
-        """Return the shared ES client, initializing it lazily on first call."""
-        async with ESClient._lock:
-            if ESClient._instance is not None:
-                if ESClient._endpoint != es_endpoint:
-                    logger.warning(
-                        "ESClient already initialized with endpoint %s; ignoring re-init with %s",
-                        ESClient._endpoint,
-                        es_endpoint,
-                    )
-                return ESClient._instance
+        """Return a shared ES client for the given endpoint, creating one if needed.
 
-            ESClient._endpoint = es_endpoint
-            ESClient._instance = AsyncElasticsearch(
+        Transport settings (request_timeout, max_retries) are used only when creating
+        a new client for an endpoint. If a client already exists for the endpoint,
+        the existing client is returned and these kwargs are ignored.
+        """
+        async with VSSESClient._get_lock():
+            if es_endpoint in VSSESClient._clients:
+                return VSSESClient._clients[es_endpoint]
+
+            client = AsyncElasticsearch(
                 hosts=[es_endpoint],
                 request_timeout=request_timeout,
                 max_retries=max_retries,
             )
-            return ESClient._instance
+            VSSESClient._clients[es_endpoint] = client
+            return client
 
     @staticmethod
-    async def close() -> None:
-        """Close the shared ES client if initialized."""
-        async with ESClient._lock:
-            if ESClient._instance is not None:
-                await ESClient._instance.close()
-                ESClient._instance = None
-                ESClient._endpoint = ""
+    async def close_all() -> None:
+        """Close all clients and clear the registry. Idempotent."""
+        async with VSSESClient._get_lock():
+            for endpoint, client in list(VSSESClient._clients.items()):
+                try:
+                    await client.close()
+                except Exception:
+                    logger.debug("Error closing ES client for %s", endpoint, exc_info=True)
+            VSSESClient._clients.clear()
+
+    @classmethod
+    def _reset(cls) -> None:
+        """Reset all class state. For use in tests only."""
+        cls._clients = {}
+        cls._lock = None

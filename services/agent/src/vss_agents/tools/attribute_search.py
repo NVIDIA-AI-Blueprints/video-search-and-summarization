@@ -36,7 +36,7 @@ from pydantic import Field
 from vss_agents.embed.embed import EmbedClient
 from vss_agents.embed.rtvi_cv_embed import RTVICVEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
-from vss_agents.utils.es_client import ESClient
+from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.uuid_string import is_standard_uuid_string
 
@@ -1404,7 +1404,7 @@ async def build_attribute_search(config: AttributeSearchConfig, _builder: Builde
 
     logger.info("Text embedding: rtvi_cv")
 
-    es = await ESClient.get_es_client(es_endpoint=config.es_endpoint)
+    es = await VSSESClient.get_es_client(es_endpoint=config.es_endpoint)
 
     async def attribute_search_fn(search_input: AttributeSearchInput) -> list[AttributeSearchResult]:
         return await search_attributes(
@@ -1431,6 +1431,6 @@ async def build_attribute_search(config: AttributeSearchConfig, _builder: Builde
         except Exception as e:
             logger.warning(f"Error closing embed client: {e}")
         try:
-            await ESClient.close()
+            await VSSESClient.close_all()
         except Exception as e:
-            logger.warning(f"Error closing ES client: {e}")
+            logger.warning(f"Error closing ES clients: {e}")

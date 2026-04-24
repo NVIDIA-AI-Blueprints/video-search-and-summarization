@@ -20,12 +20,11 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
-
 from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.embed_search import QueryInput
 from vss_agents.tools.embed_search import embed_search
-from vss_agents.utils.es_client import ESClient
+from vss_agents.utils.es_client import VSSESClient
 
 
 def _make_es_response(hits):
@@ -55,9 +54,8 @@ class TestEmbedSearchEdgeCases:
     def mock_es(self, monkeypatch):
         client = AsyncMock()
         client.indices.exists.return_value = True
-        monkeypatch.setattr(ESClient, "_instance", client)
-        monkeypatch.setattr(ESClient, "_endpoint", "http://mock:9200")
-        monkeypatch.setattr(ESClient, "close", AsyncMock())
+        monkeypatch.setattr(VSSESClient, "_clients", {"http://mock:9200": client})
+        monkeypatch.setattr(VSSESClient, "close_all", AsyncMock())
         return client
 
     @pytest.fixture
