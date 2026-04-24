@@ -1,5 +1,6 @@
 {
   "skills": ["video-summarization", "sensor-ops"],
+  "profile": "lvs",
   "resources": {
     "platforms": {
       "L40S": {
