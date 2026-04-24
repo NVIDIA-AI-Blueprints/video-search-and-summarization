@@ -1,236 +1,169 @@
 ---
 name: lvs-api
 description: >
-  Interact with the Long Video Summarization (LVS) API. Use this skill when working with LVS,
-  calling the summarize endpoint, listing LVS models, checking LVS health, getting recommended
-  chunk sizes, or querying LVS Prometheus metrics. Also use when debugging LVS responses,
-  building integrations with the VIA engine, asking "how do I summarize a video with LVS",
-  "what models are available in LVS", or "how do I call the LVS microservice".
+  Interact with the Long Video Summarization (LVS) API from the lvs-3.1.0-rc1 OpenAPI spec.
+  Use this skill when calling LVS summarize endpoints, listing LVS models, checking LVS health,
+  getting recommended chunk sizes, querying LVS metrics, or debugging LVS API responses.
 argument-hint: "[endpoint or workflow description]"
 allowed-tools: Bash(curl *), Bash(jq *)
 ---
 
 # Long Video Summarization (LVS) API
 
-Accelerated video summarization and insight extraction. LVS accepts a video URL (HTTP/S3)
-or a pre-uploaded asset ID, processes it with a configurable Vision-Language Model (VLM),
-and returns timestamped captions, summaries, or structured event detections.
+This skill documents only the API surface present in
+`~/repos/long-video-summarization/api_spec/openapi.json` while the repo is checked out at
+tag `lvs-3.1.0-rc1`. Do not infer fields or behaviors from newer branches, deployment
+runbooks, or implementation code unless the user explicitly asks to go beyond this OpenAPI spec.
+
+LVS provides video summarization and insight extraction endpoints. It accepts a summarization
+query, returns OpenAI-style completion objects, lists configured models, exposes health probes,
+returns Prometheus metrics, and recommends chunking parameters.
 
 ## Setup
 
+The OpenAPI spec declares a relative server URL (`/`), so set `BASE_URL` to the deployed LVS
+host and port.
+
 ```bash
-export BASE_URL="http://localhost:8000"   # Replace with your deployed LVS host:port
-export API_KEY="your-api-key"             # Bearer token — set VIA_VLM_API_KEY in your .env
+export BASE_URL="http://localhost:8000"
+export API_KEY="your-bearer-token"
 ```
 
-All endpoints use `Authorization: Bearer $API_KEY`. Check readiness before sending requests.
+The spec declares bearer auth globally. Use this header on calls:
 
-## media-server sidecar for sample videos
-
-When LVS is launched alongside its `media-server` sidecar — either via `compose/` stacks in
-this repo (see `compose/media-server.yaml`) or via a helm-based deployment — the sidecar is
-reachable from the LVS container at the hostname `media-server` on port 80. The service name
-is the same in both compose and helm deployments, so requests look identical.
-
-A one-shot `downloader` container pulls sample videos from
-`artifactory.nvidia.com/.../via-engine/media/perf/reencode/` using `ARTIFACTORY_USER` /
-`ARTIFACTORY_TOKEN`, drops them in a shared volume (`via-media-data` in compose), and exits.
-Nginx then serves that volume.
-
-**How to reference these files in requests:** pass `url: "http://media-server/<filename>"`.
-The hostname `media-server` resolves via internal DNS (docker compose network or kubernetes
-service DNS) — it is reachable from the LVS container, not from the host. Do not use
-`localhost` or the artifactory URL (LVS has no creds for artifactory; the download will 401).
-
-**Sample videos available** (durations match filenames):
-
-```
-0.5min.mp4   1min.mp4     2min.mp4     5min.mp4     10min.mp4
-30min.mp4    60min.mp4    120min.mp4   720min.mkv
-```
-
-The nginx config also adds a rewrite: `1min-3.mp4`, `10min-99.mp4`, etc. all alias back to
-the base file (`1min.mp4`, `10min.mp4`). This lets you hit distinct URLs without changing
-the payload — useful for defeating URL-keyed dedup caches during benchmarks.
-
-Quick list from a live stack:
 ```bash
-# Find the running media-server container (name varies by compose project)
-docker ps --format '{{.Names}}' | grep media-server
-docker exec <media-server-container> ls /usr/share/nginx/html/
+-H "Authorization: Bearer $API_KEY"
 ```
-
-**Content note:** despite the `perf/reencode` origin, not every sample is traffic/warehouse
-footage — check content before choosing `scenario`/`events`. A mismatch is harmless (the VLM
-describes what it actually sees), but makes event detection miss.
-
-**Important:** these sample files do *not* include `bp_preview/its_264.mp4` or other
-`bp_preview` content — only the `perf/reencode/` set listed above.
 
 ## Quick Start
 
-List models first to get the correct model ID for your deployment, then summarize:
+List models, then summarize a video URL:
 
 ```bash
-# Get available model IDs
-curl -s "$BASE_URL/models" -H "Authorization: Bearer $API_KEY" | jq '.data[].id'
+MODEL=$(curl -s "$BASE_URL/models" \
+  -H "Authorization: Bearer $API_KEY" | jq -r '.data[0].id')
 
-# Summarize a video by URL
 curl -s -X POST "$BASE_URL/v1/summarize" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "cosmos-reason1",
-    "scenario": "warehouse",
-    "events": ["safety violation", "unauthorized access"],
-    "url": "https://example.com/video.mp4",
-    "prompt": "Describe safety-relevant events with timestamps."
-  }' | jq '.choices[0].message.content'
+  -d "{
+    \"model\": \"$MODEL\",
+    \"scenario\": \"warehouse\",
+    \"events\": [\"safety violation\", \"unauthorized access\"],
+    \"url\": \"https://www.example.com/video.mp4\",
+    \"prompt\": \"Write a concise summary with timestamps.\"
+  }" | jq '.choices[0].message.content'
 ```
-
----
 
 ## Endpoints
 
 ### Health Check
 
-#### `GET /v1/ready` — Readiness probe
+#### `GET /v1/live` - Liveness
 
-Returns 200 only when LVS is fully initialized and ready. Use before sending summarization
-requests. Returns 500 if model loading is still in progress.
-
-```bash
-curl -s "$BASE_URL/v1/ready"
-```
-
-#### `GET /v1/live` — Liveness probe
-
-Returns 200 if the process is alive. Does **not** indicate model readiness — use `/v1/ready` instead.
+Get LVS liveness status.
 
 ```bash
-curl -s "$BASE_URL/v1/live"
+curl -s "$BASE_URL/v1/live" \
+  -H "Authorization: Bearer $API_KEY"
 ```
 
-#### `GET /v1/startup` — Startup probe
+#### `GET /v1/ready` - Readiness
 
-Returns 200 once the initial startup sequence is complete.
+Get LVS readiness status.
 
 ```bash
-curl -s "$BASE_URL/v1/startup"
+curl -s "$BASE_URL/v1/ready" \
+  -H "Authorization: Bearer $API_KEY"
 ```
 
-#### `GET /v1/metadata` — Service metadata
+#### `GET /v1/startup` - Startup
 
-Returns version, build info, and service configuration.
+Get LVS startup status.
 
 ```bash
-curl -s "$BASE_URL/v1/metadata" -H "Authorization: Bearer $API_KEY"
+curl -s "$BASE_URL/v1/startup" \
+  -H "Authorization: Bearer $API_KEY"
 ```
 
----
+#### `GET /v1/metadata` - Metadata
+
+Get LVS service metadata information.
+
+```bash
+curl -s "$BASE_URL/v1/metadata" \
+  -H "Authorization: Bearer $API_KEY"
+```
 
 ### Models
 
-#### `GET /models` — List available models
+#### `GET /models` - List models
 
-Lists all VLM models configured in this LVS deployment. The `id` field is what you pass
-as `model` in summarization requests. Model availability depends on deployment config.
+Lists currently available models and basic model information.
 
 ```bash
 curl -s "$BASE_URL/models" \
-  -H "Authorization: Bearer $API_KEY" | jq '.data[] | {id, owned_by, api_type}'
+  -H "Authorization: Bearer $API_KEY" \
+  | jq '.data[] | {id, created, object, owned_by, api_type}'
 ```
 
-**Response (200):**
-```json
-{
-  "object": "list",
-  "data": [
-    {
-      "id": "cosmos-reason1",
-      "created": 1686935002,
-      "object": "model",
-      "owned_by": "NVIDIA",
-      "api_type": "internal"
-    }
-  ]
-}
-```
+**Response (200) top-level fields:** `object`, `data`.
 
----
+Each model has: `id`, `created`, `object`, `owned_by`, `api_type`.
 
 ### Summarization
 
-Both `/v1/summarize` (versioned, preferred) and `/summarize` (unversioned, legacy) accept
-the same request body and return the same response format.
+The spec exposes both `POST /v1/summarize` and `POST /summarize`; both use the same
+`SummarizationQuery` request schema and `CompletionResponse` response schema.
 
-#### `POST /v1/summarize` — Summarize a video
+#### `POST /v1/summarize` - Summarize a video
 
-**Required fields:** `model`, `scenario`, `events`
-**Video source:** provide `url` (HTTP/S3 URL) OR `id` (asset UUID) — not both.
-
-**Required fields:**
+Required request fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `model` | string | Model ID from `GET /models` (e.g., `"cosmos-reason1"`) |
-| `scenario` | string | Use-case context: `"warehouse"`, `"retail"`, `"security"`, etc. |
-| `events` | array[string] | Events to detect, e.g. `["safety violation", "fire"]`. Pass `[]` if not detecting events. |
+| `model` | string | Model to use for this query, for example `cosmos-reason1`. |
+| `scenario` | string | Scenario or use-case context, for example `warehouse`, `retail`, or `security`. |
+| `events` | array[string] | Events to detect or extract from the video. Use `[]` if there are no target events. |
 
-**Commonly used optional fields:**
+Source-related optional fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string or null | Video URL. Examples include `https://www.example.com/video.mp4` and `s3://bucket/video.mp4`. |
+| `id` | UUID string, array[UUID], or null | Unique ID or list of IDs of files or live streams to summarize. |
+| `media_info` | object | Segment selection. Use `{"type":"offset","start_offset":0,"end_offset":60}` for files or `{"type":"timestamp","start_timestamp":"2024-05-30T01:41:25.000Z","end_timestamp":"2024-05-30T02:14:51.000Z"}` for live streams. |
+
+Common optional fields from the OpenAPI schema:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `url` | string | — | HTTP/S3 URL to video. Use `id` instead for pre-uploaded assets. |
-| `id` | string/array | — | Asset UUID(s) from the asset manager upload flow. |
-| `prompt` | string | `""` | Custom prompt sent to the VLM. |
-| `chunk_duration` | integer | `0` | Split video into N-second chunks. `0` = process entire video as one chunk. |
-| `chunk_overlap_duration` | integer | `0` | Overlap between adjacent chunks in seconds. |
-| `max_tokens` | integer | — | Maximum tokens to generate per chunk. |
-| `temperature` | number 0–1 | — | Sampling temperature. Higher = more variation. |
-| `schema` | string | — | JSON schema **string** for structured output extraction. |
-| `enable_vlm_structured_output` | boolean | `true` | VLM generates structured JSON by default. Set `false` for plain text. |
-| `enable_audio` | boolean | `false` | Transcribe the audio track alongside video. |
-| `enable_vlm_structured_output` | boolean | `True` | VLM generates structured JSON by default. Set `false` for plain text. |
-| `enable_audio` | boolean | `False` | Transcribe the audio track alongside video. |
-| `enable_reasoning` | boolean | `False` | Enable VLM chain-of-thought reasoning (Cosmos Reason1). |
-| `media_info` | object | — | Process only a portion of the video (see below). |
-| `source_type` | string | auto | `"file"` or `"stream"`. LVS infers from asset state if omitted. |
-| `auto_generate_prompt` | boolean | — | Auto-generate a prompt from `schema` and `events`. |
-| `objects_of_interest` | array[string] | `[]` | Objects to focus on: `["person", "forklift"]`. |
-| `alert_category` | string | — | Alert category label for event-detection mode. |
+| `system_prompt` | string | `""` | System prompt for the VLM. The spec notes Cosmos Reason1 reasoning can be enabled by adding `<think></think>` and `<answer></answer>` tags. |
+| `prompt` | string | `""` | Prompt for summary generation. |
+| `max_tokens` | integer | - | Maximum tokens to generate in a call. |
+| `temperature` | number | - | Sampling temperature, range 0 to 1. |
+| `top_p` | number | - | Top-p sampling mass, range 0 to 1. |
+| `top_k` | number | - | Number of highest probability vocabulary tokens to keep, range 1 to 1000. |
+| `seed` | integer | - | Seed value. |
+| `chunk_duration` | integer | `0` | Chunk videos into this many seconds. `0` means no chunking. |
+| `chunk_overlap_duration` | integer | `0` | Overlap between chunks in seconds. `0` means no overlap. |
+| `summary_duration` | integer | `0` | Summarize every N seconds of video. Spec says applicable to live streams only. |
+| `num_frames_per_chunk` | integer | `0` | Number of frames per chunk to use for the VLM. |
+| `vlm_input_width` | integer | `0` | VLM input width. |
+| `vlm_input_height` | integer | `0` | VLM input height. |
+| `custom_metadata` | object | - | Key-value metadata. Spec says supported only with user-managed Milvus DB collections. |
+| `delete_external_collection` | boolean | `false` | Delete the external collection at the end of the summarization request. |
+| `schema` | string | - | JSON schema string for structured output extraction. |
+| `batch_response_method` | string | - | Batch response method. Examples: `json_schema`, `text`. |
+| `auto_generate_prompt` | boolean | - | Generate a prompt from schema and events. |
+| `override_vlm_prompt` | boolean | `false` | Override the VLM prompt with the supplied prompt. |
+| `enable_vlm_structured_output` | boolean | `true` | Enable VLM structured output. |
+| `objects_of_interest` | array[string] | `[]` | Objects to detect or extract from the video. |
+| `min_tokens` | integer or null | - | Minimum tokens to generate. Used with `ignore_eos` for benchmarking. |
+| `ignore_eos` | boolean or null | - | Ignore EOS and continue until `max_tokens`; useful for fixed-output benchmarking. |
 
-**Basic summarization by URL:**
-```bash
-curl -s -X POST "$BASE_URL/v1/summarize" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "cosmos-reason1",
-    "scenario": "warehouse",
-    "events": ["forklift activity", "worker safety violation"],
-    "url": "https://example.com/warehouse-cam.mp4",
-    "prompt": "Describe all activity with timestamps."
-  }'
-```
+Basic URL request:
 
-**Long video with chunking (recommended for videos > 5 minutes):**
-```bash
-curl -s -X POST "$BASE_URL/v1/summarize" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "cosmos-reason1",
-    "scenario": "retail",
-    "events": ["theft", "unusual behavior"],
-    "url": "https://example.com/store-footage.mp4",
-    "chunk_duration": 60,
-    "chunk_overlap_duration": 5,
-    "prompt": "Detect any suspicious customer behavior."
-  }'
-```
-
-**Process only part of a video (offset):**
 ```bash
 curl -s -X POST "$BASE_URL/v1/summarize" \
   -H "Authorization: Bearer $API_KEY" \
@@ -238,75 +171,73 @@ curl -s -X POST "$BASE_URL/v1/summarize" \
   -d '{
     "model": "cosmos-reason1",
     "scenario": "security",
-    "events": ["intrusion", "fighting"],
-    "url": "https://example.com/full-day.mp4",
-    "media_info": {"type": "offset", "start_offset": 3600, "end_offset": 7200}
+    "events": ["intrusion", "loitering"],
+    "url": "https://www.example.com/video.mp4",
+    "chunk_duration": 60,
+    "chunk_overlap_duration": 10,
+    "prompt": "Summarize the video and call out any target events."
   }'
 ```
 
-**Structured output with JSON schema:**
+Structured extraction request:
+
 ```bash
-SCHEMA='{"type":"object","properties":{"events":{"type":"array","items":{"type":"object","properties":{"timestamp":{"type":"string"},"type":{"type":"string"},"severity":{"type":"string"}}}}}}'
+SCHEMA='{"type":"object","properties":{"events":{"type":"array","items":{"type":"object","properties":{"timestamp":{"type":"string"},"event_type":{"type":"string"},"description":{"type":"string"}}}}}}'
 
 curl -s -X POST "$BASE_URL/v1/summarize" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{
-    \"model\": \"cosmos-reason1\",
-    \"scenario\": \"security\",
-    \"events\": [\"intrusion\", \"vandalism\"],
-    \"url\": \"https://example.com/video.mp4\",
-    \"schema\": $(echo $SCHEMA | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))'),
-    \"enable_vlm_structured_output\": true,
-    \"auto_generate_prompt\": true
-  }"
+  -d "$(jq -n \
+    --arg model "cosmos-reason1" \
+    --arg scenario "warehouse" \
+    --argjson events '["safety violation","forklift near person"]' \
+    --arg url "https://www.example.com/warehouse.mp4" \
+    --arg schema "$SCHEMA" \
+    '{
+      model: $model,
+      scenario: $scenario,
+      events: $events,
+      url: $url,
+      schema: $schema,
+      auto_generate_prompt: true,
+      enable_vlm_structured_output: true
+    }')"
 ```
 
-**Response (200):**
-```json
-{
-  "id": "uuid",
-  "video_id": "uuid",
-  "choices": [
-    {
-      "index": 0,
-      "finish_reason": "stop",
-      "message": {
-        "role": "assistant",
-        "content": "[00:00 - 01:00] A worker walks down the aisle...",
-        "tool_calls": []
-      }
-    }
-  ],
-  "created": 1717405636,
-  "model": "cosmos-reason1",
-  "media_info": {"type": "offset", "start_offset": 0, "end_offset": 3600},
-  "object": "summarization.completion",
-  "usage": {
-    "query_processing_time": 78,
-    "total_chunks_processed": 5,
-    "summary_tokens": 100
-  }
-}
+**Response (200) top-level fields:** `id`, `video_id`, `choices`, `created`, `model`,
+`media_info`, `object`, `usage`.
+
+`choices[].message` has `content`, `tool_calls`, and `role`. Tool calls use type `alert`
+and include alert fields such as `name`, `detectedEvents`, `details`, plus `offset` for
+files or `ntpTimestamp` for live streams.
+
+#### `POST /summarize` - Summarize a video
+
+Legacy or unversioned route with the same schema as `/v1/summarize`.
+
+```bash
+curl -s -X POST "$BASE_URL/summarize" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "cosmos-reason1",
+    "scenario": "retail",
+    "events": ["theft"],
+    "url": "https://www.example.com/store.mp4"
+  }'
 ```
-
-When alerts are detected, `choices[0].message.tool_calls` contains structured alert objects
-with `name`, `offset` (timestamp), `detectedEvents`, and `details`.
-
----
 
 ### Recommended Config
 
-#### `POST /recommended_config` — Get recommended chunking parameters
+#### `POST /recommended_config` - Recommend chunking parameters
 
-Ask LVS to suggest `chunk_duration` based on video length and latency requirements.
-Run this before summarizing long videos to optimize chunking.
+The `RecommendedConfig` schema has no required fields, but it defines these optional fields:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `video_length` | integer | Total video duration in seconds |
-| `target_response_time` | integer | How quickly you need a response (seconds) |
-| `usecase_event_duration` | integer | How long target events typically last (seconds) |
+| Field | Type | Range | Description |
+|-------|------|-------|-------------|
+| `video_length` | integer | 1 to 864000000 | Video length in seconds. |
+| `target_response_time` | integer | 1 to 86400 | Target LVS response time in seconds. |
+| `usecase_event_duration` | integer | 1 to 86400 | Duration of the target event, for example how long a box-falling event takes. |
 
 ```bash
 curl -s -X POST "$BASE_URL/recommended_config" \
@@ -319,188 +250,86 @@ curl -s -X POST "$BASE_URL/recommended_config" \
   }'
 ```
 
-**Response (200):**
-```json
-{
-  "chunk_size": 60,
-  "text": "Recommended chunk size is 60 seconds..."
-}
-```
-
----
+**Response (200) top-level fields:** `chunk_size`, `text`.
 
 ### Metrics
 
-#### `GET /metrics` — Prometheus metrics
+#### `GET /metrics` - Prometheus metrics
 
-Returns LVS operational metrics in Prometheus text format.
+Get LVS metrics in Prometheus format.
 
 ```bash
-curl -s "$BASE_URL/metrics" -H "Authorization: Bearer $API_KEY"
+curl -s "$BASE_URL/metrics" \
+  -H "Authorization: Bearer $API_KEY"
 ```
-
----
 
 ## Common Workflows
 
-### Workflow 1: Summarize a Security Camera Feed End-to-End
+### Summarize A Video With The First Available Model
 
 ```bash
-# 1. Wait until LVS is ready
-until curl -sf "$BASE_URL/v1/ready" > /dev/null; do
-  echo "Waiting for LVS..."; sleep 5
+until curl -sf "$BASE_URL/v1/ready" -H "Authorization: Bearer $API_KEY" >/dev/null; do
+  sleep 5
 done
 
-# 2. Get the first available model
 MODEL=$(curl -s "$BASE_URL/models" \
   -H "Authorization: Bearer $API_KEY" | jq -r '.data[0].id')
-echo "Model: $MODEL"
 
-# 3. Get recommended chunk size for a 5-minute video
-CHUNK=$(curl -s -X POST "$BASE_URL/recommended_config" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"video_length": 300, "target_response_time": 30, "usecase_event_duration": 3}' \
-  | jq -r '.chunk_size')
-echo "Chunk size: ${CHUNK}s"
-
-# 4. Summarize with optimal config
 curl -s -X POST "$BASE_URL/v1/summarize" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
     \"model\": \"$MODEL\",
     \"scenario\": \"security\",
-    \"events\": [\"intrusion\", \"fighting\", \"loitering\"],
-    \"url\": \"https://your-storage/camera-001.mp4\",
-    \"chunk_duration\": $CHUNK,
-    \"prompt\": \"Detect and timestamp any security incidents.\"
-  }" | jq '{summary: .choices[0].message.content, video_id: .video_id}'
+    \"events\": [\"intrusion\", \"fighting\"],
+    \"url\": \"https://www.example.com/security.mp4\",
+    \"chunk_duration\": 60
+  }" | jq '{video_id, model, content: .choices[0].message.content}'
 ```
 
-### Workflow 2: Batch-Summarize Multiple Videos
+### Ask For A Recommended Chunk Size Then Summarize
 
 ```bash
-for VIDEO_URL in \
-  "https://storage/cam-001.mp4" \
-  "https://storage/cam-002.mp4" \
-  "https://storage/cam-003.mp4"; do
-
-  echo "--- Processing: $VIDEO_URL"
-  RESULT=$(curl -s -X POST "$BASE_URL/v1/summarize" \
-    -H "Authorization: Bearer $API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"model\": \"cosmos-reason1\",
-      \"scenario\": \"warehouse\",
-      \"events\": [\"safety violation\", \"forklift near person\"],
-      \"url\": \"$VIDEO_URL\",
-      \"chunk_duration\": 60,
-      \"enable_vlm_structured_output\": false
-    }")
-
-  # Check for 503 (server busy) and retry once
-  STATUS=$(echo "$RESULT" | jq -r '.code // "ok"')
-  if [ "$STATUS" != "ok" ]; then
-    echo "Server busy, retrying in 10s..."
-    sleep 10
-    RESULT=$(curl -s -X POST "$BASE_URL/v1/summarize" \
-      -H "Authorization: Bearer $API_KEY" \
-      -H "Content-Type: application/json" \
-      -d "{\"model\": \"cosmos-reason1\", \"scenario\": \"warehouse\", \"events\": [], \"url\": \"$VIDEO_URL\"}")
-  fi
-
-  echo "$RESULT" | jq '{video_id: .video_id, content: .choices[0].message.content}'
-done
-```
-
-### Workflow 3: Structured Event Extraction
-
-Extract structured JSON from video using a schema:
-
-```bash
-# Define target output schema
-SCHEMA=$(cat <<'EOF'
-{
-  "type": "object",
-  "properties": {
-    "events": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "timestamp": {"type": "string"},
-          "event_type": {"type": "string"},
-          "severity": {"type": "string", "enum": ["low", "medium", "high"]},
-          "description": {"type": "string"}
-        }
-      }
-    }
-  }
-}
-EOF
-)
+CHUNK=$(curl -s -X POST "$BASE_URL/recommended_config" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"video_length": 600, "target_response_time": 120, "usecase_event_duration": 5}' \
+  | jq -r '.chunk_size')
 
 curl -s -X POST "$BASE_URL/v1/summarize" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "$(jq -n \
-    --arg model "cosmos-reason1" \
-    --arg scenario "security" \
-    --argjson events '["fire","smoke","unauthorized access"]' \
-    --arg url "https://example.com/video.mp4" \
-    --arg schema "$SCHEMA" \
-    '{model: $model, scenario: $scenario, events: $events, url: $url, schema: $schema,
-      enable_vlm_structured_output: true, auto_generate_prompt: true}'
-  )" | jq '.choices[0].message.content | fromjson'
+  -d "{
+    \"model\": \"cosmos-reason1\",
+    \"scenario\": \"warehouse\",
+    \"events\": [\"safety violation\"],
+    \"url\": \"https://www.example.com/warehouse.mp4\",
+    \"chunk_duration\": $CHUNK
+  }"
 ```
-
----
 
 ## Error Reference
 
-| Code | Meaning | Common Cause |
-|------|---------|--------------|
-| 400 | Bad Request | Missing required field, invalid URL format, malformed JSON |
-| 401 | Unauthorized | Missing `Authorization: Bearer` header, or invalid API key |
-| 422 | Unprocessable | Extra unknown field (all schemas use `additionalProperties: false`), wrong type, value out of allowed range |
-| 429 | Rate Limited | Too many concurrent requests to this LVS instance |
-| 500 | Server Error | VLM inference failure, GPU out-of-memory, internal processing error |
-| 503 | Server Busy | LVS is processing another file or live stream — retry with backoff |
-
----
+| Code | Spec description | Common API cause |
+|------|------------------|------------------|
+| 400 | Bad Request | Invalid syntax or bad request body. |
+| 401 | Unauthorized request | Missing or invalid bearer token. |
+| 422 | Failed to process request | Schema validation failure, including extra fields where schemas set `additionalProperties: false`. |
+| 429 | Rate limiting exceeded | Too many requests for the service limits. |
+| 500 | Internal Server Error | Server-side LVS processing failure. |
+| 503 | Server is busy processing another file / live-stream | Summarize endpoint is busy; try again later. |
 
 ## Gotchas
 
-- **`model`, `scenario`, and `events` are always required** — even when not detecting specific
-  events, pass `"events": []`. Omitting any of these three fields returns 422.
-
-- **`enable_vlm_structured_output` defaults to `true`** — the VLM generates structured JSON
-  by default. For plain freeform text captions, explicitly set `"enable_vlm_structured_output": false`.
-
-- **`chunk_duration: 0` means no chunking** — the entire video is sent to the VLM as one chunk.
-  For videos longer than ~5 minutes, set `chunk_duration` to 60–120 seconds to avoid timeout or OOM.
-
-- **`additionalProperties: false` on every schema** — any field not in the spec causes 422.
-  The field list in this skill is exhaustive; unknown fields are not silently ignored.
-
-- **503 means busy, not failed** — LVS processes one stream at a time per instance. On 503,
-  implement retry with exponential backoff (start at 5–10s, retry 3–5 times). The job did not start.
-
-- **`url` accepts S3 (`s3://bucket/key`) or HTTP(S) URLs only** — local file paths are not
-  supported via `url`. Upload the file via the asset manager first to get an `id`.
-
-- **The spec `servers[0].url` is `/` (relative)** — you must set `BASE_URL` to the actual
-  deployed hostname and port. There is no default port in the spec.
-
-- **`media_info.type` must match the source** — use `"offset"` (with `start_offset`/`end_offset`
-  in seconds) for video files, and `"timestamp"` (ISO 8601 strings) for live streams.
-
-- **`summary_duration` applies to live streams only** — this parameter is silently ignored for
-  file-based requests. For files, use `chunk_duration` instead.
-
-- **`schema` is a JSON string, not an object** — pass the JSON schema as a string value:
-  `"schema": "{\"type\": \"object\", ...}"`. Do not pass a nested JSON object directly.
-
-- **`/v1/ready` vs `/v1/live`** — `/v1/ready` checks full service readiness including model load.
-  `/v1/live` only checks process liveness. Always use `/v1/ready` before sending summarize requests.
+- **Only OpenAPI fields are valid here** - do not add fields absent from `SummarizationQuery`.
+- **`model`, `scenario`, and `events` are required** - the schema requires all three for both
+  `/v1/summarize` and `/summarize`.
+- **Most request/response schemas set `additionalProperties: false`** - extra fields are schema
+  violations and can produce 422 responses.
+- **`schema` is a string** - pass a JSON schema serialized as a string, not a nested JSON object.
+- **`enable_vlm_structured_output` defaults to `true`** - set it explicitly only when you want to
+  override the default.
+- **`chunk_duration: 0` means no chunking** and `chunk_overlap_duration: 0` means no overlap.
+- **`summary_duration` is for live streams** according to the field description.
+- **`media_info` has two shapes** - use `type: "offset"` with second offsets for files and
+  `type: "timestamp"` with ISO timestamp strings for live streams.
