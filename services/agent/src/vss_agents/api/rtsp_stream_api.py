@@ -258,7 +258,7 @@ async def add_to_rtvi_embed(
         logger.error(error, exc_info=True)
         return False, error, None
 
-    return False, "RTVI-embed add failed after retries", None  # pragma: no cover
+    raise AssertionError("RTVI-embed: tenacity produced no retry attempt")
 
 
 async def start_embedding_generation(
