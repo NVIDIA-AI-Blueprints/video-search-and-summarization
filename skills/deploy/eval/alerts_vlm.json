@@ -20,7 +20,7 @@
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0 (Agent backend)",
         "`docker ps --format '{{.Names}}' | grep -qx mdx-redis` returns exit 0 (shared message bus)",
         "`docker ps --format '{{.Names}}' | grep -qx rtvi-vlm` returns exit 0 (continuous VLM processor \u2014 the 'VLM' in this mode)",
-        "`docker ps --format '{{.Names}}' | grep -qx nvstreamer-alerts` returns exit 0 (video ingestion source)",
+        "`docker ps --format '{{.Names}}' | grep -qx mdx-nvstreamer-alerts` returns exit 0 (video ingestion source)",
         "`! docker ps --format '{{.Names}}' | grep -qx perception-alerts` returns exit 0 (real-time mode does NOT run the CV perception pipeline)"
       ]
     }
