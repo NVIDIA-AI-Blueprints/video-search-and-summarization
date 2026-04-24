@@ -135,7 +135,11 @@ template is in § Harbor invocation below.
       `BLOCKED: lock timeout` on the PR and exit.
    c. Drive harbor one trial at a time (they share GPU/ports on the
       host). Use the canonical invocation in § Harbor invocation
-      below — **do not improvise flags**. If a trial fails, read the
+      below — **do not improvise flags**. Before the `uvx harbor run`
+      call, `export BREV_INSTANCE=<name>` to the instance you
+      resolved in step 5a; the canonical snippet has the line —
+      omitting it causes a fresh `harbor-*` to be provisioned per
+      trial and wastes the pre-warmed box. If a trial fails, read the
       trial log, fix the adapter (not the flags), rerun. While a
       trial is running, do NOT babysit the remote box (no
       `brev exec` polling, no `Monitor` on remote logs); harbor has
@@ -204,7 +208,11 @@ even though it shows up in `brev ls`.
 
 **Instance reuse (prefer reuse over create).** Scan
 `/tmp/skill-eval/brev-snapshot.txt` first; only `brev create` when
-nothing matches. Match rules enforced by
+nothing matches. Reuse is wired into the trial via
+`export BREV_INSTANCE=<name>` **before** the `uvx harbor run` call
+— see § Harbor invocation. Without that export, BrevEnvironment
+auto-provisions a fresh `harbor-*` per trial regardless of what
+the snapshot showed. Match rules enforced by
 `envs/brev_env.py::_check_instance_matches`:
 
 - `gpu_count == 0` (`base`/`lvs` in `remote-all`): GPU-type check
@@ -237,6 +245,14 @@ a file path).
 # The workflow step already exports it, but re-export defensively in
 # case you're driving harbor from a subshell.
 export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+
+# CRITICAL: point the environment at the already-running per-platform
+# instance. BrevEnvironment reads BREV_INSTANCE at module import time;
+# without this export it falls through to the auto-provision branch and
+# spawns a fresh harbor-* per trial (≈20 min provision overhead each,
+# wastes the pre-warmed box, and — on massedcompute L40S — may run
+# multiple harbor-* in parallel on the same lock).
+export BREV_INSTANCE="vss-eval-<platform-short>"   # e.g. vss-eval-l40s
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
