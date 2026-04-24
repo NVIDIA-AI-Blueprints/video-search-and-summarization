@@ -173,13 +173,20 @@ template is in § Harbor invocation below.
 `vss-skill-validator` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
-**Instance reuse (prefer reuse over create):** For `remote-all`
-mode the task file sets `gpu_count=0`, so `_check_live_resources`
-only enforces disk + RAM; any RUNNING+READY GPU-class instance works
-even if its GPU label doesn't match (e.g. reusing an `L4` box for an
-`L40S` remote-all trial is fine — the verifier never hits the local
-GPU). Scan `/tmp/skill-eval/brev-snapshot.txt` first; only
-`brev create` when nothing matches.
+**Instance reuse (prefer reuse over create).** Scan
+`/tmp/skill-eval/brev-snapshot.txt` first; only `brev create` when
+nothing matches. Match rules enforced by
+`envs/brev_env.py::_check_instance_matches`:
+
+- `gpu_count == 0` (`base`/`lvs` in `remote-all`): GPU-type check
+  is skipped — any RUNNING+READY box works, even CPU-only. Reuse
+  freely.
+- `gpu_count >= 1` (every other profile × mode combo, including
+  `alerts_*`/`search` in `remote-all` because RT-CV / Embed1 run
+  locally): **match `gpu_type` exactly.** The check is a
+  token-subset — `L4` does NOT satisfy an `L40S` task, the trial
+  errors out before the agent starts with `gpu_type: want tokens
+  of 'L40S' in 'L4'`. Create a fresh matching instance.
 
 **Fallback chain for `brev create` (if the default fails):**
 - H100: `dmz.h100x2.pcie,scaleway_H100x2,gpu-h100-sxm.1gpu-16vcpu-200gb`

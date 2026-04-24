@@ -209,6 +209,13 @@ def effective_mode_spec(platform: str, mode: str) -> dict:
 #                        `-p alerts -m verification`). Empty or absent means
 #                        the dict key is itself the deploy profile.
 #   - deploy_mode      → value of `/deploy -m ...` for this eval variant
+#   - local_extras     → additional **always-local** GPUs this profile needs
+#                        beyond LLM/VLM placement. alerts runs RT-CV locally in
+#                        every mode; search runs Cosmos Embed1 locally in every
+#                        mode. Added on top of MODES[mode]["gpus_needed"] when
+#                        computing task-file `gpu_count`. See
+#                        skills/deploy/SKILL.md § Platform × Mode table and
+#                        skills/deploy/references/{alerts,search}.md.
 # Everything else (platforms, modes, checks) lives in the spec.
 PROFILES: dict[str, dict] = {
     "base": {
@@ -220,18 +227,21 @@ PROFILES: dict[str, dict] = {
                        "RT-CV generates candidate alerts, VLM reviews each",
         "profile": "alerts",
         "deploy_mode": "verification",
+        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "alerts_vlm": {
         "description": "VSS alerts profile, VLM mode (`deploy -m real-time`) — "
                        "VLM continuously processes live video",
         "profile": "alerts",
         "deploy_mode": "real-time",
+        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
     },
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
+        "local_extras": 1,  # RTVI-Embed (Cosmos Embed1) GPU (always local)
     },
 }
 
@@ -556,7 +566,7 @@ def generate_task(
         "# GPU requirements — BrevEnvironment checks these against the",
         "# instance's actual GPU capacity before the trial runs.",
         f'gpu_type = "{platform_spec["gpu_type"]}"',
-        f'gpu_count = {mode_spec["gpus_needed"]}',
+        f'gpu_count = {mode_spec["gpus_needed"] + profile_def.get("local_extras", 0)}',
         f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
         f'brev_search = "{platform_spec["brev_search"]}"',
         "# Disk + driver requirements — BrevEnvironment validates both via",

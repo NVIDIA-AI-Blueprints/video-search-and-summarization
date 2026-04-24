@@ -765,6 +765,14 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
         )
         return
 
+    if int(req.get("gpu_count", 1) or 0) == 0:
+        logger.info(
+            "Instance '%s' gpu_count=0 (remote-all or GPU-independent task) — "
+            "skipping GPU-type match; any live instance is acceptable",
+            instance.get("name"),
+        )
+        return
+
     gpu = (instance.get("gpu") or "").upper()
     required_type = (req.get("gpu_type") or "").upper()
 
