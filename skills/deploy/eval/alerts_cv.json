@@ -22,7 +22,7 @@
         "`docker ps --format '{{.Names}}' | grep -qx perception-alerts` returns exit 0 (RT-CV perception \u2014 the 'CV' in this mode)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts` returns exit 0 (rule-based alert generation on CV output)",
         "`docker ps --format '{{.Names}}' | grep -qx alert-bridge` returns exit 0 (routes CV-generated alerts to VLM verifier)",
-        "`docker ps --format '{{.Names}}' | grep -qx nvstreamer-alerts` returns exit 0 (video ingestion source)"
+        "`docker ps --format '{{.Names}}' | grep -qx mdx-nvstreamer-alerts` returns exit 0 (video ingestion source)"
       ]
     }
   ]
