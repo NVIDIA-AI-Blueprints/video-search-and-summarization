@@ -1,2 +1,6 @@
 *.mp4 filter=lfs diff=lfs merge=lfs -text
 *.gem filter=lfs diff=lfs merge=lfs -text
+
+# License database CSVs are produced by Python's csv module which
+# defaults to CRLF line endings; pin them to LF so commits stay clean.
+.github/license-database/*.csv text eol=lf
