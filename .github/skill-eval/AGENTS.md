@@ -217,6 +217,7 @@ uvx harbor run \
   --model "$ANTHROPIC_MODEL" \
   --ak api_base="$ANTHROPIC_BASE_URL/v1" \
   --ae CLAUDE_CODE_DISABLE_THINKING=1 \
+  --environment-build-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
   -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
 ```
@@ -235,6 +236,14 @@ Notes that have burned prior runs:
 - `--max-retries 0 -n 1` means one trial, one attempt. Harbor retries
   on harness errors (not agent errors) if `--max-retries > 0`, which
   double-counts in the reward table. Keep it 0.
+- `--environment-build-timeout-multiplier 3.0` raises harbor's
+  `asyncio.wait_for(env.start(), timeout=...)` ceiling from the task
+  default (600s) to 1800s. Massedcompute L40S provisioning has been
+  observed to exceed 10 min from `brev create` to `RUNNING+READY`;
+  600s would fire `EnvironmentStartTimeoutError` in
+  `harbor/trial/trial.py::_start_environment_with_retry` on a fresh
+  box. Our internal `_wait_for_running` polls to 2400s, but the
+  outer harbor wrapper is what actually trips first.
 - Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
   Then migrate to the viewer (see § Harbor viewer).
 
