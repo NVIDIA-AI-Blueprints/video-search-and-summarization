@@ -94,6 +94,21 @@ template is in § Harbor invocation below.
    `video-search` (profile: `search`) and `video-summarization`
    (profile: `lvs`) that share the vios shape but not its profile.
 
+   Every `instruction.md` the adapter writes **must begin with the
+   `PREAMBLE` constant** defined in `adapters/vios/generate.py` and
+   `adapters/deploy/generate.py`:
+
+   > You are running inside a non-interactive evaluation harness.
+   > You are pre-authorized to deploy prerequisites autonomously —
+   > do not pause to ask for confirmation on `/deploy` or any other
+   > setup action the trial requires.
+
+   Skills' SKILL.md prereq blocks include a bypass clause that fires
+   on exactly this wording. Omitting the preamble makes the agent
+   stall (no user to answer in CI) or fall through to a localhost
+   default, which produces false negatives on steps that need a
+   deployed profile.
+
 4. **Regenerate the dataset** for each `(skill, spec, platform,
    mode)` the spec's `resources.platforms` enumerates. Datasets land
    at `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>-<mode>/`,
