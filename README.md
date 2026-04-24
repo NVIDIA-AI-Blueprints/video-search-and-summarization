@@ -90,6 +90,17 @@ The platform requirement can vary depending on the configuration and deployment 
 Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [deployments/scripts](deployments/scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
 - [deployments/scripts/deploy_vss_launchable.ipynb](deployments/scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
 
+#### Claude Code Skill (optional)
+
+A [Claude Code](https://claude.ai/code) skill is included to automate NemoClaw + VSS OpenClaw plugin installation on your Brev instance. To install it:
+
+```bash
+mkdir -p .claude/skills
+cp -r skills/nemoclaw-brev .claude/skills/
+```
+
+Once installed, Claude Code will automatically use the skill when you ask it to set up NemoClaw on a Brev instance.
+
 ### Docker Compose Deployment
 
 **Ideal for:** Deploying a VSS agent on your own hardware or bare metal cloud instance.
