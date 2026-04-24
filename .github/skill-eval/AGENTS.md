@@ -278,9 +278,10 @@ dataset for that spec, rerun. Do not start modifying flags.
 
 ## Harbor viewer
 
-`harbor view` runs persistently on the CI runner host at
-`http://localhost:8080` (tunneled to
-`https://harbor-<BREV_ENV_ID>.brevlab.com`). For the viewer to pick
+`harbor view` runs persistently on the CI runner host under the
+`harbor-view.service` systemd unit at `http://localhost:8080`,
+serving `/tmp/skill-eval/results/_viewer`, tunneled to
+`https://harbor-<BREV_ENV_ID>.brevlab.com`. For the viewer to pick
 up a trial, its directory must live under
 `/tmp/skill-eval/results/_viewer/<run_id>__<date>/` as a **real dir
 (not a symlink)**, flattened — no nested `<date>/` level. Migrate
@@ -298,6 +299,17 @@ via the SPA URL:
 ```
 https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<agent>/<provider>/<model>/<task>
 ```
+
+**CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
+env id** (the CI runner, set by Brev in `/etc/environment` — on the
+current coordinator it's `8yq51k0qt`). It is **NOT** a per-trial
+instance id you see in `brev ls --json` (the `id` field of
+`vss-eval-*` or `harbor-*` entries). The coordinator runs
+`harbor view`; per-trial boxes do not. Mixing these up produces a
+trace URL that resolves to the wrong brevlab subdomain and 404s.
+When generating the URL, read the value from the runner env
+(`echo "$BREV_ENV_ID"`) and paste it verbatim — never substitute
+from `brev ls` output.
 
 Values for `<source>` / `<agent>` / `<model>` / `<task>` come from
 `GET http://localhost:8080/api/jobs/<run_id>__<date>/tasks`; slashes
