@@ -310,6 +310,17 @@ def _query_hint(mode_spec: dict, llm_remote: dict | None,
     return ""
 
 
+# Prepended to every instruction.md so the skill's own HITL bypass
+# clause fires. Skills default to "ask the user" before /deploy; in CI
+# there's no user, so without this preamble the agent stalls.
+PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. "
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/deploy` or any other "
+    "setup action the trial requires."
+)
+
+
 def generate_instruction(
     profile: str,
     platform: str,
@@ -340,6 +351,8 @@ def generate_instruction(
     verb_phrase += " autonomously — do not ask for confirmation before running."
 
     body = [
+        PREAMBLE,
+        "",
         verb_phrase,
         "",
         "Use the `/deploy` skill.",
