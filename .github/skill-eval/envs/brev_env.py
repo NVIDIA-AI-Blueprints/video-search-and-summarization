@@ -48,6 +48,23 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 
 
+def _record_started_instance(name: str) -> None:
+    """Append an auto-provisioned instance name to the wrapper's
+    cleanup marker (`/tmp/brev/started-by-<run_id>.txt`) so
+    skills_eval_agent.cleanup_instances() tears it down even if the
+    agent never observes the name. No-op outside CI (no GITHUB_RUN_ID)."""
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if not run_id:
+        return
+    try:
+        marker = Path(f"/tmp/brev/started-by-{run_id}.txt")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        with marker.open("a") as fh:
+            fh.write(f"{name}\n")
+    except OSError as exc:
+        logger.warning("failed to record %s in started-by marker: %s", name, exc)
+
+
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
 
@@ -189,6 +206,11 @@ class BrevEnvironment(BaseEnvironment):
             )
             if create_result.return_code != 0:
                 raise RuntimeError(f"brev create failed: {create_result.stderr}")
+            # Record the harbor-* instance in the wrapper's cleanup marker
+            # so skills_eval_agent.cleanup_instances() tears it down even if
+            # the trial fails before the agent tracks it. Append before
+            # _wait_for_running so a timeout there doesn't leak an orphan.
+            _record_started_instance(self._instance_name)
             await _wait_for_running(self._instance_name)
 
         # Quick smoke test — ensure exec works
