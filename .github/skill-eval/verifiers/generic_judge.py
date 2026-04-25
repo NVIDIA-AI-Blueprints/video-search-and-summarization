@@ -201,9 +201,10 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
 
     collected_text: list[str] = []
     cost_usd = 0.0
+    saw_result = False
 
     async def _run() -> None:
-        nonlocal cost_usd
+        nonlocal cost_usd, saw_result
         async with ClaudeSDKClient(options=options) as client:
             await client.query(_assemble_judge_prompt(check, traj_path))
             async for message in client.receive_response():
@@ -213,6 +214,7 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
                             collected_text.append(block.text)
                 elif isinstance(message, ResultMessage):
                     cost_usd = getattr(message, "total_cost_usd", 0.0) or 0.0
+                    saw_result = True
                     break
 
     try:
@@ -237,10 +239,27 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
     full_text = "\n".join(collected_text).strip()
     verdict = _parse_verdict_json(full_text)
     if verdict is None:
+        # Surface enough raw text + signals to debug judge non-compliance.
+        # Common causes: ran out of turns mid-analysis without emitting the
+        # final {"pass": ...} object; SDK closed the stream early
+        # (saw_result=False); or the agent returned only tool-use blocks.
+        head = full_text[:600]
+        tail = full_text[-400:] if len(full_text) > 1000 else ""
+        signals = (
+            f"saw_result_message={saw_result} "
+            f"text_chars={len(full_text)} "
+            f"text_blocks={len(collected_text)}"
+        )
+        rationale = (
+            f"judge returned no compliant verdict ({signals}); "
+            f"head: {head!r}"
+        )
+        if tail:
+            rationale += f"; tail: {tail!r}"
         return {
             "route": "agent",
             "pass": False,
-            "rationale": f"judge returned no parseable JSON; raw: {full_text[:200]!r}",
+            "rationale": rationale,
             "matched": None,
             "cost_usd": cost_usd,
         }
@@ -257,14 +276,15 @@ def _parse_verdict_json(text: str) -> dict | None:
     """Grab the judge's verdict JSON object from agent prose.
 
     Walks every `{` in the text and tries `json.JSONDecoder().raw_decode`
-    forward — this correctly handles nested braces (e.g. when the judge
-    quotes an API response body into `matched`), which the previous
-    regex-only approach could not. Returns the **last** successfully
-    decoded object containing a `"pass"` key; falls back to the last
-    decodable object overall if no candidate has `"pass"`."""
+    forward — handles nested braces (e.g. when the judge quotes an API
+    response body into `matched`). Returns the **last** decoded object
+    that has a `"pass"` key; the system prompt mandates that key, so
+    objects without it are treated as incidental quotes (trajectory
+    snippets, API bodies) and discarded — no fallback. None means the
+    judge did not emit a compliant verdict; caller should surface raw
+    text for triage."""
     decoder = json.JSONDecoder()
     candidates: list[dict] = []
-    all_objects: list[dict] = []
     idx = 0
     while True:
         idx = text.find("{", idx)
@@ -275,16 +295,10 @@ def _parse_verdict_json(text: str) -> dict | None:
         except ValueError:
             idx += 1
             continue
-        if isinstance(obj, dict):
-            all_objects.append(obj)
-            if "pass" in obj:
-                candidates.append(obj)
-        idx = end
-    if candidates:
-        return candidates[-1]
-    if all_objects:
-        return all_objects[-1]
-    return None
+        if isinstance(obj, dict) and "pass" in obj:
+            candidates.append(obj)
+        idx = end if isinstance(obj, dict) else idx + 1
+    return candidates[-1] if candidates else None
 
 
 # ---------------------------------------------------------------------------
