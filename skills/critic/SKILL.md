@@ -1,6 +1,8 @@
 ---
 name: critic
-description: Verify video clips against a search query using VLM critique — score clips as confirmed/rejected/unverified, get per-criterion breakdowns. Use when asked to verify search results, score clips against a query, check if a video matches a description, validate a search finding, or run critic verification on clips. Can be triggered directly via a dedicated endpoint or inline during search. Requires the search profile to be deployed.
+description: Verify video clips against a search query using VLM critique — score clips as confirmed/rejected/unverified, get per-criterion breakdowns. Use when asked to verify search results, score clips against a query, check if a video matches a description, validate a search finding, or run critic verification on clips. Requires the search profile to be deployed.
+version: "3.1.0"
+license: "Apache License 2.0"
 ---
 
 # Critic Agent Workflows
