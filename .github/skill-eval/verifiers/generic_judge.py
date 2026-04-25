@@ -33,7 +33,8 @@ Env (from `[verifier.env]` in task.toml, plumbed by Harbor):
     ANTHROPIC_API_KEY    required for LLM-judge routes
     ANTHROPIC_BASE_URL   optional, for proxies (e.g. NVIDIA inference API)
     ANTHROPIC_MODEL      overrides default judge model (claude-haiku-4-5)
-    JUDGE_MAX_TURNS      per-check agent turn cap (default 10)
+    JUDGE_MAX_TURNS              per-check agent turn cap (default 25)
+    JUDGE_PER_CHECK_TIMEOUT_S    per-check wall-clock cap (default 600s)
 """
 from __future__ import annotations
 
@@ -183,7 +184,12 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
         }
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
-    max_turns = int(os.environ.get("JUDGE_MAX_TURNS", "10"))
+    # Judge agent runs Bash+Read+Grep to inspect trajectory + probe live
+    # stack per check. Specs with rich trajectories (vios PUT/GET flows)
+    # legitimately need >10 turns; observed timeouts at 180s on the
+    # default budget. Generous cap; the harbor verifier multiplier
+    # (3.0 → 1800s total) still bounds the full pass.
+    max_turns = int(os.environ.get("JUDGE_MAX_TURNS", "25"))
 
     options = ClaudeAgentOptions(
         system_prompt=_JUDGE_SYSTEM_PROMPT,
@@ -311,7 +317,7 @@ def main() -> int:
     ap.add_argument("--reward-file", default="/logs/verifier/reward.txt")
     ap.add_argument("--details-file", default="/logs/verifier/judge.json")
     ap.add_argument("--per-check-timeout", type=int,
-                    default=int(os.environ.get("JUDGE_PER_CHECK_TIMEOUT_S", "180")),
+                    default=int(os.environ.get("JUDGE_PER_CHECK_TIMEOUT_S", "600")),
                     help="Seconds the judge agent has to evaluate one LLM-route check")
     args = ap.parse_args()
 
