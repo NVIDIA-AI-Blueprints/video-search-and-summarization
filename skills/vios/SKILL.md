@@ -33,6 +33,60 @@ This skill requires any VSS profile that brings up VIOS / VST — **base** (reco
 
 ---
 
+## Sample data bootstrap
+
+VIOS stores videos uploaded by the user. For requests that reference a
+**"sample"** video by friendly name (e.g. *"the sample warehouse
+video"*, *"sample-warehouse-ladder"*, *"warehouse_safety_0001"*) the
+expected file is one of the 8 mp4s shipped in NGC bundle
+`nvidia/vss-developer/dev-profile-sample-data:3.1.0`. Before any
+upload-style request, ensure the bundle is extracted locally:
+
+```bash
+SAMPLE_DIR="/tmp/vss-sample-data/dev-profile-sample-data"
+
+if [ ! -d "$SAMPLE_DIR" ]; then
+  mkdir -p /tmp/vss-sample-data
+  cd /tmp/vss-sample-data
+
+  # NGC CLI required (export NGC_CLI_API_KEY first if not already set).
+  ngc registry resource download-version \
+    nvidia/vss-developer/dev-profile-sample-data:3.1.0 \
+    --org nvidia --team vss-developer
+
+  # Bundle ships as a single tar.gz inside dev-profile-sample-data_v3.1.0/.
+  tar -xzf dev-profile-sample-data_v3.1.0/dev-profile-sample-data.tar.gz
+fi
+
+ls "$SAMPLE_DIR"/  # verify expected mp4s present
+```
+
+Bundle contents (use these filenames verbatim when asked for *"the
+&lt;name&gt; video"*):
+
+| Friendly name in user query | Local filename |
+|---|---|
+| sample warehouse video | `warehouse_sample.mp4` |
+| sample-warehouse-ladder | `sample-warehouse-ladder.mp4` |
+| warehouse safety 1 / 2 | `warehouse_safety_0001.mp4` / `warehouse_safety_0002.mp4` |
+| sample-sim-traffic | `sample-sim-traffic.mp4` |
+| sample-sim-jaywalking | `sample-sim-jaywalking.mp4` |
+| sample-sim-box-conveyor | `sample-sim-box-conveyor.mp4` |
+| sample-drone-bridge | `sample-drone-bridge.mp4` |
+
+If the user names a video that isn't in this list (e.g. *"airport
+video"*, *"neon-pink monster truck"*), do **not** substitute a
+similar-sounding bundle file — list the available names back to the
+user and ask which one they meant. Don't invent paths or fabricate
+upload responses.
+
+`NGC_CLI_API_KEY` must be set in the environment for `ngc registry`
+calls to authenticate. The variable is provided by the deploy/eval
+harness; if it's missing, fail with the actionable error rather than
+trying to proceed.
+
+---
+
 ## Setup
 
 **Base URL:** `http://<VST_ENDPOINT>/vst/api/v1`
