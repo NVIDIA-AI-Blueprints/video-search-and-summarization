@@ -21,8 +21,9 @@ from unittest.mock import Mock
 from unittest.mock import patch
 
 from fastapi import HTTPException
-import pytest
 from pydantic import ValidationError
+import pytest
+
 from vss_agents.api.video_search_ingest import ALLOWED_VIDEO_TYPES
 from vss_agents.api.video_search_ingest import VideoIngestResponse
 from vss_agents.api.video_search_ingest import VideoUploadCompleteInput
@@ -455,7 +456,7 @@ class TestVideoUploadCompleteInput:
         """Empty string must fail at the boundary with a clean 422, not
         silently propagate into downstream VST calls where it surfaces as
         a confusing 502 (storage URL .../storage/file//url)."""
-        with pytest.raises(ValidationError, match="min_length|at least 1"):
+        with pytest.raises(ValidationError, match=r"min_length|at least 1"):
             VideoUploadCompleteInput(**{"sensorId": ""})
 
 
@@ -498,9 +499,7 @@ class TestRunPostUploadProcessing:
     @pytest.mark.asyncio
     async def test_happy_path_with_cv_and_embed_configured(self):
         """All services configured → timeline + storage + CV + embed → success message."""
-        storage_resp = self._mock_response(
-            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
-        )
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
         cv_resp = self._mock_response(200, {"ok": True})
         embed_resp = self._mock_response(200, {"usage": {"total_chunks_processed": 42}})
 
@@ -510,8 +509,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock(side_effect=[cv_resp, embed_resp])
 
-        with self._timeline_patch(), \
-             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -530,9 +528,7 @@ class TestRunPostUploadProcessing:
         """If RTVI-CV ConnectError's, log-and-skip, continue to embed, return 200-equivalent."""
         import httpx
 
-        storage_resp = self._mock_response(
-            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
-        )
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
         embed_resp = self._mock_response(200, {"usage": {"total_chunks_processed": 5}})
 
         client = MagicMock()
@@ -542,8 +538,7 @@ class TestRunPostUploadProcessing:
         # First POST (CV) raises ConnectError; second POST (embed) succeeds.
         client.post = AsyncMock(side_effect=[httpx.ConnectError("connection refused"), embed_resp])
 
-        with self._timeline_patch(), \
-             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -558,9 +553,7 @@ class TestRunPostUploadProcessing:
     @pytest.mark.asyncio
     async def test_embed_not_configured_skips_embeddings(self):
         """Empty rtvi_embed_base_url → skip embed, return uploaded-only message."""
-        storage_resp = self._mock_response(
-            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
-        )
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
 
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)
@@ -568,8 +561,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock()  # No CV or embed POSTs expected.
 
-        with self._timeline_patch(), \
-             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -584,7 +576,7 @@ class TestRunPostUploadProcessing:
         assert client.post.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_storage_api_missing_videoUrl_is_502(self):
+    async def test_storage_api_missing_video_url_is_502(self):
         """VST returned a response but without `videoUrl` → surface as 502 not silent success."""
         storage_resp = self._mock_response(200, {"unexpected": "shape"})  # no videoUrl key
 
@@ -594,8 +586,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock()
 
-        with self._timeline_patch(), \
-             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
             with pytest.raises(HTTPException) as exc_info:
                 await _run_post_upload_processing(
                     camera_name="clip",
@@ -614,9 +605,7 @@ class TestRunPostUploadProcessing:
         a scheme, so an empty string becomes ``http://`` — urlparse returns
         hostname=None and the helper raises 500.
         """
-        storage_resp = self._mock_response(
-            200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"}
-        )
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
         cv_resp = self._mock_response(200, {"ok": True})
 
         client = MagicMock()
@@ -625,8 +614,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock(return_value=cv_resp)
 
-        with self._timeline_patch(), \
-             patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client):
             with pytest.raises(HTTPException) as exc_info:
                 await _run_post_upload_processing(
                     camera_name="clip",
