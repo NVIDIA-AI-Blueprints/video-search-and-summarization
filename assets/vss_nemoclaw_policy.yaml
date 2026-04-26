@@ -1,0 +1,224 @@
+version: 2
+
+filesystem_policy:
+  include_workdir: false
+  read_only:
+  - /usr
+  - /lib
+  - /proc
+  - /dev/urandom
+  - /app
+  - /etc
+  - /var/log
+  - /sandbox
+  - /sandbox/.openclaw
+  read_write:
+  - /sandbox/.nemoclaw
+  - /tmp
+  - /dev/null
+  - /sandbox/.openclaw-data
+
+landlock:
+  compatibility: best_effort
+
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+
+network_policies:
+  claude_code:
+    name: claude_code
+    endpoints:
+    - host: api.anthropic.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    - host: statsig.anthropic.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    - host: sentry.io
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    binaries:
+    - {path: /usr/local/bin/claude}
+
+  nvidia:
+    name: nvidia
+    endpoints:
+    - host: integrate.api.nvidia.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    - host: inference-api.nvidia.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    binaries:
+    - {path: /usr/local/bin/claude}
+    - {path: /usr/local/bin/openclaw}
+
+
+  github:
+    name: github
+    endpoints:
+    - host: github.com
+      port: 443
+      access: full
+    - host: api.github.com
+      port: 443
+      access: full
+    binaries:
+    - {path: /usr/bin/gh}
+    - {path: /usr/bin/git}
+
+  clawhub:
+    name: clawhub
+    endpoints:
+    - host: clawhub.ai
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    binaries:
+    - {path: /usr/local/bin/openclaw}
+    - {path: /usr/local/bin/node}
+
+  openclaw_api:
+    name: openclaw_api
+    endpoints:
+    - host: openclaw.ai
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    binaries:
+    - {path: /usr/local/bin/openclaw}
+    - {path: /usr/local/bin/node}
+
+  openclaw_docs:
+    name: openclaw_docs
+    endpoints:
+    - host: docs.openclaw.ai
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+    binaries:
+    - {path: /usr/local/bin/openclaw}
+
+  npm_registry:
+    name: npm_registry
+    endpoints:
+    - host: registry.npmjs.org
+      port: 443
+      access: full
+    binaries:
+    - {path: /usr/local/bin/openclaw}
+    - {path: /usr/local/bin/npm}
+    - {path: /usr/local/bin/node}
+
+  telegram:
+    name: telegram
+    endpoints:
+    - host: api.telegram.org
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/bot*/**"}
+      - allow: {method: POST, path: "/bot*/**"}
+    binaries:
+    - {path: /usr/local/bin/node}
+
+  discord:
+    name: discord
+    endpoints:
+    - host: discord.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    - host: gateway.discord.gg
+      port: 443
+      access: full
+    - host: cdn.discordapp.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+    binaries:
+    - {path: /usr/local/bin/node}
+
+  vss-backend:
+    name: vss-backend-readwrite
+    endpoints:
+    - host: host.openshell.internal
+      port: 8000
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 30888
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 5601
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9200
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8081
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9902
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    binaries:
+    - {path: /usr/bin/curl}
+    - {path: /usr/local/bin/node}
+    - {path: /usr/local/bin/openclaw}

@@ -1,0 +1,13 @@
+{
+  "name": "@nvidia/openclaw-vss",
+  "version": "1.0.0",
+  "description": "VSS Claw — NVIDIA Video Search & Summarization agent for OpenClaw",
+  "type": "module",
+  "keywords": ["openclaw", "openclaw-plugin", "vss", "nvidia", "video-search"],
+  "files": ["skills/", "workspace/", "openclaw.plugin.json", "README.md", "index.ts"],
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
