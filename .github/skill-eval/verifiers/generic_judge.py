@@ -32,7 +32,9 @@ Outputs:
 Env (from `[verifier.env]` in task.toml, plumbed by Harbor):
     ANTHROPIC_API_KEY    required for LLM-judge routes
     ANTHROPIC_BASE_URL   optional, for proxies (e.g. NVIDIA inference API)
-    ANTHROPIC_MODEL      overrides default judge model (claude-haiku-4-5)
+    JUDGE_MODEL          explicit judge model (preferred; adapter sets
+                         this via [verifier.env]); falls back to
+                         ANTHROPIC_MODEL, then "claude-haiku-4-5"
     JUDGE_MAX_TURNS              per-check agent turn cap (default 25)
     JUDGE_PER_CHECK_TIMEOUT_S    per-check wall-clock cap (default 600s)
     JUDGE_PARALLELISM            concurrent LLM-route checks per step
@@ -185,7 +187,17 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
             "matched": None,
         }
 
-    model = os.environ.get("ANTHROPIC_MODEL") or "claude-haiku-4-5"
+    # Model resolution: JUDGE_MODEL is the explicit knob the adapter
+    # plumbs via [verifier.env] in task.toml. If unset, fall back to
+    # ANTHROPIC_MODEL (the agent's model — proven to work against the
+    # NVIDIA proxy whitelist). The literal "claude-haiku-4-5" is only
+    # for dev/test outside CI; the proxy rejects it as not in
+    # default-models, so it's a last resort, not a real default.
+    model = (
+        os.environ.get("JUDGE_MODEL")
+        or os.environ.get("ANTHROPIC_MODEL")
+        or "claude-haiku-4-5"
+    )
     # Judge agent runs Bash+Read+Grep to inspect trajectory + probe live
     # stack per check. Specs with rich trajectories (vios PUT/GET flows)
     # legitimately need >10 turns; observed timeouts at 180s on the
