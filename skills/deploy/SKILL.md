@@ -365,6 +365,73 @@ docker compose --env-file $ENV_FILE config > resolved.yml
 
 The resolved YAML is saved to `<repo>/deployments/resolved.yml`.
 
+### Step 3b — Verify resolved.yml before deploying
+
+**Skipping this is the #1 cause of "I deployed `search` but it brought
+up `base` + `lvs` + `search` services."** The `.env` line near 90 is
+literal `COMPOSE_PROFILES=${BP_PROFILE}_${MODE},...` — docker compose
+expands it at `config` time using the same env file. If any upstream
+var (`BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`,
+`VLM_MODE`) is missing or empty, the rendered profile list collapses
+to the empty string, and compose then includes **every** service from
+**every** profile. The deploy "succeeds" but is wrong.
+
+Run all four checks. Stop and fix the env if any fails — do not
+proceed to Step 4.
+
+```bash
+ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
+
+# 1) Upstream vars must be non-empty in the .env actually being used.
+for var in BP_PROFILE MODE HARDWARE_PROFILE LLM_MODE VLM_MODE; do
+  val=$(grep -E "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+  if [ -z "$val" ]; then
+    echo "FAIL: $var is missing/empty in $ENV_FILE"; exit 1
+  fi
+done
+
+# 2) resolved.yml must not contain unexpanded ${...} tokens.
+if grep -q '\${' "$REPO/deployments/resolved.yml"; then
+  echo "FAIL: resolved.yml has unexpanded variables:"
+  grep -n '\${' "$REPO/deployments/resolved.yml" | head -5; exit 1
+fi
+
+# 3) The compose-profile labels selected at config time must match the
+#    intended profile. Read what compose actually picked:
+ACTIVE=$(docker compose --env-file "$ENV_FILE" \
+           -f "$REPO/deployments/compose.yml" config --profiles | sort -u)
+echo "Active profiles:"; echo "$ACTIVE"
+case "$PROFILE" in
+  base|lvs|search)
+    echo "$ACTIVE" | grep -q "^bp_developer_${PROFILE}_" \
+      || { echo "FAIL: no bp_developer_${PROFILE}_* profile active"; exit 1; }
+    # Reject cross-profile contamination.
+    for other in base lvs search alerts; do
+      [ "$other" = "$PROFILE" ] && continue
+      if echo "$ACTIVE" | grep -q "^bp_developer_${other}_"; then
+        echo "FAIL: stray bp_developer_${other}_* profile active"; exit 1
+      fi
+    done
+    ;;
+  alerts)
+    echo "$ACTIVE" | grep -q "^bp_developer_alerts_" \
+      || { echo "FAIL: no bp_developer_alerts_* profile active"; exit 1; }
+    ;;
+esac
+
+# 4) Service-count sanity. base/remote-all is ~6; search/dedicated is the
+#    largest at ~14. >25 services means COMPOSE_PROFILES collapsed and
+#    compose merged every profile's services.
+n=$(docker compose -f "$REPO/deployments/resolved.yml" config --services | wc -l)
+echo "Service count: $n"
+[ "$n" -le 25 ] || { echo "FAIL: $n services — COMPOSE_PROFILES likely empty"; exit 1; }
+```
+
+If a check fails: re-read the env file you wrote in Step 2, confirm
+the upstream vars are present and non-empty, regenerate `resolved.yml`
+(Step 3), and re-run these checks. **Do not deploy a `resolved.yml`
+that fails any of these checks.**
+
 ### Step 4 — Review
 
 Show the user a summary of what will be deployed:
