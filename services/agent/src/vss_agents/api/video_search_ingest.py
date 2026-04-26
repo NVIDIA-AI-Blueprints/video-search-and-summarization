@@ -141,7 +141,9 @@ async def _run_post_upload_processing(
 
     logger.info(
         "Timeline for stream %s: start=%s, end=%s",
-        sensor_id, timeline_start_time, timeline_end_time,
+        sensor_id,
+        timeline_start_time,
+        timeline_end_time,
     )
 
     # Get video URL via storage API
@@ -247,7 +249,9 @@ async def _run_post_upload_processing(
                 )
 
             if embed_response.status_code != 200:
-                error_msg = f"Embedding generation failed with status {embed_response.status_code}: {embed_response.text}"
+                error_msg = (
+                    f"Embedding generation failed with status {embed_response.status_code}: {embed_response.text}"
+                )
                 logger.error(error_msg)
                 raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
 
