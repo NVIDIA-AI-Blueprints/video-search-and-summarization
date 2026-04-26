@@ -1,1 +1,6 @@
 .claude
+
+# Python
+__pycache__/
+*.pyc
+
