@@ -1,0 +1,11 @@
+{
+  "id": "openclaw-vss",
+  "name": "VSS Claw",
+  "description": "NVIDIA Video Search & Summarization agent — deploy, manage, and operate VSS profiles",
+  "skills": ["../skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
