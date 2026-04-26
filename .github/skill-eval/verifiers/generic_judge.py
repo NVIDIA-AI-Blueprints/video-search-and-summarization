@@ -35,6 +35,8 @@ Env (from `[verifier.env]` in task.toml, plumbed by Harbor):
     ANTHROPIC_MODEL      overrides default judge model (claude-haiku-4-5)
     JUDGE_MAX_TURNS              per-check agent turn cap (default 25)
     JUDGE_PER_CHECK_TIMEOUT_S    per-check wall-clock cap (default 600s)
+    JUDGE_PARALLELISM            concurrent LLM-route checks per step
+                                 (default 4, clamped to 1..8)
 """
 from __future__ import annotations
 
@@ -307,18 +309,31 @@ def _parse_verdict_json(text: str) -> dict | None:
 
 def _run_checks(checks: list[str], traj_path: str | None,
                 per_check_timeout_s: int) -> list[dict]:
-    results: list[dict] = []
+    """Evaluate all checks for one step. LLM-route checks run concurrently
+    under a Semaphore (JUDGE_PARALLELISM, default 4, max 8) — each runs an
+    independent claude-agent-sdk subprocess against the shared trajectory
+    + live stack, with no cross-check mutation. Shell-route checks run
+    inline in a thread pool. Order is preserved: results[i] corresponds
+    to checks[i]."""
+    parallelism = max(1, min(int(os.environ.get("JUDGE_PARALLELISM", "4")), 8))
+    sem = asyncio.Semaphore(parallelism)
 
-    async def _eval_non_shell(check: str) -> dict:
-        return await _judge_llm_agent(check, traj_path, timeout_s=per_check_timeout_s)
-
-    for check in checks:
+    async def _eval(check: str) -> dict:
         if extract_shell_command(check):
-            result = judge_shell(check)
-        else:
-            result = asyncio.run(_eval_non_shell(check))
+            # Wrap the synchronous shell judge so it can join an asyncio.gather
+            # with LLM checks. Shell judges have their own 30s subprocess timeout.
+            return await asyncio.to_thread(judge_shell, check)
+        async with sem:
+            return await _judge_llm_agent(
+                check, traj_path, timeout_s=per_check_timeout_s,
+            )
+
+    async def _gather() -> list[dict]:
+        return await asyncio.gather(*(_eval(c) for c in checks))
+
+    results = asyncio.run(_gather())
+    for check, result in zip(checks, results):
         result["check"] = check
-        results.append(result)
     return results
 
 
