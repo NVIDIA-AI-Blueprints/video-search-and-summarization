@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+title = "Gitleaks configuration for deep-search"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+
+paths = [
+    '''\.gitleaks\.toml$''',
+    '''gitleaks-baseline\.json$''',
+    '''\.secrets\.baseline$''',
+    '''uv\.lock$''',
+    '''3rdparty/''',
+    '''stubs/''',
+]
+
+regexTarget = "match"
+regexes = [
+    # Placeholder / empty values in deployment templates (not real secrets)
+    '''<ngc_api_key>''',
+    '''<google_api_key>''',
+    '''<HOST_IP>''',
+    '''<wandb_api_key>''',
+    '''=\s*['"]?\s*['"]?\s*$''',
+    # Default MinIO test credentials used in dev/test configs
+    '''minioadmin''',
+    # Jenkins/CI credential references (fetched at runtime, not hardcoded)
+    '''\$\{NGC_API_KEY\}''',
+    '''\$\{SONAR_TOKEN\}''',
+    '''\$\{GITLAB_TOKEN\}''',
+    # os.environ.get() patterns checking if a key is set
+    '''os\.environ''',
+]
+
+# RFC 1918 private IPs (10.x.x.x) appear throughout the codebase in
+# Field descriptions, test fixtures, and deployment templates.
+# They are internal network addresses, not secrets.
+[[rules]]
+id = "nvidia-internal-ip"
+description = "Ignore RFC 1918 private IP addresses"
+regex = '''10\.\d{1,3}\.\d{1,3}\.\d{1,3}'''
+[rules.allowlist]
+regexTarget = "match"
+regexes = ['''10\.\d{1,3}\.\d{1,3}\.\d{1,3}''']
+
+# Curl examples in test/example scripts are documentation, not leaked auth
+[[rules]]
+id = "curl-auth-header"
+description = "Ignore curl examples in test and example scripts"
+regex = '''curl'''
+[rules.allowlist]
+paths = [
+    '''examples/''',
+    '''tests/''',
+    '''eval/''',
+]
