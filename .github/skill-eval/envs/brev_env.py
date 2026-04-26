@@ -291,8 +291,96 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
+        # Pre-deploy any prerequisite profile declared in task.toml [metadata].
+        # Idempotent via marker file on the box, so dependent trials reuse the
+        # deployment without re-running it.
+        await self._ensure_prerequisite_deployed(meta)
+
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
+        """If task.toml [metadata] declares both `profile` and
+        `prerequisite_deploy_mode`, ensure /deploy has been run on the
+        Brev box. Idempotent: probes a marker file, no-ops if present;
+        runs `/deploy -p <profile> -m <mode>` via `claude --print` on
+        the box and writes the marker on success otherwise.
+
+        Trials with NO `profile` (skills that don't need a deployed
+        VSS) skip this entirely. Deploy/* trials, which set `profile`
+        but NOT `prerequisite_deploy_mode` (they ARE the deploy), also
+        skip — the deploy/* trial itself runs /deploy as the agent's
+        scored task.
+
+        claude-code is expected to be installed on the box from the
+        first deploy/* trial's harbor agent setup; it persists across
+        trials on the reused vss-eval-* instance. Override the wall
+        clock via `PRE_DEPLOY_TIMEOUT_SEC` (default 1800s)."""
+        profile = meta.get("profile")
+        deploy_mode = meta.get("prerequisite_deploy_mode")
+        if not profile or not deploy_mode:
+            return
+
+        marker = f"/tmp/skill-eval/deployed-{profile}-{deploy_mode}.flag"
+        probe = await _run_brev_exec(
+            self._instance_name, f"test -f {shlex.quote(marker)}",
+            timeout=30,
+        )
+        if probe.return_code == 0:
+            logger.info(
+                "prerequisite %s/%s already deployed on %s; skipping pre-deploy",
+                profile, deploy_mode, self._instance_name,
+            )
+            return
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+        model = (
+            os.environ.get("ANTHROPIC_MODEL")
+            or "claude-haiku-4-5"
+        )
+        if not api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY must be set on the coordinator to "
+                "pre-deploy a prerequisite profile via claude --print."
+            )
+
+        env_prefix_parts = [
+            f"ANTHROPIC_API_KEY={shlex.quote(api_key)}",
+            f"ANTHROPIC_MODEL={shlex.quote(model)}",
+            "CLAUDE_CODE_DISABLE_THINKING=1",
+        ]
+        if base_url:
+            env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
+        env_prefix = " ".join(env_prefix_parts)
+
+        prompt = f"/deploy -p {profile} -m {deploy_mode}"
+        cmd = (
+            f"mkdir -p /tmp/skill-eval && "
+            f"{env_prefix} claude --print --dangerously-skip-permissions "
+            f"{shlex.quote(prompt)} "
+            f"&& touch {shlex.quote(marker)}"
+        )
+
+        timeout_sec = int(os.environ.get("PRE_DEPLOY_TIMEOUT_SEC", "1800"))
+        logger.info(
+            "Pre-deploying %s/%s on %s (marker missing, timeout=%ds)",
+            profile, deploy_mode, self._instance_name, timeout_sec,
+        )
+        result = await _run_brev_exec(
+            self._instance_name, cmd, timeout=timeout_sec,
+        )
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"pre-deploy /deploy -p {profile} -m {deploy_mode} failed "
+                f"on {self._instance_name}: exit {result.return_code}; "
+                f"output tail: {tail!r}"
+            )
+        logger.info(
+            "Pre-deploy %s/%s succeeded on %s; marker written",
+            profile, deploy_mode, self._instance_name,
+        )
 
     async def stop(self, delete: bool) -> None:
         """No-op — the instance stays running for reuse."""

@@ -421,10 +421,17 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
     return _sub(spec)
 
 
-def generate_test_script(spec_name: str) -> str:
+def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
-    /logs/verifier/reward.txt."""
+    /logs/verifier/reward.txt.
+
+    On a full-pass (reward == 1.0), writes a marker file
+    `/tmp/skill-eval/deployed-<profile>-<mode>.flag` on the box so
+    `BrevEnvironment._ensure_prerequisite_deployed` can skip
+    re-deploying the same profile for downstream dependent trials
+    (vios, video-search, etc.) sharing the reused vss-eval-* box."""
+    underlying_profile = deploy_profile(profile)
     return (
         "#!/bin/bash\n"
         "# deploy verifier: delegates to the generic LLM-as-judge\n"
@@ -438,6 +445,14 @@ def generate_test_script(spec_name: str) -> str:
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+        "\n"
+        "# On full pass, mark the profile as deployed so dependent trials\n"
+        "# (vios/video-*) reuse the deployment via the prerequisite marker.\n"
+        'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
+        f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
+        f'  mkdir -p /tmp/skill-eval && '
+        f'touch /tmp/skill-eval/deployed-{underlying_profile}-{mode}.flag\n'
+        "fi\n"
         "exit 0\n"
     )
 
@@ -627,7 +642,7 @@ def generate_task(
         )
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
-        (tests_dir / "test.sh").write_text(generate_test_script(spec_name))
+        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile, mode))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
     else:
