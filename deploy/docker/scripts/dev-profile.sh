@@ -1135,13 +1135,14 @@ function state_up() {
     set_env_var "VLM_ENV_FILE" "${vlm_env_file}"
   fi
 
-  # Search profile: host ENABLE_CRITIC case-insensitive true → write ENABLE_CRITIC=true to generated.env (VLM_NAME_SLUG is not used for remote VLM).
-  # Otherwise force VLM_NAME_SLUG=none for search (compose / non-remote paths).
+  # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
+  # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
   if [[ "${profile}" == "search" ]]; then
-    if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "true" ]]; then
-      set_env_var "ENABLE_CRITIC" "true"
-    else
+    if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
+      set_env_var "ENABLE_CRITIC" "false"
       set_env_var "VLM_NAME_SLUG" "none"
+    else
+      set_env_var "ENABLE_CRITIC" "true"
     fi
   fi
 
@@ -1272,49 +1273,38 @@ function state_up() {
   fi
 
   if [[ "${profile}" == "search" ]]; then
-    # Download search models from NGC
-    echo "[INFO] Downloading models from NGC..."
+    echo "[INFO] Creating search-specific directories..."
 
     if [[ "${dry_run}" == "true" ]]; then
-      echo "[DRY-RUN] rm -rf ${data_directory}/models"
+      echo "[DRY-RUN] mkdir -p ${data_directory}/data_log/vss_video_analytics_api"
+    else
+      mkdir -p "${data_directory}/data_log/vss_video_analytics_api"
+    fi
+
+    # Download RT-DETR model from NGC (host-staged, bind-mounted into container).
+    echo "[INFO] Downloading RT-DETR model from NGC..."
+
+    if [[ "${dry_run}" == "true" ]]; then
       echo "[DRY-RUN] mkdir -p ${data_directory}/models"
       echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvidia/tao/radio-clip:deployable_v1.0"
       echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
-      echo "[DRY-RUN] mv radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx ${data_directory}/models/radio-clip_v1.0.onnx"
-      echo "[DRY-RUN] mv radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin ${data_directory}/models/radio-clip_v1.0_weights.bin"
-      echo "[DRY-RUN] mv radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer ${data_directory}/models/radio-clip_v1.0_tokenizer"
       echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1"
-      echo "[DRY-RUN] rm -rf radio-clip_vdeployable_v1.0"
       echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
     else
-      rm -rf "${data_directory}/models"
-
       mkdir -p "${data_directory}/models"
 
-      # Download and install RT-DETR warehouse model (TAO)
       NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
         registry \
         model \
         download-version \
         nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1
 
-      NGC_CLI_API_KEY="${ngc_cli_api_key}" ngc \
-        registry \
-        model \
-        download-version \
-        nvidia/tao/radio-clip:deployable_v1.0
-
       mv rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
-      mv radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx "${data_directory}/models/radio-clip_v1.0.onnx"
-      mv radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin "${data_directory}/models/radio-clip_v1.0_weights.bin"
-      mv radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer "${data_directory}/models/radio-clip_v1.0_tokenizer"
 
       rm -rf rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1
-      rm -rf radio-clip_vdeployable_v1.0
 
       chmod -R 777 "${data_directory}/models"
-      echo "[INFO] Search models downloaded and installed to ${data_directory}/models"
+      echo "[INFO] RT-DETR model downloaded and installed to ${data_directory}/models"
     fi
   fi
 

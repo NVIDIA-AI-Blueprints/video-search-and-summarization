@@ -23,4 +23,4 @@ include:
   - path: ./services/video-summarization/compose.yml
   - path: ./services/nim/compose.yml
   - path: ./developer-profiles/compose.yml
-  - path: ./services/infra/proxy/compose.yml
+  - path: ./services/infra/haproxy/compose.yml

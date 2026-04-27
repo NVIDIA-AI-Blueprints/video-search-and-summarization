@@ -120,57 +120,74 @@ services:
   #     broker-health-check:
   #       condition: service_completed_successfully
 
-  perception-2d-fusion:
-    build:
-      context: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app
-      args:
-        PERCEPTION_IMAGE: $PERCEPTION_IMAGE
-        PERCEPTION_TAG: $PERCEPTION_TAG
-      dockerfile: Dockerfiles/perception.Dockerfile
-    network_mode: "host"
-    runtime: nvidia
+  perception-2d-init:
+    image: debian:12-slim
     profiles: ["bp_developer_search_2d"]
-    container_name: vss-rtvi-cv
+    container_name: vss-rtvi-cv-init
+    network_mode: "host"
     deploy:
       restart_policy:
-          condition: on-failure
-          max_attempts: 2
+        condition: on-failure
+        max_attempts: 3
       resources:
+        limits:
+          cpus: '2.0'
+          memory: 6g
         reservations:
-          devices:
-          - capabilities:
-            - gpu
-            device_ids:
-            - "${RT_CV_DEVICE_ID:-0}"
+          cpus: '0.5'
+          memory: 1g
     volumes:
-        # Config file mounts
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-detector-labels.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-detector-labels.txt
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-kafka-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-kafka-config.txt
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-main-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config.txt
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-main-redis-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-redis-config.txt
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-nvdcf-accuracy-tracker-config.yml:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-nvdcf-accuracy-tracker-config.yml
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-ppl-analytics-pgie-config.yml:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-ppl-analytics-pgie-config.yml
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-redis-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-redis-config.txt
-
-      # Model file mounts
-      - $MDX_DATA_DIR/models/rtdetr_warehouse_v1.0.1.fp16.onnx:/opt/storage/rtdetr_warehouse_v1.0.1.fp16.onnx
-      - $MDX_DATA_DIR/models/radio-clip_v1.0.onnx:/opt/storage/radio-clip_v1.0.onnx
-      - $MDX_DATA_DIR/models/radio-clip_v1.0_weights.bin:/opt/storage/radio-clip_v1.0_weights.bin
-      - $MDX_DATA_DIR/models/radio-clip_v1.0_tokenizer:/opt/storage/radio-clip_v1.0_tokenizer
-
+      - $MDX_DATA_DIR/models/:/opt/storage/
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/download-vision-encoder.sh:/opt/scripts/download-vision-encoder.sh:ro
     environment:
-      STREAM_TYPE: ${STREAM_TYPE}
-      DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "1"
-      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
-      OTEL_SERVICE_NAME: "rtvi-cv"
-      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
-      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+      VISION_ENCODER_NGC_ORG: ${VISION_ENCODER_NGC_ORG:-nvstaging}
+      VISION_ENCODER_NGC_TEAM: ${VISION_ENCODER_NGC_TEAM:-tao}
+      VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
+      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-deployable_v1.1}
+      VISION_ENCODER_ONNX_FILE: ${VISION_ENCODER_ONNX_FILE:-siglip2_v1.1.onnx}
+      VISION_ENCODER_TOKENIZER_DIR: ${VISION_ENCODER_TOKENIZER_DIR:-siglip2_v1.1_tokenizer}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
+      STORAGE_UID: ${STORAGE_UID:-1001}
+      STORAGE_GID: ${STORAGE_GID:-1001}
+    command:
+      - bash
+      - /opt/scripts/download-vision-encoder.sh
+
+  perception-2d-fusion:
+    extends:
+      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yml
+      service: perception
+    profiles: ["bp_developer_search_2d"]
+    container_name: vss-rtvi-cv
+    volumes:
+        # Config file mounts (read-only staging; ds-search-start.sh copies to the writable app dir)
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/ds-configs-ro:ro
+
+      # Search-profile wrapper script (patches configs, then calls ds-start.sh)
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/ds-search-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh:ro
+
+      # Models directory — RT-DETR + vision encoder models (downloaded by init container)
+      - $MDX_DATA_DIR/models/:/opt/storage/
+    command:
+      - bash
+      - -c
+      - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh
+    environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0
       HF_HUB_OFFLINE: 0
-    command: ["bash", "-c", "./ds-start.sh"]
+      DS_MODE_FLAG: "1"
+      DS_MODEL_FAMILY: rtdetr-warehouse
+      DS_TRACKER_REID: "true"
+      DS_SHOW_SENSOR_ID: "false"
+      VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
+      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-deployable_v1.1}
+      VISION_ENCODER_ONNX_FILE: ${VISION_ENCODER_ONNX_FILE:-siglip2_v1.1.onnx}
+      VISION_ENCODER_TOKENIZER_DIR: ${VISION_ENCODER_TOKENIZER_DIR:-siglip2_v1.1_tokenizer}
+      VISION_ENCODER_DS_MODEL_NAME: ${VISION_ENCODER_DS_MODEL_NAME:-siglip2-onnx}
     depends_on:
+      perception-2d-init:
+        condition: service_completed_successfully
       sensor-ms-dev:
         condition: service_started
       broker-health-check:
@@ -179,5 +196,4 @@ services:
 
 volumes:
   mdx-nvstreamer-data:        
-  mdx-nvstreamer-videos: 
-  perception-2d:
+  mdx-nvstreamer-videos:

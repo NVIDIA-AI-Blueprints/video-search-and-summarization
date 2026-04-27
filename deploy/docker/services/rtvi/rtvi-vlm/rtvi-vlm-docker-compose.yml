@@ -18,17 +18,17 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvidia/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.1.0}
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.04.1}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
     runtime: nvidia
     profiles:
     - bp_developer_alerts_2d_vlm
-    - bp_developer_alerts_2d_cv_IGX-THOR
+    - bp_developer_alerts_2d_cv
     - bp_developer_base_2d_IGX-THOR
-    - bp_developer_alerts_2d_cv_AGX-THOR
     - bp_developer_base_2d_AGX-THOR
+    - bp_developer_lvs_2d
     deploy:
       resources:
         reservations:

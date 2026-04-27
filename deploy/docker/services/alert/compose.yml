@@ -15,7 +15,7 @@
 
 services:
   alert-bridge:
-    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.59
+    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.61
     container_name: vss-alert-bridge
     profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv"]
     network_mode: host
@@ -60,6 +60,12 @@ services:
         required: false
       qwen3-vl-8b-instruct-shared-gpu:
         condition: service_healthy
+        required: false
+      nvstreamer-alerts:
+        condition: service_started
+        required: false
+      nvstreamer-2d:
+        condition: service_started
         required: false
       rtvi-vlm:
         condition: service_healthy
