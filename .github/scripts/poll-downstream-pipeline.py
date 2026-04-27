@@ -12,8 +12,14 @@ terminal state.
 Reporting rules (printed once per job, no duplicates):
 
 * ``SUCCESS: <job name>`` when a job transitions to status ``success``.
-* ``ALLOWED_FAILURE: <job name>`` when a job fails but has
-  ``allow_failure: true`` (i.e. GitLab still counts it as non-fatal).
+* ``SKIPPED: <job name>`` when a job opted out of running via the
+  conventional gate-skip exit code (``exit_code: 75``) while configured
+  with ``allow_failure: true``. GitLab still records the job as
+  ``failed`` in that case, but our convention is to treat it as a
+  deliberate skip rather than a failure or warning.
+* ``ALLOWED_FAILURE: <job name>`` when a job fails for any other reason
+  but has ``allow_failure: true`` (i.e. GitLab still counts it as
+  non-fatal).
 * ``FAIL: <job name>`` when any non-``allow_failure`` job reaches status
   ``failed`` - the script exits 1 immediately.
 * ``CANCELED: <job name>`` when a job is canceled - the script exits 1
@@ -60,6 +66,15 @@ GITLAB_IN_PROGRESS_JOB_STATUSES = {
     "scheduled",
     "manual",
 }
+
+# Conventional shell exit code used by gated downstream jobs to opt out
+# of running (e.g. "the change does not touch this submodule, skip me").
+# The job script exits 75 and is configured with `allow_failure: true`,
+# so GitLab marks it `failed + allow_failure: true`. We treat this exact
+# combination as a skip. 75 is `EX_TEMPFAIL` from `<sysexits.h>` and is
+# not a value emitted by bash/shell on its own (1, 2, 126, 127, 128+),
+# so it is an unambiguous, machine-readable marker.
+GATE_SKIP_EXIT_CODE = 75
 
 
 def emit_error(message: str) -> None:
@@ -157,6 +172,23 @@ def fetch_all_jobs(base_url: str, token: str, project_id: int, pipeline_id: int)
     return jobs
 
 
+def _job_exit_code(job: dict[str, Any]) -> int | None:
+    """Return the shell exit code reported by GitLab for a job, or
+    ``None`` if the field is missing/null/non-integer.
+
+    GitLab populates ``exit_code`` only when the job's script actually
+    ran and exited (i.e. ``status == "failed"`` from a script failure).
+    Successful jobs typically report ``exit_code: null``.
+    """
+    raw = job.get("exit_code")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def latest_attempt_per_name(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """GitLab returns every attempt of a retried job. Keep only the
     latest (highest ``id``) per job name."""
@@ -231,6 +263,7 @@ def main() -> int:
 
     seen_success: set[str] = set()
     seen_allowed_failure: set[str] = set()
+    seen_skipped: set[str] = set()
     start = time.monotonic()
     tick = 0
 
@@ -243,6 +276,7 @@ def main() -> int:
             name = str(job.get("name") or "<unnamed>")
             status = str(job.get("status") or "").lower()
             allow_failure = bool(job.get("allow_failure"))
+            exit_code = _job_exit_code(job)
 
             if status == "failed" and not allow_failure:
                 print(f"FAIL: {name}")
@@ -265,7 +299,16 @@ def main() -> int:
                 return 1
 
             if status == "failed" and allow_failure:
-                if name not in seen_allowed_failure:
+                # Gated skips: a job that exited with the well-known
+                # `GATE_SKIP_EXIT_CODE` while flagged `allow_failure: true`
+                # is interpreted as a deliberate skip rather than a
+                # warning. Anything else is still surfaced as an
+                # allowed failure.
+                if exit_code == GATE_SKIP_EXIT_CODE:
+                    if name not in seen_skipped:
+                        seen_skipped.add(name)
+                        print(f"SKIPPED: {name}")
+                elif name not in seen_allowed_failure:
                     seen_allowed_failure.add(name)
                     print(f"ALLOWED_FAILURE: {name}")
 
@@ -279,7 +322,9 @@ def main() -> int:
         if pipeline_status == "success":
             print(
                 f"Downstream pipeline #{pipeline_id} finished: "
-                f"{len(seen_success)} succeeded, {len(seen_allowed_failure)} allowed failures"
+                f"{len(seen_success)} succeeded, "
+                f"{len(seen_skipped)} skipped, "
+                f"{len(seen_allowed_failure)} allowed failures"
             )
             summary = [
                 "### Downstream pipeline result",
@@ -287,6 +332,8 @@ def main() -> int:
                 "- **Outcome:** success",
                 f"- **Succeeded jobs:** {len(seen_success)}",
             ]
+            if seen_skipped:
+                summary.append(f"- **Skipped jobs (exit {GATE_SKIP_EXIT_CODE}):** {len(seen_skipped)}")
             if seen_allowed_failure:
                 summary.append(f"- **Allowed failures:** {len(seen_allowed_failure)}")
             write_summary(summary)
