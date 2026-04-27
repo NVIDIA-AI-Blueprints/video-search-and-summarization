@@ -371,7 +371,13 @@ class BrevEnvironment(BaseEnvironment):
         prompt = f"/deploy -p {profile} -m {deploy_mode}"
         # Overwrite (>) the canonical marker on /deploy success — the
         # marker reflects what is currently running, not a deploy log.
+        # PATH prepend: brev exec runs a non-interactive shell that does
+        # not source ~/.bashrc, where harbor writes
+        # `export PATH="$HOME/.local/bin:$PATH"`. claude-code installs
+        # to ~/.local/bin via its curl installer, so a bare `claude`
+        # invocation here resolves "command not found" without this.
         cmd = (
+            f'export PATH="$HOME/.local/bin:$PATH" && '
             f"mkdir -p /tmp/skill-eval && "
             f"{env_prefix} claude --print --dangerously-skip-permissions "
             f"{shlex.quote(prompt)} "
