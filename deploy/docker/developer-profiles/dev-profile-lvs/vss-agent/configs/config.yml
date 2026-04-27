@@ -152,6 +152,16 @@ functions:
     - vehicle crossing
     - traffic violation
 
+  lvs_caption_qa:
+    _type: lvs_caption_qa
+    llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT:-http://${HOST_IP}:9200}
+    es_index: lvs-events
+    video_understanding_tool: video_understanding
+    max_results: 8
+    max_evidence_chars: 12000
+    default_timestamp_window_seconds: 30
+
   video_report_gen:
     _type: video_report_gen
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
@@ -231,6 +241,7 @@ workflow:
   llm_reasoning: false
   planning_enabled: true
   tool_names:
+  - lvs_caption_qa
   - video_understanding
   - vst_video_clip
   - vst_snapshot
@@ -250,9 +261,12 @@ workflow:
       - Only call report_agent when user mentions "report" in the question.
       - Don't use the report from previous interactions.
       - Examples: "Generate a report for, "Create an analysis report", "Generate a report using long video summarization", "Generate a report using lvs"
-      **video_understanding** - For any question about short videos or quick queries for a video clip.
-      - Use when video is less than 1 minute.
-      - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
+      **lvs_caption_qa** - For Q&A about a stored/uploaded video or live stream in the LVS profile.
+      - Use this first for user questions about video content because it searches stored LVS dense captions/events in Elasticsearch and falls back to VLM if captions are unavailable.
+      - If the question mentions a timestamp or time range, pass start_timestamp and end_timestamp as seconds since the beginning of the video/stream when you can infer them.
+      - Examples: "What happened in the video?", "Did a white sedan park?", "What happened between 45s and 60s?"
+      **video_understanding** - For explicit direct VLM analysis of a video clip.
+      - Use only when the user specifically asks to bypass stored captions, asks for direct visual inspection, or when another tool instruction requires direct VLM analysis.
       - Do NOT use when user asks to "generate a report"
       **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
