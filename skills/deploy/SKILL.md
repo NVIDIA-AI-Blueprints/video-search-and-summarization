@@ -90,10 +90,20 @@ if [ -f "$REPO/deployments/resolved.yml" ]; then
   docker compose -f "$REPO/deployments/resolved.yml" down --remove-orphans
 fi
 
-# Catch-all: remove any VSS-stack containers that survived
-# (leftovers from a crashed prior run or manual docker runs).
+# Catch-all: remove every VSS-stack container the dev-profile compose
+# files bring up. Without this, leftovers from a prior deploy linger
+# (especially the *-smc set, which the alerts compose profile shares
+# with the *-dev set on host networking and port 30000) and either:
+#   - bind ports the new deploy needs → second sensor-ms fails to bind
+#     → /sensor/list returns 502 (issue #151), or
+#   - pass the new deploy's container-name health checks while serving
+#     stale data from the prior deploy's DB.
+# The patterns below cover everything declared in
+# deployments/vst/{2d,3d,smc,developer,ps}/, deployments/foundational/,
+# deployments/agents/, deployments/proxy/, and the dev-profile-*
+# compose files.
 docker ps -a --format '{{.Names}}' \
-  | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-)' \
+  | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-|sensor-ms-|vst-ingress-|vst-mcp-|vst-file-proxy|centralizedb-|storage-ms-|streamprocessing-ms-|sdr-(http|streamprocessing)-|envoy-(http|streamprocessing)-|rtspserver-ms-|recorder-ms-|replaystream-ms-|livestream-ms-|metropolis-vss-ui|phoenix)' \
   | xargs -r docker rm -f
 ```
 

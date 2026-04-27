@@ -33,6 +33,37 @@ This skill requires any VSS profile that brings up VIOS / VST — **base** (reco
 
 ---
 
+## Known limitation — leftover containers from prior deploys
+
+The following VIOS API paths can return **HTTP 502 Bad Gateway** or
+stale results when the host has leftover containers from an earlier
+deploy:
+
+- `GET /vst/api/v1/sensor/list`
+- `GET /vst/api/v1/sensor/<sensorId>/streams`
+
+Root cause: the alerts compose profile (`bp_developer_alerts_2d_cv` /
+`bp_developer_alerts_2d_vlm`) brings up the `*-smc` set of VST
+microservices alongside the `*-dev` set, both with `network_mode: host`
+binding the same host ports (30000 for `sensor-ms`, 30888 for
+`vst-ingress`). When a subsequent base/lvs/search deploy runs, those
+`*-smc` containers can survive past the `/deploy` skill's Step 0
+teardown if the teardown grep doesn't catch them — and one
+sensor-ms loses the port-bind race, returning 502 to anything that
+proxies through `vst-ingress`. See
+[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151).
+
+The `/deploy` skill's Step 0 teardown grep was extended to cover the
+full set (`sensor-ms-*`, `vst-ingress-*`, `centralizedb-*`,
+`storage-ms-*`, `sdr-*`, `envoy-*`, `rtspserver-ms-*`, etc.), so
+fresh deploys via `/deploy` should not hit this. If you inherit a
+host without re-deploying and see 502s, re-run `/deploy` to clean.
+
+Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
+snapshot, `storage/file/*/url` clip extraction) are unaffected.
+
+---
+
 ## Sample data bootstrap
 
 VIOS stores videos uploaded by the user. For requests that reference a
