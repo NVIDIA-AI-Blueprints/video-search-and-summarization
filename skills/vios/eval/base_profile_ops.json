@@ -34,7 +34,7 @@
         "GET /vst/api/v1/storage/file/<streamId>/url?startTime=2025-01-01T00:00:03.000Z&endTime=2025-01-01T00:00:05.000Z&container=mp4&disableAudio=true returns a JSON object with a non-empty videoUrl field",
         "curl -sf -o /dev/null -w '%{http_code}' <videoUrl> returns 200 (use GET, not HEAD — VST lazy-renders clips and HEAD returns 404 until first GET materializes the file)",
         "curl -sf -o /dev/null -w '%{content_type}' <videoUrl> returns a value starting with video/ (typically video/mp4)",
-        "curl -sf -o /dev/null -w '%{size_download}' <videoUrl> returns a value greater than 10000 (rejects empty / error-page responses)",
+        "curl -sf -o /dev/null -w '%{size_download}' <videoUrl> returns a value greater than 1000 (rejects empty / error-page responses; a 2s 360p clip can legitimately render at a few KB)",
         "The response JSON's startTime is within a minute of the requested 00:00:03 and expiryISO is in the future"
       ]
     }
