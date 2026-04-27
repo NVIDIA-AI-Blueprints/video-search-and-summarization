@@ -906,6 +906,7 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
         return
 
     gpu = (instance.get("gpu") or "").upper()
+    instance_type = (instance.get("instance_type") or "").upper()
     required_type = (req.get("gpu_type") or "").upper()
 
     # Loose GPU name match: `RTX PRO 6000` ⊆ `RTX PRO SERVER 6000`
@@ -916,9 +917,33 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
         have_tokens = set(have.replace("-", " ").split())
         return want_tokens.issubset(have_tokens) or want in have
 
+    # Brev API transient-flake soft-fail: `brev ls --json` occasionally
+    # returns gpu="-" (or "") for a healthy instance for a few seconds while
+    # the catalog refreshes. If the catalog instance_type carries the GPU
+    # token (e.g. "massedcompute_L40Sx2" carries "L40S"), accept the
+    # instance and defer the strict check to live nvidia-smi in
+    # _check_live_resources. Without this we raise spuriously and the next
+    # trial wastes ~20 min running pre-deploy from scratch.
+    gpu_blank = gpu in ("", "-", "N/A", "NONE")
+    type_carries_token = (
+        required_type and instance_type
+        and _loose_match(required_type, instance_type)
+    )
+
     errors = []
     if required_type and not _loose_match(required_type, gpu):
-        errors.append(f"gpu_type: want tokens of {required_type!r} in {gpu!r}")
+        if gpu_blank and type_carries_token:
+            logger.warning(
+                "Instance '%s' brev ls returned gpu=%r (likely transient "
+                "API flake); instance_type=%r carries %r — accepting and "
+                "deferring to live nvidia-smi check",
+                instance.get("name"), instance.get("gpu"),
+                instance.get("instance_type"), required_type,
+            )
+        else:
+            errors.append(
+                f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
+            )
 
     if errors:
         raise RuntimeError(
