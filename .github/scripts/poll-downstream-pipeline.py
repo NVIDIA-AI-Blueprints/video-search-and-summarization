@@ -217,7 +217,69 @@ def write_summary(lines: list[str]) -> None:
         summary_file.write("\n".join(lines) + "\n")
 
 
+def _format_hms(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+    return f"{minutes:d}m{secs:02d}s"
+
+
+def _tick_status_counts(jobs: list[dict[str, Any]]) -> dict[str, int]:
+    """Return a status -> count tally for the current snapshot.
+
+    Uses raw GitLab statuses (success/running/pending/manual/failed/...)
+    so each heartbeat reflects what GitLab is reporting right now,
+    independent of the cumulative ``seen_*`` sets used for transitions.
+    """
+    counts: dict[str, int] = {}
+    for job in jobs:
+        status = str(job.get("status") or "unknown").lower()
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _format_status_counts(counts: dict[str, int]) -> str:
+    if not counts:
+        return "no jobs yet"
+    # Stable, readable order: terminal states first, then in-progress.
+    order = [
+        "success",
+        "failed",
+        "canceled",
+        "skipped",
+        "running",
+        "pending",
+        "manual",
+        "scheduled",
+        "preparing",
+        "waiting_for_resource",
+        "created",
+    ]
+    seen: list[str] = []
+    parts: list[str] = []
+    for key in order:
+        if key in counts:
+            parts.append(f"{key}={counts[key]}")
+            seen.append(key)
+    for key, value in sorted(counts.items()):
+        if key not in seen:
+            parts.append(f"{key}={value}")
+    return ", ".join(parts)
+
+
 def main() -> int:
+    # GitHub Actions captures stdout via a pipe, which makes Python's
+    # default block-buffered stdout look like nothing is happening for
+    # minutes at a time and then emit everything in one burst when the
+    # process exits. Force line buffering so each `print()` lands in
+    # the runner log as it happens.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+    except (AttributeError, OSError):
+        pass
+
     raw_url = require_env("DOWNSTREAM_CI_URL")
     base_url = api_base_url(raw_url)
     token = require_env("DOWNSTREAM_CI_TOKEN")
@@ -269,10 +331,17 @@ def main() -> int:
 
     while True:
         tick += 1
+        elapsed = time.monotonic() - start
+        # Each tick is wrapped in a GitHub Actions log group so the
+        # runner UI stays compact while still letting the user expand
+        # any individual poll cycle to see what changed.
+        print(f"::group::Tick {tick} (elapsed {_format_hms(elapsed)})")
+
         jobs = fetch_all_jobs(base_url, token, project_id, pipeline_id)
         pipeline = fetch_pipeline(base_url, token, project_id, pipeline_id) or {}
+        latest_jobs = latest_attempt_per_name(jobs)
 
-        for job in latest_attempt_per_name(jobs):
+        for job in latest_jobs:
             name = str(job.get("name") or "<unnamed>")
             status = str(job.get("status") or "").lower()
             allow_failure = bool(job.get("allow_failure"))
@@ -280,6 +349,7 @@ def main() -> int:
 
             if status == "failed" and not allow_failure:
                 print(f"FAIL: {name}")
+                print("::endgroup::")
                 write_summary([
                     "### Downstream pipeline result",
                     "",
@@ -290,6 +360,7 @@ def main() -> int:
 
             if status == "canceled":
                 print(f"CANCELED: {name}")
+                print("::endgroup::")
                 write_summary([
                     "### Downstream pipeline result",
                     "",
@@ -318,6 +389,15 @@ def main() -> int:
                     print(f"SUCCESS: {name}")
 
         pipeline_status = str(pipeline.get("status") or "").lower()
+        status_counts = _tick_status_counts(latest_jobs)
+        # Heartbeat line so the runner shows continuous progress even
+        # when no jobs transitioned during this tick.
+        print(
+            f"[tick {tick}] elapsed={_format_hms(time.monotonic() - start)} "
+            f"pipeline={pipeline_status or 'unknown'} "
+            f"jobs: {_format_status_counts(status_counts)}"
+        )
+        print("::endgroup::")
 
         if pipeline_status == "success":
             print(
@@ -347,10 +427,9 @@ def main() -> int:
             emit_error(f"Downstream pipeline ended with status '{pipeline_status}' and no failing job was observed")
             return 1
 
-        elapsed = time.monotonic() - start
-        if elapsed > max_duration:
+        if time.monotonic() - start > max_duration:
             emit_error(
-                f"Polling timed out after {int(elapsed)}s "
+                f"Polling timed out after {_format_hms(time.monotonic() - start)} "
                 f"(pipeline status: '{pipeline_status}')"
             )
             return 1
