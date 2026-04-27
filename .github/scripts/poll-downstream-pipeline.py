@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Poll a downstream GitLab pipeline and report per-job progress.
 
 Runs inline right after ``trigger-downstream-pipeline.sh`` in the same
