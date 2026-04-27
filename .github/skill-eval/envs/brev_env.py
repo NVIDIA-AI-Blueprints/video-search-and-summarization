@@ -301,37 +301,51 @@ class BrevEnvironment(BaseEnvironment):
 
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
         """If task.toml [metadata] declares both `profile` and
-        `prerequisite_deploy_mode`, ensure /deploy has been run on the
-        Brev box. Idempotent: probes a marker file, no-ops if present;
-        runs `/deploy -p <profile> -m <mode>` via `claude --print` on
-        the box and writes the marker on success otherwise.
+        `prerequisite_deploy_mode`, ensure /deploy has run on the Brev
+        box for that profile-mode pair. Reads a single canonical
+        marker that records what is currently RUNNING on the box —
+        not a deploy log. See specs/stale-marker.spec.
+
+        Algorithm:
+          1. cat /tmp/skill-eval/active-deploy.txt on the box.
+          2. If contents == f"{profile}-{deploy_mode}" → no-op (hot).
+          3. Else → run /deploy via claude --print; the deploy skill's
+             own step-0 teardown handles any prior stack. On success
+             OVERWRITE the marker. On failure leave it alone — next
+             trial re-evaluates.
 
         Trials with NO `profile` (skills that don't need a deployed
-        VSS) skip this entirely. Deploy/* trials, which set `profile`
-        but NOT `prerequisite_deploy_mode` (they ARE the deploy), also
-        skip — the deploy/* trial itself runs /deploy as the agent's
-        scored task.
+        VSS) skip this entirely. Deploy/* trials set `profile` but NOT
+        `prerequisite_deploy_mode` (they ARE the deploy), so they also
+        early-return; their test.sh writes the marker on reward=1.0.
 
-        claude-code is expected to be installed on the box from the
-        first deploy/* trial's harbor agent setup; it persists across
-        trials on the reused vss-eval-* instance. Override the wall
-        clock via `PRE_DEPLOY_TIMEOUT_SEC` (default 1800s)."""
+        claude-code is expected on the box from a prior deploy/* trial's
+        harbor agent setup; persists across trials on the reused
+        vss-eval-* instance. Override the wall clock via
+        PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
         profile = meta.get("profile")
         deploy_mode = meta.get("prerequisite_deploy_mode")
         if not profile or not deploy_mode:
             return
 
-        marker = f"/tmp/skill-eval/deployed-{profile}-{deploy_mode}.flag"
+        desired = f"{profile}-{deploy_mode}"
+        marker_path = "/tmp/skill-eval/active-deploy.txt"
         probe = await _run_brev_exec(
-            self._instance_name, f"test -f {shlex.quote(marker)}",
+            self._instance_name,
+            f"cat {shlex.quote(marker_path)} 2>/dev/null || true",
             timeout=30,
         )
-        if probe.return_code == 0:
+        current = (probe.stdout or "").strip()
+        if current == desired:
             logger.info(
-                "prerequisite %s/%s already deployed on %s; skipping pre-deploy",
-                profile, deploy_mode, self._instance_name,
+                "prerequisite %s already running on %s; skipping pre-deploy",
+                desired, self._instance_name,
             )
             return
+        logger.info(
+            "prerequisite mismatch on %s (active=%r, desired=%r); pre-deploying",
+            self._instance_name, current or "<empty>", desired,
+        )
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
@@ -355,17 +369,19 @@ class BrevEnvironment(BaseEnvironment):
         env_prefix = " ".join(env_prefix_parts)
 
         prompt = f"/deploy -p {profile} -m {deploy_mode}"
+        # Overwrite (>) the canonical marker on /deploy success — the
+        # marker reflects what is currently running, not a deploy log.
         cmd = (
             f"mkdir -p /tmp/skill-eval && "
             f"{env_prefix} claude --print --dangerously-skip-permissions "
             f"{shlex.quote(prompt)} "
-            f"&& touch {shlex.quote(marker)}"
+            f"&& printf '%s\\n' {shlex.quote(desired)} > {shlex.quote(marker_path)}"
         )
 
         timeout_sec = int(os.environ.get("PRE_DEPLOY_TIMEOUT_SEC", "1800"))
         logger.info(
-            "Pre-deploying %s/%s on %s (marker missing, timeout=%ds)",
-            profile, deploy_mode, self._instance_name, timeout_sec,
+            "Pre-deploying %s on %s (timeout=%ds)",
+            desired, self._instance_name, timeout_sec,
         )
         result = await _run_brev_exec(
             self._instance_name, cmd, timeout=timeout_sec,
@@ -378,8 +394,8 @@ class BrevEnvironment(BaseEnvironment):
                 f"output tail: {tail!r}"
             )
         logger.info(
-            "Pre-deploy %s/%s succeeded on %s; marker written",
-            profile, deploy_mode, self._instance_name,
+            "Pre-deploy %s succeeded on %s; active marker overwritten",
+            desired, self._instance_name,
         )
 
     async def stop(self, delete: bool) -> None:

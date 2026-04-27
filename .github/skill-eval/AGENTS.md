@@ -114,25 +114,55 @@ template is in § Harbor invocation below.
    at `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>-<mode>/`,
    where `<spec_stem>` is the spec filename with `.json` dropped.
 
-5. **Acquire a Brev lock and run harbor trials.** For each target
-   platform:
+5. **Pick a fleet member, lock it, and run harbor trials.** For each
+   target platform:
 
-   a. Check `brev ls` / `brev ls nodes` for an existing instance that
-      fits (see § Platform topology). If one exists and is READY,
-      reuse it. Otherwise `brev create` a new one using the fallback
-      chain in § Platform topology; record the instance name in
+   a. **Select an instance from the `vss-eval-*` fleet for this
+      platform.** The harness is a worker-pool: one skill-eval agent =
+      one serial worker. Concurrency comes from multiple workflow runs
+      each grabbing a different box. Don't hardcode `vss-eval-l40s` —
+      score and pick:
+
+      ```bash
+      # Candidates: RUNNING+READY ^vss-eval-* boxes whose gpu/platform
+      # matches the trial. (envs/brev_env.py validates the pick post-
+      # selection; this step just narrows the field.)
+      brev ls --json > /tmp/skill-eval/brev-snapshot.txt
+      # For each candidate read /tmp/skill-eval/active-deploy.txt
+      # via `brev exec <name> -- cat ...`. Score:
+      #   1. marker == "<profile>-<mode>" desired by trial   (warm)
+      #   2. lock free (try flock -n)                        (free)
+      #   3. instance name asc                               (tiebreak)
+      # Pick the first candidate that scores best AND whose flock -n
+      # succeeds. If none free, block on flock -w 10800 of the
+      # best-by-marker candidate.
+      INSTANCE_NAME=<picked>
+      ```
+
+      With fleet=1, this collapses to today's behaviour — the single
+      `vss-eval-<short>` candidate is picked and locked. With fleet>1
+      (operator manually `brev create`s `vss-eval-l40s-2`, etc.), two
+      concurrent CI runs land on different boxes naturally; the per-box
+      flock arbitrates within-fleet contention.
+
+      If no candidate exists for this platform, `brev create` a new
+      `vss-eval-<short>-<n>` using the fallback chain in § Platform
+      topology and record the name in
       `/tmp/brev/started-by-${GITHUB_RUN_ID}.txt` so cleanup can find
       it.
-   b. **Acquire a lock** before running anything on the instance:
+
+   b. **Acquire the per-box lock** before running anything on the
+      chosen instance (filename keys off `$INSTANCE_NAME`):
       ```bash
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
       flock -w 10800 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
       # ... trials ...
       exec {LFD}>&-        # release on exit; trap so SIGINT doesn't strand it
       ```
-      3-hour max hold (matches the job timeout). If another CI run
-      already holds the lock, wait up to 3 h; beyond that, emit
-      `BLOCKED: lock timeout` on the PR and exit.
+      3-hour max hold (matches the job timeout). If another worker
+      already holds the lock for this box, wait up to 3 h; beyond
+      that, fall back to step 5a and rescore — another box may have
+      come free. Final fallback: emit `BLOCKED: lock timeout` and exit.
    c. Drive harbor one trial at a time (they share GPU/ports on the
       host). Use the canonical invocation in § Harbor invocation
       below — **do not improvise flags**. Before the `uvx harbor run`
@@ -206,13 +236,21 @@ template is in § Harbor invocation below.
 `vss-skill-validator` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
-**Instance reuse (prefer reuse over create).** Scan
-`/tmp/skill-eval/brev-snapshot.txt` first; only `brev create` when
-nothing matches. Reuse is wired into the trial via
-`export BREV_INSTANCE=<name>` **before** the `uvx harbor run` call
-— see § Harbor invocation. Without that export, BrevEnvironment
-auto-provisions a fresh `harbor-*` per trial regardless of what
-the snapshot showed.
+**Fleet selection (worker-pool model).** Scan
+`/tmp/skill-eval/brev-snapshot.txt` for `^vss-eval-*` candidates
+matching the trial's platform; score by (active-deploy marker match,
+free-lock, name) per § 5a; pick the best free candidate; export
+`BREV_INSTANCE` to it before the `uvx harbor run` call (§ Harbor
+invocation). Without the export, BrevEnvironment auto-provisions a
+fresh `harbor-*` per trial regardless of what the snapshot showed.
+
+The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
+records what is currently RUNNING — not a deploy log; see
+`specs/stale-marker.spec`. With fleet=1, selection collapses to a
+single candidate. With fleet>1, two concurrent workflow runs land
+on different boxes naturally — that's how parallelism happens.
+Only `brev create` a new fleet member when no `^vss-eval-*`
+candidate matches the platform.
 
 **Name prefix is an anchored match, not a substring.** Only
 instances whose name starts with `vss-eval-` are eligible for
@@ -261,13 +299,19 @@ a file path).
 # case you're driving harbor from a subshell.
 export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 
-# CRITICAL: point the environment at the already-running per-platform
-# instance. BrevEnvironment reads BREV_INSTANCE at module import time;
-# without this export it falls through to the auto-provision branch and
-# spawns a fresh harbor-* per trial (≈20 min provision overhead each,
-# wastes the pre-warmed box, and — on massedcompute L40S — may run
-# multiple harbor-* in parallel on the same lock).
-export BREV_INSTANCE="vss-eval-<platform-short>"   # e.g. vss-eval-l40s
+# CRITICAL: point the environment at the box you selected in step 5a.
+# BrevEnvironment reads BREV_INSTANCE at module import time; without
+# this export it falls through to the auto-provision branch and spawns
+# a fresh harbor-* per trial (≈20 min provision overhead each, wastes
+# the pre-warmed box, and — on massedcompute L40S — may run multiple
+# harbor-* in parallel on the same lock).
+#
+# $INSTANCE_NAME comes from the fleet-selection algorithm in step 5a:
+# the chosen ^vss-eval-* candidate scored by (active-deploy marker
+# match, free-lock, name). Do not hardcode "vss-eval-l40s" — with a
+# multi-box fleet, concurrent workflow runs land on different boxes
+# and that's how parallelism happens.
+export BREV_INSTANCE="$INSTANCE_NAME"
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
