@@ -1,22 +1,35 @@
 ---
-name: lvs-api
+name: lvs
 description: >
-  Interact with the Long Video Summarization (LVS) API from the LVS 3.1.0 GA OpenAPI spec.
-  Use this skill when calling LVS summarize endpoints, listing LVS models, checking LVS health,
-  getting recommended chunk sizes, querying LVS metrics, or debugging LVS API responses.
-argument-hint: "[endpoint or workflow description]"
-allowed-tools: Bash(curl *), Bash(jq *)
+  Use, operate, and debug the Long Video Summarization (LVS) microservice for VSS 3.1.0 GA.
+  Use this skill when calling LVS summarize endpoints, listing LVS models, checking health
+  or readiness, getting recommended chunk sizes, querying metrics, or debugging API responses.
+  For LVS deployment, startup, teardown, compose dry-runs, logs, model or database swaps,
+  and container failures, read references/deploy-lvs-service.md.
+allowed-tools: Bash(curl *) Bash(jq *) Bash(docker *) Bash(docker compose *) Bash(mkdir *) Bash(chmod *) Bash(nvidia-smi *) Read Write Glob Grep
 ---
 
-# Long Video Summarization (LVS) API
+# Long Video Summarization (LVS)
 
-This skill documents the LVS 3.1.0 GA OpenAPI surface. Do not infer fields or behaviors from
-newer branches, deployment runbooks, or implementation code unless the user explicitly asks to
-go beyond this OpenAPI spec.
+This skill documents the LVS 3.1.0 GA OpenAPI surface. Do not infer API fields or behaviors
+from newer branches, deployment runbooks, or implementation code unless the user explicitly asks
+to go beyond this OpenAPI spec.
 
 LVS provides video summarization and insight extraction endpoints. It accepts a summarization
 query, returns OpenAI-style completion objects, lists configured models, exposes health probes,
 returns Prometheus metrics, and recommends chunking parameters.
+
+## Deployment & Operations
+
+For deployment, teardown, dry-runs, logs, model or database swaps, healthcheck failures, and
+container-level debugging, read [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md).
+That deploy reference is the former runbook content folded into this combined `lvs` skill.
+
+Supporting deployment references:
+
+- [`references/environment-variables.md`](references/environment-variables.md) - full compose and runtime environment matrix.
+- [`references/debugging.md`](references/debugging.md) - expanded troubleshooting notes.
+- [`references/lvs.env.example`](references/lvs.env.example) - sample `.env` for the LVS blueprint compose.
 
 ## Setup
 

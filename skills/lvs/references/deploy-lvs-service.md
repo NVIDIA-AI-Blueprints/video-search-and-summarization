@@ -1,20 +1,27 @@
----
-name: lvs-runbook
-description: >
-  Deploy, operate, debug, and tear down the Long Video Summarization (LVS)
-  microservice (image: nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc1-d3e1a8f).
-  Use this skill when asked to deploy LVS, bring up LVS, start LVS, restart LVS,
-  recreate LVS, tear down LVS, stop LVS, check LVS logs, diagnose LVS failures,
-  troubleshoot LVS crashing or healthcheck failing, swap the LVS VLM/LLM model,
-  or run a dry-run on the LVS compose stack. Also when the user pastes the
-  image name "vss-video-summarization" or "vss-long-video-summarization", the
-  container name "vss-lvs", the profile "bp_developer_lvs_2d", or a docker
-  compose command targeting the LVS blueprint at met-blueprints/deployments/lvs.
-argument-hint: <compose-path (optional, defaults to ~/met-blueprints/deployments/lvs/compose.yml)>
-allowed-tools: Bash(docker *) Bash(docker compose *) Bash(curl *) Bash(jq *) Bash(mkdir *) Bash(chmod *) Bash(nvidia-smi *) Read Write Glob Grep
----
+# Deploy LVS Service - Long Video Summarization Blueprint
 
-# LVS Runbook — Long Video Summarization (blueprint deployment)
+## Contents
+
+- 1. Overview
+- 2. Related Skill Entry Point
+- 3. Prerequisites
+- 4. NGC / Registry Preflight
+- 5. Required Secrets & Credentials
+- 6. Required Volume Mounts
+- 7. Required Environment Variables
+- 8. GPU Selection & Hardware
+- 9. Port Map
+- 10. Models & Swap Guide
+- 11. Deploy
+- 12. Dry Run
+- 13. Verify Deployment
+- 14. Logs & Status
+- 15. Debugging Common Failures
+- 16. Upgrade & Rollback
+- 17. Tear Down
+- 18. Gotchas & Known Issues
+- 19. Discrepancies Between This Compose And The Public Docs
+- 20. References
 
 ## 1. Overview
 
@@ -34,11 +41,11 @@ compose ships the **single `lvs-server` container** plus a catalog of 16
 blueprint you point LVS at pre-running external LLM/VLM NIMs via
 `LVS_LLM_BASE_URL` / `VLM_BASE_URL` or their `HOST_IP:<port>` equivalents.
 
-## 2. Related Skills
+## 2. Related Skill Entry Point
 
-- **`long-video-summarization-api`** — once the service is up, use this skill
-  to call summarize / VLM caption / model listing endpoints. It documents the
-  `/v1/*` API surface; this runbook only deploys and debugs the container.
+The top-level `lvs` skill owns the LVS API usage workflow: summarize calls,
+model listing, health probes, recommended config, and metrics. This reference
+only deploys, operates, and debugs the container.
 
 ## 3. Prerequisites
 
@@ -81,7 +88,8 @@ docker compose --profile bp_developer_lvs_2d -f ~/met-blueprints/deployments/lvs
 
 ## 5. Required Secrets & Credentials
 
-See `.env.example` for the full template. Never commit your populated `.env`.
+See [`lvs.env.example`](lvs.env.example) for the full template. Never commit
+your populated `.env`.
 
 | Env var | Purpose | Where to get | Notes |
 |---|---|---|---|
@@ -145,7 +153,7 @@ container expects.
 | `LVS_EMB_MODEL_NAME` | required when `LVS_EMB_ENABLE=true` | — | from-compose | e.g. `nvidia/nv-embedqa-e5-v5` |
 | `LVS_EMB_BASE_URL` | required when `LVS_EMB_ENABLE=true` | — | from-compose | e.g. `http://${HOST_IP}:9232/v1` |
 
-See `references/environment-variables.md` for **optional / feature-flag** vars
+See [`environment-variables.md`](environment-variables.md) for **optional / feature-flag** vars
 (OTEL, log level, RTVI-VLM integration, VLM input dimensions, audio/Riva,
 etc.) and the full docs ↔ compose alignment table.
 
@@ -257,9 +265,10 @@ Gated by `LVS_EMB_ENABLE`. Set `false` to turn off embedding entirely; set
 export MDX_SAMPLE_APPS_DIR=~/met-blueprints/deployments
 ls "$MDX_SAMPLE_APPS_DIR/lvs/compose.yml"  # sanity-check
 
-# 2) Populate .env — use the example shipped with this skill as a starting
-#    point, OR edit met-blueprints/deployments/lvs/.env directly.
-cp .claude/skills/lvs-runbook/.env.example "$MDX_SAMPLE_APPS_DIR/lvs/.env"
+# 2) Populate .env — use the example shipped in this combined skill as a
+#    starting point, OR edit met-blueprints/deployments/lvs/.env directly.
+export LVS_SKILL_DIR=/path/to/skills/lvs
+cp "$LVS_SKILL_DIR/references/lvs.env.example" "$MDX_SAMPLE_APPS_DIR/lvs/.env"
 $EDITOR "$MDX_SAMPLE_APPS_DIR/lvs/.env"    # fill every REQUIRED field
 
 # 3) Model cache bind mount (skip if you already have one)
@@ -333,11 +342,11 @@ docker compose \
 curl -f http://localhost:38111/v1/ready
 # Expected: 200 OK (body format not documented; service-readiness signal)
 
-# List available VLM models (via the long-video-summarization-api skill)
+# List available models (via the top-level lvs skill)
 curl -s http://localhost:38111/v1/models | jq
 
-# Primary path — summarize a short test video (see long-video-summarization-api
-# skill for the full add-file + summarize flow)
+# Primary path - summarize a test video (see the top-level lvs skill for the
+# full summarize flow)
 ```
 
 Healthy log signatures (grep `docker compose logs vss-lvs`):
@@ -374,7 +383,7 @@ they disappear on `down`).
 
 ## 15. Debugging Common Failures
 
-See `references/debugging.md` for the long-form table. Quick reference:
+See [`debugging.md`](debugging.md) for the long-form table. Quick reference:
 
 | Symptom | Root cause | Fix |
 |---|---|---|

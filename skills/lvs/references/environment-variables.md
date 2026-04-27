@@ -8,7 +8,7 @@ this table are either scaffolded or consumed only by the entrypoint script
 
 ## Required / Effectively Required
 
-Covered in `SKILL.md` §7. TL;DR:
+Covered in `deploy-lvs-service.md` §7. TL;DR:
 
 - `MDX_SAMPLE_APPS_DIR`
 - `HOST_IP` (plus `LLM_PORT`, `VLM_PORT` unless you pass `LLM_BASE_URL` /

@@ -1,6 +1,6 @@
 # LVS Debugging — Long-form Reference
 
-SKILL.md §15 has the short table. This file expands each row.
+`deploy-lvs-service.md` §15 has the short table. This file expands each row.
 
 ## "Nothing happens" on `docker compose up`
 
