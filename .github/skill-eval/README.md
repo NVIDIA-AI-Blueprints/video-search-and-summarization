@@ -12,7 +12,7 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
 7. Leaves instance IDs in `/tmp/brev/started-by-<run_id>.txt`; the workflow wrapper deletes / stops them after a 5-min cooldown.
 
-The whole thing runs inside the 3-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
+The whole thing runs inside the 8-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
 
 ## Prerequisites
 

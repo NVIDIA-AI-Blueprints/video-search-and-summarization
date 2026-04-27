@@ -57,8 +57,8 @@ AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 # recon/retry overhead exceeds the previous 300 ceiling. Run
 # 24879743425 burned ~270 turns on only 3 trials before hitting it
 # mid-lvs with 10+ trials unstarted. 600 is a safety valve against
-# runaway loops, not a budget knob — the workflow's 3h wall-clock
-# (skills-eval.yml timeout-minutes: 180) is the real ceiling.
+# runaway loops, not a budget knob — the workflow's 8h wall-clock
+# (skills-eval.yml timeout-minutes: 480) is the real ceiling.
 MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "600"))
 
 # How long to sleep after the agent exits before stopping/deleting Brev
