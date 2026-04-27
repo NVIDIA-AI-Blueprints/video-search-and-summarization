@@ -426,11 +426,12 @@ def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
     against the rendered eval spec shipped alongside it. Harbor reads
     /logs/verifier/reward.txt.
 
-    On a full-pass (reward == 1.0), writes a marker file
-    `/tmp/skill-eval/deployed-<profile>-<mode>.flag` on the box so
-    `BrevEnvironment._ensure_prerequisite_deployed` can skip
-    re-deploying the same profile for downstream dependent trials
-    (vios, video-search, etc.) sharing the reused vss-eval-* box."""
+    On a full-pass (reward == 1.0), OVERWRITES the canonical active
+    marker `/tmp/skill-eval/active-deploy.txt` with this trial's
+    `<underlying_profile>-<mode>` so dependent trials (vios, video-*)
+    reading the marker via `BrevEnvironment._ensure_prerequisite_deployed`
+    see what is currently RUNNING on the box rather than a per-flag
+    deploy log. See specs/stale-marker.spec for why per-flag was wrong."""
     underlying_profile = deploy_profile(profile)
     return (
         "#!/bin/bash\n"
@@ -446,12 +447,15 @@ def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
         "\n"
-        "# On full pass, mark the profile as deployed so dependent trials\n"
-        "# (vios/video-*) reuse the deployment via the prerequisite marker.\n"
+        "# On full pass, overwrite the canonical active-deploy marker so\n"
+        "# downstream trials (vios/video-*) reuse the running deployment\n"
+        "# instead of re-running /deploy. Overwrite, never append — the\n"
+        "# marker is what is currently RUNNING, not a deploy log.\n"
         'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
         f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
         f'  mkdir -p /tmp/skill-eval && '
-        f'touch /tmp/skill-eval/deployed-{underlying_profile}-{mode}.flag\n'
+        f"printf '%s\\n' '{underlying_profile}-{mode}' "
+        f"> /tmp/skill-eval/active-deploy.txt\n"
         "fi\n"
         "exit 0\n"
     )
