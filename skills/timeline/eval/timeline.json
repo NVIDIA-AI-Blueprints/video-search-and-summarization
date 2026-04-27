@@ -1,0 +1,66 @@
+{
+  "skills": ["timeline"],
+  "profile": "search",
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["remote-all"]
+      }
+    }
+  },
+  "env": "A **full-remote deployed VSS search profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs; Cosmos Embed1 still runs locally on the GPU). Run on ONE platform only — re-ID is hardware-agnostic and the LLM/VLM run remotely, so fanning out discovers nothing new. Pick the cheapest available host (L40S recommended). Required: VSS agent reachable at http://localhost:8000/docs (OpenAPI visible), VST reachable at http://localhost:30888/vst/api/v1, Elasticsearch reachable at http://localhost:9200, the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770 per launchable convention — see skills/deploy/references/brev.md), AND a multi-camera sample dataset ingested (the warehouse angle_01_warehouse / angle_02_warehouse / angle_03_warehouse triplet, downloaded from `ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.1.0` then extracted with `tar -xzvf`, then pre-ingested by curling the videos-for-search API for each video per the troubleshooting.md video ingestion section). After ingest, mdx-behavior-* must contain at least one behavior event per camera with non-empty `embeddings[].vector` — otherwise re-ID has nothing to query against.",
+  "expects": [
+    {
+      "query": "Build a timeline for the person in hardhat and safety vest across all cameras. Agent backend is on localhost. You are pre-authorized to confirm the top candidate from the initial search without asking for yes/no confirmation.",
+      "checks": [
+        "The agent issued exactly one initial `POST http://localhost:8000/generate` call whose `input_message` contains the subject phrase (`person in hardhat and safety vest` or close paraphrase) — any search mode the decomposer picks is acceptable (fusion, embed-only, or attribute-only); the eval only requires that the call ran and seeded the timeline",
+        "The agent fetched a single overlay clip via `vios` (`POST http://localhost:30888/vst/api/v1/storage/file/<sensor_uuid>/url` with `configuration.overlay.bbox` populated and `showObjId: true`) for the top candidate before confirmation — not multiple overlays in parallel, not a screenshot",
+        "The agent did NOT pause and ask `Is this the subject you want tracked? (yes/no)` — the pre-authorization in the query was honored, the top candidate was auto-confirmed and the workflow proceeded",
+        "The agent queried `mdx-behavior-*` for the seed embedding pinned to the exact `(sensor.id, object.id, timestamp range)` of the confirmed candidate — the request body filter included `term sensor.id.keyword`, `term object.id.keyword`, AND a `range timestamp` clause; the agent did NOT query by `object.id` alone",
+        "The agent extracted a 1536-dim vector from the seed query response (`hits[0]._source.embeddings[0].vector`) and used it as the `query_vector` in a follow-up KNN call",
+        "The agent issued a `POST http://localhost:9200/mdx-behavior-*/_search` KNN request with `min_score: 0.85` (the timeline default), `field: embeddings.vector`, and a non-empty `query_vector` — the threshold was NOT silently raised to 0.9 or lowered below 0.8",
+        "The agent mapped each KNN hit's `sensor.id` (video_name) to a VST sensor UUID via `GET http://localhost:30888/vst/api/v1/sensor/list` exactly once — it did NOT attempt clip URL fetches with the raw video name",
+        "For each merged `(sensor_uuid, start, end)` window, the agent issued `GET http://localhost:30888/vst/api/v1/storage/file/<sensor_uuid>/url?startTime=...&endTime=...&container=mp4&disableAudio=true` and verified the response's `streamId` matched the requested UUID",
+        "Per-clip VLM analysis ran concurrently with a cap of 6 — the trajectory shows multiple parallel VLM calls but never more than 6 in flight at once",
+        "The VLM prompt sent for each clip contained the substituted subject phrase (`hardhat and safety vest` or close paraphrase) AND the literal `SUBJECT NOT FOUND` sentinel instruction AND an `EVENTS:` block specification — it was NOT the generic video-summarization HITL prompt, and the agent did NOT pause to ask the user to confirm the prompt",
+        "The agent discarded clips whose VLM response was exactly `SUBJECT NOT FOUND` and kept the rest — the final table count equals (KNN hits surviving merge) minus (SUBJECT NOT FOUND responses), not the raw KNN count",
+        "The agent's final reply is a single message titled `Timeline Analysis — <subject>` followed by a markdown table with exactly three columns: `Time (UTC)`, `Sensor`, `Summary` — not a JSON dump, not multiple progressive messages, not a per-camera breakdown",
+        "The table contains one row per surviving sighting ordered by `start_time` ascending — same-sensor windows that overlapped or were directly adjacent appear merged into a single row; different-sensor windows with overlapping wall-clock times appear as separate rows",
+        "The agent posted at most three short status lines during the run: a confirmation acknowledgement after Step 1, a one-line KNN result count after Step 3, and a one-line VLM confirmation count after Step 7 — no multi-step narration like `now I'll fetch the embedding…` or `now KNN…`",
+        "The agent did NOT upload any skill-generated artifact (overlay clip, snapshot, chart, report) to VST or any other host to obtain a URL — every URL cited in the final reply is either a `screenshot_url` from the initial search response or a `videoUrl` from VST's storage API, never a freshly-uploaded artifact"
+      ]
+    },
+    {
+      "query": "Build a timeline for the person in hardhat and safety vest, then send me a clip of the moment where the subject places a box on a shelf. Agent backend is on localhost. You are pre-authorized to confirm the top candidate from the initial search.",
+      "checks": [
+        "The agent ran the default timeline flow first (Step 1 search via `/generate` + Step 3 KNN on `mdx-behavior-*` + Step 6 per-clip VLM analysis) and emitted a `Timeline Analysis — <subject>` table before handling the sub-clip request",
+        "The agent matched the user's textual moment description (`places a box on a shelf`) against the `EVENTS:` block lines retained in memory from the Step 6 VLM responses — the trajectory shows no second pass of VLM calls and no new KNN call",
+        "The agent computed the sub-clip's wall-clock window as `parent_clip.start_time + matching_event.start_sec` with a ±1–2 second pad — it did NOT use the full parent clip range",
+        "The agent fetched exactly one sub-clip via `vios` (`GET http://localhost:30888/vst/api/v1/storage/file/<sensor_uuid>/url?startTime=...&endTime=...&container=mp4`) for the matched window — optionally with `configuration.overlay.bbox` set to highlight the subject",
+        "The agent's final reply attaches the sub-clip via a `MEDIA:` line — not a path-only mention, not a re-uploaded URL on a third-party host",
+        "The agent did NOT re-run Steps 2 through 7 of the timeline pipeline to satisfy this follow-up — the surviving sighting tuples and per-clip VLM responses were reused from memory"
+      ]
+    },
+    {
+      "query": "Build a timeline for the person in hardhat and safety vest, then give me a Gantt chart of all the sightings. Agent backend is on localhost. You are pre-authorized to confirm the top candidate from the initial search.",
+      "checks": [
+        "The agent ran the default timeline flow first and emitted a `Timeline Analysis — <subject>` table before producing the chart",
+        "The agent rendered a PNG Gantt chart directly to a file (matplotlib, Pillow, or equivalent pure-image library) — the trajectory does NOT show generation of HTML/SVG followed by a conversion step (no `weasyprint`, `wkhtmltopdf`, headless Chrome, or similar)",
+        "The Gantt has sensors on the y-axis and time on the x-axis, with one bar per surviving sighting from the Step 8 table — bar count equals the table row count, never more, never less",
+        "The agent's final reply attaches the PNG via a `MEDIA:` line — never a path-only reference, never a freshly-uploaded URL on a third-party host",
+        "The agent did NOT re-run Steps 2 through 7 of the timeline pipeline to produce the chart — the surviving sighting tuples were reused from memory"
+      ]
+    },
+    {
+      "query": "Build a timeline for the person in hardhat and safety vest, then generate a PDF report. Agent backend is on localhost. You are pre-authorized to confirm the top candidate from the initial search.",
+      "checks": [
+        "The agent ran the default timeline flow first and emitted a `Timeline Analysis — <subject>` table before producing the PDF",
+        "The agent rendered the PDF directly with a pure-Python library (`fpdf2` or `reportlab`) — the trajectory does NOT show HTML-to-PDF conversion via `weasyprint`, `pdfkit`, `wkhtmltopdf`, or headless Chrome",
+        "The PDF contents include all six required elements: title, seed reference image of the confirmed Step 1 candidate, the Step 8 sightings table, the Step 9 narrative summary, the Step 10 Gantt chart, and one screenshot per sensor selected at the highest-similarity sighting from the retained Step 3 KNN results",
+        "All images embedded in the PDF are downloaded as bytes from VST's `screenshot_url` / `replay/stream/<sensor_uuid>/picture` endpoints and inserted as raw image data — the PDF does NOT contain only URL placeholders or hyperlinks where images should be",
+        "The agent's final reply attaches the PDF via a `MEDIA:` line — never a path-only reference, never a freshly-uploaded URL on a third-party host",
+        "The agent did NOT re-run Steps 2 through 7 of the timeline pipeline to produce the report — the surviving sighting tuples and per-clip VLM responses were reused from memory; for screenshots, the agent picked the highest-similarity sighting per sensor from the retained Step 3 results without issuing a new KNN call"
+      ]
+    }
+  ]
+}
