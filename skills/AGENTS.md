@@ -1,5 +1,7 @@
 # AGENTS.md - Your Workspace
 
+> Copy this file into your OpenClaw workspace (e.g. `~/.openclaw/AGENTS.md`) — OpenClaw loads it on agent startup. The skill files in `skills/<name>/SKILL.md` go under `~/.openclaw/skills/<name>/`.
+
 This folder is home. Treat it that way.
 
 ## First Run
