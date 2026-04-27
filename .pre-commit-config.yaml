@@ -40,3 +40,39 @@ repos:
     files: ^services/agent/src/vss_agents/
     pass_filenames: false
     require_serial: true
+
+  # DCO sign-off check — mirrors CI job "DCO Sign-off"
+  - id: dco-signoff
+    name: DCO sign-off check
+    entry: bash -c 'git log -1 --format="%B" | grep -q "^Signed-off-by" || { echo "ERROR - Commit missing DCO sign-off. Use git commit -s"; exit 1; }'
+    language: system
+    always_run: true
+    pass_filenames: false
+    stages: [pre-commit]
+
+  # Mirrors CI Job 7 — SPDX copyright headers on source files
+  - id: copyright-headers
+    name: SPDX copyright headers
+    entry: python3 .github/scripts/check_copyright_headers.py
+    language: system
+    pass_filenames: false
+    stages: [pre-commit]
+
+  # Mirrors CI Job 9 — Python dep license denylist (GPL/AGPL/SSPL/BUSL, LGPL allowed)
+  # Triggers on pyproject.toml or uv.lock changes so lockfile-only edits still gate.
+  - id: license-check-python
+    name: License Check (Python deps)
+    entry: bash .github/scripts/check_python_licenses.sh
+    language: system
+    files: ^services/agent/(pyproject\.toml|uv\.lock)$
+    pass_filenames: false
+    stages: [pre-commit]
+
+  # Mirrors CI Job 10 — UI dep license allowlist
+  - id: license-check-ui
+    name: License Check (UI deps)
+    entry: bash .github/scripts/check_ui_licenses.sh
+    language: system
+    files: ^services/ui/(package\.json|package-lock\.json)$
+    pass_filenames: false
+    stages: [pre-commit]
