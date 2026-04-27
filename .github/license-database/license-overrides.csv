@@ -1,0 +1,7 @@
+Component Name,Ecosystem,License,License URL,Comments
+decorator,python,BSD-2-Clause,https://github.com/micheles/decorator/blob/master/LICENSE.txt,
+milvus-lite,python,Apache-2.0,https://github.com/milvus-io/milvus-lite/blob/main/LICENSE,
+moviepy,python,MIT,https://github.com/Zulko/moviepy/blob/master/LICENCE.txt,
+pytz,python,MIT,https://pythonhosted.org/pytz/#license,
+typer,python,MIT,https://github.com/fastapi/typer/blob/master/LICENSE,
+ujson,python,BSD-3-Clause,https://github.com/ultrajson/ultrajson/blob/main/LICENSE.txt,

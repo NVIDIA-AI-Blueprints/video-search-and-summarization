@@ -1,0 +1,758 @@
+Component Name,Version,License,Link to Component's License,Ecosystem,Comments
+@acemir/cssom,0.9.31,MIT,acemir/CSSOM,npm,Auto-imported from npm dep tree on initial CI seed.
+@ariakit/core,0.4.20,MIT,https://github.com/ariakit/ariakit.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@ariakit/react,0.4.26,MIT,https://github.com/ariakit/ariakit.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@ariakit/react-core,0.4.26,MIT,https://github.com/ariakit/ariakit.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@asamuzakjp/css-color,3.2.0,MIT,git+https://github.com/asamuzaK/cssColor.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@asamuzakjp/css-color,4.1.2,MIT,git+https://github.com/asamuzaK/cssColor.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@asamuzakjp/css-color,5.1.11,MIT,git+https://github.com/asamuzaK/cssColor.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@asamuzakjp/dom-selector,6.8.1,MIT,git+https://github.com/asamuzaK/domSelector.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@asamuzakjp/generational-cache,1.0.1,MIT,git+https://github.com/asamuzaK/generationalCache.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@babel/runtime,7.29.2,MIT,https://github.com/babel/babel.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@bramus/specificity,2.4.2,MIT,git+https://github.com/bramus/specificity.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/color-helpers,5.1.0,MIT-0,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-calc,2.1.4,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-calc,3.2.0,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-color-parser,3.1.0,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-color-parser,4.1.0,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-parser-algorithms,3.0.5,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-parser-algorithms,4.0.0,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-syntax-patches-for-csstree,1.1.3,MIT-0,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-tokenizer,3.0.4,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@csstools/css-tokenizer,4.0.0,MIT,git+https://github.com/csstools/postcss-plugins.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@datadog/browser-core,5.35.1,Apache-2.0,https://github.com/DataDog/browser-sdk.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@datadog/browser-rum,5.35.1,Apache-2.0,https://github.com/DataDog/browser-sdk.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@datadog/browser-rum-core,5.35.1,Apache-2.0,https://github.com/DataDog/browser-sdk.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@date-fns/tz,1.4.1,MIT,git+https://github.com/date-fns/tz.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@dqbd/tiktoken,1.0.22,MIT,https://github.com/dqbd/tiktoken,npm,Auto-imported from npm dep tree on initial CI seed.
+@emnapi/runtime,1.10.0,MIT,git+https://github.com/toyobayashi/emnapi.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@exodus/bytes,1.15.0,MIT,git+https://github.com/ExodusOSS/bytes.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@floating-ui/core,1.7.5,MIT,https://github.com/floating-ui/floating-ui.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@floating-ui/dom,1.7.6,MIT,https://github.com/floating-ui/floating-ui.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@floating-ui/react-dom,2.1.8,MIT,https://github.com/floating-ui/floating-ui.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@floating-ui/utils,0.2.11,MIT,https://github.com/floating-ui/floating-ui.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@isaacs/cliui,8.0.2,ISC,yargs/cliui,npm,Auto-imported from npm dep tree on initial CI seed.
+@juggle/resize-observer,3.4.0,Apache-2.0,git+ssh://git@github.com/juggle/resize-observer.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@kurkle/color,0.3.4,MIT,git+https://github.com/kurkle/color.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@npmcli/fs,3.1.1,ISC,git+https://github.com/npm/fs.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@nvidia/foundations-react-core,0.600.0,Apache-2.0,,npm,Auto-imported from npm dep tree on initial CI seed.
+@panva/hkdf,1.2.1,MIT,panva/hkdf,npm,Auto-imported from npm dep tree on initial CI seed.
+@pkgjs/parseargs,0.11.0,MIT,git@github.com:pkgjs/parseargs.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/number,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/primitive,1.1.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-accessible-icon,1.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-accordion,1.2.12,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-alert-dialog,1.1.15,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-arrow,1.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-aspect-ratio,1.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-avatar,1.1.10,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-checkbox,1.3.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-collapsible,1.1.12,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-collection,1.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-compose-refs,1.1.2,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-context,1.1.2,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-context-menu,2.2.16,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-dialog,1.1.15,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-direction,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-dismissable-layer,1.1.11,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-dropdown-menu,2.1.16,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-focus-guards,1.1.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-focus-scope,1.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-form,0.1.8,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-hover-card,1.1.15,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-id,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-label,2.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-menu,2.1.16,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-menubar,1.1.16,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-navigation-menu,1.2.14,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-one-time-password-field,0.1.8,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-password-toggle-field,0.1.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-popover,1.1.15,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-popper,1.2.8,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-portal,1.1.9,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-presence,1.1.5,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-primitive,2.1.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-progress,1.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-radio-group,1.3.8,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-roving-focus,1.1.11,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-scroll-area,1.2.10,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-select,2.2.6,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-separator,1.1.7,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-slider,1.3.6,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-slot,1.2.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-switch,1.2.6,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-tabs,1.1.13,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-toast,1.2.15,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-toggle,1.1.10,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-toggle-group,1.1.11,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-toolbar,1.1.11,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-tooltip,1.2.8,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-callback-ref,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-controllable-state,1.2.2,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-effect-event,0.0.2,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-escape-keydown,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-is-hydrated,0.1.0,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-layout-effect,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-previous,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-rect,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-use-size,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/react-visually-hidden,1.2.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@radix-ui/rect,1.1.1,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@rsuite/icon-font,4.1.0,CC-BY-4.0 AND OFL-1.1 AND MIT,git+https://github.com/rsuite/rsuite-icon-font.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@rsuite/icons,1.4.0,MIT,git@github.com:rsuite/rsuite-icons.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@shikijs/core,3.23.0,MIT,git+https://github.com/shikijs/shiki.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@shikijs/engine-javascript,3.23.0,MIT,git+https://github.com/shikijs/shiki.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@shikijs/langs,3.23.0,MIT,git+https://github.com/shikijs/shiki.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@shikijs/themes,3.23.0,MIT,git+https://github.com/shikijs/shiki.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@shikijs/types,3.23.0,MIT,git+https://github.com/shikijs/shiki.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@shikijs/vscode-textmate,10.0.2,MIT,https://github.com/shikijs/vscode-textmate,npm,Auto-imported from npm dep tree on initial CI seed.
+@tabby_ai/hijri-converter,1.0.5,MIT,,npm,Auto-imported from npm dep tree on initial CI seed.
+@tabler/icons,2.47.0,MIT,git+https://github.com/tabler/tabler-icons.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@tabler/icons-react,2.47.0,MIT,git+https://github.com/tabler/tabler-icons.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@tweenjs/tween.js,25.0.0,MIT,https://github.com/tweenjs/tween.js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-array,3.2.2,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-color,3.1.3,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-ease,3.0.2,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-interpolate,3.0.4,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-path,3.1.1,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-scale,4.0.9,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-shape,3.1.8,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-time,3.0.4,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/d3-timer,3.0.2,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/estree,1.0.8,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/estree-jsx,1.0.5,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/hast,3.0.4,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/hoist-non-react-statics,3.3.7,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/katex,0.16.8,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/lodash,4.17.24,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/mathjax,0.0.40,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/mdast,4.0.4,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/prismjs,1.26.6,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/react,18.0.28,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/react-dom,18.0.11,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/react-window,1.8.8,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/trusted-types,2.0.7,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@types/unist,3.0.3,MIT,https://github.com/DefinitelyTyped/DefinitelyTyped.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@ungap/structured-clone,1.3.0,ISC,git+https://github.com/ungap/structured-clone.git,npm,Auto-imported from npm dep tree on initial CI seed.
+@xmldom/xmldom,0.9.9,MIT,git://github.com/xmldom/xmldom.git,npm,Auto-imported from npm dep tree on initial CI seed.
+abbrev,2.0.0,ISC,https://github.com/npm/abbrev-js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+accessor-fn,1.5.3,MIT,git+https://github.com/vasturiano/accessor-fn.git,npm,Auto-imported from npm dep tree on initial CI seed.
+aioboto3,15.5.0,Apache-2.0,https://github.com/terricain/aioboto3/blob/main/LICENSE,python,
+aiobotocore,2.25.1,Apache-2.0,https://github.com/aio-libs/aiobotocore/blob/master/LICENSE,python,
+aiofiles,25.1.0,Apache-2.0,https://github.com/Tinche/aiofiles/blob/main/LICENSE,python,
+aiohttp,3.13.2,Apache-2.0 AND MIT,https://github.com/aio-libs/aiohttp/blob/master/LICENSE.txt,python,
+aioitertools,0.13.0,MIT,https://github.com/omnilib/aioitertools/blob/main/LICENSE,python,
+aiorwlock,1.5.0,Apache-2.0,https://github.com/aio-libs/aiorwlock/blob/master/LICENSE,python,
+aiosignal,1.4.0,Apache 2.0,https://github.com/aio-libs/aiosignal/blob/master/LICENSE,python,
+aiosqlite,0.21.0,MIT License,https://github.com/omnilib/aiosqlite/blob/main/LICENSE,python,
+alembic,1.17.2,MIT,https://github.com/sqlalchemy/alembic/blob/main/LICENSE,python,
+annotated-doc,0.0.4,MIT,https://github.com/fastapi/annotated-doc/blob/main/LICENSE,python,
+annotated-types,0.7.0,MIT License,https://github.com/annotated-types/annotated-types/blob/main/LICENSE,python,
+ansi-regex,5.0.1,MIT,chalk/ansi-regex,npm,Auto-imported from npm dep tree on initial CI seed.
+ansi-styles,4.3.0,MIT,chalk/ansi-styles,npm,Auto-imported from npm dep tree on initial CI seed.
+ansi-styles,6.2.3,MIT,chalk/ansi-styles,npm,Auto-imported from npm dep tree on initial CI seed.
+anyio,4.12.0,MIT,https://github.com/agronholm/anyio/blob/master/LICENSE,python,
+appdirs,1.4.4,MIT,https://github.com/ActiveState/appdirs/blob/master/LICENSE.txt,python,
+arabic-reshaper,3.0.0,MIT,https://github.com/mpcabd/python-arabic-reshaper/blob/master/LICENSE,python,
+aria-hidden,1.2.6,MIT,git+https://github.com/theKashey/aria-hidden.git,npm,Auto-imported from npm dep tree on initial CI seed.
+array-find-index,1.0.2,MIT,sindresorhus/array-find-index,npm,Auto-imported from npm dep tree on initial CI seed.
+asn1crypto,1.5.1,MIT,https://github.com/wbond/asn1crypto/blob/master/LICENSE,python,
+asynckit,0.4.0,MIT,git+https://github.com/alexindigo/asynckit.git,npm,Auto-imported from npm dep tree on initial CI seed.
+attrs,25.4.0,MIT,https://github.com/python-attrs/attrs/blob/main/LICENSE,python,
+authlib,1.6.5,BSD-3-Clause,https://github.com/authlib/authlib/blob/main/LICENSE,python,
+balanced-match,1.0.2,MIT,git://github.com/juliangruber/balanced-match.git,npm,Auto-imported from npm dep tree on initial CI seed.
+beautifulsoup4,4.14.3,MIT License,https://github.com/wention/BeautifulSoup4?tab=License-1-ov-file,python,
+bezier-js,6.1.4,MIT,https://github.com/Pomax/bezierjs,npm,Auto-imported from npm dep tree on initial CI seed.
+big-integer,1.6.52,Unlicense,git@github.com:peterolson/BigInteger.js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+blinker,1.9.0,MIT,https://github.com/pallets-eco/blinker/blob/main/LICENSE.txt,python,
+boto3,1.40.61,Apache-2.0,https://github.com/boto/boto3/blob/master/LICENSE,python,
+botocore,1.40.61,Apache-2.0,https://github.com/boto/botocore/blob/master/LICENSE.txt,python,
+brace-expansion,1.1.14,MIT,git+ssh://git@github.com/juliangruber/brace-expansion.git,npm,Auto-imported from npm dep tree on initial CI seed.
+brace-expansion,2.1.0,MIT,git+ssh://git@github.com/juliangruber/brace-expansion.git,npm,Auto-imported from npm dep tree on initial CI seed.
+broadcast-channel,3.7.0,MIT,git+https://github.com/pubkey/broadcast-channel.git,npm,Auto-imported from npm dep tree on initial CI seed.
+buffer-equal-constant-time,1.0.1,BSD-3-Clause,git@github.com:goinstant/buffer-equal-constant-time.git,npm,Auto-imported from npm dep tree on initial CI seed.
+cachetools,7.0.0,MIT,https://github.com/tkem/cachetools/blob/master/LICENSE,python,
+call-bind-apply-helpers,1.0.2,MIT,git+https://github.com/ljharb/call-bind-apply-helpers.git,npm,Auto-imported from npm dep tree on initial CI seed.
+canvas-color-tracker,1.3.2,MIT,git+https://github.com/vasturiano/canvas-color-tracker.git,npm,Auto-imported from npm dep tree on initial CI seed.
+ccount,2.0.1,MIT,wooorm/ccount,npm,Auto-imported from npm dep tree on initial CI seed.
+cffi,2.0.0,MIT,https://github.com/python-cffi/cffi/blob/main/LICENSE,python,
+chalk,4.1.2,MIT,chalk/chalk,npm,Auto-imported from npm dep tree on initial CI seed.
+character-entities-html4,2.1.0,MIT,wooorm/character-entities-html4,npm,Auto-imported from npm dep tree on initial CI seed.
+character-entities-legacy,3.0.0,MIT,wooorm/character-entities-legacy,npm,Auto-imported from npm dep tree on initial CI seed.
+charset-normalizer,3.4.4,MIT,https://github.com/jawah/charset_normalizer/blob/master/LICENSE,python,
+chart.js,4.5.1,MIT,https://github.com/chartjs/Chart.js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+class-variance-authority,0.7.1,Apache-2.0,https://github.com/joe-bell/cva.git,npm,Auto-imported from npm dep tree on initial CI seed.
+classnames,2.5.1,MIT,git+https://github.com/JedWatson/classnames.git,npm,Auto-imported from npm dep tree on initial CI seed.
+click,8.3.1,BSD-3-Clause,https://github.com/pallets/click/blob/main/LICENSE.txt,python,
+clsx,2.1.1,MIT,lukeed/clsx,npm,Auto-imported from npm dep tree on initial CI seed.
+color-convert,2.0.1,MIT,Qix-/color-convert,npm,Auto-imported from npm dep tree on initial CI seed.
+color-name,1.1.4,MIT,git@github.com:colorjs/color-name.git,npm,Auto-imported from npm dep tree on initial CI seed.
+colorama,0.4.6,BSD License,https://github.com/tartley/colorama/blob/master/LICENSE.txt,python,
+colorlog,6.10.1,MIT License,https://github.com/borntyping/python-colorlog/blob/main/LICENSE,python,
+combined-stream,1.0.8,MIT,git://github.com/felixge/node-combined-stream.git,npm,Auto-imported from npm dep tree on initial CI seed.
+comma-separated-tokens,2.0.3,MIT,wooorm/comma-separated-tokens,npm,Auto-imported from npm dep tree on initial CI seed.
+commander,13.1.0,MIT,https://github.com/tj/commander.js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+commander,8.3.0,MIT,https://github.com/tj/commander.js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+concat-map,0.0.1,MIT,git://github.com/substack/node-concat-map.git,npm,Auto-imported from npm dep tree on initial CI seed.
+contourpy,1.3.3,BSD-3-Clause,https://github.com/contourpy/contourpy/blob/main/LICENSE,python,
+cookie,0.7.2,MIT,jshttp/cookie,npm,Auto-imported from npm dep tree on initial CI seed.
+core-js,3.49.0,MIT,git+https://github.com/zloirock/core-js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+cross-spawn,7.0.6,MIT,git@github.com:moxystudio/node-cross-spawn.git,npm,Auto-imported from npm dep tree on initial CI seed.
+cryptography,44.0.3,Apache-2.0 OR BSD-3-Clause,https://github.com/pyca/cryptography/blob/main/LICENSE,python,
+css-tree,3.2.1,MIT,csstree/csstree,npm,Auto-imported from npm dep tree on initial CI seed.
+cssselect2,0.8.0,BSD License,https://github.com/Kozea/cssselect2/blob/main/LICENSE,python,
+cssstyle,4.6.0,MIT,git+https://github.com/jsdom/cssstyle.git,npm,Auto-imported from npm dep tree on initial CI seed.
+cssstyle,5.3.7,MIT,git+https://github.com/jsdom/cssstyle.git,npm,Auto-imported from npm dep tree on initial CI seed.
+cssstyle,6.2.0,MIT,git+https://github.com/jsdom/cssstyle.git,npm,Auto-imported from npm dep tree on initial CI seed.
+csstype,3.2.3,MIT,https://github.com/frenic/csstype,npm,Auto-imported from npm dep tree on initial CI seed.
+cycler,0.12.1,BSD 3-Clause,https://github.com/matplotlib/cycler/blob/main/LICENSE,python,
+d3-array,3.2.4,ISC,https://github.com/d3/d3-array.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-binarytree,1.0.2,MIT,https://github.com/vasturiano/d3-binarytree.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-color,3.1.0,ISC,https://github.com/d3/d3-color.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-dispatch,3.0.1,ISC,https://github.com/d3/d3-dispatch.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-drag,3.0.0,ISC,https://github.com/d3/d3-drag.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-ease,3.0.1,BSD-3-Clause,https://github.com/d3/d3-ease.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-force-3d,3.0.6,MIT,https://github.com/vasturiano/d3-force-3d.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-format,3.1.2,ISC,https://github.com/d3/d3-format.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-interpolate,3.0.1,ISC,https://github.com/d3/d3-interpolate.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-octree,1.1.0,MIT,https://github.com/vasturiano/d3-octree.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-path,3.1.0,ISC,https://github.com/d3/d3-path.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-quadtree,3.0.1,ISC,https://github.com/d3/d3-quadtree.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-scale,4.0.2,ISC,https://github.com/d3/d3-scale.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-scale-chromatic,3.1.0,ISC,https://github.com/d3/d3-scale-chromatic.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-selection,3.0.0,ISC,https://github.com/d3/d3-selection.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-shape,3.2.0,ISC,https://github.com/d3/d3-shape.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-time,3.1.0,ISC,https://github.com/d3/d3-time.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-time-format,4.1.0,ISC,https://github.com/d3/d3-time-format.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-timer,3.0.1,ISC,https://github.com/d3/d3-timer.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-transition,3.0.1,ISC,https://github.com/d3/d3-transition.git,npm,Auto-imported from npm dep tree on initial CI seed.
+d3-zoom,3.0.0,ISC,https://github.com/d3/d3-zoom.git,npm,Auto-imported from npm dep tree on initial CI seed.
+dask,2023.6.0,BSD-3-Clause,https://github.com/dask/dask/blob/main/LICENSE.txt,python,
+data-urls,5.0.0,MIT,git+https://github.com/jsdom/data-urls.git,npm,Auto-imported from npm dep tree on initial CI seed.
+data-urls,6.0.1,MIT,git+https://github.com/jsdom/data-urls.git,npm,Auto-imported from npm dep tree on initial CI seed.
+data-urls,7.0.0,MIT,git+https://github.com/jsdom/data-urls.git,npm,Auto-imported from npm dep tree on initial CI seed.
+dataclasses-json,0.6.7,MIT,https://github.com/lidatong/dataclasses-json/blob/master/LICENSE,python,
+datasets,4.4.1,Apache 2.0,https://github.com/huggingface/datasets/blob/main/LICENSE,python,
+date-fns,4.1.0,MIT,https://github.com/date-fns/date-fns,npm,Auto-imported from npm dep tree on initial CI seed.
+date-fns-jalali,4.1.0-0,MIT,https://github.com/date-fns-jalali/date-fns-jalali,npm,Auto-imported from npm dep tree on initial CI seed.
+debug,4.4.3,MIT,git://github.com/debug-js/debug.git,npm,Auto-imported from npm dep tree on initial CI seed.
+decimal.js,10.6.0,MIT,https://github.com/MikeMcl/decimal.js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+decimal.js-light,2.5.1,MIT,https://github.com/MikeMcl/decimal.js-light.git,npm,Auto-imported from npm dep tree on initial CI seed.
+decode-named-character-reference,1.3.0,MIT,wooorm/decode-named-character-reference,npm,Auto-imported from npm dep tree on initial CI seed.
+delayed-stream,1.0.0,MIT,git://github.com/felixge/node-delayed-stream.git,npm,Auto-imported from npm dep tree on initial CI seed.
+dequal,2.0.3,MIT,lukeed/dequal,npm,Auto-imported from npm dep tree on initial CI seed.
+detect-node,2.1.0,MIT,https://github.com/iliakan/detect-node,npm,Auto-imported from npm dep tree on initial CI seed.
+detect-node-es,1.1.0,MIT,https://github.com/thekashey/detect-node,npm,Auto-imported from npm dep tree on initial CI seed.
+devlop,1.1.0,MIT,wooorm/devlop,npm,Auto-imported from npm dep tree on initial CI seed.
+dill,0.4.0,BSD-3-Clause,https://github.com/uqfoundation/dill/blob/master/LICENSE,python,
+diskcache,5.6.3,Apache 2.0,https://github.com/grantjenks/python-diskcache/blob/master/LICENSE,python,
+distributed,2023.6.0,BSD-3-Clause,https://github.com/dask/distributed/blob/main/LICENSE.txt,python,
+distro,1.9.0,"Apache License, Version 2.0",https://github.com/python-distro/distro/blob/master/LICENSE,python,
+docker,7.1.0,Apache Software License,https://github.com/docker/docker-py/blob/main/LICENSE,python,
+docopt,0.6.2,MIT,https://github.com/docopt/docopt/blob/master/LICENSE-MIT,python,
+dom-helpers,3.4.0,MIT,jquense/dom-helpers,npm,Auto-imported from npm dep tree on initial CI seed.
+dom-helpers,5.2.1,MIT,jquense/dom-helpers,npm,Auto-imported from npm dep tree on initial CI seed.
+dom-lib,3.3.2,MIT,https:git@github.com:rsuite/dom-lib.git,npm,Auto-imported from npm dep tree on initial CI seed.
+dompurify,3.4.0,MPL-2.0 OR Apache-2.0,git://github.com/cure53/DOMPurify.git,npm,Auto-imported from npm dep tree on initial CI seed.
+duckdb,1.5.0.dev103,MIT License,https://github.com/duckdb/duckdb-python/blob/main/LICENSE,python,
+dunder-proto,1.0.1,MIT,git+https://github.com/es-shims/dunder-proto.git,npm,Auto-imported from npm dep tree on initial CI seed.
+eastasianwidth,0.2.0,MIT,git://github.com/komagata/eastasianwidth.git,npm,Auto-imported from npm dep tree on initial CI seed.
+ecdsa-sig-formatter,1.0.11,Apache-2.0,git+ssh://git@github.com/Brightspace/node-ecdsa-sig-formatter.git,npm,Auto-imported from npm dep tree on initial CI seed.
+elastic-transport,8.17.1,Apache Software License,https://github.com/elastic/elastic-transport-python/blob/main/LICENSE,python,
+elasticsearch,8.17.2,Apache-2.0,https://github.com/elastic/elasticsearch-py/blob/main/LICENSE,python,
+emoji-regex,8.0.0,MIT,https://github.com/mathiasbynens/emoji-regex.git,npm,Auto-imported from npm dep tree on initial CI seed.
+emoji-regex,9.2.2,MIT,https://github.com/mathiasbynens/emoji-regex.git,npm,Auto-imported from npm dep tree on initial CI seed.
+entities,6.0.1,BSD-2-Clause,git://github.com/fb55/entities.git,npm,Auto-imported from npm dep tree on initial CI seed.
+entities,8.0.0,BSD-2-Clause,git://github.com/fb55/entities.git,npm,Auto-imported from npm dep tree on initial CI seed.
+es-define-property,1.0.1,MIT,git+https://github.com/ljharb/es-define-property.git,npm,Auto-imported from npm dep tree on initial CI seed.
+es-errors,1.3.0,MIT,git+https://github.com/ljharb/es-errors.git,npm,Auto-imported from npm dep tree on initial CI seed.
+es-object-atoms,1.1.1,MIT,git+https://github.com/ljharb/es-object-atoms.git,npm,Auto-imported from npm dep tree on initial CI seed.
+es-set-tostringtag,2.1.0,MIT,git+https://github.com/es-shims/es-set-tostringtag.git,npm,Auto-imported from npm dep tree on initial CI seed.
+escape-string-regexp,5.0.0,MIT,sindresorhus/escape-string-regexp,npm,Auto-imported from npm dep tree on initial CI seed.
+esm,3.2.25,MIT,standard-things/esm,npm,Auto-imported from npm dep tree on initial CI seed.
+estree-util-is-identifier-name,3.0.0,MIT,syntax-tree/estree-util-is-identifier-name,npm,Auto-imported from npm dep tree on initial CI seed.
+et-xmlfile,2.0.0,MIT,https://foss.heptapod.net/openpyxl/et_xmlfile/-/blob/branch/default/LICENCE.rst,python,
+eventemitter3,4.0.7,MIT,git://github.com/primus/eventemitter3.git,npm,Auto-imported from npm dep tree on initial CI seed.
+eventsource-parser,0.1.0,MIT,git+ssh://git@github.com/rexxars/eventsource-parser.git,npm,Auto-imported from npm dep tree on initial CI seed.
+expandvars,1.1.2,MIT,https://github.com/sayanarijit/expandvars/blob/master/LICENSE,python,
+extratools,0.8.2.1,MIT,https://github.com/chuanconggao/extratools/blob/main/LICENSE,python,
+fast-equals,5.4.0,MIT,git+https://github.com/planttheidea/fast-equals.git,npm,Auto-imported from npm dep tree on initial CI seed.
+fastapi,0.120.4,MIT,https://github.com/tiangolo/fastapi/blob/master/LICENSE,python,
+fastuuid,0.14.0,BSD 3-Clause License,https://github.com/thedrow/fastuuid/blob/master/LICENSE,python,
+fault,1.0.4,MIT,wooorm/fault,npm,Auto-imported from npm dep tree on initial CI seed.
+file-saver,2.0.5,MIT,https://github.com/eligrey/FileSaver.js,npm,Auto-imported from npm dep tree on initial CI seed.
+filelock,3.20.0,Unlicense,https://github.com/tox-dev/py-filelock/blob/main/LICENSE,python,
+filetype,1.2.0,MIT,https://github.com/h2non/filetype.py/blob/master/LICENSE,python,
+flask,3.1.3,BSD-3-Clause,https://github.com/pallets/flask/blob/main/LICENSE.txt,python,
+float-tooltip,1.7.5,MIT,git+https://github.com/vasturiano/float-tooltip.git,npm,Auto-imported from npm dep tree on initial CI seed.
+follow-redirects,1.16.0,MIT,git+ssh://git@github.com/follow-redirects/follow-redirects.git,npm,Auto-imported from npm dep tree on initial CI seed.
+fonttools,4.61.0,MIT,https://github.com/fonttools/fonttools/blob/main/LICENSE,python,
+force-graph,1.51.4,MIT,git+https://github.com/vasturiano/force-graph.git,npm,Auto-imported from npm dep tree on initial CI seed.
+foreground-child,3.3.1,ISC,git+https://github.com/tapjs/foreground-child.git,npm,Auto-imported from npm dep tree on initial CI seed.
+form-data,4.0.5,MIT,git://github.com/form-data/form-data.git,npm,Auto-imported from npm dep tree on initial CI seed.
+format,0.2.2,MIT,git://github.com/samsonjs/format.git,npm,Auto-imported from npm dep tree on initial CI seed.
+freetype-py,2.5.1,BSD License,https://github.com/rougier/freetype-py/blob/master/LICENSE.txt,python,
+frozenlist,1.8.0,Apache-2.0,https://github.com/aio-libs/frozenlist/blob/master/LICENSE,python,
+fs.realpath,1.0.0,ISC,git+https://github.com/isaacs/fs.realpath.git,npm,Auto-imported from npm dep tree on initial CI seed.
+fsspec,2025.10.0,BSD-3-Clause,https://github.com/fsspec/filesystem_spec/blob/master/LICENSE,python,
+ftfy,6.3.1,Apache-2.0,https://github.com/rspeer/python-ftfy/blob/main/LICENSE.txt,python,
+function-bind,1.1.2,MIT,https://github.com/Raynos/function-bind.git,npm,Auto-imported from npm dep tree on initial CI seed.
+get-intrinsic,1.3.0,MIT,git+https://github.com/ljharb/get-intrinsic.git,npm,Auto-imported from npm dep tree on initial CI seed.
+get-proto,1.0.1,MIT,git+https://github.com/ljharb/get-proto.git,npm,Auto-imported from npm dep tree on initial CI seed.
+glob,10.5.0,ISC,git://github.com/isaacs/node-glob.git,npm,Auto-imported from npm dep tree on initial CI seed.
+glob,7.2.3,ISC,git://github.com/isaacs/node-glob.git,npm,Auto-imported from npm dep tree on initial CI seed.
+goober,2.1.18,MIT,https://github.com/cristianbote/goober,npm,Auto-imported from npm dep tree on initial CI seed.
+googleapis-common-protos,1.72.0,Apache 2.0,https://github.com/googleapis/api-common-protos/blob/main/LICENSE,python,
+gopd,1.2.0,MIT,git+https://github.com/ljharb/gopd.git,npm,Auto-imported from npm dep tree on initial CI seed.
+greenlet,3.3.0,MIT AND Python-2.0,https://github.com/python-greenlet/greenlet/blob/master/LICENSE,python,
+grpcio,1.76.0,Apache License 2.0,https://github.com/grpc/grpc/blob/master/LICENSE,python,
+h11,0.16.0,MIT,https://github.com/python-hyper/h11/blob/master/LICENSE.txt,python,
+has-flag,4.0.0,MIT,sindresorhus/has-flag,npm,Auto-imported from npm dep tree on initial CI seed.
+has-symbols,1.1.0,MIT,git://github.com/inspect-js/has-symbols.git,npm,Auto-imported from npm dep tree on initial CI seed.
+has-tostringtag,1.0.2,MIT,git+https://github.com/inspect-js/has-tostringtag.git,npm,Auto-imported from npm dep tree on initial CI seed.
+hasown,2.0.3,MIT,git+https://github.com/inspect-js/hasOwn.git,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-from-parse5,8.0.3,MIT,syntax-tree/hast-util-from-parse5,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-is-element,3.0.0,MIT,syntax-tree/hast-util-is-element,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-raw,9.1.0,MIT,syntax-tree/hast-util-raw,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-to-html,9.0.5,MIT,syntax-tree/hast-util-to-html,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-to-jsx-runtime,2.3.6,MIT,syntax-tree/hast-util-to-jsx-runtime,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-to-parse5,8.0.1,MIT,syntax-tree/hast-util-to-parse5,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-to-text,4.0.2,MIT,syntax-tree/hast-util-to-text,npm,Auto-imported from npm dep tree on initial CI seed.
+hast-util-whitespace,3.0.0,MIT,syntax-tree/hast-util-whitespace,npm,Auto-imported from npm dep tree on initial CI seed.
+hastscript,9.0.1,MIT,syntax-tree/hastscript,npm,Auto-imported from npm dep tree on initial CI seed.
+hf-xet,1.2.1rc0,Apache Software License,https://github.com/huggingface/xet-core/blob/main/LICENSE,python,
+highlight.js,10.7.3,BSD-3-Clause,git://github.com/highlightjs/highlight.js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+highlightjs-vue,1.0.0,CC0-1.0,git+https://github.com/highlightjs/highlightjs-vue.git,npm,Auto-imported from npm dep tree on initial CI seed.
+hoist-non-react-statics,3.3.2,BSD-3-Clause,git://github.com/mridgway/hoist-non-react-statics.git,npm,Auto-imported from npm dep tree on initial CI seed.
+hosted-git-info,6.1.3,ISC,git+https://github.com/npm/hosted-git-info.git,npm,Auto-imported from npm dep tree on initial CI seed.
+html-encoding-sniffer,4.0.0,MIT,git+https://github.com/jsdom/html-encoding-sniffer.git,npm,Auto-imported from npm dep tree on initial CI seed.
+html-encoding-sniffer,6.0.0,MIT,git+https://github.com/jsdom/html-encoding-sniffer.git,npm,Auto-imported from npm dep tree on initial CI seed.
+html-to-image,1.11.13,MIT,git+https://github.com/bubkoo/html-to-image.git,npm,Auto-imported from npm dep tree on initial CI seed.
+html-url-attributes,3.0.1,MIT,https://github.com/rehypejs/rehype-minify/tree/main/packages/html-url-attributes,npm,Auto-imported from npm dep tree on initial CI seed.
+html-void-elements,3.0.0,MIT,wooorm/html-void-elements,npm,Auto-imported from npm dep tree on initial CI seed.
+html5lib,1.1,MIT License,https://github.com/html5lib/html5lib-python/blob/master/LICENSE,python,
+http-proxy,1.18.1,MIT,https://github.com/http-party/node-http-proxy.git,npm,Auto-imported from npm dep tree on initial CI seed.
+http-proxy-agent,7.0.2,MIT,https://github.com/TooTallNate/proxy-agents.git,npm,Auto-imported from npm dep tree on initial CI seed.
+httpcore,1.0.9,BSD-3-Clause,https://github.com/encode/httpcore/blob/master/LICENSE.md,python,
+https-proxy-agent,7.0.6,MIT,https://github.com/TooTallNate/proxy-agents.git,npm,Auto-imported from npm dep tree on initial CI seed.
+httptools,0.7.1,MIT,https://github.com/MagicStack/httptools/blob/master/LICENSE,python,
+httpx,0.28.1,BSD-3-Clause,https://github.com/encode/httpx/blob/master/LICENSE.md,python,
+httpx-sse,0.4.3,MIT,https://github.com/florimondmanca/httpx-sse/blob/master/LICENSE,python,
+huggingface-hub,0.36.0,Apache,https://github.com/huggingface/huggingface_hub/blob/main/LICENSE,python,
+i18next,22.5.1,MIT,https://github.com/i18next/i18next.git,npm,Auto-imported from npm dep tree on initial CI seed.
+i18next-fs-backend,2.6.4,MIT,git@github.com:i18next/i18next-fs-backend.git,npm,Auto-imported from npm dep tree on initial CI seed.
+idna,3.11,BSD-3-Clause,https://github.com/kjd/idna/blob/master/LICENSE.md,python,
+importlib-metadata,8.7.0,Apache Software License,https://pypi.org/project/importlib-metadata/,python,
+index-array-by,1.4.2,MIT,git+https://github.com/vasturiano/index-array-by.git,npm,Auto-imported from npm dep tree on initial CI seed.
+inflight,1.0.6,ISC,https://github.com/npm/inflight.git,npm,Auto-imported from npm dep tree on initial CI seed.
+inherits,2.0.4,ISC,git://github.com/isaacs/inherits,npm,Auto-imported from npm dep tree on initial CI seed.
+inline-style-parser,0.2.7,MIT,git+https://github.com/remarkablemark/inline-style-parser.git,npm,Auto-imported from npm dep tree on initial CI seed.
+internmap,2.0.3,ISC,https://github.com/mbostock/internmap.git,npm,Auto-imported from npm dep tree on initial CI seed.
+is-core-module,2.16.1,MIT,git+https://github.com/inspect-js/is-core-module.git,npm,Auto-imported from npm dep tree on initial CI seed.
+is-fullwidth-code-point,3.0.0,MIT,sindresorhus/is-fullwidth-code-point,npm,Auto-imported from npm dep tree on initial CI seed.
+is-potential-custom-element-name,1.0.1,MIT,https://github.com/mathiasbynens/is-potential-custom-element-name.git,npm,Auto-imported from npm dep tree on initial CI seed.
+isexe,2.0.0,ISC,git+https://github.com/isaacs/isexe.git,npm,Auto-imported from npm dep tree on initial CI seed.
+isomorphic-dompurify,2.26.0,MIT,kkomelin/isomorphic-dompurify,npm,Auto-imported from npm dep tree on initial CI seed.
+isomorphic-dompurify,2.36.0,MIT,kkomelin/isomorphic-dompurify,npm,Auto-imported from npm dep tree on initial CI seed.
+itsdangerous,2.2.0,BSD-3-Clause,https://github.com/pallets/itsdangerous/blob/main/LICENSE.txt,python,
+jackspeak,3.4.3,BlueOak-1.0.0,git+https://github.com/isaacs/jackspeak.git,npm,Auto-imported from npm dep tree on initial CI seed.
+jerrypick,1.1.2,MIT,git+https://github.com/vasturiano/jerrypick.git,npm,Auto-imported from npm dep tree on initial CI seed.
+jinja2,3.1.6,BSD License,https://github.com/pallets/jinja/blob/main/LICENSE.txt,python,
+jiter,0.12.0,MIT License,https://github.com/pydantic/jiter/blob/main/LICENSE,python,
+jmespath,1.0.1,MIT,https://github.com/jmespath/jmespath.py/blob/master/LICENSE.txt,python,
+joblib,1.5.2,BSD 3-Clause,https://github.com/joblib/joblib/blob/main/LICENSE.txt,python,
+jose,4.15.9,MIT,panva/jose,npm,Auto-imported from npm dep tree on initial CI seed.
+js-sha3,0.8.0,MIT,https://github.com/emn178/js-sha3.git,npm,Auto-imported from npm dep tree on initial CI seed.
+jsdom,26.1.0,MIT,git+https://github.com/jsdom/jsdom.git,npm,Auto-imported from npm dep tree on initial CI seed.
+jsdom,27.0.1,MIT,git+https://github.com/jsdom/jsdom.git,npm,Auto-imported from npm dep tree on initial CI seed.
+jsdom,28.1.0,MIT,git+https://github.com/jsdom/jsdom.git,npm,Auto-imported from npm dep tree on initial CI seed.
+json-parse-even-better-errors,3.0.2,MIT,https://github.com/npm/json-parse-even-better-errors,npm,Auto-imported from npm dep tree on initial CI seed.
+jsonpatch,1.33,BSD 3-Clause,https://github.com/stefankoegl/python-json-patch/blob/master/LICENSE,python,
+jsonpath-ng,1.7.0,Apache 2.0,https://github.com/h2non/jsonpath-ng/blob/master/LICENSE,python,
+jsonschema,4.25.1,MIT,https://github.com/python-jsonschema/jsonschema/blob/main/COPYING,python,
+jsonschema-specifications,2025.9.1,MIT,https://github.com/python-jsonschema/jsonschema-specifications/blob/main/COPYING,python,
+jsonwebtoken,9.0.3,MIT,https://github.com/auth0/node-jsonwebtoken,npm,Auto-imported from npm dep tree on initial CI seed.
+jupyterlab-plotly,6.0.1,MIT,https://github.com/plotly/plotly.py/blob/main/LICENSE.txt,python,
+jwa,2.0.1,MIT,git://github.com/brianloveswords/node-jwa.git,npm,Auto-imported from npm dep tree on initial CI seed.
+jws,4.0.1,MIT,git://github.com/brianloveswords/node-jws.git,npm,Auto-imported from npm dep tree on initial CI seed.
+jwt-decode,4.0.0,MIT,git://github.com/auth0/jwt-decode,npm,Auto-imported from npm dep tree on initial CI seed.
+kapsule,1.16.3,MIT,git+https://github.com/vasturiano/kapsule.git,npm,Auto-imported from npm dep tree on initial CI seed.
+katex,0.16.45,MIT,https://github.com/KaTeX/KaTeX.git,npm,Auto-imported from npm dep tree on initial CI seed.
+kiwisolver,1.4.10rc0,BSD License,https://github.com/nucleic/kiwi/blob/main/LICENSE,python,
+langchain,0.3.27,MIT,https://github.com/langchain-ai/langchain/blob/master/LICENSE,python,
+langchain-aws,0.2.35,MIT,https://github.com/langchain-ai/langchain-aws/blob/main/LICENSE,python,
+langchain-classic,1.0.1,MIT,https://github.com/langchain-ai/langchain/blob/master/LICENSE,python,
+langchain-community,0.3.31,MIT,https://github.com/langchain-ai/langchain-community/blob/main/LICENSE,python,
+langchain-core,0.3.80,MIT,https://github.com/langchain-ai/langchain/blob/master/LICENSE,python,
+langchain-huggingface,1.2.0,MIT,https://github.com/langchain-ai/langchain/blob/master/LICENSE,python,
+langchain-litellm,0.2.3,MIT,https://github.com/Akshay-Dongare/langchain-litellm/blob/main/LICENSE,python,
+langchain-milvus,0.2.1,MIT,https://github.com/langchain-ai/langchain-milvus/blob/main/LICENSE,python,
+langchain-nvidia-ai-endpoints,0.3.19,MIT,https://github.com/langchain-ai/langchain-nvidia/blob/main/LICENSE,python,
+langchain-openai,0.3.35,MIT,https://github.com/langchain-ai/langchain/blob/master/LICENSE,python,
+langchain-tavily,0.2.13,MIT,https://github.com/tavily-ai/langchain-tavily/blob/main/LICENSE,python,
+langchain-text-splitters,0.3.11,MIT,https://github.com/langchain-ai/langchain/blob/master/LICENSE,python,
+langgraph,0.6.11,MIT,https://github.com/langchain-ai/langgraph/blob/main/libs/langgraph/LICENSE,python,
+langgraph-checkpoint,3.0.1,MIT,https://www.github.com/langchain-ai/langgraph/blob/main/LICENSE,python,
+langgraph-prebuilt,0.6.5,MIT,https://github.com/langchain-ai/langgraph/blob/main/libs/prebuilt/LICENSE,python,
+langgraph-sdk,0.2.15,MIT,https://github.com/langchain-ai/langgraph/blob/main/LICENSE,python,
+langsmith,0.4.58,MIT,https://github.com/langchain-ai/langsmith-sdk/blob/main/LICENSE,python,
+license-checker-rseidelsohn,4.4.2,BSD-3-Clause,https://github.com/RSeidelsohn/license-checker-rseidelsohn.git,npm,Auto-imported from npm dep tree on initial CI seed.
+litellm,1.80.5,MIT,https://github.com/BerriAI/litellm/blob/main/LICENSE,python,
+locket,1.0.0,BSD-2-Clause,https://github.com/mwilliamson/locket.py/blob/master/LICENSE,python,
+lodash,4.18.1,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash-es,4.18.1,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.clonedeep,4.5.0,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.includes,4.3.0,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.isboolean,3.0.3,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.isinteger,4.0.4,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.isnumber,3.0.3,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.isplainobject,4.0.6,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.isstring,4.0.1,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+lodash.once,4.1.1,MIT,lodash/lodash,npm,Auto-imported from npm dep tree on initial CI seed.
+longest-streak,3.1.0,MIT,wooorm/longest-streak,npm,Auto-imported from npm dep tree on initial CI seed.
+loose-envify,1.4.0,MIT,git://github.com/zertosh/loose-envify.git,npm,Auto-imported from npm dep tree on initial CI seed.
+lowlight,1.20.0,MIT,wooorm/lowlight,npm,Auto-imported from npm dep tree on initial CI seed.
+lru-cache,10.4.3,ISC,git://github.com/isaacs/node-lru-cache.git,npm,Auto-imported from npm dep tree on initial CI seed.
+lru-cache,11.2.7,ISC,git://github.com/isaacs/node-lru-cache.git,npm,Auto-imported from npm dep tree on initial CI seed.
+lru-cache,11.3.5,ISC,git://github.com/isaacs/node-lru-cache.git,npm,Auto-imported from npm dep tree on initial CI seed.
+lru-cache,6.0.0,ISC,git://github.com/isaacs/node-lru-cache.git,npm,Auto-imported from npm dep tree on initial CI seed.
+lru-cache,7.18.3,ISC,git://github.com/isaacs/node-lru-cache.git,npm,Auto-imported from npm dep tree on initial CI seed.
+lucide-react,0.454.0,ISC,https://github.com/lucide-icons/lucide.git,npm,Auto-imported from npm dep tree on initial CI seed.
+lxml,6.0.2,BSD-3-Clause,https://github.com/lxml/lxml/blob/master/LICENSE.txt,python,
+mako,1.3.10,Apache 2.0,https://github.com/aio-libs/aiohttp-mako/blob/master/LICENSE,python,
+markdown,3.1,BSD-3-Clause,https://github.com/Python-Markdown/markdown/blob/master/LICENSE.md,python,
+markdown-it-py,4.0.0,MIT License,https://github.com/executablebooks/markdown-it-py/blob/master/LICENSE,python,
+markdown-table,3.0.4,MIT,wooorm/markdown-table,npm,Auto-imported from npm dep tree on initial CI seed.
+markupsafe,3.0.3,BSD-3-Clause,https://github.com/pallets/markupsafe/blob/main/LICENSE.txt,python,
+marshmallow,3.26.1,MIT License,https://github.com/marshmallow-code/marshmallow/blob/master/LICENSE,python,
+match-sorter,6.3.4,MIT,https://github.com/kentcdodds/match-sorter,npm,Auto-imported from npm dep tree on initial CI seed.
+math-intrinsics,1.1.0,MIT,git+https://github.com/es-shims/math-intrinsics.git,npm,Auto-imported from npm dep tree on initial CI seed.
+mathjax-full,3.2.1,Apache-2.0,https://github.com/mathjax/Mathjax-src/,npm,Auto-imported from npm dep tree on initial CI seed.
+mcp,1.23.3,MIT,https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE,python,
+mdast-util-find-and-replace,3.0.2,MIT,syntax-tree/mdast-util-find-and-replace,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-from-markdown,2.0.3,MIT,syntax-tree/mdast-util-from-markdown,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-gfm,3.1.0,MIT,syntax-tree/mdast-util-gfm,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-gfm-autolink-literal,2.0.1,MIT,syntax-tree/mdast-util-gfm-autolink-literal,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-gfm-footnote,2.1.0,MIT,syntax-tree/mdast-util-gfm-footnote,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-gfm-strikethrough,2.0.0,MIT,syntax-tree/mdast-util-gfm-strikethrough,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-gfm-table,2.0.0,MIT,syntax-tree/mdast-util-gfm-table,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-gfm-task-list-item,2.0.0,MIT,syntax-tree/mdast-util-gfm-task-list-item,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-math,3.0.0,MIT,syntax-tree/mdast-util-math,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-mdx-expression,2.0.1,MIT,syntax-tree/mdast-util-mdx-expression,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-mdx-jsx,3.2.0,MIT,syntax-tree/mdast-util-mdx-jsx,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-mdxjs-esm,2.0.1,MIT,syntax-tree/mdast-util-mdxjs-esm,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-to-hast,13.2.1,MIT,syntax-tree/mdast-util-to-hast,npm,Auto-imported from npm dep tree on initial CI seed.
+mdast-util-to-markdown,2.1.2,MIT,syntax-tree/mdast-util-to-markdown,npm,Auto-imported from npm dep tree on initial CI seed.
+memoize-one,5.2.1,MIT,https://github.com/alexreardon/memoize-one.git,npm,Auto-imported from npm dep tree on initial CI seed.
+mhchemparser,4.2.1,Apache-2.0,github:mhchem/mhchemParser,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-core-commonmark,2.0.3,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-core-commonmark,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-gfm,3.0.0,MIT,micromark/micromark-extension-gfm,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-gfm-autolink-literal,2.1.0,MIT,micromark/micromark-extension-gfm-autolink-literal,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-gfm-footnote,2.1.0,MIT,micromark/micromark-extension-gfm-footnote,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-gfm-strikethrough,2.1.0,MIT,micromark/micromark-extension-gfm-strikethrough,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-gfm-table,2.1.1,MIT,micromark/micromark-extension-gfm-table,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-gfm-tagfilter,2.0.0,MIT,micromark/micromark-extension-gfm-tagfilter,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-gfm-task-list-item,2.1.0,MIT,micromark/micromark-extension-gfm-task-list-item,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-extension-math,3.1.0,MIT,micromark/micromark-extension-math,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-factory-destination,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-factory-destination,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-factory-label,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-factory-label,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-factory-space,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-factory-space,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-factory-title,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-factory-title,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-factory-whitespace,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-factory-whitespace,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-character,2.1.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-character,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-chunked,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-chunked,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-classify-character,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-classify-character,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-combine-extensions,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-combine-extensions,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-encode,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-encode,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-html-tag-name,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-html-tag-name,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-normalize-identifier,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-normalize-identifier,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-resolve-all,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-resolve-all,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-sanitize-uri,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-sanitize-uri,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-subtokenize,2.1.0,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-subtokenize,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-symbol,2.0.1,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-symbol,npm,Auto-imported from npm dep tree on initial CI seed.
+micromark-util-types,2.0.2,MIT,https://github.com/micromark/micromark/tree/main/packages/micromark-util-types,npm,Auto-imported from npm dep tree on initial CI seed.
+microseconds,0.2.0,MIT,github:kamicane/microseconds,npm,Auto-imported from npm dep tree on initial CI seed.
+mime-db,1.52.0,MIT,jshttp/mime-db,npm,Auto-imported from npm dep tree on initial CI seed.
+mime-types,2.1.35,MIT,jshttp/mime-types,npm,Auto-imported from npm dep tree on initial CI seed.
+minimatch,3.1.5,BlueOak-1.0.0,git@github.com:isaacs/minimatch,npm,Auto-imported from npm dep tree on initial CI seed.
+minimatch,9.0.9,BlueOak-1.0.0,git@github.com:isaacs/minimatch,npm,Auto-imported from npm dep tree on initial CI seed.
+minipass,7.1.3,BlueOak-1.0.0,https://github.com/isaacs/minipass,npm,Auto-imported from npm dep tree on initial CI seed.
+mj-context-menu,0.6.1,Apache-2.0,https://github.com/zorkow/context-menu,npm,Auto-imported from npm dep tree on initial CI seed.
+mkdirp,1.0.4,MIT,https://github.com/isaacs/node-mkdirp.git,npm,Auto-imported from npm dep tree on initial CI seed.
+mpmath,1.3.0,BSD,https://github.com/fredrik-johansson/mpmath/blob/master/LICENSE,python,
+ms,2.1.3,MIT,vercel/ms,npm,Auto-imported from npm dep tree on initial CI seed.
+msgpack,1.1.2,Apache-2.0,https://github.com/msgpack/msgpack-python/blob/main/COPYING,python,
+multidict,6.7.0,Apache License 2.0,https://github.com/aio-libs/multidict/blob/master/LICENSE,python,
+multiprocess,0.70.18,BSD-3-Clause,https://github.com/uqfoundation/multiprocess/blob/master/LICENSE,python,
+mypy-extensions,1.1.0,MIT,https://github.com/python/mypy_extensions/blob/master/LICENSE,python,
+nano-time,1.0.0,ISC,git+https://github.com/sazze/node-nanotime.git,npm,Auto-imported from npm dep tree on initial CI seed.
+narwhals,2.16.0,MIT,https://github.com/narwhals-dev/narwhals/blob/main/LICENSE.md,python,
+nest-asyncio,1.6.0,BSD,https://github.com/erdewit/nest_asyncio/blob/master/LICENSE,python,
+nest-asyncio2,1.7.1,BSD,https://github.com/Chaoses-Ib/nest-asyncio2/blob/master/LICENSE,python,
+networkx,3.6.1,BSD-3-Clause,https://github.com/networkx/networkx/blob/main/LICENSE.txt,python,
+next,15.5.15,MIT,vercel/next.js,npm,Auto-imported from npm dep tree on initial CI seed.
+next-auth,4.24.14,ISC,https://github.com/nextauthjs/next-auth.git,npm,Auto-imported from npm dep tree on initial CI seed.
+next-i18next,13.3.0,MIT,git@github.com:i18next/next-i18next.git,npm,Auto-imported from npm dep tree on initial CI seed.
+next-runtime-env,1.8.0,MIT,https://github.com/expatfile/next-runtime-env.git,npm,Auto-imported from npm dep tree on initial CI seed.
+nopt,7.2.1,ISC,git+https://github.com/npm/nopt.git,npm,Auto-imported from npm dep tree on initial CI seed.
+normalize-package-data,5.0.0,BSD-2-Clause,https://github.com/npm/normalize-package-data.git,npm,Auto-imported from npm dep tree on initial CI seed.
+npm-normalize-package-bin,3.0.1,ISC,https://github.com/npm/npm-normalize-package-bin.git,npm,Auto-imported from npm dep tree on initial CI seed.
+nwsapi,2.2.23,MIT,git://github.com/dperini/nwsapi.git,npm,Auto-imported from npm dep tree on initial CI seed.
+oauth,0.9.15,MIT,http://github.com/ciaranj/node-oauth.git,npm,Auto-imported from npm dep tree on initial CI seed.
+object-assign,4.1.1,MIT,sindresorhus/object-assign,npm,Auto-imported from npm dep tree on initial CI seed.
+object-hash,2.2.0,MIT,https://github.com/puleos/object-hash,npm,Auto-imported from npm dep tree on initial CI seed.
+oblivious-set,1.0.0,MIT,https://github.com/pubkey/oblivious-set,npm,Auto-imported from npm dep tree on initial CI seed.
+oidc-token-hash,5.2.0,MIT,panva/oidc-token-hash,npm,Auto-imported from npm dep tree on initial CI seed.
+once,1.4.0,ISC,git://github.com/isaacs/once,npm,Auto-imported from npm dep tree on initial CI seed.
+oniguruma-parser,0.12.2,MIT,git+https://github.com/slevithan/oniguruma-parser.git,npm,Auto-imported from npm dep tree on initial CI seed.
+oniguruma-to-es,4.3.6,MIT,git+https://github.com/slevithan/oniguruma-to-es.git,npm,Auto-imported from npm dep tree on initial CI seed.
+open-clip-torch,3.2.0,MIT,https://github.com/mlfoundations/open_clip/blob/main/LICENSE,python,
+openai,2.9.0,Apache-2.0,https://github.com/openai/openai-python/blob/main/LICENSE,python,
+opencv-python-headless,4.11.0.86,Apache 2.0,https://github.com/opencv/opencv-python/blob/master/LICENSE.txt,python,
+openevals,0.1.3,MIT,https://github.com/langchain-ai/openevals/blob/main/LICENSE,python,
+openid-client,5.7.1,MIT,panva/openid-client,npm,Auto-imported from npm dep tree on initial CI seed.
+openinference-instrumentation,0.1.42,Apache-2.0,https://github.com/Arize-ai/openinference/blob/main/LICENSE,python,
+openinference-semantic-conventions,0.1.25,Apache-2.0,https://github.com/Arize-ai/openinference/blob/main/python/openinference-semantic-conventions/LICENSE,python,
+openpyxl,3.1.5,MIT,https://foss.heptapod.net/openpyxl/openpyxl/-/blob/branch/default/LICENSE.rst,python,
+opentelemetry-api,1.39.0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+opentelemetry-exporter-otlp,1.39.0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+opentelemetry-exporter-otlp-proto-common,1.39.0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+opentelemetry-exporter-otlp-proto-grpc,1.39.0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+opentelemetry-exporter-otlp-proto-http,1.39.0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+opentelemetry-proto,1.39.0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+opentelemetry-sdk,1.39.0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+opentelemetry-semantic-conventions,0.60b0,Apache-2.0,https://github.com/open-telemetry/opentelemetry-python/blob/main/LICENSE,python,
+optuna,4.4.0,MIT License,https://github.com/optuna/optuna/blob/master/LICENSE,python,
+orjson,3.11.5,Apache-2.0 OR MIT,https://github.com/ijl/orjson/blob/master/LICENSE-MIT,python,
+ormsgpack,1.12.0,Apache Software License,https://github.com/aviramha/ormsgpack/blob/master/LICENSE-MIT,python,
+oscrypto,1.3.0,MIT,https://github.com/wbond/oscrypto/blob/master/LICENSE,python,
+package-json-from-dist,1.0.1,BlueOak-1.0.0,git+https://github.com/isaacs/package-json-from-dist.git,npm,Auto-imported from npm dep tree on initial CI seed.
+packaging,25,Apache Software License,https://github.com/pypa/packaging/blob/main/LICENSE,python,
+pandas,3.0.0rc0,BSD-3-Clause,https://github.com/pandas-dev/pandas/blob/main/LICENSE,python,
+parse-entities,4.0.2,MIT,wooorm/parse-entities,npm,Auto-imported from npm dep tree on initial CI seed.
+parse5,7.3.0,MIT,git://github.com/inikulin/parse5.git,npm,Auto-imported from npm dep tree on initial CI seed.
+parse5,8.0.0,MIT,git://github.com/inikulin/parse5.git,npm,Auto-imported from npm dep tree on initial CI seed.
+parse5,8.0.1,MIT,git://github.com/inikulin/parse5.git,npm,Auto-imported from npm dep tree on initial CI seed.
+partd,1.4.2,BSD,https://github.com/dask/partd/blob/main/LICENSE.txt,python,
+path-is-absolute,1.0.1,MIT,sindresorhus/path-is-absolute,npm,Auto-imported from npm dep tree on initial CI seed.
+path-key,3.1.1,MIT,sindresorhus/path-key,npm,Auto-imported from npm dep tree on initial CI seed.
+path-scurry,1.11.1,BlueOak-1.0.0,git+https://github.com/isaacs/path-scurry,npm,Auto-imported from npm dep tree on initial CI seed.
+pillow,12.0.0,MIT-CMU,https://github.com/python-pillow/Pillow/blob/main/LICENSE,python,
+pip,25.3,MIT,https://github.com/pypa/pip/blob/main/LICENSE.txt,python,
+pkce,1.0.3,MIT,https://github.com/RomeoDespres/pkce/blob/master/LICENSE,python,
+pkginfo,1.12.1.2,MIT,https://github.com/openpeeps/pkginfo/blob/master/LICENSE,python,
+platformdirs,4.5.1,MIT,https://github.com/tox-dev/platformdirs/blob/main/LICENSE,python,
+plotly,6.5.2,MIT,https://github.com/plotly/plotly.py/blob/main/LICENSE.txt,python,
+ply,3.11,BSD,https://www.dabeaz.com/ply/,python,
+preact,10.27.3,MIT,preactjs/preact,npm,Auto-imported from npm dep tree on initial CI seed.
+preact-render-to-string,5.2.6,MIT,developit/preact-render-to-string,npm,Auto-imported from npm dep tree on initial CI seed.
+prefixspan,0.5.2,MIT,https://github.com/chuanconggao/PrefixSpan-py/blob/master/LICENSE,python,
+pretty-format,3.8.0,MIT,https://github.com/facebook/jest.git,npm,Auto-imported from npm dep tree on initial CI seed.
+prismjs,1.30.0,MIT,git+https://github.com/PrismJS/prism.git,npm,Auto-imported from npm dep tree on initial CI seed.
+prop-types,15.8.1,MIT,facebook/prop-types,npm,Auto-imported from npm dep tree on initial CI seed.
+prop-types-extra,1.1.1,MIT,git+https://github.com/react-bootstrap/prop-types-extra.git,npm,Auto-imported from npm dep tree on initial CI seed.
+propcache,0.4.1,Apache-2.0,https://github.com/aio-libs/propcache/blob/master/LICENSE,python,
+property-information,7.1.0,MIT,wooorm/property-information,npm,Auto-imported from npm dep tree on initial CI seed.
+psutil,7.1.3,BSD-3-Clause,https://github.com/giampaolo/psutil/blob/master/LICENSE,python,
+pyarrow,22.0.0,Apache Software License,https://github.com/apache/arrow/blob/master/LICENSE.txt,python,
+pycparser,2.23,BSD-3-Clause,https://github.com/eliben/pycparser/blob/main/LICENSE,python,
+pydantic,2.12.5,MIT,https://github.com/pydantic/pydantic/blob/main/LICENSE,python,
+pydantic-core,2.41.5,MIT,https://github.com/pydantic/pydantic-core/blob/main/LICENSE,python,
+pydantic-settings,2.12.0,MIT,https://github.com/pydantic/pydantic-settings/blob/main/LICENSE,python,
+pygments,2.19.2,BSD-2-Clause,https://github.com/pygments/pygments/blob/master/LICENSE,python,
+pyhanko,0.32.0,MIT,https://github.com/MatthiasValvekens/pyHanko/blob/master/LICENSE,python,
+pyhanko-certvalidator,0.29.0,MIT,https://github.com/MatthiasValvekens/pyHanko/blob/master/LICENSE,python,
+pyjwt,2.10.1,MIT,https://github.com/jpadilla/pyjwt/blob/master/LICENSE,python,
+pymilvus,2.6.5,Apache Software License,https://github.com/milvus-io/pymilvus/blob/master/LICENSE,python,
+pyparsing,3.3.0b1,MIT,https://github.com/pyparsing/pyparsing/blob/master/LICENSE,python,
+python-dateutil,2.9.0.post0,Apache Software License or BSD License,https://github.com/dateutil/dateutil/blob/master/LICENSE,python,
+python-dotenv,1.1.1,BSD-3-Clause,https://github.com/theskumar/python-dotenv/blob/main/LICENSE,python,
+python-multipart,0.0.20,Apache 2.0,https://github.com/Kludex/python-multipart/blob/master/LICENSE.txt,python,
+pytz,2025.2,MIT,https://pythonhosted.org/pytz/#license,python,
+pyyaml,6.0.3,MIT,https://github.com/yaml/pyyaml/blob/main/LICENSE,python,
+radix-ui,1.4.3,MIT,git+https://github.com/radix-ui/primitives.git,npm,Auto-imported from npm dep tree on initial CI seed.
+ragas,0.2.15,Apache 2.0 License,https://github.com/vibrantlabsai/ragas/blob/main/LICENSE,python,
+react,18.3.1,MIT,https://github.com/facebook/react.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-bootstrap-modal,4.2.0,MIT,jquense/react-bootstrap-modal,npm,Auto-imported from npm dep tree on initial CI seed.
+react-chartjs-2,5.3.1,MIT,https://github.com/reactchartjs/react-chartjs-2.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-day-picker,9.14.0,MIT,https://github.com/gpbl/react-day-picker,npm,Auto-imported from npm dep tree on initial CI seed.
+react-dom,18.3.1,MIT,https://github.com/facebook/react.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-force-graph-2d,1.29.1,MIT,git+https://github.com/vasturiano/react-force-graph.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-hot-toast,2.6.0,MIT,timolins/react-hot-toast,npm,Auto-imported from npm dep tree on initial CI seed.
+react-i18next,12.3.1,MIT,https://github.com/i18next/react-i18next.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-is,16.13.1,MIT,https://github.com/facebook/react.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-is,18.3.1,MIT,https://github.com/facebook/react.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-kapsule,2.5.7,MIT,git+https://github.com/vasturiano/react-kapsule.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-markdown,10.1.0,MIT,remarkjs/react-markdown,npm,Auto-imported from npm dep tree on initial CI seed.
+react-overlays,0.8.3,MIT,react-bootstrap/react-overlays,npm,Auto-imported from npm dep tree on initial CI seed.
+react-query,3.39.3,MIT,tannerlinsley/react-query,npm,Auto-imported from npm dep tree on initial CI seed.
+react-remove-scroll,2.7.2,MIT,https://github.com/theKashey/react-remove-scroll,npm,Auto-imported from npm dep tree on initial CI seed.
+react-remove-scroll-bar,2.3.8,MIT,https://github.com/theKashey/react-remove-scroll-bar,npm,Auto-imported from npm dep tree on initial CI seed.
+react-smooth,4.0.4,MIT,https://github.com/recharts/react-smooth.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-style-singleton,2.2.3,MIT,https://github.com/theKashey/react-style-singleton,npm,Auto-imported from npm dep tree on initial CI seed.
+react-syntax-highlighter,16.1.1,MIT,git+https://github.com/react-syntax-highlighter/react-syntax-highlighter.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-textarea-autosize,8.5.9,MIT,git+https://github.com/Andarist/react-textarea-autosize.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-transition-group,2.9.0,BSD-3-Clause,https://github.com/reactjs/react-transition-group.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-transition-group,4.4.5,BSD-3-Clause,https://github.com/reactjs/react-transition-group.git,npm,Auto-imported from npm dep tree on initial CI seed.
+react-use-set,1.0.0,MIT,github:SevenOutman/react-use-set,npm,Auto-imported from npm dep tree on initial CI seed.
+react-window,1.8.11,MIT,https://github.com/bvaughn/react-window.git,npm,Auto-imported from npm dep tree on initial CI seed.
+read-installed-packages,2.0.1,ISC,https://github.com/Semigradsky/read-installed.git,npm,Auto-imported from npm dep tree on initial CI seed.
+read-package-json,6.0.4,ISC,https://github.com/npm/read-package-json.git,npm,Auto-imported from npm dep tree on initial CI seed.
+recharts,2.15.4,MIT,git+https://github.com/recharts/recharts.git,npm,Auto-imported from npm dep tree on initial CI seed.
+recharts-scale,0.4.5,MIT,https://github.com/recharts/recharts-scale.git,npm,Auto-imported from npm dep tree on initial CI seed.
+referencing,0.37.0,MIT,https://github.com/python-jsonschema/referencing?tab=MIT-1-ov-file#readme,python,
+refractor,5.0.0,MIT,wooorm/refractor,npm,Auto-imported from npm dep tree on initial CI seed.
+regex,2025.11.3,Apache-2.0 AND CNRI-Python,https://github.com/mrabarnett/mrab-regex/blob/master/LICENSE.txt,python,
+regex-recursion,6.0.2,MIT,git+https://github.com/slevithan/regex-recursion.git,npm,Auto-imported from npm dep tree on initial CI seed.
+regex-utilities,2.3.0,MIT,git+https://github.com/slevithan/regex-utilities.git,npm,Auto-imported from npm dep tree on initial CI seed.
+rehype-mathjax,7.1.0,MIT,https://github.com/remarkjs/remark-math/tree/main/packages/rehype-mathjax,npm,Auto-imported from npm dep tree on initial CI seed.
+rehype-raw,7.0.0,MIT,rehypejs/rehype-raw,npm,Auto-imported from npm dep tree on initial CI seed.
+remark-gfm,4.0.1,MIT,remarkjs/remark-gfm,npm,Auto-imported from npm dep tree on initial CI seed.
+remark-math,6.0.0,MIT,https://github.com/remarkjs/remark-math/tree/main/packages/remark-math,npm,Auto-imported from npm dep tree on initial CI seed.
+remark-parse,11.0.0,MIT,https://github.com/remarkjs/remark/tree/main/packages/remark-parse,npm,Auto-imported from npm dep tree on initial CI seed.
+remark-rehype,11.1.2,MIT,remarkjs/remark-rehype,npm,Auto-imported from npm dep tree on initial CI seed.
+remark-stringify,11.0.0,MIT,https://github.com/remarkjs/remark/tree/main/packages/remark-stringify,npm,Auto-imported from npm dep tree on initial CI seed.
+remove-accents,0.5.0,MIT,https://github.com/tyxla/remove-accents,npm,Auto-imported from npm dep tree on initial CI seed.
+reportlab,4.4.5,BSD License,https://pypi.org/project/reportlab/,python,
+requests,2.32.5,Apache-2.0,https://github.com/psf/requests/blob/main/LICENSE,python,
+requests-toolbelt,1.0.0,Apache 2.0,https://github.com/requests/toolbelt/blob/master/LICENSE,python,
+requires-port,1.0.0,MIT,https://github.com/unshiftio/requires-port,npm,Auto-imported from npm dep tree on initial CI seed.
+rich,13.9.4,MIT,https://github.com/Textualize/rich/blob/master/LICENSE,python,
+rimraf,3.0.2,ISC,git://github.com/isaacs/rimraf.git,npm,Auto-imported from npm dep tree on initial CI seed.
+rlpycairo,0.4.0,BSD license,https://pypi.org/project/rlPyCairo/,python,
+rpds-py,0.30.0,MIT,https://github.com/crate-py/rpds/blob/main/LICENSE,python,
+rrweb-cssom,0.8.0,MIT,rrweb-io/CSSOM,npm,Auto-imported from npm dep tree on initial CI seed.
+rsuite,6.1.2,MIT,git@github.com:rsuite/rsuite.git,npm,Auto-imported from npm dep tree on initial CI seed.
+rsuite-table,5.19.2,MIT,git@github.com:rsuite/rsuite-table.git,npm,Auto-imported from npm dep tree on initial CI seed.
+s3transfer,0.14.0,Apache License 2.0,https://github.com/boto/s3transfer/blob/master/LICENSE.txt,python,
+safe-buffer,5.2.1,MIT,git://github.com/feross/safe-buffer.git,npm,Auto-imported from npm dep tree on initial CI seed.
+safetensors,0.7.0,Apache Software License,https://github.com/huggingface/safetensors/blob/main/LICENSE,python,
+saxes,6.0.0,ISC,https://github.com/lddubeau/saxes.git,npm,Auto-imported from npm dep tree on initial CI seed.
+scheduler,0.23.2,MIT,https://github.com/facebook/react.git,npm,Auto-imported from npm dep tree on initial CI seed.
+schema-typed,2.4.2,MIT,git+https://github.com/rsuite/schema-typed.git,npm,Auto-imported from npm dep tree on initial CI seed.
+scikit-learn,1.8.0,BSD-3-Clause,https://github.com/scikit-learn/scikit-learn/blob/main/COPYING,python,
+scipy,1.17.0rc1,BSD 3-Clause,https://github.com/scipy/scipy/blob/main/LICENSE.txt,python,
+semver,7.7.4,ISC,https://github.com/npm/node-semver.git,npm,Auto-imported from npm dep tree on initial CI seed.
+sentence-transformers,5.1.2,Apache 2.0,https://github.com/huggingface/sentence-transformers/blob/main/LICENSE,python,
+shebang-command,2.0.0,MIT,kevva/shebang-command,npm,Auto-imported from npm dep tree on initial CI seed.
+shebang-regex,3.0.0,MIT,sindresorhus/shebang-regex,npm,Auto-imported from npm dep tree on initial CI seed.
+shellingham,1.5.4,ISC,https://github.com/sarugaku/shellingham/blob/master/LICENSE,python,
+signal-exit,4.1.0,ISC,https://github.com/tapjs/signal-exit.git,npm,Auto-imported from npm dep tree on initial CI seed.
+six,1.17.0,MIT,https://github.com/benjaminp/six/blob/main/LICENSE,python,
+slide,1.1.6,ISC,git://github.com/isaacs/slide-flow-control.git,npm,Auto-imported from npm dep tree on initial CI seed.
+sniffio,1.3.1,MIT OR Apache-2.0,https://github.com/python-trio/sniffio/blob/master/LICENSE,python,
+sortedcontainers,2.4.0,Apache 2.0,https://grantjenks.com/docs/sortedcontainers/#sorted-containers-license,python,
+soupsieve,2.8,MIT,https://github.com/facelessuser/soupsieve/blob/main/LICENSE.md,python,
+space-separated-tokens,2.0.2,MIT,wooorm/space-separated-tokens,npm,Auto-imported from npm dep tree on initial CI seed.
+spdx-compare,1.0.0,MIT,kemitchell/spdx-compare.js,npm,Auto-imported from npm dep tree on initial CI seed.
+spdx-correct,3.2.0,Apache-2.0,jslicense/spdx-correct.js,npm,Auto-imported from npm dep tree on initial CI seed.
+spdx-exceptions,2.5.0,CC-BY-3.0,kemitchell/spdx-exceptions.json,npm,Auto-imported from npm dep tree on initial CI seed.
+spdx-expression-parse,3.0.1,MIT,jslicense/spdx-expression-parse.js,npm,Auto-imported from npm dep tree on initial CI seed.
+spdx-license-ids,3.0.23,CC0-1.0,jslicense/spdx-license-ids,npm,Auto-imported from npm dep tree on initial CI seed.
+spdx-ranges,2.1.1,MIT AND CC-BY-3.0,kemitchell/spdx-ranges.js,npm,Auto-imported from npm dep tree on initial CI seed.
+spdx-satisfies,5.0.1,MIT,kemitchell/spdx-satisfies.js,npm,Auto-imported from npm dep tree on initial CI seed.
+speech-rule-engine,4.1.3,Apache-2.0,https://github.com/zorkow/speech-rule-engine,npm,Auto-imported from npm dep tree on initial CI seed.
+sqlalchemy,2.0.45,MIT,https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE,python,
+sse-starlette,3.0.3,BSD-3-Clause,https://github.com/sysid/sse-starlette/blob/main/LICENSE,python,
+starlette,0.49.3,BSD-3-Clause,https://github.com/Kludex/starlette/blob/main/LICENSE.md,python,
+string-width,4.2.3,MIT,sindresorhus/string-width,npm,Auto-imported from npm dep tree on initial CI seed.
+string-width,5.1.2,MIT,sindresorhus/string-width,npm,Auto-imported from npm dep tree on initial CI seed.
+string-width-cjs,4.2.3,MIT,sindresorhus/string-width,npm,Auto-imported from npm dep tree on initial CI seed.
+stringify-entities,4.0.4,MIT,wooorm/stringify-entities,npm,Auto-imported from npm dep tree on initial CI seed.
+strip-ansi,6.0.1,MIT,chalk/strip-ansi,npm,Auto-imported from npm dep tree on initial CI seed.
+strip-ansi,7.2.0,MIT,chalk/strip-ansi,npm,Auto-imported from npm dep tree on initial CI seed.
+strip-ansi-cjs,6.0.1,MIT,chalk/strip-ansi,npm,Auto-imported from npm dep tree on initial CI seed.
+style-to-js,1.1.21,MIT,git+https://github.com/remarkablemark/style-to-js.git,npm,Auto-imported from npm dep tree on initial CI seed.
+style-to-object,1.0.14,MIT,git+https://github.com/remarkablemark/style-to-object.git,npm,Auto-imported from npm dep tree on initial CI seed.
+supports-color,7.2.0,MIT,chalk/supports-color,npm,Auto-imported from npm dep tree on initial CI seed.
+symbol-tree,3.2.4,MIT,https://github.com/jsdom/js-symbol-tree.git,npm,Auto-imported from npm dep tree on initial CI seed.
+sympy,1.14.0,BSD,https://github.com/sympy/sympy/blob/master/LICENSE,python,
+tabulate,0.9.0,MIT,https://github.com/astanin/python-tabulate/blob/master/LICENSE,python,
+tblib,3.2.2,BSD-2-Clause,https://github.com/ionelmc/python-tblib/blob/master/LICENSE,python,
+tenacity,9.1.2,Apache 2.0,https://github.com/jd/tenacity/blob/main/LICENSE,python,
+threadpoolctl,3.6.0,BSD 3-Clause,https://github.com/joblib/threadpoolctl/blob/master/LICENSE,python,
+tiktoken,0.12.0,MIT,https://github.com/openai/tiktoken/blob/main/LICENSE,python,
+timm,1.0.24,Apache-2.0,https://github.com/huggingface/pytorch-image-models/blob/main/LICENSE,python,
+tiny-invariant,1.3.3,MIT,https://github.com/alexreardon/tiny-invariant.git,npm,Auto-imported from npm dep tree on initial CI seed.
+tinycolor2,1.6.0,MIT,https://github.com/bgrins/TinyColor.git,npm,Auto-imported from npm dep tree on initial CI seed.
+tinycss2,1.5.1,BSD License,https://github.com/Kozea/tinycss2/blob/main/LICENSE,python,
+tldts,6.1.86,MIT,git+ssh://git@github.com/remusao/tldts.git,npm,Auto-imported from npm dep tree on initial CI seed.
+tldts-core,6.1.86,MIT,git+ssh://git@github.com/remusao/tldts.git,npm,Auto-imported from npm dep tree on initial CI seed.
+tokenizers,0.22.2rc0,Apache Software License,https://github.com/huggingface/tokenizers/blob/main/LICENSE,python,
+torch,2.9.1+cpu,BSD-3-Clause,https://github.com/pytorch/pytorch/blob/master/LICENSE,python,
+torchvision,0.25.0+cpu,BSD,https://github.com/pytorch/vision/blob/main/LICENSE,python,
+tornado,6.5.2,Apache-2.0,https://github.com/tornadoweb/tornado/blob/master/LICENSE,python,
+tough-cookie,5.1.2,BSD-3-Clause,git://github.com/salesforce/tough-cookie.git,npm,Auto-imported from npm dep tree on initial CI seed.
+tough-cookie,6.0.1,BSD-3-Clause,git://github.com/salesforce/tough-cookie.git,npm,Auto-imported from npm dep tree on initial CI seed.
+tqdm,4.67.1,MPL-2.0 AND MIT,https://github.com/tqdm/tqdm/blob/master/LICENCE,python,
+transformers,4.57.3,Apache 2.0 License,https://github.com/huggingface/transformers/blob/main/LICENSE,python,
+treeify,1.1.0,MIT,https://github.com/notatestuser/treeify.git,npm,Auto-imported from npm dep tree on initial CI seed.
+trim-lines,3.0.1,MIT,wooorm/trim-lines,npm,Auto-imported from npm dep tree on initial CI seed.
+tslib,2.8.1,0BSD,https://github.com/Microsoft/tslib.git,npm,Auto-imported from npm dep tree on initial CI seed.
+typer-slim,0.21.1,MIT,https://github.com/fastapi/typer/blob/master/LICENSE,python,
+typing-inspect,0.9.0,MIT,https://github.com/ilevkivskyi/typing_inspect/blob/master/LICENSE,python,
+typing-inspection,0.4.2,MIT,https://github.com/pydantic/typing-inspection/blob/main/LICENSE,python,
+tzdata,2025.2,Apache-2.0,https://github.com/python/tzdata/blob/master/LICENSE,python,
+tzlocal,5.3.1,MIT,https://github.com/regebro/tzlocal/blob/master/LICENSE.txt,python,
+undici,7.25.0,MIT,git+https://github.com/nodejs/undici.git,npm,Auto-imported from npm dep tree on initial CI seed.
+unified,11.0.5,MIT,unifiedjs/unified,npm,Auto-imported from npm dep tree on initial CI seed.
+unist-util-find-after,5.0.0,MIT,syntax-tree/unist-util-find-after,npm,Auto-imported from npm dep tree on initial CI seed.
+unist-util-is,6.0.1,MIT,syntax-tree/unist-util-is,npm,Auto-imported from npm dep tree on initial CI seed.
+unist-util-position,5.0.0,MIT,syntax-tree/unist-util-position,npm,Auto-imported from npm dep tree on initial CI seed.
+unist-util-remove-position,5.0.0,MIT,syntax-tree/unist-util-remove-position,npm,Auto-imported from npm dep tree on initial CI seed.
+unist-util-stringify-position,4.0.0,MIT,syntax-tree/unist-util-stringify-position,npm,Auto-imported from npm dep tree on initial CI seed.
+unist-util-visit,5.1.0,MIT,syntax-tree/unist-util-visit,npm,Auto-imported from npm dep tree on initial CI seed.
+unist-util-visit-parents,6.0.2,MIT,syntax-tree/unist-util-visit-parents,npm,Auto-imported from npm dep tree on initial CI seed.
+unload,2.2.0,Apache-2.0,git+https://github.com/pubkey/unload.git,npm,Auto-imported from npm dep tree on initial CI seed.
+uritools,5.0.0,MIT,https://github.com/tkem/uritools/blob/master/LICENSE,python,
+urllib3,2.6.1,MIT,https://github.com/urllib3/urllib3/blob/main/LICENSE.txt,python,
+use-callback-ref,1.3.3,MIT,https://github.com/theKashey/use-callback-ref/,npm,Auto-imported from npm dep tree on initial CI seed.
+use-composed-ref,1.4.0,MIT,git+https://github.com/Andarist/use-composed-ref.git,npm,Auto-imported from npm dep tree on initial CI seed.
+use-isomorphic-layout-effect,1.2.1,MIT,git+https://github.com/Andarist/use-isomorphic-layout-effect.git,npm,Auto-imported from npm dep tree on initial CI seed.
+use-latest,1.3.0,MIT,git+https://github.com/Andarist/use-latest.git,npm,Auto-imported from npm dep tree on initial CI seed.
+use-sidecar,1.1.3,MIT,https://github.com/theKashey/use-sidecar,npm,Auto-imported from npm dep tree on initial CI seed.
+use-sync-external-store,1.6.0,MIT,https://github.com/facebook/react.git,npm,Auto-imported from npm dep tree on initial CI seed.
+uuid,10.0.0,MIT,https://github.com/uuidjs/uuid.git,npm,Auto-imported from npm dep tree on initial CI seed.
+uuid,8.3.2,MIT,https://github.com/uuidjs/uuid.git,npm,Auto-imported from npm dep tree on initial CI seed.
+uuid-utils,0.12.0,BSD License,https://github.com/aminalaee/uuid-utils/blob/main/LICENSE.md,python,
+uvicorn,0.35.0,BSD-3-Clause,https://github.com/Kludex/uvicorn/blob/main/LICENSE.md,python,
+uvloop,0.22.1,MIT License,https://github.com/MagicStack/uvloop/blob/master/LICENSE-MIT,python,
+validate-npm-package-license,3.0.4,Apache-2.0,kemitchell/validate-npm-package-license.js,npm,Auto-imported from npm dep tree on initial CI seed.
+vfile,6.0.3,MIT,vfile/vfile,npm,Auto-imported from npm dep tree on initial CI seed.
+vfile-location,5.0.3,MIT,vfile/vfile-location,npm,Auto-imported from npm dep tree on initial CI seed.
+vfile-message,4.0.3,MIT,vfile/vfile-message,npm,Auto-imported from npm dep tree on initial CI seed.
+victory-vendor,36.9.2,MIT AND ISC,https://github.com/FormidableLabs/victory,npm,Auto-imported from npm dep tree on initial CI seed.
+w3c-xmlserializer,5.0.0,MIT,jsdom/w3c-xmlserializer,npm,Auto-imported from npm dep tree on initial CI seed.
+warning,3.0.0,MIT,https://github.com/BerkeleyTrue/warning.git,npm,Auto-imported from npm dep tree on initial CI seed.
+warning,4.0.3,MIT,https://github.com/BerkeleyTrue/warning.git,npm,Auto-imported from npm dep tree on initial CI seed.
+watchfiles,1.1.1,MIT,https://github.com/samuelcolvin/watchfiles/blob/main/LICENSE,python,
+wcwidth,0.6.0,MIT,,python,
+web-namespaces,2.0.1,MIT,wooorm/web-namespaces,npm,Auto-imported from npm dep tree on initial CI seed.
+webencodings,0.5.1,BSD,https://github.com/SimonSapin/python-webencodings/blob/master/LICENSE,python,
+webidl-conversions,7.0.0,BSD-2-Clause,git+https://github.com/jsdom/webidl-conversions.git,npm,Auto-imported from npm dep tree on initial CI seed.
+webidl-conversions,8.0.1,BSD-2-Clause,git+https://github.com/jsdom/webidl-conversions.git,npm,Auto-imported from npm dep tree on initial CI seed.
+websockets,15.0.1,BSD-3-Clause,https://github.com/python-websockets/websockets/blob/main/LICENSE,python,
+werkzeug,3.1.6,BSD-3-Clause,https://github.com/pallets/werkzeug/blob/main/LICENSE.txt,python,
+whatwg-encoding,3.1.1,MIT,jsdom/whatwg-encoding,npm,Auto-imported from npm dep tree on initial CI seed.
+whatwg-mimetype,4.0.0,MIT,jsdom/whatwg-mimetype,npm,Auto-imported from npm dep tree on initial CI seed.
+whatwg-mimetype,5.0.0,MIT,jsdom/whatwg-mimetype,npm,Auto-imported from npm dep tree on initial CI seed.
+whatwg-url,14.2.0,MIT,git+https://github.com/jsdom/whatwg-url.git,npm,Auto-imported from npm dep tree on initial CI seed.
+whatwg-url,15.1.0,MIT,git+https://github.com/jsdom/whatwg-url.git,npm,Auto-imported from npm dep tree on initial CI seed.
+whatwg-url,16.0.1,MIT,git+https://github.com/jsdom/whatwg-url.git,npm,Auto-imported from npm dep tree on initial CI seed.
+which,2.0.2,ISC,git://github.com/isaacs/node-which.git,npm,Auto-imported from npm dep tree on initial CI seed.
+wicked-good-xpath,1.3.0,MIT,https://github.com/google/wicked-good-xpath.git,npm,Auto-imported from npm dep tree on initial CI seed.
+wikipedia,1.4.0,MIT,https://github.com/goldsmith/Wikipedia/blob/master/LICENSE,python,
+wrap-ansi,8.1.0,MIT,chalk/wrap-ansi,npm,Auto-imported from npm dep tree on initial CI seed.
+wrap-ansi-cjs,7.0.0,MIT,chalk/wrap-ansi,npm,Auto-imported from npm dep tree on initial CI seed.
+wrappy,1.0.2,ISC,https://github.com/npm/wrappy,npm,Auto-imported from npm dep tree on initial CI seed.
+wrapt,1.17.3,BSD 2-Clause,https://github.com/GrahamDumpleton/wrapt/blob/master/LICENSE,python,
+ws,8.20.0,MIT,git+https://github.com/websockets/ws.git,npm,Auto-imported from npm dep tree on initial CI seed.
+xhtml2pdf,0.2.17,Apache 2.0,https://github.com/xhtml2pdf/xhtml2pdf/blob/master/LICENSE.txt,python,
+xml-name-validator,5.0.0,Apache-2.0,jsdom/xml-name-validator,npm,Auto-imported from npm dep tree on initial CI seed.
+xxhash,3.6.0,BSD,https://github.com/ifduyue/python-xxhash/blob/master/LICENSE,python,
+yallist,4.0.0,ISC,git+https://github.com/isaacs/yallist.git,npm,Auto-imported from npm dep tree on initial CI seed.
+yarl,1.22.0,Apache-2.0,https://github.com/aio-libs/yarl/blob/master/LICENSE,python,
+zict,3.0.0,BSD,https://github.com/dask/zict?tab=BSD-3-Clause-1-ov-file#readme,python,
+zipp,3.23.0,MIT,https://pypi.org/project/zipp/,python,
+zstandard,0.25.0,BSD-3-Clause,https://github.com/indygreg/python-zstandard/blob/main/LICENSE,python,
+zwitch,2.0.4,MIT,wooorm/zwitch,npm,Auto-imported from npm dep tree on initial CI seed.

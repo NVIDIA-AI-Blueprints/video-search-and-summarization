@@ -154,7 +154,8 @@ jobs:
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
-        if: always()
+        # `act` does not provide ACTIONS_RUNTIME_TOKEN, skip locally.
+        if: ${{ always() && !env.ACT }}
         with:
           name: coverage-report
           path: services/agent/coverage.xml
@@ -275,7 +276,114 @@ jobs:
         run: python3 .github/scripts/check_folder_structure.py
 
   # ---------------------------------------------------------------------------
-  # Job 8: Trigger downstream pipeline on main and poll it to completion
+  # Job 7b: NVIDIA SPDX/Apache-2.0 license header check
+  # Ensures every NVIDIA-authored source file starts with the required
+  # SPDX + Apache-2.0 boilerplate. Vendored code under `services/agent/3rdparty`
+  # and bundled UI workspaces are excluded; see the script for the full list.
+  # ---------------------------------------------------------------------------
+  license-headers:
+    name: License Headers (SPDX)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check NVIDIA SPDX headers
+        run: python3 .github/scripts/check_license_headers.py
+
+  # ---------------------------------------------------------------------------
+  # Job 8: License compliance check (agent + UI)
+  #
+  # Fails when a runtime dependency uses a non-permissive license (GPL,
+  # AGPL, LGPL without OSRB sign-off, SSPL, BUSL, ...) or when a brand
+  # new dependency is not yet listed in `.github/license-database/`.
+  # See `.github/license-database/README.md` for the resolution flow.
+  # ---------------------------------------------------------------------------
+  license-check:
+    name: License Check (Agent + UI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.2"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+          cache-dependency-path: services/ui/package-lock.json
+
+      - name: Install license tooling
+        run: |
+          python3 -m pip install --quiet pip-licenses==5.0.0 PyYAML==6.0.2
+
+      # Step 1: scan the agent's Python runtime dependencies. We sync
+      # the production environment with `uv` (no dev group) and then
+      # run `pip-licenses` against the resolved environment so we see
+      # exactly the wheels that would ship.
+      - name: Check agent (Python) licenses
+        working-directory: services/agent
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev pkg-config
+          # `--no-dev` keeps test/lint tooling out of the runtime
+          # license report. We only enforce policy on what ships.
+          uv sync --frozen --no-dev
+          # Use the project's .venv directly so we never re-sync the
+          # dev group (which `uv run --with` would do).
+          .venv/bin/python -m pip install --quiet pip-licenses==5.0.0
+          .venv/bin/pip-licenses \
+            --format=json \
+            --with-urls \
+            --with-license-file \
+            --no-license-path \
+            > "${RUNNER_TEMP}/pip-licenses.json"
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/check_licenses.py" \
+            --ecosystem python \
+            --input "${RUNNER_TEMP}/pip-licenses.json" \
+            --output-dir "${GITHUB_WORKSPACE}/license-check-output"
+
+      # Step 2: scan the UI's npm production dependencies. We exclude
+      # workspace-internal packages and the bundled `nemo-agent-toolkit`
+      # fork via the policy file's `ignored_packages.npm` list.
+      - name: Check UI (npm) licenses
+        working-directory: services/ui
+        run: |
+          npm ci --no-audit --no-fund
+          # `license-checker --production` only inspects the package at
+          # the working directory, which is empty for our workspace
+          # root. We use a small helper that walks `npm ls --omit=dev
+          # --workspaces` to get the true production dep graph.
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/npm_licenses.py" \
+            --project-dir . \
+            > "${RUNNER_TEMP}/npm-licenses.json"
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/check_licenses.py" \
+            --ecosystem npm \
+            --input "${RUNNER_TEMP}/npm-licenses.json" \
+            --output-dir "${GITHUB_WORKSPACE}/license-check-output"
+
+      - name: Upload license reports
+        # `act` does not provide ACTIONS_RUNTIME_TOKEN, so the
+        # upload-artifact action fails locally. Skip it under act.
+        if: ${{ always() && !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-check-output
+          path: license-check-output/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Job 9: Trigger downstream pipeline on main and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
@@ -287,6 +395,8 @@ jobs:
       - frontend-lint
       - frontend-build
       - folder-structure
+      - license-headers
+      - license-check
     runs-on: self-hosted
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
