@@ -337,7 +337,7 @@ class BrevEnvironment(BaseEnvironment):
         base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
         model = (
             os.environ.get("ANTHROPIC_MODEL")
-            or "claude-haiku-4-5"
+            or "claude-sonnet-4-6"
         )
         if not api_key:
             raise RuntimeError(
