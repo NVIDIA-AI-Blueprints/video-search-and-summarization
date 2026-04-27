@@ -622,7 +622,7 @@ def generate_task(
         # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
         # fallback when JUDGE_MODEL is unset. Forwarding a literal
         # default for JUDGE_MODEL would bake it in and short-circuit
-        # the cascade — the proxy 401s "claude-haiku-4-5".
+        # the cascade — the proxy 401s the literal default outright.
         'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
         "",
     ]
