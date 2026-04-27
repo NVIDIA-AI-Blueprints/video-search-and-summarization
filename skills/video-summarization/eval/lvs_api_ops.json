@@ -1,5 +1,5 @@
 {
-  "skills": ["lvs"],
+  "skills": ["video-summarization"],
   "profile": "lvs",
   "prerequisite_deploy_mode": "remote-all",
   "resources": {
@@ -12,12 +12,13 @@
   "env": "A full-remote deployed VSS lvs profile (deploy mode = `remote-all` - the agent LLM and LVS VLM dependencies are served by remote endpoints, no local NIMs). Run on one platform only: the LVS API surface tested here is independent of GPU model once the lvs profile is deployed. Required: LVS REST API reachable at http://localhost:38111, VSS Agent reachable at http://localhost:8000/docs, Docker available for non-destructive service status checks, and `jq` available for response validation. These checks intentionally avoid full video summarization because `skills/video-summarization/eval/lvs_profile_summarize.json` owns end-to-end summarization coverage.",
   "expects": [
     {
-      "query": "Using the `lvs` skill, verify the running LVS service without summarizing a video: check readiness, list available models, request a recommended config for a 300-second video with a 60-second target response time and a 5-second target event duration, fetch metrics, and report the key results.",
+      "query": "Using the `video-summarization` skill's LVS API reference, verify the running LVS service without summarizing a video: check readiness, list available models, request a recommended config for a 300-second video with a 60-second target response time and a 5-second target event duration, fetch metrics, and report the key results.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:38111/v1/ready` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:38111/models | jq -e '.data | length > 0'` returns exit 0",
         "`curl -sf --max-time 15 -X POST http://localhost:38111/recommended_config -H 'Content-Type: application/json' -d '{\"video_length\":300,\"target_response_time\":60,\"usecase_event_duration\":5}' | jq -e '.chunk_size'` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:38111/metrics | grep -q .` returns exit 0",
+        "The agent reads or explicitly cites `references/lvs-api.md` when answering direct LVS API usage details.",
         "The agent trajectory contains API calls to `/v1/ready`, `/models`, `/recommended_config`, and `/metrics` on port 38111.",
         "The POST `/recommended_config` request body contains exactly the requested numeric values: video_length=300, target_response_time=60, and usecase_event_duration=5.",
         "The agent does not call `/v1/summarize`, `/summarize`, or any VLM `/v1/chat/completions` endpoint for this query.",
@@ -25,7 +26,7 @@
       ]
     },
     {
-      "query": "Using the `lvs` skill's deployment reference, produce a non-destructive LVS deployment status report: identify the REST port, readiness endpoint, expected compose profile or container signal, whether the service is currently reachable, and where the detailed deployment runbook lives.",
+      "query": "Using the `video-summarization` skill's LVS deployment reference, produce a non-destructive LVS deployment status report: identify the REST port, readiness endpoint, expected compose profile or container signal, whether the service is currently reachable, and where the detailed deployment runbook lives.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:38111/v1/ready` returns exit 0",
         "The agent reads or explicitly cites `references/deploy-lvs-service.md` when answering deployment/status details.",

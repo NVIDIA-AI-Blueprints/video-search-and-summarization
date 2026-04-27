@@ -1,6 +1,6 @@
 ---
 name: video-summarization
-description: Summarize a video by calling the VLM NIM or the Long Video Summarization (LVS) microservice directly. For short videos (<60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (>=60s) call the LVS microservice. Use when asked to summarize a video, describe what happens in a video, or analyze a recording.
+description: Summarize a video by calling the VLM NIM or the Long Video Summarization (LVS) microservice directly. For short videos (<60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (>=60s) call the LVS microservice. Use when asked to summarize a video, describe what happens in a video, analyze a recording, call or debug LVS summarize/model/health/recommended-config/metrics endpoints, or configure and troubleshoot the LVS service that backs long-video summarization.
 version: "3.1.0"
 license: "Apache License 2.0"
 ---
@@ -8,7 +8,44 @@ license: "Apache License 2.0"
 You are a video summarization assistant. You call the VLM NIM or the LVS
 microservice **directly**. Always run `curl` commands yourself; never instruct the user to run them.
 
-Single query type: **"Summarize this video."**
+Primary video workflow query type: **"Summarize this video."** Direct LVS API
+and service-ops requests are handled by the reference-routed sections below.
+
+## Reference Map
+
+Use these references only when the user asks for the relevant detail, or when
+the core workflow below needs deeper LVS information:
+
+- **LVS API details**: [`references/lvs-api.md`](references/lvs-api.md) for
+  `/summarize`, `/v1/summarize`, health probes, `/models`,
+  `/recommended_config`, `/metrics`, request fields, response shapes, and API
+  gotchas.
+- **LVS service configuration and ops**:
+  [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md) for
+  the LVS service compose profile, ports, required env vars, logs, status,
+  dry-runs, teardown, model/backend swaps, and service-level troubleshooting.
+- **Extended LVS ops references**:
+  [`references/lvs-environment-variables.md`](references/lvs-environment-variables.md),
+  [`references/lvs-debugging.md`](references/lvs-debugging.md), and
+  [`references/lvs.env.example`](references/lvs.env.example).
+
+Do not load these references for routine short-video VLM summaries. Load
+`lvs-api.md` for long-video LVS request details or direct LVS API requests.
+Load `deploy-lvs-service.md` only for deployment, configuration, or service
+operations.
+
+## LVS API And Service Ops Requests
+
+If the user asks to call or debug LVS endpoints directly, answer from
+[`references/lvs-api.md`](references/lvs-api.md) instead of running the
+end-to-end video summarization workflow. Examples: list LVS models, check
+readiness, get recommended chunking config, inspect metrics, explain a 422
+response, or build a `/summarize` request body.
+
+If the user asks to configure, deploy, restart, tear down, or troubleshoot the
+LVS service, prefer the `deploy` skill for full VSS profile deployment and use
+[`references/deploy-lvs-service.md`](references/deploy-lvs-service.md) for
+LVS-specific service details.
 
 ## Routing
 
@@ -29,9 +66,10 @@ into the response, before the summary):
 > produced by the VLM alone. Deploy the `lvs` profile for higher-quality
 > long-video summaries.
 
-## Deployment prerequisite
+## Deployment Prerequisite For Summarization
 
-This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. Before any request:
+The video summarization workflow requires the VSS **lvs** profile running on
+the host at `$HOST_IP`. Before any summarization request:
 
 1. Probe the LVS microservice:
    ```bash
@@ -54,6 +92,10 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 
 3. If the probe passes, proceed.
 
+For LVS-specific service status, compose profile, ports, logs, or environment
+debugging, read [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md).
+The `deploy` skill remains canonical for full VSS profile deployment.
+
 ---
 
 ## Setup
@@ -75,6 +117,9 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 
 **Model name:** read `${VLM_NAME}` (default `nvidia/cosmos-reason2-8b`).
 Both VLM and LVS requests use the same model name.
+
+For full LVS endpoint schemas, optional request fields, response envelopes,
+and error handling, read [`references/lvs-api.md`](references/lvs-api.md).
 
 **Availability checks** (run both before routing):
 
@@ -242,6 +287,11 @@ are applied server-side; no client-side prep is required when you pass a
 ---
 
 ## Step 2b — Long video (>= 60s) → LVS microservice direct
+
+This section contains the narrow long-video summarization path. For advanced
+LVS fields such as `media_info`, `schema`, structured output, chunk overlap,
+live stream timestamps, metrics, or recommended config, read
+[`references/lvs-api.md`](references/lvs-api.md).
 
 ### HITL: collect scenario and events first (REQUIRED — do not skip)
 
@@ -515,3 +565,5 @@ output, not mixed into it.
 - **vios** (VIOS API) — upload videos, list streams, get clip URLs
 - **video-search** — semantic search across the archive (different profile)
 - **video-analytics** — query incidents/events from Elasticsearch
+- **LVS API reference** — [`references/lvs-api.md`](references/lvs-api.md)
+- **LVS service ops reference** — [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md)
