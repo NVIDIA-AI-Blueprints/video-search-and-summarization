@@ -1,29 +1,35 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Poll a downstream GitLab pipeline and report per-job progress.
+"""Poll a downstream CI pipeline and report per-job progress.
 
 Runs inline right after ``trigger-downstream-pipeline.sh`` in the same
 GitHub Actions job. Reads the pipeline / project ids from env (set by
-the trigger step via ``$GITHUB_OUTPUT``), then polls GitLab every
-``POLL_INTERVAL_SECONDS`` (default 120s) until the pipeline reaches a
-terminal state.
+the trigger step via ``$GITHUB_OUTPUT``), then polls the downstream
+API every ``POLL_INTERVAL_SECONDS`` (default 120s) until the pipeline
+reaches a terminal state.
 
 Reporting rules (printed once per job, no duplicates):
 
 * ``SUCCESS: <job name>`` when a job transitions to status ``success``.
 * ``SKIPPED: <job name>`` when a job opted out of running via the
   conventional gate-skip exit code (``exit_code: 75``) while configured
-  with ``allow_failure: true``. GitLab still records the job as
-  ``failed`` in that case, but our convention is to treat it as a
-  deliberate skip rather than a failure or warning.
-* ``ALLOWED_FAILURE: <job name>`` when a job fails for any other reason
-  but has ``allow_failure: true`` (i.e. GitLab still counts it as
-  non-fatal).
+  with ``allow_failure: true``. The downstream API still records the
+  job as ``failed`` in that case, but our convention is to treat
+  ``exit_code == 75`` as a deliberate skip.
+* ``ALLOWED_FAILURE: <job name>`` when a job fails with any other exit
+  code while still configured with ``allow_failure: true``.
 * ``FAIL: <job name>`` when any non-``allow_failure`` job reaches status
   ``failed`` - the script exits 1 immediately.
 * ``CANCELED: <job name>`` when a job is canceled - the script exits 1
   immediately.
+
+Resolving the exit code is non-trivial: many downstream API versions
+do NOT include ``exit_code`` in either the pipeline-jobs listing or
+the per-job detail endpoint, so we fall back to fetching the job's
+text trace and parsing the runner's terminal
+``ERROR: Job failed: exit code <N>`` line. Resolution per job id is
+cached for the lifetime of the poller.
 
 Exit codes:
 
@@ -31,14 +37,15 @@ Exit codes:
 * ``1`` - a failing / canceled job was observed, or the poller timed
   out (see ``MAX_POLL_DURATION_SECONDS``).
 
-Retried jobs (GitLab job retry) are handled by de-duping on ``name`` and
-keeping only the latest attempt (highest ``id``).
+Retried jobs are handled by de-duping on ``name`` and keeping only
+the latest attempt (highest ``id``).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from typing import Any
@@ -56,8 +63,8 @@ HTTP_ERRORS: tuple[type[BaseException], ...] = (
     json.JSONDecodeError,
 )
 
-GITLAB_TERMINAL_PIPELINE_STATUSES = {"success", "failed", "canceled", "skipped"}
-GITLAB_IN_PROGRESS_JOB_STATUSES = {
+TERMINAL_PIPELINE_STATUSES = {"success", "failed", "canceled", "skipped"}
+IN_PROGRESS_JOB_STATUSES = {
     "created",
     "waiting_for_resource",
     "preparing",
@@ -67,13 +74,14 @@ GITLAB_IN_PROGRESS_JOB_STATUSES = {
     "manual",
 }
 
-# Conventional shell exit code used by gated downstream jobs to opt out
-# of running (e.g. "the change does not touch this submodule, skip me").
-# The job script exits 75 and is configured with `allow_failure: true`,
-# so GitLab marks it `failed + allow_failure: true`. We treat this exact
-# combination as a skip. 75 is `EX_TEMPFAIL` from `<sysexits.h>` and is
-# not a value emitted by bash/shell on its own (1, 2, 126, 127, 128+),
-# so it is an unambiguous, machine-readable marker.
+# Conventional shell exit code used by gated downstream jobs to opt
+# out of running (e.g. "the change does not touch this submodule, skip
+# me"). The job script exits 75 and is configured with
+# ``allow_failure: true``, so the API marks it
+# ``failed + allow_failure: true``. We treat this exact combination as
+# a skip. 75 is ``EX_TEMPFAIL`` from ``<sysexits.h>`` and is not a
+# value emitted by bash/shell on its own (1, 2, 126, 127, 128+), so it
+# is an unambiguous, machine-readable marker.
 GATE_SKIP_EXIT_CODE = 75
 
 
@@ -105,7 +113,7 @@ def api_base_url(raw_url: str) -> str:
     return base
 
 
-def gitlab_request(action: str, url: str, token: str) -> Any:
+def api_request(action: str, url: str, token: str) -> Any:
     request = Request(
         url,
         headers={
@@ -118,7 +126,7 @@ def gitlab_request(action: str, url: str, token: str) -> Any:
         with urlopen(request, timeout=30) as response:
             payload = response.read().decode("utf-8")
     except HTTPError as exc:
-        # Drop response body: GitLab error payloads can echo the URL.
+        # Drop response body: error payloads can echo the URL.
         _ = exc.read()
         emit_warning(f"{action} failed with status {exc.code}")
         raise
@@ -139,7 +147,7 @@ def gitlab_request(action: str, url: str, token: str) -> Any:
 def fetch_pipeline(base_url: str, token: str, project_id: int, pipeline_id: int) -> dict[str, Any] | None:
     url = f"{base_url}/projects/{project_id}/pipelines/{pipeline_id}"
     try:
-        response = gitlab_request("Pipeline lookup", url, token)
+        response = api_request("Pipeline lookup", url, token)
     except HTTP_ERRORS:
         return None
     return response if isinstance(response, dict) else None
@@ -156,7 +164,7 @@ def fetch_all_jobs(base_url: str, token: str, project_id: int, pipeline_id: int)
             f"?per_page={per_page}&page={page}"
         )
         try:
-            response = gitlab_request("Pipeline jobs lookup", url, token)
+            response = api_request("Pipeline jobs lookup", url, token)
         except HTTP_ERRORS:
             return jobs
         if not isinstance(response, list) or not response:
@@ -173,12 +181,13 @@ def fetch_all_jobs(base_url: str, token: str, project_id: int, pipeline_id: int)
 
 
 def _job_exit_code(job: dict[str, Any]) -> int | None:
-    """Return the shell exit code reported by GitLab for a job, or
-    ``None`` if the field is missing/null/non-integer.
+    """Return the shell exit code reported for a job, or ``None`` if
+    the field is missing/null/non-integer.
 
-    GitLab populates ``exit_code`` only when the job's script actually
-    ran and exited (i.e. ``status == "failed"`` from a script failure).
-    Successful jobs typically report ``exit_code: null``.
+    The downstream API populates ``exit_code`` only when the job's
+    script actually ran and exited (i.e. ``status == "failed"`` from a
+    script failure). Successful jobs typically report
+    ``exit_code: null``.
     """
     raw = job.get("exit_code")
     if raw is None:
@@ -189,9 +198,120 @@ def _job_exit_code(job: dict[str, Any]) -> int | None:
         return None
 
 
+def fetch_job_detail(
+    base_url: str,
+    token: str,
+    project_id: int,
+    job_id: int,
+) -> dict[str, Any] | None:
+    """Fetch a single job's detail payload.
+
+    The pipeline-level ``/pipelines/:pid/jobs`` listing intentionally
+    omits a number of fields (notably ``exit_code`` on some API
+    versions). On versions that do return ``exit_code`` in this
+    payload, this is enough to classify the job.
+    """
+    url = f"{base_url}/projects/{project_id}/jobs/{job_id}"
+    try:
+        response = api_request("Job detail lookup", url, token)
+    except HTTP_ERRORS:
+        return None
+    return response if isinstance(response, dict) else None
+
+
+# Runner-emitted terminal line, e.g.:
+#   "ERROR: Job failed: exit code 75"
+# (the "ERROR:" portion may be wrapped in ANSI color escape codes,
+# but the literal text is always present).
+_TRACE_EXIT_CODE_RE = re.compile(r"Job failed: exit code (\d+)")
+
+
+def fetch_job_trace_exit_code(
+    base_url: str,
+    token: str,
+    project_id: int,
+    job_id: int,
+) -> int | None:
+    """Fetch the job's text trace and parse the runner's terminal
+    "Job failed: exit code <N>" line.
+
+    Used as a fallback when neither the listing nor the per-job
+    detail endpoint surfaces ``exit_code``. We only call this for
+    ``failed + allow_failure: true`` jobs and cache the result, so the
+    extra request cost is bounded.
+    """
+    url = f"{base_url}/projects/{project_id}/jobs/{job_id}/trace"
+    request = Request(
+        url,
+        headers={
+            "PRIVATE-TOKEN": token,
+            "Accept": "text/plain",
+            "User-Agent": "poll-downstream-pipeline",
+        },
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            payload = response.read().decode("utf-8", errors="replace")
+    except (HTTPError, URLError, ContentTooShortError) as exc:
+        emit_warning(f"Job trace lookup failed: {exc}")
+        return None
+
+    # The runner always prints this near the end. Use the LAST match
+    # so a literal occurrence of the phrase earlier in the log (e.g.
+    # echoed by user code) cannot mask the runner's terminal line.
+    matches = _TRACE_EXIT_CODE_RE.findall(payload)
+    if not matches:
+        return None
+    try:
+        return int(matches[-1])
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_exit_code(
+    job: dict[str, Any],
+    base_url: str,
+    token: str,
+    project_id: int,
+    cache: dict[int, int | None],
+) -> int | None:
+    """Best-effort resolve a job's ``exit_code``.
+
+    Resolution order:
+
+    1. Listing payload (free, but most API versions don't include it).
+    2. Per-job detail endpoint (some API versions include it).
+    3. Job trace endpoint (parsed from the runner's terminal line).
+
+    Results are cached by job id so a given job is resolved at most
+    once for the lifetime of the poller.
+    """
+    direct = _job_exit_code(job)
+    if direct is not None:
+        return direct
+
+    raw_id = job.get("id")
+    try:
+        job_id = int(raw_id) if raw_id is not None else None
+    except (TypeError, ValueError):
+        job_id = None
+    if job_id is None:
+        return None
+
+    if job_id in cache:
+        return cache[job_id]
+
+    detail = fetch_job_detail(base_url, token, project_id, job_id)
+    resolved = _job_exit_code(detail) if isinstance(detail, dict) else None
+    if resolved is None:
+        resolved = fetch_job_trace_exit_code(base_url, token, project_id, job_id)
+    cache[job_id] = resolved
+    return resolved
+
+
 def latest_attempt_per_name(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """GitLab returns every attempt of a retried job. Keep only the
-    latest (highest ``id``) per job name."""
+    """The downstream API returns every attempt of a retried job.
+    Keep only the latest (highest ``id``) per job name."""
     by_name: dict[str, dict[str, Any]] = {}
     for job in jobs:
         name = str(job.get("name") or "")
@@ -229,9 +349,10 @@ def _format_hms(seconds: float) -> str:
 def _tick_status_counts(jobs: list[dict[str, Any]]) -> dict[str, int]:
     """Return a status -> count tally for the current snapshot.
 
-    Uses raw GitLab statuses (success/running/pending/manual/failed/...)
-    so each heartbeat reflects what GitLab is reporting right now,
-    independent of the cumulative ``seen_*`` sets used for transitions.
+    Uses raw API statuses (success/running/pending/manual/failed/...)
+    so each heartbeat reflects what the downstream API is reporting
+    right now, independent of the cumulative ``seen_*`` sets used for
+    transitions.
     """
     counts: dict[str, int] = {}
     for job in jobs:
@@ -305,7 +426,7 @@ def main() -> int:
             return 1
     else:
         try:
-            response = gitlab_request(
+            response = api_request(
                 "Project lookup",
                 f"{base_url}/projects/{quote(project_path, safe='')}",
                 token,
@@ -326,6 +447,11 @@ def main() -> int:
     seen_success: set[str] = set()
     seen_allowed_failure: set[str] = set()
     seen_skipped: set[str] = set()
+    # Per-job exit-code cache (keyed by job id). Populated lazily when
+    # we hit a `failed + allow_failure: true` job and the listing
+    # payload doesn't carry `exit_code` (the listing endpoint never
+    # does, but the per-job endpoint does).
+    exit_code_cache: dict[int, int | None] = {}
     start = time.monotonic()
     tick = 0
 
@@ -345,7 +471,6 @@ def main() -> int:
             name = str(job.get("name") or "<unnamed>")
             status = str(job.get("status") or "").lower()
             allow_failure = bool(job.get("allow_failure"))
-            exit_code = _job_exit_code(job)
 
             if status == "failed" and not allow_failure:
                 print(f"FAIL: {name}")
@@ -370,18 +495,20 @@ def main() -> int:
                 return 1
 
             if status == "failed" and allow_failure:
-                # Gated skips: a job that exited with the well-known
-                # `GATE_SKIP_EXIT_CODE` while flagged `allow_failure: true`
-                # is interpreted as a deliberate skip rather than a
-                # warning. Anything else is still surfaced as an
+                # The listing endpoint omits `exit_code`; resolve it
+                # via the per-job detail endpoint (cached) so we can
+                # distinguish a gate-skip (exit 75) from an actual
                 # allowed failure.
+                if name in seen_skipped or name in seen_allowed_failure:
+                    continue
+                exit_code = resolve_exit_code(job, base_url, token, project_id, exit_code_cache)
                 if exit_code == GATE_SKIP_EXIT_CODE:
-                    if name not in seen_skipped:
-                        seen_skipped.add(name)
-                        print(f"SKIPPED: {name}")
-                elif name not in seen_allowed_failure:
+                    seen_skipped.add(name)
+                    print(f"SKIPPED: {name}")
+                else:
                     seen_allowed_failure.add(name)
-                    print(f"ALLOWED_FAILURE: {name}")
+                    suffix = f" (exit {exit_code})" if exit_code is not None else ""
+                    print(f"ALLOWED_FAILURE: {name}{suffix}")
 
             if status == "success":
                 if name not in seen_success:
@@ -419,11 +546,12 @@ def main() -> int:
             write_summary(summary)
             return 0
 
-        if pipeline_status in GITLAB_TERMINAL_PIPELINE_STATUSES:
+        if pipeline_status in TERMINAL_PIPELINE_STATUSES:
             # Pipeline is terminal but we didn't detect a specific failing
             # job above. This can happen with pipeline-level configuration
-            # errors (e.g. invalid `.gitlab-ci.yml`) that GitLab surfaces
-            # on the pipeline itself rather than a job.
+            # errors (e.g. an invalid pipeline config) that the
+            # downstream API surfaces on the pipeline itself rather
+            # than on a specific job.
             emit_error(f"Downstream pipeline ended with status '{pipeline_status}' and no failing job was observed")
             return 1
 
