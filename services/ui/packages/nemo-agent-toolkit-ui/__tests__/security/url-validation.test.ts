@@ -85,8 +85,8 @@ describe('URL Validation Tests', () => {
 
       it('blocks URLs with embedded credentials', () => {
         const credentialUrls = [
-          'https://user:password@example.com/image.jpg', // pragma: allowlist secret
-          'http://admin:secret@cdn.com/video.mp4' // pragma: allowlist secret
+          'https://user:password@example.com/image.jpg',
+          'http://admin:secret@cdn.com/video.mp4'
         ];
 
         credentialUrls.forEach(url => {
@@ -178,9 +178,9 @@ describe('URL Validation Tests', () => {
 
       it('blocks URLs with embedded credentials', () => {
         const credentialUrls = [
-          'https://user:password@example.com/oauth', // pragma: allowlist secret
-          'http://admin:secret@malicious.com', // pragma: allowlist secret
-          'https://attacker:token@legitimate-site.com/oauth' // pragma: allowlist secret
+          'https://user:password@example.com/oauth',
+          'http://admin:secret@malicious.com',
+          'https://attacker:token@legitimate-site.com/oauth'
         ];
 
         credentialUrls.forEach(url => {

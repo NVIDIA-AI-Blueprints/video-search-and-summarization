@@ -90,6 +90,7 @@ The platform requirement can vary depending on the configuration and deployment 
 Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [deployments/scripts](deployments/scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
 - [deployments/scripts/deploy_vss_launchable.ipynb](deployments/scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
 
+
 ### Docker Compose Deployment
 
 **Ideal for:** Deploying a VSS agent on your own hardware or bare metal cloud instance.
