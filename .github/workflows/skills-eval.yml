@@ -32,11 +32,17 @@ jobs:
     name: Eval changed skills against PR
     runs-on: [self-hosted, vss-eval]
 
-    # 3-hour hard cap on the whole job. Deploy trials are 8-15m each,
-    # non-deploy trials 2-5m; a full PR touching every skill can queue
-    # ~8 trials plus adapter regen, lock acquisition, and a 5m brev
-    # teardown cooldown. 180m covers the common case with margin.
-    timeout-minutes: 180
+    # 8-hour hard cap on the whole job. A full PR touching every skill
+    # queues ~13 trials (5 deploy + 3 vios + 4 video-search + 1+
+    # video-summarization). Run 24980753743 hit the prior 180m cap with
+    # 3 video-search done and video-summarization not yet started —
+    # observed avg trial wall-clock is closer to ~30m once /deploy +
+    # ingest + judge per-check gather complete. 480m gives margin for
+    # cold-box transitions, redeploys at profile boundaries (handled by
+    # the active-deploy.txt marker but still ~20m each), and the brev
+    # teardown cooldown. The lock-hold timeout in AGENTS.md (flock -w)
+    # is bumped in lockstep below.
+    timeout-minutes: 480
 
     # Extra safety: only run on the mirror branches, never on develop/main.
     if: startsWith(github.ref, 'refs/heads/pull-request/')
