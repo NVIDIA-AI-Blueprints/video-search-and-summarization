@@ -287,7 +287,7 @@ jobs:
       - frontend-lint
       - frontend-build
       - folder-structure
-    runs-on: self-hosted
+    runs-on: [self-hosted, downstream-pipeline]
     # Holds the runner until the downstream pipeline completes. Must be
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
     # (+ a small safety buffer).
