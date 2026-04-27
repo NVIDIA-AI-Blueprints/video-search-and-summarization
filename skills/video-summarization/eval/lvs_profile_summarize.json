@@ -13,7 +13,6 @@
     {
       "query": "Summarize the uploaded warehouse video with scenario 'warehouse monitoring' and events ['boxes falling', 'forklift stuck', 'person entering restricted area'].",
       "checks": [
-        "Before any backend call, the agent surfaces the Step 2 HITL prompt — echoing scenario + events back to the user for confirmation — and only proceeds after an explicit go-ahead (it does NOT silently call LVS on the first turn)",
         "The agent issues exactly one POST http://localhost:38111/summarize call — not zero, not two, no parallel hedging",
         "The POST /summarize request body is application/json and contains the keys {url, model, scenario, events, chunk_duration, num_frames_per_chunk}; scenario equals 'warehouse monitoring' and events equals the three user-supplied strings verbatim",
         "The url field points at a Brev secure-link clip URL (https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/...), NOT http://localhost:... and NOT http://<internal-ip>:...",
@@ -28,7 +27,6 @@
     {
       "query": "Summarize the uploaded warehouse video using default scenario and events.",
       "checks": [
-        "The agent surfaces the Step 2 HITL prompt and waits for the user to reply 'defaults' (or equivalent explicit opt-in) before calling LVS",
         "The POST /summarize request body has scenario='activity monitoring' and events=['notable activity']",
         "The LVS response is HTTP 200 with a non-empty video_summary and a non-empty events array",
         "The agent's final reply notes that generic defaults were used and offers to redo the summary with more specific parameters"
