@@ -11,9 +11,9 @@
   "env": "VSS **base** profile on the target host: VSS agent HTTP API on **8000** (e.g. `http://localhost:8000/docs`), VST reachable at http://localhost:30888/vst/api/v1. Use **remote-all** (remote LLM + VLM) so no local NIMs are required. Set Brev secure-link vars (`BREV_ENV_ID`, `BREV_LINK_PREFIX`) if checks validate media URLs. (See `skills/report/SKILL.md`).",
   "expects": [
     {
-      "query": "Upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
+      "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading.",
       "checks": [
-        "The upload API call (PUT /vst/api/v1/storage/file/<filename>?timestamp=...) returns HTTP 2xx",
+        "Trajectory or reasoning shows probing VST/VIOS for warehouse_safety_0001 **before** deciding to upload—for example listing sensors/streams via the agent tools (or equivalent REST such as curl /vst/api/v1/sensor/list)—not unconditional PUT-only behavior.",
         "The response JSON contains both a sensorId and a streamId (non-empty UUIDs)",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty streams array whose main stream's url is a local file path under /home/vst/... or similar (NOT rtsp://)"
