@@ -257,11 +257,13 @@ template is in § Harbor invocation below.
       concurrent CI runs land on different boxes naturally; the per-box
       flock arbitrates within-fleet contention.
 
-      If no candidate exists for this platform, `brev create` a new
-      `vss-eval-<short>-<n>` using the fallback chain in § Platform
-      topology and record the name in
-      `/tmp/brev/started-by-${GITHUB_RUN_ID}.txt` so cleanup can find
-      it.
+      If no candidate exists for this platform, **don't `brev create`
+      one yourself** — emit a `BLOCKED: pool exhausted for <platform>`
+      blocker comment and exit. The pool is sized and managed by the
+      operator out-of-band; auto-creation defeated the point of having
+      a warm pool (every fresh box pays the deploy-from-scratch tax).
+      If you genuinely need more capacity, ping the operator to add a
+      `vss-eval-<short>-<n>` to the pool and re-run.
 
    b. **Acquire the per-box lock** before running anything on the
       chosen instance (filename keys off `$INSTANCE_NAME`):
@@ -299,10 +301,13 @@ template is in § Harbor invocation below.
    --body-file …`. Do NOT post a planning / "refresh" comment up
    front — comments carry results, not intent.
 
-7. **Release all locks; leave instance IDs in `started-by-${RUN_ID}.txt`
-   for the CI step's 5-minute cooldown teardown.** You don't run
-   `brev stop` / `brev delete` yourself — the wrapper script
-   (`skills_eval_agent.py`) does that after a cooldown window.
+7. **Release all locks. DO NOT tear down any Brev instance.** The
+   `vss-eval-*` boxes are a long-running pool managed by the operator;
+   they stay up across runs (warm caches, pre-deployed VSS profiles,
+   docker layer reuse). You release the per-box flock so the next
+   worker can grab it; you never `brev stop` / `brev delete`. The
+   wrapper script no longer runs cleanup either — pool lifecycle is
+   strictly an operator concern.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -616,8 +621,7 @@ separate; don't conflate the two.
 - On success, final line: `DONE: <N>/<M> specs passed; <K> blockers`
 - On blocker: final line: `BLOCKED: <short reason>` (no DONE
   needed).
-- Always populate `/tmp/brev/started-by-${GITHUB_RUN_ID}.txt` with
-  instance names you brought online (one per line). The CI wrapper
-  uses it for the 5-minute cooldown teardown.
+- Don't tear down or `brev stop` / `brev delete` any instance. The
+  `vss-eval-*` pool is operator-managed and stays warm across runs.
 
 Now proceed.
