@@ -69,5 +69,5 @@ curl -s -X POST "${VSS_AGENT_BASE_URL}/generate" \
 
 ## Cross-Reference
 
-- **sensor-ops** — VST storage/replay URLs so **`VIDEO_URL`** is valid for the VLM.
-- **report-generation** — timestamped **reports** via the **VSS agent** (`/generate`); this skill is **direct VLM** for ad-hoc **video Q&A**.
+- **vios** — VST storage/replay URLs so **`VIDEO_URL`** is valid for the VLM.
+- **report** — timestamped **reports** via the **VSS agent** (`/generate`); this skill is **direct VLM** for ad-hoc **video Q&A**.
