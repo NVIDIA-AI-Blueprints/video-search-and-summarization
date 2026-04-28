@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+BaseConfig:
+  minDetectorConfidence: 0.059091767738520054
+TargetManagement:
+  enableBboxUnClipping: 1
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 150
+  minIouDiff4NewTarget: 0.40803391831819774
+  minTrackerConfidence: 0.2379867160124702
+  probationAge: 2
+  maxShadowTrackingAge: 49
+  earlyTerminationAge: 1
+TrajectoryManagement:
+  useUniqueID: 0
+  enableReAssoc: 1
+  minMatchingScore4Overall: 0.6491824364015243
+  minTrackletMatchingScore: 0.3365923298667557
+  minMatchingScore4ReidSimilarity: 0.41004668162204816
+  matchingScoreWeight4TrackletSimilarity: 0.8531794819299393
+  matchingScoreWeight4ReidSimilarity: 0.13580096342687126
+  minTrajectoryLength4Projection: 33
+  prepLength4TrajectoryProjection: 53
+  trajectoryProjectionLength: 99
+  maxAngle4TrackletMatching: 70
+  minSpeedSimilarity4TrackletMatching: 0.03284195344815558
+  minBboxSizeSimilarity4TrackletMatching: 0.40454200672158597
+  maxTrackletMatchingTimeSearchRange: 24
+  trajectoryProjectionProcessNoiseScale: 0.01
+  trajectoryProjectionMeasurementNoiseScale: 100
+  trackletSpacialSearchRegionScale: 0.01
+  reidExtractionInterval: 0
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 1
+  checkClassMatch: 1
+  minMatchingScore4Overall: 0.16498049370431805
+  minMatchingScore4SizeSimilarity: 0.2470318611174308
+  minMatchingScore4Iou: 0.09268843253527276
+  minMatchingScore4VisualSimilarity: 0.5306397916012133
+  matchingScoreWeight4VisualSimilarity: 0.2593903206246254
+  matchingScoreWeight4SizeSimilarity: 0.8737211144111663
+  matchingScoreWeight4Iou: 0.3538715510450657
+  tentativeDetectorConfidence: 0.07696106106777956
+  minMatchingScore4TentativeIou: 0.18259431931328785
+StateEstimator:
+  stateEstimatorType: 1
+  processNoiseVar4Loc: 5500.457806079246
+  processNoiseVar4Size: 2784.2546323956462
+  processNoiseVar4Vel: 545.3315792468695
+  measurementNoiseVar4Detector: 100.00000497224985
+  measurementNoiseVar4Tracker: 294.4755412477389
+VisualTracker:
+  visualTrackerType: 1
+  useColorNames: 1
+  useHog: 1
+  featureImgSizeLevel: 3
+  featureFocusOffsetFactor_y: -0.21492658069764317
+  filterLr: 0.04747373772798158
+  filterChannelWeightsLr: 0.06898637782721721
+  gaussianSigma: 0.7195646880047487
+ReID:
+  reidType: 0
+  outputReidTensor: 0
+  batchSize: 100
+  workspaceSize: 1000
+  reidFeatureSize: 256
+  reidHistorySize: 100
+  inferDims: [3, 256, 128]
+  networkMode: 1
+  inputOrder: 0
+  colorFormat: 0
+  offsets: [123.6750, 116.2800, 103.5300]
+  netScaleFactor: 0.01735207
+  keepAspc: 1
+  addFeatureNormalization: 1

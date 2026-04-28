@@ -31,16 +31,14 @@ class Rule:
 
 
 RULES: tuple[Rule, ...] = (
-    # deployments/developer-workflow/ may only contain:
+    # deploy/docker/developer-profiles/ may only contain:
     #   - a file named compose.yml
     #   - directories whose names start with dev-profile-
     Rule(
-        folder="deployments/developer-workflow",
+        folder="deploy/docker/developer-profiles",
         files=("compose.yml",),
         dirs=("dev-profile-*",),
     ),
-    # To add more rules copy the pattern above, e.g.:
-    # Rule(folder="deployments/production", files=("compose.yml",), dirs=("prod-profile-*",)),
 )
 
 
