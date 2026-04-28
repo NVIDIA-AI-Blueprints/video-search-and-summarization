@@ -1,0 +1,122 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+=====================================================================
+  NVIDIA Metropolis Search Profile - Developer Workflow
+=====================================================================
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+
+=====================================================================
+  NIM SERVICES (bundled nims subchart — aligns with dev-profile-base names)
+=====================================================================
+
+  When nims is enabled, the NIM Operator exposes ClusterIP services matching the
+  NIMService metadata.name (same slugs as dev-profile-base nims charts):
+
+  1. Nemotron Nano 9B v2 (LLM):  nvidia-nemotron-nano-9b-v2:8000
+  2. Cosmos Reason2 8B (VLM):    nvidia-cosmos-reason2-8b:8000  (when Cosmos subchart is enabled)
+  3. Eval / judge LLM uses the same endpoint as (1).
+
+=====================================================================
+  QUICK INSTALL
+=====================================================================
+
+  helm upgrade --install vss-search ./dev-profile-search \
+    -n default \
+    --set global.externalHost=vss-search.<NODE_IP>.nip.io \
+    --set global.ngcApiKey=<NGC_API_KEY> \
+    --set nims.global.ngcApiKey=<NGC_API_KEY> \
+    --wait=false
+
+  Critic agent and Cosmos NIM are enabled by default.
+  To disable: --set global.enableCritic=false,nims.cosmos.enabled=false
+
+  Both bare IP and hostname formats are accepted for global.externalHost:
+    --set global.externalHost=<NODE_IP>                          (bare IP)
+    --set global.externalHost=vss-search.<NODE_IP>.nip.io        (hostname)
+  Ingress hosts are auto-constructed using nip.io in either case.
+  Override with --set ingress.hosts.main=custom.domain.com if needed.
+
+=====================================================================
+  ACCESS
+=====================================================================
+{{- if .Values.ingress.enabled }}
+
+  {{- $ipRaw := .Values.global.externalHost | default "NODE_IP" | toString | trim }}
+  {{- $ip := $ipRaw }}
+  {{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}
+  {{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}
+  {{- end }}
+  {{- $mainHost := .Values.ingress.hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
+  {{- $streamerHost := .Values.ingress.hosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
+  {{- $kibanaHost := .Values.ingress.hosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
+  {{- $phoenixHost := .Values.ingress.hosts.phoenix | default "" | trim }}
+  Ingress is ENABLED. Services are exposed via host/path routing:
+
+  VSS UI (Search):      http://{{ $mainHost }}
+  VSS Agent API:        http://{{ $mainHost }}/api
+  VST API:              http://{{ $mainHost }}/vst/api
+  Video Analytics API:  http://{{ $mainHost }}/video-analytics-api
+  Kibana Dashboards:    http://{{ $kibanaHost }}
+  Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
+  {{- if ne $phoenixHost "" }}
+  Phoenix Tracing Host: http://{{ $phoenixHost }}
+  {{- end }}
+  NVStreamer HTTP:       http://{{ $streamerHost }}
+
+  NVStreamer RTSP:       not exposed via NodePort by default; port-forward to pod (see vst_config rtsp_server_port)
+
+{{- else }}
+
+  Ingress is DISABLED. Services use ClusterIP.
+  Use kubectl port-forward or create your own Ingress/LoadBalancer:
+
+  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 8000:8000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }} 8081:8081 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kibana") }} 5601:5601 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "phoenix") }} 6006:6006 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }} {{ (index .Values "vss-vios-nvstreamer").service.port }}:{{ (index .Values "vss-vios-nvstreamer").service.port }} -n {{ .Release.Namespace }}
+
+  NVStreamer RTSP:       not exposed via NodePort by default; port-forward to pod if needed
+
+  To enable Ingress, reinstall with:
+    --set ingress.enabled=true \
+    --set ingress.hosts.main=vss-search.<IP>.nip.io \
+    --set ingress.hosts.streamer=streamer.<IP>.nip.io \
+    --set ingress.hosts.kibana=kibana.<IP>.nip.io \
+    --set ingress.hosts.phoenix=phoenix.<IP>.nip.io \
+
+  (ingress.hosts.phoenix is optional; default Phoenix route is /phoenix on main host)
+
+{{- end }}
+
+=====================================================================
+  PREREQUISITES
+=====================================================================
+
+  1. NVIDIA GPU device plugin installed on worker nodes
+  2. A default StorageClass provisioned on the cluster
+  3. NGC docker registry secret created (auto-created if ngcApiKey set)
+  4. Nemotron and Cosmos NIMs installed and healthy
+{{- if .Values.ingress.enabled }}
+  5. Ingress controller ({{ .Values.ingress.className }}) installed in cluster
+{{- end }}
+
+=====================================================================

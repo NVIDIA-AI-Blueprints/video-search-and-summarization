@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.enabled .Values.init.enabled }}
+{{- if not .Values.init.objectsBundle }}
+{{- fail "kibana.init.objectsBundle is required when kibana.init.enabled is true (alerts, search, or lvs)" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kibana.initImportConfigMapName" . }}
+  labels:
+    app.kubernetes.io/name: kibana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: kibana-init
+data:
+  kibana-import-dashboard.sh: |
+{{ .Files.Get "configs/kibana-import-dashboard.sh" | indent 4 }}
+  kibana-objects.ndjson: |
+{{- $b := .Values.init.objectsBundle }}
+{{- if eq $b "alerts" }}
+{{ .Files.Get "configs/objects/alerts.ndjson" | indent 4 }}
+{{- else if eq $b "search" }}
+{{ .Files.Get "configs/objects/search.ndjson" | indent 4 }}
+{{- else if eq $b "lvs" }}
+{{ .Files.Get "configs/objects/lvs.ndjson" | indent 4 }}
+{{- else }}
+{{- fail (printf "kibana.init.objectsBundle must be alerts, search, or lvs (got %q)" $b) }}
+{{- end }}
+{{- end }}

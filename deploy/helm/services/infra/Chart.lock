@@ -1,0 +1,24 @@
+dependencies:
+- name: phoenix
+  repository: file://./charts/phoenix
+  version: 26.04.2
+- name: redis
+  repository: file://./charts/redis
+  version: 26.04.2
+- name: elasticsearch
+  repository: file://./charts/elasticsearch
+  version: 26.04.2
+- name: kibana
+  repository: file://./charts/kibana
+  version: 26.04.2
+- name: kafka
+  repository: file://./charts/kafka
+  version: 26.04.2
+- name: logstash
+  repository: file://./charts/logstash
+  version: 26.04.2
+- name: vss-broker-health-check
+  repository: file://./charts/broker-health-check
+  version: 26.04.2
+digest: sha256:11604f82d18d9cc753e518c2305018f80d695521c734392f988cb88c7fe15b1d
+generated: "2026-04-20T18:59:22.662604+05:30"

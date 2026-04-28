@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+enabled: false
+global: {}
+
+image:
+  repository: docker.elastic.co/elasticsearch/elasticsearch
+  tag: "9.3.0"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+env:
+  ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
+  discovery.type: "single-node"
+
+# Extra container env (e.g. embedding dims for index templates / RTVI).
+extraEnv: {}
+
+service:
+  port: 9200
+  type: ClusterIP
+
+persistence:
+  storageClass: ""
+  data:
+    size: 10Gi
+  logs:
+    size: 5Gi
+
+volumeInit:
+  image: busybox
+  tag: "1.37.0"
+
+gpu:
+  enabled: false
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+
+init:
+  enabled: false
+  image:
+    repository: alpine
+    tag: "3.23.2"
+    pullPolicy: IfNotPresent
+  backoffLimit: 10
+  elasticsearchUrl: ""
+  env:
+    ELASTICSEARCH_ILM_MIN_AGE: "4h"
+    ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: "1536"
+    ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: "768"
+    BP_PROFILE: ""
+
+exporter:
+  enabled: false

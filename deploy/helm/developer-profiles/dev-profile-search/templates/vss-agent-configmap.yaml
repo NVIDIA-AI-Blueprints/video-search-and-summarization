@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- /* vss-agent values live under agent.vss-agent when using services/agent umbrella; keep top-level vss-agent for legacy. */}}
+{{- $agent := index .Values "agent" | default dict }}
+{{- $vss := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
+{{- $agentEnabled := index $agent "enabled" | default true }}
+{{- if and $agentEnabled $vss.enabled }}
+{{- $cm := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent" "subchartValues" $vss) }}
+{{- $tpl := $vss.template | default dict }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cm }}-config
+  labels:
+    app.kubernetes.io/name: vss-agent
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  config.yml: |
+{{- tpl (.Files.Get "configs/vss-agent/config.yml") . | nindent 4 }}
+  {{- if $tpl.name }}
+  {{- $extra := printf "configs/vss-agent/%s" $tpl.name }}
+  {{- if (.Files.Glob $extra) }}
+  {{ $tpl.name }}: |
+{{ (.Files.Get $extra) | indent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

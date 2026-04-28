@@ -1,0 +1,107 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+# Environment configuration
+
+tools:
+  vector_db:
+    type: milvus
+    params:
+      host: !ENV ${MILVUS_DB_HOST}
+      port: !ENV ${MILVUS_DB_GRPC_PORT}
+    tools:
+      embedding: nvidia_embedding
+
+  elasticsearch_db:
+    type: elasticsearch
+    params:
+      host: !ENV ${ES_HOST}
+      port: !ENV ${ES_PORT}
+      collection_name: lvs-events
+    tools:
+      embedding: nvidia_embedding
+
+  summarization_llm:
+    type: llm
+    params:
+      model: !ENV ${LVS_LLM_MODEL_NAME}
+      base_url: !ENV ${LVS_LLM_BASE_URL}
+      max_tokens: 10240
+      temperature: 0.2
+      top_p: 0.7
+      api_key: !ENV ${NVIDIA_API_KEY}
+
+  nvidia_embedding:
+    type: embedding
+    params:
+      enable: !ENV ${LVS_EMB_ENABLE:false}
+      model: !ENV ${LVS_EMB_MODEL_NAME}
+      base_url: !ENV ${LVS_EMB_BASE_URL}
+      api_key: !ENV ${NVIDIA_API_KEY}
+
+functions:
+  summarization:
+    type: vlm_structured_summarization
+    params:
+      time_overlap_threshold: 0.1
+      time_adjacent_threshold: 5
+      max_events_per_batch: 50
+      enable_llm_merging: true
+    tools:
+      db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
+      llm: summarization_llm
+
+  summarization_using_llm:
+    type: structured_inference
+    params:
+      prompts:
+        caption: "You are an intelligent traffic system. You must monitor and take note of all traffic related events. Start each event description with a start and end time stamp of the event."
+        # event_extraction_prompt: "Extract structured events from video captions"
+    batch_size: 4
+    scenario: "traffic monitoring"
+    events: ["accident", "pedestrian crossing", "vehicle crossing", "traffic violation"]
+    batch_response_method: "json_schema"
+    schema: |
+      {
+        "title": "EventExtraction",
+        "description": "Extract structured events from video captions",
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start_time": { "type": "number" },
+                "end_time": { "type": "number" },
+                "description": { "type": "string" },
+                "type": { "type": "string" }
+              },
+              "required": ["start_time", "end_time", "description", "type"]
+            }
+          }
+        },
+        "required": ["events"]
+      }
+    auto_generate_prompt: true
+    time_metadata_keys: ["start_pts", "end_pts"]
+    tools:
+      llm: summarization_llm
+      db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
+
+context_manager:
+  functions:
+    - summarization

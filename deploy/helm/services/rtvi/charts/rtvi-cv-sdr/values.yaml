@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+
+# clusterType: kubernetes (default) | docker. Matches vss-vios-sdr.
+clusterType: kubernetes
+
+# K8s discovery: default is k8s mode (StatefulSet API). Set k8sHeadlessBaseDomain to use headless DNS (WDM_CLUSTER_TYPE=k8s-headless).
+# Empty = k8s mode. Set e.g. "vss-rtvi-cv" for headless (ClusterIP None, pod port 9010).
+k8sHeadlessBaseDomain: ""
+k8sHeadlessPodPort: "9010"
+
+# Init containers: wait for Redis and vss-rtvi-cv before SDR starts. Set initContainers.enabled: false to disable.
+initContainers:
+  enabled: true
+  image: busybox:1.37.0
+# Service name to wait for (wait-vss-rtvi-cv). Empty = "vss-rtvi-cv" (headless service from vss-rtvi-cv chart).
+perceptionAlertsService: ""
+
+image:
+  repository: nvcr.io/nvidia/vss-core/sdr
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+
+# In K8s: vss-rtvi-cv service and vss-vios-ingress service
+perceptionProvisioningAddress: ""   # default: <release>-vss-rtvi-cv:9010
+vstStatusEndpoint: ""   # default: http://<release>-vss-vios-ingress:30888/vst/api/v1/sensor/status
+vstStreamsEndpoint: ""   # default: http://<release>-vss-vios-ingress:30888/vst/api/v1/live/streams
+
+# Kafka: bootstrap servers when Kafka is used (compose uses WDM_KFK_ENABLE=false; set wdmKfkEnable: true to use Kafka)
+kafkaBootstrapServers: ""   # default: kafka-kafka:9092 (<release>-kafka-kafka:9092 if global.useReleaseNamePrefix)
+wdmKfkEnable: "false"
+# Redis: host for workload spec (avoids localhost:6379 connection refused)
+redisHost: ""   # default: <release>-redis
+redisPort: "6379"
+
+# WDM env (aligned with docker-compose / dev-profile-alerts)
+wdmClearDataWl: "true"
+wdmConsumerGrpId: "sdr-deepstream-cg"
+wdmDisableWerkzeugLogging: "true"
+wdmDsStatusCheck: "true"
+wdmDsSwapIdName: "false"
+wdmInitializeFromVst: "true"
+wdmMsgKey: "vst.event"
+# Set false to skip DS health-check wait (avoids "DS endpoint took too long to respond" when app does not run health check for k8s).
+wdmPreloadDelayForDsApi: "false"
+wdmPreloadWorkload: "./tests/event_pre-roll.json"
+wdmRestartDsOnAddFail: "false"
+wdmValidateBeforeAdd: "true"
+wdmWlAddUrl: "/api/v1/stream/add"
+wdmWlChangeIdAdd: "camera_streaming"
+wdmWlDeleteUrl: "/api/v1/stream/remove"
+wdmWlHealthCheckUrl: "/api/v1/stream/add"
+wdmWlObjectName: "vss-rtvi-cv"
+wdmWlRedisMsgField: "sensor.id"
+wdmWlSpec: "/wdm-data/ds-data_wl.yaml"
+wdmWlThreshold: "1"
+# K8s mode only: API server URL (WDM builds KUBERNETES_URL from these). API server is in default namespace.
+kubernetesHost: "kubernetes.default.svc"
+kubernetesPort: "443"
+# NAMESPACE env (k8s mode): namespace to list pods/StatefulSet in (where vss-rtvi-cv runs).
+wdmNamespace: ""
+
+# Use a dedicated ServiceAccount with RBAC so the app can use the Kubernetes API (avoids "UNKNOWN CLUSTER TYPE - DEFAULTING TO DOCKER")
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  port: 4001
+  type: ClusterIP
+
+resources:
+  limits:
+    memory: "300Mi"
+
+nodeSelector: {}
+tolerations: []

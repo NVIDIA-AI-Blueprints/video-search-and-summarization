@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "elasticsearch.fullname" . }}-headless
+  labels:
+    {{- include "elasticsearch.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+    - name: transport
+      port: 9300
+      targetPort: transport
+      protocol: TCP
+  selector:
+    {{- include "elasticsearch.selectorLabels" . | nindent 4 }}
+{{- end }}

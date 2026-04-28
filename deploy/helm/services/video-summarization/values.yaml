@@ -1,0 +1,144 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvstaging/vss-core/vss-video-summarization
+  tag: "3.2.0-rc1-d3e1a8f"
+  pullPolicy: IfNotPresent
+replicas: 1
+# Backend (API), MCP, frontend ports — match Compose
+service:
+  backendPort: 38111
+  mcpPort: 38112
+  frontendPort: 38113
+  type: ClusterIP
+# GPU required
+resources:
+  requests:
+    nvidia.com/gpu: "1"
+  limits:
+    nvidia.com/gpu: "1"
+# In-cluster: template builds http://<release>-<slug>:8000/v1 from llmService/vlmService (NIM subchart names).
+# Remote NIM: prefer global.llmBaseUrl / global.vlmBaseUrl (same base as vss-agent). LVS deployment appends /v1 when missing.
+llmService: ""   # e.g. nvidia-nemotron-nano-9b-v2 — ignored when llmBaseUrl/global.llmBaseUrl resolves non-empty
+vlmService: ""  # e.g. nvidia-cosmos-reason2-8b — ignored when vlmBaseUrl/global.vlmBaseUrl resolves non-empty
+llmBaseUrl: ""  # optional: overrides global.llmBaseUrl for LVS only
+vlmBaseUrl: ""  # optional: overrides global.vlmBaseUrl for LVS only
+llmName: ""  # optional: overrides global.llmName for LVS_LLM_MODEL_NAME
+vlmName: ""  # optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME
+elasticsearchHost: ""
+elasticsearchPort: "9200"
+elasticsearchTransportPort: "9300"
+env:
+  - name: BACKEND_PORT
+    value: "38111"
+  - name: CA_RAG_CONFIG
+    value: /app/config.yaml
+  - name: DISABLE_GUARDRAILS
+    value: "true"
+  - name: ENABLE_VIA_HEALTH_EVAL
+    value: "false"
+  - name: FRONTEND_PORT
+    value: "38113"
+  - name: GPU_DEVICES
+    value: "0"
+  - name: LVS_DATABASE_BACKEND
+    value: elasticsearch_db
+  - name: LVS_DISABLE_DB_RESET_ON_REQUEST_DONE
+    value: "true"
+  - name: LVS_EMB_BASE_URL
+    value: ""
+  - name: LVS_EMB_ENABLE
+    value: "false"
+  - name: LVS_EMB_MODEL_NAME
+    value: ""
+  - name: LVS_ENABLE_MCP
+    value: "true"
+  - name: LVS_MCP_PORT
+    value: "38112"
+  - name: MILVUS_DB_GRPC_PORT
+    value: ""
+  - name: MILVUS_DB_HOST
+    value: ""
+  - name: MODEL_ROOT_DIR
+    value: /tmp/model_cache
+  - name: NGC_MODEL_CACHE
+    value: /tmp/model_cache
+  - name: NUM_GPUS
+    value: "1"
+  - name: NVIDIA_API_KEY
+    value: ""
+  - name: NVIDIA_VISIBLE_DEVICES
+    value: "0"
+  - name: VIA_VLM_API_KEY
+    value: not-used
+  - name: VLM_INPUT_HEIGHT
+    value: "736"
+  - name: VLM_INPUT_WIDTH
+    value: "1312"
+  - name: VLM_MODEL_TO_USE
+    value: openai-compat
+  - name: VSS_LOG_LEVEL
+    value: DEBUG
+
+# extraEnv: appended after the computed env block (duplicate names: last wins). Each value is rendered with `tpl`, so
+# expressions like `http://{{ .Release.Name }}-vss-rtvi-vlm:8000` are supported. Use this for LVS → RTVI-VLM wiring
+# (USE_RTVI_VLM, RTVI_VLM_URL, RTVI_VLM_URL_PASSTHROUGH) without duplicating the full `env` list.
+extraEnv: []
+
+# VST_INTERNAL_URL: used by LVS to rewrite video download URLs (e.g. from 127.0.0.1 or external host to in-cluster VST).
+# When set, LVS can fetch videos from the internal VST service. Default: http://<release>-vss-vios-ingress:30888
+vstInternalUrl: ""
+# ES_HOST, ES_PORT, ES_TRANSPORT_PORT, LVS_LLM_BASE_URL, LVS_LLM_MODEL_NAME, VIA_VLM_ENDPOINT, VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME set by template
+# Init: wait until VIA_VLM_ENDPOINT accepts HTTP (in-cluster NIM or remote); avoids crash-loop until Cosmos is up.
+waitForVlmEndpoint:
+  enabled: true
+  image:
+    repository: docker.io/curlimages/curl
+    tag: "8.12.1"
+    pullPolicy: IfNotPresent
+  maxAttempts: 120
+  sleepSeconds: 5
+# Model cache volume — Compose: ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
+# Set enabled: true to mount emptyDir at /tmp/model_cache (parity with Compose). Default false = no mount.
+modelCache:
+  enabled: false
+livenessProbe:
+  httpGet:
+    path: /v1/ready
+    port: backend
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 10
+readinessProbe:
+  httpGet:
+    path: /v1/ready
+    port: backend
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 10
+startupProbe:
+  httpGet:
+    path: /v1/ready
+    port: backend
+  periodSeconds: 30
+  failureThreshold: 24
+  timeoutSeconds: 10
+nodeSelector: {}
+tolerations: []

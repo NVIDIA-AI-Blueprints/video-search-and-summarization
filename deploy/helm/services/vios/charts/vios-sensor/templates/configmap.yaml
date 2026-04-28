@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-vios-sensor.fullname" . }}-configs
+  labels:
+    app.kubernetes.io/name: vss-vios-sensor
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  vst_config.json: |
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $redisH := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+{{- $kafkaH := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+{{- $esH := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+{{- $redisAddr := .Values.redisServerAddress | default (printf "%s:6379" $redisH) }}
+{{- $kafkaAddr := .Values.kafkaServerAddress | default (printf "%s:9092" $kafkaH) }}
+{{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "http://%s:9200/mdx-raw*" $esH) }}
+{{- $cloudStorage := .Values.cloudStorageEndpoint | default "http://127.0.0.1:9000" }}
+{{- $mqttAddr := .Values.mqttBrokerAddress | default "tcp://172.17.0.1:1883" }}
+{{ .Files.Get "configs/vst_config.json" | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | indent 4 }}
+  adaptor_config.json: |
+{{ .Files.Get "configs/adaptor_config.json" | indent 4 }}
+  vst_storage.json: |
+{{ .Files.Get "configs/vst_storage.json" | indent 4 }}
+  rtsp_streams.json: |
+{{ .Files.Get "configs/rtsp_streams.json" | indent 4 }}
+{{- end }}

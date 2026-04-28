@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.enabled .Values.init.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kibana.initJobName" . }}
+  labels:
+    app.kubernetes.io/name: kibana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: kibana-init
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: {{ .Values.init.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kibana
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: kibana-init
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-kibana-init
+          image: {{ .Values.init.image.repository }}:{{ .Values.init.image.tag }}
+          imagePullPolicy: {{ .Values.init.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - apk add --no-cache curl bash && export KIBANA_OBJECTS_FILE=kibana-objects.ndjson && bash /opt/mdx/kibana-import-dashboard.sh
+          env:
+            - name: KIBANA_URL
+              value: {{ .Values.init.kibanaUrl | default (include "kibana.httpServiceUrl" .) | quote }}
+            - name: ELASTICSEARCH_URL
+              value: {{ .Values.init.elasticsearchUrl | default (printf "http://%s:9200" (include "kibana.elasticsearchServiceHostname" .)) | quote }}
+          volumeMounts:
+            - name: import-data
+              mountPath: /opt/mdx
+              readOnly: true
+      volumes:
+        - name: import-data
+          configMap:
+            name: {{ include "kibana.initImportConfigMapName" . }}
+            defaultMode: 0755
+{{- end }}
