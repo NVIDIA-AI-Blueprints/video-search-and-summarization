@@ -73,8 +73,8 @@ services:
       - RECORDER_MODULE_ENDPOINT=${RECORDER_MODULE_ENDPOINT}
       - STORAGE_MODULE_ENDPOINT=${STORAGE_MODULE_ENDPOINT}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}:/home/vst/vst_release/configs
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/vst_config_${STREAM_TYPE:-redis}.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}/vst_config_${STREAM_TYPE:-redis}.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
     network_mode: host
@@ -121,8 +121,8 @@ services:
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}:/home/vst/vst_release/configs
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/vst_config_${STREAM_TYPE:-redis}.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}/vst_config_${STREAM_TYPE:-redis}.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
     network_mode: host

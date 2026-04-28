@@ -33,12 +33,12 @@ services:
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}:/home/vst/vst_release/configs
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
-      - ${MDX_SAMPLE_APPS_DIR}/vst/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     restart: unless-stopped
     deploy:
       restart_policy:
