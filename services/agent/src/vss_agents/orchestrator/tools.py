@@ -58,6 +58,7 @@ from pydantic import field_validator
 
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
+from .docker_compose_util import alerts_mode_to_env_mode
 from .docker_compose_util import create_dry_run_recipe
 from .docker_compose_util import generate_dry_run_artifacts
 from .docker_compose_util import parse_env_file
@@ -239,6 +240,13 @@ class GenerateInput(BaseModel):
         default=None,
         description="Optional NVIDIA API key to inject when NVIDIA_API_KEY is absent from the profile .env.",
     )
+    alerts_mode: str | None = Field(
+        default=None,
+        description=(
+            "Optional high-level alerts mode. Supported values are configured in the orchestrator MCP YAML. "
+            "When provided for profile='alerts', the orchestrator maps it to the corresponding MODE value."
+        ),
+    )
 
 
 class ComposeStatusInput(BaseModel):
@@ -322,7 +330,7 @@ class HardwareResolutionConfig(BaseModel):
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: dict[str, str]
-    thor_base_profiles: tuple[str, ...]
+    thor_profiles: tuple[str, ...]
 
 
 class LlmResolutionConfig(BaseModel):
@@ -335,6 +343,7 @@ class VlmResolutionConfig(BaseModel):
     """VLM name-to-slug resolution rules and Thor base overrides."""
 
     supported_models: dict[str, str]
+    thor_overrides: dict[str, str]
     thor_base_overrides: dict[str, str]
 
 
@@ -390,6 +399,13 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     model_resolution: ModelResolutionConfig = Field(
         ...,
         description="Hardware/model resolution rules used during docker_generate validation.",
+    )
+    alerts_mode_to_env_modes: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Mapping from user-facing alerts modes to MODE env values. "
+            "Example: {'verification': '2d_cv', 'real-time': '2d_vlm'}."
+        ),
     )
     include: list[str] = Field(
         default=[
@@ -833,6 +849,16 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
+                if input.alerts_mode is not None:
+                    if input.profile != "alerts":
+                        raise ValidationError("alerts_mode is only supported when profile='alerts'.")
+                    resolved_mode = alerts_mode_to_env_mode(input.alerts_mode, _config.alerts_mode_to_env_modes)
+                    existing_mode = env_overrides.get("MODE")
+                    if existing_mode is not None and existing_mode != resolved_mode:
+                        raise ValidationError(
+                            f"alerts_mode={input.alerts_mode!r} conflicts with env override MODE={existing_mode!r}."
+                        )
+                    env_overrides["MODE"] = resolved_mode
                 dry_run_recipe = create_dry_run_recipe(
                     profile=input.profile,
                     env_overrides=env_overrides,
@@ -843,6 +869,7 @@ async def vss_orchestrator(
                     output_compose_file=str(compose_path),
                     deployments_dir=str(deployments_dir),
                     mdx_data_dir=str(mdx_data_dir),
+                    alerts_mode_to_env_modes=_config.alerts_mode_to_env_modes,
                     source_compose_yaml=_config.source_compose_yaml,
                     source_env=_config.source_env,
                 )
