@@ -376,8 +376,10 @@ records what is currently RUNNING — not a deploy log; see
 `specs/stale-marker.spec`. With fleet=1, selection collapses to a
 single candidate. With fleet>1, two concurrent workflow runs land
 on different boxes naturally — that's how parallelism happens.
-Only `brev create` a new fleet member when no `^vss-eval-*`
-candidate matches the platform.
+The pool is operator-managed: never `brev create` a new fleet
+member yourself. If no `^vss-eval-*` candidate matches the trial's
+platform, emit `BLOCKED: pool exhausted for <platform>` (§ 5a) and
+let the operator scale the pool out-of-band.
 
 **Name prefix is an anchored match, not a substring.** Only
 instances whose name starts with `vss-eval-` are eligible for
