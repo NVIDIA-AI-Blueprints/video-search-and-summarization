@@ -130,7 +130,7 @@ services:
       # RTSP Stream Mode ('search' for search profile, rest other)
       STREAM_MODE: ${STREAM_MODE:-other}
       # Critic agent toggles (for search profile)
-      ENABLE_CRITIC: ${ENABLE_CRITIC:-false}
+      ENABLE_CRITIC: ${ENABLE_CRITIC:-true}
       # Evaluation, used with nat eval workflow
       EVAL_LLM_JUDGE_NAME: ${EVAL_LLM_JUDGE_NAME}
       EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}

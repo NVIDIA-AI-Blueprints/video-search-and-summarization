@@ -21,7 +21,7 @@ services:
     container_name: sensor-bp-wait-sdr-streaming
     restart: "no"
     volumes:
-      - ${MDX_SAMPLE_APPS_DIR}/vst/initiator/scripts/sensor-bp-wait-sdr-streaming.sh:/scripts/sensor-bp-wait-sdr-streaming.sh:ro
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/initiator/scripts/sensor-bp-wait-sdr-streaming.sh:/scripts/sensor-bp-wait-sdr-streaming.sh:ro
     environment:
       SDR_HTTP_REPLAYSTREAM_PORT: ${SDR_HTTP_REPLAYSTREAM_PORT:-4004}
       SDR_HTTP_LIVESTREAM_PORT: ${SDR_HTTP_LIVESTREAM_PORT:-4005}
@@ -35,7 +35,7 @@ services:
     container_name: sensor-bp-wait-bp-configurator
     restart: "no"
     volumes:
-      - ${MDX_SAMPLE_APPS_DIR}/vst/initiator/scripts/sensor-bp-wait-bp-configurator.sh:/scripts/sensor-bp-wait-bp-configurator.sh:ro
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/initiator/scripts/sensor-bp-wait-bp-configurator.sh:/scripts/sensor-bp-wait-bp-configurator.sh:ro
     environment:
       BP_CONFIGURATOR_READYZ_URL: ${BP_CONFIGURATOR_READYZ_URL:-http://127.0.0.1:5001/readyz}
       SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC: ${SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC:-300}
@@ -48,7 +48,7 @@ services:
     container_name: sensor-bp-wait-storage
     restart: "no"
     volumes:
-      - ${MDX_SAMPLE_APPS_DIR}/vst/initiator/scripts/sensor-bp-wait-storage.sh:/scripts/sensor-bp-wait-storage.sh:ro
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/initiator/scripts/sensor-bp-wait-storage.sh:/scripts/sensor-bp-wait-storage.sh:ro
     environment:
       STORAGE_HTTP_PORT: ${STORAGE_HTTP_PORT:-30011}
       SENSOR_BP_WAIT_STORAGE_MAX_SEC: ${SENSOR_BP_WAIT_STORAGE_MAX_SEC:-300}
