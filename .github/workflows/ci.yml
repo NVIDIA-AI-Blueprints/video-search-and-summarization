@@ -424,13 +424,16 @@ jobs:
   # ---------------------------------------------------------------------------
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
+    # Intentionally NOT depending on `test` (pytest) or `frontend-build`
+    # so they run in parallel with this job - the downstream pipeline is
+    # the long pole (~hours), and the upstream pytest / UI build are
+    # independent of what the downstream pipeline exercises. They still
+    # gate the overall workflow conclusion via GitHub's required checks.
     needs:
       - lint
       - typecheck
-      - test
       - security
       - frontend-lint
-      - frontend-build
       - copyright-headers
       - dco
       - license-check-python
