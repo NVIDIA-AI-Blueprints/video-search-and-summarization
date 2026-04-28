@@ -141,7 +141,7 @@ services:
       REPORT_REFERENCE_BASE_DIR: ${REPORT_REFERENCE_BASE_DIR}
 
     volumes:
-    - ${MDX_SAMPLE_APPS_DIR}:/vss-agent/deployments:ro
+    - ${MDX_SAMPLE_APPS_DIR}:/vss-agent/deploy/docker:ro
     - agent-eval:/vss-agent/agent_eval:rw
     command:
     - serve

@@ -24,7 +24,7 @@ services:
       - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
       - ${VST_VOLUME}/postgres/db:/var/lib/postgresql/data
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}/postgresql.conf:/etc/postgresql/postgresql.conf
       - ${VST_DATA_PATH}:/var/run/postgresql
     network_mode: host
     container_name: vss-vios-postgres
@@ -49,7 +49,7 @@ services:
     environment:
       - VST_INGRESS_HTTP_PORT=${VST_INGRESS_HTTP_PORT}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/nginx-${VST_NGINX_MODE:-2d}.conf:/etc/nginx/nginx.conf:ro
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}/nginx-${VST_NGINX_MODE:-2d}.conf:/etc/nginx/nginx.conf:ro
       - ${VST_LOGS}/nginx_logs:/var/log/nginx
     network_mode: host
     container_name: vss-vios-ingress

@@ -1,0 +1,130 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kibana.fullname" . }}
+  labels:
+    app.kubernetes.io/name: kibana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kibana
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kibana
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $esHosts := trim (default "" .Values.elasticsearchHosts) }}
+      {{- $esBase := printf "http://%s:9200" (include "kibana.elasticsearchServiceHostname" .) }}
+      {{- if ne $esHosts "" }}
+      {{- $esBase = $esHosts }}
+      {{- end }}
+      {{- $wfe := .Values.waitForElasticsearch | default dict }}
+      {{- $probePath := $wfe.probePath | default "/_cluster/health" }}
+      {{- if not (hasPrefix "/" $probePath) }}
+      {{- $probePath = printf "/%s" $probePath }}
+      {{- end }}
+      {{- $esProbeUrl := printf "%s%s" (trimSuffix "/" $esBase) $probePath }}
+      {{- if ($wfe.enabled | default true) }}
+      {{- $wimg := $wfe.image | default dict }}
+      initContainers:
+        - name: wait-elasticsearch
+          image: {{ $wimg.repository | default "docker.io/curlimages/curl" }}:{{ $wimg.tag | default "8.12.1" }}
+          imagePullPolicy: {{ $wimg.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: ES_PROBE_URL
+              value: {{ $esProbeUrl | quote }}
+            - name: MAX_ATTEMPTS
+              value: {{ $wfe.maxAttempts | default 120 | quote }}
+            - name: SLEEP_SECONDS
+              value: {{ $wfe.sleepSeconds | default 5 | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              URL="${ES_PROBE_URL}"
+              i=0
+              echo "Waiting until Elasticsearch responds: ${URL}"
+              until curl -sS -f --connect-timeout 5 --max-time 15 -o /dev/null "$URL"; do
+                i=$((i+1))
+                if [ "$i" -ge "${MAX_ATTEMPTS}" ]; then
+                  echo "Timeout after ${MAX_ATTEMPTS} attempts waiting for ${URL}"
+                  exit 1
+                fi
+                echo "  attempt ${i}/${MAX_ATTEMPTS} ..."
+                sleep "${SLEEP_SECONDS}"
+              done
+              echo "Elasticsearch reachable."
+      {{- end }}
+      containers:
+        - name: kibana
+          image: {{ include "kibana.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            {{- $g := .Values.global | default dict }}
+            {{- $gk := index $g "kibanaPublicUrl" | default "" | trim }}
+            {{- $eh := index $g "externalHost" | default "" | trim }}
+            {{- $es := index $g "externalScheme" | default "http" }}
+            {{- $ep := index $g "externalPort" | default "" | trim }}
+            {{- if and (eq $gk "") (ne $eh "") }}
+            {{- $kibHost := printf "kibana.%s" $eh }}
+            {{- if ne $ep "" }}
+            {{- $gk = printf "%s://%s:%s" $es $kibHost $ep }}
+            {{- else }}
+            {{- $gk = printf "%s://%s" $es $kibHost }}
+            {{- end }}
+            {{- end }}
+            - name: SERVER_PUBLICBASEURL
+              value: {{ .Values.kibanaPublicUrl | default .Values.serverPublicBaseUrl | default $gk | default (include "kibana.httpServiceUrl" .) | quote }}
+            - name: SERVER_SECURITYRESPONSEHEADERS_DISABLEEMBEDDING
+              value: {{ .Values.serverSecurityResponseHeadersDisableEmbedding | default "false" | quote }}
+            - name: CSP_STRICT
+              value: {{ .Values.cspStrict | default "false" | quote }}
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/kibana/config/kibana.yml
+              subPath: kibana.yml
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "kibana.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

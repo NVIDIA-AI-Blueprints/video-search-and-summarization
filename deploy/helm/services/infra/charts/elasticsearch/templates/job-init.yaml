@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.enabled .Values.init.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "elasticsearch.initJobName" . }}
+  labels:
+    {{- include "elasticsearch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: elasticsearch-init
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: {{ .Values.init.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "elasticsearch.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: elasticsearch-init
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-elasticsearch-init
+          image: {{ .Values.init.image.repository }}:{{ .Values.init.image.tag }}
+          imagePullPolicy: {{ .Values.init.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              apk add --no-cache bash curl
+              export ES_URL="${ELASTICSEARCH_URL}"
+              export ELASTICSEARCH_ILM_MIN_AGE="${ELASTICSEARCH_ILM_MIN_AGE}"
+              export ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM="${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM}"
+              export ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM="${ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM}"
+              export BP_PROFILE="${BP_PROFILE}"
+              bash /opt/mdx/init-scripts/elasticsearch-ilm-policy-creation.sh && \
+              bash /opt/mdx/init-scripts/elasticsearch-template-creation.sh && \
+              bash /opt/mdx/init-scripts/elasticsearch-ingest-pipeline-creation.sh
+          env:
+            - name: ELASTICSEARCH_URL
+              value: {{ .Values.init.elasticsearchUrl | default (include "elasticsearch.httpServiceUrl" .) | quote }}
+            - name: ELASTICSEARCH_ILM_MIN_AGE
+              value: {{ .Values.init.env.ELASTICSEARCH_ILM_MIN_AGE | quote }}
+            - name: ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM
+              value: {{ .Values.init.env.ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM | quote }}
+            - name: ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM
+              value: {{ .Values.init.env.ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM | quote }}
+            - name: BP_PROFILE
+              value: {{ .Values.init.env.BP_PROFILE | quote }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /opt/mdx/init-scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "elasticsearch.initScriptsConfigMapName" . }}
+            defaultMode: 0755
+{{- end }}

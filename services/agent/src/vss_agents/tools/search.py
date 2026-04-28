@@ -47,6 +47,7 @@ from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.vst.utils import get_streams_info
+from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 from vss_agents.utils.reasoning_utils import get_thinking_tag
 from vss_agents.utils.time_convert import datetime_to_iso8601
@@ -955,18 +956,18 @@ async def execute_core_search(
             content=f"Searching for similar objects to: {decomposed.object_ids}",
         )
 
-        from elasticsearch import AsyncElasticsearch
-
         from vss_agents.tools.attribute_search import AttributeSearchResult
         from vss_agents.tools.attribute_search import enrich_attribute_results
         from vss_agents.tools.attribute_search import search_by_object_embedding
+
+        es = await VSSESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
 
         async def _safe_object_search(oid: int) -> list[AttributeSearchResult]:
             try:
                 return await search_by_object_embedding(
                     object_id=str(oid),
-                    es_client=es_client,
                     behavior_index=config.behavior_index,
+                    es=es,
                     top_k=top_k,
                     min_similarity=search_input.min_cosine_similarity or 0.0,
                     video_sources=search_input.video_sources if search_input.video_sources else None,
@@ -977,20 +978,12 @@ async def execute_core_search(
                 logger.warning(f"Object ID {oid} search failed: {e}")
                 return []
 
-        es_client = AsyncElasticsearch(
-            hosts=[config.behavior_es_endpoint],
-            request_timeout=30,
-            max_retries=1,
-        )
-        try:
-            with TimeMeasure("search: object_ids behavior KNN"):
-                results_list = await asyncio.gather(*[_safe_object_search(oid) for oid in decomposed.object_ids])
+        with TimeMeasure("search: object_ids behavior KNN"):
+            results_list = await asyncio.gather(*[_safe_object_search(oid) for oid in decomposed.object_ids])
 
-            all_results: list[AttributeSearchResult] = []
-            for obj_results in results_list:
-                all_results.extend(obj_results)
-        finally:
-            await es_client.close()
+        all_results: list[AttributeSearchResult] = []
+        for obj_results in results_list:
+            all_results.extend(obj_results)
 
         # Deduplicate by object_id, keep highest similarity
         seen: dict = {}
@@ -1685,16 +1678,22 @@ async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[Func
         logger.info(f"Chat response chunk output: {response}")
         return ChatResponseChunk.from_string(_output_converter(response))
 
-    yield FunctionInfo.create(
-        single_fn=_search,
-        description=_search.__doc__,
-        input_schema=SearchInput,
-        single_output_schema=SearchOutput,
-        converters=[
-            _str_input_converter,
-            _chat_request_input_converter,
-            _output_converter,
-            _chat_response_output_converter,
-            _chat_response_chunk_output_converter,
-        ],
-    )
+    try:
+        yield FunctionInfo.create(
+            single_fn=_search,
+            description=_search.__doc__,
+            input_schema=SearchInput,
+            single_output_schema=SearchOutput,
+            converters=[
+                _str_input_converter,
+                _chat_request_input_converter,
+                _output_converter,
+                _chat_response_output_converter,
+                _chat_response_chunk_output_converter,
+            ],
+        )
+    finally:
+        try:
+            await VSSESClient.close_all()
+        except Exception as e:
+            logger.warning(f"Error closing ES clients: {e}")

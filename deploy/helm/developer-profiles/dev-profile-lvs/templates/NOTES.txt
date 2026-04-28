@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- $vssIngress := .Values.vssIngress | default dict }}
+{{- $global := .Values.global | default dict }}
+{{- $ingressEnabled := default false (index $vssIngress "enabled") }}
+{{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
+{{- $kibanaHost := coalesce (index $vssIngress "kibanaHost") (ternary (printf "kibana.%s" $mainHost) "" (ne $mainHost "")) }}
+{{- $phoenixHost := index $vssIngress "phoenixHost" | default "" | trim }}
+{{- $infra := .Values.infra | default dict }}
+{{- $kibanaEnabled := default false (index (index $infra "kibana" | default dict) "enabled") }}
+{{- $phoenixEnabled := default false (index (index $infra "phoenix" | default dict) "enabled") }}
+{{- $summarization := index .Values "vss-summarization" | default dict }}
+{{- $summarizationEnabled := default false (index $summarization "enabled") }}
+
+=====================================================================
+  NVIDIA Metropolis LVS Profile - Developer Workflow
+=====================================================================
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+
+=====================================================================
+  ACCESS
+=====================================================================
+{{- if $ingressEnabled }}
+{{- if ne $mainHost "" }}
+  Ingress is ENABLED. Services are exposed via host-based routing:
+
+  VSS UI:               http://{{ $mainHost }}
+  VSS Agent API:        http://{{ $mainHost }}/api
+  VST API:              http://{{ $mainHost }}/vst/api
+{{- if $kibanaEnabled }}
+  Kibana Dashboards:    http://{{ $kibanaHost }}
+{{- end }}
+{{- if $phoenixEnabled }}
+  Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
+{{- if ne $phoenixHost "" }}
+  Phoenix Tracing Host: http://{{ $phoenixHost }}
+{{- end }}
+{{- end }}
+{{- else }}
+  Ingress is ENABLED, but no host is configured.
+  Set one of:
+    --set vssIngress.host=<HOST>
+    --set global.externalHost=<HOST>
+{{- end }}
+{{- else }}
+  Ingress is DISABLED. Use kubectl port-forward to access services:
+
+  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 30888:30888 -n {{ .Release.Namespace }}
+{{- if $summarizationEnabled }}
+  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-summarization") }} 38111:38111 -n {{ .Release.Namespace }}
+{{- end }}
+{{- if $kibanaEnabled }}
+  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "kibana") }} 5601:5601 -n {{ .Release.Namespace }}
+{{- end }}
+{{- if $phoenixEnabled }}
+  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix") }} 6006:6006 -n {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
+
+=====================================================================
