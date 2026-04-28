@@ -894,6 +894,7 @@ async def vss_orchestrator(
                     "hardware_profile": resolved_env.get("HARDWARE_PROFILE", "(unset)"),
                     "host_ip": resolved_env.get("HOST_IP", "(unset)"),
                     "external_ip": resolved_env.get("EXTERNALLY_ACCESSIBLE_IP", "(unset)"),
+                    "mode": resolved_env.get("MODE", "(N/A)"),
                     "llm_mode": resolved_env.get("LLM_MODE", "(unset)"),
                     "llm_name": resolved_env.get("LLM_NAME", "(unset)"),
                     "vlm_mode": resolved_env.get("VLM_MODE", "(unset)"),
@@ -903,6 +904,10 @@ async def vss_orchestrator(
                 }
                 print(f"[docker_generate:{docker_compose_id}] compose yaml: {compose_path}", flush=True)
                 print(f"[docker_generate:{docker_compose_id}] env: {env_path}", flush=True)
+                print(
+                    f"[docker_generate:{docker_compose_id}] profile={input.profile} mode={result['mode']}",
+                    flush=True,
+                )
                 print(f"[docker_generate:{docker_compose_id}] {result}", flush=True)
                 return result
             except (ValidationError, RuntimeError) as exc:
