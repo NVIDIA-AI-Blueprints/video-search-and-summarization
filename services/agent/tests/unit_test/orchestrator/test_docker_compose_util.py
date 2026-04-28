@@ -196,8 +196,9 @@ class TestBuildResolvedEnv:
                 "BP_PROFILE=search",
                 "PROXY_MODE=direct",
                 "HARDWARE_PROFILE=igx",
-                "LLM_MODE=local",
+                "LLM_MODE=local_shared",
                 "LLM_NAME=llm-a",
+                "VLM_MODE=local_shared",
                 "VLM_NAME=vlm-a",
                 "HOST_IP=<HOST_IP>",
                 "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
@@ -223,7 +224,7 @@ class TestBuildResolvedEnv:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["VLM_MODE"] == "local"
+        assert resolved["VLM_MODE"] == "local_shared"
         assert resolved["HOST_IP"] == "10.0.0.5"
         assert resolved["EXTERNALLY_ACCESSIBLE_IP"] == "44.55.66.77"
         assert resolved["EXTERNAL_IP"] == "44.55.66.77"
@@ -235,7 +236,8 @@ class TestBuildResolvedEnv:
         assert resolved["VLM_NAME_SLUG"] == "vlm-a-slug"
         assert resolved["LLM_DEVICE_ID"] == "0"
         assert resolved["VLM_DEVICE_ID"] == "1"
-        assert resolved["COMPOSE_PROFILES"] == "search_local,llm_local_llm-a-slug,vlm_local_vlm-a-slug"
+        assert "SHARED_LLM_VLM_DEVICE_ID" not in resolved
+        assert resolved["COMPOSE_PROFILES"] == "search_local,llm_local_shared_llm-a-slug,vlm_local_shared_vlm-a-slug"
         assert brev_calls == [("10.0.0.5", "brev-from-etc")]
 
     def test_build_resolved_env_preserves_nonempty_env_file_values(

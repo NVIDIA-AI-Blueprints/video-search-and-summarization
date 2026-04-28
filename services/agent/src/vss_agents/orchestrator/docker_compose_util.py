@@ -286,9 +286,6 @@ def alerts_mode_to_env_mode(alerts_mode: str, alerts_mode_to_env_modes: Mapping[
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     merged = parse_env_file(config.source_env_file)
     merged.update(config.env_overrides)
-    if config.profile == PROFILE_SEARCH and "VLM_MODE" not in config.env_overrides:
-        # For search, default to local VLM unless user explicitly overrides VLM_MODE.
-        merged["VLM_MODE"] = "local"
     if config.ngc_cli_api_key and not merged.get("NGC_CLI_API_KEY", "").strip():
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key and not merged.get("NVIDIA_API_KEY", "").strip():
