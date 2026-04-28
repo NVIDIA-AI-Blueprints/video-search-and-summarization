@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-behavior-analytics.fullname" . }}
+  labels:
+    {{- include "vss-behavior-analytics.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-behavior-analytics
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "vss-behavior-analytics.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: vss-behavior-analytics
+  template:
+    metadata:
+      labels:
+        {{- include "vss-behavior-analytics.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: vss-behavior-analytics
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $g := .Values.global | default dict }}
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- else if index $g "imagePullSecrets" }}
+      imagePullSecrets:
+        {{- toYaml (index $g "imagePullSecrets") | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-behavior-analytics
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            {{- toYaml (required "vss-behavior-analytics.command must be set when enabled" .Values.command) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: vss-behavior-analytics-config
+              mountPath: /resources/vss-behavior-analytics-config.json
+              subPath: vss-behavior-analytics-config.json
+              readOnly: true
+      volumes:
+        - name: vss-behavior-analytics-config
+          configMap:
+            name: {{ include "vss-behavior-analytics.fullname" . }}-config
+{{- end }}

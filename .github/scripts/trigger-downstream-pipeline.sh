@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import socket
 import ssl
 import sys
@@ -147,16 +148,86 @@ def trigger_pipeline(
     ref: str,
     variable_name: str,
     commit_sha: str,
+    target_branch: str,
+    compare_branch: str,
 ) -> dict[str, Any]:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
         ("variables[][key]", variable_name),
         ("variables[][value]", commit_sha),
+        ("variables[][key]", "VSS_TARGET_BRANCH"),
+        ("variables[][value]", target_branch),
+        ("variables[][key]", "VSS_COMPARE_BRANCH"),
+        ("variables[][value]", compare_branch),
     ]
-    for branch_var in ("VSS_COMPARE_BRANCH", "VSS_TARGET_BRANCH"):
-        payload_pairs += [("variables[][key]", branch_var), ("variables[][value]", os.environ.get(branch_var, ""))]
     payload = urlencode(payload_pairs).encode("utf-8")
     return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
+
+
+def fetch_pr_base_ref(repo: str, pr_number: int, token: str) -> str:
+    """Fetch a PR's base ref from the GitHub REST API.
+
+    Uses the workflow GITHUB_TOKEN. Returns an empty string on any failure -
+    callers should fall back to a sane default rather than aborting the
+    pipeline trigger.
+    """
+    if not repo or pr_number <= 0:
+        return ""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "vss-trigger-downstream-pipeline",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(f"https://api.github.com/repos/{repo}/pulls/{pr_number}", headers=headers)
+    try:
+        with urlopen(request) as response:
+            payload = response.read().decode("utf-8")
+    except (HTTPError, URLError, ContentTooShortError):
+        return ""
+    try:
+        data = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    base = data.get("base")
+    if isinstance(base, dict):
+        ref = base.get("ref")
+        if isinstance(ref, str):
+            return ref
+    return ""
+
+
+def resolve_branches() -> tuple[str, str]:
+    """Resolve (target_branch, compare_branch) for the downstream pipeline.
+
+    On a push to a copy-pr-bot synthetic branch ``pull-request/<N>``:
+        target  = the PR's base ref (e.g. ``release/3.2.0``)
+        compare = ``pull-request/<N>`` (the synthetic branch under test)
+
+    For pushes to regular branches (``main``, ``develop``, ...), both default
+    to ``GITHUB_REF_NAME`` so downstream consumers always see something
+    meaningful.
+    """
+    ref_name = os.environ.get("GITHUB_REF_NAME", "").strip()
+    pr_match = re.fullmatch(r"pull-request/(\d+)", ref_name)
+    if not pr_match:
+        return ref_name, ref_name
+    pr_number = int(pr_match.group(1))
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    base_ref = fetch_pr_base_ref(repo, pr_number, token)
+    if not base_ref:
+        # Couldn't resolve via the API - keep the synthetic branch as the
+        # target so we never silently send a wrong release branch downstream.
+        print(
+            f"::warning::Could not resolve base ref for PR #{pr_number}; "
+            "falling back to GITHUB_REF_NAME for VSS_TARGET_BRANCH"
+        )
+        return ref_name, ref_name
+    return base_ref, ref_name
 
 
 def write_summary(message: str) -> None:
@@ -193,8 +264,19 @@ def main() -> int:
         for segment in project_path.split("/"):
             add_mask(segment)
 
+        target_branch, compare_branch = resolve_branches()
+
         project_id = fetch_project_id(base_url, token, project_path)
-        pipeline = trigger_pipeline(base_url, token, project_id, ref, variable_name, commit_sha)
+        pipeline = trigger_pipeline(
+            base_url,
+            token,
+            project_id,
+            ref,
+            variable_name,
+            commit_sha,
+            target_branch,
+            compare_branch,
+        )
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
         pipeline_id = str(pipeline.get("id") or "")
@@ -207,17 +289,31 @@ def main() -> int:
         if pipeline_url:
             add_mask(pipeline_url)
 
-        # Log identifiers only - no URL, no project path.
+        # Log identifiers only - no URL, no project path. Echo the
+        # submodule SHA and resolved branches so it is obvious which
+        # commit and branches the downstream pipeline is testing
+        # (none of these are secrets - the SHA and branches all come
+        # from the public GitHub event that triggered this workflow).
         print(f"Triggered downstream pipeline #{pipeline_iid} (id={pipeline_id}, sha={pipeline_sha})")
+        print(f"  {variable_name}={commit_sha}")
+        print(f"  VSS_TARGET_BRANCH={target_branch}")
+        print(f"  VSS_COMPARE_BRANCH={compare_branch}")
 
         sha_short = pipeline_sha[:8] if pipeline_sha else ""
+        commit_sha_short = commit_sha[:8] if commit_sha else ""
         summary_lines = ["### Downstream pipeline triggered", ""]
         if pipeline_iid:
             summary_lines.append(f"- **Pipeline:** #{pipeline_iid}")
         if pipeline_id:
             summary_lines.append(f"- **Global ID:** `{pipeline_id}`")
         if pipeline_sha:
-            summary_lines.append(f"- **Commit SHA:** `{sha_short}` (`{pipeline_sha}`)")
+            summary_lines.append(f"- **Downstream commit SHA:** `{sha_short}` (`{pipeline_sha}`)")
+        if commit_sha:
+            summary_lines.append(f"- **{variable_name}:** `{commit_sha_short}` (`{commit_sha}`)")
+        if target_branch:
+            summary_lines.append(f"- **VSS_TARGET_BRANCH:** `{target_branch}`")
+        if compare_branch:
+            summary_lines.append(f"- **VSS_COMPARE_BRANCH:** `{compare_branch}`")
         if pipeline_created_at:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))

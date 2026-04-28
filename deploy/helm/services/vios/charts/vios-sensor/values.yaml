@@ -1,0 +1,110 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-vios-sensor
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+service:
+  port: 30000
+  type: ClusterIP
+# Compose parity: entrypoint, healthcheck, env and volumes (configs, vst_data, vst_video)
+command: ["/bin/bash", "-c"]
+args: ["exec /home/vst/vst_release/launch_vst"]
+# Compose healthcheck: CMD-SHELL bash -ec 'exec 3<>/dev/tcp/127.0.0.1/30000' → tcpSocket on service port
+livenessProbe:
+  tcpSocket:
+    port: 30000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 20
+readinessProbe:
+  tcpSocket:
+    port: 30000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 20
+streamProcessorEndpoint: ""   # override if needed; else derived from streamProcessorService
+streamProcessorService: "vss-vios-envoy-proxy"
+vstIngressEndpoint: ""        # full URL with scheme. When global.vlmBaseUrl and global.externalHost are set, defaults to <externalScheme>://<externalHost>[:externalPort]/vst for remote VLM. Else in-cluster vst-ingress URL.
+# Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means <Release.Name>-redis:6379.
+redisServerAddress: ""
+# Kafka / video metadata / cloud storage / MQTT: vst_config.json placeholders. Empty = release-based or Compose default.
+kafkaServerAddress: ""
+videoMetadataServerUrl: ""
+cloudStorageEndpoint: ""
+mqttBrokerAddress: ""
+# Centralized DB: host matches vss-vios-postgres Service (same rules as global.useReleaseNamePrefix). Password from that chart's *-postgres-cm unless overridden.
+# Override when using external DB: centralizedDbHost, centralizedDbPort, centralizedDbPassword.
+# centralizedDbHost: ""
+# centralizedDbPort: "5432"
+# centralizedDbPassword: ""   # leave empty to use postgres-cm; set for external DB
+env:
+  - name: HOST_IP
+    value: "0.0.0.0"
+  - name: ADAPTOR
+    value: vst_rtsp
+  - name: NEED_RECORDING
+    value: "false"
+  - name: NEED_RTSPSERVER
+    value: "false"
+  - name: NEED_STORAGE
+    value: "false"
+  - name: NEED_STREAM_MONITORING
+    value: "true"
+  - name: HTTP_PORT
+    value: "30000"
+  - name: CENTRALIZE_DB_NAME
+    value: nvcentralizedb
+  - name: CENTRALIZE_DB_USERNAME
+    value: vst
+  # STREAM_PROCESSOR_MODULE_ENDPOINT is set by the template from streamProcessorEndpoint
+
+# Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH. Optional PVCs for vst-data, vst-video.
+# To share with vss-vios-streamprocessing, set existingClaim to the same claim name (defaults: <Helm release>-vst-data / -vst-video). Single-node: ReadWriteOnce is enough.
+persistence:
+  vstData:
+    enabled: false
+    create: true
+    existingClaim: ""
+    size: 10Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  vstVideo:
+    enabled: false
+    create: true
+    existingClaim: ""
+    size: 20Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+# Run as root (match compose user: "0:0") so the app can write to vst_data/vst_video (SQLite, recordings). Override if your image expects non-root.
+securityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  fsGroup: 0
+
+# Request 1 GPU for HW encode/decode (NVIDIA device plugin). Set to {} to run without GPU (software path).
+# resources:
+#   limits:
+#     nvidia.com/gpu: 1
+#   requests:
+#     nvidia.com/gpu: 1
+nodeSelector: {}
+tolerations: []

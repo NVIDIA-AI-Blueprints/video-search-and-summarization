@@ -1,0 +1,96 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+imagePullSecrets:
+  - name: ngc-docker-reg-secret
+
+replicas: 1
+image:
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+  tag: "3.2.0-26.04.1"
+  pullPolicy: IfNotPresent
+port: 8000
+service:
+  type: ClusterIP
+gpuDeviceId: "2"
+dshm:
+  enabled: true
+  sizeLimit: "16Gi"
+clearCachedEnginesOnStart: false
+kafkaEnabled: true
+kafkaTopic: "mdx-embed"
+kafkaBootstrapServers: ""
+redisHost: ""
+redisPort: "6379"
+modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
+modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+logLevel: "INFO"
+enableOtelMonitoring: false
+enableRedisErrorMessages: false
+enableRequestProfiling: false
+otelTracesExporter: "otlp"
+otelExporterOtlpEndpoint: "http://otel-collector:4318"
+otelMetricExportInterval: "60000"
+otelResourceAttributes: ""
+forceSwAv1Decoder: ""
+numGpus: ""
+numVlmProcs: ""
+vlmBatchSize: "8"
+rtspTimeout: ""
+rtspLatency: ""
+installProprietaryCodes: false
+rtspReconnectionInterval: "5"
+rtspReconnectionMaxAttempts: "10"
+rtspReconnectionWindow: "60"
+startupProbe:
+  initialDelaySeconds: 240
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 40
+livenessProbe:
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+ngcApiKey: ""
+nvidiaApiKey: ""
+hfToken: ""
+resources:
+  limits:
+    nvidia.com/gpu: 1
+podSecurityContext:
+  fsGroup: 1001
+securityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+persistence:
+  storageClass: ""
+  ngcModelCache:
+    size: 50Gi
+  hfCache:
+    size: 50Gi
+clipStorage:
+  enabled: false
+  existingClaim: ""
+  hostPath: ""
+nodeSelector: {}
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"

@@ -1,0 +1,290 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss-rtvi-embed.fullname" . }}
+  labels:
+    {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-rtvi-embed
+spec:
+  type: {{ .Values.service.type | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP
+  selector:
+    {{- include "vss-rtvi-embed.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-rtvi-embed
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-rtvi-embed.fullname" . }}
+  labels:
+    {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-rtvi-embed
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "vss-rtvi-embed.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: vss-rtvi-embed
+  template:
+    metadata:
+      labels:
+        {{- include "vss-rtvi-embed.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: vss-rtvi-embed
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              KAFKA="{{ include "vss-rtvi-embed.kafkaBootstrap" . }}"
+              HOST="${KAFKA%%:*}"
+              PORT="${KAFKA##*:}"
+              echo "Waiting for Kafka at $KAFKA..."
+              until nc -z "$HOST" "$PORT" 2>/dev/null; do
+                echo "Kafka not ready, retrying in 10s..."
+                sleep 10
+              done
+              echo "Kafka is ready."
+      {{- if .Values.clearCachedEnginesOnStart }}
+        - name: clear-rtvi-trt-cache
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              echo "Clearing cached TensorRT/model artifacts...";
+              rm -rf /opt/nvidia/rtvi/.rtvi/ngc_model_cache/Cosmos-Embed1-448p || true;
+              find /opt/nvidia/rtvi/.rtvi/ngc_model_cache -type f
+              \( -name "*.engine" -o -name "*.plan" -o -name "*.onnx" \) -print -delete || true;
+              chown -R 1001:1001 /opt/nvidia/rtvi/.rtvi/ngc_model_cache;
+              chown -R 1001:1001 /tmp/huggingface;
+              echo "RTVI cache cleanup complete."
+          volumeMounts:
+            - name: ngc-model-cache
+              mountPath: /opt/nvidia/rtvi/.rtvi/ngc_model_cache
+            - name: hf-cache
+              mountPath: /tmp/huggingface
+      {{- end }}
+      containers:
+        - name: vss-rtvi-embed
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: {{ .Values.gpuDeviceId | default "all" | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: MODEL_IMPLEMENTATION_PATH
+              value: {{ .Values.modelImplementationPath | quote }}
+            - name: MODEL_PATH
+              value: {{ .Values.modelPath | quote }}
+            - name: MODEL_REPOSITORY_SCRIPT_PATH
+              value: {{ .Values.modelRepositoryScriptPath | quote }}
+            - name: KAFKA_ENABLED
+              value: {{ .Values.kafkaEnabled | quote }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "vss-rtvi-embed.kafkaBootstrap" . | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ .Values.kafkaTopic | quote }}
+            - name: REDIS_HOST
+              value: {{ include "vss-rtvi-embed.redisHost" . | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.redisPort | quote }}
+            - name: REDIS_DB
+              value: "0"
+            - name: REDIS_PASSWORD
+              value: ""
+            - name: ENABLE_OTEL_MONITORING
+              value: {{ .Values.enableOtelMonitoring | quote }}
+            - name: ENABLE_REDIS_ERROR_MESSAGES
+              value: {{ .Values.enableRedisErrorMessages | quote }}
+            - name: ENABLE_REQUEST_PROFILING
+              value: {{ .Values.enableRequestProfiling | quote }}
+            - name: INSTALL_PROPRIETARY_CODECS
+              value: {{ .Values.installProprietaryCodes | quote }}
+            - name: OTEL_TRACES_EXPORTER
+              value: {{ .Values.otelTracesExporter | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otelExporterOtlpEndpoint | quote }}
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ .Values.otelMetricExportInterval | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ .Values.otelResourceAttributes | quote }}
+            - name: FORCE_SW_AV1_DECODER
+              value: {{ .Values.forceSwAv1Decoder | default "" | quote }}
+            - name: NUM_GPUS
+              value: {{ .Values.numGpus | default "" | quote }}
+            - name: NUM_VLM_PROCS
+              value: {{ .Values.numVlmProcs | default "" | quote }}
+            - name: VLM_BATCH_SIZE
+              value: {{ .Values.vlmBatchSize | default "" | quote }}
+            - name: RTVI_RTSP_TIMEOUT
+              value: {{ .Values.rtspTimeout | default "" | quote }}
+            - name: RTVI_RTSP_LATENCY
+              value: {{ .Values.rtspLatency | default "" | quote }}
+            - name: NVIDIA_API_KEY
+              value: {{ .Values.nvidiaApiKey | default "NOAPIKEYSET" | quote }}
+            - name: NGC_API_KEY
+              value: {{ .Values.ngcApiKey | default "" | quote }}
+            - name: HF_TOKEN
+              value: {{ .Values.hfToken | default "" | quote }}
+            - name: RTVI_RTSP_RECONNECTION_INTERVAL
+              value: {{ .Values.rtspReconnectionInterval | quote }}
+            - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
+              value: {{ .Values.rtspReconnectionMaxAttempts | quote }}
+            - name: RTVI_RTSP_RECONNECTION_WINDOW
+              value: {{ .Values.rtspReconnectionWindow | quote }}
+            - name: ASSET_DOWNLOAD_CONNECT_TIMEOUT
+              value: "10"
+            - name: ASSET_DOWNLOAD_TOTAL_TIMEOUT
+              value: "300"
+            - name: ERROR_MESSAGE_TOPIC
+              value: "vision-embed-errors"
+          startupProbe:
+            httpGet:
+              path: /v1/ready
+              port: {{ .Values.port }}
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /v1/ready
+              port: {{ .Values.port }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /v1/ready
+              port: {{ .Values.port }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: ngc-model-cache
+              mountPath: /opt/nvidia/rtvi/.rtvi/ngc_model_cache
+            - name: hf-cache
+              mountPath: /tmp/huggingface
+            - name: triton-model-repo
+              mountPath: /tmp/triton_model_repo
+            {{- if .Values.dshm.enabled }}
+            - name: dshm
+              mountPath: /dev/shm
+            {{- end }}
+            {{- if .Values.clipStorage.enabled }}
+            - name: clip-storage
+              mountPath: /home/vst/vst_release/streamer_videos
+            {{- end }}
+      volumes:
+        - name: ngc-model-cache
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-embed.fullname" . }}-rtvi-ngc-cache
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-embed.fullname" . }}-rtvi-hf-cache
+        - name: triton-model-repo
+          emptyDir: {}
+        {{- if .Values.dshm.enabled }}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.dshm.sizeLimit }}
+        {{- end }}
+        {{- if .Values.clipStorage.enabled }}
+        - name: clip-storage
+          {{- if .Values.clipStorage.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.clipStorage.existingClaim }}
+          {{- else if .Values.clipStorage.hostPath }}
+          hostPath:
+            path: {{ .Values.clipStorage.hostPath }}
+            type: DirectoryOrCreate
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vss-rtvi-embed.fullname" . }}-rtvi-ngc-cache
+  labels:
+    {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-rtvi-embed
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.ngcModelCache.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vss-rtvi-embed.fullname" . }}-rtvi-hf-cache
+  labels:
+    {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-rtvi-embed
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.hfCache.size }}
