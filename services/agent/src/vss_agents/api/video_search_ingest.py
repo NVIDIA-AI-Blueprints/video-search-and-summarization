@@ -626,7 +626,7 @@ def create_generic_video_router(
             raise HTTPException(
                 status_code=vst_response.status_code,
                 detail=f"VST returned non-JSON response: {vst_response.text[:500]}",
-            )
+            ) from None
 
         if vst_response.status_code >= 400:
             raise HTTPException(status_code=vst_response.status_code, detail=payload)
