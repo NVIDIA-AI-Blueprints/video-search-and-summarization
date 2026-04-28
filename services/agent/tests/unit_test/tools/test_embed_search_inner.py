@@ -61,7 +61,10 @@ class TestEmbedSearchInner:
     def mock_es(self, monkeypatch):
         client = AsyncMock()
         client.indices.exists.return_value = True
-        monkeypatch.setattr(VSSESClient, "_clients", {"http://mock:9200": client})
+        # Key MUST match config.es_endpoint — VSSESClient.get_es_client looks up
+        # the cache by exact endpoint string. Mismatched key would fall through
+        # to creating a real AsyncElasticsearch and trying to dial live ES.
+        monkeypatch.setattr(VSSESClient, "_clients", {"http://localhost:9200": client})
         monkeypatch.setattr(VSSESClient, "close_all", AsyncMock())
         return client
 
