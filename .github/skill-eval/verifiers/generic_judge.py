@@ -7,18 +7,17 @@ Reads a skill's `eval/<profile>.json` spec + Harbor's agent trajectory,
 evaluates every check in the named step (1-based index), and writes
 Harbor's expected reward.
 
-Design goal: spec authors write **natural-language checks**. This judge
-encapsulates all Harbor filesystem conventions + shell-probing + LLM-
-agent-as-judge wiring, so the spec stays declarative and portable.
-
-Routing:
-  - Checks with a backtick-wrapped `curl`/`docker`/`grep`/etc. command —
-    run as subprocess, pass if exit 0 (cheap, deterministic, no LLM).
-  - All other checks — dispatched to a `claude-agent-sdk` judge **agent**
-    with `Bash` + `Read` + `Grep` tools. The judge can inspect the
-    trajectory file, probe the live deployed system, grep logs, etc.
-    before deciding pass/fail. This obsoletes per-skill probe scripts
-    (`skills/<skill>/scripts/test_*.py`) — the judge has tool access.
+Design goal: spec authors write **natural-language checks**. Every
+check is dispatched to a `claude-agent-sdk` judge **agent** with
+`Bash` + `Read` + `Grep` tools — the judge decides per check whether
+to run a shell probe, grep the trajectory, inspect the agent's final
+reply, or some combination. There is no Python-level routing or
+regex command extraction: the judge has the tools the spec author
+would reach for, and reads the check itself to decide which to use.
+This obsoletes per-skill probe scripts (`skills/<skill>/scripts/
+test_*.py`) and the prior shell fast-path that misclassified
+negative-assertion checks ("the agent does NOT call X") as shell
+directives and ran the example command verbatim.
 
 Usage (inside a Harbor trial):
     python3 generic_judge.py --spec /tests/<profile>.json --step 1
@@ -30,14 +29,14 @@ Outputs:
                                  `=== Results: X passed, Y failed (of N) ===`
 
 Env (from `[verifier.env]` in task.toml, plumbed by Harbor):
-    ANTHROPIC_API_KEY    required for LLM-judge routes
+    ANTHROPIC_API_KEY    required (no shell fallback exists)
     ANTHROPIC_BASE_URL   optional, for proxies (e.g. NVIDIA inference API)
     JUDGE_MODEL          explicit judge model (preferred; adapter sets
                          this via [verifier.env]); falls back to
                          ANTHROPIC_MODEL, then "claude-sonnet-4-6"
     JUDGE_MAX_TURNS              per-check agent turn cap (default 25)
     JUDGE_PER_CHECK_TIMEOUT_S    per-check wall-clock cap (default 600s)
-    JUDGE_PARALLELISM            concurrent LLM-route checks per step
+    JUDGE_PARALLELISM            concurrent checks per step
                                  (default 4, clamped to 1..8)
 """
 from __future__ import annotations
@@ -46,7 +45,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -73,56 +71,7 @@ def locate_trajectory() -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Shell fast-path — extract runnable commands from backticks, run them.
-# ---------------------------------------------------------------------------
-
-_SHELL_VERBS = {
-    "curl", "docker", "grep", "ls", "cat", "file", "ss",
-    "netstat", "nc", "jq", "awk", "sed", "wc", "head", "tail",
-    "sudo", "find", "test",
-}
-
-
-def extract_shell_command(check: str) -> str | None:
-    """If the check contains a runnable shell command in backticks, return it.
-    Conservative — only extracts commands beginning with safe verbs."""
-    for match in re.finditer(r"`([^`]{5,400})`", check):
-        cmd = match.group(1).strip()
-        first = cmd.split()[0] if cmd.split() else ""
-        if first in _SHELL_VERBS:
-            return cmd
-    return None
-
-
-def judge_shell(check: str) -> dict:
-    cmd = extract_shell_command(check) or ""
-    try:
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        return {
-            "route": "shell",
-            "pass": False,
-            "command": cmd,
-            "rationale": "shell command timed out after 30s",
-            "matched": None,
-        }
-    passed = result.returncode == 0
-    preview = (result.stdout or result.stderr or "")[:500].strip()
-    return {
-        "route": "shell",
-        "pass": passed,
-        "command": cmd,
-        "rationale": (
-            f"exit {result.returncode}" + (f"; output: {preview!r}" if preview else "")
-        ),
-        "matched": preview if passed else None,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Agent-based LLM judge (claude-agent-sdk)
+# Agent-based LLM judge (claude-agent-sdk) — the only routing tier.
 # ---------------------------------------------------------------------------
 
 _JUDGE_SYSTEM_PROMPT = """You are a strict eval judge for an agent-deploy evaluation framework.
@@ -133,6 +82,27 @@ You have read-only access to the trial artifacts via tools:
 - The agent's trajectory is at one of /logs/agent/trajectory.jsonl, /logs/agent/trajectory.json, /logs/agent/claude-code.txt, /logs/agent/agent.log — use Read + Grep to inspect tool-use records, request bodies, response bodies, final assistant text.
 - The live deployed system is reachable through Bash — you can `docker ps`, `curl http://localhost:...`, `cat /some/file`, etc. Use this to independently verify response-structure claims against the live endpoint, not just transcript pattern-matching.
 - The trial's `/tests/` dir has the task spec and verifier helpers if you need them.
+
+# Picking the right tool per check
+
+Read the check carefully and pick the cheapest evidence that actually answers it. There is no Python-level routing — you are the router.
+
+- **Live-system probe (Bash).** When the check is a positive statement about the *current* state of the deployed system — e.g. "`curl -sf http://localhost:8000/docs` returns exit 0", "container `vss-agent` is running", "the `/v1/ready` endpoint responds 200" — run the probe via Bash and pass iff its semantics match. If the check quotes a literal command in backticks, use that command verbatim (don't paraphrase). Pass iff the exit code / output matches what the check claims.
+
+- **Trajectory inspection (Read / Grep).** When the check is about what the agent *did* during the trial — e.g. "the agent issued exactly one POST /generate", "the agent's request body contained `forklifts`", "the trajectory shows X before Y" — open the trajectory file and search for the relevant tool-use records. Don't run live probes for these; the trial may be over by the time the judge runs.
+
+- **Negative-assertion check (Grep, NOT Bash).** When the check says the agent did NOT do something — e.g. "the agent does not run `docker compose down`", "no POST to /generate", "the trial never called PUT /api/v1/videos-for-search" — search the trajectory for the *absence* of those calls. **Never run the listed command yourself** — the check is asserting it didn't happen, not asking you to do it. Pass iff the trajectory has zero matches.
+
+- **Final-reply inspection (Read).** When the check is about the agent's last assistant message — e.g. "the final reply is formatted as a Video Analysis Report", "the agent's reply mentions a Brev secure-link" — read the tail of the trajectory and inspect the last assistant turn.
+
+- **Multi-step check (combine).** Some checks need two probes: e.g. "the agent's reply cites a screenshot URL that returns HTTP 200". Inspect the trajectory for the URL, then `curl -sfI` it via Bash to verify the live response.
+
+Watch for:
+- **Backticks as examples vs. directives.** "`curl http://x` returns 200" → directive (run it). "such as `docker compose down`, `docker stop`, `docker rm`" → enumeration of examples (don't run any of them; verify absence in trajectory).
+- **CWD assumptions.** When a check says "`docker compose ...`" it usually presumes the deploy's compose dir; don't run it from `/tests/` and conclude "no compose file" — find the right CWD first, or treat the check as a trajectory assertion if no compose dir exists.
+- **Stale trajectory.** If the trajectory file is empty or missing the relevant turn, say so in `rationale` and pass=false rather than guessing.
+
+# Discipline
 
 Gather only the evidence you need to decide, then stop. Typically 1–3 tool calls is enough; hard cap is 10.
 
@@ -323,20 +293,16 @@ def _parse_verdict_json(text: str) -> dict | None:
 
 def _run_checks(checks: list[str], traj_path: str | None,
                 per_check_timeout_s: int) -> list[dict]:
-    """Evaluate all checks for one step. LLM-route checks run concurrently
-    under a Semaphore (JUDGE_PARALLELISM, default 4, max 8) — each runs an
-    independent claude-agent-sdk subprocess against the shared trajectory
-    + live stack, with no cross-check mutation. Shell-route checks run
-    inline in a thread pool. Order is preserved: results[i] corresponds
-    to checks[i]."""
+    """Evaluate all checks for one step. Every check runs through an
+    independent claude-agent-sdk judge agent, concurrently under a
+    Semaphore (JUDGE_PARALLELISM, default 4, max 8). Each agent has
+    Bash/Read/Grep against the shared trajectory + live stack, with
+    no cross-check mutation. Order is preserved: results[i]
+    corresponds to checks[i]."""
     parallelism = max(1, min(int(os.environ.get("JUDGE_PARALLELISM", "4")), 8))
     sem = asyncio.Semaphore(parallelism)
 
     async def _eval(check: str) -> dict:
-        if extract_shell_command(check):
-            # Wrap the synchronous shell judge so it can join an asyncio.gather
-            # with LLM checks. Shell judges have their own 30s subprocess timeout.
-            return await asyncio.to_thread(judge_shell, check)
         async with sem:
             return await _judge_llm_agent(
                 check, traj_path, timeout_s=per_check_timeout_s,
