@@ -16,7 +16,7 @@
 general:
   use_uvloop: true
   front_end:
-    _type: fastapi
+    _type: vss_fastapi
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     endpoints:
@@ -171,6 +171,49 @@ functions:
       EXAMPLE:
       [0.0s-4.0s] <description of the first event>
       [4.0s-12.0s] <description of the second event>
+    # HITL Configuration - prompts user to confirm/edit VLM prompt before report generation
+    hitl_enabled: true
+    hitl_prompt_llm: ${LLM_MODEL_TYPE:-nim}_llm  # LLM for AI-assisted prompt generation e.g. nim_llm, openai_llm
+    hitl_vlm_prompt_template: |
+      **VLM Prompt for Report Generation**
+
+      **OPTIONS:**
+
+      • Press Submit (empty) → Approve and generate report
+
+      • Type a new prompt directly or paste current prompt and edit it manually
+
+      • Type `/generate <description>` → AI creates a prompt based on your description
+
+      • Type `/refine <instructions>` → AI modifies the current prompt
+
+      • Type `/cancel` → Cancel report generation
+
+      Enter your choice or press Submit to keep current value:
+    hitl_generate_system_prompt: |
+      You are a prompt engineer specializing in video analysis.
+      Create a clear, detailed prompt for a Vision Language Model (VLM)
+      that will analyze video footage and generate a report.
+
+      Requirements:
+      - Be specific about what to look for in the video
+      - Include instructions to describe events with timestamps in chronological[Xs-Ys] format
+      - Focus on the user's described scenario/goals and create the prompt that will be understandable for the VLM
+      - Keep the prompt concise but detailed
+
+      Output ONLY the VLM prompt, no explanations.
+    hitl_refine_system_prompt: |
+      You are a prompt engineer specializing in video analysis.
+      Modify the existing VLM prompt based on the user's instructions.
+
+      Requirements:
+      - Preserve the timestamp format [Xs-Ys] requirement
+      - Maintain the original prompt structure and content and add on to it the user's requested changes
+
+      Current prompt to modify:
+      {current_prompt}
+
+      Output ONLY the modified prompt, no explanations.
 
   report_agent:
     _type: report_agent
@@ -215,6 +258,18 @@ llms:
     temperature: 0.0
     max_tokens: 4096
 
+  rtvi_vlm:
+    _type: openai
+    model_name: nvidia/cosmos-reason2-8b
+    base_url: ${RTVI_VLM_BASE_URL}/v1
+    temperature: 0.0
+    model_kwargs:
+      extra_body:
+        num_frames_per_second_or_fixed_frames_chunk: 20
+        use_fps_for_chunking: false
+        vlm_input_width: 1280
+        vlm_input_height: 720
+
   # --- Others ---
   eval_llm_judge:
     _type: nim
@@ -249,7 +304,8 @@ workflow:
       **report_agent**
       - Only call report_agent when user mentions "report" in the question.
       - Don't use the report from previous interactions.
-      - Examples: "Generate a report for, "Create an analysis report", "Generate a report using long video summarization", "Generate a report using lvs"
+      - CRITICAL: For multiple videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
+      - Examples: "Generate a report for video1", "Create an analysis report", "Generate a report using long video summarization", "Generate a report for video1 & video2 using lvs"
       **video_understanding** - For any question about short videos or quick queries for a video clip.
       - Use when video is less than 1 minute.
       - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
