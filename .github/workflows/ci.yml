@@ -69,12 +69,15 @@ jobs:
         run: uv run ruff format --check .
 
       # Run from repo root so `git ls-files` sees YAML files outside
-      # services/agent (the job's default working-directory). `uv run
-      # --project` pins the uv environment to services/agent regardless.
+      # services/agent (the job's default working-directory).
+      # yamllint is GPL-3.0-or-later, so we run it ephemerally via `uvx`
+      # rather than declaring it as a project dep — that way it never
+      # appears in services/agent/uv.lock and never lands in any
+      # installed project venv. The license-check job is unaffected.
       - name: yamllint
         working-directory: ${{ github.workspace }}
         run: |
-          uv run --project services/agent yamllint \
+          uvx yamllint \
             -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}" \
             $(git ls-files '.github/**/*.yml' '.github/**/*.yaml' '.pre-commit-config.yaml' 'services/**/*.yml' 'services/**/*.yaml')
 
