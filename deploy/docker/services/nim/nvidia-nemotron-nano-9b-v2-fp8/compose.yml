@@ -1,0 +1,166 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
+    # Fetch toolcall parser from Hugging Face (public repo, no HF_TOKEN required).
+    image: docker.io/alpine/curl:8.12.1
+    container_name: nvidia-nemotron-nano-9b-v2-fp8-toolcall-init
+    profiles:
+    - llm_local_nvidia-nemotron-nano-9b-v2-fp8
+    - llm_local_shared_nvidia-nemotron-nano-9b-v2-fp8
+    volumes:
+      - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/out
+    command:
+      - sh
+      - -c
+      - "curl -fSL -o /out/nemotron_toolcall_parser_no_streaming.py https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-9B-v2/resolve/main/nemotron_toolcall_parser_no_streaming.py"
+    restart: "no"
+
+  nvidia-nemotron-nano-9b-v2-fp8:
+    # Nemotron-Nano-V2 and tool-parser (nemotron_toolcall_parser_no_streaming.py) require vLLM 25.12+; 25.10 does not support Nemotron.
+    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --port
+      - "8000"
+      - --mamba_ssm_cache_dtype
+      - float32
+      - --enable-auto-tool-choice
+      - --tool-parser-plugin
+      # Script path from init-container volume (fetched from Hugging Face, no token).
+      - /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
+      - --tool-call-parser
+      - nemotron_json
+    container_name: nvidia-nemotron-nano-9b-v2-fp8
+    profiles:
+    - llm_local_nvidia-nemotron-nano-9b-v2-fp8
+    runtime: nvidia
+    shm_size: 16GB
+    ports:
+     - ${LLM_PORT:-30081}:8000
+    environment:
+      NGC_API_KEY: "${NGC_CLI_API_KEY}"
+    env_file:
+      - ${MDX_SAMPLE_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}.env
+    volumes:
+      - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
+      - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${LLM_DEVICE_ID:-0}"
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/health; else elapsed=0; while ! curl -fs http://localhost:8000/health > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/health; fi']
+      interval: 60s
+      timeout: 650s
+      retries: 2
+    depends_on:
+      nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
+        condition: service_completed_successfully
+        required: true
+
+  nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
+    # Nemotron-Nano-V2 and tool-parser require vLLM 25.12+ (see rel-25-12 release notes).
+    image: nvcr.io/nvidia/vllm:25.12.post1-py3
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.40"
+      - --port
+      - "8000"
+      - --mamba_ssm_cache_dtype
+      - float32
+      - --enable-auto-tool-choice
+      - --tool-parser-plugin
+      # Script path from init-container volume (fetched from Hugging Face, no token).
+      - /opt/toolcall_parser/nemotron_toolcall_parser_no_streaming.py
+      - --tool-call-parser
+      - nemotron_json
+    container_name: nvidia-nemotron-nano-9b-v2-fp8
+    profiles:
+    - llm_local_shared_nvidia-nemotron-nano-9b-v2-fp8
+    runtime: nvidia
+    shm_size: 16GB
+    ports:
+     - ${LLM_PORT:-30081}:8000
+    environment:
+      NGC_API_KEY: "${NGC_CLI_API_KEY}"
+    env_file:
+      - ${MDX_SAMPLE_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}-shared.env
+    volumes:
+      - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
+      - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities:
+              - gpu
+              driver: nvidia
+              device_ids:
+              - "${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/health; else elapsed=0; while ! curl -fs http://localhost:8000/health > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/health; fi']
+      interval: 60s
+      timeout: 650s
+      retries: 2
+    depends_on:
+      nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
+        condition: service_completed_successfully
+        required: true
+      cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b-shared-gpu:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct-shared-gpu:
+        condition: service_healthy
+        required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
+      rtvi-embed:
+        condition: service_healthy
+        required: false
+volumes:
+  nvidia_nemotron_nano_9b_v2_fp8_cache:
+  nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:
