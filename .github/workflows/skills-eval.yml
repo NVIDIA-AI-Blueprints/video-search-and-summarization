@@ -49,10 +49,11 @@ jobs:
     # 3 video-search done and video-summarization not yet started —
     # observed avg trial wall-clock is closer to ~30m once /deploy +
     # ingest + judge per-check gather complete. 480m gives margin for
-    # cold-box transitions, redeploys at profile boundaries (handled by
-    # the active-deploy.txt marker but still ~20m each), and the brev
-    # teardown cooldown. The lock-hold timeout in AGENTS.md (flock -w)
-    # is bumped in lockstep below.
+    # cold-box transitions and redeploys at profile boundaries (handled
+    # by the active-deploy.txt marker but still ~20m each). No
+    # teardown cooldown — the vss-eval-* pool is operator-managed and
+    # stays warm across runs. The lock-hold timeout in AGENTS.md
+    # (flock -w) is set in lockstep below.
     timeout-minutes: 480
 
     # Extra safety: only run on the mirror branches, never on develop/main.
