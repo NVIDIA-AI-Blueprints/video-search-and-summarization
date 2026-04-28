@@ -61,7 +61,7 @@ services:
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration
-      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE}
+      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE:-false}
       - LVS_EMB_MODEL_NAME=${LVS_EMB_MODEL_NAME}
       - LVS_EMB_BASE_URL=${LVS_EMB_BASE_URL}
 
