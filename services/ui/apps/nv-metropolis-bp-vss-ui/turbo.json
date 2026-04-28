@@ -5,7 +5,7 @@
     "build": {
       "dependsOn": ["$TURBO_EXTENDS$"],
       "outputs": ["$TURBO_EXTENDS$"],
-      "inputs": ["$TURBO_DEFAULT$"]
+      "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"]
     },
     "bundle": {
       "dependsOn": ["build"],

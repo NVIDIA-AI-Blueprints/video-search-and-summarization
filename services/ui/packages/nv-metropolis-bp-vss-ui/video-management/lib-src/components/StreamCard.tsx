@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
-import type { StreamInfo } from '../types';
+import type { StreamInfo, ChatSidebarQueryContext } from '../types';
 import { getFileExtension, isRtspStream, fetchPictureWithQueue } from '../utils';
 import { createApiEndpoints } from '../api';
 import { copyToClipboard } from '@nemo-agent-toolkit/ui';
-import { IconCheck, IconCopy } from '@tabler/icons-react';
+import { IconCheck } from '@tabler/icons-react';
 
 interface StreamCardProps {
   stream: StreamInfo;
@@ -15,6 +15,8 @@ interface StreamCardProps {
   getEndTimeForStream: (streamId: string) => string | null;
   onPlay?: (stream: StreamInfo) => void;
   isLoadingPlay?: boolean;
+  /** When set, adds this stream as a chip in the app Chat sidebar (and still copies JSON). */
+  onAddChatQueryContext?: (ctx: ChatSidebarQueryContext) => void;
 }
 
 export const StreamCard: React.FC<StreamCardProps> = ({
@@ -25,6 +27,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   getEndTimeForStream,
   onPlay,
   isLoadingPlay = false,
+  onAddChatQueryContext,
 }) => {
   const extension = getFileExtension(stream.url);
   const isRtsp = isRtspStream(stream);
@@ -116,11 +119,16 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   };
 
   const handleCopyContext = useCallback(async () => {
-    const text = JSON.stringify(
-      { sensorName: stream.name, streamId: stream.streamId },
-      null,
-      2
-    );
+    const data = { sensorName: stream.name, streamId: stream.streamId };
+    const text = JSON.stringify(data, null, 2);
+
+    onAddChatQueryContext?.({
+      id: `video-mgmt-stream:${stream.streamId}`,
+      label: stream.name,
+      type: 'video-stream',
+      data,
+    });
+
     try {
       await copyToClipboard(text);
       setCopyState('success');
@@ -132,7 +140,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
       setCopyState('idle');
       copyTimeoutRef.current = null;
     }, 2000);
-  }, [stream.name, stream.streamId]);
+  }, [stream.name, stream.streamId, onAddChatQueryContext]);
 
   return (
     <div
@@ -152,19 +160,22 @@ export const StreamCard: React.FC<StreamCardProps> = ({
           {stream.name}
         </p>
         <Button
-          kind="tertiary"
+          kind="primary"
           size="small"
+          className="flex-shrink-0 text-xs"
           onClick={handleCopyContext}
-          title="Copy sensor context"
+          title="Add sensor context to chat"
         >
           {copyState === 'success' ? (
-            <IconCheck className="w-2.5 h-2.5" style={{ color: 'inherit' }} />
+            <>
+              <IconCheck className="w-2.5 h-2.5 shrink-0" style={{ color: 'inherit' }} />
+              <span>Added</span>
+            </>
+          ) : copyState === 'error' ? (
+            <span>Failed</span>
           ) : (
-            <IconCopy className="w-2.5 h-2.5" style={{ color: 'inherit' }} />
+            <span>+ Chat</span>
           )}
-          <span className="text-xs">
-            {copyState === 'success' ? 'Copied' : copyState === 'error' ? 'Failed' : 'Copy'}
-          </span>
         </Button>
       </div>
 
