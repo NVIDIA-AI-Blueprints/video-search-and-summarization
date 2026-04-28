@@ -36,7 +36,7 @@ services:
       - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/vst_config_${STREAM_TYPE:-redis}.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-      - ${MDX_SAMPLE_APPS_DIR}/vst/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     deploy:
       restart_policy:
         condition: always
