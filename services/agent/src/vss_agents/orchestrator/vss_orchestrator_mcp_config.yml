@@ -108,7 +108,7 @@ function_groups:
         edge_device_ids:
           llm: "0"
           vlm: "0"
-        thor_base_profiles:
+        thor_profiles:
         - IGX-THOR
         - AGX-THOR
       llm:
@@ -123,13 +123,17 @@ function_groups:
           nvidia/cosmos-reason1-7b: cosmos-reason1-7b
           nvidia/cosmos-reason2-8b: cosmos-reason2-8b
           Qwen/Qwen3-VL-8B-Instruct: qwen3-vl-8b-instruct
-        thor_base_overrides:
+        thor_overrides:
           VLM_NAME_SLUG: none
           VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
           RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
           RTVI_VLM_MODEL_TO_USE: cosmos-reason2
           RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+        thor_base_overrides:
           VLM_MODEL_TYPE: rtvi
+    alerts_mode_to_env_modes:
+      verification: 2d_cv
+      real-time: 2d_vlm
     include:
     - profiles
     - prereqs
