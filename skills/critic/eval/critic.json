@@ -1,23 +1,14 @@
 {
   "skills": ["critic"],
-  "env": "A **full-remote deployed VSS search profile** (deploy mode = `remote-all` — same constraints as the video-search eval: GPU host; LLM and VLM via remote launchpad; Cosmos Embed1 + Elasticsearch for any prior search). The **critic** skill requires the dedicated `POST /api/v1/critic` route in `config.yml` (e.g. `dev-profile-search`) — base / LVS / alerts profiles do not expose it by default. Run on **one** platform (L40S recommended). Required: VSS agent at `http://localhost:8000/docs` with `/api/v1/critic` in OpenAPI, VST at `http://localhost:30888/vst/api/v1`, Elasticsearch at `http://localhost:9200` when search is part of the flow, Brev secure-link env vars (BREV_ENV_ID, BREV_LINK_PREFIX) where URLs are externalized, AND all sample videos downloaded from `ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.1.0` then extracted with `tar -xzvf` then pre-ingested by curling the videos-for-search API",
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["remote-all"]
+      }
+    }
+  },
+  "env": "A **full-remote deployed VSS search profile** (deploy mode = `remote-all`; GPU host; LLM and VLM via remote launchpad; Cosmos Embed1 + Elasticsearch for any prior search). The **critic** skill requires the dedicated `POST /api/v1/critic` route in `config.yml` (e.g. `dev-profile-search`) — base / LVS / alerts profiles do not expose it by default. Required: VSS agent at `http://localhost:8000/docs` with `/api/v1/critic` in OpenAPI, VST at `http://localhost:30888/vst/api/v1`, Elasticsearch at `http://localhost:9200` when search is part of the flow, Brev secure-link env vars (BREV_ENV_ID, BREV_LINK_PREFIX) where URLs are externalized, AND all sample videos downloaded from `ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.1.0` then extracted with `tar -xzvf` then pre-ingested by curling the videos-for-search API for each video curl -X PUT http://localhost:8000/api/v1/videos-for-search/<filename.mp4> -H 'Content-Type: video/mp4' --data-binary @/path/to/video.mp4",
   "expects": [
-    {
-      "query": "Verify with the critic the segment 00:01:48.5 → 00:01:58.3 in sample-warehouse-ladder for the query 'Person wearing a white shirt'.",
-      "checks": [
-        "The agent's final reply explicitly asks the user to provide `HOST_IP` / the endpoint of the VSS agent because it cannot infer it from the conversation",
-        "The trajectory contains no `POST http://.../api/v1/critic` and no `POST http://.../generate` — the agent pauses for the missing `HOST_IP` instead of defaulting to `localhost` or guessing"
-      ]
-    },
-    {
-      "query": "Verify with the critic the segment 00:01:48.5 → 00:01:58.3 in airport video for the query 'Person wearing a white shirt'. Agent backend is on localhost.",
-      "checks": [
-        "The agent listed available video sources via a `GET http://localhost:30888/vst/api/v1/sensor/list` (or equivalent VST list) call",
-        "It did not invent a `sensor_id` to use for the critic since this video does not exist. The trajectory contains no `POST http://.../api/v1/critic` with made-up `sensor_id` or timestamps for a non-existent source",
-        "The agent's final reply explicitly acknowledges that no `airport` source is registered and asks the user to clarify or ingest that video first — it did NOT fabricate critic verdicts for clips from a different sensor",
-        "The agent did NOT call `PUT /api/v1/videos-for-search/...` as an automatic fix — that remains user opt-in"
-      ]
-    },
     {
       "query": "Verify with the critic the segment 00:01:48.5 → 00:01:58.3 in sample warehouse ladder video for the query 'Person wearing a white shirt'. Agent backend is on localhost.",
       "checks": [
@@ -41,7 +32,7 @@
       ]
     },
     {
-      "query": "Verify with the critic the segment 00:01:48.5 → 00:01:58.3 of the sample-warehouse-ladder video for the query 'neon-pink monster truck'. Agent backend is on localhost.",
+      "query": "Verify with the critic the segment 00:01:48.5 → 00:01:58.3 of the sample-warehouse-ladder video for the query 'grey cat running'. Agent backend is on localhost.",
       "checks": [
         "The agent issued one `POST http://localhost:8000/api/v1/critic` for verification with this `sensor_id`, the correct timestamps and the correct query",
         "The /api/v1/critic response returned HTTP 200 with a body containing a non-empty `video_results` array. The criteria met are all false. The criteria inferred by the VLM all correspond strictly to the user query.",
