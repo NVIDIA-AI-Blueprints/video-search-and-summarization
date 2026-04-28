@@ -317,7 +317,21 @@ def _run_checks(checks: list[str], traj_path: str | None,
     return results
 
 
+def _disable_server_thinking() -> None:
+    """The NVIDIA Anthropic proxy rejects requests that carry the
+    `context_management` field claude-agent-sdk ≥ 2.1.x emits by default
+    ("context_management: Extra inputs are not permitted", HTTP 400).
+    Setting `CLAUDE_CODE_DISABLE_THINKING=1` strips the field before
+    the request goes out. The skills-eval workflow already exports this,
+    but set it here defensively so local shadow-runs of generic_judge
+    against the NVIDIA proxy work without manual env wiring. Mirrors
+    `skills_eval_agent.py::_disable_server_thinking`."""
+    if "CLAUDE_CODE_DISABLE_THINKING" not in os.environ:
+        os.environ["CLAUDE_CODE_DISABLE_THINKING"] = "1"
+
+
 def main() -> int:
+    _disable_server_thinking()
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True,
                     help="Path to the eval JSON spec (copied into tests/ by the adapter)")
