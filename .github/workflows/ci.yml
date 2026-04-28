@@ -441,19 +441,26 @@ jobs:
     # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
     # (+ a small safety buffer).
     timeout-minutes: 245
+    permissions:
+      contents: read
+      # Needed so the trigger script can call the GitHub REST API to
+      # resolve the PR's base branch (only present on `pull_request`
+      # events, not on the `push` event used for `pull-request/<N>`
+      # synthetic refs created by copy-pr-bot).
+      pull-requests: read
     env:
       DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
       DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
       DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
       DOWNSTREAM_REF: main
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
-      VSS_TARGET_BRANCH: ${{ github.ref_name }}
-      VSS_COMPARE_BRANCH: ${{ github.base_ref || 'develop' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Trigger pipeline
         id: trigger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 .github/scripts/trigger-downstream-pipeline.sh
 
       - name: Poll pipeline
