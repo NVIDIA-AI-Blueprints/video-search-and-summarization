@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-long-video-summarization}:${LVS_TAG:-3.1.0}}
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc1-d3e1a8f}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
@@ -46,8 +46,12 @@ services:
       # Database configuration
       - MILVUS_DB_HOST=${MILVUS_DB_HOST}
       - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT}
+      - ES_HOST=${ES_HOST:-${HOST_IP}}
+      - ES_PORT=${ES_PORT:-9200}
+      - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
 
       # LLM configuration
+      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME:-${LLM_NAME}}
       - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
       - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
@@ -55,6 +59,7 @@ services:
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration
+      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE:-false}
       - LVS_EMB_MODEL_NAME=${LVS_EMB_MODEL_NAME}
       - LVS_EMB_BASE_URL=${LVS_EMB_BASE_URL}
 
@@ -76,9 +81,14 @@ services:
       - VLM_INPUT_WIDTH=${VLM_INPUT_WIDTH:-1312}
       - VLM_INPUT_HEIGHT=${VLM_INPUT_HEIGHT:-736}
 
+      # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
+      - USE_RTVI_VLM=${USE_RTVI_VLM:-false}
+      - RTVI_VLM_URL=${RTVI_VLM_URL:-}
+      - RTVI_VLM_URL_PASSTHROUGH=true
+
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
 
-    # Alternative: Load LVS defaults from env file
+    # Alternative: Load all variables from .env file
     env_file:
       - $MDX_SAMPLE_APPS_DIR/services/video-summarization/.env
 
