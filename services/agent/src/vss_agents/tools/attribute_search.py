@@ -36,6 +36,7 @@ from pydantic import Field
 from vss_agents.embed.embed import EmbedClient
 from vss_agents.embed.rtvi_cv_embed import RTVICVEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
+from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.uuid_string import is_standard_uuid_string
 
@@ -228,10 +229,10 @@ class AttributeSearchConfig(FunctionBaseConfig, name="attribute_search"):
 async def _perform_frame_lookups(
     candidates: list[dict[str, Any]],
     query_embedding: list[float],
-    es_client: AsyncElasticsearch,
     frames_index: str | list[str],
     timestamp_start: datetime | None,
     timestamp_end: datetime | None,
+    es: AsyncElasticsearch,
 ) -> list[tuple[int | None, dict | None, float | None, str | None] | None]:
     """
     Perform frame-level lookups for all candidates to get more accurate bbox, timestamp, and frame_score.
@@ -258,13 +259,13 @@ async def _perform_frame_lookups(
 
         if object_id and sensor_id:
             task = _get_frame_from_behavior(
-                es_client=es_client,
                 frames_index=frames_index,
                 sensor_id=sensor_id,
                 object_id=object_id,
                 start_time=start_time,
                 end_time=end_time,
                 query_embedding=query_embedding,
+                es=es,
             )
             frame_lookup_tasks.append(task)
         else:
@@ -293,13 +294,13 @@ async def _perform_frame_lookups(
 
 
 async def _get_frame_from_behavior(
-    es_client: AsyncElasticsearch,
     frames_index: str | list[str],
     sensor_id: str,
     object_id: str,
     start_time: str,
     end_time: str | None,
     query_embedding: list[float],
+    es: AsyncElasticsearch,
 ) -> tuple[int | None, dict | None, float | None, str | None]:
     """Find the best matching frame for an object using server-side cosine similarity."""
     try:
@@ -378,7 +379,7 @@ async def _get_frame_from_behavior(
             "_source": ["id", "timestamp", "sensorId", "objects"],
         }
 
-        response = await es_client.search(index=search_frames_index_str, body=search_query)
+        response = await es.search(index=search_frames_index_str, body=search_query)
         hits = response.get("hits", {}).get("hits", [])
 
         if not hits:
@@ -424,8 +425,8 @@ async def _get_frame_from_behavior(
 
 async def _fetch_object_embedding(
     object_id: str,
-    es_client: AsyncElasticsearch,
     behavior_index: str | list[str],
+    es: AsyncElasticsearch,
 ) -> list[float]:
     """Fetch an object's embedding vector from the behavior index by object_id.
 
@@ -434,7 +435,6 @@ async def _fetch_object_embedding(
 
     Args:
         object_id: The object ID to look up (from SearchResult.object_ids)
-        es_client: Elasticsearch async client
         behavior_index: Behavior index name(s) to search
 
     Returns:
@@ -450,7 +450,7 @@ async def _fetch_object_embedding(
         "sort": [{"timestamp": {"order": "desc"}}],
         "_source": ["embeddings.vector"],
     }
-    response = await es_client.search(index=search_index_str, body=query)
+    response = await es.search(index=search_index_str, body=query)
     hits = response["hits"]["hits"]
     if not hits:
         raise ValueError(f"Object ID '{object_id}' not found in behavior index '{search_index_str}'")
@@ -466,8 +466,8 @@ async def _fetch_object_embedding(
 
 async def search_by_object_embedding(
     object_id: str,
-    es_client: AsyncElasticsearch,
     behavior_index: str | list[str],
+    es: AsyncElasticsearch,
     top_k: int = 5,
     min_similarity: float = 0.0,
     video_sources: list[str] | None = None,
@@ -481,8 +481,8 @@ async def search_by_object_embedding(
 
     Args:
         object_id: The object ID whose embedding to use as query
-        es_client: Elasticsearch async client
         behavior_index: Behavior index name(s)
+        es: Shared AsyncElasticsearch client
         top_k: Number of results to return
         min_similarity: Minimum similarity threshold
         video_sources: Optional video source filter
@@ -492,11 +492,11 @@ async def search_by_object_embedding(
     Returns:
         List of AttributeSearchResult sorted by similarity
     """
-    embedding = await _fetch_object_embedding(object_id, es_client, behavior_index)
+    embedding = await _fetch_object_embedding(object_id, behavior_index, es)
     results = await search_by_attributes(
         query_embedding=embedding,
-        es_client=es_client,
         index=behavior_index,
+        es=es,
         timestamp_start=timestamp_start,
         timestamp_end=timestamp_end,
         video_sources=video_sources,
@@ -535,11 +535,11 @@ async def enrich_attribute_results(
 
 
 async def _search_behavior(
-    es_client: AsyncElasticsearch,
     index: str | list[str],
     query_embedding: list[float],
     top_k: int,
     min_similarity: float,
+    es: AsyncElasticsearch,
     timestamp_start: datetime | None = None,
     timestamp_end: datetime | None = None,
     video_sources: list[str] | None = None,
@@ -656,7 +656,7 @@ async def _search_behavior(
     logger.debug(f"Searching index: {search_index_str}")
 
     try:
-        response = await es_client.search(index=search_index_str, body=search_query)
+        response = await es.search(index=search_index_str, body=search_query)
     except ESNotFoundError as e:
         # Index doesn't exist - return empty result with informative error
         logger.error(f"Elasticsearch index '{search_index_str}' not found: {e}")
@@ -1000,8 +1000,8 @@ def _deduplicate_by_object(
 
 async def search_by_attributes(
     query_embedding: list[float],
-    es_client: AsyncElasticsearch,
     index: str | list[str],
+    es: AsyncElasticsearch,
     timestamp_start: datetime | None = None,
     timestamp_end: datetime | None = None,
     video_sources: list[str] | None = None,
@@ -1017,11 +1017,11 @@ async def search_by_attributes(
         # Phase 1: Search behavior embeddings
         with TimeMeasure("attribute_search: search behavior embeddings"):
             candidates = await _search_behavior(
-                es_client=es_client,
                 index=index,
                 query_embedding=query_embedding,
                 top_k=top_k,
                 min_similarity=min_similarity,
+                es=es,
                 timestamp_start=timestamp_start,
                 timestamp_end=timestamp_end,
                 video_sources=video_sources,
@@ -1048,10 +1048,10 @@ async def search_by_attributes(
                 frame_results = await _perform_frame_lookups(
                     candidates=candidates,
                     query_embedding=query_embedding,
-                    es_client=es_client,
                     frames_index=frames_index,
                     timestamp_start=timestamp_start,
                     timestamp_end=timestamp_end,
+                    es=es,
                 )
             # Build results with frame lookup data
             for idx, hit in enumerate(candidates):
@@ -1107,9 +1107,9 @@ async def search_single_attribute(
     query_text: str,
     search_input: AttributeSearchInput,
     embed_client: EmbedClient,
-    es_client: AsyncElasticsearch,
     index: str | list[str],
     frames_index: str | list[str] | None,
+    es: AsyncElasticsearch,
     enable_frame_lookup: bool = True,
 ) -> list[AttributeSearchResult]:
     """Search for a single attribute."""
@@ -1117,8 +1117,8 @@ async def search_single_attribute(
         query_embedding = await embed_client.get_text_embedding(query_text)
     return await search_by_attributes(
         query_embedding=query_embedding,
-        es_client=es_client,
         index=index,
+        es=es,
         timestamp_start=search_input.timestamp_start,
         timestamp_end=search_input.timestamp_end,
         video_sources=search_input.video_sources,
@@ -1133,9 +1133,9 @@ async def search_single_attribute(
 async def search_attributes(
     search_input: AttributeSearchInput,
     embed_client: EmbedClient,
-    es_client: AsyncElasticsearch,
     index: str,
     vst_external_url: str,
+    es: AsyncElasticsearch,
     vst_internal_url: str | None = None,
     frames_index: str | None = None,
     enable_frame_lookup: bool = True,
@@ -1176,12 +1176,12 @@ async def search_attributes(
             queries=queries,
             search_input=search_input,
             embed_client=embed_client,
-            es_client=es_client,
             search_index=search_index,
             search_frames_index=search_frames_index,
             enable_frame_lookup=enable_frame_lookup,
             vst_external_url=vst_external_url,
             vst_internal_url=vst_internal_url,
+            es=es,
         )
     else:
         # APPEND MODE: Return top_k per attribute independently (no fusion)
@@ -1189,12 +1189,12 @@ async def search_attributes(
             queries=queries,
             search_input=search_input,
             embed_client=embed_client,
-            es_client=es_client,
             search_index=search_index,
             search_frames_index=search_frames_index,
             enable_frame_lookup=enable_frame_lookup,
             vst_external_url=vst_external_url,
             vst_internal_url=vst_internal_url,
+            es=es,
         )
 
 
@@ -1202,12 +1202,12 @@ async def _fuse_multi_attribute(
     queries: list[str],
     search_input: AttributeSearchInput,
     embed_client: EmbedClient,
-    es_client: AsyncElasticsearch,
     search_index: str | list[str],
     search_frames_index: str | list[str] | None,
     enable_frame_lookup: bool,
     vst_external_url: str,
     vst_internal_url: str | None,
+    es: AsyncElasticsearch,
 ) -> list[AttributeSearchResult]:
     """Fuse mode: Combine object IDs from all attributes for single screenshot."""
     # Search all attributes with top_k=1
@@ -1228,9 +1228,9 @@ async def _fuse_multi_attribute(
             query_text=q,
             search_input=search_input_single,
             embed_client=embed_client,
-            es_client=es_client,
             index=search_index,
             frames_index=search_frames_index,
+            es=es,
             enable_frame_lookup=enable_frame_lookup,
         )
         for q in queries
@@ -1303,12 +1303,12 @@ async def _append_multi_attribute(
     queries: list[str],
     search_input: AttributeSearchInput,
     embed_client: EmbedClient,
-    es_client: AsyncElasticsearch,
     search_index: str | list[str],
     search_frames_index: str | list[str] | None,
     enable_frame_lookup: bool,
     vst_external_url: str,
     vst_internal_url: str | None,
+    es: AsyncElasticsearch,
 ) -> list[AttributeSearchResult]:
     """Append mode: Return top_k results per attribute independently (no fusion)."""
     # Search each attribute with top_k (not top_k=1)
@@ -1332,9 +1332,9 @@ async def _append_multi_attribute(
                 query_text=attr_query,
                 search_input=search_input_per_attr,
                 embed_client=embed_client,
-                es_client=es_client,
                 index=search_index,
                 frames_index=search_frames_index,
+                es=es,
                 enable_frame_lookup=enable_frame_lookup,
             )
 
@@ -1404,23 +1404,18 @@ async def build_attribute_search(config: AttributeSearchConfig, _builder: Builde
 
     logger.info("Text embedding: rtvi_cv")
 
-    # Create Elasticsearch client with increased timeout for nested frame queries
-    es_client = AsyncElasticsearch(
-        hosts=[config.es_endpoint],
-        request_timeout=30,  # Increase from default 10s to 30s for nested queries
-        max_retries=0,  # Don't retry on timeout
-    )
+    es = await VSSESClient.get_es_client(es_endpoint=config.es_endpoint)
 
     async def attribute_search_fn(search_input: AttributeSearchInput) -> list[AttributeSearchResult]:
         return await search_attributes(
             search_input,
             embed_client,
-            es_client,
             config.behavior_index,
             config.vst_external_url,
-            config.vst_internal_url,
-            config.frames_index,
-            config.enable_frame_lookup,
+            es=es,
+            vst_internal_url=config.vst_internal_url,
+            frames_index=config.frames_index,
+            enable_frame_lookup=config.enable_frame_lookup,
         )
 
     try:
@@ -1431,12 +1426,11 @@ async def build_attribute_search(config: AttributeSearchConfig, _builder: Builde
             # Note: single_output_schema removed to avoid Python 3.13 isinstance() issues with parameterized generics
         )
     finally:
-        # Release embedding cache + close ES client
         try:
             await embed_client.aclose()
         except Exception as e:
             logger.warning(f"Error closing embed client: {e}")
         try:
-            await es_client.close()
+            await VSSESClient.close_all()
         except Exception as e:
-            logger.warning(f"Error closing ES client: {e}")
+            logger.warning(f"Error closing ES clients: {e}")
