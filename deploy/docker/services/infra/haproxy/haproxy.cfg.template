@@ -1,0 +1,155 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# HAProxy expands ${VAR} from the process environment inside double-quoted strings
+# only (see docs.haproxy.org §2.3). See compose.yml for required variables.
+# Route model follows helm/developer-profiles/*/vss-ingress-example.yaml and
+# vss-ingress-example-rewrites.yaml (HAProxy Kubernetes Ingress analog).
+
+global
+    log stdout format raw local0 info
+    maxconn 40000
+
+defaults
+    mode http
+    log global
+    option httplog
+    option forwardfor
+    timeout connect 10s
+    timeout client 120s
+    timeout server 120s
+    timeout tunnel 3600s
+
+# --- Backends (services use host networking on HOST_IP) ---
+
+backend bk_vss_ui
+    server s1 "${HOST_IP}:${VSS_UI_PORT}" check
+
+backend bk_vss_agent
+    server s1 "${HOST_IP}:${VSS_AGENT_PORT}" check
+
+backend bk_vst_ingress
+    server s1 "${HOST_IP}:${VST_PORT}" check
+
+backend bk_behavior_analytics
+    server s1 "${HOST_IP}:${BEHAVIOR_ANALYTICS_PORT}" check
+
+backend bk_perception_sdr
+    server s1 "${HOST_IP}:${PERCEPTION_SDR_PORT}" check
+
+backend bk_va_mcp
+    server s1 "${HOST_IP}:${VSS_VA_MCP_PORT}" check
+
+backend bk_kibana
+    server s1 "${HOST_IP}:${KIBANA_PORT}" check
+
+# Path-rewrite + backends for prefixed services (same as haproxy.org/path-rewrite on Ingress)
+
+backend bk_video_analytics_api_strip
+    http-request replace-path ^/video-analytics-api/(.*) /\1
+    http-request replace-path ^/video-analytics-api$ /
+    server s1 "${HOST_IP}:${VIDEO_ANALYTICS_API_PORT}" check
+
+backend bk_alert_bridge_strip
+    http-request replace-path ^/alert-bridge/(.*) /\1
+    http-request replace-path ^/alert-bridge$ /
+    server s1 "${HOST_IP}:${ALERT_BRIDGE_PORT}" check
+
+# Strip /phoenix like Phoenix examples/reverse-proxy (Traefik stripPrefix); keep PHOENIX_HOST_ROOT_PATH in sync.
+backend bk_phoenix_strip
+    http-request replace-path ^/phoenix/(.*) /\1
+    http-request replace-path ^/phoenix$ /
+    server s1 "${HOST_IP}:${PHOENIX_PORT}" check
+
+frontend fe_http
+    bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
+
+    # Named vhosts (nip.io / DNS) plus common dev cases: bare IP, localhost (Host must match or you get 404).
+    acl known_host hdr(host) -i "${VSS_PUBLIC_HOST}"
+    acl known_host hdr(host) -i "${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}"
+    acl known_host hdr(host) -i "${EXTERNAL_IP}"
+    acl known_host hdr(host) -i "${EXTERNAL_IP}:${HAPROXY_PORT}"
+    acl known_host hdr(host) -i "${HOST_IP}"
+    acl known_host hdr(host) -i "${HOST_IP}:${HAPROXY_PORT}"
+    acl known_host hdr(host) -i localhost
+    acl known_host hdr(host) -i "localhost:${HAPROXY_PORT}"
+    acl known_host hdr(host) -i 127.0.0.1
+    acl known_host hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
+    http-request deny deny_status 404 if !known_host
+
+    acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}"
+    acl h_main hdr(host) -i "${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}"
+    acl h_main hdr(host) -i "${EXTERNAL_IP}"
+    acl h_main hdr(host) -i "${EXTERNAL_IP}:${HAPROXY_PORT}"
+    acl h_main hdr(host) -i "${HOST_IP}"
+    acl h_main hdr(host) -i "${HOST_IP}:${HAPROXY_PORT}"
+    acl h_main hdr(host) -i localhost
+    acl h_main hdr(host) -i "localhost:${HAPROXY_PORT}"
+    acl h_main hdr(host) -i 127.0.0.1
+    acl h_main hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
+
+    acl p_video_analytics path /video-analytics-api
+    acl p_video_analytics path_beg /video-analytics-api/
+    use_backend bk_video_analytics_api_strip if h_main p_video_analytics
+
+    acl p_alert_bridge path /alert-bridge
+    acl p_alert_bridge path_beg /alert-bridge/
+    use_backend bk_alert_bridge_strip if h_main p_alert_bridge
+
+    acl p_kibana path /kibana
+    acl p_kibana path_beg /kibana/
+    use_backend bk_kibana if h_main p_kibana
+
+    acl p_phoenix path /phoenix
+    acl p_phoenix path_beg /phoenix/
+    use_backend bk_phoenix_strip if h_main p_phoenix
+
+    acl p_api_chat path /api/chat
+    acl p_api_chat path_beg /api/chat/
+    use_backend bk_vss_ui if h_main p_api_chat
+
+    acl p_api path /api
+    acl p_api path_beg /api/
+    use_backend bk_vss_agent if h_main p_api
+
+    acl p_chat path /chat
+    acl p_chat path_beg /chat/
+    use_backend bk_vss_agent if h_main p_chat
+
+    acl p_ws path /websocket
+    acl p_ws path_beg /websocket/
+    use_backend bk_vss_agent if h_main p_ws
+
+    acl p_static path /static
+    acl p_static path_beg /static/
+    use_backend bk_vss_agent if h_main p_static
+
+    acl p_vst path /vst
+    acl p_vst path_beg /vst/
+    use_backend bk_vst_ingress if h_main p_vst
+
+    acl p_behavior path /behavior-analytics
+    acl p_behavior path_beg /behavior-analytics/
+    use_backend bk_behavior_analytics if h_main p_behavior
+
+    acl p_perception_sdr path /perception-sdr
+    acl p_perception_sdr path_beg /perception-sdr/
+    use_backend bk_perception_sdr if h_main p_perception_sdr
+
+    acl p_va_mcp path /va-mcp
+    acl p_va_mcp path_beg /va-mcp/
+    use_backend bk_va_mcp if h_main p_va_mcp
+
+    use_backend bk_vss_ui if h_main

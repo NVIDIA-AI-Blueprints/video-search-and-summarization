@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Host-based edge proxy (same routing model as helm/developer-profiles/*/vss-ingress-example*.yaml).
+# Included from deploy/docker/compose.yml; starts when a matching profile is active (dev profiles +
+# warehouse / smart cities / public safety 2d blueprints).
+
+services:
+  vss-haproxy-ingress:
+    image: haproxy:3.0-alpine
+    profiles:
+      - "bp_developer_base_2d"
+      - "bp_developer_search_2d"
+      - "bp_developer_lvs_2d"
+      - "bp_developer_alerts_2d_cv"
+      - "bp_developer_alerts_2d_vlm"
+      - "bp_wh_2d"
+    container_name: vss-haproxy-ingress
+    network_mode: host
+    restart: always
+    environment:
+      HAPROXY_PORT: ${HAPROXY_PORT:-7777}
+      HAPROXY_BIND_ADDR: ${HAPROXY_BIND_ADDR:-*}
+      HOST_IP: ${HOST_IP}
+      EXTERNAL_IP: ${EXTERNAL_IP}
+      VSS_PUBLIC_HOST: ${VSS_PUBLIC_HOST}
+      VSS_PUBLIC_PORT: ${VSS_PUBLIC_PORT}
+      VSS_UI_PORT: ${VSS_UI_PORT:-3000}
+      VSS_AGENT_PORT: ${VSS_AGENT_PORT:-8000}
+      VST_PORT: ${VST_PORT:-30888}
+      BEHAVIOR_ANALYTICS_PORT: ${BEHAVIOR_ANALYTICS_PORT:-8080}
+      PERCEPTION_SDR_PORT: ${PERCEPTION_SDR_PORT:-4001}
+      VSS_VA_MCP_PORT: ${VSS_VA_MCP_PORT:-9901}
+      VIDEO_ANALYTICS_API_PORT: ${VIDEO_ANALYTICS_API_PORT:-8081}
+      ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
+      NVSTREAMER_HTTP_PORT: ${NVSTREAMER_HTTP_PORT:-31000}
+      KIBANA_PORT: ${KIBANA_PORT:-5601}
+      PHOENIX_PORT: ${PHOENIX_PORT:-6006}
+    volumes:
+      - ./haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg:ro

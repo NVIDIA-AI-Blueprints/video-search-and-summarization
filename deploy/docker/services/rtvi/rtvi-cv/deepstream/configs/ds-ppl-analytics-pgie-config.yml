@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+class-attrs-all:
+  pre-cluster-threshold: 0.5
+  topk: 20
+# Assign different thresholds for different classes for optimal performance
+class-attrs-0:
+  pre-cluster-threshold: 0.85
+  topk: 20
+class-attrs-1:
+  pre-cluster-threshold: 0.85
+class-attrs-2:
+  pre-cluster-threshold: 0.85
+class-attrs-3:
+  pre-cluster-threshold: 0.85
+class-attrs-4:
+  pre-cluster-threshold: 0.85
+class-attrs-5:
+  pre-cluster-threshold: 0.5
+class-attrs-6:
+  pre-cluster-threshold: 0.5
+
+property:
+  # 1=DBSCAN, 2=NMS, 3= DBSCAN+NMS Hybrid, 4 = None(No clustering)
+  cluster-mode: 2
+  gie-unique-id: 1
+  gpu-id: 0
+  scaling-filter: 1
+  infer-dims: 3;640;640
+  offsets: 0;0;0
+  interval: 0
+  labelfile-path: ds-detector-labels.txt
+  maintain-aspect-ratio: 1
+  model-color-format: 0
+  net-scale-factor: 0.00392156862745098
+  network-mode: 2
+  network-type: 0
+  model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.1.fp16.onnx_b8_gpu0_fp16.engine
+  onnx-file: /opt/storage/rtdetr_warehouse_v1.0.1.fp16.onnx
+  num-detected-classes: 7
+  output-tensor-meta: 1
+  output-blob-names: pred_boxes;pred_logits
+  parse-bbox-func-name: NvDsInferParseCustomRTDETRTAO
+  strongly-typed: 1
+  custom-lib-path: /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so

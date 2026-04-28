@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Perception service — standalone and base for blueprint `extends`.
+#
+# Uses the published `vss-rt-cv` image plus a bind-mounted `ds-start.sh`
+# from this repo. Blueprints extend `perception` and add config/model mounts.
+#
+# Bind mount for `ds-start.sh` uses a path relative to this file (`./ds-start.sh`)
+# so it stays correct whether MDX_SAMPLE_APPS_DIR points at `deploy/docker/` or
+# another layout.
+
+services:
+  perception:
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.04.2}
+    network_mode: "host"
+    runtime: nvidia
+    container_name: vss-rtvi-cv
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
+      resources:
+        reservations:
+          devices:
+          - capabilities: [gpu]
+            device_ids: ["${RT_CV_DEVICE_ID:-0}"]
+    volumes:
+      - type: bind
+        source: ./ds-start.sh
+        target: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+        read_only: true
+    environment:
+      DS_MODEL_FAMILY: ${DS_MODEL_FAMILY:-rtdetr-warehouse}
+      DS_MODE_FLAG: ${DS_MODE_FLAG:-1}
+      DS_MESSAGE_RATE: ${DS_MESSAGE_RATE:-1}
+      DS_TRACKER_REID: ${DS_TRACKER_REID:-false}
+      DS_SHOW_SENSOR_ID: ${DS_SHOW_SENSOR_ID:-false}
+      STREAM_TYPE: ${STREAM_TYPE:-kafka}
+      DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "1"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
+      OTEL_SERVICE_NAME: "rtvi-cv"
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+    command:
+      - bash
+      - -c
+      - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
