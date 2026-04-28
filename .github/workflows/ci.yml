@@ -290,7 +290,10 @@ jobs:
       - name: Check DCO sign-off
         run: |
           MERGE_BASE=$(git merge-base HEAD origin/${GITHUB_BASE_REF:-develop} 2>/dev/null || echo HEAD~1)
-          COMMITS=$(git rev-list "$MERGE_BASE"..HEAD 2>/dev/null || echo "")
+          # --no-merges: skip auto-generated merge commits (e.g. from "Update branch" /
+          # `git merge develop` into a feature branch). They have no Signed-off-by and
+          # are bookkeeping, not authored content. Matches Probot DCO behavior.
+          COMMITS=$(git rev-list --no-merges "$MERGE_BASE"..HEAD 2>/dev/null || echo "")
           if [ -z "$COMMITS" ]; then
             echo "No new commits to check."
             exit 0
