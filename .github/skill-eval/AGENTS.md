@@ -75,15 +75,106 @@ template is in § Harbor invocation below.
    Skills with no specs at all are runtime libraries — skip them.
 
 3. **For each evaluable skill × spec, ensure an adapter exists under
-   `.github/skill-eval/adapters/<skill>/generate.py`.** You may modify
-   adapters freely (they're harness code, not skill code). If an
-   adapter is missing, create one patterned on
-   `.github/skill-eval/adapters/vios/generate.py` (single-platform /
-   step-chain) or
-   `.github/skill-eval/adapters/deploy/generate.py` (matrix). Commit
-   nothing yourself — any adapter change stays in the workspace and
-   surfaces in the workflow artifact; the skill author reviews it
-   before merging.
+   `.github/skill-eval/adapters/<skill>/generate.py`** AND that running
+   it against the spec produces a complete dataset. Adapters are the
+   single source of truth for harness behaviour — **you do not run
+   trials against locally-synthesized or locally-edited adapters**. If
+   an adapter is missing or needs an update for this spec, follow the
+   **bot-PR flow** below (don't silently fabricate one and proceed):
+
+   3a. **Detect adapter trouble.** Three triggers, in order:
+       - **Missing**: `.github/skill-eval/adapters/<skill>/generate.py`
+         doesn't exist on the mirror head.
+       - **Stale**: running the adapter raises an exception, exits
+         non-zero, or finishes but the resulting dataset is missing
+         `tests/`, `instruction.md`, `task.toml`, `solution/solve.sh`,
+         or any platform listed in `spec.resources.platforms`.
+       - **Spec drift**: the rendered `instruction.md` references an
+         old skill name, the `[metadata]` profile/mode is hardcoded
+         instead of read from the spec, or the spec needs a placeholder
+         the adapter doesn't substitute.
+
+   3b. **Generate or patch the adapter in the workspace.** Pattern-match
+       from
+       `.github/skill-eval/adapters/vios/generate.py` (single-platform /
+       step-chain) or
+       `.github/skill-eval/adapters/deploy/generate.py` (matrix). For
+       updates, edit the existing file rather than rewriting it.
+
+   3c. **Raise a bot PR against the source PR's *original* branch and
+       STOP.** `pull-request/${PR_NUMBER}` is a throwaway CPR mirror —
+       merging into it gets overwritten on the next sync. The bot PR
+       must target `headRefName` (the contributor's actual branch on
+       the main repo). When the contributor merges, their branch
+       updates, CPR re-mirrors, and CI re-runs with the adapter in
+       place.
+
+       ```bash
+       SOURCE_BRANCH=$(gh pr view "$PR_NUMBER" --repo "$PR_REPO" \
+         --json headRefName -q .headRefName)
+       # SOURCE_BRANCH is on the main repo (e.g. "nw/merged-lvs-skill").
+       # External-fork PRs are out of scope: the bot can't push into a
+       # contributor fork. If `headRepositoryOwner` differs from
+       # `$PR_REPO`'s owner, comment that the contributor must port
+       # the adapter manually and emit BLOCKED:fork-pr.
+
+       BOT_BRANCH="eval-bot/pr-${PR_NUMBER}/adapter-${SKILL}"
+       cd "$REPO_ROOT"
+       git config user.name  "skills-eval-bot"
+       git config user.email "skills-eval-bot@users.noreply.github.com"
+
+       # Branch off the contributor's tip (NOT the mirror tip — the
+       # mirror SHA can drift slightly behind the source branch
+       # between CPR syncs). Fetch it explicitly.
+       git fetch origin "$SOURCE_BRANCH":"refs/remotes/origin/$SOURCE_BRANCH"
+       git checkout -b "$BOT_BRANCH" "origin/$SOURCE_BRANCH"
+       git add .github/skill-eval/adapters/${SKILL}/
+       git commit -m "skill-eval: adapter for ${SKILL} (PR #${PR_NUMBER})"
+       git push -u origin "$BOT_BRANCH"
+
+       BOT_PR_URL=$(gh pr create \
+         --repo "$PR_REPO" \
+         --base "$SOURCE_BRANCH" \
+         --head "$BOT_BRANCH" \
+         --title "[skill-eval] ${SKILL} adapter for PR #${PR_NUMBER}" \
+         --body-file /tmp/skill-eval/bot-pr-body.md)
+
+       gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "
+       The skills-eval bot generated/updated the adapter required to
+       run this PR's eval spec(s). Merge ${BOT_PR_URL} into
+       \`${SOURCE_BRANCH}\` — once that lands, your PR auto-updates
+       and the eval will re-run on the next mirror sync.
+
+       Reason: ${REASON}
+       "
+       echo "BLOCKED: missing/stale adapter for ${SKILL}; see ${BOT_PR_URL}"
+       exit 0
+       ```
+
+       The PR body MUST: (a) link the source PR `#${PR_NUMBER}`, (b)
+       state which trigger fired (missing / stale / spec drift) with a
+       one-sentence diff summary, (c) explicitly say "no eval ran in
+       this CI invocation — merge into `${SOURCE_BRANCH}` and the
+       eval will re-run automatically on the next mirror sync." Skip
+       trials for this skill in the current run.
+
+   3d. **Skill-source updates use the same bot-PR flow.** If you can
+       only proceed by editing files under `skills/<skill>/` (e.g. a
+       reference doc has a stale URL the trial depends on), do NOT
+       edit-and-run; raise a bot PR exactly like 3c with branch
+       `eval-bot/pr-${PR_NUMBER}/skill-${SKILL}` and `BLOCKED:`. The
+       contributor merges, the mirror updates, eval re-runs. The hard
+       rule against `skills/` writes still applies in this very run —
+       you only push the suggestion as a PR for the contributor to
+       merge, you never run trials with locally-edited skill code.
+
+   3e. **Idempotency.** Before pushing in 3c/3d, check whether
+       `eval-bot/pr-${PR_NUMBER}/...` already exists on origin. If it
+       does, fetch it, diff it against your workspace changes, and:
+       - identical → reuse the existing PR; just re-comment with the
+         existing URL.
+       - different → push as a new commit on the same branch (PR auto-
+         updates). Don't open a duplicate PR.
 
    When cloning the vios template for a new skill, the `[metadata]`
    block's `profile` and `prerequisite_deploy_mode` fields **must be
@@ -113,6 +204,11 @@ template is in § Harbor invocation below.
    mode)` the spec's `resources.platforms` enumerates. Datasets land
    at `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>-<mode>/`,
    where `<spec_stem>` is the spec filename with `.json` dropped.
+   **Gate**: only run this step for skills that did NOT trigger 3c/3d
+   in this run. A skill with an open bot PR is parked until the
+   contributor merges it; trials for that skill resume on the next
+   mirror sync. If every changed skill is parked, you exit BLOCKED
+   without reaching step 5.
 
 5. **Pick a fleet member, lock it, and run harbor trials.** For each
    target platform:
@@ -198,13 +294,23 @@ template is in § Harbor invocation below.
 
 ## Hard rules (non-negotiable)
 
-- **Never modify anything under `skills/`.** Skills are the
-  contributor's source of truth. If a spec is broken, file a blocker
-  comment; don't patch the skill.
+- **Never modify anything under `skills/`** *in the trials you run*.
+  The mirror branch is the single source of truth for skill content.
+  If a spec is broken or a reference doc needs a fix, raise a bot PR
+  per § 3d — never edit-and-run with the local change.
 - **Never force-push, never modify history, never merge PRs.**
-- **Never commit or push from this run.** Adapter changes you make
-  stay in the workspace; they surface in the workflow artifact for
-  the skill author to pick up and commit on their branch.
+- **The only writes you may push are bot PRs from § 3c/3d.** They
+  target the source PR's `headRefName` (the contributor's branch on
+  the main repo, NOT the `pull-request/<N>` mirror), come from a
+  branch prefixed `eval-bot/pr-${PR_NUMBER}/`, and only ever touch
+  `.github/skill-eval/adapters/<skill>/` (or the skill files the
+  contributor needs to update). Trial datasets, results, and
+  `/tmp/skill-eval/` artefacts are NEVER pushed — they stay on the
+  runner and surface in the workflow artifact.
+- **Never run trials against a locally-fabricated or locally-patched
+  adapter.** If 3a fired, 3c is mandatory and the run exits BLOCKED.
+  Trials only run against adapter code that is already on the mirror
+  head — i.e., that the contributor has accepted into their PR.
 - **Never leak `ANTHROPIC_API_KEY`, `NGC_CLI_API_KEY`, `GH_TOKEN`,
   `HF_TOKEN`** in comments, logs you echo back, or commit messages.
 - **Never touch `vss-skill-validator`** (the CI runner host — killing
@@ -454,10 +560,13 @@ First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
 > `results/<run_id>/<date>/<trial>/suggestions.json`; omit the
 > section entirely if all are null)
 
-<sub>Generated by the skills-eval agent. Adapter/verifier changes (if
-any) live in the workflow artifact at
-`skills-eval-results-pr-<N>-<run_id>.tar.gz` — the skills-eval agent
-never commits to `skills/`.</sub>
+<sub>Generated by the skills-eval agent. Adapter/verifier changes
+required to make this PR evaluable were raised as bot PRs targeting
+the source PR's branch (linked above where applicable) — the
+skills-eval agent never commits to `skills/` and never runs trials
+against locally-synthesized adapters. Trial datasets/results live in
+the workflow artifact at
+`skills-eval-results-pr-<N>-<run_id>.tar.gz`.</sub>
 ```
 
 Use `gh pr comment $PR_NUMBER --body-file /tmp/pr-<spec>.md`. Never
