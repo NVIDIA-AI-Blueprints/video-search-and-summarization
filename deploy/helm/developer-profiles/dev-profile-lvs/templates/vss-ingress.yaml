@@ -1,0 +1,115 @@
+{{- if .Values.vssIngress.enabled }}
+{{- $vi := .Values.vssIngress }}
+{{- $host := default .Values.global.externalHost $vi.host }}
+{{- $kibanaHost := default (printf "kibana.%s" $host) $vi.kibanaHost }}
+{{- $phoenixHost := $vi.phoenixHost | default "" | trim }}
+{{- $fk := index (.Values.infra | default dict) "kibana" | default dict }}
+{{- $kibanaStackEnabled := and $fk (default true $fk.enabled) }}
+{{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
+{{- $phoenixStackEnabled := and $fp (default true $fp.enabled) }}
+{{- if $host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ printf "%s-vss-ingress" .Release.Name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- if $phoenixStackEnabled }}
+  annotations:
+    haproxy.org/path-rewrite: |
+      /phoenix/(.*) /\1
+      /phoenix /
+  {{- end }}
+spec:
+  ingressClassName: {{ default "haproxy" $vi.ingressClassName | quote }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /api/chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
+                port:
+                  number: {{ $vi.vssUiPort }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /websocket
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
+                port:
+                  number: {{ $vi.vstIngressPort }}
+{{- if $phoenixStackEnabled }}
+          - path: /phoenix
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix") }}
+                port:
+                  number: {{ $vi.phoenixPort | default 6006 }}
+{{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
+                port:
+                  number: {{ $vi.vssUiPort }}
+{{- if and $kibanaStackEnabled $kibanaHost }}
+    - host: {{ $kibanaHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "kibana") }}
+                port:
+                  number: {{ $vi.kibanaPort | default 5601 }}
+{{- end }}
+{{- if and $phoenixStackEnabled (ne $phoenixHost "") }}
+    - host: {{ $phoenixHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix") }}
+                port:
+                  number: {{ $vi.phoenixPort | default 6006 }}
+{{- end }}
+{{- end }}
+{{- end }}

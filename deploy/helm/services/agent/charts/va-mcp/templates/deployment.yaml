@@ -1,0 +1,109 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-va-mcp.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-va-mcp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-va-mcp
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-va-mcp
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-va-mcp
+          image: {{ include "vss-va-mcp.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Use args so image ENTRYPOINT (/vss-agent/.venv/bin/nat) runs with these args (same as Compose: nat mcp serve ...)
+          args:
+            - mcp
+            - serve
+            - --config_file
+            - /etc/va-mcp/va_mcp_server_config.yml
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "9901"
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/va-mcp
+              readOnly: true
+          env:
+            - name: HOST_IP
+              value: {{ .Values.hostIp | quote }}
+            - name: VSS_AGENT_HOST
+              value: "0.0.0.0"
+            - name: VSS_VA_MCP_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: VSS_ES_PORT
+              value: "9200"
+            - name: HF_TOKEN
+              value: {{ .Values.hfToken | quote }}
+            {{- $g := .Values.global | default dict }}
+            {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+            {{- $vstMcp := .Values.vstMcpUrl | default (ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx) }}
+            - name: VST_MCP_URL
+              value: {{ $vstMcp | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "vss-va-mcp.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

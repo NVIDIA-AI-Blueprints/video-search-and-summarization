@@ -1,0 +1,139 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vss-vios-postgres.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-vios-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  serviceName: {{ include "vss-vios-postgres.fullname" . }}-headless
+  replicas: {{ .Values.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-vios-postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-vios-postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.initContainer.fixPermissions.enabled }}
+      initContainers:
+        - name: fix-permissions
+          image: {{ .Values.initContainer.fixPermissions.image }}
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data/postgresql/db /data/postgresql/log
+              chown -R {{ .Values.securityContext.runAsUser }}:{{ .Values.securityContext.runAsGroup }} /data/postgresql
+              chmod 700 /data/postgresql/db
+          securityContext:
+            runAsUser: {{ .Values.initContainer.fixPermissions.runAsUser }}
+          volumeMounts:
+            - name: data-storage
+              mountPath: /data
+      {{- end }}
+      containers:
+        - name: postgres
+          image: {{ include "vss-vios-postgres.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "vss-vios-postgres.fullname" . }}-postgres-cm
+                  key: CENTRALIZE_DB_USERNAME
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "vss-vios-postgres.fullname" . }}-postgres-cm
+                  key: CENTRALIZE_DB_NAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "vss-vios-postgres.fullname" . }}-postgres-cm
+                  key: CENTRALIZE_DB_PASSWORD
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: data-storage
+              mountPath: /var/lib/postgresql/data
+              subPath: postgresql/db
+            - name: data-storage
+              mountPath: /var/log/postgresql
+              subPath: postgresql/log
+            - name: socket
+              mountPath: /var/run/postgresql
+            {{- if .Values.storage.configMap.useDefault }}
+            - name: config
+              mountPath: /etc/postgresql
+              readOnly: true
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data-storage
+          persistentVolumeClaim:
+            claimName: {{ include "vss-vios-postgres.fullname" . }}-data
+        - name: socket
+          emptyDir: {}
+        {{- if .Values.storage.configMap.useDefault }}
+        - name: config
+          configMap:
+            name: {{ include "vss-vios-postgres.fullname" . }}-config
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

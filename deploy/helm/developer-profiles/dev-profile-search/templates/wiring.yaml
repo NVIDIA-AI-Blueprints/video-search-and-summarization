@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{/*
+  Cross-chart service wiring ConfigMap.
+  Documents internal service endpoints for debugging.
+  Actual wiring is performed via subchart values overrides in values.yaml.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dev-profile-search.fullname" . }}-wiring
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dev-profile-search.labels" . | nindent 4 }}
+data:
+  # ── Infrastructure ────────────────────────────────────────────────────────
+  CENTRALIZEDB_HOST: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-postgres") }}"
+  CENTRALIZEDB_PORT: "5432"
+  REDIS_HOST: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "redis") }}"
+  REDIS_PORT: "6379"
+  PHOENIX_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "phoenix") }}:6006"
+
+  # ── Messaging ─────────────────────────────────────────────────────────────
+  KAFKA_BOOTSTRAP: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kafka-kafka") }}:9092"
+  KAFKA_HEADLESS: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kafka-kafka-headless") }}:9092"
+
+  # ── ELK Stack ─────────────────────────────────────────────────────────────
+  ELASTICSEARCH_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "elasticsearch") }}:9200"
+  KIBANA_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kibana") }}:5601"
+
+  # ── VST Pipeline ──────────────────────────────────────────────────────────
+  SENSOR_MS_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-sensor") }}:7000"
+  SDR_ENVOY_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-envoy-proxy") }}:10000"
+  VST_INGRESS_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}:8000"
+  VST_MCP_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-mcp") }}:8001"
+  STREAMPROCESSING_HEADLESS: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-streamprocessing-headless") }}"
+
+  # ── Search Pipeline ───────────────────────────────────────────────────────
+  NVSTREAMER_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }}:{{ (index (index .Values "vios" | default dict) "vss-vios-nvstreamer").service.port }}"
+  RTVI_EMBED_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-rtvi-embed") }}:8000"
+
+  # ── Analytics ────────────────────────────────────────────────────────────
+  VIDEO_ANALYTICS_API_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }}:8081"
+
+  # ── Agent Services ────────────────────────────────────────────────────────
+  VSS_AGENT_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent") }}:8000"
+  VSS_UI_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-agent-ui") }}:3000"
+
+  # ── NIM Inference (nims subchart: nemotron + cosmos via NIM Operator CRDs) ─
+  LLM_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "nvidia-nemotron-nano-9b-v2") }}:8000"
+  VLM_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "nvidia-cosmos-reason2-8b") }}:8000"

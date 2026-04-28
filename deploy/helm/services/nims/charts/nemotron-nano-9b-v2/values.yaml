@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Default values for nemotron-nano-9b-v2.
+# These are overridden by the parent nims chart via alias "nemotron".
+
+image:
+  repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+resources:
+  limits:
+    nvidia.com/gpu: "1"
+  requests:
+    nvidia.com/gpu: "1"
+
+storage:
+  pvc:
+    storageClass: ""
+    size: "50Gi"
+
+metrics:
+  enabled: false
+
+service:
+  type: ClusterIP
+  port: 8000
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+# GPU-specific env vars. Populated via GPU override values files.
+env:
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+  NIM_KVCACHE_PERCENT: ""
+  NIM_MAX_NUM_SEQS: ""
+  NIM_MAX_MODEL_LEN: ""
+  NIM_LOW_MEMORY_MODE: ""
+
+global:
+  pullSecretName: "ngc-nim-docker-reg-secret"
+  authSecretName: "ngc-nim-api-key-secret"
+  storageClass: ""

@@ -1,0 +1,137 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-alert-bridge.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-alert-bridge
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-alert-bridge
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-alert-bridge
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ tpl (.Files.Get "configs/config.yml") . | sha256sum }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.waitForDependencies.enabled }}
+      {{- $g := .Values.global | default dict }}
+      {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+      {{- $kafkaDef := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+      {{- $redisDef := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+      {{- $esDef := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+      {{- $kafkaH := .Values.waitForDependencies.kafkaHost | default $kafkaDef }}
+      {{- $redisH := .Values.waitForDependencies.redisHost | default $redisDef }}
+      {{- $esH := .Values.waitForDependencies.elasticsearchHost | default $esDef }}
+      initContainers:
+        - name: wait-for-kafka-redis-elasticsearch
+          image: {{ .Values.waitForDependencies.image.repository }}:{{ .Values.waitForDependencies.image.tag }}
+          imagePullPolicy: {{ .Values.waitForDependencies.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka {{ $kafkaH }}:{{ .Values.waitForDependencies.kafkaPort }}, Redis {{ $redisH }}:{{ .Values.waitForDependencies.redisPort }}, Elasticsearch {{ $esH }}:{{ .Values.waitForDependencies.elasticsearchPort }}"
+              for i in $(seq 1 {{ .Values.waitForDependencies.maxRetries }}); do
+                if nc -z {{ $kafkaH }} {{ .Values.waitForDependencies.kafkaPort }} 2>/dev/null \
+                   && nc -z {{ $redisH }} {{ .Values.waitForDependencies.redisPort }} 2>/dev/null \
+                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null; then
+                  echo "Kafka, Redis, and Elasticsearch are accepting connections"
+                  exit 0
+                fi
+                echo "Attempt $i: waiting..."
+                sleep {{ .Values.waitForDependencies.retryInterval }}
+              done
+              echo "Timeout waiting for Kafka, Redis, or Elasticsearch"
+              exit 1
+      {{- end }}
+      containers:
+        - name: vss-alert-bridge
+          image: {{ include "vss-alert-bridge.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/python
+            - enhance_alert_with_vlm.py
+            - --config
+            - /app/runtime/config.yml
+          env:
+            {{- $g := .Values.global | default dict }}
+            {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+            {{- /* Same merge as vss-agent: subchart vlmBaseUrl overrides global.vlmBaseUrl; empty → in-cluster NIM default */}}
+            {{- $vlmUrl := trim (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) }}
+            {{- $subVn := trim (default "" .Values.vlmName) }}
+            {{- $globVn := trim (default "" (index $g "vlmName")) }}
+            {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
+            {{- $vlmDef := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}
+            - name: EXTERNAL_IP
+              value: {{ .Values.externalIp | default (index (.Values.global | default dict) "externalHost" | default "" | trim) | default "127.0.0.1" | quote }}
+            - name: INTERNAL_IP
+              value: {{ .Values.internalIp | default (ternary (printf "%s-vss-alert-bridge" .Release.Name) "vss-alert-bridge" $pfx) | quote }}
+            - name: VLM_BASE_URL
+              value: {{ $vlmUrl | default $vlmDef | quote }}
+            - name: VLM_MODE
+              value: {{ ternary "remote" "local" (ne $vlmUrl "") | quote }}
+            - name: VLM_NAME
+              value: {{ $vlmNameStr | quote }}
+          volumeMounts:
+            - name: runtime-config
+              mountPath: /app/runtime
+              readOnly: true
+            - name: alert-type-config
+              mountPath: /app/alert_type_config.json
+              subPath: alert_type_config.json
+              readOnly: true
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: runtime-config
+          configMap:
+            name: {{ include "vss-alert-bridge.fullname" . }}-config
+            items:
+              - key: config.yml
+                path: config.yml
+        - name: alert-type-config
+          configMap:
+            name: {{ include "vss-alert-bridge.fullname" . }}-config
+            items:
+              - key: alert_type_config.json
+                path: alert_type_config.json
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

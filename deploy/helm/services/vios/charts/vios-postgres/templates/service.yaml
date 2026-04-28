@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+# Headless service for StatefulSet (stable network identity for pod-0)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss-vios-postgres.fullname" . }}-headless
+  labels:
+    app.kubernetes.io/name: vss-vios-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  clusterIP: None
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/name: vss-vios-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+# ClusterIP service for clients (sensor-ms, vss-vios-streamprocessing use CENTRALIZE_DB_HOSTADDR = this service name)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss-vios-postgres.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-vios-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/name: vss-vios-postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

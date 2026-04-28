@@ -1,0 +1,340 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.enabled (eq .Values.profileMode "alerts") }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.statefulSetName | quote }}
+  labels:
+    app.kubernetes.io/name: vss-rtvi-cv
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  serviceName: {{ include "vss-rtvi-cv.headlessServiceName" . }}
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-rtvi-cv
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-rtvi-cv
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName | quote }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.downloadModelsFromNgc }}
+        - name: wait-for-models
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              MODELS_ROOT="/models-data"
+              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
+              ELAPSED=0
+              while true; do
+                READY=true
+                {{- range .Values.ngcModelsToDownload }}
+                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
+                  READY=false
+                fi
+                {{- end }}
+                if [[ "${READY}" == "true" ]]; then
+                  break
+                fi
+                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
+                  exit 1
+                fi
+                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
+                sleep 15
+                ELAPSED=$((ELAPSED + 15))
+              done              
+              echo "[INFO] Model files present, proceeding."
+          volumeMounts:
+            - name: models
+              mountPath: /models-data
+        {{- end }}
+        - name: copy-scripts
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c", "cp -r /scripts-ro/. /wdm-scripts/ && chmod +x /wdm-scripts/ds-start.sh"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts-ro
+              readOnly: true
+            - name: scripts-writable
+              mountPath: /wdm-scripts
+      containers:
+        - name: vss-rtvi-cv
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: {{ .Values.workingDir | quote }}
+          command:
+            - bash
+            - /wdm-scripts/ds-start.sh
+            - /wdm-scripts/run_config-api-rtdetr-protobuf.txt
+          env:
+            - name: MODEL_NAME_2D
+              value: {{ .Values.env.MODEL_NAME_2D | quote }}
+            - name: MODEL_TYPE
+              value: {{ .Values.env.MODEL_TYPE | quote }}
+            - name: NUM_SENSORS
+              value: {{ .Values.env.NUM_SENSORS | quote }}
+            - name: STREAM_TYPE
+              value: {{ .Values.env.STREAM_TYPE | quote }}
+          volumeMounts:
+            - name: scripts-writable
+              mountPath: /wdm-scripts
+            - name: storage
+              mountPath: /opt/storage
+            {{- if or .Values.modelsVolume .Values.downloadModelsFromNgc }}
+            - name: models
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/rtdetr-its/model_epoch_035.fp16.onnx
+              subPath: rtdetr-its/model_epoch_035.fp16.onnx
+            - name: models
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
+              subPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
+            {{- end }}
+            {{- $wd := .Values.workingDir }}
+            - name: scripts
+              mountPath: {{ $wd }}/rtdetr-960x544.txt
+              subPath: rtdetr-960x544.txt
+            - name: scripts
+              mountPath: {{ $wd }}/rtdetr-960x544-labels.txt
+              subPath: rtdetr-960x544-labels.txt
+            - name: scripts
+              mountPath: {{ $wd }}/config_triton_nvinferserver_gdino.txt
+              subPath: config_triton_nvinferserver_gdino.txt
+            - name: scripts
+              mountPath: {{ $wd }}/coco_classmap.txt
+              subPath: coco_classmap.txt
+            - name: scripts
+              mountPath: {{ $wd }}/cfg_kafka.txt
+              subPath: cfg_kafka.txt
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
+            defaultMode: 493
+        - name: scripts-writable
+          emptyDir: {}
+        - name: storage
+          emptyDir: {}
+        - name: models
+          {{- if .Values.modelsVolume }}
+          {{- toYaml .Values.modelsVolume | nindent 10 }}
+          {{- else if .Values.downloadModelsFromNgc }}
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if and .Values.enabled (eq .Values.profileMode "search") }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "vss-rtvi-cv.headlessServiceName" . }}
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "vss-rtvi-cv.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vss-rtvi-cv.selectorLabels" . | nindent 8 }}
+      annotations:
+        scripts-configmap: {{ include "vss-rtvi-cv.scriptsConfigMapName" . | quote }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $ips := .Values.imagePullSecrets | default .Values.global.imagePullSecrets }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.downloadModelsFromNgc }}
+        - name: wait-for-models
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              MODELS_ROOT="/models-data"
+              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
+              ELAPSED=0
+              while true; do
+                READY=true
+                {{- range .Values.ngcModelsToDownload }}
+                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
+                  READY=false
+                fi
+                {{- end }}
+                if [[ "${READY}" == "true" ]]; then
+                  break
+                fi
+                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
+                  exit 1
+                fi
+                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
+                sleep 15
+                ELAPSED=$((ELAPSED + 15))
+              done
+              echo "[INFO] Model files present, proceeding."
+          volumeMounts:
+            - name: models
+              mountPath: /models-data
+        {{- end }}
+        - name: wait-for-kafka
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka to be ready..."
+              until nc -z {{ include "vss-rtvi-cv.kafkaBootstrap" . | replace ":9092" "" }} 9092; do
+                echo "Kafka not ready yet, waiting..."
+                sleep 5
+              done
+              echo "Kafka is ready!"
+      containers:
+        - name: vss-rtvi-cv
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
+          command:
+            - bash
+            - -c
+            - ./ds-start.sh
+          {{- if .Values.httpPort }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.httpPort }}
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          {{- end }}
+          env:
+            - name: MODEL_TYPE
+              value: {{ .Values.modelType | quote }}
+            - name: STREAM_TYPE
+              value: {{ .Values.streamType | quote }}
+            - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+              value: {{ .Values.deepstreamEnableSensorIdExtraction | quote }}
+            - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
+              value: {{ .Values.gstEnableCustomParserModifications | quote }}
+            - name: GST_PLUGIN_PATH
+              value: "/opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder"
+            - name: HF_HUB_OFFLINE
+              value: {{ .Values.hfHubOffline | quote }}
+            - name: TRANSFORMERS_OFFLINE
+              value: {{ .Values.transformersOffline | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: {{ .Values.otelSdkDisabled | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otelServiceName | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://localhost:4318"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: MDX_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+              subPath: ds-start.sh
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config.txt
+              subPath: ds-main-config.txt
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-ppl-analytics-pgie-config.yml
+              subPath: ds-ppl-analytics-pgie-config.yml
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-nvdcf-accuracy-tracker-config.yml
+              subPath: ds-nvdcf-accuracy-tracker-config.yml
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-detector-labels.txt
+              subPath: ds-detector-labels.txt
+            - name: ds-scripts
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-kafka-config.txt
+              subPath: ds-kafka-config.txt
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+        - name: ds-scripts
+          configMap:
+            name: {{ include "vss-rtvi-cv.scriptsConfigMapName" . }}
+            defaultMode: 0755
+{{- end }}

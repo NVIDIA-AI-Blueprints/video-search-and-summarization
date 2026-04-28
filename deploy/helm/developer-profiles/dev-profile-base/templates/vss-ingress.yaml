@@ -1,0 +1,100 @@
+{{- if .Values.vssIngress.enabled }}
+{{- $vi := .Values.vssIngress }}
+{{- $host := default .Values.global.externalHost $vi.host }}
+{{- $phoenixHost := $vi.phoenixHost | default "" | trim }}
+{{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
+{{- $phoenixStackEnabled := and $fp (default true $fp.enabled) }}
+{{- if $host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ (default "vss-ingress" $vi.resourceName) | trunc 63 | trimSuffix "-" }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: vss
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- if $phoenixStackEnabled }}
+  annotations:
+    haproxy.org/path-rewrite: |
+      /phoenix/(.*) /\1
+      /phoenix /
+  {{- end }}
+spec:
+  ingressClassName: {{ default "haproxy" $vi.ingressClassName | quote }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /api/chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }}
+                port:
+                  number: {{ $vi.vssUiPort }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /websocket
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }}
+                port:
+                  number: {{ $vi.vssAgentPort }}
+          - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress") }}
+                port:
+                  number: {{ $vi.vstIngressPort }}
+{{- if $phoenixStackEnabled }}
+          - path: /phoenix
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" $fp) }}
+                port:
+                  number: {{ $vi.phoenixPort | default 6006 }}
+{{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }}
+                port:
+                  number: {{ $vi.vssUiPort }}
+{{- if and $phoenixStackEnabled (ne $phoenixHost "") }}
+    - host: {{ $phoenixHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" $fp) }}
+                port:
+                  number: {{ $vi.phoenixPort | default 6006 }}
+{{- end }}
+{{- end }}
+{{- end }}

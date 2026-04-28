@@ -1,0 +1,152 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $kafkaHost := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+{{- $redisHost := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+{{- $esHost := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+{{- $cosmosHost := ternary (printf "%s-nvidia-cosmos-reason2-8b" .Release.Name) "nvidia-cosmos-reason2-8b" $pfx }}
+{{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
+{{- $subVlm := trim (default "" .Values.vlmBaseUrl) }}
+{{- $globVlm := trim (default "" (index $g "vlmBaseUrl")) }}
+{{- $vlmUrl := $subVlm | default $globVlm }}
+{{- $subVn := trim (default "" .Values.vlmName) }}
+{{- $globVn := trim (default "" (index $g "vlmName")) }}
+{{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
+{{- /* VST URLs embedded in VLM video requests must be reachable from the VLM process. In-cluster VLM resolves <release>-vss-vios-ingress; remote global.vlmBaseUrl does not — use global.external* like vss-agent VST_EXTERNAL_URL when both are set. */}}
+{{- $eh := index $g "externalHost" | default "" | trim }}
+{{- $es := index $g "externalScheme" | default "http" }}
+{{- $ep := index $g "externalPort" | default "" | trim }}
+{{- $globalVstCandidate := "" }}
+{{- if ne $eh "" }}
+{{- $globalVstCandidate = ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "") }}
+{{- end }}
+{{- $internalVst := printf "http://%s" $vstIngHost }}
+{{- $subVst := trim (default "" .Values.vstBaseUrl) }}
+{{- /* Remote VLM: URLs in Kafka incidents (streamprocessing) and vst_config must use a host the VLM can resolve — not only global.vlmBaseUrl; subchart vlmBaseUrl alone must also flip defaults. */}}
+{{- $remoteVlmConfigured := or (ne (trim (default "" (index $g "vlmBaseUrl"))) "") (ne (trim (default "" .Values.vlmBaseUrl)) "") }}
+{{- $vstBaseDefault := $internalVst }}
+{{- if and $remoteVlmConfigured (ne $globalVstCandidate "") }}
+{{- $vstBaseDefault = $globalVstCandidate }}
+{{- end }}
+{{- $vstBase := $subVst | default $vstBaseDefault }}
+# Helm-templated config for vss-alert-bridge (replaces env-substitute at runtime)
+# Base directory for media used during alert review (optional)
+ALERT_REVIEW_MEDIA_BASE_DIR: {{ .Values.alertReviewMediaBaseDir | default "" | quote }}
+
+# VST Configuration
+vst_config:
+  recording_check_max_attempts: 3
+  base_url: "{{ $vstBase }}"
+  sensor_list_endpoint: "/vst/api/v1/sensor/streams"
+  add_overlay: true
+  segment_anchor: "end"
+  segment_duration_seconds: 10
+  storage:
+    base_url: "{{ $vstBase }}"
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+kafka:
+  bootstrap_servers: "{{ .Values.kafkaBootstrapServers | default (printf "%s:9092" $kafkaHost) }}"
+  group_id: 'kafka-incidents-dumper'
+  max_poll_records: 10
+  auto_offset_reset: 'latest'
+  enable_auto_commit: false
+  max_poll_interval_ms: 600000
+  session_timeout_ms: 45000
+  heartbeat_interval_ms: 15000
+  poll_timeout: 5
+  message_type: "Incident"
+  enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"
+  incidents_topic: "alert-bridge-incidents"
+
+vlm:
+  base_url: "{{ $vlmUrl | default (printf "http://%s:8000" $cosmosHost) }}/v1"
+  model: "{{ $vlmNameStr }}"
+  max_tokens: 4096
+  min_pixels: 1568
+  max_pixels: 8388608
+  enable_sampling: true
+  sampling_fps: 4
+
+event_bridge:
+  sourceType: "kafka"
+  sinkType: "kafka"
+  kafka_source:
+    group_id: 'alert-bridge-vlm-group'
+    topics:
+      incident: 'mdx-incidents'
+  redis_source:
+    host: "{{ .Values.redisHost | default $redisHost }}"
+    port: {{ .Values.redisPort }}
+    db: 0
+    dedup_ttl_seconds: 5
+    protect_confirmed_verdicts:
+      enabled: true
+      ttl_seconds: 600
+    end_time_delta_filter:
+      enabled: true
+      threshold_seconds: 3
+      ttl_seconds: 3600
+    end_time_in_dedup_key_categories: []
+    streams:
+      anomaly_stream: "alert-bridge-input-stream"
+      heartbeat_stream: "alert-bridge-heartbeats-stream"
+    consumer_group: "vlm_agents_group"
+    consumer_config:
+      block_time: 10
+      count: 1
+      batch_size: 1
+  redis_sink:
+    host: "{{ .Values.redisHost | default $redisHost }}"
+    port: {{ .Values.redisPort }}
+    db: 0
+    streams:
+      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
+      incidents_stream: "alert-bridge-incidents-stream"
+
+prompt:
+  prefer_payload_prompt: false
+  override_prompts_on_start: true
+
+alert_type_config_file: "alert_type_config.json"
+
+alert_agent:
+  num_workers: 10
+  max_allowed_stream_size: 2
+  default_stream_interval: 1
+  vst_pass_through_mode: false
+  include_latency_info: false
+
+elastic:
+  enabled: true
+  hosts:
+    - {{ .Values.elasticHosts | default (printf "http://%s:9200" $esHost) | quote }}
+
+vlm_enhanced_sink:
+  incident:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-incidents"
+  alert:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-alerts"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
+  third_party_level: "WARNING"

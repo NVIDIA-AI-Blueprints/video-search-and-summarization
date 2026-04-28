@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-summarization.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-summarization
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-summarization
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-summarization
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $release := .Release.Name }}
+      {{- $g := .Values.global | default dict }}
+      {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+      {{- $esHost := .Values.elasticsearchHost | default (ternary (printf "%s-elasticsearch" $release) "elasticsearch" $pfx) }}
+      {{- $esPort := .Values.elasticsearchPort | default "9200" }}
+      {{- $esTransportPort := .Values.elasticsearchTransportPort | default "9300" }}
+      {{- $llmSvc := .Values.llmService | default "nvidia-nemotron-nano-9b-v2" }}
+      {{- $vlmSvc := .Values.vlmService | default "nvidia-cosmos-reason2-8b" }}
+      {{- /* Same base URL as vss-agent (global / subchart); LVS OpenAI paths need /v1 — append when missing */}}
+      {{- $llmIn := trim (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) }}
+      {{- $vlmIn := trim (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) }}
+      {{- $llmHost := ternary (printf "%s-%s" $release $llmSvc) $llmSvc $pfx }}
+      {{- $vlmHost := ternary (printf "%s-%s" $release $vlmSvc) $vlmSvc $pfx }}
+      {{- $llmBaseUrl := ternary (printf "http://%s:8000/v1" $llmHost) (ternary (printf "%s/v1" (trimSuffix "/" $llmIn)) $llmIn (not (hasSuffix "/v1" $llmIn))) (eq $llmIn "") }}
+      {{- $vlmBaseUrl := ternary (printf "http://%s:8000/v1" $vlmHost) (ternary (printf "%s/v1" (trimSuffix "/" $vlmIn)) $vlmIn (not (hasSuffix "/v1" $vlmIn))) (eq $vlmIn "") }}
+      {{- $llmModelName := trim (default "" (coalesce .Values.llmName (index $g "llmName") "nvidia/nvidia-nemotron-nano-9b-v2")) }}
+      {{- $vlmModelName := trim (default "" (coalesce .Values.vlmName (index $g "vlmName") "nvidia/cosmos-reason2-8b")) }}
+      {{- $vstIng := ternary (printf "%s-vss-vios-ingress" $release) "vss-vios-ingress" $pfx }}
+      {{- $vstInternalUrl := .Values.vstInternalUrl | default (printf "http://%s:30888" $vstIng) }}
+      {{- $wfe := .Values.waitForVlmEndpoint | default dict }}
+      {{- if ($wfe.enabled | default true) }}
+      initContainers:
+        - name: wait-vlm-endpoint
+          image: {{ .Values.waitForVlmEndpoint.image.repository }}:{{ .Values.waitForVlmEndpoint.image.tag }}
+          imagePullPolicy: {{ .Values.waitForVlmEndpoint.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: VIA_VLM_ENDPOINT
+              value: {{ $vlmBaseUrl | quote }}
+            - name: MAX_ATTEMPTS
+              value: {{ .Values.waitForVlmEndpoint.maxAttempts | default 120 | quote }}
+            - name: SLEEP_SECONDS
+              value: {{ .Values.waitForVlmEndpoint.sleepSeconds | default 5 | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              URL="${VIA_VLM_ENDPOINT}"
+              i=0
+              echo "Waiting until VLM endpoint responds: ${URL}"
+              until curl -sS --connect-timeout 5 --max-time 15 -o /dev/null "$URL"; do
+                i=$((i+1))
+                if [ "$i" -ge "${MAX_ATTEMPTS}" ]; then
+                  echo "Timeout after ${MAX_ATTEMPTS} attempts waiting for ${URL}"
+                  exit 1
+                fi
+                echo "  attempt ${i}/${MAX_ATTEMPTS} ..."
+                sleep "${SLEEP_SECONDS}"
+              done
+              echo "VLM endpoint reachable."
+      {{- end }}
+      containers:
+        - name: vss-summarization
+          image: {{ include "vss-summarization.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: backend
+              containerPort: {{ .Values.service.backendPort }}
+            - name: mcp
+              containerPort: {{ .Values.service.mcpPort }}
+            - name: frontend
+              containerPort: {{ .Values.service.frontendPort }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.modelCache.enabled }}
+            - name: model-cache
+              mountPath: /tmp/model_cache
+            {{- end }}
+          env:
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+            - name: ES_HOST
+              value: {{ $esHost | quote }}
+            - name: ES_PORT
+              value: {{ $esPort | quote }}
+            - name: ES_TRANSPORT_PORT
+              value: {{ $esTransportPort | quote }}
+            - name: LVS_LLM_BASE_URL
+              value: {{ $llmBaseUrl | quote }}
+            - name: LVS_LLM_MODEL_NAME
+              value: {{ $llmModelName | quote }}
+            - name: VIA_VLM_ENDPOINT
+              value: {{ $vlmBaseUrl | quote }}
+            - name: VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME
+              value: {{ $vlmModelName | quote }}
+            - name: VST_INTERNAL_URL
+              value: {{ $vstInternalUrl | quote }}
+            {{- range (.Values.extraEnv | default list) }}
+            - name: {{ .name }}
+              value: {{ tpl (.value | default "" | toString) $ | quote }}
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "vss-summarization.fullname" . }}-config
+        {{- if .Values.modelCache.enabled }}
+        - name: model-cache
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

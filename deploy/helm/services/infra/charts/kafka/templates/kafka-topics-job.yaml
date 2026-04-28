@@ -1,0 +1,78 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.topicJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kafka.fullname" . }}-topics-init
+  labels:
+    {{- include "kafka.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-topics-init
+spec:
+  ttlSecondsAfterFinished: {{ .Values.topicJob.ttlSecondsAfterFinished }}
+  backoffLimit: {{ .Values.topicJob.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "kafka.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kafka-topics-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-topics-init
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: TOPICS_JSON
+              value: {{ include "kafka.topicsJSON" . | quote }}
+          command:
+            - bash
+            - -c
+            - |
+              BOOTSTRAP="{{ include "kafka.fullname" . }}-kafka:{{ .Values.service.port }}"
+              echo "Waiting for Kafka at $BOOTSTRAP..."
+              until kafka-topics --bootstrap-server "$BOOTSTRAP" --list > /dev/null 2>&1; do
+                echo "Kafka not ready, retrying in 10s..."
+                sleep 10
+              done
+              echo "Kafka is ready. Creating topics..."
+              python3 -c "
+              import json, os, subprocess, sys
+              topics = json.loads(os.environ.get('TOPICS_JSON') or '[]')
+              bootstrap = '${BOOTSTRAP}'
+              for t in topics:
+                  name = t['name']
+                  partitions = t.get('partitions', '{{ .Values.defaultPartitions }}')
+                  replication = t.get('replication_factor', '{{ .Values.defaultReplicationFactor }}')
+                  retention = t.get('retention_ms', '{{ .Values.defaultRetentionMs }}')
+                  segment = t.get('segment_ms', '{{ .Values.defaultSegmentMs }}')
+                  cmd = [
+                      'kafka-topics', '--bootstrap-server', bootstrap,
+                      '--create', '--if-not-exists',
+                      '--topic', name,
+                      '--partitions', str(partitions),
+                      '--replication-factor', str(replication),
+                      '--config', f'retention.ms={retention}',
+                      '--config', f'segment.ms={segment}',
+                  ]
+                  result = subprocess.run(cmd, capture_output=True, text=True)
+                  if result.returncode == 0:
+                      print(f'Created topic: {name}')
+                  else:
+                      print(f'Error creating topic {name}: {result.stderr}', file=sys.stderr)
+              print('All topics processed.')
+              "
+{{- end }}
