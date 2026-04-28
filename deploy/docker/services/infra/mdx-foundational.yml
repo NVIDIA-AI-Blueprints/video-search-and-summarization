@@ -29,7 +29,7 @@ services:
 
   elasticsearch:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/foundational
+      context: $MDX_SAMPLE_APPS_DIR/services/infra
       dockerfile: Dockerfiles/elasticsearch.Dockerfile
       network: "host"
     image: elasticsearch
@@ -39,7 +39,7 @@ services:
       discovery.type: single-node
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
       - mdx-elastic-data:/tmp/elastic/data:rw
       - mdx-elastic-logs:/tmp/elastic/logs:rw
     container_name: elasticsearch
@@ -53,7 +53,7 @@ services:
 
   elasticsearch-init-container:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/foundational
+      context: $MDX_SAMPLE_APPS_DIR/services/infra
       dockerfile: Dockerfiles/elastic-init.Dockerfile
       network: "host"
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
@@ -78,7 +78,7 @@ services:
     network_mode: "host"
     volumes:
       - mdx-kafka:/tmp/kafka-data
-      - $MDX_SAMPLE_APPS_DIR/foundational/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
+      - $MDX_SAMPLE_APPS_DIR/services/infra/kafka-entrypoint.sh:/usr/local/bin/kafka-entrypoint.sh:ro
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","playback_kafka_2d","playback_kafka_3d","bp_developer_search_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     environment:
       KAFKA_BROKER_ID: 1
@@ -115,7 +115,7 @@ services:
     network_mode: "host"
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","playback_kafka_2d","playback_kafka_3d","bp_developer_search_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/foundational/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
+      - $MDX_SAMPLE_APPS_DIR/services/infra/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
     environment:
       DEFAULT_PARTITIONS: "8"
       DEFAULT_RETENTION_MS: "14400000"
@@ -155,7 +155,7 @@ services:
     network_mode: host
     container_name: redis
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/foundational/redis/configs/redis.conf:/config/redis.conf
+      - $MDX_SAMPLE_APPS_DIR/services/infra/redis/configs/redis.conf:/config/redis.conf
       - $MDX_DATA_DIR/data_log/redis/data:/data
       - $MDX_DATA_DIR/data_log/redis/log:/log
 
@@ -164,7 +164,7 @@ services:
     network_mode: "host"
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/configs/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
     container_name: kibana
     restart: always
     depends_on:
@@ -183,13 +183,13 @@ services:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/pb_definitions/descriptors/ext.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/ext.desc
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/pb_definitions/descriptors/schema.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/schema.desc
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/configs/mdx-${STREAM_TYPE}-logstash.conf:/usr/share/logstash/pipeline/logstash.conf
-      - $MDX_SAMPLE_APPS_DIR/foundational/elk/gems/logstash-input-redis_stream-3.1.0-java.gem:/usr/share/logstash/gems/logstash-redis-stream-input-java.gem
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/pb_definitions/descriptors/ext.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/ext.desc
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/pb_definitions/descriptors/schema.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/schema.desc
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/configs/mdx-${STREAM_TYPE}-logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - $MDX_SAMPLE_APPS_DIR/services/infra/elk/gems/logstash-input-redis_stream-3.1.0-java.gem:/usr/share/logstash/gems/logstash-redis-stream-input-java.gem
     environment:
       LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
       STREAM_TYPE: ${STREAM_TYPE}
@@ -217,7 +217,7 @@ services:
   
   broker-health-check:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/foundational
+      context: $MDX_SAMPLE_APPS_DIR/services/infra
       dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
       network: host
     profiles: ["bp_wh_2d","bp_wh_redis_3d","bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
