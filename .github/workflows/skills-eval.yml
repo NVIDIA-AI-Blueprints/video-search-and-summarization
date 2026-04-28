@@ -12,14 +12,21 @@ on:
   push:
     branches:
       - "pull-request/[0-9]+"
-    # No `paths:` filter intentionally. CPR-bot creates pull-request/<N>
-    # via GitHub's branch-create API; on initial creation the push event
-    # has an all-zero `before` SHA which makes path filters silently skip
-    # the workflow (observed empirically: PR #159 created the branch but
-    # only the no-paths CI workflow fired). Letting every push to a
-    # pull-request/<N> branch run skills-eval is cheap — the agent's
-    # step 1 emits `BLOCKED: no files under skills/` and exits in seconds
-    # when the diff is irrelevant.
+    paths:
+      - "skills/**"
+      - ".github/skill-eval/**"
+      - ".github/workflows/skills-eval.yml"
+  # `on: create:` covers the initial-mirror case. CPR-bot creates
+  # pull-request/<N> via GitHub's branch-create API; the resulting push
+  # event has an all-zero `before` SHA, which makes the `paths:` filter
+  # above silently skip the workflow (observed: PR #159 created the
+  # branch but only the no-paths CI workflow fired). `create:` doesn't
+  # support `paths:` or `branches:`, so we gate via the job-level
+  # `if: startsWith(github.ref, 'refs/heads/pull-request/')` plus the
+  # agent's step 1 `BLOCKED: no files under skills/` early-exit when
+  # the diff is irrelevant. Subsequent pushes from CPR-bot use the
+  # paths-filtered `push:` trigger and don't over-run.
+  create:
 
 # Only one eval runs per PR at a time. A fresh push cancels the in-flight
 # run (lock on /tmp/brev/<id>.lock will be released by the agent's trap).
