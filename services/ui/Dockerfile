@@ -16,10 +16,6 @@ COPY services/ui/ services/ui/
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NEXT_BUILD_TRACES false
 
-# `npm ci` and the subsequent `turbo` invocation must run from the UI workspace root,
-# which is where `package.json` and `package-lock.json` live after the COPY above.
-WORKDIR /repo/services/ui
-
 RUN npm ci
 # Matches CI: run `bundle` after `build` where defined (e.g. nv-metropolis-bp-vss-ui). The runner
 # stage still COPYs standalone, `.next/static`, and `public` explicitly for custom-server.js, so this
