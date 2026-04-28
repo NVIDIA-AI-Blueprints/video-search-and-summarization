@@ -588,7 +588,7 @@ def create_generic_video_router(
         summary="Proxy a chunked upload to VST (nvstreamer protocol)",
         tags=["Video Ingest"],
     )
-    async def proxy_chunk_to_vst(request: Request):
+    async def proxy_chunk_to_vst(request: Request) -> dict[str, Any]:
         """
         Forward an incoming chunk (multipart body + nvstreamer-* headers) to VST's
         /vst/api/v1/storage/file. Returns VST's response body and status to the
