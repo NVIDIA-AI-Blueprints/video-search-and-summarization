@@ -1,0 +1,1 @@
+{"mdx-ds-01":{"provisioning_address":"{{ .Values.perceptionProvisioningAddress | default (ternary (printf "%s-vss-rtvi-cv:9010" .Release.Name) "vss-rtvi-cv:9010" (default false (coalesce .Values.useReleaseNamePrefix (index (.Values.global | default dict) "useReleaseNamePrefix")))) }}","process_type":"kubernetes"}}

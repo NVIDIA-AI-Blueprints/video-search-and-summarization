@@ -1,0 +1,177 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- $vssIngress := .Values.vssIngress | default dict }}
+{{- $enabled := default false (index $vssIngress "enabled") }}
+{{- $global := .Values.global | default dict }}
+{{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
+{{- if and $enabled (ne $mainHost "") }}
+{{- $kibanaHost := coalesce (index $vssIngress "kibanaHost") (printf "kibana.%s" $mainHost) }}
+{{- $phoenixHost := (index $vssIngress "phoenixHost" | default "" | trim) }}
+{{- $streamerHost := coalesce (index $vssIngress "streamerHost") (printf "streamer.%s" $mainHost) }}
+{{- $infra := index .Values "infra" | default dict }}
+{{- $kibanaVals := index $infra "kibana" | default dict }}
+{{- $phoenixVals := index $infra "phoenix" | default dict }}
+{{- $vios := index .Values "vios" | default dict }}
+{{- $nvstreamerVals := index $vios "vss-vios-nvstreamer" | default dict }}
+{{- $analytics := index .Values "analytics" | default dict }}
+{{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
+{{- $alertBridgeVals := index .Values "vss-alert-bridge" | default dict }}
+{{- $kibanaEnabled := default false (index $kibanaVals "enabled") }}
+{{- $phoenixEnabled := default false (index $phoenixVals "enabled") }}
+{{- $streamerEnabled := default false (index $nvstreamerVals "enabled") }}
+{{- $analyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
+{{- $alertBridgeEnabled := default false (index $alertBridgeVals "enabled") }}
+{{- $hasRewrite := or $analyticsEnabled $alertBridgeEnabled $phoenixEnabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ printf "%s-vss-ingress" .Release.Name | trunc 63 | trimSuffix "-" }}
+  labels:
+    app.kubernetes.io/name: vss-ingress
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if $hasRewrite }}
+  annotations:
+    haproxy.org/path-rewrite: |
+{{- if $analyticsEnabled }}
+      /video-analytics-api/(.*) /\1
+{{- end }}
+{{- if $alertBridgeEnabled }}
+      /alert-bridge/(.*) /\1
+{{- end }}
+{{- if $phoenixEnabled }}
+      /phoenix/(.*) /\1
+      /phoenix /
+{{- end }}
+{{- end }}
+spec:
+  ingressClassName: {{ index $vssIngress "ingressClassName" | default "haproxy" }}
+  rules:
+    - host: {{ $mainHost }}
+      http:
+        paths:
+          - path: /api/chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
+                port:
+                  number: {{ index $vssIngress "vssUiPort" | default 3000 }}
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /chat
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /websocket
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent") }}
+                port:
+                  number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
+          - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
+                port:
+                  number: {{ index $vssIngress "vstIngressPort" | default 30888 }}
+{{- if $analyticsEnabled }}
+          - path: /video-analytics-api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }}
+                port:
+                  number: {{ index $vssIngress "videoAnalyticsApiPort" | default 8081 }}
+{{- end }}
+{{- if $alertBridgeEnabled }}
+          - path: /alert-bridge
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-alert-bridge") }}
+                port:
+                  number: {{ index $vssIngress "alertBridgePort" | default 9080 }}
+{{- end }}
+{{- if $phoenixEnabled }}
+          - path: /phoenix
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "phoenix") }}
+                port:
+                  number: {{ index $vssIngress "phoenixPort" | default 6006 }}
+{{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-agent-ui") }}
+                port:
+                  number: {{ index $vssIngress "vssUiPort" | default 3000 }}
+{{- if $kibanaEnabled }}
+    - host: {{ $kibanaHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "kibana") }}
+                port:
+                  number: {{ index $vssIngress "kibanaPort" | default 5601 }}
+{{- end }}
+{{- if and $phoenixEnabled (ne $phoenixHost "") }}
+    - host: {{ $phoenixHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "phoenix") }}
+                port:
+                  number: {{ index $vssIngress "phoenixPort" | default 6006 }}
+{{- end }}
+{{- if $streamerEnabled }}
+    - host: {{ $streamerHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }}
+                port:
+                  number: {{ index $vssIngress "streamerPort" | default 31000 }}
+{{- end }}
+{{- end }}

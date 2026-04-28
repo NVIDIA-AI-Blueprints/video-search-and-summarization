@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+enabled: false
+global: {}
+
+image:
+  repository: docker.elastic.co/kibana/kibana
+  tag: "9.3.0"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+elasticsearchHosts: ""
+
+# Init: wait until Elasticsearch answers HTTP (same base as kibana.yml elasticsearch.hosts).
+waitForElasticsearch:
+  enabled: true
+  image:
+    repository: docker.io/curlimages/curl
+    tag: "8.12.1"
+    pullPolicy: IfNotPresent
+  maxAttempts: 120
+  sleepSeconds: 5
+  # GET path relative to ES base URL (e.g. http://elasticsearch:9200).
+  probePath: "/_cluster/health"
+
+kibanaPublicUrl: ""
+serverPublicBaseUrl: ""
+serverSecurityResponseHeadersDisableEmbedding: "false"
+cspStrict: "false"
+
+service:
+  port: 5601
+  type: ClusterIP
+  # When type is NodePort, set nodePort (e.g. 31560) for stable NodePort installs.
+  nodePort: null
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+
+init:
+  enabled: false
+  # Selects packaged NDJSON under configs/objects/{alerts,search,lvs}.ndjson
+  objectsBundle: ""
+  image:
+    repository: alpine
+    tag: "3.23.2"
+    pullPolicy: IfNotPresent
+  backoffLimit: 10
+  kibanaUrl: ""
+  elasticsearchUrl: ""

@@ -1,0 +1,188 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Container env is the explicit `env` list below (Option B). Each `value` is rendered with Helm `tpl`
+# so you can reference .Values / .Release / global (see developer profile values for full examples).
+# Use `extraEnv` for late overrides (e.g. secrets) — duplicate names win (listed last).
+
+enabled: false
+global: {}
+serviceAccount:
+  create: false
+image:
+  repository: nvcr.io/nvstaging/vss-core/vss-agent
+  tag: "3.2.0-26.04.2-c4f5e8b"
+  pullPolicy: IfNotPresent
+replicas: 1
+service:
+  port: 8000
+  type: ClusterIP
+  nodePort: ""
+profile: base
+mountConfigEdge: false
+mountEvalOutput: true
+agentEval:
+  enabled: false
+  storageClass: ""
+  size: 10Gi
+apiKeys:
+  huggingface: ""
+  nvidia: ""
+vstBaseUrl: ""
+configFilePath: /etc/vss-agent/config.yml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+startupProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  periodSeconds: 30
+  failureThreshold: 8
+  timeoutSeconds: 10
+phoenixEndpoint: ""
+llmBaseUrl: ""
+vlmBaseUrl: ""
+vstExternalUrl: ""
+vstInternalUrl: ""
+vstMcpUrl: ""
+cosmosEmbedEndpoint: ""
+elasticsearchUrl: ""
+elasticsearchIndex: ""
+videoAnalysisMcpUrl: ""
+rtviVlmBaseUrl: ""
+rtviVlmServiceName: ""
+llmName: ""
+vlmName: ""
+evalLlmJudgeName: ""
+evalLlmJudgeBaseUrl: ""
+reportsBaseUrl: ""
+vssAgentExternalUrl: ""
+externalIp: ""
+vstInternalIp: ""
+vssAgentVersion: "3.2.0-26.04.2-c4f5e8b"
+lvsBackendService: ""
+
+# Block startup until Kafka, Redis, and Elasticsearch accept TCP (optional).
+waitForDependencies:
+  enabled: false
+  image:
+    repository: busybox
+    tag: "1.37.0"
+    pullPolicy: IfNotPresent
+  kafkaHost: ""
+  kafkaPort: "9092"
+  redisHost: ""
+  redisPort: "6379"
+  elasticsearchHost: ""
+  elasticsearchPort: "9200"
+  maxRetries: "90"
+  retryInterval: "2"
+
+extraEnv: []
+env:
+- name: VSS_AGENT_CONFIG_FILE
+  value: '{{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}'
+- name: VSS_AGENT_HOST
+  value: '0.0.0.0'
+- name: VSS_AGENT_PORT
+  value: '8000'
+- name: LLM_MODE
+  value: '{{- $g := .Values.global | default dict }}{{- $llm := (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim }}{{- if $llm }}remote{{- else }}local{{- end }}'
+- name: VLM_MODE
+  value: '{{- $g := .Values.global | default dict }}{{- $vlm := (coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim }}{{- if $vlm }}remote{{- else }}local{{- end }}'
+- name: LLM_MODEL_TYPE
+  value: nim
+- name: VLM_MODEL_TYPE
+  value: nim
+- name: STREAM_MODE
+  value: other
+- name: VSS_AGENT_OBJECT_STORE_TYPE
+  value: local_object_store
+- name: EXTERNAL_IP
+  value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{ coalesce .Values.externalIp $eh "127.0.0.1" }}'
+- name: INTERNAL_IP
+  value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $viosIng := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalIp $viosIng }}'
+- name: HOST_IP
+  value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $viosIng := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalIp $viosIng }}'
+- name: LVS_BACKEND_URL
+  value: ''
+- name: RTVI_EMBED_PORT
+  value: ''
+- name: RTVI_CV_PORT
+  value: ''
+- name: VSS_ES_PORT
+  value: ''
+- name: VST_BASE_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstBaseUrl .Values.vstExternalUrl $globalBase $vstHttp }}'
+- name: VIDEO_ANALYSIS_MCP_URL
+  value: '{{- if (trim (.Values.videoAnalysisMcpUrl | default "")) }}{{ trim .Values.videoAnalysisMcpUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-va-mcp" .Release.Name) "vss-va-mcp" $pfx }}{{- printf "http://%s:9901" $host -}}{{- end }}'
+- name: RTVI_VLM_BASE_URL
+  value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
+- name: NVIDIA_API_KEY
+  value: ''
+- name: OPENAI_API_KEY
+  value: ''
+- name: COSMOS_EMBED_ENDPOINT
+  value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-embed:8000" .Release.Name) "http://vss-rtvi-embed:8000" $pfx }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
+- name: ELASTIC_SEARCH_ENDPOINT
+  value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
+- name: ELASTIC_SEARCH_INDEX
+  value: '{{ .Values.elasticsearchIndex | default "" }}'
+- name: PHOENIX_ENDPOINT
+  value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
+- name: LLM_BASE_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+- name: VLM_BASE_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+- name: VST_EXTERNAL_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+- name: VST_INTERNAL_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalUrl $vstHttp }}'
+- name: VST_MCP_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-vios-mcp:8001" .Release.Name) "http://vss-vios-mcp:8001" $pfx }}{{ coalesce .Values.vstMcpUrl $def }}'
+- name: LLM_NAME
+  value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
+- name: VLM_NAME
+  value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos-reason2-8b") }}'
+- name: EVAL_LLM_JUDGE_NAME
+  value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
+- name: EVAL_LLM_JUDGE_BASE_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+- name: VSS_AGENT_REPORTS_BASE_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.reportsBaseUrl (ternary (printf "%s/static/" $globalBase) "" (ne $globalBase "")) (printf "%s/static/" $vssAgentHttp) }}'
+- name: VSS_AGENT_EXTERNAL_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+# Legacy + config.yml (${AGENT_BASE_URL}): same derivation as VSS_AGENT_EXTERNAL_URL.
+- name: AGENT_BASE_URL
+  value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+- name: VSS_AGENT_VERSION
+  value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.2-c4f5e8b" }}'
+resources: {}
+nodeSelector: {}
+tolerations: []

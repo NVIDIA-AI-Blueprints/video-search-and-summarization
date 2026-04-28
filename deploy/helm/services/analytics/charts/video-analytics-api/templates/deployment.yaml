@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-video-analytics-api.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-video-analytics-api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-video-analytics-api
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-video-analytics-api
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.waitForDependencies.enabled }}
+      {{- $g := .Values.global | default dict }}
+      {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+      {{- $kafkaDef := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+      {{- $esDef := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+      {{- $kafkaH := .Values.waitForDependencies.kafkaHost | default $kafkaDef }}
+      {{- $esH := .Values.waitForDependencies.elasticsearchHost | default $esDef }}
+      initContainers:
+        - name: wait-for-kafka-elasticsearch
+          image: {{ .Values.waitForDependencies.image.repository }}:{{ .Values.waitForDependencies.image.tag }}
+          imagePullPolicy: {{ .Values.waitForDependencies.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka {{ $kafkaH }}:{{ .Values.waitForDependencies.kafkaPort }} and Elasticsearch {{ $esH }}:{{ .Values.waitForDependencies.elasticsearchPort }}"
+              for i in $(seq 1 {{ .Values.waitForDependencies.maxRetries }}); do
+                if nc -z {{ $kafkaH }} {{ .Values.waitForDependencies.kafkaPort }} 2>/dev/null \
+                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null; then
+                  echo "Kafka and Elasticsearch are accepting connections"
+                  exit 0
+                fi
+                echo "Attempt $i: waiting..."
+                sleep {{ .Values.waitForDependencies.retryInterval }}
+              done
+              echo "Timeout waiting for Kafka or Elasticsearch"
+              exit 1
+      {{- end }}
+      containers:
+        - name: vss-video-analytics-api
+          image: {{ include "vss-video-analytics-api.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - node
+            - index.js
+            - --config
+            - /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+          volumeMounts:
+            - name: config
+              mountPath: /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+              subPath: vss-video-analytics-api-config.json
+              readOnly: true
+            - name: files
+              mountPath: /web-api-app/files
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "vss-video-analytics-api.fullname" . }}-config
+        - name: files
+          persistentVolumeClaim:
+            claimName: {{ include "vss-video-analytics-api.fullname" . }}-files
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

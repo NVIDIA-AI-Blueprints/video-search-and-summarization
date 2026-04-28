@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if and .Values.enabled .Values.downloadModelsFromNgc }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-download-models
+  labels:
+    app.kubernetes.io/name: vss-rtvi-cv
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      {{- $ips := .Values.imagePullSecrets | default .Values.global.imagePullSecrets }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: download-models
+          image: {{ .Values.ngcDownload.image.repository }}:{{ .Values.ngcDownload.image.tag }}
+          imagePullPolicy: {{ .Values.ngcDownload.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | default "ngc-api" }}
+                  key: {{ .Values.ngcApiKeySecretKey | default "NGC_CLI_API_KEY" }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              echo "[INFO] Installing NGC CLI..."
+              apt-get update -qq && apt-get install -y -qq wget unzip > /dev/null
+              cd /tmp
+              wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
+              unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
+              export PATH="/tmp/ngc-cli:$PATH"
+              ngc --version
+              echo "[INFO] Downloading models from NGC..."
+              DEST="/data/models"
+              {{- range .Values.ngcModelsToDownload }}
+              mkdir -p "${DEST}/$(dirname {{ .destPath | quote }})"
+              ngc registry model download-version {{ .model | quote }} --org {{ $.Values.ngcOrg | default "nvidia" | quote }}
+              mv {{ .sourcePath | quote }} "${DEST}/{{ .destPath }}"
+              rm -rf $(dirname {{ .sourcePath | quote }})
+              {{- end }}
+              chmod -R a+r "${DEST}"
+              echo "[INFO] Models downloaded to ${DEST}"
+          volumeMounts:
+            - name: models
+              mountPath: /data/models
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+{{- end }}

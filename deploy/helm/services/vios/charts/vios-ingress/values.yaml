@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/vss-vios-ingress
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+service:
+  port: 30888
+  type: ClusterIP
+  # When type is NodePort, set nodePort (e.g. 30888 for search / RTVI-embed IP-based URLs).
+# Compose parity: healthcheck, env and volumes (nginx config, logs)
+# Compose healthcheck: tcp ${VST_INGRESS_HTTP_PORT:-30888}
+livenessProbe:
+  tcpSocket:
+    port: 30888
+  initialDelaySeconds: 2
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+readinessProbe:
+  tcpSocket:
+    port: 30888
+  initialDelaySeconds: 2
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 30
+# Override HOST_IP (bind address advertised to nginx). Empty: see hostIpFollowsExternallyAccessibleIp / default 127.0.0.1.
+hostIp: ""
+# When true and hostIp is empty, HOST_IP uses the same resolved address as EXTERNALLY_ACCESSIBLE_IP (externallyAccessibleIp | global.externalHost). Default false (alerts/local dev keep 127.0.0.1).
+hostIpFollowsExternallyAccessibleIp: false
+# Empty: use global.externalHost, then 127.0.0.1 for EXTERNALLY_ACCESSIBLE_IP only.
+externallyAccessibleIp: ""
+vstIngressHttpPort: "30888"
+# Sensor API backend. Empty = use Release.Name-vss-vios-sensor:30000 (e.g. vss-alerts-vss-vios-sensor:30000).
+# Override if sensor API is elsewhere (e.g. nvstreamer in minimal setups).
+sensorUpstream: ""
+# Streamprocessing API backend. Empty = use Release.Name-vss-vios-streamprocessing:30001 (service port).
+streamprocessingUpstream: ""
+# Agent backend for /static/ (report files). Empty = use Release.Name-vss-agent:8000. Required so url_validator can reach report URLs when internal_ip points at this ingress.
+agentUpstream: ""
+envoyUpstream: ""
+env:
+  - name: HOST_IP
+    value: ""
+  - name: EXTERNALLY_ACCESSIBLE_IP
+    value: "127.0.0.1"
+  - name: VST_INGRESS_HTTP_PORT
+    value: "30888"
+resources: {}
+nodeSelector: {}
+tolerations: []
