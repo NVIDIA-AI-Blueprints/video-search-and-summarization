@@ -139,8 +139,10 @@ services:
       qwen3-vl-8b-instruct-shared-gpu:
         condition: service_healthy
         required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
 
     # Network mode: bridge (default) to enable port mapping
     # To use host network instead (ignores port mapping), uncomment:
     # network_mode: host
-
