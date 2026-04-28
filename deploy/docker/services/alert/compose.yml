@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  alert-bridge:
+    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.61
+    container_name: vss-alert-bridge
+    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv"]
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
+      VLM_NAME: ${VLM_NAME}
+      # URL rewriting configuration
+      EXTERNAL_IP: ${EXTERNAL_IP}
+      INTERNAL_IP: ${HOST_IP}
+      LLM_MODE: ${LLM_MODE} # remote / local / local_shared
+      VLM_MODE: ${VLM_MODE} # remote / local / local_shared
+    volumes:
+      - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
+      - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE:-/path/to/alert_type_config.json}:/app/alert_type_config.json:ro
+      - $MDX_SAMPLE_APPS_DIR/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
+    tmpfs:
+      - /app/runtime:mode=1777,size=10M
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+      kafka-topic-init-container:
+        condition: service_completed_successfully
+      cosmos-reason1-7b:
+        condition: service_healthy
+        required: false
+      cosmos-reason1-7b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b:
+        condition: service_healthy
+        required: false
+      cosmos-reason2-8b-shared-gpu:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct:
+        condition: service_healthy
+        required: false
+      qwen3-vl-8b-instruct-shared-gpu:
+        condition: service_healthy
+        required: false
+      nvstreamer-alerts:
+        condition: service_started
+        required: false
+      nvstreamer-2d:
+        condition: service_started
+        required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
+    entrypoint: 
+      - /usr/local/bin/python
+      - /app/env-substitute.py
+      - --source
+      - /app/configs/config.yml
+      - --output
+      - /app/runtime/config.yml
+      - --
+    command: ["/usr/local/bin/python", "enhance_alert_with_vlm.py", "--config", "/app/runtime/config.yml"]
+
+

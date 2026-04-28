@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  centralizedb:
+    image: ${POSTGRES_IMAGE}
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    user: "0:0"
+    environment:
+      - POSTGRES_USER=${CENTRALIZE_DB_USERNAME}
+      - POSTGRES_DB=${CENTRALIZE_DB_NAME}
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    volumes:
+      - ${VST_VOLUME}/postgres/db:/var/lib/postgresql/data
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ${VST_DATA_PATH}:/var/run/postgresql
+    network_mode: host
+    container_name: vss-vios-postgres
+    restart: always
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
+      - "-c"
+      - "unix_socket_directories=/var/run/postgresql"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h /var/run/postgresql -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 2s
+
+  vst-ingress:
+    image: ${NGINX_IMAGE}
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    user: "0:0"
+    environment:
+      - VST_INGRESS_HTTP_PORT=${VST_INGRESS_HTTP_PORT}
+    volumes:
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/nginx-${VST_NGINX_MODE:-2d}.conf:/etc/nginx/nginx.conf:ro
+      - ${VST_LOGS}/nginx_logs:/var/log/nginx
+    network_mode: host
+    container_name: vss-vios-ingress
+    restart: always    # Nginx should always restart as it's critical for routing
+    command: ["nginx", "-g", "daemon off;"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${VST_INGRESS_HTTP_PORT:-30888}'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+    depends_on:
+      sensor-ms-bp:
+        condition: service_healthy
+        required: false
+      sensor-ms-dev:
+        condition: service_healthy
+        required: false
+
+  vst-mcp:
+    image: ${VST_MCP_IMAGE}
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    user: "0:0"
+    environment:
+      - MCP_GATEWAY_CPP_API_BASE_URL=${MCP_GATEWAY_CPP_API_BASE_URL}
+      - MCP_GATEWAY_CPP_API_TIMEOUT=${MCP_GATEWAY_CPP_API_TIMEOUT:-30}
+      - MCP_GATEWAY_SERVER_NAME=${MCP_GATEWAY_SERVER_NAME:-vst-mcp-server}
+      - MCP_GATEWAY_SERVER_VERSION=${MCP_GATEWAY_SERVER_VERSION:-1.0.0}
+      - MCP_GATEWAY_SERVER_HOST=${MCP_GATEWAY_SERVER_HOST}
+      - MCP_GATEWAY_SERVER_PORT=${MCP_GATEWAY_SERVER_PORT}
+      - MCP_GATEWAY_LOG_LEVEL=${MCP_GATEWAY_LOG_LEVEL:-INFO}
+      - MCP_GATEWAY_ENABLE_JSONRPC_LOGGING=${MCP_GATEWAY_ENABLE_JSONRPC_LOGGING:-true}
+    network_mode: host
+    container_name: vss-vios-mcp
+    restart: always
+    depends_on:
+      sensor-ms-bp:
+        condition: service_healthy
+        required: false
+      sensor-ms-dev:
+        condition: service_healthy
+        required: false
+      vst-ingress:
+        condition: service_healthy
+        required: false

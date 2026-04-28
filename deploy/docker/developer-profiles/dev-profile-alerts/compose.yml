@@ -1,0 +1,185 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+
+  vss-behavior-analytics-alerts:
+    image: nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.1.0
+    network_mode: "host"
+    profiles: ["bp_developer_alerts_2d_cv"]
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-$STREAM_TYPE-config.json:/resources/vss-behavior-analytics-config.json
+    restart: always
+    container_name: vss-behavior-analytics
+    command: python3 apps/dev_example/main_dev_example_app.py --config /resources/vss-behavior-analytics-config.json
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  nvstreamer-alerts:
+    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    user: "0:0"
+    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst" ]
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+    network_mode: "host"
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
+    container_name: vss-vios-nvstreamer
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - $MDX_DATA_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
+      - $MDX_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
+      - $MDX_SAMPLE_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  perception-sdr-alerts:
+    image: nvcr.io/nvidia/vss-core/sdr:3.1.0
+    profiles: ["bp_developer_alerts_2d_cv"]
+    network_mode: "host"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "8192m"
+        max-file: "3"
+    container_name: vss-rtvi-cv-sdr
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      PORT: 4001
+      OTEL_SDK_DISABLED: true
+      WDM_INITIALIZE_FROM_VST: true
+      WDM_WL_SPEC: /wdm-data/ds-data_wl.yaml
+      WDM_CLUSTER_CONFIG_FILE: /wdm-configs/docker_cluster_config.json
+      WDM_MSG_KEY: vst.event
+      WDM_WL_REDIS_MSG_FIELD: sensor.id
+      WDM_WL_ADD_URL: /api/v1/stream/add
+      WDM_WL_DELETE_URL: /api/v1/stream/remove
+      WDM_WL_HEALTH_CHECK_URL: /api/v1/stream/add
+      VST_STREAMS_ENDPOINT: http://localhost:30888/vst/api/v1/live/streams
+      VST_STATUS_ENDPOINT: http://localhost:30888/vst/api/v1/sensor/status
+      WDM_WL_CHANGE_ID_ADD: camera_streaming
+      WDM_PRELOAD_WORKLOAD: ./tests/event_pre-roll.json
+      WDM_CLEAR_DATA_WL: true
+      WDM_KFK_ENABLE: false
+      WDM_DS_SWAP_ID_NAME: false
+      WDM_VALIDATE_BEFORE_ADD: true
+      WDM_PRELOAD_DELAY_FOR_DS_API: true
+      WDM_WL_THRESHOLD: ${NUM_SENSORS}
+      WDM_CLUSTER_TYPE: docker
+      WDM_POD_WATCH_DOCKER_DELAY: 0.5
+      WDM_DS_STATUS_CHECK: true
+      WDM_RESTART_DS_ON_ADD_FAIL: false
+      WDM_DISABLE_WERKZEUG_LOGGING: true
+      WDM_WL_OBJECT_NAME: sdr-deepstream
+      WDM_CONSUMER_GRP_ID: sdr-deepstream-cg
+      WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+      restart_policy:
+        condition: always
+      mode: replicated
+      replicas: 1
+    entrypoint: []
+    command: sh -c '/wdm/dist/sdr'
+
+  perception-alerts:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts
+      args:
+        PERCEPTION_IMAGE: $PERCEPTION_IMAGE
+        PERCEPTION_TAG: $PERCEPTION_TAG
+      dockerfile: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/${PERCEPTION_DOCKERFILE_PREFIX}perception.Dockerfile
+    network_mode: "host"
+    runtime: nvidia
+    profiles: ["bp_developer_alerts_2d_cv"]
+    container_name: vss-rtvi-cv
+    deploy:
+      restart_policy:
+          condition: on-failure
+          max_attempts: 2
+      resources:
+        reservations:
+          devices:
+          - capabilities:
+            - gpu
+            device_ids:
+            - "${RT_CV_DEVICE_ID:-0}"
+    volumes:
+      - $MDX_DATA_DIR/models/:/opt/storage/
+      - $MDX_SAMPLE_APPS_DIR/engines/:/opt/engines/
+    environment:
+      MODEL_TYPE: ${MODEL_TYPE}
+      STREAM_TYPE: ${STREAM_TYPE}
+      MODEL_NAME_2D: ${MODEL_NAME_2D}
+      NUM_SENSORS: ${NUM_SENSORS}
+    command: "bash ds-start.sh run_config-api-rtdetr-protobuf.txt"
+    depends_on:
+      kafka-topic-init-container:
+        condition: service_completed_successfully
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
+
+  kibana-init-container-alerts:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts
+      dockerfile: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
+    network_mode: "host"
+    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    container_name: vss-kibana-init
+    command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
+    depends_on:
+      kibana:
+        condition: service_healthy
+
+  vss-video-analytics-api-alerts:
+    image: nvcr.io/nvidia/vss-core/vss-video-analytics-api:3.1.0
+    network_mode: "host"
+    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/vss-video-analytics-api/configs/video-analytics-api-$STREAM_TYPE-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+      - vss-video-analytics-api-alerts:/web-api-app/files
+    container_name: vss-video-analytics-api
+    command: node index.js --config /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+    restart: always
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      elasticsearch-init-container:
+        condition: service_completed_successfully
+
+volumes:
+  mdx-nvstreamer-data:
+  mdx-nvstreamer-videos:
+  vss-video-analytics-api-alerts:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${MDX_DATA_DIR}/data_log/vss_video_analytics_api
+  perception-alerts:
