@@ -100,5 +100,6 @@ Paste the **agent’s timestamped summary** under **Analysis Results**. Fill the
 
 ## Cross-Reference
 
-- **sensor-ops** — VST sensors, storage, and clip URLs if you need to verify the video exists before calling the agent.
+- **vios** — VST sensors, storage, and clip URLs if you need to upload a video overify the video exists before calling the agent.
+- **video-understanding** for follow up questions that cannot be answered directly by the generated report or conversation history.
 - **video-summarization** / **incident-report** — other **`/generate`** patterns; this skill focuses on **timestamped captions → report template**.
