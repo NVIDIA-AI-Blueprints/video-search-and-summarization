@@ -129,7 +129,13 @@ template is in § Harbor invocation below.
        git fetch origin "$SOURCE_BRANCH":"refs/remotes/origin/$SOURCE_BRANCH"
        git checkout -b "$BOT_BRANCH" "origin/$SOURCE_BRANCH"
        git add .github/skill-eval/adapters/${SKILL}/
-       git commit -m "skill-eval: adapter for ${SKILL} (PR #${PR_NUMBER})"
+       # `-s` is mandatory: every commit on this repo's PR branches
+       # must carry a `Signed-off-by:` trailer or the org-level DCO
+       # check rejects the PR. Combined with the `git config
+       # user.{name,email}` above, the trailer reads
+       #   Signed-off-by: skills-eval-bot <skills-eval-bot@users.noreply.github.com>
+       # which is what DCO wants to see.
+       git commit -s -m "skill-eval: adapter for ${SKILL} (PR #${PR_NUMBER})"
        git push -u origin "$BOT_BRANCH"
 
        BOT_PR_URL=$(gh pr create \
