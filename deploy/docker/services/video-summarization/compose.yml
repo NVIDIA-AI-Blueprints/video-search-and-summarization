@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-long-video-summarization:3.1.0}
+    image: ${CONTAINER_IMAGE:-${LVS_IMAGE:-nvcr.io/nvidia/vss-core/vss-long-video-summarization}:${LVS_TAG:-3.1.0}}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
@@ -51,11 +51,13 @@ services:
       - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
 
       # LLM configuration
-      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
+      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME:-${LLM_NAME}}
       - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
       - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
       - VIA_VLM_API_KEY=${OPENAI_API_KEY:-${VIA_VLM_API_KEY:-not-used}}
+      - VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME=${RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-${VLM_NAME}}
+      - VLM_MODEL_TO_USE=${RTVI_VLM_MODEL_TO_USE:-openai-compat}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration
