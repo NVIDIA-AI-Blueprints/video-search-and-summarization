@@ -58,6 +58,7 @@ UNRESOLVED_SHELL_VAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$[A-Za-z_][
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
+        "/path/to/deploy/docker",
         "/path/to/deployments",
         "/path/to/metropolis-apps-data",
     }
@@ -76,7 +77,6 @@ EDGE_ALERTS_RTVI_FPS: Final[str] = "20"
 COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "MODE",
     "BP_PROFILE",
-    "PROXY_MODE",
     "LLM_NAME_SLUG",
     "VLM_NAME_SLUG",
 )
@@ -404,13 +404,16 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
 
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
-    merged["COMPOSE_PROFILES"] = (
-        f"{merged['BP_PROFILE']}_{merged['MODE']},"
-        f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['HARDWARE_PROFILE']},"
-        f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['PROXY_MODE']},"
-        f"llm_{merged['LLM_MODE']}_{merged['LLM_NAME_SLUG']},"
-        f"vlm_{merged['VLM_MODE']}_{merged['VLM_NAME_SLUG']}"
+    compose_profiles = [f"{merged['BP_PROFILE']}_{merged['MODE']}"]
+    if config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
+        compose_profiles.append(f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['HARDWARE_PROFILE']}")
+    compose_profiles.extend(
+        [
+            f"llm_{merged['LLM_MODE']}_{merged['LLM_NAME_SLUG']}",
+            f"vlm_{merged['VLM_MODE']}_{merged['VLM_NAME_SLUG']}",
+        ]
     )
+    merged["COMPOSE_PROFILES"] = ",".join(compose_profiles)
     return merged
 
 

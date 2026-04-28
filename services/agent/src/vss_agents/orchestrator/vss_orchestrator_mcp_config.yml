@@ -38,13 +38,13 @@ function_groups:
     output_dir: "/home/ubuntu/video-search-and-summarization/.orchestrator-artifacts"
     # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
     _type: vss_orchestrator
-    # Absolute path to the deployments/ root. Set HOST_IP separately via env
+    # Absolute path to the deploy/docker root. Set HOST_IP separately via env
     # overrides in the docker_generate tool call, or pre-populate the selected profile .env.
-    deployments_dir: "/home/ubuntu/video-search-and-summarization/deployments"
+    deployments_dir: "/home/ubuntu/video-search-and-summarization/deploy/docker"
     # Absolute source compose yaml path.
-    source_compose_yaml: "/home/ubuntu/video-search-and-summarization/deployments/compose.yml"
+    source_compose_yaml: "/home/ubuntu/video-search-and-summarization/deploy/docker/compose.yml"
     # Absolute source profile env path. Supports {profile}.
-    source_env: "/home/ubuntu/video-search-and-summarization/deployments/developer-workflow/dev-profile-{profile}/.env"
+    source_env: "/home/ubuntu/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-{profile}/.env"
     # MDX_DATA_DIR base directory used by orchestrator (profile .env MDX_DATA_DIR is ignored).
     mdx_data_directories:
     - data_log/analytics_cache

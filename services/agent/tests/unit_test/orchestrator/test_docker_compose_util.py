@@ -125,6 +125,7 @@ class TestFirstNonPlaceholder:
                 "$HOST_IP",
                 "${HOST_IP}",
                 "http://${HOST_IP}:30888",
+                "/path/to/deploy/docker",
                 "/path/to/deployments",
                 "10.0.0.5",
             ]
@@ -199,7 +200,7 @@ class TestBuildResolvedEnv:
                 "LLM_NAME=llm-a",
                 "VLM_NAME=vlm-a",
                 "HOST_IP=<HOST_IP>",
-                "MDX_SAMPLE_APPS_DIR=/path/to/deployments",
+                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
                 "NGC_CLI_API_KEY=",  # pragma: allowlist secret
                 "NVIDIA_API_KEY=",  # pragma: allowlist secret
             ),
@@ -234,9 +235,7 @@ class TestBuildResolvedEnv:
         assert resolved["VLM_NAME_SLUG"] == "vlm-a-slug"
         assert resolved["LLM_DEVICE_ID"] == "0"
         assert resolved["VLM_DEVICE_ID"] == "1"
-        assert resolved["COMPOSE_PROFILES"] == (
-            "search_local,search_local_igx,search_local_direct,llm_local_llm-a-slug,vlm_local_vlm-a-slug"
-        )
+        assert resolved["COMPOSE_PROFILES"] == "search_local,llm_local_llm-a-slug,vlm_local_vlm-a-slug"
         assert brev_calls == [("10.0.0.5", "brev-from-etc")]
 
     def test_build_resolved_env_preserves_nonempty_env_file_values(
