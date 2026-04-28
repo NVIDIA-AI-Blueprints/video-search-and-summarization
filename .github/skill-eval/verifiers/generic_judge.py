@@ -82,16 +82,59 @@ _SHELL_VERBS = {
     "sudo", "find", "test",
 }
 
+# Phrases that flip the check's polarity — the author is asserting the
+# agent did NOT do something, not asking the verifier to run it. A
+# backtick-wrapped command in such a check is an example, not a directive.
+# Compared case-insensitively against the whole check string.
+_NEGATIVE_ASSERTION_PATTERNS = re.compile(
+    r"\b(does not|did not|do not|doesn't|didn't|don't|"
+    r"never|without|no\s+\w+\s+(call|request|invocation|attempt)s?|"
+    r"must not|should not|shouldn't|mustn't|"
+    r"avoided?|skipped?|refused?|"
+    r"zero\s+\w+\s+(call|request|invocation|attempt)s?|"
+    r"not\s+(call|run|invoke|issue|fire|trigger)\b)",
+    re.IGNORECASE,
+)
 
-def extract_shell_command(check: str) -> str | None:
-    """If the check contains a runnable shell command in backticks, return it.
-    Conservative — only extracts commands beginning with safe verbs."""
+
+def _backtick_shell_commands(check: str) -> list[str]:
+    """Return every backtick-wrapped substring whose first token is in
+    `_SHELL_VERBS`. Used by `extract_shell_command` to count how many
+    distinct example commands a check enumerates."""
+    out: list[str] = []
     for match in re.finditer(r"`([^`]{5,400})`", check):
         cmd = match.group(1).strip()
         first = cmd.split()[0] if cmd.split() else ""
         if first in _SHELL_VERBS:
-            return cmd
-    return None
+            out.append(cmd)
+    return out
+
+
+def extract_shell_command(check: str) -> str | None:
+    """If the check contains a runnable shell command in backticks, return
+    it. Conservative — only extracts commands beginning with safe verbs.
+
+    Two refinements over a naive first-backtick-wins extractor:
+
+    1) **Negative-assertion bypass.** Checks phrased as "the agent does
+       not run X", "never calls Y", "no /generate request", etc. are
+       trajectory assertions, not shell directives. Running the
+       backticked example would be wrong (and often actively harmful —
+       e.g. `docker compose down` in the verifier's CWD). When the
+       check matches `_NEGATIVE_ASSERTION_PATTERNS`, return None and
+       let the LLM trajectory route handle it.
+
+    2) **Enumeration bypass.** A check that lists 2+ distinct
+       backtick-wrapped commands ("such as `A`, `B`, or `C`") is an
+       enumeration of examples, not a request to run any single one.
+       Return None so the LLM can reason about the set as a whole.
+    """
+    if _NEGATIVE_ASSERTION_PATTERNS.search(check):
+        return None
+    cmds = _backtick_shell_commands(check)
+    if len(cmds) >= 2:
+        return None
+    return cmds[0] if cmds else None
 
 
 def judge_shell(check: str) -> dict:
