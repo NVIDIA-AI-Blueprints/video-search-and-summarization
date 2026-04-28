@@ -258,12 +258,33 @@ template is in § Harbor invocation below.
       flock arbitrates within-fleet contention.
 
       If no candidate exists for this platform, **don't `brev create`
-      one yourself** — emit a `BLOCKED: pool exhausted for <platform>`
-      blocker comment and exit. The pool is sized and managed by the
-      operator out-of-band; auto-creation defeated the point of having
-      a warm pool (every fresh box pays the deploy-from-scratch tax).
-      If you genuinely need more capacity, ping the operator to add a
-      `vss-eval-<short>-<n>` to the pool and re-run.
+      one yourself** — the pool is operator-managed. **Wait** for a
+      candidate to appear: re-run `brev ls --json` every 5 min, up to
+      the same 28800s lock-hold budget. If the operator scales up or
+      another run frees a box during that window, restart selection
+      from the top with the fresh snapshot. Only after the full 28800s
+      budget elapses with zero candidates do you emit
+      `BLOCKED: pool exhausted for <platform>` and exit — that's a
+      genuine capacity shortfall the operator needs to action.
+
+      ```bash
+      # Pseudocode for the wait-for-pool case:
+      DEADLINE=$(( $(date +%s) + 28800 ))
+      while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+          brev ls --json > /tmp/skill-eval/brev-snapshot.txt
+          # Re-evaluate candidates against the snapshot (same scoring as
+          # above). If any RUNNING+READY ^vss-eval-* matches the platform,
+          # break and proceed to flock acquisition.
+          [ <candidate found> ] && break
+          sleep 300
+      done
+      ```
+
+      Auto-create defeated the warm-pool design (every fresh box pays
+      the deploy-from-scratch tax), so we wait instead. Within the
+      same 8h budget, the busy-but-locked case (queue on `flock -w
+      28800`) and the empty-pool case (poll on `brev ls`) are
+      symmetric: both queue for the resource to become available.
 
    b. **Acquire the per-box lock** before running anything on the
       chosen instance (filename keys off `$INSTANCE_NAME`):
@@ -372,14 +393,26 @@ invocation). Without the export, BrevEnvironment auto-provisions a
 fresh `harbor-*` per trial regardless of what the snapshot showed.
 
 The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
-records what is currently RUNNING — not a deploy log; see
-`specs/stale-marker.spec`. With fleet=1, selection collapses to a
-single candidate. With fleet>1, two concurrent workflow runs land
-on different boxes naturally — that's how parallelism happens.
-The pool is operator-managed: never `brev create` a new fleet
-member yourself. If no `^vss-eval-*` candidate matches the trial's
-platform, emit `BLOCKED: pool exhausted for <platform>` (§ 5a) and
-let the operator scale the pool out-of-band.
+records the box's *deployment state* — what VSS profile/mode is
+currently up and live on that box. It is NOT an occupancy
+signal — a marker can read `base-remote-all` whether or not a
+trial is currently driving traffic against the stack. Occupancy
+(is some other worker using this box right now?) is the
+runner-side **flock** on `/tmp/brev/<INSTANCE_NAME>.lock`,
+checked separately via `flock -n` in step 5a. The two together
+let the scoring pick a warm-and-free box first, then fall back
+to warm-but-busy (queue on `flock -w`) or cold-and-free (redeploy).
+See `specs/stale-marker.spec` for verifying the marker against
+the actual running containers.
+
+With fleet=1, selection collapses to a single candidate. With
+fleet>1, two concurrent workflow runs land on different boxes
+naturally — that's how parallelism happens. The pool is
+operator-managed: never `brev create` a new fleet member
+yourself. If no `^vss-eval-*` candidate matches the trial's
+platform, wait/poll within the 28800s budget per step 5a; only
+emit `BLOCKED: pool exhausted for <platform>` after the full
+window elapses with zero candidates.
 
 **Name prefix is an anchored match, not a substring.** Only
 instances whose name starts with `vss-eval-` are eligible for
