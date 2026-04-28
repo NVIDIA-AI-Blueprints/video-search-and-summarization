@@ -227,7 +227,7 @@ class TestFetchObjectEmbedding:
         mock_client.search.return_value = {"hits": {"hits": []}}
 
         with pytest.raises(ValueError, match="not found"):
-            await _fetch_object_embedding("999", mock_client, "test-index")
+            await _fetch_object_embedding("999", "test-index", es=mock_client)
 
     @pytest.mark.asyncio
     async def test_missing_embedding_raises(self):
@@ -240,7 +240,7 @@ class TestFetchObjectEmbedding:
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {}}}]}}
 
         with pytest.raises(ValueError, match="no embedding vector"):
-            await _fetch_object_embedding("5", mock_client, "test-index")
+            await _fetch_object_embedding("5", "test-index", es=mock_client)
 
     @pytest.mark.asyncio
     async def test_dict_embedding_shape(self):
@@ -252,7 +252,7 @@ class TestFetchObjectEmbedding:
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0, 2.0, 3.0]}}}]}}
 
-        result = await _fetch_object_embedding("5", mock_client, "test-index")
+        result = await _fetch_object_embedding("5", "test-index", es=mock_client)
         assert result == [1.0, 2.0, 3.0]
 
     @pytest.mark.asyncio
@@ -265,7 +265,7 @@ class TestFetchObjectEmbedding:
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": [{"vector": [4.0, 5.0]}]}}]}}
 
-        result = await _fetch_object_embedding("5", mock_client, "test-index")
+        result = await _fetch_object_embedding("5", "test-index", es=mock_client)
         assert result == [4.0, 5.0]
 
     @pytest.mark.asyncio
@@ -278,7 +278,7 @@ class TestFetchObjectEmbedding:
         mock_client = AsyncMock()
         mock_client.search.return_value = {"hits": {"hits": [{"_source": {"embeddings": {"vector": [1.0]}}}]}}
 
-        await _fetch_object_embedding("5", mock_client, ["idx-a", "idx-b"])
+        await _fetch_object_embedding("5", ["idx-a", "idx-b"], es=mock_client)
         mock_client.search.assert_called_once()
         call_kwargs = mock_client.search.call_args
         assert call_kwargs.kwargs["index"] == "idx-a,idx-b"
