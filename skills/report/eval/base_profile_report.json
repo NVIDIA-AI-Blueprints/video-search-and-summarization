@@ -1,0 +1,24 @@
+{
+  "skills": ["report"],
+  "profile": "base",
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["remote-all"]
+      }
+    }
+  },
+  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — the report skill is a thin wrapper around the VSS agent's `POST /generate` endpoint, so the underlying inference is GPU-independent at the harness level. Pick the cheapest available host (L40S recommended). Required: VSS agent reachable at http://localhost:8000/docs (OpenAPI visible), VST reachable at http://localhost:30888/vst/api/v1, AND a sample warehouse video pre-uploaded to VIOS (seed via the vios skill's upload query before running these checks).",
+  "expects": [
+    {
+      "query": "Generate a video analysis report for the uploaded warehouse video.",
+      "checks": [
+        "The agent issued exactly one `POST http://localhost:8000/generate` call with an `input_message` field referencing the uploaded warehouse video by its sensor or stream identifier",
+        "The /generate response returned HTTP 200 with a non-empty body containing caption-style text",
+        "The agent's final reply is formatted as a Video Analysis Report with markdown section headers — not a raw JSON dump and not a chat-style bullet list",
+        "Every timestamp cited in the final report appears verbatim in the /generate response (no fabricated timestamps, no paraphrased timing)",
+        "The agent did NOT call `PUT /api/v1/videos-for-search/...` during this step — ingesting a video on the user's behalf is an explicit opt-in action"
+      ]
+    }
+  ]
+}
