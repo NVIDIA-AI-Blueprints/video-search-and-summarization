@@ -21,6 +21,33 @@ Search video archives by natural language using Cosmos Embed1 embeddings. Requir
 
 ---
 
+## Deployment prerequisite
+
+This skill requires the VSS **search** profile running on the host at `$HOST_IP`. Before any request:
+
+1. Probe the stack:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
+     && curl -sf --max-time 5 "http://${HOST_IP}:9200/" >/dev/null
+   ```
+   (The second check confirms Elasticsearch is up — unique to the search profile.)
+
+2. **If the probe fails**, ask the user:
+   > *"The VSS `search` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/deploy` skill with `-p search`?"*
+
+   - If yes → hand off to the `/deploy` skill. Return here once it succeeds.
+   - If no → stop. Do not run this skill against a missing or wrong-profile stack.
+
+   (If your caller has granted explicit pre-authorization to deploy
+   autonomously — e.g. the request says "pre-authorized to deploy
+   prerequisites", or you are running in a non-interactive evaluation
+   harness with that permission — skip the confirmation and invoke
+   `/deploy` directly.)
+
+3. If the probe passes, proceed.
+
+---
+
 ## How Search Works
 
 1. **Ingest** — Videos are uploaded or streamed via VIOS. The RTVI-Embed service (Cosmos Embed1) generates vector embeddings for video segments.
@@ -38,7 +65,13 @@ This search orchestrated by VSS agent can lead to 3 behaviors:
 ## Mandatory workflow
 
 When using this skill, ALWAYS follow this high-level workflow:
-1. Resolve inputs from user instructions
+1. **Resolve inputs from user instructions — HARD STOP if `$HOST_IP`
+   is not explicitly provided.** See § Input resolution below. Do NOT
+   default to `localhost`, `127.0.0.1`, the host the agent itself is
+   running on, or any other guess. Do NOT issue a
+   `POST http://.../generate` request until the user has supplied an
+   endpoint. Respond to the user with a single question asking for
+   `HOST_IP` / the VSS agent endpoint and wait.
 2. Run the search(es) via approach chosen
 3. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
    — Use clear section headers
