@@ -272,12 +272,23 @@ curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
   }"
 ```
 
-**Consume alerts from Kafka** (from the host running Kafka):
+**Consume alerts from Kafka** (when using the VSS foundational Kafka container):
 ```bash
-python3 tests/kafka/test_kafka_consumer.py \
+docker exec -it mdx-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
   --topic vision-llm-events-incidents \
-  --bootstrap-servers $HOST_IP:9092 \
-  --verbose
+  --property print.key=true \
+  --property print.headers=true
+```
+
+If Kafka is not running in the VSS `mdx-kafka` container, use the Kafka CLI from
+the host running the broker:
+```bash
+kafka-console-consumer \
+  --bootstrap-server "$HOST_IP:9092" \
+  --topic vision-llm-events-incidents \
+  --property print.key=true \
+  --property print.headers=true
 ```
 Incident protobuf (`ext.proto :: Incident`) key fields: `sensorId`, `timestamp`, `end`,
 `objectIds`, `frameIds`, `place`, `analyticsModule`, `category`, `isAnomaly` (`true` for
@@ -318,7 +329,11 @@ The same request always produces both outputs.
 Subscribe to all three topics in parallel:
 ```bash
 for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
-  python3 tests/kafka/test_kafka_consumer.py --topic $T --bootstrap-servers $HOST_IP:9092 &
+  docker exec -i mdx-kafka kafka-console-consumer \
+    --bootstrap-server localhost:9092 \
+    --topic "$T" \
+    --property print.key=true \
+    --property print.headers=true &
 done
 ```
 
