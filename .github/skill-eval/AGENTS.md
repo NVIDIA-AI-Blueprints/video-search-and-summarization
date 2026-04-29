@@ -589,6 +589,48 @@ Values for `<source>` / `<agent>` / `<model>` / `<task>` come from
 `GET http://localhost:8080/api/jobs/<run_id>__<date>/tasks`; slashes
 in `<model>` and `<task>` must be URL-encoded (`%2F`).
 
+### Per-trial trajectory isolation
+
+`BrevEnvironment.start()` archives any session JSONLs from prior
+trials before this trial's `claude --print` runs:
+
+```bash
+# Equivalent to:
+mv /logs/agent/sessions/projects/* $HOME/.claude-archive/<ts>/
+```
+
+This is required because **harbor's claude-code mapper merges every
+`*.jsonl` it finds in `<logs_dir>/sessions/projects/<project>/` into
+one trajectory.json** — and on a warm-pool box that dir accumulates
+JSONLs from every prior trial. Without the archive, this trial's
+trajectory.json contains a soup of unrelated agent sessions (observed:
+one step-1 trial showed 7549 steps spanning 50 hours of prior runs).
+
+Three things you should know when debugging:
+
+- **Per-trial trajectory.json is clean.** Each trial's harbor
+  copy-back at `/tmp/skill-eval/results/<run>/<date>/<trial>/agent/`
+  contains only that trial's `claude-code.txt` + session JSONL. The
+  trace tab in the harbor viewer scopes correctly. Step counts
+  reflect just that trial.
+- **Box-side history lives at `$HOME/.claude-archive/`.** SSH to the
+  pool member to inspect prior runs (e.g.
+  `ssh vss-eval-l40s "ls .claude-archive/"`); each archive entry is
+  named `<ts>` and contains the project dir(s) from before that
+  trial started.
+- **Each prior trial remains independently visitable** at its own
+  harbor viewer URL (`_viewer/<run>__<date>/<trial>/`) — that
+  per-trial snapshot was captured intact at the time, so visiting
+  any prior trial's trajectory works exactly as it did when the run
+  finished.
+
+We do *not* force a per-trial `cwd` (which would also work in theory
+by giving each trial its own `projects/<key>/` namespace) because
+harbor's claude-code agent invokes `claude --print` without a cwd
+override and patching that would require forking harbor. Archive-on-
+start gives the same end-state from the developer's perspective and
+lives entirely in our `BrevEnvironment` code.
+
 ## Result comment format
 
 One comment per `(PR, eval_spec)` batch, posted only after every
