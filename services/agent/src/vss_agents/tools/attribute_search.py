@@ -473,6 +473,7 @@ async def search_by_object_embedding(
     video_sources: list[str] | None = None,
     timestamp_start: datetime | None = None,
     timestamp_end: datetime | None = None,
+    source_type: str = "video_file",
 ) -> list["AttributeSearchResult"]:
     """Search for similar objects using a known object's embedding from the behavior index.
 
@@ -488,6 +489,7 @@ async def search_by_object_embedding(
         video_sources: Optional video source filter
         timestamp_start: Optional start time filter
         timestamp_end: Optional end time filter
+        source_type: Type of video source: video_file or rtsp
 
     Returns:
         List of AttributeSearchResult sorted by similarity
@@ -502,6 +504,7 @@ async def search_by_object_embedding(
         video_sources=video_sources,
         top_k=top_k,
         min_similarity=min_similarity,
+        source_type=source_type,
     )
     return results[:top_k]
 
@@ -543,6 +546,7 @@ async def _search_behavior(
     timestamp_start: datetime | None = None,
     timestamp_end: datetime | None = None,
     video_sources: list[str] | None = None,
+    source_type: str = "video_file",
 ) -> list[dict[str, Any]]:
     """Search behavior embeddings and return candidates."""
 
@@ -571,8 +575,12 @@ async def _search_behavior(
     # Add video_sources filter if provided (same two-tier logic as embed_search)
     # Resolved UUIDs get a single `terms` clause; unresolved names use wildcard/regexp fallback
     if video_sources:
-        uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
-        non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
+        if source_type == "rtsp":
+            uuid_sources = []
+            non_uuid_sources = video_sources
+        else:
+            uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
+            non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
 
         if uuid_sources and not non_uuid_sources:
             # All sources are UUIDs — single terms clause (fastest)
@@ -1010,6 +1018,7 @@ async def search_by_attributes(
     frames_index: str | list[str] | None = None,
     enable_frame_lookup: bool = True,
     exclude_videos: list[dict[str, str]] | None = None,
+    source_type: str = "video_file",
 ) -> list[AttributeSearchResult]:
     """Search for objects by attribute embeddings and return scores per object-video pair."""
     exclude_videos = exclude_videos or []
@@ -1025,6 +1034,7 @@ async def search_by_attributes(
                 timestamp_start=timestamp_start,
                 timestamp_end=timestamp_end,
                 video_sources=video_sources,
+                source_type=source_type,
             )
 
         # Phase 2: Perform frame lookups (if enabled) to get more accurate bbox, timestamp, and frame_score
@@ -1126,6 +1136,7 @@ async def search_single_attribute(
         min_similarity=search_input.min_similarity,
         frames_index=frames_index,
         enable_frame_lookup=enable_frame_lookup,
+        source_type=search_input.source_type,
         exclude_videos=search_input.exclude_videos,
     )
 
