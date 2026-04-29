@@ -32,7 +32,54 @@ from vss_agents.tools.search import SearchConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
+from vss_agents.tools.search import _resolve_video_sources_for_search
 from vss_agents.tools.search import decompose_query
+
+
+class TestResolveVideoSourcesForSearch:
+    """Test source-name resolution for search filters."""
+
+    def test_rtsp_keeps_sensor_name_when_uuid_known(self):
+        stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
+
+        result = _resolve_video_sources_for_search(
+            video_sources=["video1"],
+            name_to_uuid={"video1": stream_id},
+            source_type="rtsp",
+        )
+
+        assert result == ["video1"]
+
+    def test_rtsp_resolves_uuid_back_to_sensor_name(self):
+        stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
+
+        result = _resolve_video_sources_for_search(
+            video_sources=[stream_id],
+            name_to_uuid={"video1": stream_id},
+            source_type="rtsp",
+        )
+
+        assert result == ["video1"]
+
+    def test_video_file_resolves_name_to_uuid(self):
+        stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
+
+        result = _resolve_video_sources_for_search(
+            video_sources=["video1.mp4"],
+            name_to_uuid={"video1.mp4": stream_id},
+            source_type="video_file",
+        )
+
+        assert result == [stream_id]
+
+    def test_unresolved_video_source_keeps_original_name(self):
+        result = _resolve_video_sources_for_search(
+            video_sources=["missing-camera"],
+            name_to_uuid={},
+            source_type="video_file",
+        )
+
+        assert result == ["missing-camera"]
 
 
 class TestSearchConfig:

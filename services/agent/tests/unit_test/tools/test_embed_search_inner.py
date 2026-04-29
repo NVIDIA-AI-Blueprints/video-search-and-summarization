@@ -185,6 +185,28 @@ class TestEmbedSearchInner:
         assert isinstance(result, EmbedSearchOutput)
 
     @pytest.mark.asyncio
+    async def test_rtsp_uuid_video_source_uses_wildcard_filter(self, config, mock_builder, mock_es, mock_embed_client):
+        stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
+        mock_es.search.return_value = _make_es_response([])
+
+        inner_fn = await self._get_inner_fn(config, mock_builder, mock_es, mock_embed_client)
+        query_input = QueryInput(
+            params={"query": "test", "video_sources": json.dumps([stream_id])},
+            source_type="rtsp",
+        )
+
+        result = await inner_fn(query_input)
+
+        assert isinstance(result, EmbedSearchOutput)
+        body = mock_es.search.await_args.kwargs["body"]
+        source_filter = body["query"]["bool"]["filter"][0]
+        should_clauses = source_filter["bool"]["should"]
+
+        assert {"terms": {"sensor.id.keyword": [stream_id]}} not in should_clauses
+        assert {"term": {"sensor.id.keyword": stream_id}} in should_clauses
+        assert {"wildcard": {"sensor.info.url.keyword": f"*{stream_id}*"}} in should_clauses
+
+    @pytest.mark.asyncio
     async def test_with_description_filter(self, config, mock_builder, mock_es, mock_embed_client):
         mock_es.search.return_value = _make_es_response([])
 
