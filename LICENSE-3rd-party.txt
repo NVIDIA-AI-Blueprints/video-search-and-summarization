@@ -3,5 +3,5 @@ This file contains the list of third party software with their licenses used in 
 See below files for the licenses:
 - services/agent/LICENSE-3rd-party.txt
 - services/ui/LICENSE-3rd-party.txt
-- deployments/scripts/LICENSE-3rd-party-dev-profile.txt
-- deployments/LICENSE-3rd-party.txt
+- deploy/docker/scripts/LICENSE-3rd-party-dev-profile.txt
+- deploy/LICENSE-3rd-party.txt

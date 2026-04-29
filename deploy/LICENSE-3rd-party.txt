@@ -116,6 +116,20 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://redis.io/legal/licenses
 
 
+10. HAProxy Kubernetes Ingress Controller
+    Component: haproxytech/kubernetes-ingress (Helm chart)
+    Type: Helm Chart (deployment dependency)
+    Chart Version: 1.49.0
+    App Version: 3.2.6
+    License: Apache License 2.0
+    Chart Repository: https://github.com/haproxytech/helm-charts
+    Chart Source: https://github.com/haproxytech/helm-charts/tree/main/kubernetes-ingress
+    Controller Source: https://github.com/haproxytech/kubernetes-ingress
+    License URL: https://github.com/haproxytech/helm-charts/blob/main/LICENSE
+    Notes: This Helm chart is used to deploy the HAProxy Kubernetes Ingress Controller
+           into the Kubernetes cluster.
+
+
 ================================================================================
 
 Full License Texts / References:
