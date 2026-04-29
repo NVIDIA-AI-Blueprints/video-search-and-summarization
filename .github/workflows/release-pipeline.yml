@@ -1,0 +1,92 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Manual workflow that triggers the downstream GitLab pipeline with
+# PURPOSE=release. Intended to be launched from the Actions UI ("Run
+# workflow") on top of `main` or any `release/*` branch.
+#
+# The branch guard is enforced twice:
+#   1. The `workflow_dispatch` UI only lists this workflow on branches
+#      that contain this file - on a clean repo that is `main` and any
+#      `release/*` branch we have published it to.
+#   2. The job `if:` below blocks execution if the workflow is somehow
+#      dispatched against any other ref (e.g. a feature branch where a
+#      developer copied this file).
+
+name: Release Pipeline
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  trigger-release-pipeline:
+    name: Trigger Release Pipeline (PURPOSE=release)
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+    runs-on: [self-hosted, downstream-pipeline]
+    # Holds the runner until the downstream pipeline completes. Must be
+    # at least as long as MAX_POLL_DURATION_SECONDS in the poll step
+    # (+ a small safety buffer).
+    timeout-minutes: 245
+    permissions:
+      contents: read
+    env:
+      DOWNSTREAM_CI_URL: ${{ secrets.DOWNSTREAM_CI_URL }}
+      DOWNSTREAM_CI_TOKEN: ${{ secrets.DOWNSTREAM_CI_TOKEN }}
+      DOWNSTREAM_PROJECT_PATH: ${{ secrets.DOWNSTREAM_PROJECT_PATH }}
+      DOWNSTREAM_REF: main
+      DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
+      DOWNSTREAM_EXTRA_VARIABLES: |
+        PURPOSE=release
+    steps:
+      # First gate: only repository maintainers / admins can dispatch
+      # this workflow. The GitHub Actions UI itself only restricts
+      # `workflow_dispatch` to users with `write` permission, which on
+      # a public repo with many collaborators is too broad for a
+      # release-grade pipeline. We therefore call the REST API and
+      # require `admin` or `maintain`. The list of additional allowed
+      # logins can be extended via `RELEASE_PIPELINE_ALLOWED_ACTORS`
+      # (newline- or comma-separated) without editing this workflow.
+      - name: Check trigger permissions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          REQUIRED_ROLES: "admin,maintain"
+          ALLOWED_ACTORS: ${{ vars.RELEASE_PIPELINE_ALLOWED_ACTORS }}
+        run: python3 .github/scripts/check-release-pipeline-actor.py
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Trigger pipeline
+        id: trigger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/trigger-downstream-pipeline.sh
+
+      - name: Poll pipeline
+        env:
+          DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+          POLL_INTERVAL_SECONDS: "120"
+          MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
+        run: python3 .github/scripts/poll-downstream-pipeline.py

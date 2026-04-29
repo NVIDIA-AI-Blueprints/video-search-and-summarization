@@ -7,4 +7,4 @@
 # on a release/* or main branch. Releases attempted from any other
 # branch are refused by the sub-pipeline.
 
-build_tag: 3.2.0-dev
+build_tag: 3.2.0-26.04.3

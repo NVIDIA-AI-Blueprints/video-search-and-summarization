@@ -141,6 +141,30 @@ def fetch_project_id(base_url: str, token: str, project_path: str) -> int:
     return int(response["id"])
 
 
+def parse_extra_variables(raw: str) -> list[tuple[str, str]]:
+    """Parse ``DOWNSTREAM_EXTRA_VARIABLES`` into (key, value) pairs.
+
+    Accepts a newline-separated list of ``KEY=VALUE`` entries. Blank lines
+    and lines starting with ``#`` are ignored. Whitespace around the key
+    is stripped; the value is taken verbatim after the first ``=``.
+    """
+    pairs: list[tuple[str, str]] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            emit_error(f"Invalid DOWNSTREAM_EXTRA_VARIABLES entry (missing '='): {stripped!r}")
+            raise SystemExit(1)
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        if not key:
+            emit_error(f"Invalid DOWNSTREAM_EXTRA_VARIABLES entry (empty key): {stripped!r}")
+            raise SystemExit(1)
+        pairs.append((key, value))
+    return pairs
+
+
 def trigger_pipeline(
     base_url: str,
     token: str,
@@ -150,6 +174,7 @@ def trigger_pipeline(
     commit_sha: str,
     target_branch: str,
     compare_branch: str,
+    extra_variables: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
@@ -160,6 +185,9 @@ def trigger_pipeline(
         ("variables[][key]", "VSS_COMPARE_BRANCH"),
         ("variables[][value]", compare_branch),
     ]
+    for key, value in extra_variables or []:
+        payload_pairs.append(("variables[][key]", key))
+        payload_pairs.append(("variables[][value]", value))
     payload = urlencode(payload_pairs).encode("utf-8")
     return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
 
@@ -266,6 +294,8 @@ def main() -> int:
 
         target_branch, compare_branch = resolve_branches()
 
+        extra_variables = parse_extra_variables(os.environ.get("DOWNSTREAM_EXTRA_VARIABLES", ""))
+
         project_id = fetch_project_id(base_url, token, project_path)
         pipeline = trigger_pipeline(
             base_url,
@@ -276,6 +306,7 @@ def main() -> int:
             commit_sha,
             target_branch,
             compare_branch,
+            extra_variables=extra_variables,
         )
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")
@@ -298,6 +329,8 @@ def main() -> int:
         print(f"  {variable_name}={commit_sha}")
         print(f"  VSS_TARGET_BRANCH={target_branch}")
         print(f"  VSS_COMPARE_BRANCH={compare_branch}")
+        for key, value in extra_variables:
+            print(f"  {key}={value}")
 
         sha_short = pipeline_sha[:8] if pipeline_sha else ""
         commit_sha_short = commit_sha[:8] if commit_sha else ""
@@ -314,6 +347,8 @@ def main() -> int:
             summary_lines.append(f"- **VSS_TARGET_BRANCH:** `{target_branch}`")
         if compare_branch:
             summary_lines.append(f"- **VSS_COMPARE_BRANCH:** `{compare_branch}`")
+        for key, value in extra_variables:
+            summary_lines.append(f"- **{key}:** `{value}`")
         if pipeline_created_at:
             summary_lines.append(f"- **Created at:** {pipeline_created_at}")
         write_summary("\n".join(summary_lines))
