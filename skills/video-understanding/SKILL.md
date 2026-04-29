@@ -21,7 +21,33 @@ Do **not** use this skill when a **database / MCP / prior tool output** already 
 
 ---
 
-## OpenClaw workflow
+## Deployment prerequisite
+
+This skill requires a VSS profile that serves the `video_understanding` tool — typically **base** (recommended) or **lvs**. Before any request:
+
+1. Probe the VSS agent:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null
+   ```
+
+2. **If the probe fails**, ask the user:
+   > *"No VSS profile is running on `$HOST_IP`. Shall I deploy `base` (recommended for per-clip VLM QnA) using the `/deploy` skill? If you prefer `lvs`, say so."*
+
+   - If yes → hand off to `/deploy -p base` (or `-p lvs` if the user prefers). Return here once it succeeds.
+   - If no → stop.
+
+   (If your caller has granted explicit pre-authorization to deploy
+   autonomously — e.g. the request says "pre-authorized to deploy
+   prerequisites", or you are running in a non-interactive evaluation
+   harness with that permission — skip the confirmation and invoke
+   `/deploy -p base` directly. Prefer `base` unless the request names
+   another profile.)
+
+3. If the probe passes, proceed.
+
+---
+
+## Agent workflow
 
 1. **Clip** — Identify **sensor id**, **filename**, or **URL** for one video segment. If ambiguous, ask the user.
 2. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question.

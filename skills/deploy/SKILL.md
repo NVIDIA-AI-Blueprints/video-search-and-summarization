@@ -49,7 +49,7 @@ Run docker compose commands directly on the host:
 
 1. **Repo path** — find `video-search-and-summarization/` on disk. Check `TOOLS.md` if available.
 2. **NGC CLI & API key** — see [`references/ngc.md`](references/ngc.md). Check `$NGC_CLI_API_KEY` is set.
-3. **System prerequisites (GPU VRAM, driver, Docker, NVIDIA Container Toolkit)** — canonical reference is the [**VSS prerequisites page**](https://docs.nvidia.com/vss/3.1.0/prerequisites.html). That page lists supported hardware, per-profile GPU requirements, and the minimum driver/CUDA version per NIM. Read it and pick the LLM/VLM placement that fits the host — don't guess thresholds from this skill.
+3. **System prerequisites (GPU VRAM, driver, Docker, NVIDIA Container Toolkit)** — canonical reference is the [**VSS prerequisites page**](https://docs.nvidia.com/vss/3.2.0/prerequisites.html). That page lists supported hardware, per-profile GPU requirements, and the minimum driver/CUDA version per NIM. Read it and pick the LLM/VLM placement that fits the host — don't guess thresholds from this skill.
 
 ### Pre-flight Check
 
@@ -72,10 +72,49 @@ If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisi
 
 Always follow this sequence. Never skip the dry-run.
 
+### Step 0 — Tear down any existing deployment
+
+Before every deploy, **always** stop any prior VSS stack. This is
+mandatory even if you think the host is clean, and especially when
+switching profiles (`base` → `search`, `alerts` verification →
+`alerts` real-time, etc.). Compose profile flags only *start* the
+services listed under the selected profile — they do NOT stop
+services from a previously-active profile, so containers from the
+prior deploy linger and pass unrelated container-name checks,
+contaminate results, and can bind ports the new deploy needs.
+
+```bash
+# If a resolved.yml from a prior deploy exists, prefer it — it
+# knows about all compose-profile services that were brought up.
+if [ -f "$REPO/deployments/resolved.yml" ]; then
+  docker compose -f "$REPO/deployments/resolved.yml" down --remove-orphans
+fi
+
+# Catch-all: remove every VSS-stack container the dev-profile compose
+# files bring up. Without this, leftovers from a prior deploy linger
+# (especially the *-smc set, which the alerts compose profile shares
+# with the *-dev set on host networking and port 30000) and either:
+#   - bind ports the new deploy needs → second sensor-ms fails to bind
+#     → /sensor/list returns 502 (issue #151), or
+#   - pass the new deploy's container-name health checks while serving
+#     stale data from the prior deploy's DB.
+# The patterns below cover everything declared in
+# deployments/vst/{2d,3d,smc,developer,ps}/, deployments/foundational/,
+# deployments/agents/, deployments/proxy/, and the dev-profile-*
+# compose files.
+docker ps -a --format '{{.Names}}' \
+  | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-|sensor-ms-|vst-ingress-|vst-mcp-|vst-file-proxy|centralizedb-|storage-ms-|streamprocessing-ms-|sdr-(http|streamprocessing)-|envoy-(http|streamprocessing)-|rtspserver-ms-|recorder-ms-|replaystream-ms-|livestream-ms-|metropolis-vss-ui|phoenix)' \
+  | xargs -r docker rm -f
+```
+
+If this is the host's first deploy, the `docker compose down`
+line is a no-op (exit 0 with no containers to stop) — safe to run
+unconditionally.
+
 ### Step 1 — Gather context
 
 Discover what's available on the host and cross-reference with the
-[VSS prerequisites page](https://docs.nvidia.com/vss/3.1.0/prerequisites.html)
+[VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html)
 to choose a deployment shape that fits.
 
 | Value | How to determine |
@@ -100,7 +139,7 @@ to choose a deployment shape that fits.
 | Other | `OTHER` | — |
 
 **Minimum GPU count per (profile × mode × platform).** Canonical source
-is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.1.0/prerequisites.html);
+is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html);
 reproduced here so the skill can fail fast when the host is too small:
 
 | Profile | Mode | H100 / RTX PRO 6000 (Blackwell) | L40S | DGX-Spark / IGX-Thor / AGX-Thor |
@@ -335,6 +374,29 @@ docker compose --env-file $ENV_FILE config > resolved.yml
 ```
 
 The resolved YAML is saved to `<repo>/deployments/resolved.yml`.
+
+### Step 3b — Verify resolved.yml has no unexpanded ${...} tokens
+
+**Skipping this is the #1 cause of "I deployed `search` but it brought
+up `base` + `lvs` + `search` services."** The `.env` line near 90 is
+literal `COMPOSE_PROFILES=${BP_PROFILE}_${MODE},...` — docker compose
+expands it at `config` time using the same env file. If any upstream
+var (`BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`,
+`VLM_MODE`) is missing from the env, the rendered profile list
+collapses to the empty string, and compose then includes **every**
+service from **every** profile.
+
+```bash
+if grep -q '\${' "$REPO/deployments/resolved.yml"; then
+  echo "FAIL: resolved.yml has unexpanded variables:"
+  grep -n '\${' "$REPO/deployments/resolved.yml" | head -5
+  exit 1
+fi
+```
+
+If this check fails, re-apply the Step 2 env overrides directly to
+the `.env` file at the path above, regenerate `resolved.yml` (Step 3),
+and re-run this check before continuing.
 
 ### Step 4 — Review
 
