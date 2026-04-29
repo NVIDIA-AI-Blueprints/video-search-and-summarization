@@ -66,19 +66,21 @@ export function TabWithChatSidebarLayout({
       </div>
       {sidebarEnabled && (
         <>
-          {/* Floating circular chat button at bottom-right when collapsed */}
           {collapsed && (
             <button
               data-testid="chat-sidebar-open"
               type="button"
-              className={`fixed bottom-10 right-10 z-50 flex h-[72px] w-[72px] items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#76b900] ${
-                highlightIcon
-                  ? 'bg-amber-500 text-white animate-pulse'
-                  : 'bg-[#76b900] text-black'
+              className={`fixed bottom-10 right-10 z-50 flex h-[72px] w-[72px] min-h-[72px] min-w-[72px] shrink-0 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-[#76b900] dark:focus:ring-offset-black ${
+                highlightIcon ? 'text-white animate-pulse' : 'text-black'
               }`}
+              style={{
+                backgroundColor: highlightIcon
+                  ? 'rgba(245, 158, 11, 0.88)'
+                  : 'rgba(118, 185, 0, 0.88)',
+              }}
               onClick={handleOpenSidebar}
               aria-label={`Open Chat sidebar (${tabLabel} tab)`}
-              title={highlightIcon ? `Chat – new message (${tabLabel} Tab)` : `Chat – ${tabLabel} Tab`}
+              title={highlightIcon ? 'Chat – new message' : 'Chat'}
             >
               {queryExecuting ? (
                 <IconLoader2 className="h-9 w-9 shrink-0 animate-spin" stroke={1.5} aria-hidden />
