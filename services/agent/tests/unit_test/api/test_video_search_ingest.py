@@ -362,15 +362,19 @@ class TestRegisterStreamingRoutes:
         with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="VST_INTERNAL_URL"):
             register_streaming_routes(mock_app, mock_config)
 
-    def test_register_missing_rtvi_url(self):
-        """Test error when RTVI URL is not configured."""
+    def test_register_missing_rtvi_url_env_path_registers_anyway(self):
+        """Env-var fallback: when RTVI ports aren't set (e.g. base profile,
+        where RTVI isn't deployed), routes still register so the UI gets 200
+        instead of 404. The /complete handler skips the embedding step at
+        request time when the rtvi URL is empty."""
         mock_app = MagicMock()
         mock_config = MagicMock()
         mock_config.general.front_end = MagicMock(spec=[])
 
         with patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst:8080"}, clear=True):
-            with pytest.raises(ValueError, match="HOST_IP and RTVI_EMBED_PORT"):
-                register_streaming_routes(mock_app, mock_config)
+            # Should NOT raise — register routes with empty rtvi_embed_base_url
+            register_streaming_routes(mock_app, mock_config)
+            mock_app.include_router.assert_called_once()
 
 
 class TestParseOptionalHttpUrl:
@@ -386,15 +390,13 @@ class TestParseOptionalHttpUrl:
         assert _parse_optional_http_url("http:") is None
 
     def test_empty_port_body_rejected(self):
-        # "http://host:" parses with hostname but is still not usable.
-        result = _parse_optional_http_url("http://host:")
-        # urllib accepts this with hostname="host" and port=None; hostname
-        # alone is enough for the helper to accept — the previous narrow
-        # check explicitly rejected these, but a well-formed URL without
-        # an explicit port (scheme default) should also be accepted, so
-        # the helper intentionally trades false rejections for correctness.
-        assert result is not None
-        assert result.hostname == "host"
+        # `http://host:` (trailing colon, empty port body) parses with
+        # hostname="host" and port=None — Python urlparse silently leaves the
+        # netloc as `host:`, so callers would fall back to the scheme's default
+        # port (80) and connect to nothing. Treat it as misconfigured and let
+        # callers skip the downstream step rather than hang on a TCP timeout.
+        # See PR #179.
+        assert _parse_optional_http_url("http://host:") is None
 
     def test_explicit_host_and_port_accepted(self):
         result = _parse_optional_http_url("http://rtvi:8000")
