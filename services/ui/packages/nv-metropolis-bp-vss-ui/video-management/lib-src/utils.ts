@@ -107,7 +107,15 @@ export function parseApiError(text: string, defaultMessage: string): string {
 }
 
 export function generateUUID(): string {
-  return crypto.randomUUID();
+  const c = globalThis.crypto as Crypto | undefined;
+  if (c && typeof c.randomUUID === 'function') {
+    return c.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const r = (Math.random() * 16) | 0;
+    const v = char === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 export function generateUploadId(): string {

@@ -286,8 +286,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
+              className="shrink-0"
+              aria-hidden
             >
-              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" />
               <line x1="15" y1="9" x2="9" y2="15" />
               <line x1="9" y1="9" x2="15" y2="15" />
             </svg>
