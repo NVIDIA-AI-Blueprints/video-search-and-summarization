@@ -3,11 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the rt-vlm skill.
 
-The rt-vlm skill tests the RTVI VLM microservice API directly. The
-current spec deploys only the standalone RT-VLM compose service using
-the Docker Compose profile `bp_developer_alerts_2d_vlm`, then probes
-the REST API on localhost:8018. It intentionally does not deploy a VSS
-profile through `/deploy`.
+The rt-vlm skill tests the RTVI VLM microservice API directly. Specs can
+cover either the standalone RT-VLM compose service or RT-VLM as part of
+the full VSS alerts real-time profile.
 """
 from __future__ import annotations
 
@@ -68,7 +66,8 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
 def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[tuple[str, str]]:
     declared = ((spec.get("resources") or {}).get("platforms") or {})
     if not declared:
-        declared = {DEFAULT_PLATFORM: {"modes": ["standalone"]}}
+        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        declared = {DEFAULT_PLATFORM: {"modes": [default_mode]}}
 
     tasks: list[tuple[str, str]] = []
     for platform, cfg in declared.items():
@@ -76,9 +75,42 @@ def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[t
             continue
         if platform not in PLATFORMS:
             continue
-        for mode in (cfg or {}).get("modes") or ["standalone"]:
+        default_mode = "remote-all" if spec.get("profile") else "standalone"
+        for mode in (cfg or {}).get("modes") or [default_mode]:
             tasks.append((platform, mode))
-    return tasks or [(platform_filter or DEFAULT_PLATFORM, "standalone")]
+    fallback_mode = "remote-all" if spec.get("profile") else "standalone"
+    return tasks or [(platform_filter or DEFAULT_PLATFORM, fallback_mode)]
+
+
+def _is_profile_spec(spec: dict) -> bool:
+    return bool(spec.get("profile"))
+
+
+def _dataset_group(spec: dict) -> str:
+    if _is_profile_spec(spec):
+        profile = str(spec.get("profile"))
+        deploy_mode = str(spec.get("deploy_mode", ""))
+        return f"{profile}-{deploy_mode}" if deploy_mode else profile
+    return "standalone"
+
+
+def _instruction_intro(spec: dict) -> str:
+    if _is_profile_spec(spec):
+        profile = spec.get("profile")
+        deploy_mode = spec.get("deploy_mode")
+        return (
+            "Use `/deploy` first, then `/rt-vlm`. Deploy the full VSS "
+            f"`{profile}` profile"
+            + (f" in `{deploy_mode}` mode" if deploy_mode else "")
+            + ", then test the RT-VLM microservice directly."
+        )
+
+    return (
+        "Use `/rt-vlm` only. Deploy RT-VLM as a standalone compose service from "
+        "`deployments/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; do not use "
+        "`/deploy`, `scripts/dev-profile.sh`, or a full VSS profile. The Docker "
+        f"Compose profile that activates the service is `{COMPOSE_PROFILE}`."
+    )
 
 
 def generate_test_script(step: int, spec_name: str) -> str:
@@ -124,9 +156,11 @@ def generate_task(
     expects = spec.get("expects") or []
     spec_name = Path(spec.get("_source_path", DEFAULT_SPEC)).name or DEFAULT_SPEC
     rendered_spec = _substitute_spec(spec, platform, mode)
+    dataset_group = _dataset_group(spec)
+    profile_spec = _is_profile_spec(spec)
 
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
-        step_dir = output_root / "standalone" / f"{platform_short}-{mode}"
+        step_dir = output_root / dataset_group / f"{platform_short}-{mode}"
         if len(expects) > 1:
             step_dir = step_dir / f"step-{idx}"
         step_dir.mkdir(parents=True, exist_ok=True)
@@ -134,10 +168,7 @@ def generate_task(
         instruction = [
             PREAMBLE,
             "",
-            "Use `/rt-vlm` only. Deploy RT-VLM as a standalone compose service from "
-            "`deployments/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; do not use "
-            "`/deploy`, `scripts/dev-profile.sh`, or a full VSS profile. The Docker "
-            f"Compose profile that activates the service is `{COMPOSE_PROFILE}`.",
+            _instruction_intro(spec),
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -155,9 +186,9 @@ def generate_task(
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         meta_lines = [
             "[task]",
-            f'name = "nvidia-vss/rt-vlm-standalone-{platform_short}-{mode}{step_suffix}"',
+            f'name = "nvidia-vss/rt-vlm-{dataset_group}-{platform_short}-{mode}{step_suffix}"',
             f'description = "RT-VLM API query {idx}/{len(expects)} on {platform}/{mode}"',
-            f'keywords = ["rt-vlm", "rtvi-vlm", "standalone", "{platform}", "{mode}"]',
+            f'keywords = ["rt-vlm", "rtvi-vlm", "{dataset_group}", "{platform}", "{mode}"]',
             "",
             "[environment]",
             'skills_dir = "/skills"',
@@ -169,8 +200,7 @@ def generate_task(
             "",
             "[metadata]",
             'skill = "rt-vlm"',
-            'deployment = "standalone"',
-            f'compose_profile = "{COMPOSE_PROFILE}"',
+            f'deployment = "{"profile" if profile_spec else "standalone"}"',
             f'platform = "{platform}"',
             f'mode = "{mode}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
@@ -185,6 +215,19 @@ def generate_task(
             f"check_count = {len(expect.get('checks') or [])}",
             "",
         ]
+        if profile_spec:
+            meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'profile = "{spec.get("profile")}"')
+            if spec.get("deploy_mode"):
+                meta_lines.insert(
+                    meta_lines.index(f'platform = "{platform}"'),
+                    f'deploy_mode = "{spec.get("deploy_mode")}"',
+                )
+            meta_lines.insert(
+                meta_lines.index(f'platform = "{platform}"'),
+                f'prerequisite_deploy_mode = "{mode}"',
+            )
+        else:
+            meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'compose_profile = "{COMPOSE_PROFILE}"')
         (step_dir / "task.toml").write_text("\n".join(meta_lines))
 
         env_dir = step_dir / "environment"
@@ -202,7 +245,10 @@ def generate_task(
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform, mode))
 
-        for src, name in ((skill_dir, "rt-vlm"),):
+        skills_to_copy = [(skill_dir, "rt-vlm")]
+        if profile_spec and deploy_skill_dir:
+            skills_to_copy.append((deploy_skill_dir, "deploy"))
+        for src, name in skills_to_copy:
             if src and src.exists():
                 dst = step_dir / "skills" / name
                 if dst.exists():
@@ -242,11 +288,11 @@ def main() -> None:
     print()
 
     for platform, mode in tasks:
-        print(f"  GEN  rt-vlm/standalone/{PLATFORMS[platform]['short_name']}-{mode}")
+        print(f"  GEN  rt-vlm/{_dataset_group(spec)}/{PLATFORMS[platform]['short_name']}-{mode}")
         generate_task(platform, mode, spec, output_root, skill_dir, deploy_skill_dir)
 
     print()
-    print(f"Generated {len(tasks)} task(s) under {output_root}/standalone/")
+    print(f"Generated {len(tasks)} task(s) under {output_root}/{_dataset_group(spec)}/")
 
 
 if __name__ == "__main__":
