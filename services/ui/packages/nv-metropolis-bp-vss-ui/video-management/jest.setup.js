@@ -2,6 +2,13 @@
 require('@testing-library/jest-dom');
 require('whatwg-fetch');
 
+// jsdom's crypto doesn't expose randomUUID; patch it from Node's crypto so
+// code that relies on crypto.randomUUID() (e.g. generateUUID in utils.ts)
+// works under test without needing to mock the callers.
+if (globalThis.crypto && !globalThis.crypto.randomUUID) {
+  globalThis.crypto.randomUUID = require('crypto').randomUUID;
+}
+
 // Mock IntersectionObserver
 globalThis.IntersectionObserver = jest.fn(() => ({
   disconnect: jest.fn(),

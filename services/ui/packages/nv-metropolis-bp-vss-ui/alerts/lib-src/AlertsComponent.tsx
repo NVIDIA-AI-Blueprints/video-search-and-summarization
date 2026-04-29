@@ -59,7 +59,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   alertsData,
   serverRenderTime,
   renderControlsInLeftSidebar = false,
-  onControlsReady
+  onControlsReady,
+  submitChatMessage,
 }) => {
   const isDark = theme === 'dark';
   
@@ -342,6 +343,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           onLoadMore={handleTableLoadMore}
           loadMoreCompletionCount={loadMoreCompletionCount}
           autoRefreshEnabled={autoRefreshEnabled}
+          submitChatMessage={submitChatMessage}
         />
       </div>
 

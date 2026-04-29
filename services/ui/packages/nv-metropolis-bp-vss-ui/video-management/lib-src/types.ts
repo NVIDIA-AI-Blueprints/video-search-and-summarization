@@ -63,8 +63,16 @@ export interface UploadProgress {
   id: string;
   fileName: string;
   progress: number;
-  status: 'pending' | 'uploading' | 'success' | 'error' | 'cancelled';
+  status: 'pending' | 'uploading' | 'processing' | 'success' | 'error' | 'cancelled';
   error?: string;
+}
+
+/** Shape for chat sidebar context chips (aligned with search `QueryDataContext`). */
+export interface ChatSidebarQueryContext {
+  id: string;
+  label: string;
+  type: string;
+  data: Record<string, unknown>;
 }
 
 export interface VideoManagementSidebarControlHandlers {
@@ -92,5 +100,7 @@ export interface VideoManagementComponentProps {
   registerSidebarChatEventSubscriber?: (
     handler: (event: { type: 'messageSubmitted' } | { type: 'answerComplete' }) => void
   ) => void | (() => void);
+  /** Adds a stream context chip to the floating Chat sidebar input (VSS app). */
+  addChatQueryContext?: (ctx: ChatSidebarQueryContext) => void;
 }
 

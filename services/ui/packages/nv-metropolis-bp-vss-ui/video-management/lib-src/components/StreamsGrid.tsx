@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
-import type { StreamInfo } from '../types';
+import type { StreamInfo, ChatSidebarQueryContext } from '../types';
 import { StreamCard } from './StreamCard';
 
 // Grid constants
@@ -20,6 +20,7 @@ interface StreamsGridProps {
   getEndTimeForStream: (streamId: string) => string | null;
   onPlayStream?: (stream: StreamInfo) => void;
   loadingStreamId?: string | null;
+  onAddChatQueryContext?: (ctx: ChatSidebarQueryContext) => void;
 }
 
 export const StreamsGrid: React.FC<StreamsGridProps> = ({
@@ -33,6 +34,7 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
   getEndTimeForStream,
   onPlayStream,
   loadingStreamId,
+  onAddChatQueryContext,
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerRow, setItemsPerRow] = useState(0); // 0 means not yet calculated
@@ -237,6 +239,7 @@ export const StreamsGrid: React.FC<StreamsGridProps> = ({
               getEndTimeForStream={getEndTimeForStream}
               onPlay={onPlayStream}
               isLoadingPlay={loadingStreamId === stream.streamId}
+              onAddChatQueryContext={onAddChatQueryContext}
             />
           ))}
         </div>

@@ -682,6 +682,9 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.onControlsReady = isActive ? videoManagementControlsReadyCallback : undefined;
       componentProps.registerChatAnswerHandler = registerVideoManagementTabChatAnswer;
       componentProps.registerSidebarChatEventSubscriber = registerVideoManagementTabSidebarChatEvents;
+      componentProps.addChatQueryContext = (item: QueryDataContext) => {
+        appSidebarAddQueryContextRef.current?.(item);
+      };
     }
 
     return (

@@ -155,6 +155,8 @@ interface AlertsTableProps {
   loadMoreCompletionCount?: number;
   /** When true, "Show more" is disabled because auto-refresh would overwrite appended rows. */
   autoRefreshEnabled?: boolean;
+  /** When set (e.g. VSS app sidebar), alert rows can send the report template to the floating chat. */
+  submitChatMessage?: (message: string) => void;
 }
 
 type SortConfig = {
@@ -299,8 +301,13 @@ function AlertsTablePaginationNav({
   setCurrentPage,
 }: AlertsTablePaginationNavProps) {
   return (
-    <nav className="flex flex-wrap items-center gap-1 shrink-0" aria-label="Table pagination">
+    <nav
+      data-testid="alerts-pagination"
+      className="flex flex-wrap items-center gap-1 shrink-0"
+      aria-label="Table pagination"
+    >
       <Button
+        data-testid="alerts-pagination-previous"
         kind="tertiary"
         size="small"
         disabled={currentPage <= 1}
@@ -325,20 +332,23 @@ function AlertsTablePaginationNav({
             </span>
           );
         }
+        const isCurrent = item === currentPage;
         return (
           <Button
             key={`page-${item}`}
-            kind={item === currentPage ? 'primary' : 'tertiary'}
+            data-testid={`alerts-pagination-page-${item}`}
+            kind={isCurrent ? 'primary' : 'tertiary'}
             size="small"
             onClick={() => setCurrentPage(item)}
             aria-label={`Page ${item}`}
-            aria-current={item === currentPage ? 'page' : undefined}
+            aria-current={isCurrent ? 'page' : undefined}
           >
             {item}
           </Button>
         );
       })}
       <Button
+        data-testid="alerts-pagination-next"
         kind="tertiary"
         size="small"
         disabled={currentPage >= pageCount}
@@ -362,6 +372,7 @@ type AlertTableBodyRowProps = Readonly<{
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
+  submitChatMessage?: (message: string) => void;
   tdTextClass: string;
   toggleRow: (id: string) => void;
   onAddFilter: (type: FilterType, value: string) => void;
@@ -380,6 +391,7 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
+  submitChatMessage,
   tdTextClass,
   toggleRow,
   onAddFilter,
@@ -487,6 +499,7 @@ const AlertTableBodyRow = React.memo(function AlertTableBodyRow({
                 data={alert.metadata}
                 isDark={isDark}
                 alertReportPromptTemplate={alertReportPromptTemplate}
+                submitChatMessage={submitChatMessage}
               />
             </div>
           </td>
@@ -525,6 +538,7 @@ type AlertsTableContentProps = Readonly<{
   sensorMap?: Map<string, string>;
   showObjectsBbox: boolean;
   alertReportPromptTemplate?: string;
+  submitChatMessage?: (message: string) => void;
   toggleRow: (id: string) => void;
   onAddFilter: (type: FilterType, value: string) => void;
   onPlayVideo: (alert: AlertData) => void;
@@ -565,6 +579,7 @@ function AlertsTableContent({
   sensorMap,
   showObjectsBbox,
   alertReportPromptTemplate,
+  submitChatMessage,
   toggleRow,
   onAddFilter,
   onPlayVideo,
@@ -627,7 +642,10 @@ function AlertsTableContent({
             </span>
           </fieldset>
           {paginate && sortedAlerts.length > 0 && (
-            <span className={`text-xs whitespace-nowrap ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            <span
+              data-testid="alerts-pagination-summary"
+              className={`text-xs whitespace-nowrap ${isDark ? 'text-gray-400' : 'text-gray-600'}`}
+            >
               Page {currentPage} of {pageCount}
               {' · '}
               Showing {(currentPage - 1) * pageSizeActive + 1}–
@@ -646,6 +664,7 @@ function AlertsTableContent({
                 <div className="flex items-center gap-1">
                   <input
                     ref={customPageInputRef}
+                    data-testid="alerts-page-size-custom-input"
                     type="number"
                     min={1}
                     max={500}
@@ -661,6 +680,7 @@ function AlertsTableContent({
                   />
                   <button
                     type="button"
+                    data-testid="alerts-page-size-custom-ok"
                     onClick={applyCustomPageSize}
                     className={`px-1.5 py-1 rounded text-xs font-medium transition-colors ${
                       isDark
@@ -672,6 +692,7 @@ function AlertsTableContent({
                   </button>
                   <button
                     type="button"
+                    data-testid="alerts-page-size-custom-cancel"
                     onClick={() => { setShowCustomPageInput(false); setCustomPageError(''); }}
                     className={`px-1 py-1 rounded text-xs transition-colors ${
                       isDark ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-700'
@@ -683,6 +704,7 @@ function AlertsTableContent({
               ) : (
                 <select
                   id="table-page-size-select"
+                  data-testid="alerts-page-size-select"
                   value={PAGE_SIZE_PRESETS.includes(pageSizeActive) ? String(pageSizeActive) : PAGE_SIZE_CUSTOM_VALUE}
                   className={`rounded pl-2 pr-6 py-1 text-xs focus:outline-none transition-all cursor-pointer ${
                     isDark
@@ -785,6 +807,7 @@ function AlertsTableContent({
                 sensorMap={sensorMap}
                 showObjectsBbox={showObjectsBbox}
                 alertReportPromptTemplate={alertReportPromptTemplate}
+                submitChatMessage={submitChatMessage}
                 tdTextClass={tdTextClass}
                 toggleRow={toggleRow}
                 onAddFilter={onAddFilter}
@@ -836,6 +859,7 @@ export function AlertsTable({
   onLoadMore,
   loadMoreCompletionCount = 0,
   autoRefreshEnabled = false,
+  submitChatMessage,
 }: Readonly<AlertsTableProps>) {
   const toolbarRef = useRef<HTMLDivElement>(null);
   /** Pixels; used as thead sticky offset so column headers sit below the sticky controls bar. */
@@ -996,6 +1020,7 @@ export function AlertsTable({
       sensorMap={sensorMap}
       showObjectsBbox={showObjectsBbox}
       alertReportPromptTemplate={alertReportPromptTemplate}
+      submitChatMessage={submitChatMessage}
       toggleRow={toggleRow}
       onAddFilter={onAddFilter}
       onPlayVideo={onPlayVideo}
