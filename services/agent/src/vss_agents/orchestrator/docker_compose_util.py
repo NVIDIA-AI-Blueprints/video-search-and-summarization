@@ -58,19 +58,25 @@ UNRESOLVED_SHELL_VAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$[A-Za-z_][
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
+        "/path/to/deploy/docker",
         "/path/to/deployments",
         "/path/to/metropolis-apps-data",
     }
 )
 
 MODE_REMOTE: Final[str] = "remote"
+MODE_2D_CV: Final[str] = "2d_cv"
+MODE_2D_VLM: Final[str] = "2d_vlm"
 SUPPORTED_RUNTIME_MODES: Final[frozenset[str]] = frozenset({"local", "local_shared", MODE_REMOTE})
 MODEL_SLUG_NONE: Final[str] = "none"
 THOR_VLM_PORT: Final[int] = 8018
+DEFAULT_ALERTS_VLM_PORT: Final[int] = 30082
+EDGE_ALERTS_RTVI_INPUT_WIDTH: Final[str] = "860"
+EDGE_ALERTS_RTVI_INPUT_HEIGHT: Final[str] = "467"
+EDGE_ALERTS_RTVI_FPS: Final[str] = "20"
 COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "MODE",
     "BP_PROFILE",
-    "PROXY_MODE",
     "LLM_NAME_SLUG",
     "VLM_NAME_SLUG",
 )
@@ -90,7 +96,7 @@ class HardwareResolutionInput(BaseModel):
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: EdgeDeviceIdsInput
-    thor_base_profiles: tuple[str, ...]
+    thor_profiles: tuple[str, ...]
 
 
 class LlmResolutionInput(BaseModel):
@@ -99,6 +105,7 @@ class LlmResolutionInput(BaseModel):
 
 class VlmResolutionInput(BaseModel):
     supported_models: dict[str, str]
+    thor_overrides: dict[str, str]
     thor_base_overrides: dict[str, str]
 
 
@@ -124,9 +131,11 @@ class DryRunRecipe:
     edge_hardware_profiles: frozenset[str]
     edge_allowed_profiles: frozenset[str]
     edge_device_ids: Mapping[str, str]
-    thor_base_profiles: frozenset[str]
+    thor_profiles: frozenset[str]
+    alerts_mode_to_env_modes: Mapping[str, str]
     supported_llm_models: Mapping[str, str]
     supported_vlm_models: Mapping[str, str]
+    thor_vlm_overrides: Mapping[str, str]
     thor_base_vlm_overrides: Mapping[str, str]
 
 
@@ -141,6 +150,7 @@ def create_dry_run_recipe(
     output_compose_file: str,
     deployments_dir: str,
     mdx_data_dir: str,
+    alerts_mode_to_env_modes: dict[str, str] | None,
     source_compose_yaml: str,
     source_env: str,
 ) -> DryRunRecipe:
@@ -197,9 +207,11 @@ def create_dry_run_recipe(
                 "vlm": model_resolution.hardware.edge_device_ids.vlm,
             }
         ),
-        thor_base_profiles=frozenset(model_resolution.hardware.thor_base_profiles),
+        thor_profiles=frozenset(model_resolution.hardware.thor_profiles),
+        alerts_mode_to_env_modes=MappingProxyType(dict(alerts_mode_to_env_modes or {})),
         supported_llm_models=MappingProxyType(dict(model_resolution.llm.supported_models)),
         supported_vlm_models=MappingProxyType(dict(model_resolution.vlm.supported_models)),
+        thor_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_overrides)),
         thor_base_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_base_overrides)),
     )
 
@@ -260,12 +272,20 @@ def _set_env_line(lines: list[str], key: str, value: str) -> None:
     lines.append(f"{key}={value}")
 
 
+def alerts_mode_to_env_mode(alerts_mode: str, alerts_mode_to_env_modes: Mapping[str, str]) -> str:
+    normalized = alerts_mode.strip()
+    resolved_mode = alerts_mode_to_env_modes.get(normalized)
+    if resolved_mode:
+        return resolved_mode
+    supported_modes = sorted(alerts_mode_to_env_modes)
+    if not supported_modes:
+        raise ValidationError("alerts_mode is not configured for this orchestrator deployment.")
+    raise ValidationError(f"Invalid alerts mode '{alerts_mode}'. Supported values: {supported_modes}.")
+
+
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     merged = parse_env_file(config.source_env_file)
     merged.update(config.env_overrides)
-    if config.profile == PROFILE_SEARCH and "VLM_MODE" not in config.env_overrides:
-        # For search, default to local VLM unless user explicitly overrides VLM_MODE.
-        merged["VLM_MODE"] = "local"
     if config.ngc_cli_api_key and not merged.get("NGC_CLI_API_KEY", "").strip():
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key and not merged.get("NVIDIA_API_KEY", "").strip():
@@ -328,7 +348,6 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         raise ValidationError(f"Invalid LLM_MODE '{merged.get('LLM_MODE', '')}'.")
     if merged.get("VLM_MODE", "") not in SUPPORTED_RUNTIME_MODES:
         raise ValidationError(f"Invalid VLM_MODE '{merged.get('VLM_MODE', '')}'.")
-
     if merged["LLM_MODE"] == MODE_REMOTE:
         merged["LLM_NAME_SLUG"] = MODEL_SLUG_NONE
         if not merged.get("LLM_BASE_URL", "").strip():
@@ -359,19 +378,39 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["LLM_DEVICE_ID"] = config.edge_device_ids["llm"]
         merged["VLM_DEVICE_ID"] = config.edge_device_ids["vlm"]
 
-    if merged.get("HARDWARE_PROFILE", "") in config.thor_base_profiles and config.profile == PROFILE_BASE:
-        merged.update(config.thor_base_vlm_overrides)
+    if merged.get("HARDWARE_PROFILE", "") in config.thor_profiles and config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
+        merged.update(config.thor_vlm_overrides)
         merged["VLM_BASE_URL"] = f"http://{host_ip}:{THOR_VLM_PORT}"
+
+    if merged.get("HARDWARE_PROFILE", "") in config.thor_profiles and config.profile == PROFILE_BASE:
+        merged.update(config.thor_base_vlm_overrides)
+
+    if config.profile == PROFILE_ALERTS:
+        if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
+            merged["PERCEPTION_DOCKERFILE_PREFIX"] = "EDGE-"
+            merged["RTVI_VLM_INPUT_WIDTH"] = EDGE_ALERTS_RTVI_INPUT_WIDTH
+            merged["RTVI_VLM_INPUT_HEIGHT"] = EDGE_ALERTS_RTVI_INPUT_HEIGHT
+            merged["RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK"] = EDGE_ALERTS_RTVI_FPS
+            if merged["VLM_MODE"] != MODE_REMOTE:
+                merged["VLM_AS_VERIFIER_CONFIG_FILE_PREFIX"] = "EDGE-LOCAL-VLM-"
+
+        if merged["MODE"] == MODE_2D_VLM and merged["VLM_MODE"] != MODE_REMOTE:
+            vlm_port = merged.get("VLM_PORT", "").strip() or str(DEFAULT_ALERTS_VLM_PORT)
+            merged["RTVI_VLM_MODEL_PATH"] = MODEL_SLUG_NONE
+            merged["RTVI_VLM_ENDPOINT"] = f"http://{host_ip}:{vlm_port}/v1"
 
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
-    merged["COMPOSE_PROFILES"] = (
-        f"{merged['BP_PROFILE']}_{merged['MODE']},"
-        f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['HARDWARE_PROFILE']},"
-        f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['PROXY_MODE']},"
-        f"llm_{merged['LLM_MODE']}_{merged['LLM_NAME_SLUG']},"
-        f"vlm_{merged['VLM_MODE']}_{merged['VLM_NAME_SLUG']}"
+    compose_profiles = [f"{merged['BP_PROFILE']}_{merged['MODE']}"]
+    if config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
+        compose_profiles.append(f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['HARDWARE_PROFILE']}")
+    compose_profiles.extend(
+        [
+            f"llm_{merged['LLM_MODE']}_{merged['LLM_NAME_SLUG']}",
+            f"vlm_{merged['VLM_MODE']}_{merged['VLM_NAME_SLUG']}",
+        ]
     )
+    merged["COMPOSE_PROFILES"] = ",".join(compose_profiles)
     return merged
 
 
