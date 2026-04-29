@@ -25,7 +25,7 @@ services:
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
     volumes:
-    - ${MDX_SAMPLE_APPS_DIR}:/vss-agent/deployments:ro
+    - ${MDX_SAMPLE_APPS_DIR}:/vss-agent/deploy/docker:ro
     environment:
     - HOST_IP=${HOST_IP}
     - VST_MCP_URL=${VST_MCP_URL}
