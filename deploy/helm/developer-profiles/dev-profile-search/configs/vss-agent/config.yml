@@ -21,6 +21,11 @@ general:
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      enable_videos_for_search: true
+      enable_rtsp_streams: true
+      enable_video_delete: true
+      # storage in place when an RTSP stream is removed.
+      delete_vst_storage_on_stream_remove: false
       rtvi_embed_base_url: ${RTVI_EMBED_BASE_URL}
       rtvi_embed_model: {{ .Values.rtviEmbedModel | default "cosmos-embed1-448p" }}
       rtvi_embed_chunk_duration: 5
@@ -30,7 +35,6 @@ general:
       external_ip: ${EXTERNAL_IP}
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
-      stream_mode: ${STREAM_MODE}
     endpoints:
     - path: /api/v1/videos
       method: POST

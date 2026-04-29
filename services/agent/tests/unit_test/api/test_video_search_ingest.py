@@ -14,7 +14,6 @@
 # limitations under the License.
 """Unit tests for video_search_ingest module."""
 
-import os
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import Mock
@@ -320,21 +319,7 @@ class TestStreamVideoToVstEndpoint:
 
 
 class TestRegisterStreamingRoutes:
-    """Test register_streaming_routes function."""
-
-    def test_register_with_env_vars(self):
-        """Test registering routes using environment variables."""
-        mock_app = MagicMock()
-        mock_config = MagicMock()
-        mock_config.general.front_end = MagicMock(spec=[])  # No streaming_ingest attribute
-
-        with patch.dict(
-            os.environ, {"VST_INTERNAL_URL": "http://vst:8080", "HOST_IP": "127.0.0.1", "RTVI_EMBED_PORT": "8017"}
-        ):
-            register_streaming_routes(mock_app, mock_config)
-
-            # Should call include_router once
-            assert mock_app.include_router.called
+    """Test register_streaming_routes function (videos-for-search routes)."""
 
     def test_register_with_config(self):
         """Test registering routes using config object."""
@@ -344,6 +329,7 @@ class TestRegisterStreamingRoutes:
         mock_streaming_config = MagicMock()
         mock_streaming_config.vst_internal_url = "http://vst:8080"
         mock_streaming_config.rtvi_embed_base_url = "http://rtvi:8080"
+        mock_streaming_config.rtvi_cv_base_url = ""
         mock_streaming_config.rtvi_embed_model = "test-model"
         mock_streaming_config.rtvi_embed_chunk_duration = 10
 
@@ -353,28 +339,48 @@ class TestRegisterStreamingRoutes:
 
         assert mock_app.include_router.called
 
-    def test_register_missing_vst_url(self):
-        """Test error when VST_INTERNAL_URL is not set."""
+    def test_register_missing_streaming_ingest_raises(self):
+        """Without streaming_ingest, registration must fail loudly."""
         mock_app = MagicMock()
         mock_config = MagicMock()
         mock_config.general.front_end = MagicMock(spec=[])
 
-        with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="VST_INTERNAL_URL"):
+        with pytest.raises(ValueError, match="streaming_ingest"):
             register_streaming_routes(mock_app, mock_config)
 
-    def test_register_missing_rtvi_url_env_path_registers_anyway(self):
-        """Env-var fallback: when RTVI ports aren't set (e.g. base profile,
-        where RTVI isn't deployed), routes still register so the UI gets 200
-        instead of 404. The /complete handler skips the embedding step at
-        request time when the rtvi URL is empty."""
+    def test_register_missing_vst_url_raises(self):
+        """streaming_ingest present but vst_internal_url empty must raise."""
         mock_app = MagicMock()
         mock_config = MagicMock()
-        mock_config.general.front_end = MagicMock(spec=[])
 
-        with patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst:8080"}, clear=True):
-            # Should NOT raise — register routes with empty rtvi_embed_base_url
+        mock_streaming_config = MagicMock()
+        mock_streaming_config.vst_internal_url = ""
+        mock_streaming_config.rtvi_embed_base_url = "http://rtvi:8080"
+        mock_streaming_config.rtvi_cv_base_url = ""
+        mock_streaming_config.rtvi_embed_model = "cosmos-embed1-448p"
+        mock_streaming_config.rtvi_embed_chunk_duration = 5
+
+        mock_config.general.front_end.streaming_ingest = mock_streaming_config
+
+        with pytest.raises(ValueError, match="vst_internal_url"):
             register_streaming_routes(mock_app, mock_config)
-            mock_app.include_router.assert_called_once()
+
+    def test_register_missing_rtvi_embed_url_raises(self):
+        """videos-for-search is search-only — rtvi_embed_base_url is required."""
+        mock_app = MagicMock()
+        mock_config = MagicMock()
+
+        mock_streaming_config = MagicMock()
+        mock_streaming_config.vst_internal_url = "http://vst:8080"
+        mock_streaming_config.rtvi_embed_base_url = ""
+        mock_streaming_config.rtvi_cv_base_url = ""
+        mock_streaming_config.rtvi_embed_model = "cosmos-embed1-448p"
+        mock_streaming_config.rtvi_embed_chunk_duration = 5
+
+        mock_config.general.front_end.streaming_ingest = mock_streaming_config
+
+        with pytest.raises(ValueError, match="rtvi_embed_base_url"):
+            register_streaming_routes(mock_app, mock_config)
 
 
 class TestParseOptionalHttpUrl:
