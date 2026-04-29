@@ -272,13 +272,21 @@ curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
   }"
 ```
 
-**Consume alerts from Kafka** (when using the VSS foundational Kafka container):
+**Consume alerts from Kafka** (when using the VSS foundational Kafka container).
+Kafka values are NvSchema protobuf payloads, so use `print.value=false` for a
+clean validation pass that shows timestamp, key, and headers without dumping
+binary payload bytes:
 ```bash
-docker exec -it mdx-kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
+docker exec mdx-kafka kafka-console-consumer \
+  --bootstrap-server 127.0.0.1:9092 \
   --topic vision-llm-events-incidents \
+  --from-beginning \
+  --timeout-ms 5000 \
+  --max-messages 10 \
+  --property print.timestamp=true \
   --property print.key=true \
-  --property print.headers=true
+  --property print.headers=true \
+  --property print.value=false
 ```
 
 If Kafka is not running in the VSS `mdx-kafka` container, use the Kafka CLI from
@@ -287,8 +295,13 @@ the host running the broker:
 kafka-console-consumer \
   --bootstrap-server "$HOST_IP:9092" \
   --topic vision-llm-events-incidents \
+  --from-beginning \
+  --timeout-ms 5000 \
+  --max-messages 10 \
+  --property print.timestamp=true \
   --property print.key=true \
-  --property print.headers=true
+  --property print.headers=true \
+  --property print.value=false
 ```
 Incident protobuf (`ext.proto :: Incident`) key fields: `sensorId`, `timestamp`, `end`,
 `objectIds`, `frameIds`, `place`, `analyticsModule`, `category`, `isAnomaly` (`true` for
@@ -298,7 +311,8 @@ alerts), `llm` (nested VisionLLM), `info` map including `triggerPhrase`, `verdic
 
 ### 4. HTTP response vs. Kafka message bus
 
-The same request always produces both outputs.
+When `KAFKA_ENABLED=true`, the same request produces both outputs: an HTTP
+response to the caller and Kafka records for downstream message-bus consumers.
 
 **HTTP response** from `POST /v1/generate_captions_alerts`:
 - **`stream=true`** — Server-Sent Events. One SSE event per chunk containing the
@@ -325,17 +339,52 @@ The same request always produces both outputs.
   with header `message_type: error`.
 - **Partition key:** `<request_id>:<chunk_idx>` — all messages for one (request, chunk)
   pair land on the same partition so a consumer can join the caption and the incident.
+- **Value format:** NvSchema protobuf, not JSON. Use metadata-only consumers for
+  quick verification; use the protobuf descriptors under
+  `deployments/foundational/elk/pb_definitions/descriptors/` for structured decoding.
 
-Subscribe to all three topics in parallel:
+For deterministic validation, first check topic offsets:
 ```bash
 for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
-  docker exec -i mdx-kafka kafka-console-consumer \
-    --bootstrap-server localhost:9092 \
-    --topic "$T" \
-    --property print.key=true \
-    --property print.headers=true &
+  docker exec mdx-kafka kafka-get-offsets \
+    --bootstrap-server 127.0.0.1:9092 \
+    --topic "$T"
 done
 ```
+
+Then consume bounded, metadata-only samples from all three topics. `--timeout-ms`
+prevents a no-message topic from hanging indefinitely; `print.value=false` avoids
+printing protobuf bytes:
+```bash
+for T in vision-llm-messages vision-llm-events-incidents vision-llm-errors; do
+  docker exec mdx-kafka kafka-console-consumer \
+    --bootstrap-server 127.0.0.1:9092 \
+    --topic "$T" \
+    --from-beginning \
+    --timeout-ms 5000 \
+    --max-messages 20 \
+    --property print.timestamp=true \
+    --property print.key=true \
+    --property print.headers=true \
+    --property print.value=false
+done
+```
+
+Typical proof of an HTTP + Kafka alert pass:
+```text
+vision-llm-messages:0:8
+vision-llm-events-incidents:0:1
+vision-llm-errors:0:0
+
+CreateTime:<ms> message_type:vision_llm <request_id>:5
+CreateTime:<ms> message_type:incident   <request_id>:5
+```
+
+The incident key matching the caption key (`<request_id>:<chunk_idx>`) is the
+join point between the normal caption message and the alert-positive incident.
+On recent Confluent Kafka images, do not override the formatter with the older
+`kafka.tools.DefaultMessageFormatter`; the default consumer formatter already
+supports the `print.*` properties above.
 
 **Docs reference:** <https://docs.nvidia.com/vss/latest/real-time-vlm.html>
 
