@@ -381,6 +381,48 @@ async def decompose_query(
         return DecomposedQuery(query=user_query)
 
 
+def _resolve_video_sources_for_search(
+    video_sources: list[str],
+    name_to_uuid: dict[str, str],
+    source_type: str | None,
+) -> list[str]:
+    """Resolve source names to the IDs expected by each ES source index."""
+    if not video_sources or not name_to_uuid:
+        return video_sources
+
+    if source_type == "rtsp":
+        uuid_to_name = {stream_id: name for name, stream_id in name_to_uuid.items()}
+        resolved_sources = []
+        for video_source in video_sources:
+            stream_id = name_to_uuid.get(video_source)
+            if stream_id:
+                resolved_sources.append(video_source)
+                logger.debug(
+                    "Keeping RTSP video source '%s' as sensor name; VST stream UUID is '%s'",
+                    video_source,
+                    stream_id,
+                )
+            elif video_source in uuid_to_name:
+                sensor_name = uuid_to_name[video_source]
+                resolved_sources.append(sensor_name)
+                logger.debug("Resolved RTSP stream UUID '%s' to sensor name '%s'", video_source, sensor_name)
+            else:
+                resolved_sources.append(video_source)
+                logger.debug("RTSP video source '%s' not resolved in VST map; keeping original name", video_source)
+        return resolved_sources
+
+    resolved_sources = []
+    for video_source in video_sources:
+        stream_id = name_to_uuid.get(video_source)
+        if stream_id:
+            resolved_sources.append(stream_id)
+            logger.debug("Resolved video source '%s' to UUID '%s'", video_source, stream_id)
+        else:
+            resolved_sources.append(video_source)
+            logger.debug("Video source '%s' not resolved; will use wildcard filter", video_source)
+    return resolved_sources
+
+
 def _apply_weighted_linear_fusion(
     video_data: list[dict[str, Any]],
     w_embed: float,
@@ -887,19 +929,14 @@ async def execute_core_search(
                 search_input.query = decomposed.query
             if decomposed.video_sources:
                 search_input.video_sources = decomposed.video_sources
-            # Resolve video source names → UUIDs using the VST mapping (two-tier filtering)
-            # Resolved UUIDs get fast exact-match ES filters; unresolved names fall back to wildcards
+            # Resolve video sources to the identifier expected by the selected source index.
+            # Video files filter by UUID; RTSP indices filter by camera/sensor name.
             if search_input.video_sources and name_to_uuid:
-                resolved_sources = []
-                for vname in search_input.video_sources:
-                    uuid = name_to_uuid.get(vname)
-                    if uuid:
-                        resolved_sources.append(uuid)
-                        logger.info(f"Resolved video source '{vname}' to UUID '{uuid}'")
-                    else:
-                        resolved_sources.append(vname)
-                        logger.info(f"Video source '{vname}' not resolved — will use wildcard filter")
-                search_input.video_sources = resolved_sources
+                search_input.video_sources = _resolve_video_sources_for_search(
+                    video_sources=search_input.video_sources,
+                    name_to_uuid=name_to_uuid,
+                    source_type=search_input.source_type,
+                )
             if decomposed.timestamp_start:
                 try:
                     search_input.timestamp_start = iso8601_to_datetime(decomposed.timestamp_start)
@@ -973,6 +1010,7 @@ async def execute_core_search(
                     video_sources=search_input.video_sources if search_input.video_sources else None,
                     timestamp_start=search_input.timestamp_start,
                     timestamp_end=search_input.timestamp_end,
+                    source_type=search_input.source_type,
                 )
             except Exception as e:
                 logger.warning(f"Object ID {oid} search failed: {e}")

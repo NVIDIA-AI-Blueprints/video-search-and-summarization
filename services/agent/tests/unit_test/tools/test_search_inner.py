@@ -245,6 +245,71 @@ class TestSearchInner:
         assert isinstance(result, SearchOutput)
 
     @pytest.mark.asyncio
+    async def test_search_agent_mode_rtsp_keeps_video_source_name_for_attribute_search(self, mock_builder, monkeypatch):
+        """RTSP agent-mode search must preserve camera names for attribute_search filters."""
+        from vss_agents.tools import search as search_module
+
+        config = SearchConfig(
+            embed_search_tool="embed_search",
+            attribute_search_tool="attribute_search",
+            agent_mode_llm="gpt-4o",
+            vst_internal_url="http://localhost:30888",
+        )
+
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = EmbedSearchOutput(query_embedding=[], results=[])
+
+        mock_attribute_search = AsyncMock()
+        mock_attribute_search.ainvoke.return_value = []
+
+        async def _get_function(tool_name):
+            if tool_name == "embed_search":
+                return mock_embed
+            if tool_name == "attribute_search":
+                return mock_attribute_search
+            raise AssertionError(f"Unexpected tool lookup: {tool_name}")
+
+        mock_builder.get_function.side_effect = _get_function
+
+        mock_llm = AsyncMock()
+        mock_llm_response = MagicMock()
+        mock_llm_response.content = json.dumps(
+            {
+                "query": "room with glass door",
+                "video_sources": ["video1"],
+                "attributes": ["room with glass door"],
+                "has_action": False,
+            }
+        )
+        mock_llm.ainvoke.return_value = mock_llm_response
+        mock_builder.get_llm.return_value = mock_llm
+
+        async def _fake_get_streams_info(_vst_url):
+            return {
+                "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c": {
+                    "name": "video1",
+                    "url": "rtsp://example.com/live/7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c",
+                }
+            }
+
+        monkeypatch.setattr(search_module, "get_streams_info", _fake_get_streams_info)
+
+        gen = search.__wrapped__(config, mock_builder)
+        function_info = await gen.__anext__()
+        inner_fn = function_info.single_fn
+
+        inp = SearchInput(
+            query="a room with glass door in video1",
+            source_type="rtsp",
+            agent_mode=True,
+        )
+        result = await inner_fn(inp)
+
+        assert isinstance(result, SearchOutput)
+        mock_attribute_search.ainvoke.assert_awaited_once()
+        assert mock_attribute_search.ainvoke.await_args.args[0]["video_sources"] == ["video1"]
+
+    @pytest.mark.asyncio
     async def test_search_agent_mode_json_code_block(self, config, mock_builder):
         embed_output = _make_embed_output_with_results(
             [
