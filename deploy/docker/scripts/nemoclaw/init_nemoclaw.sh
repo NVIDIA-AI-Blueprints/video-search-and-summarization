@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
+VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
 # Nemoclaw onboard/install only accepts: build, openai, … — "build" is NVIDIA Endpoints (integrate.api.nvidia.com).
 NEMOCLAW_ONBOARD_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER:-build}"
@@ -22,7 +22,7 @@ VSS_PLUGIN_ID="openclaw-vss"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
 VSS_REMOTE_EXTENSIONS_ROOT="/sandbox/.openclaw-data/extensions"
 VSS_REMOTE_PLUGIN_DIR="${VSS_REMOTE_EXTENSIONS_ROOT}/${VSS_PLUGIN_ID}"
-VSS_REMOTE_CONFIG_PATH="/sandbox/.openclaw-data/openclaw.json"
+VSS_REMOTE_CONFIG_PATH="/sandbox/.openclaw/openclaw.json"
 VSS_REMOTE_UPLOAD_DIR="/tmp/${VSS_PLUGIN_ID}-package"
 
 log() {
@@ -221,7 +221,7 @@ update_openclaw_allowed_origin() {
   fi
 
   log "Updating OpenClaw config for sandbox ${NEMOCLAW_SANDBOX_NAME} using script ${script}"
-  if ! python3 "$script" "$NEMOCLAW_SANDBOX_NAME"; then
+  if ! python3 "$script" "$NEMOCLAW_SANDBOX_NAME" --config-path "$VSS_REMOTE_CONFIG_PATH"; then
     log "ERROR: OpenClaw config update failed for sandbox ${NEMOCLAW_SANDBOX_NAME}"
     return 1
   fi
