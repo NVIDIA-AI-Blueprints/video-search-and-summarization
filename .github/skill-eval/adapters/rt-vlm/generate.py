@@ -4,9 +4,10 @@
 """Generate Harbor tasks for the rt-vlm skill.
 
 The rt-vlm skill tests the RTVI VLM microservice API directly. The
-single current spec deploys the VSS alerts profile in real-time mode
-with remote LLM/VLM placement, then probes the RT-VLM REST API on
-localhost:8018.
+current spec deploys only the standalone RT-VLM compose service using
+the Docker Compose profile `bp_developer_alerts_2d_vlm`, then probes
+the REST API on localhost:8018. It intentionally does not deploy a VSS
+profile through `/deploy`.
 """
 from __future__ import annotations
 
@@ -30,7 +31,8 @@ PLATFORMS: dict[str, dict] = {
 }
 
 DEFAULT_PLATFORM = "L40S"
-DEFAULT_SPEC = "alerts_realtime_api.json"
+DEFAULT_SPEC = "standalone_api.json"
+COMPOSE_PROFILE = "bp_developer_alerts_2d_vlm"
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
 
 PREAMBLE = (
@@ -66,7 +68,7 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
 def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[tuple[str, str]]:
     declared = ((spec.get("resources") or {}).get("platforms") or {})
     if not declared:
-        declared = {DEFAULT_PLATFORM: {"modes": ["remote-all"]}}
+        declared = {DEFAULT_PLATFORM: {"modes": ["standalone"]}}
 
     tasks: list[tuple[str, str]] = []
     for platform, cfg in declared.items():
@@ -74,9 +76,9 @@ def _platform_modes_from_spec(spec: dict, platform_filter: str | None) -> list[t
             continue
         if platform not in PLATFORMS:
             continue
-        for mode in (cfg or {}).get("modes") or ["remote-all"]:
+        for mode in (cfg or {}).get("modes") or ["standalone"]:
             tasks.append((platform, mode))
-    return tasks or [(platform_filter or DEFAULT_PLATFORM, "remote-all")]
+    return tasks or [(platform_filter or DEFAULT_PLATFORM, "standalone")]
 
 
 def generate_test_script(step: int, spec_name: str) -> str:
@@ -124,7 +126,7 @@ def generate_task(
     rendered_spec = _substitute_spec(spec, platform, mode)
 
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
-        step_dir = output_root / "alerts" / f"{platform_short}-{mode}"
+        step_dir = output_root / "standalone" / f"{platform_short}-{mode}"
         if len(expects) > 1:
             step_dir = step_dir / f"step-{idx}"
         step_dir.mkdir(parents=True, exist_ok=True)
@@ -132,8 +134,10 @@ def generate_task(
         instruction = [
             PREAMBLE,
             "",
-            "Use `/deploy` first, then `/rt-vlm`. The target deployment is VSS "
-            "`alerts` in real-time mode with remote LLM and remote VLM placement.",
+            "Use `/rt-vlm` only. Deploy RT-VLM as a standalone compose service from "
+            "`deployments/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; do not use "
+            "`/deploy`, `scripts/dev-profile.sh`, or a full VSS profile. The Docker "
+            f"Compose profile that activates the service is `{COMPOSE_PROFILE}`.",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -151,9 +155,9 @@ def generate_task(
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
         meta_lines = [
             "[task]",
-            f'name = "nvidia-vss/rt-vlm-alerts-{platform_short}-{mode}{step_suffix}"',
+            f'name = "nvidia-vss/rt-vlm-standalone-{platform_short}-{mode}{step_suffix}"',
             f'description = "RT-VLM API query {idx}/{len(expects)} on {platform}/{mode}"',
-            f'keywords = ["rt-vlm", "rtvi-vlm", "alerts", "{platform}", "{mode}"]',
+            f'keywords = ["rt-vlm", "rtvi-vlm", "standalone", "{platform}", "{mode}"]',
             "",
             "[environment]",
             'skills_dir = "/skills"',
@@ -165,7 +169,8 @@ def generate_task(
             "",
             "[metadata]",
             'skill = "rt-vlm"',
-            'profile = "alerts"',
+            'deployment = "standalone"',
+            f'compose_profile = "{COMPOSE_PROFILE}"',
             f'platform = "{platform}"',
             f'mode = "{mode}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
@@ -197,7 +202,7 @@ def generate_task(
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform, mode))
 
-        for src, name in ((skill_dir, "rt-vlm"), (deploy_skill_dir, "deploy")):
+        for src, name in ((skill_dir, "rt-vlm"),):
             if src and src.exists():
                 dst = step_dir / "skills" / name
                 if dst.exists():
@@ -237,11 +242,11 @@ def main() -> None:
     print()
 
     for platform, mode in tasks:
-        print(f"  GEN  rt-vlm/alerts/{PLATFORMS[platform]['short_name']}-{mode}")
+        print(f"  GEN  rt-vlm/standalone/{PLATFORMS[platform]['short_name']}-{mode}")
         generate_task(platform, mode, spec, output_root, skill_dir, deploy_skill_dir)
 
     print()
-    print(f"Generated {len(tasks)} task(s) under {output_root}/alerts/")
+    print(f"Generated {len(tasks)} task(s) under {output_root}/standalone/")
 
 
 if __name__ == "__main__":

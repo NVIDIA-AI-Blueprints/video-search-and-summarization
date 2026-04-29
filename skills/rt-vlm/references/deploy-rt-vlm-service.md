@@ -330,16 +330,31 @@ echo "Platform: $ARCH → image tag: $VLM_TAG"
 # 0b. Standalone fix — recent Docker Compose rejects `depends_on` references to
 #     sibling NIMs that aren't defined in this single-file project, even with
 #     `required: false`. Strip the depends_on block for standalone deploys.
-#     Use yq if available (handles YAML correctly), otherwise fall back to python:
+#     Use yq if available (handles YAML correctly), otherwise fall back to a
+#     small stdlib-only Python edit of this known compose file:
 if command -v yq >/dev/null; then
   yq -i 'del(.services.rtvi-vlm.depends_on)' rtvi-vlm-docker-compose.yml
 else
   python3 - <<'PY'
-import yaml, sys
-p = 'rtvi-vlm-docker-compose.yml'
-with open(p) as f: d = yaml.safe_load(f)
-d['services']['rtvi-vlm'].pop('depends_on', None)
-with open(p, 'w') as f: yaml.safe_dump(d, f, sort_keys=False)
+from pathlib import Path
+
+p = Path("rtvi-vlm-docker-compose.yml")
+out = []
+skip = False
+base_indent = 4
+for line in p.read_text().splitlines():
+    stripped = line.lstrip()
+    indent = len(line) - len(stripped)
+    if not skip and line.startswith("    depends_on:"):
+        skip = True
+        continue
+    if skip:
+        if stripped and indent <= base_indent:
+            skip = False
+            out.append(line)
+        continue
+    out.append(line)
+p.write_text("\n".join(out) + "\n")
 PY
 fi
 #     Verify it's gone (should print 0):
