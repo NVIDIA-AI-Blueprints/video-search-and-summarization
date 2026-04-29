@@ -14,14 +14,14 @@
  * - Comprehensive theme support with proper contrast and readability in both modes
  * - Intelligent data type detection and appropriate rendering for different value types
  * - Expandable/collapsible sections for managing large metadata objects
- * - Copy-to-clipboard functionality for easy data extraction and sharing
+ * - Copy-to-clipboard for metadata; optional send-to-chat for configured report prompts
  * - Search and filter capabilities within metadata for quick information location
  * 
  */
 
 import React, { useState, useMemo } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
-import { IconChevronDown, IconChevronUp, IconCopy, IconCheck, IconClipboardCopy } from '@tabler/icons-react';
+import { IconChevronDown, IconChevronUp, IconCopy, IconCheck, IconSend } from '@tabler/icons-react';
 import { copyToClipboard } from '@nemo-agent-toolkit/ui';
 
 interface MetadataSectionProps {
@@ -31,6 +31,8 @@ interface MetadataSectionProps {
   data: Record<string, any>;
   isDark: boolean;
   alertReportPromptTemplate?: string;
+  /** When set, "Generate Report" sends the resolved template to the app chat (e.g. VSS sidebar). */
+  submitChatMessage?: (message: string) => void;
 }
 
 export const MetadataSection: React.FC<MetadataSectionProps> = ({ 
@@ -39,41 +41,37 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
   title, 
   data, 
   isDark,
-  alertReportPromptTemplate
+  alertReportPromptTemplate,
+  submitChatMessage,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
-  const [isPromptCopied, setIsPromptCopied] = useState(false);
+  const [isReportSent, setIsReportSent] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   
   const isEmpty = !data || Object.keys(data).length === 0;
 
-  // Check if Copy prompt button should be shown
-  // Only show if alertId does NOT start with "alert-" prefix
-  const shouldShowCopyPrompt = 
-    alertReportPromptTemplate && 
-    alertReportPromptTemplate.trim() !== '' && 
-    alertId && 
-    sensor && 
+  const shouldShowGenerateReport =
+    Boolean(submitChatMessage) &&
+    alertReportPromptTemplate &&
+    alertReportPromptTemplate.trim() !== '' &&
+    alertId &&
+    sensor &&
     !alertId.startsWith('alert-');
 
-  // Generate the formatted prompt content for tooltip
   const formattedPrompt = useMemo(() => {
-    if (!shouldShowCopyPrompt) return '';
+    if (!shouldShowGenerateReport) return '';
     
     return (alertReportPromptTemplate || '')
       .replace(/{incidentId}/g, alertId)
       .replace(/{sensorId}/g, sensor);
-  }, [shouldShowCopyPrompt, alertReportPromptTemplate, alertId, sensor]);
+  }, [shouldShowGenerateReport, alertReportPromptTemplate, alertId, sensor]);
 
-  const handleCopyPrompt = async () => {
-    try {
-      await copyToClipboard(formattedPrompt);
-      setIsPromptCopied(true);
-      setTimeout(() => setIsPromptCopied(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy prompt:', error);
-    }
+  const handleGenerateReport = () => {
+    if (!submitChatMessage || !formattedPrompt.trim()) return;
+    submitChatMessage(formattedPrompt);
+    setIsReportSent(true);
+    setTimeout(() => setIsReportSent(false), 2000);
   };
 
   const handleCopy = async () => {
@@ -111,28 +109,28 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
         
         {!isEmpty && !isCollapsed && (
           <div className="flex items-center gap-2">
-            {shouldShowCopyPrompt && (
+            {shouldShowGenerateReport && (
               <div className="relative">
                 <Button
                   kind="primary"
-                  onClick={handleCopyPrompt}
+                  onClick={handleGenerateReport}
                   onMouseEnter={() => setShowTooltip(true)}
                   onMouseLeave={() => setShowTooltip(false)}
-                  title="Copy report prompt to clipboard"
+                  title="Send report request to app chat"
                 >
-                  {isPromptCopied ? (
+                  {isReportSent ? (
                     <>
                       <IconCheck className={`w-3 h-3 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
-                      <span>Copied</span>
+                      <span>Sent</span>
                     </>
                   ) : (
                     <>
-                      <IconClipboardCopy className="w-3 h-3" />
-                      <span>Copy Report Prompt</span>
+                      <IconSend className="w-3 h-3" />
+                      <span>Generate Report</span>
                     </>
                   )}
                 </Button>
-                {showTooltip && !isPromptCopied && (
+                {showTooltip && !isReportSent && (
                   <div className={`absolute z-50 bottom-full right-0 mb-2 px-3 py-2 rounded shadow-lg border max-w-xs sm:max-w-md whitespace-pre-wrap break-words text-xs ${
                     isDark 
                       ? 'bg-black border-gray-600 text-gray-200' 
@@ -158,7 +156,10 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
                 </>
               ) : (
                 <>
-                  <IconCopy className="w-3 h-3" />
+                  <IconCopy
+                    className="w-3 h-3"
+                    style={{ color: 'inherit' }}
+                  />
                   <span>Copy Metadata</span>
                 </>
               )}
@@ -177,4 +178,3 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
     </div>
   );
 };
-

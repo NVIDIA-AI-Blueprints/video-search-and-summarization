@@ -3,7 +3,9 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { VideoManagementComponentProps, UploadProgress, StreamInfo } from './types';
 import { useStreams, useStorageTimelines } from './hooks';
 import { filterStreams, isRtspStream } from './utils';
-import { uploadFile, UploadFilesDialog, VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
+import { UploadFilesDialog, VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
+import { uploadFileChunked, notifyUploadComplete } from './chunkedUpload';
+import { createApiEndpoints } from './api';
 import { deleteRtspStream } from './rtspStream';
 import { deleteVideo } from './videoDelete';
 import { NUM_PARALLEL_FILE_UPLOADS } from './constants';
@@ -25,6 +27,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   renderControlsInLeftSidebar = false,
   onControlsReady,
   isActive = true,
+  addChatQueryContext,
 }) => {
   const vstApiUrl = videoManagementData?.vstApiUrl;
   const agentApiUrl = videoManagementData?.agentApiUrl;
@@ -151,30 +154,54 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       );
 
       try {
-        // Use agent API upload (get URL then PUT)
+        if (!vstApiUrl) {
+          throw new Error('VST API URL not configured');
+        }
         if (!agentApiUrl) {
           throw new Error('Agent API URL not configured');
         }
-        
-        const agentResponse = await uploadFile(
-          file, 
-          agentApiUrl, 
-          formData ?? generateDefaultFormData(),
-          (progress) => {
+
+        // Step 1: Chunked upload directly to the video storage service
+        // (bypasses agent, avoids Cloudflare 100s timeout on large files)
+        const uploadEndpoints = createApiEndpoints(vstApiUrl);
+        const videoUploadApiResponse = await uploadFileChunked({
+          file,
+          uploadUrl: uploadEndpoints.UPLOAD_FILE,
+          onProgress: (progress) => {
             if (!isSessionValid() || abortController.signal.aborted) return;
             setUploadProgress((prev) =>
               prev.map((p) => (p.id === id && p.status === 'uploading' ? { ...p, progress } : p))
             );
-          }, 
-          abortController.signal
+          },
+          abortSignal: abortController.signal,
+        });
+
+        if (!isSessionValid()) return;
+
+        // Step 2: Notify agent for post-processing (embeddings, RTVI registration, etc.).
+        // We forward the upload response as-is so the agent picks out the fields
+        // it cares about; keeps the UI decoupled from the storage API shape.
+        setUploadProgress((prev) =>
+          prev.map((p) => (p.id === id && p.status === 'uploading' ? { ...p, status: 'processing', progress: 100 } : p))
+        );
+
+        // Forward the per-upload custom params collected by the dialog
+        // (from chatUploadFileConfigTemplateJson) so the agent can use them
+        // downstream. Sent as `custom_params` on the /complete body.
+        await notifyUploadComplete(
+          agentApiUrl,
+          file.name,
+          videoUploadApiResponse,
+          formData,
+          abortController.signal,
         );
 
         if (!isSessionValid()) return;
 
         setUploadProgress((prev) =>
-          prev.map((p) => (p.id === id && p.status === 'uploading' ? { 
-            ...p, 
-            status: 'success', 
+          prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'processing') ? {
+            ...p,
+            status: 'success',
             progress: 100,
           } : p))
         );
@@ -185,10 +212,10 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         const isCancelled = err instanceof Error && (err.name === 'AbortError' || err.message === 'Upload was cancelled');
 
         setUploadProgress((prev) =>
-          prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'pending') ? { 
-            ...p, 
-            status: isCancelled ? 'cancelled' : 'error', 
-            error: isCancelled ? undefined : errorMessage 
+          prev.map((p) => (p.id === id && (p.status === 'uploading' || p.status === 'pending' || p.status === 'processing') ? {
+            ...p,
+            status: isCancelled ? 'cancelled' : 'error',
+            error: isCancelled ? undefined : errorMessage
           } : p))
         );
       }
@@ -217,7 +244,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
 
     setIsUploading(false);
     await Promise.all([refetchRef.current(), refetchTimelinesRef.current()]);
-  }, [agentApiUrl, generateDefaultFormData]);
+  }, [vstApiUrl, agentApiUrl]);
 
   const handleFilesSelected = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
@@ -251,7 +278,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     const successCount = uploadProgressRef.current.filter((p) => p.status === 'success').length;
 
     setUploadProgress((prev) =>
-      prev.map((p) => (p.status === 'pending' || p.status === 'uploading' ? { ...p, status: 'cancelled' } : p))
+      prev.map((p) => (p.status === 'pending' || p.status === 'uploading' || p.status === 'processing' ? { ...p, status: 'cancelled' } : p))
     );
     setIsUploading(false);
 
@@ -451,6 +478,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         getEndTimeForStream={getEndTimeForStream}
         onPlayStream={handlePlayStream}
         loadingStreamId={loadingStreamId}
+        onAddChatQueryContext={addChatQueryContext}
       />
     );
   };

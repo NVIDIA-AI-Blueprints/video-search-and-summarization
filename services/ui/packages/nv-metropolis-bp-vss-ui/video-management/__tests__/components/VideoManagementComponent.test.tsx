@@ -19,8 +19,12 @@ jest.mock('@nemo-agent-toolkit/ui', () => ({
     openVideoModalFromAlert: jest.fn(),
     loadingAlertId: null,
   }),
-  uploadFile: jest.fn(),
   copyToClipboard: jest.fn(),
+}));
+
+jest.mock('../../lib-src/chunkedUpload', () => ({
+  uploadFileChunked: jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' }),
+  notifyUploadComplete: jest.fn().mockResolvedValue(undefined),
 }));
 
 const mockTimelines = new Map([

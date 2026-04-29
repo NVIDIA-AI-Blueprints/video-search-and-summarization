@@ -106,7 +106,7 @@ export function parseApiError(text: string, defaultMessage: string): string {
   }
 }
 
-function generateUUID(): string {
+export function generateUUID(): string {
   return crypto.randomUUID();
 }
 

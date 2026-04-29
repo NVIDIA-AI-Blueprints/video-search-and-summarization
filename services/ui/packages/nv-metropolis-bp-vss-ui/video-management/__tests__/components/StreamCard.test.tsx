@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { StreamCard } from '../../lib-src/components/StreamCard';
 import type { StreamInfo } from '../../lib-src/types';
 import { makeStream, videoStream, rtspStream } from '../helpers/streamFixtures';
@@ -22,9 +22,13 @@ jest.mock('../../lib-src/api', () => ({
   }),
 }));
 
+const mockCopyToClipboard = jest.fn(() => Promise.resolve());
+jest.mock('@nemo-agent-toolkit/ui', () => ({
+  copyToClipboard: (...args: unknown[]) => mockCopyToClipboard(...args),
+}));
+
 jest.mock('@tabler/icons-react', () => ({
   IconCheck: () => <span data-testid="icon-check" />,
-  IconCopy: () => <span data-testid="icon-copy" />,
 }));
 
 const defaultProps = {
@@ -151,5 +155,42 @@ describe('StreamCard — basic rendering', () => {
     fireEvent.click(screen.getByRole('checkbox'));
 
     expect(onSelectionChange).toHaveBeenCalledWith(videoStream.streamId, true);
+  });
+});
+
+describe('StreamCard — copy and chat context', () => {
+  beforeEach(() => {
+    mockCopyToClipboard.mockClear();
+    mockCopyToClipboard.mockImplementation(() => Promise.resolve());
+  });
+
+  it('copies JSON to clipboard when + Chat is clicked', async () => {
+    renderStreamCard();
+
+    fireEvent.click(screen.getByRole('button', { name: /\+\s*chat/i }));
+
+    await waitFor(() => {
+      expect(mockCopyToClipboard).toHaveBeenCalledWith(
+        JSON.stringify({ sensorName: videoStream.name, streamId: videoStream.streamId }, null, 2),
+      );
+    });
+  });
+
+  it('calls onAddChatQueryContext when + Chat is clicked', async () => {
+    const onAddChatQueryContext = jest.fn();
+    renderStreamCard({ onAddChatQueryContext });
+
+    fireEvent.click(screen.getByRole('button', { name: /\+\s*chat/i }));
+
+    expect(onAddChatQueryContext).toHaveBeenCalledTimes(1);
+    expect(onAddChatQueryContext).toHaveBeenCalledWith({
+      id: `video-mgmt-stream:${videoStream.streamId}`,
+      label: videoStream.name,
+      type: 'video-stream',
+      data: { sensorName: videoStream.name, streamId: videoStream.streamId },
+    });
+    await waitFor(() => {
+      expect(mockCopyToClipboard).toHaveBeenCalled();
+    });
   });
 });
