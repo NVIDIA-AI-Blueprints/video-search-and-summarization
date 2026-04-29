@@ -13,23 +13,116 @@ human-in-the-loop (HITL) parameter collection on top of the base VSS agent.
 
 Always run `curl` commands yourself; never instruct the user to run them.
 
-## Deployment prerequisite
+## Deploying the Frag Extension
 
-This skill requires the VSS **video_search_frag** profile running on the host.
-The frag extension builds on top of the base VSS agent image with Enterprise RAG
-and HITL LVS tools.
+The frag extension layers Enterprise RAG and HITL LVS tools on top of the base
+VSS agent image. Deployment is a two-step Docker build followed by compose up.
 
-Before any request, probe the agent:
+> **Environment variables:** All commands use values from the `.env` file at
+> `deployments/developer-workflow/dev-profile-lvs/.env`. Edit it before deploying.
+> Key variables: `HOST_IP`, `VSS_AGENT_PORT` (default `8000`), `NGC_CLI_API_KEY`,
+> `NVIDIA_API_KEY`, `ENTERPRISE_RAG_*`.
+
+### Step 1: Configure the .env file
 
 ```bash
+nano deployments/developer-workflow/dev-profile-lvs/.env
+```
+
+Set at minimum:
+- `HOST_IP` — your machine's IP (`hostname -I | awk '{print $1}'`)
+- `NGC_CLI_API_KEY` — from https://ngc.nvidia.com/
+- `NVIDIA_API_KEY` — from https://build.nvidia.com/
+- `VSS_AGENT_CONFIG_FILE=./configs/video_search_frag/config.yml`
+- `ENTERPRISE_RAG_VDB_ENDPOINT` — your Milvus endpoint (e.g., `tcp://127.0.0.1:19530`)
+- `ENTERPRISE_RAG_COLLECTION_NAMES` — your Milvus collection name
+
+### Step 2: Log in to NGC registry
+
+```bash
+echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+```
+
+### Step 3: Build the base agent image
+
+```bash
+cd agent
+docker build -f docker/Dockerfile -t vss-agent-base .
+```
+
+### Step 4: Build the frag extension image
+
+```bash
+docker compose \
+  -f app/video_search_frag/docker-compose.yml \
+  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
+  build
+```
+
+This produces `vss-agent-frag:latest` — the base agent extended with
+`video_search_frag` (Enterprise RAG, HITL LVS, PDF report generation).
+
+### Step 5: Deploy with docker compose
+
+```bash
+docker compose \
+  -f app/video_search_frag/docker-compose.yml \
+  -f ../deployments/agents/agent_ui/compose.yml \
+  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
+  --profile bp_developer_lvs_2d \
+  up -d
+```
+
+Two `-f` flags: the frag compose defines `vss-agent`, the UI compose defines
+`metropolis-vss-ui`. They merge into a single deployment.
+
+### Step 6: Verify deployment
+
+```bash
+# Check containers are running
+docker ps --format "table {{.Names}}\t{{.Status}}"
+
+# Health check
 curl -sf --max-time 5 "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/health" >/dev/null \
   && echo "VSS frag agent is running" \
   || echo "VSS frag agent is NOT reachable"
 ```
 
-> **Environment variables:** All endpoints in this skill use `${HOST_IP}` and
-> `${VSS_AGENT_PORT}` (default `8000`). These are set in the deployment `.env` file.
-> Example: `http://localhost:8000` if running locally.
+### Tear down
+
+```bash
+docker compose \
+  -f app/video_search_frag/docker-compose.yml \
+  -f ../deployments/agents/agent_ui/compose.yml \
+  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
+  --profile bp_developer_lvs_2d \
+  down
+```
+
+### Rebuild after code changes
+
+Always `down` then rebuild and `up` — never just `up -d` alone after changes.
+
+```bash
+docker compose \
+  -f app/video_search_frag/docker-compose.yml \
+  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
+  build
+
+docker compose \
+  -f app/video_search_frag/docker-compose.yml \
+  -f ../deployments/agents/agent_ui/compose.yml \
+  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
+  --profile bp_developer_lvs_2d \
+  down
+
+docker compose \
+  -f app/video_search_frag/docker-compose.yml \
+  -f ../deployments/agents/agent_ui/compose.yml \
+  --env-file ../deployments/developer-workflow/dev-profile-lvs/.env \
+  --profile bp_developer_lvs_2d \
+  up -d
+```
 
 ## When to Use
 
