@@ -30,7 +30,27 @@ tools:
     params:
       host: !ENV ${ES_HOST}
       port: !ENV ${ES_PORT}
-      collection_name: lvs-events
+      kafka_consumer_settle_secs: 5.0
+    tools:
+      embedding: nvidia_embedding
+
+  graph_db_arango:
+    type: arango
+    params:
+      host: !ENV ${ARANGO_DB_HOST}
+      port: !ENV ${ARANGO_DB_PORT}
+      username: !ENV ${ARANGO_DB_USERNAME}
+      password: !ENV ${ARANGO_DB_PASSWORD}
+    tools:
+      embedding: nvidia_embedding
+
+  graph_db:
+    type: neo4j
+    params:
+      host: !ENV ${GRAPH_DB_HOST}
+      port: !ENV ${GRAPH_DB_BOLT_PORT}
+      username: !ENV ${GRAPH_DB_USERNAME}
+      password: !ENV ${GRAPH_DB_PASSWORD}
     tools:
       embedding: nvidia_embedding
 
@@ -42,7 +62,7 @@ tools:
       max_tokens: 10240
       temperature: 0.2
       top_p: 0.7
-      api_key: !ENV ${LVS_LLM_API_KEY}
+      api_key: !ENV ${NVIDIA_API_KEY}
 
   nvidia_embedding:
     type: embedding
@@ -54,55 +74,38 @@ tools:
 
 functions:
   summarization:
-    type: vlm_structured_summarization
+    type: vlm_structured_summarization_online
     params:
       time_overlap_threshold: 0.1
-      time_adjacent_threshold: 5
+      time_adjacent_threshold: 5.0
       max_events_per_batch: 50
       enable_llm_merging: true
+      kafka_enabled: true
     tools:
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
       llm: summarization_llm
 
-  summarization_using_llm:
-    type: structured_inference
+  summarization_online:
+    type: vlm_structured_summarization_online
     params:
-      prompts:
-        caption: "You are an intelligent traffic system. You must monitor and take note of all traffic related events. Start each event description with a start and end time stamp of the event."
-        # event_extraction_prompt: "Extract structured events from video captions"
-    batch_size: 4
-    scenario: "traffic monitoring"
-    events: ["accident", "pedestrian crossing", "vehicle crossing", "traffic violation"]
-    batch_response_method: "json_schema"
-    schema: |
-      {
-        "title": "EventExtraction",
-        "description": "Extract structured events from video captions",
-        "type": "object",
-        "properties": {
-          "events": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "start_time": { "type": "number" },
-                "end_time": { "type": "number" },
-                "description": { "type": "string" },
-                "type": { "type": "string" }
-              },
-              "required": ["start_time", "end_time", "description", "type"]
-            }
-          }
-        },
-        "required": ["events"]
-      }
-    auto_generate_prompt: true
-    time_metadata_keys: ["start_pts", "end_pts"]
+      time_overlap_threshold: 0.1
+      time_adjacent_threshold: 5.0
+      max_events_per_batch: 50
+      enable_llm_merging: true
+      # Streaming RTVI -> Kafka -> Logstash -> ES path: raw_events are
+      # written to ES by Logstash, so the online aggregator must read
+      # them back from the database instead of expecting in-process
+      # accumulation. Required for POST /aggregate_live_stream.
+      kafka_enabled: true
     tools:
-      llm: summarization_llm
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
+      llm: summarization_llm
 
 context_manager:
   functions:
     - summarization
-
+    # Required for POST /aggregate_live_stream so the ctx-mgr subprocess
+    # registers `summarization_online` as a dispatchable function. Without
+    # this, ctx_mgr.call({"summarization_online": ...}) raises KeyError
+    # via context_manager_handler._functions["summarization_online"].
+    - summarization_online

@@ -117,24 +117,52 @@ class ReportAgentInput(BaseModel):
 
 class VideoReportAgentInput(BaseModel):
     """
-    Input for the Video(uploaded) Report Agent (Mode 3).
+    Input for the Video(uploaded) / Stream Report Agent (Mode 3).
 
-    This mode works without Video Analytics MCP - directly analyzes uploaded videos from VST.
-    No incident database required. Always analyzes the full video.
+    This mode works without Video Analytics MCP - directly analyzes uploaded videos
+    or configured live streams from VST. No incident database required.
     Supports parallel processing of multiple videos when using LVS (Long Video Summarization).
+    Streams (media_type='stream') require a single sensor_id and a start_time/end_time window.
     """
 
     sensor_id: str | list[str] = Field(
         ...,
-        description="VST sensor ID(s) for video retrieval. Can be a single sensor_id string or a list of sensor_ids for parallel processing with LVS.",
+        description=(
+            "For media_type='video': VST sensor ID(s) (filename(s) of uploaded video). "
+            "Can be a single string or a list of sensor_ids for parallel processing with LVS. "
+            "For media_type='stream': VST stream/camera name (must be a single string)."
+        ),
     )
     user_query: str = Field(
         "Generate a detailed report of the video.",
-        description="The user's question or analysis request for this video",
+        description="The user's question or analysis request for this video/stream",
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default.",
+        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default. Ignored for streams.",
+    )
+    media_type: Literal["video", "stream"] = Field(
+        default="video",
+        description=(
+            "Type of source: 'video' (default; uploaded VST file, supports multi-video batch) or "
+            "'stream' (configured live stream; requires start_time/end_time and a single sensor_id)."
+        ),
+    )
+    start_time: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Start time in seconds (offset from stream start). Required when media_type='stream'. "
+            "Ignored when media_type='video'."
+        ),
+    )
+    end_time: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "End time in seconds (offset from stream start). Required when media_type='stream'; "
+            "use 0 for 'no upper bound (until now)'. Ignored when media_type='video'."
+        ),
     )
 
 
@@ -291,25 +319,40 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             sensor_id: str | list[str],
             user_query: str,
             vlm_reasoning: bool | None = None,
+            media_type: Literal["video", "stream"] = "video",
+            start_time: float | None = None,
+            end_time: float | None = None,
         ) -> AsyncGenerator[AgentMessageChunk]:
             """
-            Execute Video(uploaded) Report generation (video-based, no Video Analytics MCP).
+            Execute Video(uploaded) / Stream Report generation (no Video Analytics MCP).
 
             Args:
-                sensor_id: VST sensor ID(s) (filename(s) of uploaded video(s)). Can be a single string or list for parallel processing.
-                user_query: The user's question or analysis request
+                sensor_id: VST sensor ID(s) (filename(s) of uploaded video(s)) for media_type='video',
+                    or VST stream/camera name (single string) for media_type='stream'.
+                user_query: The user's question or analysis request.
+                vlm_reasoning: Optional VLM reasoning toggle (uploaded videos only).
+                media_type: 'video' (default) or 'stream'.
+                start_time: Stream window start (seconds). Required for streams.
+                end_time: Stream window end (seconds, 0 means until now). Required for streams.
 
             Returns:
                 AgentMessageChunk objects for tool calls and final result
             """
-            logger.info("Executing Video(uploaded) Report (video-based)")
+            logger.info(
+                "Executing Report Agent (media_type=%s, sensor_id=%s)",
+                media_type,
+                sensor_id,
+            )
             execution_start_time = time.time()
 
-            # Construct Mode 3 input
+            # Construct Mode 3 input (validates stream constraints)
             video_report_input = VideoReportAgentInput(
                 sensor_id=sensor_id,
                 user_query=user_query,
                 vlm_reasoning=vlm_reasoning,
+                media_type=media_type,
+                start_time=start_time,
+                end_time=end_time,
             )
 
             try:
@@ -542,21 +585,33 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             else video_report_input.sensor_id
         )
 
-        if len(sensor_ids) > 1:
+        if video_report_input.media_type == "stream":
+            logger.info(
+                "Stream Report mode: Analyzing stream '%s' from %s to %s",
+                sensor_ids[0],
+                video_report_input.start_time,
+                video_report_input.end_time,
+            )
+        elif len(sensor_ids) > 1:
             logger.info(f"Video(uploaded) Report mode: Requesting reports for {len(sensor_ids)} videos: {sensor_ids}")
         else:
             logger.info(f"Video(uploaded) Report mode: Analyzing uploaded video '{sensor_ids[0]}'")
 
         try:
-            # Call the Video(uploaded) Report generation tool
-            # The tool handles parallel processing internally for LVS videos
+            # Call the Video/Stream Report generation tool. The tool handles parallel
+            # processing internally for multi-video LVS, and dispatches to the stream
+            # path when media_type='stream'.
             tool_input: dict[str, Any] = {
                 "sensor_id": video_report_input.sensor_id,
                 "user_query": video_report_input.user_query,
+                "media_type": video_report_input.media_type,
             }
-            # Add vlm_reasoning if provided
             if video_report_input.vlm_reasoning is not None:
                 tool_input["vlm_reasoning"] = video_report_input.vlm_reasoning
+            if video_report_input.start_time is not None:
+                tool_input["start_time"] = video_report_input.start_time
+            if video_report_input.end_time is not None:
+                tool_input["end_time"] = video_report_input.end_time
 
             report_result = await video_report_tool.ainvoke(tool_input)
         except Exception as e:
@@ -688,13 +743,19 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             input_schema=ReportAgentInput,
             stream_output_schema=AgentMessageChunk,
         )
-    else:  # Video(uploaded) Report mode
+    else:  # Video(uploaded) / Stream Report mode
         yield FunctionInfo.create(
             stream_fn=_execute_report_video,
             description=(
-                "Generate video analysis reports for uploaded videos without requiring incident database. "
-                "Analyzes full videos directly from VST based on sensor_id (filename). "
-                "Supports parallel processing of multiple videos when using LVS (handled by video_report_gen tool). "
+                "Generate analysis reports for uploaded videos OR configured live streams without requiring "
+                "an incident database. "
+                "For uploaded videos (media_type='video', default): analyzes full videos directly from VST "
+                "based on sensor_id (filename); supports parallel processing of multiple videos via LVS. "
+                "For live streams (media_type='stream'): analyzes a configured stream over a "
+                "[start_time, end_time] window in seconds (use end_time=0 for 'until now'); requires a single "
+                "sensor_id (stream name). If the stream has no captions yet, the response will instruct the "
+                "user to confirm caption generation by saying 'start summarizing the stream <name>'. The "
+                "caller MUST surface that message verbatim and STOP — do NOT auto-call lvs_config_media. "
                 "Returns AgentOutput with messages, side_effects (reports, URLs), and metadata."
             ),
             input_schema=VideoReportAgentInput,
