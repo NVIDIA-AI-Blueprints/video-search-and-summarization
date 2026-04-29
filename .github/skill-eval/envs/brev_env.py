@@ -245,6 +245,39 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
 
+        # Archive any session JSONLs left by prior trials on this warm-pool
+        # box. Without this, harbor's claude-code mapper merges every
+        # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
+        # into one trajectory.json — producing thousand-step trajectories
+        # that conflate this trial with every preceding one (observed:
+        # trial 25083019759/.../step-1__XZNnjCX showed 7549 steps spanning
+        # 50h of prior runs).
+        #
+        # We *move* (not delete) the JSONLs into `$HOME/.claude-archive/<ts>/`
+        # so they remain visitable via SSH for forensic debugging. Each
+        # trial's own snapshot is preserved per-trial under
+        # `/tmp/skill-eval/results/<run>/<date>/<trial>/agent/sessions/`
+        # already (harbor's per-trial copy-back), so this archive is just
+        # box-side history.
+        #
+        # Why archive only, not also per-trial cwd: harbor's claude-code
+        # agent (vendor cache) invokes `claude --print` with no cwd
+        # override, so all trials share `cwd=/home/shadeform` and the
+        # project key is `-home-shadeform`. Forcing a per-trial cwd would
+        # require forking harbor — out of scope. Empty-on-start is
+        # sufficient for the harbor mapper's "exactly one session dir"
+        # heuristic to produce a clean per-trial trajectory.
+        archive_cmd = (
+            "ts=$(date +%Y%m%d-%H%M%S); "
+            "PROJ=/logs/agent/sessions/projects; "
+            'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '
+            '  ARCHIVE=$HOME/.claude-archive/$ts; '
+            '  mkdir -p "$ARCHIVE" && mv "$PROJ"/* "$ARCHIVE/" 2>/dev/null || true; '
+            '  echo "[trajectory-isolation] archived prior project dirs to $ARCHIVE"; '
+            "fi"
+        )
+        await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
+
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
         # brev exec then sources).  Harbor's claude-code agent only
