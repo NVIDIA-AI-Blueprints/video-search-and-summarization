@@ -7,6 +7,117 @@ license: "Apache License 2.0"
 
 You are a VIOS API assistant. Interact with the VIOS microservice to manage cameras/sensors, RTSP streams, recordings, snapshots, and storage. Use when asked to: add a camera, add an RTSP stream, list sensors, show configured sensors/cameras/streams, check stream status, get a snapshot, download a clip, upload a video file, or manage video storage. Always query the VIOS API directly using curl — do not navigate the UI.
 
+## Deployment prerequisite
+
+This skill requires any VSS profile that brings up VIOS / VST — **base** (recommended), or any of `lvs` / `search` / `alerts`. Before any request:
+
+1. Probe VIOS:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" >/dev/null
+   ```
+
+2. **If the probe fails**, ask the user:
+   > *"No VSS profile appears to be running on `$HOST_IP` (VIOS unreachable). Shall I deploy `base` using the `/deploy` skill? If you'd like a different profile, say which."*
+
+   - If yes → hand off to `/deploy -p base` (or the profile the user names). Return here once it succeeds.
+   - If no → stop. VIOS operations require the VST backend to be up.
+
+   (If your caller has granted explicit pre-authorization to deploy
+   autonomously — e.g. the request says "pre-authorized to deploy
+   prerequisites", or you are running in a non-interactive evaluation
+   harness with that permission — skip the confirmation and invoke
+   `/deploy -p base` directly. Prefer `base` unless the request names
+   another profile.)
+
+3. If the probe passes, proceed.
+
+---
+
+## Known limitation — leftover containers from prior deploys
+
+The following VIOS API paths can return **HTTP 502 Bad Gateway** or
+stale results when the host has leftover containers from an earlier
+deploy:
+
+- `GET /vst/api/v1/sensor/list`
+- `GET /vst/api/v1/sensor/<sensorId>/streams`
+
+Root cause: the alerts compose profile (`bp_developer_alerts_2d_cv` /
+`bp_developer_alerts_2d_vlm`) brings up the `*-smc` set of VST
+microservices alongside the `*-dev` set, both with `network_mode: host`
+binding the same host ports (30000 for `sensor-ms`, 30888 for
+`vst-ingress`). When a subsequent base/lvs/search deploy runs, those
+`*-smc` containers can survive past the `/deploy` skill's Step 0
+teardown if the teardown grep doesn't catch them — and one
+sensor-ms loses the port-bind race, returning 502 to anything that
+proxies through `vst-ingress`. See
+[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151).
+
+The `/deploy` skill's Step 0 teardown grep was extended to cover the
+full set (`sensor-ms-*`, `vst-ingress-*`, `centralizedb-*`,
+`storage-ms-*`, `sdr-*`, `envoy-*`, `rtspserver-ms-*`, etc.), so
+fresh deploys via `/deploy` should not hit this. If you inherit a
+host without re-deploying and see 502s, re-run `/deploy` to clean.
+
+Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
+snapshot, `storage/file/*/url` clip extraction) are unaffected.
+
+---
+
+## Sample data bootstrap
+
+VIOS stores videos uploaded by the user. For requests that reference a
+**"sample"** video by friendly name (e.g. *"the sample warehouse
+video"*, *"sample-warehouse-ladder"*, *"warehouse_safety_0001"*) the
+expected file is one of the 8 mp4s shipped in NGC bundle
+`nvidia/vss-developer/dev-profile-sample-data:3.2.0`. Before any
+upload-style request, ensure the bundle is extracted locally:
+
+```bash
+SAMPLE_DIR="/tmp/vss-sample-data/dev-profile-sample-data"
+
+if [ ! -d "$SAMPLE_DIR" ]; then
+  mkdir -p /tmp/vss-sample-data
+  cd /tmp/vss-sample-data
+
+  # NGC CLI required (export NGC_CLI_API_KEY first if not already set).
+  ngc registry resource download-version \
+    nvidia/vss-developer/dev-profile-sample-data:3.2.0 \
+    --org nvidia --team vss-developer
+
+  # Bundle ships as a single tar.gz inside dev-profile-sample-data_v3.2.0/.
+  tar -xzf dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz
+fi
+
+ls "$SAMPLE_DIR"/  # verify expected mp4s present
+```
+
+Bundle contents (use these filenames verbatim when asked for *"the
+&lt;name&gt; video"*):
+
+| Friendly name in user query | Local filename |
+|---|---|
+| sample warehouse video | `warehouse_sample.mp4` |
+| sample-warehouse-ladder | `sample-warehouse-ladder.mp4` |
+| warehouse safety 1 / 2 | `warehouse_safety_0001.mp4` / `warehouse_safety_0002.mp4` |
+| sample-sim-traffic | `sample-sim-traffic.mp4` |
+| sample-sim-jaywalking | `sample-sim-jaywalking.mp4` |
+| sample-sim-box-conveyor | `sample-sim-box-conveyor.mp4` |
+| sample-drone-bridge | `sample-drone-bridge.mp4` |
+
+If the user names a video that isn't in this list (e.g. *"airport
+video"*, *"neon-pink monster truck"*), do **not** substitute a
+similar-sounding bundle file — list the available names back to the
+user and ask which one they meant. Don't invent paths or fabricate
+upload responses.
+
+`NGC_CLI_API_KEY` must be set in the environment for `ngc registry`
+calls to authenticate. The variable is provided by the deploy/eval
+harness; if it's missing, fail with the actionable error rather than
+trying to proceed.
+
+---
+
 ## Setup
 
 **Base URL:** `http://<VST_ENDPOINT>/vst/api/v1`
