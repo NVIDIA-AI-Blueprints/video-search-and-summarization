@@ -9,12 +9,19 @@
  * 
  * **Exported Components:**
  * - AlertsComponent: Main alerts management interface with comprehensive filtering and display
- * - AlertsSidebarControls: Simplified controls for external sidebar rendering
+ * - Controls: Sub-view tablist + create-rule action; placement is the parent app's choice
  * - Supporting components available through the main component's internal architecture
  *
  */
 
 export { AlertsComponent } from './AlertsComponent';
 export type { AlertsComponentProps } from './AlertsComponent';
-export { AlertsSidebarControls } from './components/AlertsSidebarControls';
-export type { AlertsSidebarControlHandlers } from './types';
+export { Controls } from './components/Controls';
+export { CreateAlertRulesView } from './components/CreateAlertRulesView';
+export type {
+  AlertsSidebarControlHandlers,
+  AlertsView,
+  AlertRulesType,
+  RealtimeAlertRule,
+  RealtimeAlertRuleDraft,
+} from './types';

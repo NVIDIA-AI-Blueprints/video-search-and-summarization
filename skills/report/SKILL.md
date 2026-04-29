@@ -1,11 +1,11 @@
 ---
-name: report-generation
-description: Produce video analysis reports by discovering the deployed VSS agent, querying POST /generate for a timestamped captioned summary of the clip, then formatting the agent reply as the standard Video Analysis Report markdown. 
+name: report
+description: Produce video analysis reports by discovering the deployed VSS agent, querying POST /generate for a timestamped captioned summary of the clip, then formatting the agent reply as the standard Video Analysis Report markdown.
 version: "3.2.0"
 license: "Apache License 2.0"
 ---
 
-# Report Generation
+# Report
 
 Build **timestamped video analysis reports** by **querying the VSS agent** for a description of the video using `POST …/generate`. The agent runs **`video_understanding`** (and related tools) internally. Take the agent’s **caption-style text with timestamps** and paste it into the **Video Analysis Report** template below.
 
@@ -20,7 +20,32 @@ Build **timestamped video analysis reports** by **querying the VSS agent** for a
 
 ---
 
-## OpenClaw workflow
+## Deployment prerequisite
+
+This skill requires the VSS **base** profile running on the host at `$HOST_IP`. Before any request:
+
+1. Probe the VSS agent:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null
+   ```
+
+2. **If the probe fails**, ask the user:
+   > *"The VSS `base` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/deploy` skill with `-p base`?"*
+
+   - If yes → hand off to the `/deploy` skill. Return here once it succeeds.
+   - If no → stop. Do not run this skill against a missing stack.
+
+   (If your caller has granted explicit pre-authorization to deploy
+   autonomously — e.g. the request says "pre-authorized to deploy
+   prerequisites", or you are running in a non-interactive evaluation
+   harness with that permission — skip the confirmation and invoke
+   `/deploy` directly.)
+
+3. If the probe passes, proceed.
+
+---
+
+## Agent workflow
 
 Run these steps **in order**:
 
