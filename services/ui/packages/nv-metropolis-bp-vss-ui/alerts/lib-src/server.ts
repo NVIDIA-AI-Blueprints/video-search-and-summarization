@@ -25,6 +25,7 @@ const DEFAULT_ALERT_REPORT_PROMPT_TEMPLATE = "Generate a report for incident {in
 // Environment variables
 const MDX_WEB_API_URL = env('NEXT_PUBLIC_MDX_WEB_API_URL') || process?.env?.NEXT_PUBLIC_MDX_WEB_API_URL;
 const VST_API_URL = env('NEXT_PUBLIC_VST_API_URL') || process?.env?.NEXT_PUBLIC_VST_API_URL;
+const ALERTS_API_URL = env('NEXT_PUBLIC_ALERTS_API_URL') || process?.env?.NEXT_PUBLIC_ALERTS_API_URL;
 const ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES = env('NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES;
 const ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS = env('NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS;
 const ALERTS_TAB_VERIFIED_FLAG_DEFAULT = env('NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT') || process?.env?.NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT;
@@ -43,6 +44,8 @@ export async function fetchAlertsData() {
     // Include API URLs from environment variables
     apiUrl: MDX_WEB_API_URL || null,
     vstApiUrl: VST_API_URL || null,
+    // vss-alert-bridge base URL (used for alert-rule CRUD).
+    alertsApiUrl: ALERTS_API_URL || null,
     // Include default time window from environment variables (default to 10 minutes)
     defaultTimeWindow: parseInt(ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES || '10', 10),
     // Include default auto-refresh interval from environment variables (default to 1000 milliseconds)

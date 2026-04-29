@@ -3,11 +3,6 @@ import React from 'react';
 import { Button } from '@nvidia/foundations-react-core';
 import type { UploadProgress } from '../types';
 
-// Format bytes to MB string - defined outside component to avoid recreation
-const formatBytes = (bytes: number): string => {
-  return (bytes / 1024 / 1024).toFixed(2);
-};
-
 interface UploadProgressPanelProps {
   uploads: UploadProgress[];
   onClose: () => void;
@@ -32,11 +27,18 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
   const hasActiveUploads = inProgressCount > 0 || pendingCount > 0 || processingCount > 0;
 
   return (
-    <div className="fixed bottom-4 right-4 w-96 rounded-lg shadow-lg border z-50 bg-white dark:bg-black border-gray-200 dark:border-gray-600">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-600">
-        <div className="flex items-center gap-2">
-          {!allDone ? (
+    <div
+      data-testid="upload-progress-panel"
+      className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Upload progress"
+    >
+      <div className="flex w-full max-h-[85vh] max-w-xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-black z-50">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-600">
+          <div className="flex items-center gap-2">
+            {!allDone ? (
             <svg
               className="animate-spin w-4 h-4 text-green-500"
               viewBox="0 0 24 24"
@@ -62,7 +64,7 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
           )}
-          <span className="font-medium text-sm text-gray-800 dark:text-gray-200">
+          <span data-testid="upload-progress-panel-title" className="font-medium text-sm text-gray-800 dark:text-gray-200">
             {allDone
               ? completedCount === uploads.length
                 ? `Upload Complete (${completedCount}/${uploads.length})`
@@ -97,7 +99,7 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
 
       {/* Summary */}
       {allDone && (completedCount > 0 || errorCount > 0 || cancelledCount > 0) && (
-        <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+        <div data-testid="upload-progress-panel-summary" className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
           {completedCount > 0 && (
             <span className="text-green-500 mr-3">{completedCount} succeeded</span>
           )}
@@ -196,6 +198,7 @@ export const UploadProgressPanel: React.FC<UploadProgressPanelProps> = ({
               )}
             </div>
         ))}
+      </div>
       </div>
     </div>
   );

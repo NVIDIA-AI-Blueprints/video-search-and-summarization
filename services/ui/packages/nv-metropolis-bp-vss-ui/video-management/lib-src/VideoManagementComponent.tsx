@@ -527,8 +527,12 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         hasRtspStreams={hasRtspStreams}
       />
 
-      {/* Upload dialog */}
-      <AgentUploadDialog
+      {/* Main pane: scrollable grid + upload/progress overlays confined to this tab (not full viewport) */}
+      <div className="flex flex-1 min-h-0 flex-col relative">
+        <div className="flex flex-1 min-h-0 flex-col overflow-auto">{renderMainContent()}</div>
+
+        <AgentUploadDialog
+          overlay="contained"
           open={showUploadDialog}
           files={selectedFiles}
           configTemplate={configTemplate}
@@ -548,10 +552,13 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           }}
           onConfirmUpload={() => {
             if (selectedFiles.length === 0) return;
-            
-            const entries = selectedFiles.map((f) => ({ id: f.id, file: f.file, formData: f.formData }));
-            
-            // If already uploading, add to queue
+
+            const entries = selectedFiles.map((f) => ({
+              id: f.id,
+              file: f.file,
+              formData: f.formData,
+            }));
+
             if (isUploadingRef.current) {
               pendingFilesQueueRef.current.push(...entries);
               const queuedProgress: UploadProgress[] = entries.map((entry) => ({
@@ -562,7 +569,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
               }));
               setUploadProgress((prev) => [...prev, ...queuedProgress]);
             } else {
-              // Start new upload session
               const initialProgress: UploadProgress[] = entries.map((entry) => ({
                 id: entry.id,
                 fileName: entry.file.name,
@@ -572,7 +578,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
               setUploadProgress(initialProgress);
               processUploadQueue(entries);
             }
-            
+
             setShowUploadDialog(false);
             setSelectedFiles([]);
           }}
@@ -590,10 +596,13 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
             )
           }
         />
-      
 
-      {/* Main content area */}
-      {renderMainContent()}
+        <UploadProgressPanel
+          uploads={uploadProgress}
+          onClose={handleClearUploadProgress}
+          onCancel={handleCancelUploads}
+        />
+      </div>
 
       {/* Add RTSP Dialog */}
       <AddRtspDialog
@@ -601,13 +610,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         agentApiUrl={agentApiUrl}
         onClose={handleRtspDialogClose}
         onSuccess={handleRtspSuccess}
-      />
-
-      {/* Upload Progress Panel */}
-      <UploadProgressPanel
-        uploads={uploadProgress}
-        onClose={handleClearUploadProgress}
-        onCancel={handleCancelUploads}
       />
 
       {/* Video Playback Modal */}
