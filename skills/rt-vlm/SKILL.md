@@ -144,7 +144,7 @@ Optional: `username`, `password`, `sensor_name`, and placement metadata
 STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
   -d '{"streams":[{"liveStreamUrl":"rtsp://cam:8554/live","description":"warehouse cam 1"}]}' \
-  | jq -r '.streams[0].id')
+  | jq -r '.results[0].id')
 ```
 
 #### `GET /v1/streams/get-stream-info` — List active streams
@@ -209,7 +209,7 @@ curl -X DELETE "$BASE_URL/v1/files/$FILE_ID" -H "Authorization: Bearer $API_KEY"
 STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
   -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
-  | jq -r '.streams[0].id')
+  | jq -r '.results[0].id')
 
 # Start continuous caption generation (runs until stream stops or DELETE)
 curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
@@ -257,7 +257,7 @@ Pair it with `system_prompt` that constrains the model to answer Yes/No.
 STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
   -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
-  | jq -r '.streams[0].id')
+  | jq -r '.results[0].id')
 
 curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
