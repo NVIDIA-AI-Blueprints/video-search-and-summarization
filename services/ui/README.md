@@ -178,3 +178,5 @@ To create a timestamped tarball of 3rd-party dependency **source for production 
 ```
 
 The script copies the repo to a temporary directory, runs `npm ci --omit=dev`, then archives the resulting `node_modules` from root and all workspaces. Output is `third-party-deps-sources-YYYYMMDD-HHMMSS.tar.gz` in the project root (for license/source compliance).
+
+<!-- ci-trigger: no-op edit to exercise the VSS_CHANGED_UI bucket (services/ui/**) in metromind/ci-vss-oss vss-diff-probe. Safe to delete. -->
