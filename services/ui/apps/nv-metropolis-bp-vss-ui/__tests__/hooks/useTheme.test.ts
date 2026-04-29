@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useTheme } from '../../hooks/useTheme';
 import { setMockEnv, clearMockEnv } from 'next-runtime-env';
 
@@ -19,7 +19,7 @@ beforeEach(() => {
   clearMockEnv();
   sessionStorageMock.clear();
   jest.clearAllMocks();
-  document.documentElement.classList.remove('dark');
+  document.documentElement.classList.remove('dark', 'nv-dark');
 });
 
 describe('useTheme', () => {
@@ -77,7 +77,7 @@ describe('useTheme', () => {
   });
 
   it('restores saved theme from sessionStorage', () => {
-    sessionStorageMock.getItem.mockReturnValue('light');
+    sessionStorageMock.setItem('lightMode', 'light');
     const { result } = renderHook(() => useTheme());
     expect(result.current.theme).toBe('light');
   });
@@ -90,5 +90,18 @@ describe('useTheme', () => {
     });
 
     expect(sessionStorageMock.setItem).toHaveBeenCalledWith('lightMode', 'light');
+  });
+
+  it('applies Kaizen nv-dark on document with dark theme after hydration', async () => {
+    const { result } = renderHook(() => useTheme());
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains('nv-dark')).toBe(true);
+    });
+    act(() => {
+      result.current.setTheme('light');
+    });
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains('nv-dark')).toBe(false);
+    });
   });
 });
