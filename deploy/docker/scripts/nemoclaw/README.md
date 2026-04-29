@@ -22,7 +22,7 @@ The following repo content is expected to exist:
 
 - `skills/`
 - `assets/vss_nemoclaw_policy.yaml`
-- `deployments/scripts/nemoclaw/update_openclaw_config.py`
+- `deploy/docker/scripts/nemoclaw/update_openclaw_config.py`
 
 The following host tools or resources are also expected:
 
@@ -36,19 +36,19 @@ The following host tools or resources are also expected:
 Run from the repo checkout on the Brev instance:
 
 ```bash
-bash deployments/scripts/nemoclaw/init_nemoclaw.sh
+bash deploy/docker/scripts/nemoclaw/init_nemoclaw.sh
 ```
 
 You can also pass the sandbox name positionally:
 
 ```bash
-bash deployments/scripts/nemoclaw/init_nemoclaw.sh demo
+bash deploy/docker/scripts/nemoclaw/init_nemoclaw.sh demo
 ```
 
 Or use explicit flags:
 
 ```bash
-bash deployments/scripts/nemoclaw/init_nemoclaw.sh \
+bash deploy/docker/scripts/nemoclaw/init_nemoclaw.sh \
   --sandbox-name demo \
   --model nvidia/nemotron-3-super-120b-a12b \
   --nvidia-api-key "$NVIDIA_API_KEY"
@@ -57,7 +57,7 @@ bash deployments/scripts/nemoclaw/init_nemoclaw.sh \
 To start it in the background on a Brev instance:
 
 ```bash
-nohup bash /home/ubuntu/video-search-and-summarization/deployments/scripts/nemoclaw/init_nemoclaw.sh \
+nohup bash /home/ubuntu/video-search-and-summarization/deploy/docker/scripts/nemoclaw/init_nemoclaw.sh \
   > /tmp/nemoclaw_install.log 2>&1 &
 ```
 
@@ -69,7 +69,7 @@ nohup bash /home/ubuntu/video-search-and-summarization/deployments/scripts/nemoc
 | `--model NAME` | NemoClaw inference model | `nvidia/nemotron-3-super-120b-a12b` |
 | `--nvidia-base-url URL` | NVIDIA API base URL for the remote provider | `https://integrate.api.nvidia.com/v1` |
 | `--nvidia-api-key KEY` | API key for remote provider | `NVIDIA_API_KEY` env fallback |
-| `--openclaw-config-script PATH` | Path to `update_openclaw_config.py` | `deployments/scripts/nemoclaw/update_openclaw_config.py` |
+| `--openclaw-config-script PATH` | Path to `update_openclaw_config.py` | `deploy/docker/scripts/nemoclaw/update_openclaw_config.py` |
 | `--policy-file PATH` | Custom sandbox policy file | `assets/vss_nemoclaw_policy.yaml` |
 | `--help` | Show usage help | n/a |
 
@@ -98,7 +98,7 @@ Successful runs usually include log lines like:
 [init_nvidia_remote] Finished installing/onboarding NemoClaw
 [init_nvidia_remote] Applying custom policy file /home/ubuntu/video-search-and-summarization/assets/vss_nemoclaw_policy.yaml to sandbox demo
 [init_nvidia_remote] VSS skills installed
-[init_nvidia_remote] Updating OpenClaw config for sandbox demo using script /home/ubuntu/video-search-and-summarization/deployments/scripts/nemoclaw/update_openclaw_config.py
+[init_nvidia_remote] Updating OpenClaw config for sandbox demo using script /home/ubuntu/video-search-and-summarization/deploy/docker/scripts/nemoclaw/update_openclaw_config.py
 OpenClaw UI at https://openclaw0-<brev-id>.brevlab.com/#token=<token>
 ```
 
@@ -116,4 +116,4 @@ If the config update succeeds, the helper also prints:
 - If the custom policy is skipped, confirm `assets/vss_nemoclaw_policy.yaml` exists or pass `--policy-file`.
 - If the skills upload is skipped, verify the repo checkout includes `skills/`.
 - If the skills upload cannot determine a gateway container, set `VSS_CONTAINER_NAME` explicitly.
-- If the OpenClaw origin update fails, run `python3 deployments/scripts/nemoclaw/update_openclaw_config.py demo` directly to inspect the underlying error.
+- If the OpenClaw origin update fails, run `python3 deploy/docker/scripts/nemoclaw/update_openclaw_config.py demo` directly to inspect the underlying error.

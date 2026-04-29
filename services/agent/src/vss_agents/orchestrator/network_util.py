@@ -33,16 +33,14 @@ class BrevEnvKey(StrEnum):
     PROXY_PORT = "PROXY_PORT"
     PROXY_MODE = "PROXY_MODE"
     BREV_LINK_PREFIX = "BREV_LINK_PREFIX"
-    BREV_WS_AGENT_URL = "BREV_WS_AGENT_URL"
-    BREV_API_URL = "BREV_API_URL"
-    BREV_VST_API_URL = "BREV_VST_API_URL"
-    BREV_MDX_URL = "BREV_MDX_URL"
-    BREV_KIBANA_URL = "BREV_KIBANA_URL"
     KIBANA_PUBLIC_URL = "KIBANA_PUBLIC_URL"
-    BREV_MAP_URL = "BREV_MAP_URL"
     VST_EXTERNAL_URL = "VST_EXTERNAL_URL"
     VSS_AGENT_EXTERNAL_URL = "VSS_AGENT_EXTERNAL_URL"
     VSS_AGENT_REPORTS_BASE_URL = "VSS_AGENT_REPORTS_BASE_URL"
+    VSS_PUBLIC_HTTP_PROTOCOL = "VSS_PUBLIC_HTTP_PROTOCOL"
+    VSS_PUBLIC_WS_PROTOCOL = "VSS_PUBLIC_WS_PROTOCOL"
+    VSS_PUBLIC_HOST = "VSS_PUBLIC_HOST"
+    VSS_PUBLIC_PORT = "VSS_PUBLIC_PORT"
 
 
 def run_text_command(command: list[str], *, timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_S) -> str:
@@ -102,22 +100,20 @@ def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
         or f"{proxy_port}0"
     )
     brev_base = f"{brev_env_id}.brevlab.com"
+    proxy_host = f"{link_prefix}-{brev_base}"
     proxy_https = f"https://{link_prefix}-{brev_base}"
-    proxy_wss = f"wss://{link_prefix}-{brev_base}"
     merged.update(
         {
             BrevEnvKey.BREV_ENV_ID.value: brev_env_id,
             BrevEnvKey.PROXY_PORT.value: proxy_port,
             BrevEnvKey.PROXY_MODE.value: PROXY_MODE_VALUE,
-            BrevEnvKey.BREV_WS_AGENT_URL.value: f"{proxy_wss}/websocket",
-            BrevEnvKey.BREV_API_URL.value: f"{proxy_https}/api/v1",
-            BrevEnvKey.BREV_VST_API_URL.value: f"{proxy_https}/vst/api",
-            BrevEnvKey.BREV_MDX_URL.value: proxy_https,
-            BrevEnvKey.BREV_KIBANA_URL.value: f"https://{KIBANA_PROXY_PORT_PREFIX}-{brev_base}",
             BrevEnvKey.KIBANA_PUBLIC_URL.value: f"https://{KIBANA_PROXY_PORT_PREFIX}-{brev_base}",
-            BrevEnvKey.BREV_MAP_URL.value: proxy_https,
             BrevEnvKey.VST_EXTERNAL_URL.value: proxy_https,
             BrevEnvKey.VSS_AGENT_EXTERNAL_URL.value: proxy_https,
             BrevEnvKey.VSS_AGENT_REPORTS_BASE_URL.value: f"{proxy_https}/static/",
+            BrevEnvKey.VSS_PUBLIC_HTTP_PROTOCOL.value: "https",
+            BrevEnvKey.VSS_PUBLIC_WS_PROTOCOL.value: "wss",
+            BrevEnvKey.VSS_PUBLIC_HOST.value: proxy_host,
+            BrevEnvKey.VSS_PUBLIC_PORT.value: "443",
         }
     )

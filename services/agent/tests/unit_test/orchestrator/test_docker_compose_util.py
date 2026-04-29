@@ -55,12 +55,20 @@ def _make_recipe(
         source_env_file=source_env_file,
         supported_hardware_profiles=frozenset({"igx", "thor"}),
         edge_hardware_profiles=frozenset({"igx"}),
-        edge_allowed_profiles=frozenset({dcu.PROFILE_SEARCH}),
+        edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS, dcu.PROFILE_SEARCH}),
         edge_device_ids={"llm": "0", "vlm": "1"},
-        thor_base_profiles=frozenset({"thor"}),
+        thor_profiles=frozenset({"thor"}),
+        alerts_mode_to_env_modes={"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM},
         supported_llm_models={"llm-a": "llm-a-slug"},
         supported_vlm_models={"vlm-a": "vlm-a-slug"},
-        thor_base_vlm_overrides={"VLM_NAME": "vlm-a"},
+        thor_vlm_overrides={
+            "VLM_NAME_SLUG": "none",
+            "VLM_NAME": "nim_nvidia_cosmos-reason2-8b_hf-1208",
+            "RTVI_VLM_MODEL_PATH": "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
+            "RTVI_VLM_MODEL_TO_USE": "cosmos-reason2",
+            "RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.35",
+        },
+        thor_base_vlm_overrides={"VLM_MODEL_TYPE": "rtvi"},
     )
 
 
@@ -117,6 +125,7 @@ class TestFirstNonPlaceholder:
                 "$HOST_IP",
                 "${HOST_IP}",
                 "http://${HOST_IP}:30888",
+                "/path/to/deploy/docker",
                 "/path/to/deployments",
                 "10.0.0.5",
             ]
@@ -126,6 +135,21 @@ class TestFirstNonPlaceholder:
 
     def test_first_non_placeholder_returns_empty_when_all_values_are_placeholders(self):
         assert dcu.first_non_placeholder(["", "   ", "<HOST_IP>", "${HOST_IP}"]) == ""
+
+
+class TestAlertsModeToEnvMode:
+    def test_alerts_mode_to_env_mode_maps_supported_modes(self):
+        alerts_mode_map = {"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM}
+        assert dcu.alerts_mode_to_env_mode("verification", alerts_mode_map) == dcu.MODE_2D_CV
+        assert dcu.alerts_mode_to_env_mode("real-time", alerts_mode_map) == dcu.MODE_2D_VLM
+
+    def test_alerts_mode_to_env_mode_rejects_unknown_mode(self):
+        with pytest.raises(dcu.ValidationError, match="Supported values"):
+            dcu.alerts_mode_to_env_mode("unsupported", {"verification": dcu.MODE_2D_CV})
+
+    def test_alerts_mode_to_env_mode_rejects_when_not_configured(self):
+        with pytest.raises(dcu.ValidationError, match="not configured"):
+            dcu.alerts_mode_to_env_mode("verification", {})
 
 
 class TestSanitizeResolvedCompose:
@@ -172,11 +196,12 @@ class TestBuildResolvedEnv:
                 "BP_PROFILE=search",
                 "PROXY_MODE=direct",
                 "HARDWARE_PROFILE=igx",
-                "LLM_MODE=local",
+                "LLM_MODE=local_shared",
                 "LLM_NAME=llm-a",
+                "VLM_MODE=local_shared",
                 "VLM_NAME=vlm-a",
                 "HOST_IP=<HOST_IP>",
-                "MDX_SAMPLE_APPS_DIR=/path/to/deployments",
+                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
                 "NGC_CLI_API_KEY=",  # pragma: allowlist secret
                 "NVIDIA_API_KEY=",  # pragma: allowlist secret
             ),
@@ -187,6 +212,7 @@ class TestBuildResolvedEnv:
         )
 
         brev_calls: list[tuple[str, str]] = []
+        monkeypatch.delenv("BREV_ENV_ID", raising=False)
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("HOST_IP override should win"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "44.55.66.77")
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {"BREV_ENV_ID": "brev-from-etc"})
@@ -198,7 +224,7 @@ class TestBuildResolvedEnv:
 
         resolved = dcu.build_resolved_env(recipe)
 
-        assert resolved["VLM_MODE"] == "local"
+        assert resolved["VLM_MODE"] == "local_shared"
         assert resolved["HOST_IP"] == "10.0.0.5"
         assert resolved["EXTERNALLY_ACCESSIBLE_IP"] == "44.55.66.77"
         assert resolved["EXTERNAL_IP"] == "44.55.66.77"
@@ -210,9 +236,8 @@ class TestBuildResolvedEnv:
         assert resolved["VLM_NAME_SLUG"] == "vlm-a-slug"
         assert resolved["LLM_DEVICE_ID"] == "0"
         assert resolved["VLM_DEVICE_ID"] == "1"
-        assert resolved["COMPOSE_PROFILES"] == (
-            "search_local,search_local_igx,search_local_direct,llm_local_llm-a-slug,vlm_local_vlm-a-slug"
-        )
+        assert "SHARED_LLM_VLM_DEVICE_ID" not in resolved
+        assert resolved["COMPOSE_PROFILES"] == "search_local,llm_local_shared_llm-a-slug,vlm_local_shared_vlm-a-slug"
         assert brev_calls == [("10.0.0.5", "brev-from-etc")]
 
     def test_build_resolved_env_preserves_nonempty_env_file_values(
@@ -254,3 +279,112 @@ class TestBuildResolvedEnv:
         assert resolved["MDX_DATA_DIR"] == "/override/data"
         assert resolved["NGC_CLI_API_KEY"] == "from-file"  # pragma: allowlist secret
         assert resolved["NVIDIA_API_KEY"] == "from-file"  # pragma: allowlist secret
+
+    def test_build_resolved_env_alerts_real_time_sets_edge_and_rtvi_overrides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=2d_cv",
+                "BP_PROFILE=bp_developer_alerts",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=igx",
+                "LLM_MODE=local_shared",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.9",
+                "VLM_PORT=30099",
+            ),
+            profile=dcu.PROFILE_ALERTS,
+            env_overrides={"MODE": dcu.MODE_2D_VLM},
+        )
+
+        monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
+        monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["MODE"] == dcu.MODE_2D_VLM
+        assert resolved["PERCEPTION_DOCKERFILE_PREFIX"] == "EDGE-"
+        assert resolved["VLM_AS_VERIFIER_CONFIG_FILE_PREFIX"] == "EDGE-LOCAL-VLM-"
+        assert resolved["RTVI_VLM_INPUT_WIDTH"] == dcu.EDGE_ALERTS_RTVI_INPUT_WIDTH
+        assert resolved["RTVI_VLM_INPUT_HEIGHT"] == dcu.EDGE_ALERTS_RTVI_INPUT_HEIGHT
+        assert resolved["RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK"] == dcu.EDGE_ALERTS_RTVI_FPS
+        assert resolved["RTVI_VLM_MODEL_PATH"] == dcu.MODEL_SLUG_NONE
+        assert resolved["RTVI_VLM_ENDPOINT"] == "http://10.0.0.9:30099/v1"
+        assert resolved["LLM_DEVICE_ID"] == "0"
+        assert resolved["VLM_DEVICE_ID"] == "1"
+
+    def test_build_resolved_env_alerts_thor_applies_shared_vlm_overrides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=2d_cv",
+                "BP_PROFILE=bp_developer_alerts",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=thor",
+                "LLM_MODE=local",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.8",
+            ),
+            profile=dcu.PROFILE_ALERTS,
+        )
+
+        monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
+        monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.8")
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME_SLUG"] == "none"
+        assert resolved["VLM_BASE_URL"] == f"http://10.0.0.8:{dcu.THOR_VLM_PORT}"
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason2"
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.35"
+
+
+class TestGenerateDryRunArtifacts:
+    def test_generate_dry_run_artifacts_persists_alerts_mode_in_generated_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=2d_cv",
+                "BP_PROFILE=bp_developer_alerts",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=igx",
+                "LLM_MODE=local_shared",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.9",
+                "VLM_PORT=30099",
+            ),
+            profile=dcu.PROFILE_ALERTS,
+            env_overrides={"MODE": dcu.MODE_2D_VLM},
+        )
+
+        monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
+        monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+        monkeypatch.setattr(dcu, "resolve_compose", lambda _config: "services: {}\n")
+
+        resolved_env, env_path, compose_path = dcu.generate_dry_run_artifacts(recipe)
+
+        assert resolved_env["MODE"] == dcu.MODE_2D_VLM
+        assert "bp_developer_alerts_2d_vlm" in resolved_env["COMPOSE_PROFILES"]
+        assert "MODE=2d_vlm" in env_path.read_text()
+        assert "COMPOSE_PROFILES=bp_developer_alerts_2d_vlm" in env_path.read_text()
+        assert compose_path.read_text() == "services: {}\n"
