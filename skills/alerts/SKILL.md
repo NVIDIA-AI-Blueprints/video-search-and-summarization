@@ -19,6 +19,35 @@ The alerts profile is deployed in **one** of two modes at a time. The mode is ch
 
 ---
 
+## Deployment prerequisite
+
+This skill requires the VSS **alerts** profile running on the host at `$HOST_IP`, in either `verification` or `real-time` mode. Before any request:
+
+1. Probe the stack:
+   ```bash
+   # Either perception-alerts (CV mode) OR rtvi-vlm (VLM mode) must be present.
+   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
+     && docker ps --format '{{.Names}}' \
+        | grep -qE '^(perception-alerts|rtvi-vlm)$'
+   ```
+
+2. **If the probe fails**, ask the user:
+   > *"The VSS `alerts` profile isn't running on `$HOST_IP`. Which mode should I deploy — `verification` (CV) or `real-time` (VLM)?"*
+
+   - Answer → hand off to the `/deploy` skill with `-p alerts -m <mode>`. Return here once it succeeds.
+   - If the user declines → stop. Do not run this skill against a missing stack.
+
+   (If your caller has granted explicit pre-authorization to deploy
+   autonomously — e.g. the request says "pre-authorized to deploy
+   prerequisites", or you are running in a non-interactive evaluation
+   harness with that permission — skip the confirmation and invoke
+   `/deploy` directly. Default the mode to `verification` unless the
+   request specifies otherwise.)
+
+3. If the probe passes, detect the mode per § Step 1 below.
+
+---
+
 ## The Two Modes (Deploy-Time Choice)
 
 | Mode | Deploy flag | Env (`.env`) | What runs | How alerts are created |
