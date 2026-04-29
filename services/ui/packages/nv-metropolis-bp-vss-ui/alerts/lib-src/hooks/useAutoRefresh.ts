@@ -76,19 +76,31 @@ export const useAutoRefresh = ({
   enabled = true,
   isActive = true
 }: UseAutoRefreshOptions): UseAutoRefreshReturn => {
-  // Load initial state from sessionStorage or use defaults
-  const [isEnabled, setIsEnabled] = useState<boolean>(() => 
-    loadFromStorage(STORAGE_KEY_ENABLED, enabled)
-  );
-  const [intervalValue, setIntervalValue] = useState<number>(() => 
-    loadFromStorage(STORAGE_KEY_INTERVAL, defaultInterval)
-  );
+  // Initialize with the SSR-safe defaults so server / client first render
+  // match. The persisted values are pulled from sessionStorage in a one-shot
+  // effect after mount (see below).
+  const [isEnabled, setIsEnabled] = useState<boolean>(enabled);
+  const [intervalValue, setIntervalValue] = useState<number>(defaultInterval);
+  // `hydrated` must be state (not a ref) so flipping it triggers a re-render
+  // *after* the hydration effect's setState calls have been applied. The save
+  // effects below then run with the actual stored values rather than the
+  // still-stale defaults — otherwise they'd write the defaults back to
+  // storage on mount and permanently clobber the user's settings if the
+  // component unmounted before the corrective re-render.
+  const [hydrated, setHydrated] = useState(false);
   const timeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onRefreshRef = useRef(onRefresh);
 
   useEffect(() => {
     onRefreshRef.current = onRefresh;
   }, [onRefresh]);
+
+  useEffect(() => {
+    setIsEnabled(loadFromStorage(STORAGE_KEY_ENABLED, enabled));
+    setIntervalValue(loadFromStorage(STORAGE_KEY_INTERVAL, defaultInterval));
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Uses setTimeout-based scheduling so the next refresh only fires after
   // the previous onRefresh call completes (success or failure).
@@ -132,14 +144,17 @@ export const useAutoRefresh = ({
     };
   }, [isEnabled, intervalValue, isActive]);
 
-  // Save to sessionStorage whenever values change
+  // Save to sessionStorage whenever values change — gated on `hydrated` so
+  // we don't overwrite the stored value with the SSR default on mount.
   useEffect(() => {
+    if (!hydrated) return;
     saveToStorage(STORAGE_KEY_ENABLED, isEnabled);
-  }, [isEnabled]);
+  }, [isEnabled, hydrated]);
 
   useEffect(() => {
+    if (!hydrated) return;
     saveToStorage(STORAGE_KEY_INTERVAL, intervalValue);
-  }, [intervalValue]);
+  }, [intervalValue, hydrated]);
 
   const toggleEnabled = () => {
     setIsEnabled(prev => !prev);

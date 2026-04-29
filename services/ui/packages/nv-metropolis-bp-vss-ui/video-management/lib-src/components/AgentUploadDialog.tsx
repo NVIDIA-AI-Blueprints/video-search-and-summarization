@@ -5,7 +5,9 @@ import { IconChevronDown, IconVideo, IconX } from '@tabler/icons-react';
 
 const ACCEPTED_EXTENSIONS = ['.mp4', '.mkv'];
 
-const POPUP_OVERLAY_CLASS = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+const POPUP_OVERLAY_VIEWPORT = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+/** Covers only the parent `relative` region (e.g. Video Management main pane), not the whole browser window */
+const POPUP_OVERLAY_CONTAINED = 'absolute inset-0 z-40 flex items-center justify-center bg-black/50';
 const POPUP_CONTAINER_CLASS = 'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-neutral-900';
 
 interface AgentUploadFileItem {
@@ -26,6 +28,8 @@ interface AgentUploadDialogProps {
   onToggleExpand: (fileId: string) => void;
   onRemoveFile: (fileId: string) => void;
   onFieldChange: (fileId: string, fieldName: string, value: any) => void;
+  /** `contained` = overlay only the nearest positioned ancestor (Video Management pane). Default `viewport` = full window. */
+  overlay?: 'viewport' | 'contained';
 }
 
 export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
@@ -39,6 +43,7 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
   onToggleExpand,
   onRemoveFile,
   onFieldChange,
+  overlay = 'viewport',
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -139,8 +144,11 @@ export const AgentUploadDialog: React.FC<AgentUploadDialogProps> = ({
     );
   };
 
+  const overlayClass =
+    overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
+
   return (
-    <div className={POPUP_OVERLAY_CLASS}>
+    <div className={overlayClass}>
       <div className={POPUP_CONTAINER_CLASS}>
         <h3 className="mb-6 text-center text-lg font-semibold text-gray-900 dark:text-white">
           Upload Files
