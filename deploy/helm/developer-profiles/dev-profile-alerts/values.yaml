@@ -298,7 +298,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.2-c4f5e8b" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9a93dc9b" }}'
     waitForDependencies:
       enabled: true
   vss-va-mcp:
@@ -318,22 +318,22 @@ vss-agent-ui:
   websocketChatUrl: ""
   alertsApiUrl: ""
   envOverrides:
-    - name: NEXT_PUBLIC_WORKFLOW
-      value: "VSS Agent"
     - name: NEXT_PUBLIC_ENABLE_CHAT_TAB
-      value: "true"
-    - name: NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
+      value: "VSS Agent"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
       value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR
-      value: "false"
+      value: "true"
     - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
       value: "true"
-    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE
       value: "false"
     - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE
       value: "false"
     - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE
-      value: "true"
+      value: "false"
     - name: NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON
       value: "false"
     - name: NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT

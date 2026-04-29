@@ -252,7 +252,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.2-c4f5e8b" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9a93dc9b" }}'
 vss-agent-ui:
   enabled: true
   # Empty URL fields: deployment uses global.external* then in-cluster defaults.
@@ -266,9 +266,9 @@ vss-agent-ui:
       value: 'Generate a report for incident {incidentId} with sensor id {sensorId}.'
     - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS
       value: "1000"
-    - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_TIME_WINDOW_IN_MINUTES
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES
       value: "10"
-    - name: NEXT_PUBLIC_ALERTS_TAB_MAX_RESULT_SIZE
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE
       value: "100"
     - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
       value: "0"
@@ -307,7 +307,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
       value: "false"
     - name: NEXT_PUBLIC_ENABLE_CHAT_TAB
-      value: "true"
+      value: "false"
     - name: NEXT_PUBLIC_ENABLE_DASHBOARD_TAB
       value: "false"
     - name: NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS
@@ -327,7 +327,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_RIGHT_MENU_OPEN
       value: "false"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
-      value: "{}"
+      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON
       value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED
@@ -349,15 +349,15 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
       value: "false"
     - name: NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR
-      value: "false"
+      value: "true"
     - name: NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT
       value: "false"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_SIDE_CHATBAR_COLLAPSED
       value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON
-      value: "false"
+      value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
-      value: "Vision Agent"
+      value: "VSS Agent"
     - name: NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX
       value: "true"
     - name: NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON

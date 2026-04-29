@@ -19,7 +19,7 @@ serviceAccount:
   create: false
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-  tag: "3.2.0-26.04.3"
+  tag: "3.2.0-26.04.4-2"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -79,9 +79,9 @@ env:
     value: "false"
   - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
     value: "true"
-  - name: NEXT_PUBLIC_ALERTS_TAB_MAX_RESULT_SIZE
+  - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE
     value: "100"
-  - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_TIME_WINDOW_IN_MINUTES
+  - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES
     value: "10"
   - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS
     value: "1000"

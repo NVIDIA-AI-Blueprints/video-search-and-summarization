@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/kibana/kibana
-  tag: "9.3.0"
+  tag: "9.3.3"
   pullPolicy: IfNotPresent
 
 replicas: 1

@@ -49,7 +49,8 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 | `rtvi.vss-rtvi-vlm.enabled` | `true` | Deploy the RTVI-VLM pod. |
 | `rtvi.vss-rtvi-vlm.useSharedNim` | `true` | Share the `nvidia-cosmos-reason2-8b` NIM instead of loading a second model copy. Sets `MODEL_PATH=none`, `VIA_VLM_ENDPOINT=http://<release>-nvidia-cosmos-reason2-8b:8000/v1`. |
 | `rtvi.vss-rtvi-vlm.vlmNameSlug` | `nvidia-cosmos-reason2-8b` | NIM service slug used when `useSharedNim: true`. Keep aligned with the NIM you enable under `nims`. |
-| `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `false` | Kafka isn't part of the LVS infra stack; the wait-for-kafka init container is disabled and `KAFKA_ENABLED=false` is set in `env`. Re-enable only if you also enable Kafka in `infra`. |
+| `infra.kafka.enabled` | `true` | Deploy Kafka for RTVI-VLM event publishing and create the default VSS topics, including `mdx-vlm` and `mdx-vlm-incidents`. |
+| `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `true` | The RTVI-VLM init container waits for Kafka and required RTVI topics before startup. |
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
 | `vss-summarization.extraEnv` | 3 RTVI vars | `USE_RTVI_VLM`, `RTVI_VLM_URL`, `RTVI_VLM_URL_PASSTHROUGH`. `RTVI_VLM_URL` is rendered with `tpl`, so it picks up `{{ .Release.Name }}` when `global.useReleaseNamePrefix` is true. |
 | `agent.vss-agent.rtviVlmEnabled` / `rtviVlmServiceName` | `true` / `vss-rtvi-vlm` | Parity flags; `RTVI_VLM_BASE_URL` in the `env` list reads `rtviVlmServiceName`. |
