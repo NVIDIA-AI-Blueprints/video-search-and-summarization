@@ -428,6 +428,23 @@ jobs:
   # ---------------------------------------------------------------------------
   # Job 12: Trigger downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
+  #
+  # The downstream pipeline (metromind/ci-vss-oss) computes change flags from
+  # `git diff <VSS_TARGET_BRANCH>...<VSS_COMPARE_BRANCH>` via its own
+  # vss-diff-probe job and fans out into sub-pipelines. We DO NOT pre-compute
+  # those flags here — this workflow's job is to hand off the SHAs/branches
+  # and let the downstream side decide what to run.
+  #
+  # Flags currently consumed downstream (kept here for discoverability):
+  #   VSS_CHANGED_AGENT       — services/vss_agent/** or related agent code
+  #   VSS_CHANGED_UI          — services/ui/**
+  #   VSS_CHANGED_DEPLOYMENTS — deployments/**
+  #   VSS_CHANGED_DEV         — dev/**
+  #   VSS_CHANGED_SKILLS      — skills/**
+  #
+  # Note: this workflow has no `on.push.paths` filter, so changes under
+  # `dev/` and `skills/` always reach the trigger job — required for the
+  # `dev` and `skills` sub-pipelines to fire.
   trigger-downstream-pipeline:
     name: Trigger Downstream Pipeline
     # Intentionally NOT depending on `test` (pytest) or `frontend-build`

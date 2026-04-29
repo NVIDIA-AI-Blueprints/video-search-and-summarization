@@ -1,0 +1,10 @@
+# Version coordinates for the next release publish from this commit.
+# Read by metromind/ci-vss-oss release sub-pipeline (release.yml) to
+# decide what tag to push the built containers under, e.g.
+#   nvcr.io/nv-metropolis-dev/met-moe-agents/vss-agent:release-3.2.0-ga
+#
+# Update this *before* clicking "Run pipeline" with BUILD_TYPE=release
+# on a release/* or main branch. Releases attempted from any other
+# branch are refused by the sub-pipeline.
+
+build_tag: 3.2.0-dev
