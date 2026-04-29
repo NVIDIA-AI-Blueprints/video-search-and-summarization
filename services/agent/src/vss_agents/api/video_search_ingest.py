@@ -64,7 +64,16 @@ def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None
         parsed = urllib.parse.urlparse(url)
     except Exception:  # pragma: no cover — urlparse is extremely permissive
         return None
-    return parsed if parsed.hostname else None
+    if not parsed.hostname:
+        return None
+    # `http://host:` (trailing colon with empty port body) reaches us with a
+    # valid hostname but no resolvable port — Python's urlparse leaves the
+    # netloc as `host:` so calls would silently fall back to the scheme's
+    # default port (80 / 443) and connect to nothing. Treat that as
+    # misconfigured so callers skip the downstream step.
+    if parsed.netloc.endswith(":"):
+        return None
+    return parsed
 
 
 class VideoIngestResponse(BaseModel):
@@ -506,13 +515,17 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
             logger.info("Using streaming_ingest config from YAML for search video ingest routes")
         else:
             # Fallback: streaming_ingest not found (NAT strips unknown fields)
-            # Use environment variables
+            # Use environment variables. Require BOTH host AND port to build a
+            # URL — empty `RTVI_EMBED_PORT` (e.g. base profile, where RTVI isn't
+            # deployed) means RTVI is not configured and the URL stays empty,
+            # so /complete will register but skip the embedding step at request
+            # time instead of hanging on `http://host:` with no resolvable port.
             vst_internal_url = os.getenv("VST_INTERNAL_URL")
             host_ip = os.getenv("HOST_IP")
-            rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "8017")
-            rtvi_cv_port = os.getenv("RTVI_CV_PORT", "9000")
-            rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip else None
-            rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip else ""
+            rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "")
+            rtvi_cv_port = os.getenv("RTVI_CV_PORT", "")
+            rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip and rtvi_embed_port else ""
+            rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
             rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
             rtvi_embed_chunk_duration = 5
             logger.info("streaming_ingest not in config, using environment variables")
@@ -525,13 +538,26 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
             raise ValueError("VST_INTERNAL_URL environment variable must be set")
 
         if not rtvi_embed_base_url:
-            logger.error("RTVI Embed URL not configured - HOST_IP and RTVI_EMBED_PORT environment variables required")
-            raise ValueError("HOST_IP and RTVI_EMBED_PORT environment variables must be set")
+            # When the YAML explicitly configures streaming_ingest, a missing
+            # rtvi_embed_base_url is a config bug — fail loud.
+            if streaming_config is not None:
+                logger.error("streaming_ingest configured but rtvi_embed_base_url is missing")
+                raise ValueError("rtvi_embed_base_url must be set when streaming_ingest is configured")
+            # Env-var fallback path with RTVI ports unset (e.g. base profile,
+            # where RTVI isn't deployed). Register the routes anyway so the UI
+            # gets 200 instead of 404; the /complete handler will skip the
+            # embedding step at request time when the URL is unset.
+            logger.warning(
+                "RTVI not configured (HOST_IP=%r RTVI_EMBED_PORT=%r); "
+                "/complete routes will register but skip embedding generation",
+                os.getenv("HOST_IP", ""),
+                os.getenv("RTVI_EMBED_PORT", ""),
+            )
 
         # Create and register router with config
         router = create_streaming_video_ingest_router(
             vst_internal_url=vst_internal_url,
-            rtvi_embed_base_url=rtvi_embed_base_url,
+            rtvi_embed_base_url=rtvi_embed_base_url or "",
             rtvi_cv_base_url=rtvi_cv_base_url or "",
             rtvi_embed_model=rtvi_embed_model,
             rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
