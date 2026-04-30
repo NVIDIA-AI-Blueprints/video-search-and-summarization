@@ -29,12 +29,9 @@ Key features:
 """
 
 from collections.abc import AsyncGenerator
-from enum import Enum
+from enum import StrEnum
 import json
 import logging
-import asyncio
-
-from vss_agents.utils.url_translation import translate_url
 
 import aiohttp
 from langchain_core.prompts import ChatPromptTemplate
@@ -51,10 +48,12 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from vss_agents.utils.url_translation import translate_url
+
 logger = logging.getLogger(__name__)
 
 
-class LVSStatus(str, Enum):
+class LVSStatus(StrEnum):
     """Status values for LVS video understanding operations."""
 
     ABORTED = "aborted"
@@ -219,7 +218,7 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
         default="",
         description="Public IP accessible from the internet for URL translation",
     )
-    
+
     # Enterprise RAG Configuration
     enterprise_rag_enabled: bool = Field(
         default=True,
@@ -267,7 +266,7 @@ async def lvs_video_understanding(
 
     # Persistent state: maps thread_id -> (scenario, events, objects_of_interest, rag_query)
     lvs_params_state: dict[str, tuple[str, list[str], list[str], str]] = {}
-    
+
     # Load Enterprise RAG tool if enabled.
     # IMPORTANT: config.yml for this profile already registers `enterprise_rag`,
     # but we still guard failures so LVS doesn't crash agent startup.
@@ -392,7 +391,7 @@ async def lvs_video_understanding(
         """
         logger.info("Starting HITL parameter collection workflow")
 
-        current_rag_query = ""
+        _current_rag_query = ""
 
         # Cancel info to append to each prompt
         cancel_info = "\n\n**Note:** Type `/cancel` at any time to abort the video analysis."
@@ -401,12 +400,14 @@ async def lvs_video_understanding(
         if current_params:
             # Handle backward compatibility if state tuple size differs
             if len(current_params) == 4:
-                current_scenario, current_events, current_objects, current_rag_query = current_params
+                current_scenario, current_events, current_objects, _current_rag_query = current_params
             else:
                 current_scenario, current_events, current_objects = current_params[:3]
-                
+
             scenario_prompt = f"**CURRENTLY SET:** `{current_scenario}`\n\n{config.hitl_scenario_template}{cancel_info}"
-            events_prompt = f"**CURRENTLY SET:** `{', '.join(current_events)}`\n\n{config.hitl_events_template}{cancel_info}"
+            events_prompt = (
+                f"**CURRENTLY SET:** `{', '.join(current_events)}`\n\n{config.hitl_events_template}{cancel_info}"
+            )
             if current_objects:
                 objects_prompt = (
                     f"**CURRENTLY SET:** `{', '.join(current_objects)}`\n\n{config.hitl_objects_template}{cancel_info}"
@@ -525,13 +526,11 @@ async def lvs_video_understanding(
                 "**Enterprise RAG Query (OPTIONAL):**\n"
                 "Enter a search query to retrieve relevant enterprise knowledge, or leave empty to skip."
             )
-            
+
             user_input = await _prompt_user_input(
-                rag_prompt_text, 
-                required=False, 
-                placeholder="e.g., What are the principles of STCC?"
+                rag_prompt_text, required=False, placeholder="e.g., What are the principles of STCC?"
             )
-            
+
             rag_query = user_input.strip()
             if rag_query:
                 logger.info(f"Enterprise RAG query: {rag_query}")
@@ -625,7 +624,7 @@ async def lvs_video_understanding(
         # Update state for this thread
         lvs_params_state[thread_id] = (scenario, events, objects_of_interest, rag_query)
         logger.info(f"Updated parameters state for thread {thread_id}")
-        
+
         # Enterprise RAG Integration
         enterprise_rag_result = {"status": "disabled", "query": "", "context": "", "error": ""}
         enterprise_rag_query = ""
@@ -674,8 +673,11 @@ async def lvs_video_understanding(
         # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
         # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
         video_url = translate_url(
-            video_url, config.vlm_mode, config.internal_ip,
-            config.external_ip, config.vst_internal_url,
+            video_url,
+            config.vlm_mode,
+            config.internal_ip,
+            config.external_ip,
+            config.vst_internal_url,
         )
         logger.info(f"[LVS Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
 
@@ -736,26 +738,30 @@ async def lvs_video_understanding(
                     enterprise_context = enterprise_rag_result.get("context", "")
                     try:
                         llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-                        enrichment_prompt = ChatPromptTemplate.from_messages([
-                            (
-                                "system",
-                                "You are enriching a video summary with additional enterprise knowledge. "
-                                "Preserve the exact format, all timestamps, and all 'Watch clip' references. "
-                                "Do not reorder or remove existing content, simply seek to enrich it "
-                                "wherever it makes sense with what was retrieved from the enterprise knowledge base.",
-                            ),
-                            (
-                                "user",
-                                "Video Summary:\n{video_summary}\n\n"
-                                "Enterprise Knowledge:\n{enterprise_context}\n\n"
-                                "Return the enriched video summary.",
-                            ),
-                        ])
+                        enrichment_prompt = ChatPromptTemplate.from_messages(
+                            [
+                                (
+                                    "system",
+                                    "You are enriching a video summary with additional enterprise knowledge. "
+                                    "Preserve the exact format, all timestamps, and all 'Watch clip' references. "
+                                    "Do not reorder or remove existing content, simply seek to enrich it "
+                                    "wherever it makes sense with what was retrieved from the enterprise knowledge base.",
+                                ),
+                                (
+                                    "user",
+                                    "Video Summary:\n{video_summary}\n\n"
+                                    "Enterprise Knowledge:\n{enterprise_context}\n\n"
+                                    "Return the enriched video summary.",
+                                ),
+                            ]
+                        )
                         chain = enrichment_prompt | llm
-                        resp = await chain.ainvoke({
-                            "video_summary": video_summary,
-                            "enterprise_context": enterprise_context,
-                        })
+                        resp = await chain.ainvoke(
+                            {
+                                "video_summary": video_summary,
+                                "enterprise_context": enterprise_context,
+                            }
+                        )
                         enriched = resp.content.strip()
                         if enriched:
                             video_summary = enriched
@@ -783,7 +789,7 @@ async def lvs_video_understanding(
                     result["note"] = (
                         "The video may not contain the types of events specified in the search criteria, or the content may not be clear enough for detection."
                     )
-                
+
                 # We return JSON string as the original contract requires string return
                 formatted_response = json.dumps(result, indent=2, ensure_ascii=False)
                 logger.info(f"LVS response received with {len(events)} events")

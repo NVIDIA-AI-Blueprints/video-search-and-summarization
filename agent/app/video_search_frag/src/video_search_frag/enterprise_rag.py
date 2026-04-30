@@ -114,15 +114,11 @@ class EnterpriseRAGConfig(FunctionBaseConfig, name="enterprise_rag"):
 
     # Embedding model + endpoint.
     embedding_model: str = Field(
-        default_factory=lambda: os.getenv(
-            "ENTERPRISE_RAG_EMBEDDING_MODEL", "nvidia/llama-3.2-nv-embedqa-1b-v2"
-        ),
+        default_factory=lambda: os.getenv("ENTERPRISE_RAG_EMBEDDING_MODEL", "nvidia/llama-3.2-nv-embedqa-1b-v2"),
         description="Embedding model name to use for query embedding.",
     )
     embedding_base_url: str = Field(
-        default_factory=lambda: os.getenv(
-            "ENTERPRISE_RAG_EMBEDDING_BASE_URL", "https://integrate.api.nvidia.com/v1"
-        ),
+        default_factory=lambda: os.getenv("ENTERPRISE_RAG_EMBEDDING_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         description="Embedding service base URL (commonly the NVIDIA Integrate API base URL).",
     )
     embedding_endpoint: str | None = Field(
@@ -310,9 +306,7 @@ async def enterprise_rag(config: EnterpriseRAGConfig, _builder: Builder) -> Asyn
         vdb_top_k = input_data.vdb_top_k or config.default_vdb_top_k
         reranker_top_k = input_data.reranker_top_k or config.default_reranker_top_k
 
-        enable_reranker = bool(
-            config.enable_reranker and config.reranker_model and config.reranker_endpoint
-        )
+        enable_reranker = bool(config.enable_reranker and config.reranker_model and config.reranker_endpoint)
 
         search_kwargs: dict[str, Any] = {
             "query": query,
@@ -388,4 +382,3 @@ async def enterprise_rag(config: EnterpriseRAGConfig, _builder: Builder) -> Asyn
         input_schema=EnterpriseRAGInput,
         single_output_schema=EnterpriseRAGOutput,
     )
-

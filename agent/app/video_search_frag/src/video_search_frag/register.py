@@ -20,6 +20,6 @@ Importing this module triggers @register_function decorators in the tool modules
 making them discoverable by NAT via the entry-point defined in pyproject.toml.
 """
 
-import video_search_frag.enterprise_rag  # noqa: F401
-import video_search_frag.lvs_video_understanding_frag  # noqa: F401
+import video_search_frag.enterprise_rag
+import video_search_frag.lvs_video_understanding_frag
 import video_search_frag.video_report_gen_frag  # noqa: F401
