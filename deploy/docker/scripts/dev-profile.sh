@@ -1193,6 +1193,63 @@ function state_up() {
 
   echo "[INFO] Generated environment file: ${_generated_env}"
 
+  # ----- Optional knowledge retrieval fragment ---------------------------------
+  # If config_rag.yml exists alongside the profile's config.yml, deep-merge it
+  # in and point VSS_AGENT_CONFIG_FILE at the merged result. With the fragment
+  # absent, this is a no-op and the profile loads exactly as today.
+  local _agent_configs_dir _base_cfg _rag_cfg _merged_cfg
+  _agent_configs_dir="${_profile_dir}/vss-agent/configs"
+  _base_cfg="${_agent_configs_dir}/config.yml"
+  _rag_cfg="${_agent_configs_dir}/config_rag.yml"
+  _merged_cfg="${_agent_configs_dir}/config.merged.yml"
+  if [[ -f "${_rag_cfg}" && -f "${_base_cfg}" ]]; then
+    echo "[INFO] Knowledge retrieval fragment detected: ${_rag_cfg}"
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "[WARN] python3 not found; skipping config_rag.yml merge. Knowledge layer will not be wired."
+    else
+      python3 - "${_base_cfg}" "${_rag_cfg}" "${_merged_cfg}" <<'PY'
+import sys
+import yaml
+
+base_path, frag_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(base_path) as f:
+    base = yaml.safe_load(f) or {}
+with open(frag_path) as f:
+    frag = yaml.safe_load(f) or {}
+
+def merge(a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = dict(a)
+        for k, v in b.items():
+            out[k] = merge(a[k], v) if k in a else v
+        return out
+    if isinstance(a, list) and isinstance(b, list):
+        return a + [x for x in b if x not in a]
+    return b
+
+merged = merge(base, frag)
+
+# workflow.prompt_extras: pop and append to workflow.prompt so the agent
+# config schema (which has no prompt_extras field) stays unchanged.
+wf = merged.get("workflow") or {}
+extras = wf.pop("prompt_extras", None) if isinstance(wf, dict) else None
+if extras:
+    wf["prompt"] = (wf.get("prompt", "") or "") + "\n\n" + extras
+    merged["workflow"] = wf
+
+with open(out_path, "w") as f:
+    yaml.safe_dump(merged, f, sort_keys=False)
+print(f"[INFO] Wrote merged agent config: {out_path}")
+PY
+      # Point the agent at the merged file. The path inside the container is
+      # the same as on the host (mounted at /vss-agent/deploy/docker:ro), but
+      # the .env stores the path relative to ${MDX_SAMPLE_APPS_DIR}.
+      local _merged_rel
+      _merged_rel="./deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/config.merged.yml"
+      set_env_var "VSS_AGENT_CONFIG_FILE" "${_merged_rel}"
+    fi
+  fi
+
   # Create required directories
   echo "[INFO] Creating data directories..."
   mkdir -p "${data_directory}/data_log/analytics_cache"

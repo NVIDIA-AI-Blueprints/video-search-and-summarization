@@ -10,7 +10,11 @@ raw-options.root = "../.."
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vss_agents"]
+# Two top-level packages ship in the same wheel:
+#   - vss_agents: agent code, tools, NAT plugins (incl. register_knowledge_layers)
+#   - lib:        NAT-independent libraries. lib.knowledge holds the BackendAdapter
+#                 ABC, schema, factory, and adapter implementations.
+packages = ["src/vss_agents", "src/lib"]
 
 
 [tool.uv]
@@ -83,6 +87,8 @@ dependencies = [
   "urllib3>=2.6.3",
   "xhtml2pdf>=0.2.11",
   "elasticsearch~=8.17.0",
+  # foundational_rag (api mode) is the default knowledge backend — HTTP only.
+  "requests>=2.32",
 ]
 requires-python = ">=3.13,<3.15"
 description = "Deep Search Agent"
@@ -97,6 +103,12 @@ classifiers = [
 ]
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
+
+[project.optional-dependencies]
+# Foundational RAG `mode: local` runs the NVIDIA RAG Blueprint pipeline
+# in-process via the `nvidia-rag` package. Install only if you intend to
+# use that mode — the default `mode: api` only needs `requests`.
+nvidia_rag = ["nvidia-rag>=2.4.0"]
 
 
 
@@ -132,6 +144,7 @@ vss_va_mcp = "vss_agents.video_analytics.tools"
 vss_orchestrator_mcp = "vss_agents.orchestrator.tools"
 vss_evaluators = "vss_agents.evaluators.register"
 vst_tools = "vss_agents.tools.vst.register"
+vss_knowledge_layer = "vss_agents.register_knowledge_layers"
 
 
 
