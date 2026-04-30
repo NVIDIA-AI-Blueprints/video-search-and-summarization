@@ -49,7 +49,7 @@ functions:
   video_upload_url:
     _type: video_upload_url
     vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
 
   video_understanding:
     _type: video_understanding
