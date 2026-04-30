@@ -19,10 +19,6 @@ general:
     _type: vss_fastapi
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
-    # Configuration for streaming video ingest endpoint
-    streaming_ingest:
-      vst_internal_url: ${VST_INTERNAL_URL}
-      stream_mode: ${STREAM_MODE}  # 'search' for search profile, 'other' for VST only
     endpoints:
     - path: /api/v1/videos
       method: POST
