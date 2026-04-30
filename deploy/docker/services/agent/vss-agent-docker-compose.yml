@@ -127,8 +127,6 @@ services:
       COSMOS_EMBED_ENDPOINT: ${COSMOS_EMBED_ENDPOINT}
       ELASTIC_SEARCH_ENDPOINT: ${ELASTIC_SEARCH_ENDPOINT}
       ELASTIC_SEARCH_INDEX: ${ELASTIC_SEARCH_INDEX}
-      # RTSP Stream Mode ('search' for search profile, rest other)
-      STREAM_MODE: ${STREAM_MODE:-other}
       # Critic agent toggles (for search profile)
       ENABLE_CRITIC: ${ENABLE_CRITIC:-true}
       # Evaluation, used with nat eval workflow

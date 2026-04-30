@@ -25,6 +25,10 @@ from nat.builder.workflow_builder import WorkflowBuilder
 from nat.data_models.config import Config
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 
+from vss_agents.api.rtsp_stream_api import register_rtsp_stream_api_routes
+from vss_agents.api.video_delete import register_video_delete_routes
+from vss_agents.api.video_search_ingest import register_streaming_routes
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,65 +63,58 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
 
         logger.info("Registered custom /health endpoint (replaced NAT default)")
 
-        # Add custom streaming routes if configured
-        self._maybe_register_streaming_routes(app)
+        # Register custom streaming routes per capability flags in streaming_ingest
+        self._register_streaming_routes(app)
 
-    def _maybe_register_streaming_routes(self, app: FastAPI) -> None:
-        """Register streaming ingest routes (video upload and RTSP streams) only when configured."""
+    def _register_streaming_routes(self, app: FastAPI) -> None:
+        """Register custom routes based on the capability flags in ``streaming_ingest``.
+
+        Each profile YAML declares which custom routes it wants via the
+        ``enable_videos_for_search``, ``enable_rtsp_streams``, and
+        ``enable_video_delete`` boolean flags on ``streaming_ingest``. Adding a
+        new profile is a YAML-only change.
+
+        Raises:
+            ValueError: when ``streaming_ingest`` is missing from the config.
+                Every profile is expected to declare it explicitly.
+        """
         front_end_cfg = getattr(getattr(self.config, "general", None), "front_end", None)
         streaming_config = getattr(front_end_cfg, "streaming_ingest", None) if front_end_cfg else None
-        logger.info(f"Streaming config: {streaming_config}")
 
-        # Register video upload streaming routes
-        try:
-            from vss_agents.api.video_search_ingest import register_streaming_routes
+        if streaming_config is None:
+            raise ValueError(
+                "general.front_end.streaming_ingest must be set in the profile YAML "
+                "to register custom streaming/RTSP/video-delete routes"
+            )
 
-            logger.info("Adding video upload streaming routes...")
+        # `stream_mode` is no longer supported. Set the per-route capability
+        # flags below on `streaming_ingest` as required.
+        legacy_extra = getattr(streaming_config, "model_extra", None)
+        if isinstance(legacy_extra, dict) and "stream_mode" in legacy_extra:
+            raise ValueError(
+                "general.front_end.streaming_ingest.stream_mode is no longer supported. "
+                "Replace it with the explicit capability flags on streaming_ingest: "
+                "enable_videos_for_search, enable_rtsp_streams, enable_video_delete, "
+                "and (for search-style profiles where RTVI manages storage) "
+                "delete_vst_storage_on_stream_remove: false. "
+            )
+
+        enable_videos_for_search = bool(getattr(streaming_config, "enable_videos_for_search", False))
+        enable_rtsp_streams = bool(getattr(streaming_config, "enable_rtsp_streams", False))
+        enable_video_delete = bool(getattr(streaming_config, "enable_video_delete", False))
+
+        logger.info(
+            "Registering streaming_ingest routes "
+            f"(videos_for_search={enable_videos_for_search}, "
+            f"rtsp_streams={enable_rtsp_streams}, "
+            f"video_delete={enable_video_delete})"
+        )
+
+        if enable_videos_for_search:
             register_streaming_routes(app, self.config)
-            logger.info("Successfully registered video upload streaming routes")
-        except ImportError as exc:
-            logger.debug("Video streaming routes module not available: %s", exc)
-        except ValueError as exc:
-            if streaming_config is not None:
-                logger.error("Streaming ingest configured but invalid: %s", exc)
-                raise
-            logger.info("Skipping video streaming routes (not configured): %s", exc)
-        except Exception as exc:
-            logger.error("Failed to register video streaming routes: %s", exc, exc_info=True)
-            raise
 
-        # Register RTSP stream management routes
-        try:
-            from vss_agents.api.rtsp_stream_api import register_rtsp_stream_api_routes
-
-            logger.info("Adding RTSP stream management routes...")
+        if enable_rtsp_streams:
             register_rtsp_stream_api_routes(app, self.config)
-            logger.info("Successfully registered RTSP stream management routes")
-        except ImportError as exc:
-            logger.debug("RTSP stream routes module not available: %s", exc)
-        except ValueError as exc:
-            if streaming_config is not None:
-                logger.error("RTSP stream routes configured but invalid: %s", exc)
-                raise
-            logger.info("Skipping RTSP stream routes (not configured): %s", exc)
-        except Exception as exc:
-            logger.error("Failed to register RTSP stream routes: %s", exc, exc_info=True)
-            raise
 
-        # Register video delete routes
-        try:
-            from vss_agents.api.video_delete import register_video_delete_routes
-
-            logger.info("Adding video delete routes...")
+        if enable_video_delete:
             register_video_delete_routes(app, self.config)
-            logger.info("Successfully registered video delete routes")
-        except ImportError as exc:
-            logger.debug("Video delete routes module not available: %s", exc)
-        except ValueError as exc:
-            if streaming_config is not None:
-                logger.error("Video delete routes configured but invalid: %s", exc)
-                raise
-            logger.info("Skipping video delete routes (not configured): %s", exc)
-        except Exception as exc:
-            logger.error("Failed to register video delete routes: %s", exc, exc_info=True)
-            raise
