@@ -21,6 +21,7 @@ import pytest
 
 from vss_agents.tools.attribute_search import AttributeSearchMetadata
 from vss_agents.tools.attribute_search import AttributeSearchResult
+from vss_agents.tools.attribute_search import _search_behavior
 from vss_agents.tools.attribute_search import enrich_attribute_results
 
 
@@ -107,3 +108,32 @@ class TestEnrichAttributeResults:
         assert results[0].metadata.sensor_id == "camera-1"
         assert results[1].metadata.sensor_id == "stream-2"
         mock_get_stream_id.assert_awaited_once_with("camera-2", "http://vst-internal:30888")
+
+
+class TestSearchBehaviorFilters:
+    """Tests for behavior search filter construction."""
+
+    @pytest.mark.asyncio
+    async def test_rtsp_uuid_video_source_uses_wildcard_filter(self):
+        stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
+        es = AsyncMock()
+        es.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
+
+        result = await _search_behavior(
+            index=["mdx-behavior-*", "-mdx-behavior-2025-01-01"],
+            query_embedding=[0.1, 0.2, 0.3],
+            top_k=5,
+            min_similarity=0.0,
+            es=es,
+            video_sources=[stream_id],
+            source_type="rtsp",
+        )
+
+        assert result == []
+        body = es.search.await_args.kwargs["body"]
+        source_filter = body["knn"]["filter"]
+        should_clauses = source_filter["bool"]["should"]
+
+        assert {"terms": {"sensor.id.keyword": [stream_id]}} not in should_clauses
+        assert {"term": {"sensor.id.keyword": stream_id}} in should_clauses
+        assert {"wildcard": {"sensor.info.url.keyword": f"*{stream_id}*"}} in should_clauses
