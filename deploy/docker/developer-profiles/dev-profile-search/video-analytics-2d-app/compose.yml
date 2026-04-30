@@ -170,7 +170,6 @@ services:
       - $MDX_DATA_DIR/models/:/opt/storage/
     command:
       - bash
-      - -c
       - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
