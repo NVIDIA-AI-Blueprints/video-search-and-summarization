@@ -9,24 +9,23 @@
 name: Skills Eval
 
 on:
+  # No top-level `paths:` filter: GitHub evaluates `paths:` against the
+  # diff of the *pushed commits*, not the cumulative PR diff against
+  # base. That silently skipped the workflow when CPR-bot updated a
+  # mirror branch with a merge commit that didn't itself touch
+  # skills/** (observed on PR #188: 16 skills/ files in the PR, but
+  # the latest mirror push was a develop-merge carrying only 2 RTVI
+  # files). The path gate is now done inside the job by
+  # `dorny/paths-filter`, which diffs the cumulative head...base range.
+  #
+  # The `on: create:` trigger that previously worked around the
+  # initial-mirror all-zero-`before`-SHA case is no longer needed:
+  # `dorny/paths-filter` computes its diff from the PR base regardless
+  # of how the branch came to exist, so the very first push (whether
+  # branch-create or normal push) gets the same correct answer.
   push:
     branches:
       - "pull-request/[0-9]+"
-    paths:
-      - "skills/**"
-      - ".github/skill-eval/**"
-      - ".github/workflows/skills-eval.yml"
-  # `on: create:` covers the initial-mirror case. CPR-bot creates
-  # pull-request/<N> via GitHub's branch-create API; the resulting push
-  # event has an all-zero `before` SHA, which makes the `paths:` filter
-  # above silently skip the workflow (observed: PR #159 created the
-  # branch but only the no-paths CI workflow fired). `create:` doesn't
-  # support `paths:` or `branches:`, so we gate via the job-level
-  # `if: startsWith(github.ref, 'refs/heads/pull-request/')` plus the
-  # agent's step 1 `BLOCKED: no files under skills/` early-exit when
-  # the diff is irrelevant. Subsequent pushes from CPR-bot use the
-  # paths-filtered `push:` trigger and don't over-run.
-  create:
 
 # Only one eval runs per PR at a time. A fresh push cancels the in-flight
 # run (lock on /tmp/brev/<id>.lock will be released by the agent's trap).
@@ -79,7 +78,19 @@ jobs:
           # Repo-scoped token from the workflow context is fine for `gh pr view`.
           GH_TOKEN: ${{ github.token }}
 
+      - name: Detect relevant changes vs PR base
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          base: ${{ steps.pr.outputs.base }}
+          filters: |
+            relevant:
+              - 'skills/**'
+              - '.github/skill-eval/**'
+              - '.github/workflows/skills-eval.yml'
+
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           # The runner lives on vss-skill-validator; the coordinator keeps
           # its secrets in a single .env file there. Don't echo contents.
@@ -92,6 +103,7 @@ jobs:
 
       - name: Run skills eval agent
         id: agent
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           set -a
           source /home/ubuntu/eval-coordinator/.env   # re-source; GH step env is isolated
@@ -110,7 +122,7 @@ jobs:
           python3 .github/skill-eval/skills_eval_agent.py
 
       - name: Collect results for workflow artifact
-        if: always()
+        if: always() && steps.changes.outputs.relevant == 'true'
         run: |
           # Agent writes harbor output to /tmp/skill-eval/results/<run_id>/
           # (runtime-only; not tracked under the repo). Blocker paths
@@ -129,7 +141,7 @@ jobs:
           fi
 
       - name: Upload results artifact
-        if: always()
+        if: always() && steps.changes.outputs.relevant == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: skills-eval-results-pr-${{ steps.pr.outputs.number }}-${{ github.run_id }}
