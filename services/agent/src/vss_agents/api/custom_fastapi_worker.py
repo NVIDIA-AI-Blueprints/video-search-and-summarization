@@ -87,6 +87,18 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
                 "to register custom streaming/RTSP/video-delete routes"
             )
 
+        # `stream_mode` is no longer supported. Set the per-route capability
+        # flags below on `streaming_ingest` as required.
+        legacy_extra = getattr(streaming_config, "model_extra", None) or {}
+        if "stream_mode" in legacy_extra or hasattr(streaming_config, "stream_mode"):
+            raise ValueError(
+                "general.front_end.streaming_ingest.stream_mode is no longer supported. "
+                "Replace it with the explicit capability flags on streaming_ingest: "
+                "enable_videos_for_search, enable_rtsp_streams, enable_video_delete, "
+                "and (for search-style profiles where RTVI manages storage) "
+                "delete_vst_storage_on_stream_remove: false. "
+            )
+
         enable_videos_for_search = bool(getattr(streaming_config, "enable_videos_for_search", False))
         enable_rtsp_streams = bool(getattr(streaming_config, "enable_rtsp_streams", False))
         enable_video_delete = bool(getattr(streaming_config, "enable_video_delete", False))
