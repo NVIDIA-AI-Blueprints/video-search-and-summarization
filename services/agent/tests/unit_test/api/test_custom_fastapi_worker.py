@@ -29,6 +29,7 @@ from unittest.mock import patch
 import pytest
 
 from vss_agents.api.custom_fastapi_worker import CustomFastApiFrontEndWorker
+from vss_agents.api.front_end_config import StreamingIngestConfig
 
 
 def _make_worker(streaming_ingest):
@@ -148,6 +149,29 @@ class TestRegisterStreamingRoutesDispatcher:
         worker = _make_worker(_MISSING)
 
         with pytest.raises(ValueError, match="streaming_ingest"):
+            worker._register_streaming_routes(MagicMock())
+
+        videos_for_search.assert_not_called()
+        rtsp_streams.assert_not_called()
+        video_delete.assert_not_called()
+
+    def test_legacy_stream_mode_in_yaml_raises(self, patched_register_fns):
+        """A profile YAML that still carries the legacy `stream_mode` knob
+        on streaming_ingest must fail loudly at startup. ``StreamingIngestConfig``
+        accepts extra fields (``extra="allow"``) so the value lands in
+        ``model_extra``; the dispatcher rejects it and points at the new
+        per-route capability flags.
+        """
+        videos_for_search, rtsp_streams, video_delete = patched_register_fns
+        cfg = StreamingIngestConfig(
+            enable_videos_for_search=True,
+            enable_rtsp_streams=True,
+            enable_video_delete=True,
+            stream_mode="search",
+        )
+        worker = _make_worker(cfg)
+
+        with pytest.raises(ValueError, match="stream_mode is no longer supported"):
             worker._register_streaming_routes(MagicMock())
 
         videos_for_search.assert_not_called()

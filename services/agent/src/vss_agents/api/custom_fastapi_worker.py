@@ -89,8 +89,8 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
 
         # `stream_mode` is no longer supported. Set the per-route capability
         # flags below on `streaming_ingest` as required.
-        legacy_extra = getattr(streaming_config, "model_extra", None) or {}
-        if "stream_mode" in legacy_extra or hasattr(streaming_config, "stream_mode"):
+        legacy_extra = getattr(streaming_config, "model_extra", None)
+        if isinstance(legacy_extra, dict) and "stream_mode" in legacy_extra:
             raise ValueError(
                 "general.front_end.streaming_ingest.stream_mode is no longer supported. "
                 "Replace it with the explicit capability flags on streaming_ingest: "
