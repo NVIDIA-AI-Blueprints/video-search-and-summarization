@@ -179,16 +179,14 @@ in this PR's checkout before applying the convention; the repo evolves.
 
    BOT_BRANCH="helm-sync-bot/pr-${PR_NUMBER}/sync-${SHORT_SHA}"
    cd "$REPO_ROOT"
-   git config user.name  "skills-eval-bot"
-   git config user.email "skills-eval-bot@users.noreply.github.com"
+   git config user.name  "github-actions[bot]"
+   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-   # actions/checkout@v4 sets http.https://github.com/.extraheader
-   # with the runner's default GITHUB_TOKEN (github-actions[bot]),
-   # which can't push to non-existent branches. Clear it and embed
-   # the PAT (sourced from /home/ubuntu/eval-coordinator/.env into
-   # GH_TOKEN) into origin's URL so git uses it.
-   git config --local --unset-all "http.https://github.com/.extraheader" || true
-   git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${PR_REPO}.git"
+   # The workflow runs on ubuntu-latest with `permissions: contents:
+   # write, pull-requests: write` — actions/checkout@v4 has already
+   # injected GITHUB_TOKEN via http.extraheader with those grants, so
+   # git push and gh calls just work. No PAT, no rotation, no
+   # extraheader-bypass needed.
 
    git fetch origin "$SOURCE_BRANCH":"refs/remotes/origin/$SOURCE_BRANCH"
    git checkout -b "$BOT_BRANCH" "origin/$SOURCE_BRANCH"
