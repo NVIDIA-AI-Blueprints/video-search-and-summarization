@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the helm-sync agent (.github/helm-sync/helm_sync_agent.py) on every
+# push to a pull-request/<N> mirror branch that touches anything under
+# deployments/ (docker compose, Dockerfiles, helm charts) or the harness
+# itself. The agent diffs the FULL PR (base...mirror, accumulated commits
+# — never just the latest push) and decides whether the docker-side
+# changes are reflected in the helm chart. Drift → bot PR + comment on
+# the source PR. See .github/helm-sync/AGENTS.md for the agent's system
+# prompt and the bot-PR flow.
+
+name: Helm Sync
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+    paths:
+      - "deployments/**"
+      - ".github/helm-sync/**"
+      - ".github/workflows/helm-sync.yml"
+  # `on: create:` covers the initial-mirror case (CPR-bot creates
+  # pull-request/<N> with an all-zero `before` SHA, which makes the
+  # `paths:` filter above silently skip the workflow). Same fix as
+  # skills-eval; agent's step 1 early-exits with `BLOCKED: no
+  # deployments/ changes` when the diff is irrelevant.
+  create:
+
+# One sync-check per PR at a time. A fresh push cancels the in-flight run.
+concurrency:
+  group: helm-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sync-check:
+    name: Check helm parity for deploy/docker changes
+    runs-on: [self-hosted, vss-eval]
+
+    # 60 min cap. The agent does pure file-comparison + (optionally) one
+    # bot-PR push — no Brev provisioning, no harbor trials. Order-of-
+    # magnitude shorter than skills-eval (which is bounded at 480m).
+    timeout-minutes: 60
+
+    # Only run on the mirror branches; never on develop/main.
+    if: startsWith(github.ref, 'refs/heads/pull-request/')
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          # full history so the agent can `git diff $PR_BASE...HEAD`
+          # against the accumulated PR diff (NOT just the latest commit).
+          fetch-depth: 0
+
+      - name: Extract PR number + base
+        id: pr
+        run: |
+          REF="${{ github.ref_name }}"         # "pull-request/123"
+          PR="${REF##pull-request/}"
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          # Query the source PR for its base branch (never hardcode develop).
+          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Load coordinator env (Anthropic + GitHub PAT for bot PRs)
+        run: |
+          # Same coordinator .env the skills-eval workflow uses. Keeps
+          # the bot identity (skills-eval-bot via the PAT) consistent
+          # across both workflows; one secrets store on the runner host.
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          # NVIDIA Anthropic-compatible proxy rejects `context_management`;
+          # disable thinking client-side so the agent SDK doesn't emit it.
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run helm-sync agent
+        id: agent
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # GH step env is isolated
+          set +a
+          export PR_NUMBER="${{ steps.pr.outputs.number }}"
+          export PR_BASE="${{ steps.pr.outputs.base }}"
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          export GH_TOKEN="${GITHUB_TOKEN}"
+          python3 .github/helm-sync/helm_sync_agent.py
