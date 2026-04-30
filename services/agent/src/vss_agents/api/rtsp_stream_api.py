@@ -17,9 +17,7 @@
 RTSP Stream API Ingestion
 """
 
-from enum import StrEnum
 import logging
-import os
 from typing import Any
 
 from fastapi import APIRouter
@@ -37,14 +35,6 @@ from vss_agents.tools.vst.utils import get_stream_info_by_name as vst_get_stream
 from vss_agents.utils.retry import create_retry_strategy
 from vss_agents.utils.time_measure import TimeMeasure
 
-
-class StreamMode(StrEnum):
-    """Mode for stream processing."""
-
-    SEARCH = "search"  # search profile: VST + RTVI-CV + RTVI-embed + embedding generation
-    OTHER = "other"  # rest other profiles: VST only
-
-
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -53,7 +43,14 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceConfig:
-    """Service URLs and settings - initialized once per router."""
+    """Service URLs and settings - initialized once per router.
+
+    Per-step runtime behavior is driven by URL presence: each integration
+    self-skips when its URL is empty (see ``add_to_rtvi_cv``,
+    ``add_to_rtvi_embed``, etc.). The only behavior that isn't reducible to
+    URL presence is whether to also delete VST storage when an RTSP stream is
+    removed, which is governed by ``delete_vst_storage_on_stream_remove``.
+    """
 
     def __init__(
         self,
@@ -62,14 +59,14 @@ class ServiceConfig:
         rtvi_embed_base_url: str = "",
         rtvi_embed_model: str = "cosmos-embed1-448p",
         rtvi_embed_chunk_duration: int = 5,
-        default_stream_mode: str = "search",
+        delete_vst_storage_on_stream_remove: bool = True,
     ):
         self.vst_url = vst_internal_url.rstrip("/")
         self.rtvi_cv_url = rtvi_cv_base_url.rstrip("/") if rtvi_cv_base_url else ""
         self.rtvi_embed_url = rtvi_embed_base_url.rstrip("/") if rtvi_embed_base_url else ""
         self.rtvi_embed_model = rtvi_embed_model
         self.rtvi_embed_chunk_duration = rtvi_embed_chunk_duration
-        self.default_stream_mode = StreamMode(default_stream_mode) if default_stream_mode else StreamMode.SEARCH
+        self.delete_vst_storage_on_stream_remove = delete_vst_storage_on_stream_remove
 
 
 # ============================================================================
@@ -396,7 +393,7 @@ def create_rtsp_stream_api_router(
     rtvi_embed_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
-    default_stream_mode: str = "search",
+    delete_vst_storage_on_stream_remove: bool = True,
 ) -> APIRouter:
     """Create the RTSP stream API router with fire-and-forget implementation."""
 
@@ -407,7 +404,7 @@ def create_rtsp_stream_api_router(
         rtvi_embed_base_url=rtvi_embed_base_url,
         rtvi_embed_model=rtvi_embed_model,
         rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
-        default_stream_mode=default_stream_mode,
+        delete_vst_storage_on_stream_remove=delete_vst_storage_on_stream_remove,
     )
 
     @router.post(
@@ -415,30 +412,30 @@ def create_rtsp_stream_api_router(
         response_model=AddStreamResponse,
         response_model_exclude_none=True,
         summary="Add an RTSP stream",
-        description="Adds stream to VST. If mode='search', also adds to RTVI-CV, RTVI-embed and starts embedding generation.",
+        description=(
+            "Adds stream to VST. RTVI-CV, RTVI-embed, and embedding generation steps "
+            "self-skip when their respective URLs are not configured."
+        ),
         tags=["RTSP Streams"],
     )
     async def add_stream(request: AddStreamRequest) -> AddStreamResponse:
         """
         Add an RTSP stream.
 
-        Mode 'search' (default):
         1. Add to VST → get sensor_id
-        2. Add to RTVI-CV
-        3. Add to RTVI-embed
-        4. Start embedding generation
-        On failure at any step, previous steps are rolled back.
+        2. Add to RTVI-CV (skipped when ``rtvi_cv_base_url`` is empty)
+        3. Add to RTVI-embed (skipped when ``rtvi_embed_base_url`` is empty)
+        4. Start embedding generation (skipped when ``rtvi_embed_base_url`` is empty)
 
-        Mode 'other':
-        1. Add to VST only
+        On failure at any step, previous steps are rolled back. Steps that
+        self-skip never fail and never need rollback.
         """
         sensor_id = None
         rtvi_embed_stream_id = None
         rtvi_cv_added = False
         rtvi_embed_added = False
 
-        is_search_mode = config.default_stream_mode == StreamMode.SEARCH
-        logger.info(f"Adding stream '{request.name}' in mode: {config.default_stream_mode.value}")
+        logger.info(f"Adding stream '{request.name}'")
 
         # Step 1: Add to VST and get RTSP URL (uses shared utils)
         with TimeMeasure("rtsp_stream: add to VST"):
@@ -455,15 +452,6 @@ def create_rtsp_stream_api_router(
         assert sensor_id is not None, "sensor_id should be set after successful VST add"
         assert rtsp_url is not None, "rtsp_url should be set after successful VST add"
 
-        # For 'other' mode, stop here - VST only
-        if not is_search_mode:
-            return AddStreamResponse(
-                status="success",
-                message=f"Stream '{request.name}' added successfully",
-                error=None,
-            )
-
-        # For search mode, use httpx client for RTVI calls
         async with httpx.AsyncClient(timeout=60.0) as client:
             # Step 2: Add to RTVI-CV using RTSP URL from VST streams API
             with TimeMeasure("rtsp_stream: add to RTVI-CV"):
@@ -528,31 +516,29 @@ def create_rtsp_stream_api_router(
         response_model=DeleteStreamResponse,
         response_model_exclude_none=True,
         summary="Delete an RTSP stream by name",
-        description="Removes stream from services based on configured mode. 'search' mode deletes from VST, RTVI-CV, RTVI-embed. 'other' mode deletes from VST only.",
+        description=(
+            "Removes the stream from VST. RTVI cleanup steps run when their URLs are "
+            "configured. VST storage is also removed when "
+            "``delete_vst_storage_on_stream_remove`` is True (default)."
+        ),
         tags=["RTSP Streams"],
     )
     async def delete_stream(name: str) -> DeleteStreamResponse:
         """
         Delete an RTSP stream from services by camera/sensor name.
 
-        Mode 'search' (best-effort, continues even if individual steps fail):
-        1. Find stream_id and RTSP URL from VST by name
-        2. Stop embedding generation
-        3. Delete from RTVI-embed
-        4. Delete from RTVI-CV
-        5. Delete sensor from VST
-        (VST storage is not deleted in search mode.)
+        Best-effort: continues even if individual steps fail.
 
-        Mode 'other':
-        1. Find stream_id from VST by name
-        2. Delete sensor from VST
-        3. Delete storage from VST
+        1. Find stream_id and RTSP URL from VST by name
+        2. Stop embedding generation (skipped when ``rtvi_embed_base_url`` empty)
+        3. Delete from RTVI-embed (skipped when ``rtvi_embed_base_url`` empty)
+        4. Delete from RTVI-CV (skipped when ``rtvi_cv_base_url`` empty)
+        5. Delete sensor from VST
+        6. Delete storage from VST (only when ``delete_vst_storage_on_stream_remove`` True)
         """
         results = []  # Track success/failure for overall status
 
-        is_search_mode = config.default_stream_mode == StreamMode.SEARCH
-
-        logger.info(f"Deleting stream by name '{name}' in mode: {config.default_stream_mode.value}")
+        logger.info(f"Deleting stream by name '{name}'")
 
         # First, find stream_id and RTSP URL from VST by name (uses shared utils)
         success, msg, stream_id, rtsp_url = await get_stream_info_by_name(config, name)
@@ -572,31 +558,28 @@ def create_rtsp_stream_api_router(
                 name=name,
             )
 
-        # --- Search mode only: cleanup RTVI services ---
-        if is_search_mode:
+        # RTVI cleanup runs only when at least one RTVI URL is configured.
+        # The individual cleanup helpers self-skip when their URL is empty,
+        # but we avoid opening an httpx client when nothing's configured.
+        if config.rtvi_embed_url or config.rtvi_cv_url:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                # Step 1: Stop embedding generation
                 success, msg = await cleanup_rtvi_embed_generation(client, config, stream_id)
                 results.append(success)
                 logger.info(f"Stop embedding generation: {'OK' if success else msg}")
 
-                # Step 2: Delete from RTVI-embed
                 success, msg = await cleanup_rtvi_embed_stream(client, config, stream_id)
                 results.append(success)
                 logger.info(f"Delete from RTVI-embed: {'OK' if success else msg}")
 
-                # Step 3: Delete from RTVI-CV
                 success, msg = await cleanup_rtvi_cv(client, config, stream_id, name=name, sensor_url=rtsp_url or "")
                 results.append(success)
                 logger.info(f"Delete from RTVI-CV: {'OK' if success else msg}")
 
-        # Delete sensor from VST (uses shared utils)
         success, msg = await cleanup_vst_sensor(config, stream_id)
         results.append(success)
         logger.info(f"Delete VST sensor: {'OK' if success else msg}")
 
-        # Delete storage from VST for other profiles only (uses shared utils)
-        if not is_search_mode:
+        if config.delete_vst_storage_on_stream_remove:
             success, msg = await cleanup_vst_storage(config, stream_id)
             results.append(success)
             logger.info(f"Delete VST storage: {'OK' if success else msg}")
@@ -635,55 +618,55 @@ def register_rtsp_stream_api_routes(app: FastAPI, config: Any) -> None:
     """
     Register RTSP stream API routes to the FastAPI app.
 
+    Reads configuration from ``general.front_end.streaming_ingest`` in the YAML.
+    The caller (``CustomFastApiFrontEndWorker``) gates this on the
+    ``enable_rtsp_streams`` capability flag, so reaching this function with a
+    missing ``streaming_ingest`` is a programming error.
+
     Args:
         app: FastAPI application instance
         config: NAT Config object containing application configuration
+
+    Raises:
+        ValueError: when ``streaming_ingest`` is missing or ``vst_internal_url``
+            is not set. ``rtvi_embed_base_url``/``rtvi_cv_base_url`` are
+            optional — empty values cause the corresponding RTVI steps to
+            self-skip at request time.
     """
     try:
-        # Look for streaming_ingest config under general.front_end
         streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
-
-        if streaming_config:
-            vst_internal_url = getattr(streaming_config, "vst_internal_url", None) or os.getenv("VST_INTERNAL_URL")
-            rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
-            rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", None) or ""
-            rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
-            rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
-            default_stream_mode = str(
-                getattr(streaming_config, "stream_mode", None) or os.getenv("STREAM_MODE", "search")
+        if streaming_config is None:
+            raise ValueError(
+                "streaming_ingest must be configured under general.front_end to register RTSP stream API routes"
             )
-            logger.info("Using streaming_ingest config from YAML for RTSP stream routes")
-        else:
-            # Fallback to environment variables
-            host_ip = os.getenv("HOST_IP")
-            vst_internal_url = os.getenv("VST_INTERNAL_URL")
-            rtvi_cv_port = os.getenv("RTVI_CV_PORT", "9000")
-            rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "8017")
-            rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip else ""
-            rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip else ""
-            rtvi_embed_model = "cosmos-embed1-448p"
-            rtvi_embed_chunk_duration = 5
-            default_stream_mode = os.getenv("STREAM_MODE", "search")
-            logger.info("Using environment variables for configuration")
 
-        # Validate required fields
+        vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
+        rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
+        rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", "") or ""
+        rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
+        rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+        delete_vst_storage_on_stream_remove = bool(
+            getattr(streaming_config, "delete_vst_storage_on_stream_remove", True)
+        )
+
         if not vst_internal_url:
-            raise ValueError("VST_INTERNAL_URL must be set")
+            raise ValueError("streaming_ingest.vst_internal_url must be set for RTSP stream routes")
 
-        if not rtvi_embed_base_url:
-            raise ValueError("RTVI-embed URL must be configured (HOST_IP + RTVI_EMBED_PORT or rtvi_embed_base_url)")
-
-        # Create and register router
         router = create_rtsp_stream_api_router(
             vst_internal_url=vst_internal_url,
             rtvi_cv_base_url=rtvi_cv_base_url,
             rtvi_embed_base_url=rtvi_embed_base_url,
             rtvi_embed_model=rtvi_embed_model,
             rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
-            default_stream_mode=default_stream_mode,
+            delete_vst_storage_on_stream_remove=delete_vst_storage_on_stream_remove,
         )
         app.include_router(router)
-        logger.info(f"RTSP stream API routes registered successfully (default mode: {default_stream_mode})")
+        logger.info(
+            "RTSP stream API routes registered "
+            f"(rtvi_embed={'on' if rtvi_embed_base_url else 'off'}, "
+            f"rtvi_cv={'on' if rtvi_cv_base_url else 'off'}, "
+            f"delete_vst_storage_on_stream_remove={delete_vst_storage_on_stream_remove})"
+        )
 
     except Exception as e:
         logger.error(f"Failed to register RTSP stream API routes: {e}", exc_info=True)
