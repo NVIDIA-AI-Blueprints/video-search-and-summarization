@@ -50,7 +50,7 @@ This skill requires a VSS profile that serves the `video_understanding` tool —
 ## Agent workflow
 
 1. **Clip** — Identify **sensor id**, **filename**, or **URL** for one video segment. If ambiguous, ask the user.
-2. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question.
+2. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question. The **sensor / file** name must be included in the input message to the agent.
 3. Return the vss agent's answer back to the user.
 
 
