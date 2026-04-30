@@ -282,8 +282,12 @@ def _build_es_query(query_input: QueryInput, query_embedding: list[float], confi
     # unresolved names fall back to wildcard/regexp pattern (expensive scan).
     # UUIDs are resolved upstream in execute_core_search() via VST streams_info mapping.
     if video_sources:
-        uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
-        non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
+        if query_input.source_type == "rtsp":
+            uuid_sources = []
+            non_uuid_sources = video_sources
+        else:
+            uuid_sources = [v for v in video_sources if is_standard_uuid_string(v)]
+            non_uuid_sources = [v for v in video_sources if not is_standard_uuid_string(v)]
 
         if uuid_sources and not non_uuid_sources:
             # All sources are UUIDs — single terms clause (fastest)
