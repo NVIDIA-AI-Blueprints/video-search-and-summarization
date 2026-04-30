@@ -210,15 +210,15 @@ llms:
 
   rtvi_vlm:
     _type: openai
-    model_name: nim_nvidia_cosmos-reason2-8b_hf-1208
-    base_url: ${VLM_BASE_URL}/v1
+    model_name: ${RTVI_VLM_OPENAI_MODEL_DEPLOYMENT_NAME}
+    base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
       extra_body:
         num_frames_per_second_or_fixed_frames_chunk: 20
         use_fps_for_chunking: false
-        vlm_input_width: 1280
-        vlm_input_height: 720
+        vlm_input_width: ${RTVI_VLM_INPUT_WIDTH}
+        vlm_input_height: ${RTVI_VLM_INPUT_HEIGHT}
 
   # --- Others ---
   eval_llm_judge:
