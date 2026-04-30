@@ -2,37 +2,33 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Runs the helm-sync agent (.github/helm-sync/helm_sync_agent.py) on every
-# push to a pull-request/<N> mirror branch that touches anything under
-# deploy/ (docker compose, Dockerfiles, helm charts) or the harness
-# itself. The agent diffs the FULL PR (base...mirror, accumulated commits
-# — never just the latest push) and decides whether the docker-side
-# changes are reflected in the helm chart. Drift → bot PR + comment on
-# the source PR. See .github/helm-sync/AGENTS.md for the agent's system
-# prompt and the bot-PR flow.
+# push to a pull-request/<N> mirror branch where the **cumulative** PR
+# diff (PR base ↔ HEAD) touches anything under deploy/ or this harness.
+# The agent diffs the FULL PR (base...mirror, accumulated commits — never
+# just the latest push) and decides whether the docker-side changes are
+# reflected in the helm chart. Drift → bot PR + comment on the source PR.
+# See .github/helm-sync/AGENTS.md for the agent's system prompt.
 
 name: Helm Sync
 
 on:
+  # No top-level `paths:` filter and no `on: create:`. Mirroring
+  # skills-eval's lesson: GitHub's trigger-level `paths:` evaluates the
+  # diff of the *pushed commits*, not the cumulative PR diff against
+  # base. That silently skips the workflow when CPR-bot pushes a merge
+  # commit from base that doesn't itself touch deploy/** (the cumulative
+  # PR diff might still touch deploy/**). The path gate is now done
+  # inside the job by `dorny/paths-filter` against `PR_BASE...HEAD`.
   push:
     branches:
       - "pull-request/[0-9]+"
-    paths:
-      - "deploy/**"
-      - ".github/helm-sync/**"
-      - ".github/workflows/helm-sync.yml"
-  # `on: create:` covers the initial-mirror case (CPR-bot creates
-  # pull-request/<N> with an all-zero `before` SHA, which makes the
-  # `paths:` filter above silently skip the workflow). Same fix as
-  # skills-eval; agent's step 1 early-exits with `BLOCKED: no
-  # deploy/ changes` when the diff is irrelevant.
-  create:
 
 # Workflow-scoped GITHUB_TOKEN permissions. The bot uses
 # `${{ github.token }}` directly (no PAT, no rotation, no personal-
 # account binding) to push helm-sync-bot/* branches and open the bot
-# PR + comment on the source PR. `actions/checkout@v4` already injects
-# this token via http.extraheader, so `git push` and `gh` calls inherit
-# it; no extraheader-bypass is needed on ubuntu-latest.
+# PR + comment on the source PR. `actions/checkout@v4` injects this
+# token via http.extraheader, so `git push` and `gh` calls inherit
+# it automatically.
 permissions:
   contents: write          # push to helm-sync-bot/pr-<N>/sync-<sha> branches
   pull-requests: write     # gh pr create + gh pr comment
@@ -51,13 +47,11 @@ jobs:
     name: Check helm parity for deploy/docker changes
     # GitHub-hosted runner — repo is public, so usage is unmetered. The
     # agent is pure file comparison + (optionally) one bot-PR push;
-    # no GPU, no Brev provisioning, no harbor trials. Repo secrets
-    # carry the Anthropic creds (no coordinator .env on this runner).
+    # no GPU, no Brev provisioning, no harbor trials.
     runs-on: ubuntu-latest
 
     # 60 min cap. The agent does pure file comparison + at most one
-    # bot-PR push. Order-of-magnitude shorter than skills-eval
-    # (which is bounded at 480m).
+    # bot-PR push. Order-of-magnitude shorter than skills-eval (480m).
     timeout-minutes: 60
 
     # Only run on the mirror branches; never on develop/main.
@@ -67,8 +61,9 @@ jobs:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          # full history so the agent can diff `$PR_BASE...HEAD`
-          # against the accumulated PR diff (NOT just the latest commit).
+          # full history so dorny/paths-filter and the agent can both
+          # diff `PR_BASE...HEAD` against the accumulated PR diff
+          # (NOT just the latest commit).
           fetch-depth: 0
 
       - name: Extract PR number + base
@@ -84,8 +79,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Detect relevant changes vs PR base
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          base: ${{ steps.pr.outputs.base }}
+          filters: |
+            relevant:
+              - 'deploy/**'
+              - '.github/helm-sync/**'
+              - '.github/workflows/helm-sync.yml'
+
       - name: Run helm-sync agent
         id: agent
+        if: steps.changes.outputs.relevant == 'true'
         env:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           PR_BASE: ${{ steps.pr.outputs.base }}
