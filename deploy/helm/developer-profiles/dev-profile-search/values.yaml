@@ -613,8 +613,6 @@ agent:
         value: nim
       - name: VLM_MODEL_TYPE
         value: nim
-      - name: STREAM_MODE
-        value: search
       - name: VSS_AGENT_OBJECT_STORE_TYPE
         value: local_object_store
       - name: EXTERNAL_IP
