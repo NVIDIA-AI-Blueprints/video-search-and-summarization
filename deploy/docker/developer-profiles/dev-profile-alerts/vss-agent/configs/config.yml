@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,6 +23,9 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       stream_mode: ${STREAM_MODE}  # 'search' for search profile, 'other' for VST only
+      rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT:-8017}
+      rtvi_cv_base_url: http://${HOST_IP}:${RTVI_CV_PORT:-8015}
+      elasticsearch_url: http://${HOST_IP}:${VSS_ES_PORT:-9200}
     endpoints:
     - path: /api/v1/videos
       method: POST
@@ -62,7 +65,7 @@ functions:
   video_upload_url:
     _type: video_upload_url
     vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
 
   video_understanding:
     _type: video_understanding

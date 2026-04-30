@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,7 +49,7 @@ functions:
   video_upload_url:
     _type: video_upload_url
     vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
 
   video_understanding:
     _type: video_understanding
@@ -484,7 +484,7 @@ eval:
     report_evaluator:
       _type: report_evaluator
       eval_metrics_config_path: ${EVAL_DIR}/report_eval_metrics.yaml
-      reference_base_dir: ${DATASET_DIR:-${EVAL_DIR}}/gt/
+      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR}
       evaluation_method_id: report
       object_store: local_object_store
       report_url_pattern: 'http://[^\s)]+/(vss_report_(?:[^/\s)]+_)?\d{8}_\d{6}\.md)'
