@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rtvi-cv.headlessServiceName" . }}
+  labels:
+    {{- include "rtvi-cv.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "rtvi-cv.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: placeholder
+      port: 9003
+      targetPort: 9003
+      protocol: TCP

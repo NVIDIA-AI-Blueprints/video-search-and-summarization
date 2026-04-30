@@ -1,0 +1,183 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		],
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"fetchMaxBytes": 104857600,
+			"maxPollRecords": 10000,
+			"timeout": 0.01
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"group": "mdx-spatial-analytics-2d-app"
+	},
+	"redisStream": {
+		"host": "localhost",
+		"port": 6379,
+		"streams": [
+			{
+				"name": "raw",
+				"value": "mdx-raw"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		],
+		"consumer": {
+			"readCount": 200,
+			"readBlockMs": 100
+		},
+		"producer": {
+			"maxLen": 10000
+		},
+		"group": "mdx-spatial-analytics-2d-app"
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "proximityDetectionEnable",
+					"value": "true"
+				},
+				{
+					"name": "proximityDetectionThreshold",
+					"value": "3"
+				},
+				{
+					"name": "proximityDetectionCenterClasses",
+					"value": "[\"Forklift\"]"
+				},
+				{
+					"name": "proximityDetectionSurroundingClasses",
+					"value": "[\"Person\"]"
+				},
+				{
+					"name": "tripwireMinPoints",
+					"value": "4"
+				}
+			]
+		}
+	],
+	"app": [
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorStateTimeout",
+			"value": "10"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "200"
+		},
+		{
+			"name": "playbackLoop",
+			"value": "10000"
+		},
+		{
+			"name": "playbackFilterEmptyObjects",
+			"value": "true"
+		},
+		{
+			"name": "playbackStartUpDelaySec",
+			"value": "90"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "euclidean"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "2"
+		},
+		{
+			"name": "numWorkersForFrameEnhancement",
+			"value": "2"
+		},
+		{
+			"name": "stateManagementFilter",
+			"value": "[\"Person\",\"Forklift\"]"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "confinedAreaViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "proximityViolationIncidentEnable",
+			"value": "true"
+		},
+		{
+			"name": "restrictedAreaViolationIncidentThreshold",
+			"value": "2"
+		},
+		{
+			"name": "confinedAreaViolationIncidentThreshold",
+			"value": "2"
+		},
+		{
+			"name": "proximityViolationIncidentThreshold",
+			"value": "2"
+		}
+	]
+}

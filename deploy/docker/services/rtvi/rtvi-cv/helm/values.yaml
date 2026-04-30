@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# -----------------------------------------------------------------------------
+# Warehouse variant: "2d" (rtdetr-warehouse) or "3d" (sparse4d-warehouse)
+# DeepStream configs, labels, and ds-start.sh ship inside the chart (ConfigMaps).
+# You only supply weights/models and (for 3D) calibration.json for your sample.
+# -----------------------------------------------------------------------------
+rtviCv:
+  warehouse:
+    mode: "2d"
+
+  datasets:
+    # 3D only: calibration.json (Compose: warehouse-3d-app/calibration/sample-data/<dataset>/calibration.json)
+    calibration:
+      hostPath: ""
+      existingConfigMap: ""
+      existingConfigMapKey: calibration.json
+
+  models:
+    # Host directory mounted at /opt/storage (read-write). Meaning depends on rtviCv.warehouse.mode:
+    #   2d — MTMC / warehouse 2D model tree (Compose: MDX_DATA_DIR/models/mtmc/)
+    #   3d — same directory (or PVC) holds ONNX + NPY + TensorRT engines (e.g. model.engine); same as Compose.
+    path: ""
+    # Optional: existing PVC at /opt/storage instead of host path (2d or 3d). 3d: ONNX/NPY use pvc*SubPath keys.
+    pvcClaimName: ""
+    # 3d: basenames under models.path (or PVC keys); both files must live in that common directory.
+    sparse4dOnnxFile: sparse4d_warehouse_v2.2_r50.onnx
+    sparse4dNpyFile: _ov_kmeans900_v2604.npy
+    # 3d PVC: keys inside models.pvcClaimName (defaults match sparse4d*File).
+    pvcOnnxSubPath: sparse4d_warehouse_v2.2_r50.onnx
+    pvcNpySubPath: _ov_kmeans900_v2604.npy
+
+  images:
+    perception:
+      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+      tag: "3.1.0"
+      pullPolicy: IfNotPresent
+
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+  podHostname: ""
+
+  streamType: kafka
+  hardwareProfile: ""
+
+  perception:
+    dsModeFlag2d: "1"
+    dsModeFlag3d: "5"
+    dsMessageRate: "1"
+    dsTrackerReid: "false"
+    dsShowSensorId: "false"
+    otelSdkDisabled: "true"
+    otelExporterOtlpEndpoint: "http://localhost:4318"
+    otelMetricsExporter: otlp
+    sparse4dDebugTs: "1"
+    networkWidth: "960"
+    networkHeight: "540"
+
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+    requests:
+      nvidia.com/gpu: 1
+
+  runtimeClassName: ""
+
+global:
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+
+replicaCount: 1
+
+nameOverride: ""
+# If set, StatefulSet (and pod) names use this base — e.g. fullnameOverride: vss-rtvi-cv → pod vss-rtvi-cv-0
+fullnameOverride: ""
+
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

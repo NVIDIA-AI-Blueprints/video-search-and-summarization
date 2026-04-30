@@ -19,7 +19,7 @@ imagePullSecrets:
 replicas: 1
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-  tag: "3.2.0-26.04.1"
+  tag: "3.2.0-26.04.2"
   pullPolicy: IfNotPresent
 port: 8000
 service:
@@ -32,6 +32,10 @@ clearCachedEnginesOnStart: false
 kafkaEnabled: true
 kafkaTopic: "mdx-embed"
 kafkaBootstrapServers: ""
+# Wait for Kafka before starting the workload (busybox nc). Set enabled: false for standalone
+# installs where no broker exists yet.
+waitForKafka:
+  enabled: true
 redisHost: ""
 redisPort: "6379"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
@@ -71,6 +75,11 @@ readinessProbe:
 ngcApiKey: ""
 nvidiaApiKey: ""
 hfToken: ""
+# Optional: pull HF token from an existing Kubernetes secret instead of plain value.
+# If set, HF_TOKEN uses secretKeyRef and hfToken is ignored.
+hfTokenSecret:
+  name: ""
+  key: "HF_TOKEN"
 resources:
   limits:
     nvidia.com/gpu: 1

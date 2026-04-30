@@ -23,7 +23,7 @@ serviceAccount:
   create: false
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-agent
-  tag: "3.2.0-26.04.2-c4f5e8b"
+  tag: "3.2.0-26.04.3-9388d6486f30"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -31,6 +31,12 @@ service:
   type: ClusterIP
   nodePort: ""
 profile: base
+# Alerts profile only: mount ConfigMap key(s) under /etc/vss-agent/report-templates. Must match keys baked into
+# vss-agent-config (e.g. dev-profile-alerts `configs/vss-agent/incident_report_template.md`). If disabled, omit the
+# volume entirely — Kubernetes fails when `items` references a key missing from the ConfigMap.
+reportTemplates:
+  enabled: false
+  configMapKey: incident_report_template.md
 mountConfigEdge: false
 mountEvalOutput: true
 agentEval:
@@ -85,7 +91,7 @@ reportsBaseUrl: ""
 vssAgentExternalUrl: ""
 externalIp: ""
 vstInternalIp: ""
-vssAgentVersion: "3.2.0-26.04.2-c4f5e8b"
+vssAgentVersion: "3.2.0-26.04.3-9388d6486f30"
 lvsBackendService: ""
 
 # Block startup until Kafka, Redis, and Elasticsearch accept TCP (optional).
@@ -182,7 +188,7 @@ env:
 - name: AGENT_BASE_URL
   value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
 - name: VSS_AGENT_VERSION
-  value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.2-c4f5e8b" }}'
+  value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9388d6486f30" }}'
 resources: {}
 nodeSelector: {}
 tolerations: []

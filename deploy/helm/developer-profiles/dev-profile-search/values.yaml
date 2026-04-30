@@ -101,19 +101,11 @@ vios:
   vss-vios-nvstreamer:
     enabled: true
 
+# Infra: umbrella defaults disable most subcharts — enable each component here.
 infra:
   enabled: true
   redis:
     enabled: true
-    replicas: 1
-    image:
-      repository: redis
-      tag: 8.2.2-alpine
-      pullPolicy: IfNotPresent
-    port: 6379
-    persistence:
-      storageClass: ''
-      size: 5Gi
     resources:
       requests:
         memory: 128Mi
@@ -121,26 +113,12 @@ infra:
       limits:
         memory: 512Mi
         cpu: 500m
-    nodeSelector: {}
-    tolerations: []
   phoenix:
     enabled: true
-    replicas: 1
-    image:
-      repository: arizephoenix/phoenix
-      tag: version-8.12.1
-      pullPolicy: IfNotPresent
-    phoenixHost: 0.0.0.0
     # Serve Phoenix behind ingress path prefix (http://<host>/phoenix).
     env:
       - name: PHOENIX_HOST_ROOT_PATH
         value: "/phoenix"
-    port: 6006
-    service:
-      type: ClusterIP
-    persistence:
-      storageClass: ''
-      size: 10Gi
     resources:
       requests:
         memory: 512Mi
@@ -148,26 +126,12 @@ infra:
       limits:
         memory: 2Gi
         cpu: '1'
-    nodeSelector: {}
-    tolerations: []
   elasticsearch:
     enabled: true
-    replicas: 1
-    image:
-      repository: docker.elastic.co/elasticsearch/elasticsearch
-      tag: 9.3.0
-      pullPolicy: IfNotPresent
-    env:
-      ES_JAVA_OPTS: -Xmx1024m -Xms256m
-      discovery.type: single-node
     extraEnv:
-      ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1536'
+      ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1152'
       ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: '768'
-    service:
-      port: 9200
-      type: ClusterIP
     persistence:
-      storageClass: ''
       data:
         size: 100Gi
       logs:
@@ -179,117 +143,25 @@ infra:
       limits:
         memory: 4Gi
         cpu: '2'
-    nodeSelector: {}
-    tolerations: []
     init:
       enabled: true
-      image:
-        repository: alpine
-        tag: '3.23.2'
-        pullPolicy: IfNotPresent
       backoffLimit: 5
       env:
         ELASTICSEARCH_ILM_MIN_AGE: 48h
-        ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1536'
+        ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1152'
         ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: '768'
         BP_PROFILE: bp_developer_search
-    exporter:
-      enabled: false
   kibana:
     enabled: true
-    replicas: 1
-    image:
-      repository: docker.elastic.co/kibana/kibana
-      tag: 9.3.0
-      pullPolicy: IfNotPresent
-    service:
-      port: 5601
-      type: ClusterIP
     init:
       enabled: true
       objectsBundle: search
-      image:
-        repository: alpine
-        tag: '3.23.2'
-        pullPolicy: IfNotPresent
       backoffLimit: 5
-    nodeSelector: {}
-    tolerations: []
   kafka:
     enabled: true
-    topicJob:
-      enabled: true
-    replicas: 1
-    image:
-      repository: confluentinc/cp-kafka
-      tag: 8.1.1
-      pullPolicy: IfNotPresent
-    nodeId: '1'
-    brokerId: '1'
-    advertisedHost: ''
-    advertisedPort: '9092'
-    heapOpts: -Xmx4G -Xms4G
-    maxRequestSize: '10485760'
-    topics:
-      - name: mdx-raw
-      - name: mdx-bev
-      - name: mdx-space-utilization
-      - name: mdx-alerts
-      - name: mdx-behavior
-        retention_ms: '14400000'
-        segment_ms: '3600000'
-        replication_factor: '1'
-      - name: mdx-behavior-plus
-      - name: mdx-frames
-      - name: mdx-mtmc
-      - name: mdx-rtls
-      - name: mdx-rtls-region-1
-      - name: mdx-amr
-      - name: mdx-vlm-alerts
-      - name: mdx-notification
-        partitions: '1'
-      - name: mdx-events
-      - name: mdx-incidents
-      - name: mdx-vlm-incidents
-      - name: mdx-vlm
-      - name: mdx-embed
-      - name: mdx-embed-filtered
-    defaultPartitions: '8'
-    defaultReplicationFactor: '1'
-    defaultRetentionMs: '14400000'
-    defaultSegmentMs: '3600000'
-    service:
-      type: ClusterIP
-      port: 9092
-    persistence:
-      storageClass: ''
-      size: 50Gi
-    resources:
-      requests:
-        memory: 4Gi
-        cpu: '1'
-      limits:
-        memory: 8Gi
-        cpu: '2'
-    nodeSelector: {}
-    tolerations: []
-    exporter:
-      enabled: false
   logstash:
     enabled: true
-    replicas: 1
-    image:
-      repository: docker.elastic.co/logstash/logstash
-      tag: 9.3.0
-      pullPolicy: IfNotPresent
     javaOpts: -Xmx1024m -Xms256m
-    streamType: kafka
-    service:
-      port: 5044
-    persistence:
-      storageClass: ''
-      libs:
-        size: 5Gi
     resources:
       requests:
         memory: 2Gi
@@ -297,11 +169,6 @@ infra:
       limits:
         memory: 4Gi
         cpu: '1'
-    nodeSelector: {}
-    tolerations: []
-    exporter:
-      enabled: false
-      tlsSecretName: ''
 rtvi:
   enabled: true
   vss-rtvi-cv:
@@ -310,8 +177,8 @@ rtvi:
     profileMode: search
     replicas: 1
     image:
-      repository: nvcr.io/nvidia/vss-core/vss-rt-cv
-      tag: 3.1.0
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
+      tag: 3.2.0-26.04.2
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
@@ -337,15 +204,12 @@ rtvi:
       - model: nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1
         sourcePath: rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.1.fp16.onnx
-      - model: nvidia/tao/radio-clip:deployable_v1.0
-        sourcePath: radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx
-        destPath: radio-clip_v1.0.onnx
-      - model: nvidia/tao/radio-clip:deployable_v1.0
-        sourcePath: radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin
-        destPath: radio-clip_v1.0_weights.bin
-      - model: nvidia/tao/radio-clip:deployable_v1.0
-        sourcePath: radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer
-        destPath: radio-clip_v1.0_tokenizer
+      - model: nvidia/tao/siglip_v2:deployable_v1.1
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
+        destPath: siglip2_v1.1.onnx
+      - model: nvidia/tao/siglip_v2:deployable_v1.1
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_tokenizer
+        destPath: siglip2_v1.1_tokenizer
     models:
       authSecretName: ngc-api-key-secret
       authSecretKey: NGC_API_KEY
@@ -364,11 +228,11 @@ rtvi:
           apiBaseUrl: https://api.ngc.nvidia.com
           org: nvidia
           team: tao
-          model: radio-clip
-          version: deployable_v1.0
-        onnxFile: radio-clip_v1.0.onnx
-        weightsFile: radio-clip_v1.0_weights.bin
-        tokenizerDir: radio-clip_v1.0_tokenizer
+          model: siglip_v2
+          version: deployable_v1.1
+        onnxFile: siglip2_v1.1.onnx
+        tokenizerDir: siglip2_v1.1_tokenizer
+        dsModelName: siglip2-onnx
     resources:
       limits:
         nvidia.com/gpu: 1
@@ -382,7 +246,7 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-      tag: "3.2.0-26.04.1"
+      tag: "3.2.0-26.04.2"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -398,7 +262,7 @@ rtvi:
     redisHost: ''
     redisPort: '6379'
     modelImplementationPath: /opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1
-    modelPath: git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
+    modelPath: git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection
     modelRepositoryScriptPath: /opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py
     logLevel: INFO
     enableOtelMonitoring: false
@@ -472,10 +336,6 @@ analytics:
   vss-behavior-analytics:
     enabled: true
     replicas: 1
-    image:
-      repository: nvcr.io/nvidia/vss-core/vss-behavior-analytics
-      tag: 3.1.0
-      pullPolicy: IfNotPresent
     port: 8080
     service:
       type: ClusterIP
@@ -544,7 +404,7 @@ analytics:
         cpu: 500m
     nodeSelector: {}
     tolerations: []
-rtviEmbedModel: "cosmos-embed1-448p"
+rtviEmbedModel: "cosmos-embed1-448p-anomaly-detection"
 agent:
   enabled: true
   vss-agent:
@@ -577,7 +437,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.04.2-c4f5e8b
+    vssAgentVersion: 3.2.0-26.04.3-9388d6486f30
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -676,7 +536,7 @@ agent:
       - name: ENABLE_CRITIC
         value: '{{- if and .Values.global (hasKey .Values.global "enableCritic") }}{{ (index .Values.global "enableCritic") | toString }}{{- else }}true{{- end }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.2-c4f5e8b" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9388d6486f30" }}'
 
 vss-agent-ui:
   enabled: true
@@ -688,7 +548,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.04.3"
+    tag: "3.2.0-26.04.4-3"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
@@ -713,9 +573,9 @@ vss-agent-ui:
       value: 'Generate a report for incident {incidentId} with sensor id {sensorId}.'
     - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS
       value: "1000"
-    - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_TIME_WINDOW_IN_MINUTES
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES
       value: "10"
-    - name: NEXT_PUBLIC_ALERTS_TAB_MAX_RESULT_SIZE
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE
       value: "100"
     - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
       value: "0"

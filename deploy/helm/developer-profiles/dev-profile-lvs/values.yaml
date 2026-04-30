@@ -78,6 +78,13 @@ infra:
     init:
       enabled: true
       objectsBundle: lvs
+  kafka:
+    enabled: true
+    topicJob:
+      enabled: true
+    persistence:
+      size: 10Gi
+      storageClass: ''
 
 # VIOS umbrella (../../services/vios). Required: vios.enabled — parent Chart.yaml condition: vios.enabled. If missing/false, no VIOS workloads are installed.
 vios:
@@ -156,7 +163,7 @@ agent:
     vstInternalUrl: ""
     vstInternalIp: ""
     vssAgentExternalUrl: ""
-    vssAgentVersion: "3.2.0-26.04.2-c4f5e8b"
+    vssAgentVersion: "3.2.0-26.04.3-9388d6486f30"
     evalLlmJudgeName: ""
     evalLlmJudgeBaseUrl: ""
     reportsBaseUrl: ""
@@ -242,7 +249,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.2-c4f5e8b" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9388d6486f30" }}'
 vss-agent-ui:
   enabled: true
   # NEXT_PUBLIC_* defaults aligned with dev-profile-base; LVS deltas: subtitle + dashboard tab.
@@ -256,9 +263,9 @@ vss-agent-ui:
       value: 'Generate a report for incident {incidentId} with sensor id {sensorId}.'
     - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS
       value: "1000"
-    - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_TIME_WINDOW_IN_MINUTES
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES
       value: "10"
-    - name: NEXT_PUBLIC_ALERTS_TAB_MAX_RESULT_SIZE
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE
       value: "100"
     - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
       value: "0"
@@ -297,7 +304,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
       value: "false"
     - name: NEXT_PUBLIC_ENABLE_CHAT_TAB
-      value: "true"
+      value: "false"
     - name: NEXT_PUBLIC_ENABLE_DASHBOARD_TAB
       value: "true"
     - name: NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS
@@ -317,7 +324,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_RIGHT_MENU_OPEN
       value: "false"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
-      value: "{}"
+      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON
       value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED
@@ -339,15 +346,15 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
       value: "false"
     - name: NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR
-      value: "false"
+      value: "true"
     - name: NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT
       value: "false"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_SIDE_CHATBAR_COLLAPSED
       value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON
-      value: "false"
+      value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
-      value: "Vision Agent"
+      value: "VSS Agent"
     - name: NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX
       value: "true"
     - name: NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON
@@ -395,8 +402,8 @@ vssIngress:
   phoenixPort: 6006
 
 # RTVI umbrella: LVS always-on rtvi-vlm. useSharedNim: true reuses the nvidia-cosmos-reason2-8b NIM (no extra GPU)
-# instead of loading a model in-pod. LVS does not deploy Kafka (infra.kafka absent), so the Kafka init container and
-# KAFKA_ENABLED are turned off — RTVI is driven over HTTP by the LVS backend (RTVI_VLM_URL) and vss-agent (RTVI_VLM_BASE_URL).
+# instead of loading a model in-pod. LVS deploys Kafka so RTVI can publish mdx-vlm events while the LVS backend
+# and vss-agent continue to call RTVI over HTTP.
 rtvi:
   enabled: true
   vss-rtvi-cv:
@@ -411,10 +418,10 @@ rtvi:
     # Shared NIM target — same default as sharedNimService; shown here for clarity (matches vlmNameSlug at chart root).
     vlmNameSlug: nvidia-cosmos-reason2-8b
     sharedNimPort: "8000"
-    # LVS has no Kafka in infra; skip the wait-for-kafka init container.
+    # Wait for the LVS Kafka broker and RTVI topics created by infra.kafka.topicJob.
     waitForKafka:
-      enabled: false
-    # Docker parity: shape from services/rtvi/charts/rtvi-vlm/values.yaml with KAFKA_ENABLED flipped to false.
+      enabled: true
+    # Docker parity: shape from services/rtvi/charts/rtvi-vlm/values.yaml.
     # Full list is required because the subchart replaces `env` rather than merging.
     env:
       - name: OPENAI_API_KEY
@@ -427,9 +434,8 @@ rtvi:
         value: "all"
       - name: VLM_MODEL_TO_USE
         value: "openai-compat"
-      # LVS does not deploy Kafka — disable Kafka producer to avoid connection errors.
       - name: KAFKA_ENABLED
-        value: "false"
+        value: "true"
       - name: KAFKA_TOPIC
         value: "mdx-vlm"
       - name: KAFKA_INCIDENT_TOPIC

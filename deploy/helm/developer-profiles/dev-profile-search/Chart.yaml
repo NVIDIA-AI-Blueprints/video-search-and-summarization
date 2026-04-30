@@ -27,7 +27,10 @@ description: |
     - vss-agent-ui          : VSS UI frontend
     - nims                  : NVIDIA NIM models (Nemotron Nano 9B v2 LLM + Cosmos Reason2 8B VLM)
 
-  Installation – select GPU type with a single flag:
+  Installation – from deploy/helm/developer-profiles, vendor subcharts (required):
+    helm dependency build ./dev-profile-search
+
+  Then select GPU type with a single flag:
     # H100 (default)
     helm install vss-search ./dev-profile-search \
       --set global.externalHost=<NODE_IP> \
@@ -54,7 +57,7 @@ version: 26.04.2
 appVersion: "26.02.3"
 keywords:
   - metropolis
-  - developer-workflow
+  - developer-profiles
   - search-profile
   - vss
   - video-search
