@@ -27,7 +27,7 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 
 from vss_agents.api.rtsp_stream_api import register_rtsp_stream_api_routes
 from vss_agents.api.video_delete import register_video_delete_routes
-from vss_agents.api.video_search_ingest import register_streaming_routes
+from vss_agents.api.video_search_ingest import register_video_search_ingest_routes
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         )
 
         if enable_videos_for_search:
-            register_streaming_routes(app, self.config)
+            register_video_search_ingest_routes(app, self.config)
 
         if enable_rtsp_streams:
             register_rtsp_stream_api_routes(app, self.config)

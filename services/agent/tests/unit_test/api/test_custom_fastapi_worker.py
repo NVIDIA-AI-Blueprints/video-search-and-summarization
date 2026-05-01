@@ -70,7 +70,7 @@ def patched_register_fns():
     """Patch the three register fns the dispatcher delegates to so we can
     inspect which ones were called for a given capability set."""
     with (
-        patch("vss_agents.api.custom_fastapi_worker.register_streaming_routes") as videos_for_search,
+        patch("vss_agents.api.custom_fastapi_worker.register_video_search_ingest_routes") as videos_for_search,
         patch("vss_agents.api.custom_fastapi_worker.register_rtsp_stream_api_routes") as rtsp_streams,
         patch("vss_agents.api.custom_fastapi_worker.register_video_delete_routes") as video_delete,
     ):
