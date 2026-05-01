@@ -27,7 +27,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from lib.knowledge.adapters.frag_api import _failure, _normalise_search_result
+from lib.knowledge.adapters.frag_api import _failure, _filters_to_expr, _normalise_search_result
 from lib.knowledge.base import BackendAdapter
 from lib.knowledge.factory import register_adapter
 from lib.knowledge.schema import Chunk, RetrievalResult
@@ -101,20 +101,27 @@ class FragLibAdapter(BackendAdapter):
         top_k: int = 5,
         filters: Callable[[Chunk], bool] | dict[str, Any] | None = None,
     ) -> RetrievalResult:
+        # Dict filters are translated to a Milvus filter_expr (same shape as
+        # frag_api) and pushed down via nvidia_rag.search(filter_expr=...).
+        # Predicate (callable) filters are applied client-side after retrieval.
+        search_kwargs: dict[str, Any] = {
+            "query": query,
+            "collection_names": [collection_name],
+            "reranker_top_k": top_k or self._reranker_top_k,
+        }
+        filter_expr = _filters_to_expr(filters)
+        if filter_expr:
+            search_kwargs["filter_expr"] = filter_expr
+
         try:
-            citations = await self._rag_client.search(
-                query=query,
-                collection_names=[collection_name],
-                reranker_top_k=top_k or self._reranker_top_k,
-            )
+            citations = await self._rag_client.search(**search_kwargs)
         except Exception as e:
             logger.exception("frag_lib search failed")
             return _failure(query, self.backend_name, f"In-process RAG search failed: {str(e)[:100]}")
 
         chunks = _citations_to_chunks(citations)
 
-        # Predicate filters applied client-side; nvidia-rag filter_expr
-        # would have been pushed at construction time if supported.
+        # Predicate filters always applied client-side.
         if callable(filters):
             chunks = [c for c in chunks if filters(c)]
 

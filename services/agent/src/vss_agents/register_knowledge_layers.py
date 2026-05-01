@@ -202,10 +202,11 @@ class KnowledgeRetrievalInput(BaseModel):
     filters: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Optional metadata filters. Pass equality predicates as a flat dict "
-            "(e.g. {\"category\": \"safety\"}) — these are pushed down to the backend's "
-            "native filter syntax when supported. Pass {\"filter_expr\": \"<raw expression>\"} "
-            "to send a backend-native filter expression directly."
+            "Optional metadata filter. Use shape "
+            "{\"filter_expr\": 'content_metadata[\"<field>\"] == \"<value>\"'}. "
+            "Example: {\"filter_expr\": 'content_metadata[\"filename\"] == \"Forklift.pdf\"'}. "
+            "Filterable fields are declared in the collection's metadata_schema "
+            "(typically filename, page_number). Omit to search the full collection."
         ),
     )
 
