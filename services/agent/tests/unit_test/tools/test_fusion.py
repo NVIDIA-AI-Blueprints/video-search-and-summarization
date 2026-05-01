@@ -74,10 +74,25 @@ _D_310 = 190  # 00:03:10 -> 190 s
 _D_500 = 300  # 00:05:00 -> 300 s
 
 
+# Per-space weights the warehouse fixture's assertions encode (e.g.
+# `1/61 + 0.5/62`). Pass to fuse() / run_fusion() so the math sees the
+# same values that used to live on `RankedList.weight`.
+_WAREHOUSE_WEIGHTS: dict[str, float] = {"embed": 1.0, "attribute": 0.5}
+
+
+def _neutral_weights(lists: list[RankedList]) -> dict[str, float]:
+    """Build a ``{space: 1.0}`` dict for tests that don't care about weights.
+
+    ``fuse()`` / ``run_fusion()`` require an explicit complete weights dict
+    (no ``None`` shortcut). This helper expresses "no weighting" as the
+    explicit ``w_i = 1.0`` per space the math actually needs.
+    """
+    return {rl.space: 1.0 for rl in lists}
+
+
 def _warehouse_embed_list() -> RankedList:
     return RankedList(
         space="embed",
-        weight=1.0,
         chunks=[
             _chunk(_W, _W_125, 0.84, 1),
             _chunk(_W, _W_130, 0.81, 2),
@@ -90,7 +105,6 @@ def _warehouse_embed_list() -> RankedList:
 def _warehouse_attribute_list() -> RankedList:
     return RankedList(
         space="attribute",
-        weight=0.5,
         chunks=[
             _chunk(_W, _W_130, 0.71, 1),
             _chunk(_W, _W_125, 0.69, 2),
@@ -148,7 +162,6 @@ class TestBucketize:
         # collapse to bucket [0, 5); max score wins; ranks recomputed.
         rl = RankedList(
             space="embed",
-            weight=1.0,
             chunks=[
                 _chunk("s", 0, 0.50, 1),
                 # Build a non-snapped start to verify bucketize snaps it down.
@@ -183,7 +196,6 @@ class TestBucketize:
         rl = _warehouse_embed_list()
         out = bucketize(rl, 5)
         assert out.space == rl.space
-        assert out.weight == rl.weight
         assert [c.key for c in out.chunks] == [c.key for c in rl.chunks]
         assert [c.score for c in out.chunks] == [c.score for c in rl.chunks]
         assert [c.rank for c in out.chunks] == [c.rank for c in rl.chunks]
@@ -193,7 +205,6 @@ class TestBucketize:
         # After dedupe + sort by score desc, ranks must be 1, 2.
         rl = RankedList(
             space="embed",
-            weight=1.0,
             chunks=[
                 _chunk("s", 0, 0.30, 1),  # bucket [0, 5) - loses to 0.5
                 _chunk("s", 5, 0.40, 2),  # bucket [5, 10)
@@ -217,7 +228,6 @@ class TestBucketize:
     def test_does_not_merge_across_sensors(self):
         rl = RankedList(
             space="embed",
-            weight=1.0,
             chunks=[
                 _chunk("a", 0, 0.5, 1),
                 _chunk("b", 0, 0.6, 2),
@@ -243,6 +253,7 @@ class TestFuseRRF:
             [_warehouse_embed_list(), _warehouse_attribute_list()],
             method="rrf",
             rrf_k=60,
+            weights=_WAREHOUSE_WEIGHTS,
         )
         rows = sorted(fused.values(), key=lambda r: r.score, reverse=True)
 
@@ -274,9 +285,10 @@ class TestFuseRRF:
 
     def test_missing_rank_contributes_zero(self):
         # A chunk in space A but absent from space B: the B contribution is 0.
-        a_only = RankedList(space="A", weight=1.0, chunks=[_chunk("s", 0, 0.5, 1)])
-        b_only = RankedList(space="B", weight=1.0, chunks=[_chunk("s", 100, 0.5, 1)])
-        fused = fuse([a_only, b_only], method="rrf", rrf_k=60)
+        a_only = RankedList(space="A", chunks=[_chunk("s", 0, 0.5, 1)])
+        b_only = RankedList(space="B", chunks=[_chunk("s", 100, 0.5, 1)])
+        lists = [a_only, b_only]
+        fused = fuse(lists, method="rrf", rrf_k=60, weights=_neutral_weights(lists))
         # Two distinct keys, each scored only by its source space.
         assert len(fused) == 2
         for row in fused.values():
@@ -292,6 +304,7 @@ class TestFuseWeightedLinear:
         fused = fuse(
             [_warehouse_embed_list(), _warehouse_attribute_list()],
             method="weighted_linear",
+            weights=_WAREHOUSE_WEIGHTS,
         )
         rows = sorted(fused.values(), key=lambda r: r.score, reverse=True)
 
@@ -319,7 +332,6 @@ class TestFuseWeightedLinear:
         # change order under weighted_linear.
         original = RankedList(
             space="A",
-            weight=1.0,
             chunks=[
                 _chunk("s", 0, 0.50, 1),
                 _chunk("s", 5, 0.40, 2),
@@ -328,15 +340,14 @@ class TestFuseWeightedLinear:
         )
         scaled = RankedList(
             space="A",
-            weight=1.0,
             chunks=[
                 _chunk("s", 0, 50.0, 1),
                 _chunk("s", 5, 40.0, 2),
                 _chunk("s", 10, 30.0, 3),
             ],
         )
-        a = fuse([original], method="weighted_linear")
-        b = fuse([scaled], method="weighted_linear")
+        a = fuse([original], method="weighted_linear", weights=_neutral_weights([original]))
+        b = fuse([scaled], method="weighted_linear", weights=_neutral_weights([scaled]))
         a_order = [r.key.start for r in sorted(a.values(), key=lambda r: r.score, reverse=True)]
         b_order = [r.key.start for r in sorted(b.values(), key=lambda r: r.score, reverse=True)]
         assert a_order == b_order
@@ -345,16 +356,28 @@ class TestFuseWeightedLinear:
         # All scores equal -> spread=0 -> norm=1.0 for every chunk (no NaN).
         rl = RankedList(
             space="A",
-            weight=1.0,
             chunks=[_chunk("s", 0, 0.5, 1), _chunk("s", 5, 0.5, 2)],
         )
-        fused = fuse([rl], method="weighted_linear")
+        fused = fuse([rl], method="weighted_linear", weights=_neutral_weights([rl]))
         for row in fused.values():
             assert row.score == pytest.approx(1.0)
 
     def test_unknown_method_raises(self):
         with pytest.raises(ValueError):
-            fuse([], method="bogus", rrf_k=60)  # type: ignore[arg-type]
+            fuse([], method="bogus", rrf_k=60, weights={})  # type: ignore[arg-type]
+
+    def test_partial_weights_dict_raises_key_error(self):
+        """Fail-loud invariant: partial ``weights`` dict raises KeyError.
+
+        Catches the misconfig where a new embedding space is added to a
+        request but no weight entry exists for it. The NAT wrapper guarantees
+        completeness via ``setdefault(rl.space, config.space_weights_default)``;
+        this test pins the invariant at the pure-algorithm layer.
+        """
+        a = RankedList(space="A", chunks=[_chunk("s", 0, 0.5, 1)])
+        b_unmapped = RankedList(space="B", chunks=[_chunk("s", 5, 0.5, 1)])
+        with pytest.raises(KeyError, match="B"):
+            fuse([a, b_unmapped], method="rrf", rrf_k=60, weights={"A": 1.0})
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +401,6 @@ class TestApplyPerSpaceFilter:
         # Two of three chunks pass; surviving ranks must be 1 and 2.
         rl = RankedList(
             space="A",
-            weight=1.0,
             chunks=[
                 _chunk("s", 0, 0.10, 1),  # drops
                 _chunk("s", 5, 0.90, 2),  # survives, becomes rank 1
@@ -405,10 +427,10 @@ class TestGlobalFilters:
     """Vote-count gate, top-N exemption, ratio floor."""
 
     def _two_space_fused(self):
-        # fixture, post-fusion (no merging). Convenient input for
-        # global-filter tests.
+        # Returns fused results for global filter tests, using the standard warehouse weights.
+
         bucketed = [bucketize(_warehouse_embed_list(), 5), bucketize(_warehouse_attribute_list(), 5)]
-        return fuse(bucketed, method="rrf", rrf_k=60)
+        return fuse(bucketed, method="rrf", rrf_k=60, weights=_WAREHOUSE_WEIGHTS)
 
     def test_min_contributing_spaces_2_drops_single_space_hits(self):
         fused = self._two_space_fused()
@@ -440,7 +462,7 @@ class TestGlobalFilters:
         # With k=60, w=[1.0, 0.5], ratio=0.5 -> threshold = 0.5 * 0.02459 = 0.01230.
         fused = self._two_space_fused()
         lists = [_warehouse_embed_list(), _warehouse_attribute_list()]
-        threshold = compute_score_threshold("rrf", rrf_k=60, lists=lists, fraction=0.5)
+        threshold = compute_score_threshold("rrf", rrf_k=60, lists=lists, weights=_WAREHOUSE_WEIGHTS, fraction=0.5)
         out = apply_global_filters(
             fused,
             min_contributing_spaces=1,
@@ -468,7 +490,9 @@ class TestGlobalFilters:
             min_contributing_spaces=2,
             keep_if_top_n_in_any_space=1,  # rank-1 anywhere -> keep
             # would otherwise drop nearly everything
-            score_threshold=compute_score_threshold("rrf", rrf_k=60, lists=lists, fraction=0.99),
+            score_threshold=compute_score_threshold(
+                "rrf", rrf_k=60, lists=lists, weights=_WAREHOUSE_WEIGHTS, fraction=0.99
+            ),
         )
         # Each space's rank-1 chunk must survive; vote-count and ratio
         # filters are bypassed for top-N exempt rows.
@@ -481,39 +505,55 @@ class TestComputeScoreThreshold:
     """compute_score_threshold returns a fraction of the maximum possible fused score (ceiling)."""
 
     @staticmethod
-    def _list(space: str, weight: float) -> RankedList:
-        return RankedList(space=space, weight=weight, chunks=[_chunk(_W, _W_125, 0.5, 1)])
+    def _list(space: str) -> RankedList:
+        return RankedList(space=space, chunks=[_chunk(_W, _W_125, 0.5, 1)])
 
     def test_rrf_ceiling(self):
         # ceiling = Σ w_i / (k + 1); fraction=1.0 returns the full ceiling.
-        lists = [self._list("a", 1.0), self._list("b", 0.5)]
-        assert compute_score_threshold("rrf", rrf_k=60, lists=lists, fraction=1.0) == pytest.approx(1.5 / 61)
+        lists = [self._list("a"), self._list("b")]
+        weights = {"a": 1.0, "b": 0.5}
+        assert compute_score_threshold("rrf", rrf_k=60, lists=lists, weights=weights, fraction=1.0) == pytest.approx(
+            1.5 / 61
+        )
 
     def test_weighted_linear_ceiling(self):
         # ceiling = Σ w_i (max-normalized); fraction=1.0 returns the full ceiling.
-        lists = [self._list("a", 1.0), self._list("b", 0.5), self._list("c", 0.4)]
-        assert compute_score_threshold("weighted_linear", rrf_k=60, lists=lists, fraction=1.0) == pytest.approx(1.9)
+        lists = [self._list("a"), self._list("b"), self._list("c")]
+        weights = {"a": 1.0, "b": 0.5, "c": 0.4}
+        assert compute_score_threshold(
+            "weighted_linear", rrf_k=60, lists=lists, weights=weights, fraction=1.0
+        ) == pytest.approx(1.9)
 
     def test_fraction_scales_ceiling(self):
         # fraction=0.5 -> threshold is half the ceiling.
-        lists = [self._list("a", 1.0)]
-        assert compute_score_threshold("rrf", rrf_k=60, lists=lists, fraction=0.5) == pytest.approx(0.5 / 61)
+        lists = [self._list("a")]
+        weights = {"a": 1.0}
+        assert compute_score_threshold("rrf", rrf_k=60, lists=lists, weights=weights, fraction=0.5) == pytest.approx(
+            0.5 / 61
+        )
 
     def test_empty_lists_excluded_from_ceiling(self):
         # A list with no chunks contributes 0 to every fused score, so its weight
         # MUST NOT count toward the ceiling. Otherwise the threshold over-tightens
         # and drops legitimate survivors.
-        populated = self._list("a", 1.0)
-        empty = RankedList(space="b", weight=1.0, chunks=[])
+        populated = self._list("a")
+        empty = RankedList(space="b", chunks=[])
+        weights = {"a": 1.0, "b": 1.0}
         # Buggy ceiling would be (1.0 + 1.0) / 61 = 2/61.
         # Fixed ceiling skips the empty list -> 1.0 / 61 = 1/61.
-        assert compute_score_threshold("rrf", rrf_k=60, lists=[populated, empty], fraction=1.0) == pytest.approx(1 / 61)
+        assert compute_score_threshold(
+            "rrf", rrf_k=60, lists=[populated, empty], weights=weights, fraction=1.0
+        ) == pytest.approx(1 / 61)
 
     def test_zero_weight_does_not_inflate_ceiling(self):
-        # A weight=0 list is a "disabled space": adds 0 to every fused score, so
-        # it must add 0 to the ceiling - matching the disabled-space intent end-to-end.
-        lists = [self._list("a", 1.0), self._list("b", 0.0)]
-        assert compute_score_threshold("rrf", rrf_k=60, lists=lists, fraction=1.0) == pytest.approx(1 / 61)
+        # A weight=0 entry in the weights dict is a "disabled space": adds 0 to every
+        # fused score, so it must add 0 to the ceiling - matching the disabled-space
+        # intent end-to-end.
+        lists = [self._list("a"), self._list("b")]
+        weights = {"a": 1.0, "b": 0.0}
+        assert compute_score_threshold("rrf", rrf_k=60, lists=lists, weights=weights, fraction=1.0) == pytest.approx(
+            1 / 61
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -659,7 +699,7 @@ class TestRunFusion:
             merge_gap_chunks=0,
             # default segment_score_aggregation="mean"
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights=_WAREHOUSE_WEIGHTS)
 
         # Warehouse_01 merges to one 15s segment;
         # dock @ 00:03:10 and dock @ 00:05:00 stay as two separate 5s segments.
@@ -705,7 +745,7 @@ class TestRunFusion:
             per_space_min_score={"attribute": 0.5},
             top_k_segments=10,
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights=_WAREHOUSE_WEIGHTS)
         # dock @ 00:05:00 was attribute-only at 0.41 -> filtered out.
         sensor_starts = {(s.sensor_id, s.start) for s in out.segments}
         assert (_D, _ts(_D_500)) not in sensor_starts
@@ -724,12 +764,10 @@ class TestRunFusion:
         #   fixed ceiling = 1.0 / 61         = 1/61   -> threshold 0.6 * 1/61 = 0.6/61 -> KEEP (1/61 > 0.6/61)
         embed = RankedList(
             space="embed",
-            weight=1.0,
             chunks=[_chunk(_W, _W_125, 0.9, 1)],
         )
         attribute = RankedList(
             space="attribute",
-            weight=1.0,
             chunks=[_chunk(_W, _W_125, 0.5, 1)],
         )
         inp = FusionInput(
@@ -740,7 +778,7 @@ class TestRunFusion:
             per_space_min_score={"attribute": 0.99},
             min_fused_score_ratio=0.6,
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights={"embed": 1.0, "attribute": 1.0})
 
         assert len(out.segments) == 1
         assert out.segments[0].sensor_id == _W
@@ -753,8 +791,8 @@ class TestRunFusion:
             "lists": [_warehouse_embed_list(), _warehouse_attribute_list()],
             "top_k_segments": None,
         }
-        baseline = run_fusion(FusionInput(**common, min_fused_score_ratio=None))
-        zero = run_fusion(FusionInput(**common, min_fused_score_ratio=0.0))
+        baseline = run_fusion(FusionInput(**common, min_fused_score_ratio=None), weights=_WAREHOUSE_WEIGHTS)
+        zero = run_fusion(FusionInput(**common, min_fused_score_ratio=0.0), weights=_WAREHOUSE_WEIGHTS)
         assert [s.fused_score for s in zero.segments] == [s.fused_score for s in baseline.segments]
 
     def test_min_fused_score_ratio_one_keeps_only_ceiling_equivalent(self):
@@ -762,7 +800,6 @@ class TestRunFusion:
         # (off-by-one guard: filter uses score < threshold, so equality keeps).
         embed = RankedList(
             space="embed",
-            weight=1.0,
             chunks=[
                 _chunk(_W, _W_125, 0.9, 1),  # rank 1 in BOTH spaces -> ties ceiling
                 _chunk(_D, _D_310, 0.5, 2),
@@ -770,7 +807,6 @@ class TestRunFusion:
         )
         attribute = RankedList(
             space="attribute",
-            weight=1.0,
             chunks=[
                 _chunk(_W, _W_125, 0.9, 1),  # rank 1 in BOTH spaces -> ties ceiling
                 _chunk(_D, _D_500, 0.5, 2),
@@ -783,7 +819,7 @@ class TestRunFusion:
             min_fused_score_ratio=1.0,
             merge_adjacent=False,
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights={"embed": 1.0, "attribute": 1.0})
         assert len(out.segments) == 1
         assert out.segments[0].sensor_id == _W
         assert out.segments[0].start == _ts(_W_125)
@@ -795,7 +831,7 @@ class TestRunFusion:
             min_contributing_spaces=2,
             top_k_segments=10,
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
         # Only warehouse_01 has cross-validation; merges into one segment.
         # The lone warehouse_01 @ 00:01:35 chunk (embed-only) is dropped, so
         # the merged segment shrinks to 10s.
@@ -814,8 +850,8 @@ class TestRunFusion:
             "merge_adjacent": False,
             "top_k_segments": None,
         }
-        baseline = run_fusion(FusionInput(**common, min_contributing_spaces=1))
-        zero = run_fusion(FusionInput(**common, min_contributing_spaces=0))
+        baseline = run_fusion(FusionInput(**common, min_contributing_spaces=1), weights=_WAREHOUSE_WEIGHTS)
+        zero = run_fusion(FusionInput(**common, min_contributing_spaces=0), weights=_WAREHOUSE_WEIGHTS)
         assert {s.start for s in zero.segments} == {s.start for s in baseline.segments}
 
     def test_top_k_segments_caps_response_length(self):
@@ -825,7 +861,7 @@ class TestRunFusion:
             lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
             top_k_segments=1,
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
         assert len(out.segments) == 1
 
     def test_merge_adjacent_false_yields_one_segment_per_chunk(self):
@@ -834,7 +870,7 @@ class TestRunFusion:
             merge_adjacent=False,
             top_k_segments=10,
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
         # 5 unique chunks across the two spaces, no merging.
         assert len(out.segments) == 5
         for seg in out.segments:
@@ -842,7 +878,7 @@ class TestRunFusion:
             assert seg.end - seg.start == timedelta(seconds=5)
 
     def test_empty_lists_produce_empty_output(self):
-        out = run_fusion(FusionInput(lists=[]))
+        out = run_fusion(FusionInput(lists=[]), weights={})
         assert out.segments == []
 
     def test_single_list_fusion_preserves_input_ranking(self):
@@ -855,30 +891,28 @@ class TestRunFusion:
             merge_adjacent=False,
             top_k_segments=None,
         )
-        out = run_fusion(inp)
+        out = run_fusion(inp, weights={"embed": 1.0})
         assert [s.fused_score for s in out.segments] == pytest.approx([1 / 61, 1 / 62, 1 / 63, 1 / 64])
         for seg in out.segments:
             assert seg.contributing_spaces == ["embed"]
 
     def test_descending_sort_by_fused_score(self):
-        out = run_fusion(
-            FusionInput(
-                lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
-                merge_adjacent=False,
-                top_k_segments=10,
-            )
+        inp = FusionInput(
+            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            merge_adjacent=False,
+            top_k_segments=10,
         )
+        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
         scores = [s.fused_score for s in out.segments]
         assert scores == sorted(scores, reverse=True)
 
     def test_top_k_segments_none_returns_all_survivors(self):
-        out = run_fusion(
-            FusionInput(
-                lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
-                top_k_segments=None,
-                merge_adjacent=False,
-            )
+        inp = FusionInput(
+            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            top_k_segments=None,
+            merge_adjacent=False,
         )
+        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
         # No cap -> all 5 unique chunks survive default min_contributing_spaces=1.
         assert len(out.segments) == 5
 
@@ -897,7 +931,6 @@ class TestRunFusion:
         """
         embed = RankedList(
             space="embed",
-            weight=1.0,
             chunks=[
                 _chunk("cam-1", 0, 0.9, 1),
                 _chunk("cam-2", 0, 0.8, 2),
@@ -905,15 +938,15 @@ class TestRunFusion:
         )
         attribute = RankedList(
             space="attribute",
-            weight=1.0,
             chunks=[
                 _chunk("cam-2", 0, 0.9, 1),
                 _chunk("cam-1", 0, 0.8, 2),
             ],
         )
+        weights = {"embed": 1.0, "attribute": 1.0}
 
-        fwd = run_fusion(FusionInput(lists=[embed, attribute], merge_adjacent=False, top_k_segments=1))
-        rev = run_fusion(FusionInput(lists=[attribute, embed], merge_adjacent=False, top_k_segments=1))
+        fwd = run_fusion(FusionInput(lists=[embed, attribute], merge_adjacent=False, top_k_segments=1), weights=weights)
+        rev = run_fusion(FusionInput(lists=[attribute, embed], merge_adjacent=False, top_k_segments=1), weights=weights)
 
         assert len(fwd.segments) == 1
         assert len(rev.segments) == 1
@@ -952,7 +985,7 @@ class TestRunFusion:
             ],
         )
 
-        out = run_fusion(FusionInput(lists=[embed, attribute]))
+        out = run_fusion(FusionInput(lists=[embed, attribute]), weights={"embed": 1.0, "attribute": 1.0})
 
         assert len(out.segments) == 1
         assert set(out.segments[0].contributing_spaces) == {"embed", "attribute"}
@@ -961,25 +994,6 @@ class TestRunFusion:
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
-
-
-class TestRankedListContract:
-    """Lock in important contracts for `:class:`RankedList``."""
-
-    def test_negative_weight_rejected(self):
-        with pytest.raises(ValidationError):
-            RankedList(space="embed", weight=-0.1)
-
-    @pytest.mark.parametrize("bad_weight", [math.nan, math.inf, -math.inf])
-    def test_non_finite_weight_rejected(self, bad_weight):
-        """Loud failure: NaN/Inf weight in -> ValidationError out.
-
-        A NaN weight propagates through every fused_score and the
-        theoretical ceiling. An Inf weight steamrolls every score gate.
-        Reject at the model boundary so downstream math stays trusting.
-        """
-        with pytest.raises(ValidationError):
-            RankedList(space="embed", weight=bad_weight)
 
 
 class TestRankedChunkContract:
