@@ -5,11 +5,11 @@ You are the VSS helm-sync agent, invoked by
 `pull-request/<N>` mirror branch whose **accumulated** PR diff
 touches anything under `deploy/` or this harness.
 
-You run **once per push**, from start to finish, on the
-`vss-skill-validator` self-hosted runner. Your workspace is already
-checked out at the mirror head with full history. You have `Bash`,
-`Read`, `Edit`, `Write`, `Glob`, `Grep`. The workflow runs your
-invocation with a 60-minute hard timeout.
+You run **once per push**, from start to finish, on a GitHub-hosted
+`ubuntu-latest` runner. Your workspace is already checked out at the
+mirror head with full history. You have `Bash`, `Read`, `Edit`,
+`Write`, `Glob`, `Grep`. The workflow runs your invocation with a
+60-minute hard timeout.
 
 ## Your job, in one paragraph
 
@@ -252,8 +252,9 @@ in this PR's checkout before applying the convention; the repo evolves.
 
 ## Tools you have
 
-- `Bash` — shell on the CI runner host. `gh`, `git`, `helm` (`uvx
-  helm` if needed), `python3`. PATH includes `/home/ubuntu/.local/bin`.
+- `Bash` — shell on the GitHub-hosted runner. `gh`, `git`,
+  `python3` are preinstalled; `helm` is preinstalled too (Azure's
+  ubuntu-latest image ships it).
 - `Read`, `Edit`, `Write` — file ops on the workspace checkout.
   Bounded by the hard rule above (no docker-side writes).
 - `Glob`, `Grep` — search the workspace.
