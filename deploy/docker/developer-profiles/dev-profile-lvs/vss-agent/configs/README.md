@@ -83,7 +83,19 @@ enable_citations: true
 enable_guardrails: false
 ```
 
-Requires the optional extra: `pip install vss_agents[nvidia_rag]`.
+**Lazy runtime install**: `nvidia-rag>=2.4.0` is **not pre-installed** in the
+agent image. The first time the `frag_lib` adapter is constructed (i.e., the
+first agent boot with `backend: frag_lib`), it installs the package via
+`pip install nvidia-rag>=2.4.0` from inside the running container. This takes
+2-5 minutes and requires outbound network access to the NVIDIA pypi index.
+The install is in the container's writable layer and lost on
+`docker compose down` — it re-installs on the next `up`.
+
+If the agent's healthcheck `start_period` (default 240s) is too short for
+the install, bump it to `600s` when running `frag_lib`. For hermetic builds
+with no runtime install, move `nvidia-rag>=2.4.0` from
+`[project.optional-dependencies]` to main `dependencies` in `pyproject.toml`
+and rebuild the image.
 
 ## LVS-specific routing notes
 

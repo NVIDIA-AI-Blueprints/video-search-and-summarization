@@ -41,15 +41,26 @@ class FragLibAdapter(BackendAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
+        # Lazy-install `nvidia-rag` on first construction so the agent image
+        # stays small for `frag_api`-only deployments. The install runs once
+        # per container lifecycle (lost on `docker compose down/up`); pre-bake
+        # the dep into the image if you need hermetic startup or no runtime
+        # network.
         try:
             from nvidia_rag.rag_server.main import NvidiaRAG
             from nvidia_rag.utils.configuration import NvidiaRAGConfig
-        except ImportError as e:
-            raise ImportError(
-                "frag_lib requires the 'nvidia-rag>=2.4.0' package. Install it via "
-                "`pip install vss_agents[nvidia_rag]`, or switch to the 'frag_api' backend "
-                "and point at a deployed rag-server."
-            ) from e
+        except ImportError:
+            _ensure_nvidia_rag_installed()
+            try:
+                from nvidia_rag.rag_server.main import NvidiaRAG
+                from nvidia_rag.utils.configuration import NvidiaRAGConfig
+            except ImportError as e:
+                raise ImportError(
+                    "frag_lib requires the 'nvidia-rag>=2.4.0' package and "
+                    "auto-install failed. Either pre-install it in the image "
+                    "(see services/agent/docker/Dockerfile) or switch to the "
+                    "'frag_api' backend and point at a deployed rag-server."
+                ) from e
 
         rag_config = NvidiaRAGConfig()
 
@@ -135,6 +146,38 @@ class FragLibAdapter(BackendAdapter):
 
     async def health_check(self) -> bool:
         return self._rag_client is not None
+
+
+def _ensure_nvidia_rag_installed() -> None:
+    """Lazily install nvidia-rag>=2.4.0 into the running venv.
+
+    Called from FragLibAdapter.__init__ when the import fails. Runs once per
+    container lifecycle and blocks the caller for ~2-5 minutes the first
+    time. If pip is unavailable or the network is unreachable, surfaces a
+    clear error; the caller then re-raises ImportError pointing at
+    pre-baking the image as the fix.
+    """
+    import subprocess
+    import sys
+
+    logger.warning(
+        "nvidia-rag not installed; performing a one-time runtime install via pip. "
+        "This will take 2-5 minutes the first time this container boots and requires "
+        "outbound network access. Bump the agent's compose healthcheck "
+        "`start_period` if it times out before the install completes."
+    )
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--no-cache-dir", "nvidia-rag>=2.4.0"]
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error("Auto-install of nvidia-rag failed (exit=%d). %s", e.returncode, e)
+        raise
+    except FileNotFoundError as e:
+        # pip not available in the venv (e.g., distroless without --seed)
+        logger.error("pip not available for runtime install: %s", e)
+        raise
+    logger.info("nvidia-rag install complete; proceeding with adapter init.")
 
 
 def _citations_to_chunks(citations: Any) -> list[Chunk]:

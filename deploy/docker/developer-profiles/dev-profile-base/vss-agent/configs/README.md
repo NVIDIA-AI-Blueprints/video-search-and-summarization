@@ -13,7 +13,7 @@ This directory holds the agent's NAT config files for the `base` profile.
 |---|---|---|
 | `config.yml` | **default** | Stock base profile — no knowledge retrieval, agent has only the video tools |
 | `config_frag.yml` | **opt-in** | Full base config + the optional knowledge retrieval layer (search tool) |
-| `config_edge.yml` | (unused today) | Reserved; legacy edge-mode template |
+
 
 NAT loads exactly one config file at startup (`nat serve --config_file <path>`).
 Switching which file the agent uses is the entire opt-in mechanism — there is
@@ -97,15 +97,26 @@ functions:
     enable_guardrails: false
 ```
 
-Requires installing the optional extra in the agent image:
+**Lazy runtime install**: `nvidia-rag>=2.4.0` is **not pre-installed** in the
+agent image. The first time the `frag_lib` adapter is constructed (i.e., the
+first time the agent boots with `backend: frag_lib`), it installs the package
+via `pip install nvidia-rag>=2.4.0` from inside the running container. This
+takes 2-5 minutes and requires outbound network access to the NVIDIA pypi
+index. The install lives in the container's writable layer and is lost on
+`docker compose down` — it re-installs on the next `up`.
 
-```bash
-pip install vss_agents[nvidia_rag]
+If the agent's healthcheck `start_period` (default 240s in
+`vss-agent-docker-compose.yml`) is too short for the install, bump it to
+600s when running `frag_lib`:
+
+```yaml
+healthcheck:
+  start_period: 600s
 ```
 
-This pulls in `nvidia-rag>=2.4.0` plus its dependency tree (protobuf, pyarrow,
-…). Verify there are no conflicts with other extras in your build before
-enabling.
+For hermetic builds (no runtime install, no startup delay, no outbound
+network at boot), pre-bake `nvidia-rag` into the agent image — add it to
+`pyproject.toml` main dependencies and rebuild.
 
 ## Reverting to default
 
