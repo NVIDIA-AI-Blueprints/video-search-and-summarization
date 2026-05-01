@@ -188,8 +188,6 @@ agent:
       # defined in configs/vss-agent/config.yml. Override to `nim` only to bypass RTVI and hit the NIM VLM directly.
       - name: VLM_MODEL_TYPE
         value: rtvi
-      - name: STREAM_MODE
-        value: other
       - name: VSS_AGENT_OBJECT_STORE_TYPE
         value: local_object_store
       - name: EXTERNAL_IP

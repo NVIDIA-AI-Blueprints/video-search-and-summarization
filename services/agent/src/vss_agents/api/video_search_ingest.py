@@ -20,7 +20,6 @@ This bypasses NAT's standard endpoint pattern to support file streaming.
 
 import json
 import logging
-import os
 from typing import Any
 import urllib.parse
 
@@ -493,77 +492,51 @@ def create_streaming_video_ingest_router(
 # This function will be called by custom FastAPI worker to register the router
 def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
     """
-    Register streaming video ingest routes to the FastAPI app.
+    Register streaming video ingest (videos-for-search) routes to the FastAPI app.
 
-    This function is called by custom FastAPI worker during app initialization.
+    Reads configuration from ``general.front_end.streaming_ingest`` in the YAML.
+    The caller (``CustomFastApiFrontEndWorker``) gates this on the
+    ``enable_videos_for_search`` capability flag, so reaching this function
+    with a missing ``streaming_ingest`` is a programming error.
+
+    These routes are search-only: both ``vst_internal_url`` and
+    ``rtvi_embed_base_url`` are required.
 
     Args:
         app: FastAPI application instance
         config: NAT Config object containing application configuration
     """
     try:
-        # Look for streaming_ingest config under general.front_end
         streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
-
-        if streaming_config:
-            # streaming_ingest found in config (NAT supports extra fields)
-            vst_internal_url = getattr(streaming_config, "vst_internal_url", None) or os.getenv("VST_INTERNAL_URL")
-            rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", None)
-            rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
-            rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
-            rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
-            logger.info("Using streaming_ingest config from YAML for search video ingest routes")
-        else:
-            # Fallback: streaming_ingest not found (NAT strips unknown fields)
-            # Use environment variables. Require BOTH host AND port to build a
-            # URL — empty `RTVI_EMBED_PORT` (e.g. base profile, where RTVI isn't
-            # deployed) means RTVI is not configured and the URL stays empty,
-            # so /complete will register but skip the embedding step at request
-            # time instead of hanging on `http://host:` with no resolvable port.
-            vst_internal_url = os.getenv("VST_INTERNAL_URL")
-            host_ip = os.getenv("HOST_IP")
-            rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "")
-            rtvi_cv_port = os.getenv("RTVI_CV_PORT", "")
-            rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip and rtvi_embed_port else ""
-            rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
-            rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
-            rtvi_embed_chunk_duration = 5
-            logger.info("streaming_ingest not in config, using environment variables")
-
-        # Log configuration
-
-        # Validate required fields
-        if not vst_internal_url:
-            logger.error("VST_INTERNAL_URL not set in environment or config")
-            raise ValueError("VST_INTERNAL_URL environment variable must be set")
-
-        if not rtvi_embed_base_url:
-            # When the YAML explicitly configures streaming_ingest, a missing
-            # rtvi_embed_base_url is a config bug — fail loud.
-            if streaming_config is not None:
-                logger.error("streaming_ingest configured but rtvi_embed_base_url is missing")
-                raise ValueError("rtvi_embed_base_url must be set when streaming_ingest is configured")
-            # Env-var fallback path with RTVI ports unset (e.g. base profile,
-            # where RTVI isn't deployed). Register the routes anyway so the UI
-            # gets 200 instead of 404; the /complete handler will skip the
-            # embedding step at request time when the URL is unset.
-            logger.warning(
-                "RTVI not configured (HOST_IP=%r RTVI_EMBED_PORT=%r); "
-                "/complete routes will register but skip embedding generation",
-                os.getenv("HOST_IP", ""),
-                os.getenv("RTVI_EMBED_PORT", ""),
+        if streaming_config is None:
+            raise ValueError(
+                "streaming_ingest must be configured under general.front_end to register videos-for-search routes"
             )
 
-        # Create and register router with config
+        vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
+        rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", "") or ""
+        rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
+        rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
+        rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+
+        if not vst_internal_url:
+            raise ValueError("streaming_ingest.vst_internal_url must be set for videos-for-search routes")
+
+        if not rtvi_embed_base_url:
+            raise ValueError(
+                "streaming_ingest.rtvi_embed_base_url must be set for videos-for-search routes "
+                "(this endpoint is search-only and requires the embedding service)"
+            )
+
         router = create_streaming_video_ingest_router(
             vst_internal_url=vst_internal_url,
-            rtvi_embed_base_url=rtvi_embed_base_url or "",
-            rtvi_cv_base_url=rtvi_cv_base_url or "",
+            rtvi_embed_base_url=rtvi_embed_base_url,
+            rtvi_cv_base_url=rtvi_cv_base_url,
             rtvi_embed_model=rtvi_embed_model,
             rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
         )
         app.include_router(router)
-        logger.info("Successfully registered streaming video ingest route:")
+        logger.info("Registered videos-for-search routes")
     except Exception as e:
-        logger.error(f"Failed to register streaming video ingest route: {e}", exc_info=True)
+        logger.error(f"Failed to register videos-for-search routes: {e}", exc_info=True)
         raise
