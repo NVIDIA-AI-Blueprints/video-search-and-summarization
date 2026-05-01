@@ -28,8 +28,8 @@ from vss_agents.api.video_search_ingest import VideoIngestResponse
 from vss_agents.api.video_search_ingest import VideoUploadCompleteInput
 from vss_agents.api.video_search_ingest import _parse_optional_http_url
 from vss_agents.api.video_search_ingest import _run_post_upload_processing
-from vss_agents.api.video_search_ingest import create_streaming_video_ingest_router
-from vss_agents.api.video_search_ingest import register_streaming_routes
+from vss_agents.api.video_search_ingest import create_video_search_ingest_router
+from vss_agents.api.video_search_ingest import register_video_search_ingest_routes
 
 
 class TestAllowedVideoTypes:
@@ -72,17 +72,17 @@ class TestVideoIngestResponse:
         assert data["chunks_processed"] == 5
 
 
-class TestCreateStreamingVideoIngestRouter:
-    """Test create_streaming_video_ingest_router function."""
+class TestCreateVideoSearchIngestRouter:
+    """Test create_video_search_ingest_router function."""
 
     def test_create_router(self):
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
         assert router is not None
 
     def test_create_router_custom_params(self):
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080",
             rtvi_embed_base_url="http://rtvi:8080",
             rtvi_embed_model="custom-model",
@@ -91,20 +91,20 @@ class TestCreateStreamingVideoIngestRouter:
         assert router is not None
 
     def test_router_has_routes(self):
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
         # Router should have routes registered
         assert len(router.routes) > 0
 
 
-class TestStreamVideoToVstEndpoint:
-    """Test stream_video_to_vst endpoint logic."""
+class TestUploadVideoToVstEndpoint:
+    """Test upload_video_to_vst endpoint logic."""
 
     @pytest.mark.asyncio
     async def test_successful_upload(self):
         """Test successful video upload flow."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -155,7 +155,7 @@ class TestStreamVideoToVstEndpoint:
     @pytest.mark.asyncio
     async def test_missing_content_type(self):
         """Test error when Content-Type header is missing."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -173,7 +173,7 @@ class TestStreamVideoToVstEndpoint:
     @pytest.mark.asyncio
     async def test_invalid_content_type(self):
         """Test error when Content-Type is not allowed."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -194,7 +194,7 @@ class TestStreamVideoToVstEndpoint:
     @pytest.mark.asyncio
     async def test_missing_content_length(self):
         """Test error when Content-Length header is missing."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -212,7 +212,7 @@ class TestStreamVideoToVstEndpoint:
     @pytest.mark.asyncio
     async def test_zero_content_length(self):
         """Test error when Content-Length is zero."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -230,7 +230,7 @@ class TestStreamVideoToVstEndpoint:
     @pytest.mark.asyncio
     async def test_invalid_content_length_format(self):
         """Test error when Content-Length is not a valid integer."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -248,7 +248,7 @@ class TestStreamVideoToVstEndpoint:
     @pytest.mark.asyncio
     async def test_vst_upload_failure(self):
         """Test error when VST upload fails."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -280,7 +280,7 @@ class TestStreamVideoToVstEndpoint:
     @pytest.mark.asyncio
     async def test_filename_without_extension(self):
         """Test handling filename without extension."""
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url="http://vst:8080", rtvi_embed_base_url="http://rtvi:8080"
         )
 
@@ -318,8 +318,8 @@ class TestStreamVideoToVstEndpoint:
             assert response.video_id == "sensor-123"
 
 
-class TestRegisterStreamingRoutes:
-    """Test register_streaming_routes function (videos-for-search routes)."""
+class TestRegisterVideoSearchIngestRoutes:
+    """Test register_video_search_ingest_routes function (videos-for-search routes)."""
 
     def test_register_with_config(self):
         """Test registering routes using config object."""
@@ -335,7 +335,7 @@ class TestRegisterStreamingRoutes:
 
         mock_config.general.front_end.streaming_ingest = mock_streaming_config
 
-        register_streaming_routes(mock_app, mock_config)
+        register_video_search_ingest_routes(mock_app, mock_config)
 
         assert mock_app.include_router.called
 
@@ -346,7 +346,7 @@ class TestRegisterStreamingRoutes:
         mock_config.general.front_end = MagicMock(spec=[])
 
         with pytest.raises(ValueError, match="streaming_ingest"):
-            register_streaming_routes(mock_app, mock_config)
+            register_video_search_ingest_routes(mock_app, mock_config)
 
     def test_register_missing_vst_url_raises(self):
         """streaming_ingest present but vst_internal_url empty must raise."""
@@ -363,7 +363,7 @@ class TestRegisterStreamingRoutes:
         mock_config.general.front_end.streaming_ingest = mock_streaming_config
 
         with pytest.raises(ValueError, match="vst_internal_url"):
-            register_streaming_routes(mock_app, mock_config)
+            register_video_search_ingest_routes(mock_app, mock_config)
 
     def test_register_missing_rtvi_embed_url_raises(self):
         """videos-for-search is search-only — rtvi_embed_base_url is required."""
@@ -380,7 +380,7 @@ class TestRegisterStreamingRoutes:
         mock_config.general.front_end.streaming_ingest = mock_streaming_config
 
         with pytest.raises(ValueError, match="rtvi_embed_base_url"):
-            register_streaming_routes(mock_app, mock_config)
+            register_video_search_ingest_routes(mock_app, mock_config)
 
 
 class TestParseOptionalHttpUrl:

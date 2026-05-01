@@ -14,8 +14,8 @@
 # limitations under the License.
 
 """
-Custom streaming video ingest endpoint for VSS Search.
-This bypasses NAT's standard endpoint pattern to support file streaming.
+Custom video ingest endpoint for VSS Search.
+This bypasses NAT's standard endpoint pattern to support direct file upload to VST.
 """
 
 import json
@@ -280,7 +280,7 @@ async def _run_post_upload_processing(
     )
 
 
-def create_streaming_video_ingest_router(
+def create_video_search_ingest_router(
     vst_internal_url: str,
     rtvi_embed_base_url: str,
     rtvi_cv_base_url: str = "",
@@ -288,7 +288,7 @@ def create_streaming_video_ingest_router(
     rtvi_embed_chunk_duration: int = 5,
 ) -> APIRouter:
     """
-    Create a FastAPI router for streaming video ingest.
+    Create a FastAPI router for video search ingest.
 
     This router handles raw binary data uploads and streams them directly
     to VST without buffering the entire file in memory/disk.
@@ -301,18 +301,18 @@ def create_streaming_video_ingest_router(
         rtvi_embed_chunk_duration: Chunk duration in seconds for embedding generation (default: 5)
 
     Returns:
-        APIRouter with the streaming video ingest route
+        APIRouter with the video search ingest route
     """
     router = APIRouter()
 
     @router.put(
         "/api/v1/videos-for-search/{filename}",
         response_model=VideoIngestResponse,
-        summary="Upload video with streaming (no buffering) to VST",
-        description="Streams video file directly from client to VST without ANY intermediate storage",
+        summary="Upload video to VST",
+        description="Upload video file directly from client to VST without ANY intermediate storage",
         tags=["Video Ingest"],
     )
-    async def stream_video_to_vst(
+    async def upload_video_to_vst(
         filename: str,
         request: Request,
     ) -> VideoIngestResponse:
@@ -448,7 +448,7 @@ def create_streaming_video_ingest_router(
         description=(
             "Called after a chunked upload directly to VST is finished. "
             "Triggers timeline lookup, RTVI-CV registration, and embedding generation. "
-            "This bypasses the streaming PUT endpoint to avoid Cloudflare's 100s timeout "
+            "This bypasses the PUT upload endpoint to avoid Cloudflare's 100s timeout "
             "for large files (the UI uploads chunks directly to VST, then calls this)."
         ),
         tags=["Video Ingest"],
@@ -466,7 +466,7 @@ def create_streaming_video_ingest_router(
         """
         vst_url = vst_internal_url.rstrip("/")
         # Strip the file extension so RTVI-CV's camera_name matches the value
-        # the streaming PUT path produces for the same filename (line ~322).
+        # the PUT upload path produces for the same filename (line ~322).
         camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
         try:
@@ -490,9 +490,9 @@ def create_streaming_video_ingest_router(
 
 
 # This function will be called by custom FastAPI worker to register the router
-def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
+def register_video_search_ingest_routes(app: "FastAPI", config: "Any") -> None:
     """
-    Register streaming video ingest (videos-for-search) routes to the FastAPI app.
+    Register videos-for-search routes to the FastAPI app.
 
     Reads configuration from ``general.front_end.streaming_ingest`` in the YAML.
     The caller (``CustomFastApiFrontEndWorker``) gates this on the
@@ -528,7 +528,7 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
                 "(this endpoint is search-only and requires the embedding service)"
             )
 
-        router = create_streaming_video_ingest_router(
+        router = create_video_search_ingest_router(
             vst_internal_url=vst_internal_url,
             rtvi_embed_base_url=rtvi_embed_base_url,
             rtvi_cv_base_url=rtvi_cv_base_url,
