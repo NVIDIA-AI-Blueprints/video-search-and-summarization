@@ -116,6 +116,17 @@ class TestParseEnvFile:
         }
 
 
+class TestDeriveRtviOpenaiModelId:
+    def test_derive_rtvi_openai_model_id_from_ngc_nim_path(self):
+        assert (
+            dcu.derive_rtvi_openai_model_id("ngc:nim/nvidia/cosmos-reason2-8b:hf-1208")
+            == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        )
+
+    def test_derive_rtvi_openai_model_id_ignores_unrecognized_paths(self):
+        assert dcu.derive_rtvi_openai_model_id("nvidia/cosmos-reason2-8b") is None
+
+
 class TestFirstNonPlaceholder:
     def test_first_non_placeholder_skips_known_placeholders(self):
         result = dcu.first_non_placeholder(
@@ -332,6 +343,7 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
+                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
                 "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
             ),
             profile=dcu.PROFILE_ALERTS,
@@ -355,6 +367,42 @@ class TestBuildResolvedEnv:
         assert resolved["RTVI_VLM_ENDPOINT"] == "http://10.0.0.9:30099/v1"
         assert resolved["LLM_DEVICE_ID"] == "0"
         assert resolved["VLM_DEVICE_ID"] == "1"
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME_SLUG"] == "none"
+
+    def test_build_resolved_env_alerts_local_applies_vlm_runtime_overrides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=2d_cv",
+                "BP_PROFILE=bp_developer_alerts",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=igx",
+                "LLM_MODE=local_shared",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local_shared",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.9",
+                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
+                "RTVI_VLM_MODEL_TO_USE=cosmos-reason2",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+            ),
+            profile=dcu.PROFILE_ALERTS,
+        )
+
+        monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
+        monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME_SLUG"] == "none"
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason2"
 
     def test_build_resolved_env_alerts_thor_applies_shared_vlm_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

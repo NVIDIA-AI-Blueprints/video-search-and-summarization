@@ -238,6 +238,24 @@ def _validate_env_value(key: str, value: str) -> str:
     return value
 
 
+def derive_rtvi_openai_model_id(model_path: str) -> str | None:
+    """Return the RTVI OpenAI-compatible model id for an NGC NIM model path."""
+    model_path = model_path.strip().strip("'\"")
+    prefix = "ngc:nim/"
+    if not model_path.startswith(prefix):
+        return None
+
+    model_ref = model_path.removeprefix(prefix)
+    if ":" not in model_ref:
+        return None
+
+    model_name, model_tag = model_ref.rsplit(":", 1)
+    if not model_name or not model_tag:
+        return None
+
+    return f"nim_{model_name.replace('/', '_')}_{model_tag.replace(':', '_')}"
+
+
 def parse_env_file(path: Path) -> dict[str, str]:
     env: dict[str, str] = {}
     for raw_line in path.read_text().splitlines():
@@ -407,6 +425,12 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
                 f"Supported values: {sorted(config.supported_vlm_models.keys())}"
             )
         merged["VLM_NAME_SLUG"] = config.supported_vlm_models[vlm_name]
+
+    if config.profile == PROFILE_ALERTS and merged["VLM_MODE"] != MODE_REMOTE:
+        rtvi_model_id = derive_rtvi_openai_model_id(merged.get("RTVI_VLM_MODEL_PATH", ""))
+        if rtvi_model_id:
+            merged["VLM_NAME"] = rtvi_model_id
+            merged["VLM_NAME_SLUG"] = MODEL_SLUG_NONE
 
     if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
         merged["LLM_DEVICE_ID"] = config.edge_device_ids["llm"]
