@@ -41,8 +41,8 @@ deploy/
 │   │   ├── alert/compose.yml
 │   │   ├── infra/{Dockerfiles,...}/...
 │   │   └── nim/...
-│   ├── industry-profiles/                             ← stub today
-│   └── scripts/                                       ← not deployments
+│   ├── industry-profiles/                             ← skip (out of scope for now)
+│   └── scripts/                                       ← skip (tooling, not deployments)
 └── helm/
     ├── developer-profiles/
     │   ├── dev-profile-{alerts,base,lvs,search}/
@@ -58,11 +58,11 @@ deploy/
 ```
 
 The helm chart for each `deploy/docker/<path>/<name>/compose.yml`
-lives at `deploy/helm/<path>/<name>/` (mirror layout). Today this
+lives at `deploy/helm/<path>/<name>/` (mirror layout). This
 mirroring is in place for **both** `developer-profiles/*` and
-`services/*`. The only docker subtree without helm parity is
-`industry-profiles/` (a stub today — `.gitkeep` only on both sides),
-plus `scripts/` which isn't a deployment path. Verify the actual
+`services/*` — the two paths the agent walks. `industry-profiles/`
+and `scripts/` are out of scope: skip them entirely and don't
+generate any drift signal for paths under them. Verify the actual
 layout in this PR's checkout before applying the convention; the
 repo evolves.
 
@@ -86,14 +86,17 @@ repo evolves.
 2. **Classify each changed `deploy/` file.** Walk the diff and bucket
    each path:
 
-   - **docker-side** — anything under `deploy/docker/`, including
-     `compose*.y[a]ml`, `Dockerfile*`, files under any `Dockerfiles/`
-     dir, and any `.env` / `.env.example` referenced by a compose file.
-   - **helm-side** — anything under `deploy/helm/`: `Chart.yaml`,
-     `values*.yaml`, `templates/**`, `configs/**`, `charts/**`
-     (subcharts), `Chart.lock`.
-   - **other** — docs, README, scripts, top-level `deploy/*.md`.
-     Skip these.
+   - **docker-side** — anything under `deploy/docker/developer-profiles/`
+     or `deploy/docker/services/`, including `compose*.y[a]ml`,
+     `Dockerfile*`, files under any `Dockerfiles/` dir, and any
+     `.env` / `.env.example` referenced by a compose file.
+   - **helm-side** — anything under `deploy/helm/developer-profiles/`
+     or `deploy/helm/services/`: `Chart.yaml`, `values*.yaml`,
+     `templates/**`, `configs/**`, `charts/**` (subcharts), `Chart.lock`.
+   - **skip entirely** — `deploy/docker/industry-profiles/**`,
+     `deploy/docker/scripts/**`, and any `deploy/*.md` / README /
+     non-deployment file. Don't drift-flag, don't comment, don't
+     bot-PR; treat them as out of scope for this workflow.
 
    For docker-side paths, derive the `<group>` (the relative path
    under `deploy/docker/`) and the candidate helm dir at
@@ -105,16 +108,13 @@ repo evolves.
    → helm   = deploy/helm/developer-profiles/dev-profile-alerts/
    ```
 
-   If the candidate helm dir doesn't exist for the changed path
-   (today: only `deploy/docker/industry-profiles/*` lacks a chart —
-   `developer-profiles/*` and `services/*` both have full helm parity),
-   comment on the source PR with a one-line note ("docker change
-   under `<group>/` has no helm counterpart yet — bootstrap a chart
-   at `deploy/helm/<group>/...` if you want parity") and exit
-   `BLOCKED: no helm counterpart for <path>`. Don't try to scaffold
-   a chart from scratch — that's a deliberate, human-driven decision.
-   Skip `deploy/docker/scripts/` entirely; it's tooling, not a
-   deployment unit.
+   Both `developer-profiles/*` and `services/*` have full helm parity
+   on develop today, so the candidate helm dir always exists for paths
+   in scope. If you ever encounter a docker change in scope whose helm
+   counterpart unexpectedly doesn't exist (chart was deleted, layout
+   restructured), comment on the source PR with a one-line note and
+   exit `BLOCKED: no helm counterpart for <path>`. Don't scaffold a
+   chart from scratch — that's a deliberate, human-driven decision.
 
 3. **For every docker-side change, look up the matching helm
    counterpart and compare semantics.** Concrete signals to check
