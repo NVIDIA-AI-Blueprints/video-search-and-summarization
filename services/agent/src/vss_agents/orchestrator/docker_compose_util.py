@@ -454,7 +454,6 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
 
         if merged["MODE"] == MODE_2D_VLM and merged["VLM_MODE"] != MODE_REMOTE:
             vlm_port = merged.get("VLM_PORT", "").strip() or str(DEFAULT_ALERTS_VLM_PORT)
-            merged["RTVI_VLM_MODEL_PATH"] = MODEL_SLUG_NONE
             merged["RTVI_VLM_ENDPOINT"] = f"http://{host_ip}:{vlm_port}/v1"
 
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
