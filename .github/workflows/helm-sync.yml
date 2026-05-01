@@ -66,6 +66,21 @@ jobs:
           # (NOT just the latest commit).
           fetch-depth: 0
 
+      - name: Set up Python
+        # Isolated Python install (pip in /opt/hostedtoolcache/Python).
+        # ubuntu-24.04's system Python 3.12 has PEP 668 protection
+        # which silently fails `pip install` from the agent's
+        # `_ensure_sdk()` shim. setup-python sidesteps it.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install claude-agent-sdk
+        # Pin the version we test against. Done as an explicit step
+        # so a transient PyPI failure surfaces here rather than as
+        # an opaque ModuleNotFoundError inside the agent script.
+        run: pip install --quiet 'claude-agent-sdk>=0.0.5'
+
       - name: Extract PR number + base
         id: pr
         run: |
