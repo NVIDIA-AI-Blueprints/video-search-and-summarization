@@ -22,10 +22,8 @@ general:
     # Configuration for streaming video ingest endpoint
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      stream_mode: ${STREAM_MODE}  # 'search' for search profile, 'other' for VST only
-      rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT:-8017}
-      rtvi_cv_base_url: http://${HOST_IP}:${RTVI_CV_PORT:-8015}
-      elasticsearch_url: http://${HOST_IP}:${VSS_ES_PORT:-9200}
+      enable_rtsp_streams: true
+      enable_video_delete: true
     endpoints:
     - path: /api/v1/videos
       method: POST

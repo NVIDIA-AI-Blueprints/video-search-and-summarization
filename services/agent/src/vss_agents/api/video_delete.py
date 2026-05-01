@@ -17,14 +17,14 @@
 Delete video API endpoint.
 
 Provides a DELETE endpoint for removing uploaded videos from the system.
-Supports two modes:
-  - "other" (non-search): Deletes from VST only (sensor + storage).
-  - "search": Deletes from Elasticsearch indexes (embed, behavior, raw),
-    RTVI-CV, and VST (reverse of add flow).
+Per-step behavior is driven by what's configured:
+  - VST sensor + storage cleanup: always runs.
+  - RTVI-CV cleanup: runs when ``rtvi_cv_base_url`` is set.
+  - Elasticsearch cleanup (embed, behavior, raw indexes): runs when an
+    ``EsCleanupConfig`` is provided.
 """
 
 import logging
-import os
 from typing import Any
 
 from elasticsearch import AsyncElasticsearch
@@ -54,6 +54,29 @@ class DeleteVideoResponse(BaseModel):
     status: str = Field(..., description="'success', 'partial', or 'failure'")
     message: str = Field(..., description="Human-readable status message")
     video_id: str = Field(..., description="The video/sensor ID that was deleted")
+
+
+class EsCleanupConfig(BaseModel):
+    """Elasticsearch configuration for video-delete cleanup.
+
+    Bundles the ES URL with its index names so callers can't pass index
+    names without a URL (or vice versa). Pass ``None`` to ``create_video_delete_router``
+    when ES cleanup should be skipped entirely.
+    """
+
+    url: str = Field(..., description="Elasticsearch endpoint URL")
+    embed_index: str = Field(
+        default="mdx-embed-filtered-2025-01-01",
+        description="ES index for video embeddings",
+    )
+    behavior_index: str = Field(
+        default="mdx-behavior-2025-01-01",
+        description="ES index for object behavior data",
+    )
+    raw_index: str = Field(
+        default="mdx-raw-2025-01-01",
+        description="ES index for raw detection data",
+    )
 
 
 # ============================================================================
@@ -163,24 +186,22 @@ async def _delete_es_documents(es_endpoint: str, index_pattern: str, id_value: s
 
 def create_video_delete_router(
     vst_internal_url: str,
-    elasticsearch_url: str = "",
     rtvi_cv_base_url: str = "",
-    es_embed_index: str = "mdx-embed-filtered-2025-01-01",
-    es_behavior_index: str = "mdx-behavior-2025-01-01",
-    es_raw_index: str = "mdx-raw-2025-01-01",
-    stream_mode: str = "search",
+    es_config: EsCleanupConfig | None = None,
 ) -> APIRouter:
     """
     Create a FastAPI router for video deletion.
 
+    Per-step behavior is driven by what's configured: ES cleanup runs only
+    when ``es_config`` is provided, RTVI-CV cleanup runs only when
+    ``rtvi_cv_base_url`` is set. VST sensor + storage cleanup always runs.
+
     Args:
         vst_internal_url: Internal VST URL for API calls
-        elasticsearch_url: Elasticsearch endpoint URL (required for search mode)
-        rtvi_cv_base_url: RTVI-CV service URL (for removing video from RTVI-CV in search mode)
-        es_embed_index: ES index for video embeddings
-        es_behavior_index: ES index for object behavior data
-        es_raw_index: ES index for raw detection data
-        stream_mode: "search" deletes from ES + RTVI-CV + VST; "other" deletes from VST only
+        rtvi_cv_base_url: RTVI-CV service URL. Empty = skip RTVI-CV cleanup.
+        es_config: Bundled ES URL + index names. ``None`` = skip ES cleanup.
+            The URL and the index names live together so callers can't supply
+            indexes without a URL.
 
     Returns:
         APIRouter with the delete video route
@@ -196,8 +217,9 @@ def create_video_delete_router(
         summary="Delete an uploaded video",
         description=(
             "Deletes a video by its sensor/video ID (UUID). "
-            "In 'search' mode, also removes from ES and RTVI-CV. "
-            "In 'other' mode, only removes from VST."
+            "ES cleanup runs when es_config is provided; "
+            "RTVI-CV cleanup runs when rtvi_cv_base_url is configured. "
+            "VST sensor + storage are always removed."
         ),
         tags=["Video Management"],
     )
@@ -205,22 +227,18 @@ def create_video_delete_router(
         """
         Delete a video from the system by sensor/video ID.
 
-        This endpoint uses a best-effort approach: it continues even if
-        individual steps fail, and reports the overall result as
-        'success', 'partial', or 'failure'.
+        Best-effort: continues even if individual steps fail and reports the
+        overall result as 'success', 'partial', or 'failure'.
 
-        Non-search mode ('other'):
-          1. Delete sensor from VST
-          2. Delete storage from VST
-
-        Search mode (reverse of add flow):
-          0. Look up sensorName from VST (before any deletions)
-          1. Delete from ES embed index   (by sensor.id = video_id/UUID)
-          2. Delete from ES behavior index (by sensor.id = sensorName)
-          3. Delete from ES raw index      (by sensorId = sensorName)
-          4. Remove from RTVI-CV
-          5. Delete sensor from VST
-          6. Delete storage from VST
+        Steps:
+          0. Look up sensorName from VST (only when ES cleanup will run; needed
+             for behavior/raw index queries).
+          1. ES embed index delete by sensor.id = video_id        (skipped if no es_config)
+          2. ES behavior index delete by sensor.id = sensorName   (skipped if no es_config)
+          3. ES raw index delete by sensorId = sensorName         (skipped if no es_config)
+          4. RTVI-CV remove                                       (skipped if no RTVI-CV URL)
+          5. VST sensor delete
+          6. VST storage delete
 
         Args:
             video_id: The sensor/video UUID (e.g., from the upload response)
@@ -229,15 +247,14 @@ def create_video_delete_router(
             DeleteVideoResponse with overall status
         """
         results: list[bool] = []
-        is_search = stream_mode == "search"
         sensor_name = ""
 
-        logger.info(f"Deleting video '{video_id}' (mode: {stream_mode})")
+        logger.info(f"Deleting video '{video_id}'")
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # --- Step 0: Look up sensorName from VST (search mode only) ---
+            # --- Step 0: Look up sensorName from VST (only when ES cleanup will run) ---
             # Must happen BEFORE any deletions, since we need sensorName for ES queries.
-            if is_search:
+            if es_config is not None:
                 try:
                     with TimeMeasure("video_delete: lookup sensor name from VST"):
                         sensor_name = await get_sensor_id_from_stream_id(video_id, vst_url)
@@ -249,28 +266,28 @@ def create_video_delete_router(
                     )
                     sensor_name = ""
 
-            # --- ES cleanup (search mode only, done first to avoid 'not found' issues) ---
+            # --- ES cleanup (done first to avoid 'not found' issues) ---
             # Each index uses .keyword for exact match (avoids accidental match on similar names):
             #   - mdx-embed-filtered:    sensor.id.keyword  = video_id (UUID/streamId)
             #   - mdx-behavior: sensor.id.keyword  = sensorName
             #   - mdx-raw:      sensorId.keyword   = sensorName
-            if is_search and elasticsearch_url:
+            if es_config is not None:
                 es_index_configs = [
-                    (es_embed_index, "sensor.id.keyword", video_id),
-                    (es_behavior_index, "sensor.id.keyword", sensor_name),
-                    (es_raw_index, "sensorId.keyword", sensor_name),
+                    (es_config.embed_index, "sensor.id.keyword", video_id),
+                    (es_config.behavior_index, "sensor.id.keyword", sensor_name),
+                    (es_config.raw_index, "sensorId.keyword", sensor_name),
                 ]
                 for index_name, field_name, id_value in es_index_configs:
                     if not id_value:
                         logger.warning(f"Skipping ES delete for '{index_name}': no identifier available")
                         continue
                     with TimeMeasure(f"video_delete: ES delete from {index_name}"):
-                        success, msg = await _delete_es_documents(elasticsearch_url, index_name, id_value, field_name)
+                        success, msg = await _delete_es_documents(es_config.url, index_name, id_value, field_name)
                     results.append(success)
                     logger.info(f"Delete from ES '{index_name}': {'OK' if success else msg}")
 
-            # --- Remove from RTVI-CV (search mode only) ---
-            if is_search:
+            # --- Remove from RTVI-CV ---
+            if rtvi_cv_url:
                 with TimeMeasure("video_delete: remove from RTVI-CV"):
                     success, msg = await _remove_from_rtvi_cv(client, rtvi_cv_url, video_id, sensor_name)
                 results.append(success)
@@ -322,56 +339,51 @@ def register_video_delete_routes(app: "FastAPI", config: "Any") -> None:
     """
     Register video delete routes to the FastAPI app.
 
-    Reads configuration from the YAML config (streaming_ingest section)
-    with fallback to environment variables.
+    Reads configuration from ``general.front_end.streaming_ingest`` in the YAML.
+    The caller (``CustomFastApiFrontEndWorker``) gates this on the
+    ``enable_video_delete`` capability flag, so reaching this function with a
+    missing ``streaming_ingest`` is a programming error.
 
     Args:
         app: FastAPI application instance
         config: NAT Config object containing application configuration
+
+    Raises:
+        ValueError: when ``streaming_ingest`` is missing or ``vst_internal_url``
+            is empty. ``elasticsearch_url`` and ``rtvi_cv_base_url`` are
+            optional — empty values cause the corresponding cleanup steps to
+            self-skip at request time.
     """
     try:
-        # Look for streaming_ingest config under general.front_end
         streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
-
-        if streaming_config:
-            # streaming_ingest found in config (NAT supports extra fields)
-            vst_internal_url = getattr(streaming_config, "vst_internal_url", None) or os.getenv("VST_INTERNAL_URL")
-            raw_elasticsearch_url = getattr(streaming_config, "elasticsearch_url", None)
-            elasticsearch_url = (
-                raw_elasticsearch_url
-                if isinstance(raw_elasticsearch_url, str)
-                else os.getenv("ELASTIC_SEARCH_ENDPOINT", "")
+        if streaming_config is None:
+            raise ValueError(
+                "streaming_ingest must be configured under general.front_end to register video delete routes"
             )
-            rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
-            stream_mode = getattr(streaming_config, "stream_mode", None) or os.getenv("STREAM_MODE", "search")
-            logger.info("Using streaming_ingest config from YAML for video delete routes")
-        else:
-            # Fallback to environment variables
-            vst_internal_url = os.getenv("VST_INTERNAL_URL")
-            elasticsearch_url = os.getenv("ELASTIC_SEARCH_ENDPOINT", "")
-            host_ip = os.getenv("HOST_IP")
-            rtvi_cv_port = os.getenv("RTVI_CV_PORT", "9000")
-            rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip else ""
-            stream_mode = os.getenv("STREAM_MODE", "search")
-            logger.info("Using environment variables for video delete routes")
 
-        # Validate required fields
+        vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
+        elasticsearch_url = getattr(streaming_config, "elasticsearch_url", "") or ""
+        rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
+
         if not vst_internal_url:
-            raise ValueError("VST_INTERNAL_URL must be set for video delete routes")
+            raise ValueError("streaming_ingest.vst_internal_url must be set for video delete routes")
 
         # Uploaded videos use a fixed timestamp (2025-01-01) so they always land
-        # in these specific indexes.
+        # in these specific indexes. Only build the ES config when a URL is set;
+        # otherwise pass None and ES cleanup self-skips at request time.
+        es_config = EsCleanupConfig(url=elasticsearch_url) if elasticsearch_url else None
+
         router = create_video_delete_router(
             vst_internal_url=vst_internal_url,
-            elasticsearch_url=elasticsearch_url,
             rtvi_cv_base_url=rtvi_cv_base_url,
-            es_embed_index="mdx-embed-filtered-2025-01-01",
-            es_behavior_index="mdx-behavior-2025-01-01",
-            es_raw_index="mdx-raw-2025-01-01",
-            stream_mode=stream_mode or "search",
+            es_config=es_config,
         )
         app.include_router(router)
-        logger.info(f"Video delete routes registered successfully (mode: {stream_mode})")
+        logger.info(
+            "Video delete routes registered "
+            f"(es={'on' if es_config else 'off'}, "
+            f"rtvi_cv={'on' if rtvi_cv_base_url else 'off'})"
+        )
 
     except Exception as e:
         logger.error(f"Failed to register video delete routes: {e}", exc_info=True)

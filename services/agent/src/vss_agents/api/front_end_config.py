@@ -29,21 +29,54 @@ from pydantic import Field
 
 
 class StreamingIngestConfig(BaseModel):
-    """Configuration for the streaming video ingest and RTSP stream endpoints."""
+    """Configuration for the streaming video ingest and RTSP stream endpoints.
+
+    Each profile YAML declares which custom routes it wants registered via the
+    ``enable_*`` capability flags. Per-route runtime behavior is driven by the
+    presence of the relevant integration URL (e.g. RTVI cleanup steps self-skip
+    when their URL is empty), with one explicit policy flag for the only
+    decision that isn't reducible to URL presence:
+    ``delete_vst_storage_on_stream_remove``.
+
+    Profiles add a new YAML; they don't add code.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     vst_internal_url: str = Field(default="", description="Internal URL for VST service")
+
+    enable_videos_for_search: bool = Field(
+        default=False,
+        description="Register PUT/POST /api/v1/videos-for-search/* (search-only chunked upload)",
+    )
+    enable_rtsp_streams: bool = Field(
+        default=False,
+        description="Register POST /api/v1/rtsp-streams/add and DELETE /api/v1/rtsp-streams/delete/{name}",
+    )
+    enable_video_delete: bool = Field(
+        default=False,
+        description="Register DELETE /api/v1/videos/{video_id}",
+    )
+
+    delete_vst_storage_on_stream_remove: bool = Field(
+        default=True,
+        description=(
+            "Whether DELETE /api/v1/rtsp-streams/delete/{name} also removes the VST storage. "
+            "Search-style deployments leave this False (RTVI manages the storage lifecycle); "
+            "alerts-style and VST-only deployments set it True."
+        ),
+    )
+
     rtvi_embed_base_url: str = Field(default="", description="Base URL for RTVI embedding service")
     rtvi_embed_model: str = Field(default="cosmos-embed1-448p", description="Embedding model name")
     rtvi_embed_chunk_duration: int = Field(default=5, description="Chunk duration in seconds for embedding")
     rtvi_cv_base_url: str = Field(default="", description="Base URL for RTVI CV service")
+    elasticsearch_url: str = Field(default="", description="Elasticsearch endpoint URL")
+    rtvi_embed_es_index: str = Field(default="", description="Elasticsearch index for embeddings")
+
     vlm_mode: str = Field(default="", description="VLM mode (remote/local/local_shared)")
     internal_ip: str = Field(default="", description="Internal IP address of the host")
     external_ip: str = Field(default="", description="External IP address for public-facing URLs")
-    elasticsearch_url: str = Field(default="", description="Elasticsearch endpoint URL")
-    rtvi_embed_es_index: str = Field(default="", description="Elasticsearch index for embeddings")
-    stream_mode: str = Field(default="search", description="'search' for search profile, 'other' for VST only")
 
 
 class VSSFastApiFrontEndConfig(FastApiFrontEndConfig, name="vss_fastapi"):  # type: ignore[call-arg]
