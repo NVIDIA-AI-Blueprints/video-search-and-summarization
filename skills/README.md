@@ -15,6 +15,7 @@ Skills for working with NVIDIA Video Search & Summarization (VSS). Each subdirec
 | [video-summarization](video-summarization/SKILL.md) | Summarize a video by calling the VLM NIM directly or the Long Video Summarization (LVS) service. |
 | [video-understanding](video-understanding/SKILL.md) | Run video understanding to answer text questions about video content. |
 | [vios](vios/SKILL.md) | Query VIOS REST APIs — sensor list, recording timelines, clip extraction, snapshots. |
+| [vss-frag](vss-frag/SKILL.md) | Deploy/integrate the `video_search_frag` extension and generate video summary reports — Long Video Summarization, Enterprise RAG context, HITL parameter collection. |
 
 Skills with `eval/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**` — see [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
