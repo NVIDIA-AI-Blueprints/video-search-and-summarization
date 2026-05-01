@@ -141,7 +141,6 @@ functions:
     chunk_seconds: 5
     method: rrf
     rrf_k: 60
-    space_weights: { embed: 1.0, attribute: 0.5 }
     space_weights_default: 1.0
     per_space_min_score: { attribute: 0.3 }
     min_contributing_spaces: 1

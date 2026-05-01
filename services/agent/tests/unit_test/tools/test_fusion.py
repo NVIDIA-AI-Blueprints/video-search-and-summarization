@@ -75,17 +75,17 @@ _D_500 = 300  # 00:05:00 -> 300 s
 
 
 # Per-space weights the warehouse fixture's assertions encode (e.g.
-# `1/61 + 0.5/62`). Pass to fuse() / run_fusion() so the math sees the
-# same values that used to live on `RankedList.weight`.
+# `1/61 + 0.5/62`). Live on FusionInput.space_weights post-MOEAGENT-708
+# (single source of truth for per-call weights).
 _WAREHOUSE_WEIGHTS: dict[str, float] = {"embed": 1.0, "attribute": 0.5}
 
 
 def _neutral_weights(lists: list[RankedList]) -> dict[str, float]:
     """Build a ``{space: 1.0}`` dict for tests that don't care about weights.
 
-    ``fuse()`` / ``run_fusion()`` require an explicit complete weights dict
-    (no ``None`` shortcut). This helper expresses "no weighting" as the
-    explicit ``w_i = 1.0`` per space the math actually needs.
+    ``FusionInput.space_weights`` is required (no None shortcut). This
+    helper expresses "no weighting" as the explicit ``w_i = 1.0`` per
+    space the math actually needs.
     """
     return {rl.space: 1.0 for rl in lists}
 
@@ -367,13 +367,7 @@ class TestFuseWeightedLinear:
             fuse([], method="bogus", rrf_k=60, weights={})  # type: ignore[arg-type]
 
     def test_partial_weights_dict_raises_key_error(self):
-        """Fail-loud invariant: partial ``weights`` dict raises KeyError.
-
-        Catches the misconfig where a new embedding space is added to a
-        request but no weight entry exists for it. The NAT wrapper guarantees
-        completeness via ``setdefault(rl.space, config.space_weights_default)``;
-        this test pins the invariant at the pure-algorithm layer.
-        """
+        """Fail-loud invariant at the pure-algorithm layer."""
         a = RankedList(space="A", chunks=[_chunk("s", 0, 0.5, 1)])
         b_unmapped = RankedList(space="B", chunks=[_chunk("s", 5, 0.5, 1)])
         with pytest.raises(KeyError, match="B"):
@@ -689,6 +683,7 @@ class TestRunFusion:
     def test_warehouse_ladder_end_to_end_default_mean_aggregation(self):
         inp = FusionInput(
             lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            space_weights=_WAREHOUSE_WEIGHTS,
             chunk_seconds=5,
             method="rrf",
             rrf_k=60,
@@ -699,7 +694,7 @@ class TestRunFusion:
             merge_gap_chunks=0,
             # default segment_score_aggregation="mean"
         )
-        out = run_fusion(inp, weights=_WAREHOUSE_WEIGHTS)
+        out = run_fusion(inp)
 
         # Warehouse_01 merges to one 15s segment;
         # dock @ 00:03:10 and dock @ 00:05:00 stay as two separate 5s segments.
@@ -739,13 +734,14 @@ class TestRunFusion:
         # 0.41 dock-attribute hit gets dropped before fusion.
         inp = FusionInput(
             lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            space_weights=_WAREHOUSE_WEIGHTS,
             chunk_seconds=5,
             method="rrf",
             rrf_k=60,
             per_space_min_score={"attribute": 0.5},
             top_k_segments=10,
         )
-        out = run_fusion(inp, weights=_WAREHOUSE_WEIGHTS)
+        out = run_fusion(inp)
         # dock @ 00:05:00 was attribute-only at 0.41 -> filtered out.
         sensor_starts = {(s.sensor_id, s.start) for s in out.segments}
         assert (_D, _ts(_D_500)) not in sensor_starts
@@ -772,13 +768,14 @@ class TestRunFusion:
         )
         inp = FusionInput(
             lists=[embed, attribute],
+            space_weights={"embed": 1.0, "attribute": 1.0},
             chunk_seconds=5,
             method="rrf",
             rrf_k=60,
             per_space_min_score={"attribute": 0.99},
             min_fused_score_ratio=0.6,
         )
-        out = run_fusion(inp, weights={"embed": 1.0, "attribute": 1.0})
+        out = run_fusion(inp)
 
         assert len(out.segments) == 1
         assert out.segments[0].sensor_id == _W
@@ -789,10 +786,11 @@ class TestRunFusion:
         # ratio=0.0 -> threshold=0; every non-negative fused score passes, matching the None baseline.
         common = {
             "lists": [_warehouse_embed_list(), _warehouse_attribute_list()],
+            "space_weights": _WAREHOUSE_WEIGHTS,
             "top_k_segments": None,
         }
-        baseline = run_fusion(FusionInput(**common, min_fused_score_ratio=None), weights=_WAREHOUSE_WEIGHTS)
-        zero = run_fusion(FusionInput(**common, min_fused_score_ratio=0.0), weights=_WAREHOUSE_WEIGHTS)
+        baseline = run_fusion(FusionInput(**common, min_fused_score_ratio=None))
+        zero = run_fusion(FusionInput(**common, min_fused_score_ratio=0.0))
         assert [s.fused_score for s in zero.segments] == [s.fused_score for s in baseline.segments]
 
     def test_min_fused_score_ratio_one_keeps_only_ceiling_equivalent(self):
@@ -814,24 +812,27 @@ class TestRunFusion:
         )
         inp = FusionInput(
             lists=[embed, attribute],
+            space_weights={"embed": 1.0, "attribute": 1.0},
             method="rrf",
             rrf_k=60,
             min_fused_score_ratio=1.0,
             merge_adjacent=False,
         )
-        out = run_fusion(inp, weights={"embed": 1.0, "attribute": 1.0})
+        out = run_fusion(inp)
         assert len(out.segments) == 1
         assert out.segments[0].sensor_id == _W
         assert out.segments[0].start == _ts(_W_125)
         assert out.segments[0].fused_score == pytest.approx(2 / 61)
 
     def test_min_contributing_spaces_2_keeps_only_warehouse(self):
+        lists = [_warehouse_embed_list(), _warehouse_attribute_list()]
         inp = FusionInput(
-            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            lists=lists,
+            space_weights=_neutral_weights(lists),
             min_contributing_spaces=2,
             top_k_segments=10,
         )
-        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
+        out = run_fusion(inp)
         # Only warehouse_01 has cross-validation; merges into one segment.
         # The lone warehouse_01 @ 00:01:35 chunk (embed-only) is dropped, so
         # the merged segment shrinks to 10s.
@@ -847,30 +848,35 @@ class TestRunFusion:
         # (every chunk has at least one contributing space).
         common = {
             "lists": [_warehouse_embed_list(), _warehouse_attribute_list()],
+            "space_weights": _WAREHOUSE_WEIGHTS,
             "merge_adjacent": False,
             "top_k_segments": None,
         }
-        baseline = run_fusion(FusionInput(**common, min_contributing_spaces=1), weights=_WAREHOUSE_WEIGHTS)
-        zero = run_fusion(FusionInput(**common, min_contributing_spaces=0), weights=_WAREHOUSE_WEIGHTS)
+        baseline = run_fusion(FusionInput(**common, min_contributing_spaces=1))
+        zero = run_fusion(FusionInput(**common, min_contributing_spaces=0))
         assert {s.start for s in zero.segments} == {s.start for s in baseline.segments}
 
     def test_top_k_segments_caps_response_length(self):
         # top_k_segments=10 caps response length even if more
         # segments survive filtering. Inverse: cap at 1 should truncate.
+        lists = [_warehouse_embed_list(), _warehouse_attribute_list()]
         inp = FusionInput(
-            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            lists=lists,
+            space_weights=_neutral_weights(lists),
             top_k_segments=1,
         )
-        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
+        out = run_fusion(inp)
         assert len(out.segments) == 1
 
     def test_merge_adjacent_false_yields_one_segment_per_chunk(self):
+        lists = [_warehouse_embed_list(), _warehouse_attribute_list()]
         inp = FusionInput(
-            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            lists=lists,
+            space_weights=_neutral_weights(lists),
             merge_adjacent=False,
             top_k_segments=10,
         )
-        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
+        out = run_fusion(inp)
         # 5 unique chunks across the two spaces, no merging.
         assert len(out.segments) == 5
         for seg in out.segments:
@@ -878,7 +884,7 @@ class TestRunFusion:
             assert seg.end - seg.start == timedelta(seconds=5)
 
     def test_empty_lists_produce_empty_output(self):
-        out = run_fusion(FusionInput(lists=[]), weights={})
+        out = run_fusion(FusionInput(lists=[], space_weights={}))
         assert out.segments == []
 
     def test_single_list_fusion_preserves_input_ranking(self):
@@ -886,33 +892,38 @@ class TestRunFusion:
         # min=1), and fused scores reduce to RRF for that single space (sorted by rank).
         inp = FusionInput(
             lists=[_warehouse_embed_list()],
+            space_weights={"embed": 1.0},
             method="rrf",
             rrf_k=60,
             merge_adjacent=False,
             top_k_segments=None,
         )
-        out = run_fusion(inp, weights={"embed": 1.0})
+        out = run_fusion(inp)
         assert [s.fused_score for s in out.segments] == pytest.approx([1 / 61, 1 / 62, 1 / 63, 1 / 64])
         for seg in out.segments:
             assert seg.contributing_spaces == ["embed"]
 
     def test_descending_sort_by_fused_score(self):
+        lists = [_warehouse_embed_list(), _warehouse_attribute_list()]
         inp = FusionInput(
-            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            lists=lists,
+            space_weights=_neutral_weights(lists),
             merge_adjacent=False,
             top_k_segments=10,
         )
-        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
+        out = run_fusion(inp)
         scores = [s.fused_score for s in out.segments]
         assert scores == sorted(scores, reverse=True)
 
     def test_top_k_segments_none_returns_all_survivors(self):
+        lists = [_warehouse_embed_list(), _warehouse_attribute_list()]
         inp = FusionInput(
-            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            lists=lists,
+            space_weights=_neutral_weights(lists),
             top_k_segments=None,
             merge_adjacent=False,
         )
-        out = run_fusion(inp, weights=_neutral_weights(inp.lists))
+        out = run_fusion(inp)
         # No cap -> all 5 unique chunks survive default min_contributing_spaces=1.
         assert len(out.segments) == 5
 
@@ -945,8 +956,12 @@ class TestRunFusion:
         )
         weights = {"embed": 1.0, "attribute": 1.0}
 
-        fwd = run_fusion(FusionInput(lists=[embed, attribute], merge_adjacent=False, top_k_segments=1), weights=weights)
-        rev = run_fusion(FusionInput(lists=[attribute, embed], merge_adjacent=False, top_k_segments=1), weights=weights)
+        fwd = run_fusion(
+            FusionInput(lists=[embed, attribute], space_weights=weights, merge_adjacent=False, top_k_segments=1)
+        )
+        rev = run_fusion(
+            FusionInput(lists=[attribute, embed], space_weights=weights, merge_adjacent=False, top_k_segments=1)
+        )
 
         assert len(fwd.segments) == 1
         assert len(rev.segments) == 1
@@ -985,7 +1000,7 @@ class TestRunFusion:
             ],
         )
 
-        out = run_fusion(FusionInput(lists=[embed, attribute]), weights={"embed": 1.0, "attribute": 1.0})
+        out = run_fusion(FusionInput(lists=[embed, attribute], space_weights={"embed": 1.0, "attribute": 1.0}))
 
         assert len(out.segments) == 1
         assert set(out.segments[0].contributing_spaces) == {"embed", "attribute"}
@@ -1024,15 +1039,15 @@ class TestFusionInputContract:
 
     def test_top_k_segments_none_accepted(self):
         """``top_k_segments=None`` means "no cap" and must remain valid."""
-        FusionInput(top_k_segments=None)
+        FusionInput(space_weights={}, top_k_segments=None)
 
     def test_min_contributing_spaces_zero_accepted(self):
         """``min_contributing_spaces=0`` disables the gate and must remain valid."""
-        FusionInput(min_contributing_spaces=0)
+        FusionInput(space_weights={}, min_contributing_spaces=0)
 
     def test_keep_if_top_n_in_any_space_none_accepted(self):
         """``keep_if_top_n_in_any_space=None`` disables the exemption and must remain valid."""
-        FusionInput(keep_if_top_n_in_any_space=None)
+        FusionInput(space_weights={}, keep_if_top_n_in_any_space=None)
 
 
 class TestChunkKeyTimezoneContract:
