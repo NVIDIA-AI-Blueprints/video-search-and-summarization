@@ -59,7 +59,7 @@ def _chunk(sensor: str, start_seconds: int, score: float, rank: int, *, chunk_se
     )
 
 
-def _two_space_input() -> FusionInput:
+def _two_space_input(space_weights: dict[str, float] | None = None) -> FusionInput:
     """Two ranked lists with overlap on warehouse_01 @ 00:01:25 / 00:01:30.
 
     ``RankedList`` is a pure data carrier.
@@ -80,7 +80,10 @@ def _two_space_input() -> FusionInput:
             _chunk("dock", 300, 0.41, 3),
         ],
     )
-    return FusionInput(lists=[embed, attribute])
+    return FusionInput(
+        lists=[embed, attribute],
+        space_weights=space_weights or {"embed": 1.0, "attribute": 0.5},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -177,114 +180,66 @@ class TestFusionInvocation:
         assert len(out.segments) == 1
 
     @pytest.mark.asyncio
-    async def test_config_space_weights_drive_fused_scores(self, mock_builder):
-        """``FusionConfig.space_weights`` is the source of truth when no override is sent.
+    async def test_input_space_weights_drive_fused_scores(self, mock_builder):
+        """``FusionInput.space_weights`` is the only source of truth for weights.
 
-        Two runs with the same input and no ``space_weight_overrides``. Run A boosts
-        attribute via config; run B leaves attribute absent (-> 1.0 fallback inside
-        fuse). The asymmetric boost MUST move the top fused score, proving the
-        config dict actually flows through to the math.
+        Two runs with the same lists but different ``space_weights`` dicts MUST
+        produce different top fused scores - proving the per-call weights flow
+        through end-to-end through the registered wrapper.
         """
-        config_with_attr_boost = FusionConfig(space_weights={"embed": 1.0, "attribute": 0.5})
-        config_no_attr_boost = FusionConfig(space_weights={"embed": 1.0})
-
-        inner_a = await self._get_inner_fn(config_with_attr_boost, mock_builder)
-        inner_b = await self._get_inner_fn(config_no_attr_boost, mock_builder)
-
-        out_a = await inner_a(_two_space_input())
-        out_b = await inner_b(_two_space_input())
-
-        top_a = max(out_a.segments, key=lambda s: s.fused_score).fused_score
-        top_b = max(out_b.segments, key=lambda s: s.fused_score).fused_score
-        assert top_a != top_b, "config.space_weights did not move the top fused score"
-
-    @pytest.mark.asyncio
-    async def test_space_weight_overrides_patch_individual_keys(self, mock_builder):
-        """``space_weight_overrides`` patches selected keys; missing keys keep config values.
-
-        Per-key merge contract: caller posts ``{"embed": 0.8}``; ``attribute``
-        keeps its config value (0.5). End-to-end through the wrapper.
-        """
-        config = FusionConfig(space_weights={"embed": 1.0, "attribute": 0.5})
+        config = FusionConfig()
         inner = await self._get_inner_fn(config, mock_builder)
 
-        # Baseline: no override -> uses config as-is.
-        out_baseline = await inner(_two_space_input())
-        # Override only embed: attribute keeps the config 0.5.
-        inp = _two_space_input()
-        inp = inp.model_copy(update={"space_weight_overrides": {"embed": 0.8}})
-        out_patched = await inner(inp)
+        out_attr_high = await inner(_two_space_input(space_weights={"embed": 1.0, "attribute": 1.0}))
+        out_attr_low = await inner(_two_space_input(space_weights={"embed": 1.0, "attribute": 0.1}))
 
-        top_baseline = max(out_baseline.segments, key=lambda s: s.fused_score).fused_score
-        top_patched = max(out_patched.segments, key=lambda s: s.fused_score).fused_score
-        # Embed dropped from 1.0 -> 0.8, attribute unchanged. Top score should drop.
-        assert top_patched < top_baseline, "space_weight_overrides did not patch embed weight"
+        top_high = max(out_attr_high.segments, key=lambda s: s.fused_score).fused_score
+        top_low = max(out_attr_low.segments, key=lambda s: s.fused_score).fused_score
+        assert top_high != top_low, "space_weights did not move the top fused score"
 
     @pytest.mark.asyncio
-    async def test_space_weight_overrides_full_replace(self, mock_builder):
-        """Caller can override every key via ``space_weight_overrides``.
+    async def test_missing_space_weight_uses_config_default(self, mock_builder):
+        """Safety net: missing keys in ``space_weights`` get filled from config.
 
-        Sweep-style usage: eval posts ``{"embed": 0.5, "attribute": 0.5}`` to
-        force both spaces to a non-config value. RRF top-score ceiling is
-        ``2 * (0.5 / 61) ~= 0.0164``; assert we are within it (proving
-        config's ``space_weights={"embed": 9.99, ...}`` did NOT leak through).
+        Caller weights only ``embed``; the wrapper fills ``attribute`` from
+        ``FusionConfig.space_weights_default``. Naive HTTP callers (eval
+        scripts, debug notebooks) get sensible output instead of a 500.
         """
-        config = FusionConfig(space_weights={"embed": 9.99, "attribute": 9.99})
+        config = FusionConfig(space_weights_default=1.0)
         inner = await self._get_inner_fn(config, mock_builder)
 
-        inp = _two_space_input()
-        inp = inp.model_copy(update={"space_weight_overrides": {"embed": 0.5, "attribute": 0.5}})
+        # 'attribute' deliberately missing - wrapper should fill it with 1.0.
+        inp = _two_space_input(space_weights={"embed": 1.0})
         out = await inner(inp)
 
-        top = max(out.segments, key=lambda s: s.fused_score).fused_score
-        assert top <= 2 * (0.5 / 61) + 1e-9, "config.space_weights leaked past space_weight_overrides"
+        assert isinstance(out, FusionOutput)
+        assert len(out.segments) >= 1
+        # 'attribute' contributed despite no explicit weight - confirms fill-in.
+        contributing = {sp for seg in out.segments for sp in seg.contributing_spaces}
+        assert "attribute" in contributing
 
     @pytest.mark.asyncio
-    async def test_no_overrides_means_config_only(self, mock_builder):
-        """``space_weight_overrides=None`` -> identical output to no override at all.
+    async def test_space_weights_default_changes_fused_output(self, mock_builder):
+        """``FusionConfig.space_weights_default`` actually flows through to fuse.
 
-        Locks the contract that ``None`` is a no-op (not "wipe weights to {}").
+        Two configs with different defaults (1.0 vs 0.0); request leaves
+        ``attribute`` unweighted. With default=0.0 the attribute votes
+        contribute 0 to fused scores, so the top score MUST be lower than
+        with default=1.0. Proves the knob isn't dead code.
         """
-        config = FusionConfig(space_weights={"embed": 1.0, "attribute": 0.5})
-        inner = await self._get_inner_fn(config, mock_builder)
-
-        out_implicit = await inner(_two_space_input())
-        inp_explicit = _two_space_input().model_copy(update={"space_weight_overrides": None})
-        out_explicit = await inner(inp_explicit)
-
-        top_a = max(out_implicit.segments, key=lambda s: s.fused_score).fused_score
-        top_b = max(out_explicit.segments, key=lambda s: s.fused_score).fused_score
-        assert top_a == pytest.approx(top_b)
-
-    @pytest.mark.asyncio
-    async def test_space_weights_default_applied_to_unlisted_space(self, mock_builder):
-        """An undeclared space picks up ``FusionConfig.space_weights_default``.
-
-        Sends a 2-space request where ``embed`` is declared (weight=1.0) but
-        ``attribute`` is intentionally absent from both ``space_weights`` and
-        ``space_weight_overrides``. Two configs with different defaults
-        (1.0 vs 0.0) must produce different top fused scores, proving the knob
-        actually feeds into the math.
-        """
-        config_neutral = FusionConfig(space_weights={"embed": 1.0}, space_weights_default=1.0)
-        config_zero = FusionConfig(space_weights={"embed": 1.0}, space_weights_default=0.0)
-
+        config_neutral = FusionConfig(space_weights_default=1.0)
+        config_zero = FusionConfig(space_weights_default=0.0)
         inner_neutral = await self._get_inner_fn(config_neutral, mock_builder)
         inner_zero = await self._get_inner_fn(config_zero, mock_builder)
 
-        out_neutral = await inner_neutral(_two_space_input())
-        out_zero = await inner_zero(_two_space_input())
+        inp_neutral = _two_space_input(space_weights={"embed": 1.0})
+        inp_zero = _two_space_input(space_weights={"embed": 1.0})
+        out_neutral = await inner_neutral(inp_neutral)
+        out_zero = await inner_zero(inp_zero)
 
-        # With default=0.0, attribute contributions vanish -> only embed-only
-        # chunks score, and the top fused score must be strictly lower than
-        # the default=1.0 run where attribute also votes.
         top_neutral = max(out_neutral.segments, key=lambda s: s.fused_score).fused_score
         top_zero = max(out_zero.segments, key=lambda s: s.fused_score).fused_score
         assert top_zero < top_neutral, "space_weights_default did not flow through to fuse"
-
-    def test_default_space_weights_default_is_neutral(self):
-        """``FusionConfig.space_weights_default`` defaults to 1.0 (neutral)."""
-        assert FusionConfig().space_weights_default == 1.0
 
     @pytest.mark.asyncio
     async def test_three_space_fusion_via_wrapper(self, mock_builder):
@@ -295,7 +250,7 @@ class TestFusionInvocation:
         fused output. Also verifies ``contributing_spaces`` reflects the
         per-segment provenance the wrapper passes through.
         """
-        config = FusionConfig(space_weights={"embed": 1.0, "attribute": 0.5, "caption": 0.7})
+        config = FusionConfig()
         inner = await self._get_inner_fn(config, mock_builder)
 
         inp = FusionInput(
@@ -312,7 +267,8 @@ class TestFusionInvocation:
                     space="caption",
                     chunks=[_chunk("warehouse_01", 90, 0.65, 1), _chunk("dock", 300, 0.55, 2)],
                 ),
-            ]
+            ],
+            space_weights={"embed": 1.0, "attribute": 0.5, "caption": 0.7},
         )
         out = await inner(inp)
 
@@ -383,7 +339,7 @@ class TestMergeConfigDefaults:
 
     def test_unset_fields_taken_from_config(self):
         config = FusionConfig(rrf_k=42, top_k_segments=3, method="weighted_linear")
-        inp = FusionInput(lists=[])  # nothing else set
+        inp = FusionInput(lists=[], space_weights={})  # nothing else set
 
         merged = _merge_config_defaults(inp, config)
 
@@ -395,7 +351,7 @@ class TestMergeConfigDefaults:
 
     def test_set_fields_kept_from_request(self):
         config = FusionConfig(rrf_k=42, top_k_segments=3)
-        inp = FusionInput(lists=[], rrf_k=10, top_k_segments=99)
+        inp = FusionInput(lists=[], space_weights={}, rrf_k=10, top_k_segments=99)
 
         merged = _merge_config_defaults(inp, config)
 
@@ -403,10 +359,15 @@ class TestMergeConfigDefaults:
         assert merged.top_k_segments == 99
 
     def test_returns_same_instance_when_no_overlay_needed(self):
-        """All mirrored fields explicitly set in request -> no copy needed."""
+        """All shared fields explicitly set in request -> no copy needed.
+
+        Note: ``space_weights`` is required (not part of the shared params)
+        so it's always set; the fast-path check only inspects shared knobs.
+        """
         config = FusionConfig()
         inp = FusionInput(
             lists=[],
+            space_weights={},
             chunk_seconds=5,
             method="rrf",
             rrf_k=60,
@@ -429,7 +390,7 @@ class TestMergeConfigDefaults:
         """Mix of set and unset fields - only unset ones get config values."""
         config = FusionConfig(rrf_k=42, min_contributing_spaces=5, top_k_segments=99)
         # Only override min_contributing_spaces in the request
-        inp = FusionInput(lists=[], min_contributing_spaces=2)
+        inp = FusionInput(lists=[], space_weights={}, min_contributing_spaces=2)
 
         merged = _merge_config_defaults(inp, config)
 
@@ -446,23 +407,14 @@ class TestMergeConfigDefaults:
 class TestFusionConfigDefaults:
     """Verify the YAML-facing defaults haven't drifted from the plan."""
 
-    def test_default_payload_merge_priority(self):
-        """attribute outranks embed; unlisted spaces (e.g. caption) silently default to 99.
+    def test_default_space_weights_default_is_neutral(self):
+        """``FusionConfig.space_weights_default`` defaults to 1.0 (neutral).
 
-        Read by search.py (not fusion itself) when joining payloads back onto
-        FusedSegment.member_keys. Lower value = higher priority.
+        Locks the safety-net default at the YAML-facing boundary so a future
+        deploy YAML omitting the key continues to behave equivalently to
+        explicitly weighting every space at 1.0.
         """
-        config = FusionConfig()
-        prio = config.payload_merge_priority
-
-        assert prio == {"attribute": 0, "embed": 1}
-        assert prio["attribute"] < prio["embed"]
-        # `caption` is intentionally absent so it falls back to the implicit 99.
-        assert "caption" not in prio
-
-    def test_default_space_weights(self):
-        config = FusionConfig()
-        assert config.space_weights == {"embed": 1.0, "attribute": 0.5}
+        assert FusionConfig().space_weights_default == 1.0
 
     def test_default_method_is_rrf(self):
         config = FusionConfig()

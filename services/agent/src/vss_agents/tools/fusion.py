@@ -117,16 +117,10 @@ class RankedList(BaseModel):
 
 
 class _SharedFusionParams(BaseModel):
-    """Knobs shared between request body (:class:`FusionInput`) and deployment
-    config (:class:`FusionConfig`).
+    """Knobs shared between request body (:class:`FusionInput`) and deployment config (:class:`FusionConfig`).
 
-    Single source of truth for every field that exists on both models: type,
-    default, and description live here exactly once. The two consumers inherit
-    this mixin and only declare their own additional fields.
-
-    The fusion wrapper uses :attr:`_SharedFusionParams.model_fields` directly
-    as the set of fields to overlay from config onto the request - no separate
-    "mirrored fields" tuple to maintain.
+    Single source of truth for every field that exists on both models.
+    Overridable fields via user request, they get overlayed on top of the deployment config.
     """
 
     chunk_seconds: int = Field(
@@ -208,10 +202,7 @@ class _SharedFusionParams(BaseModel):
 class FusionInput(_SharedFusionParams):
     """Request body for fusion. Carries only what the math needs.
 
-    Inherits all shared knobs (``method``, ``rrf_k``, ``per_space_min_score``,
-    etc.) from :class:`_SharedFusionParams`. Adds the fields that only make
-    sense per-request: the input ``lists`` and the per-call
-    ``space_weight_overrides`` patch dict.
+    Inherits all shared knobs that can be overridden by the user in the request.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -221,14 +212,12 @@ class FusionInput(_SharedFusionParams):
         description="N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]",
     )
 
-    space_weight_overrides: dict[str, float] | None = Field(
-        default=None,
+    space_weights: dict[str, float] = Field(
+        ...,
         description=(
-            "Per-key patches over ``FusionConfig.space_weights``. "
-            "Missing keys in the user request keeps config values. "
-            "E.g. if config has space_weights = {'embed': 1, 'attribute': 0.5}, "
-            "then request space_weight_overrides = {'attribute': 0.8} bumps 'attribute' for this call only "
-            "and 'embed' keeps whatever the config says: 1."
+            "Per-space trust weight used when fusing results. Higher values give "
+            "more influence to that space. Required field but missing keys will be "
+            "filled in by ``FusionConfig.space_weights_default``"
         ),
     )
 
@@ -310,6 +299,9 @@ def _validate_rrf_k(rrf_k: int) -> None:
         raise ValueError(f"rrf_k must be > 0, got {rrf_k!r}")
 
 
+# TODO consumed by ``search.py`` for adapters.
+# When other embedding tools are refactored to return ranked lists natively, move this
+# and the data models above (ChunkKey, RankedList, etc.) to ``data_models/ranking.py``.
 def snap(ts: AwareDatetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
     """Snap an arbitrary timestamp down to the chunk-grid floor.
 
@@ -321,8 +313,6 @@ def snap(ts: AwareDatetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datet
     - `embed_search` (Cosmos clip embeddings) -> 00:01:25.300 (sliding window started)
     - `attribute_search` (CV per-frame) -> 00:01:27.100 (bounding box landed)
     -> both snap to 00:01:25
-
-    TODO consumed by ``search.py`` adapters later, maybe make it a separate util?
     """
     _validate_chunk_seconds(chunk_seconds)
     if ts.tzinfo is None:
@@ -709,11 +699,9 @@ def _finalize_group(
 # ---------------------------------------------------------------------------
 
 
-def run_fusion(
-    inp: FusionInput,
-    weights: dict[str, float],
-) -> FusionOutput:
+def run_fusion(inp: FusionInput) -> FusionOutput:
     """Run the full pipeline declaratively: bucketize -> filter raw -> fuse -> filter fused -> sort -> merge -> cap etc."""
+    weights = inp.space_weights
     bucketed = [bucketize(rl, inp.chunk_seconds) for rl in inp.lists]
     bucketed = [apply_per_space_filter(rl, inp.per_space_min_score) for rl in bucketed]
 
@@ -769,32 +757,13 @@ class FusionConfig(FunctionBaseConfig, _SharedFusionParams, name="fusion"):
     falls through to the config value here (see :func:`_merge_config_defaults`).
     """
 
-    # TODO move to search tool orchestrator in the future
-    payload_merge_priority: dict[str, int] = Field(
-        default_factory=lambda: {"attribute": 0, "embed": 1},
-        description=(
-            "Cross-space payload-merge priority used by search tool orchestrator "
-            "when joining payloads back onto FusedSegment.member_keys (not read "
-            "by fusion itself). Lower value = higher priority. Spaces missing "
-            "from this dict default to 99 silently."
-        ),
-    )
-
     # -- Fields set once upon service startup --
     space_weights_default: float = Field(
         default=1.0,
         description=(
-            "Fallback weight for a space that arrives in the request but is missing from both "
-            "`space_weights` and `FusionInput.space_weight_overrides`. Default 1.0 (neutral). "
-        ),
-    )
-
-    # -- Overridable fields in request --
-    space_weights: dict[str, float] = Field(
-        default_factory=lambda: {"embed": 1.0, "attribute": 0.5},
-        description=(
-            "Per-space trust weight used when fusing results. Higher values give more influence to that space. "
-            "Overridable only using *per-key* patches in the request via ``FusionInput.space_weight_overrides``."
+            "Safety-net fallback weight used by the fusion NAT wrapper to fill in"
+            "``FusionInput.space_weights`` for any missing space."
+            "Default 1.0 (neutral). Set once at startup; not overridable per request."
         ),
     )
 
@@ -827,30 +796,21 @@ async def fusion(config: FusionConfig, _builder: Builder) -> AsyncGenerator[Func
     async def _fusion(inp: FusionInput) -> FusionOutput:
         """Fuse N ranked lists of 5s chunks. Pure ranker. No I/O, no searches.
 
-        Pipeline: overlay config defaults onto unset request fields, including per-key dict merges
+        Overlay config defaults onto unset request fields/knobs.
         """
-        # Normal overlay of fields from config onto the request
         merged_params = _merge_config_defaults(inp, config)
 
-        # Per-key merges for dicts: config provides the base, caller can override individual keys in dicts
-        effective_weights: dict[str, float] = {
-            **config.space_weights,
-            **(merged_params.space_weight_overrides or {}),
-        }
-
-        # Weights passed must always be populated with all the (space, weight) values
-        # Hence set default value if missing
+        # Fill up any missing weight for spaces
         for rl in merged_params.lists:
-            if rl.space not in effective_weights:
-                effective_weights[rl.space] = config.space_weights_default
+            merged_params.space_weights.setdefault(rl.space, config.space_weights_default)
 
         logger.debug(
             "fusion: method=%s spaces=%s weights=%s",
             merged_params.method,
             [rl.space for rl in merged_params.lists],
-            effective_weights,
+            merged_params.space_weights,
         )
-        return run_fusion(merged_params, weights=effective_weights)
+        return run_fusion(merged_params)
 
     yield FunctionInfo.create(
         single_fn=_fusion,
