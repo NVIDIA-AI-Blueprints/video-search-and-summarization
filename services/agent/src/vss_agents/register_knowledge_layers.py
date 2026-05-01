@@ -17,7 +17,7 @@
 This is the only module in the agent service that imports `nat.*` for
 knowledge retrieval. It exposes:
 
-* `KnowledgeRetrievalConfig`   — flat config schema (mirrors AIQ).
+* `KnowledgeRetrievalConfig`   — flat config schema 
 * `knowledge_retrieval`        — async generator yielding the
                                  `search(query, top_k?, collection?, filters?)`
                                  NAT FunctionInfo.
