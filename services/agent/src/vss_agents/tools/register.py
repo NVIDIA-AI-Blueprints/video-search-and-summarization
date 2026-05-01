@@ -16,6 +16,7 @@ from . import attribute_search
 from . import chart_generator
 from . import embed_search
 from . import fov_counts_with_chart
+from . import fusion
 from . import geolocation
 from . import incidents
 from . import lvs_config_media
@@ -39,6 +40,7 @@ __all__ = [
     "chart_generator",
     "embed_search",
     "fov_counts_with_chart",
+    "fusion",
     "geolocation",
     "incidents",
     "lvs_config_media",

@@ -20,31 +20,35 @@ These are still left to the coordinator ``search.py`` to orchestrate.
 A clip can appear in some lists and not others. "Missing" is equivalent to rank = ∞ in that space -> contributes 0.
 """
 
-from __future__ import annotations
-
 from collections import defaultdict
+from collections.abc import AsyncGenerator
+from collections.abc import Iterable
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import TYPE_CHECKING
+import logging
 from typing import Literal
 
+from nat.builder.builder import Builder
+from nat.builder.framework_enum import LLMFrameworkEnum
+from nat.builder.function_info import FunctionInfo
+from nat.cli.register_workflow import register_function
+from nat.data_models.function import FunctionBaseConfig
 from pydantic import AwareDatetime
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable
-
 FusionMethod = Literal["rrf", "weighted_linear"]
 Aggregation = Literal["max", "mean"]
 DEFAULT_CHUNK_SECONDS = 5
 DEFAULT_RRF_K = 60
 
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Public data contract
@@ -109,58 +113,124 @@ class RankedList(BaseModel):
     # Kept dynamic (not a literal) for ease of extensibility when consumers add new spaces
     # "embed", "attribute", "caption", "face", ...
     space: str
-
-    # Trust knob for this space (used in RRF / weighted_linear etc.)
-    # Makes this space's votes count for more
-    weight: float = Field(default=1.0, ge=0, allow_inf_nan=False)
     chunks: list[RankedChunk] = Field(default_factory=list)
 
 
-class FusionInput(BaseModel):
-    """Request body for fusion. Carries only what the math needs."""
+class _SharedFusionParams(BaseModel):
+    """Knobs shared between request body (:class:`FusionInput`) and deployment
+    config (:class:`FusionConfig`).
+
+    Single source of truth for every field that exists on both models: type,
+    default, and description live here exactly once. The two consumers inherit
+    this mixin and only declare their own additional fields.
+
+    The fusion wrapper uses :attr:`_SharedFusionParams.model_fields` directly
+    as the set of fields to overlay from config onto the request - no separate
+    "mirrored fields" tuple to maintain.
+    """
+
+    chunk_seconds: int = Field(
+        default=DEFAULT_CHUNK_SECONDS,
+        gt=0,
+        description=(
+            "Chunk grid in seconds. Drives snap/dedup and merge gap math. "
+            "E.g. =5 -> 00:03 and 00:04 collapse to one bucket."
+        ),
+    )
+    method: FusionMethod = Field(
+        default="rrf",
+        description=(
+            "Fusion math. `rrf` uses ranks (unit-free, robust). `weighted_linear` uses min-max normalized raw scores."
+        ),
+    )
+    rrf_k: int = Field(
+        default=DEFAULT_RRF_K,
+        gt=0,
+        description=("RRF damping. Larger k flattens, smaller k amplifies top ranks. 60 is the TREC standard."),
+    )
+
+    # Pre-fuse filter
+    per_space_min_score: dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "Drop per-space chunks early below a raw-unit threshold. "
+            'E.g. {"embed": 0.7} -> cosine < 0.7 chunks dropped.'
+        ),
+    )
+
+    # Post-fuse filters
+    min_contributing_spaces: int = Field(
+        default=1,
+        ge=0,
+        description="Chunk must appear in >=N spaces to survive. E.g. =2 -> at least 2 spaces voted for it.",
+    )
+    keep_if_top_n_in_any_space: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "OR-exemption: top-N in any space bypasses post-fuse gates. E.g. =3 -> rank <=3 anywhere survives."
+        ),
+    )
+    min_fused_score_ratio: float | None = Field(
+        default=None,
+        allow_inf_nan=False,
+        description=(
+            "Drop chunks below ratio x theoretical ceiling. E.g. 0.3 -> keep only >=30% of best-possible fused_score."
+        ),
+    )
+    top_k_segments: int | None = Field(
+        default=10,
+        gt=0,
+        description="Cap the final segments by fused_score. E.g. =10 -> only top 10 returned.",
+    )
+
+    # Merge knobs (applied after filtering and fusion)
+    merge_adjacent: bool = Field(
+        default=True,
+        description="Collapse touching chunks into one segment. E.g. [0-5]+[5-10] -> [0-10].",
+    )
+    merge_gap_chunks: int = Field(
+        default=0,
+        ge=0,
+        description="Tolerate up to N missing chunks between merges. E.g. =1 keeps [0-5]+[10-15] as one.",
+    )
+    segment_score_aggregation: Aggregation = Field(
+        default="mean",
+        description=(
+            "How per-chunk fused scores collapse into one segment score. "
+            "`mean` matches legacy search.py / _merge_consecutive_results behavior - "
+            "sustained events outrank single-chunk spikes. "
+            "`max` opts in to surfacing peak moments instead."
+        ),
+    )
+
+
+class FusionInput(_SharedFusionParams):
+    """Request body for fusion. Carries only what the math needs.
+
+    Inherits all shared knobs (``method``, ``rrf_k``, ``per_space_min_score``,
+    etc.) from :class:`_SharedFusionParams`. Adds the fields that only make
+    sense per-request: the input ``lists`` and the per-call
+    ``space_weight_overrides`` patch dict.
+    """
 
     model_config = ConfigDict(frozen=True)
 
-    # N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]
-    lists: list[RankedList] = Field(default_factory=list)
+    lists: list[RankedList] = Field(
+        default_factory=list,
+        description="N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]",
+    )
 
-    # Chunk grid in seconds - drives snap/dedup and merge gap math, e.g. =5 -> 00:03 and 00:04 collapse to one bucket
-    chunk_seconds: int = Field(default=DEFAULT_CHUNK_SECONDS, gt=0)
-
-    # Fusion math
-    # - rrf uses ranks (unit-free, robust)
-    # - weighted_linear uses min-max normalized raw scores
-    method: FusionMethod = "rrf"
-    # RRF damping (larger k flattens, smaller k amplifies top ranks), e.g. 60 is the TREC standard
-    rrf_k: int = Field(default=DEFAULT_RRF_K, gt=0)
-
-    # Filter knobs (Pre-fuse)
-    # Drop per-space chunks early below a raw-unit threshold, e.g. {"embed": 0.7} -> cosine < 0.7 chunks dropped
-    per_space_min_score: dict[str, float] = Field(default_factory=dict)
-
-    # Filter knobs (Post-fuse)
-    # Chunk must appear in >=N spaces to survive, e.g. =2 -> at least 2 spaces voted for it
-    min_contributing_spaces: int = Field(default=1, ge=0)
-    # Drop chunks below ratio x theoretical ceiling, e.g. 0.3 -> keep only >=30% of best-possible fused_score
-    min_fused_score_ratio: float | None = Field(default=None, allow_inf_nan=False)
-    # OR-exemption - top-N in any space bypasses post-fuse gates here
-    # e.g. =3 -> rank <=3 anywhere survives
-    keep_if_top_n_in_any_space: int | None = Field(default=None, gt=0)
-
-    # Merge knobs (applied after filtering and fusion)
-    # Collapse touching chunks into one segment, e.g. [0-5]+[5-10] -> [0-10]
-    merge_adjacent: bool = True
-    # Tolerate up to N missing chunks between merges, e.g. =1 keeps [0-5]+[10-15] as one
-    merge_gap_chunks: int = Field(default=0, ge=0)
-    # How per-chunk fused scores collapse/aggregate into one segment score
-    # ``mean`` matches legacy behavior ``search.py``/``_merge_consecutive_results``
-    # (sustained events outrank single-chunk spikes)
-    # ``max`` opts in to surfacing peak moments instead
-    segment_score_aggregation: Aggregation = "mean"
-
-    # End of pipeline knobs
-    # Cap the final segments by fused_score, e.g. =5 -> only top 5 returned
-    top_k_segments: int | None = Field(default=10, gt=0)
+    space_weight_overrides: dict[str, float] | None = Field(
+        default=None,
+        description=(
+            "Per-key patches over ``FusionConfig.space_weights``. "
+            "Missing keys in the user request keeps config values. "
+            "E.g. if config has space_weights = {'embed': 1, 'attribute': 0.5}, "
+            "then request space_weight_overrides = {'attribute': 0.8} bumps 'attribute' for this call only "
+            "and 'embed' keeps whatever the config says: 1."
+        ),
+    )
 
 
 class FusedSegment(BaseModel):
@@ -282,7 +352,7 @@ def _rerank_by_score(rl: RankedList, survivors: Iterable[RankedChunk]) -> Ranked
         key=lambda c: _score_with_tiebreak(c.score, c.key.sensor_id, c.key.start),
     )
     reranked = [RankedChunk(key=c.key, score=c.score, rank=i + 1) for i, c in enumerate(sorted_chunks)]
-    return RankedList(space=rl.space, weight=rl.weight, chunks=reranked)
+    return RankedList(space=rl.space, chunks=reranked)
 
 
 def bucketize(rl: RankedList, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
@@ -339,6 +409,7 @@ def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]
 
 def fuse(
     lists: list[RankedList],
+    weights: dict[str, float],
     method: FusionMethod = "rrf",
     rrf_k: int = DEFAULT_RRF_K,
 ) -> dict[ChunkKey, FusedRow]:
@@ -377,9 +448,10 @@ def fuse(
 
     if method == "rrf":
         for rl in lists:
+            w = weights[rl.space]
             for chunk in rl.chunks:
                 row = out.setdefault(chunk.key, FusedRow(key=chunk.key))
-                row.score += rl.weight / (rrf_k + chunk.rank)
+                row.score += w / (rrf_k + chunk.rank)
                 if rl.space not in row.contributing_spaces:
                     row.contributing_spaces.append(rl.space)
                 row.per_space_ranks[rl.space] = chunk.rank
@@ -389,13 +461,14 @@ def fuse(
         for rl in lists:
             if not rl.chunks:
                 continue
+            w = weights[rl.space]
             scores = [c.score for c in rl.chunks]
             lo, hi = min(scores), max(scores)
             spread = hi - lo
             for chunk in rl.chunks:
                 norm = 1.0 if spread == 0 else (chunk.score - lo) / spread
                 row = out.setdefault(chunk.key, FusedRow(key=chunk.key))
-                row.score += rl.weight * norm
+                row.score += w * norm
                 if rl.space not in row.contributing_spaces:
                     row.contributing_spaces.append(rl.space)
                 row.per_space_ranks[rl.space] = chunk.rank
@@ -426,6 +499,7 @@ def compute_score_threshold(
     method: FusionMethod,
     rrf_k: int,
     lists: list[RankedList],
+    weights: dict[str, float],
     fraction: float = 0.5,
 ) -> float:
     """Returns meaningful score cutoff.
@@ -437,7 +511,7 @@ def compute_score_threshold(
     """
     _validate_rrf_k(rrf_k)
     # Skip empty lists. They contribute 0, so counting their weight inflates the ceiling.
-    contributing_weights = [rl.weight for rl in lists if rl.chunks]
+    contributing_weights = [weights[rl.space] for rl in lists if rl.chunks]
     return _theoretical_ceiling(method, rrf_k, contributing_weights) * fraction
 
 
@@ -635,16 +709,26 @@ def _finalize_group(
 # ---------------------------------------------------------------------------
 
 
-def run_fusion(inp: FusionInput) -> FusionOutput:
+def run_fusion(
+    inp: FusionInput,
+    weights: dict[str, float],
+) -> FusionOutput:
     """Run the full pipeline declaratively: bucketize -> filter raw -> fuse -> filter fused -> sort -> merge -> cap etc."""
     bucketed = [bucketize(rl, inp.chunk_seconds) for rl in inp.lists]
     bucketed = [apply_per_space_filter(rl, inp.per_space_min_score) for rl in bucketed]
 
-    fused = fuse(bucketed, method=inp.method, rrf_k=inp.rrf_k)
+    fused = fuse(
+        bucketed,
+        weights=weights,
+        method=inp.method,
+        rrf_k=inp.rrf_k,
+    )
 
     threshold: float | None = None
     if inp.min_fused_score_ratio is not None:
-        threshold = compute_score_threshold(inp.method, inp.rrf_k, bucketed, fraction=inp.min_fused_score_ratio)
+        threshold = compute_score_threshold(
+            inp.method, inp.rrf_k, bucketed, weights, fraction=inp.min_fused_score_ratio
+        )
 
     fused = apply_global_filters(
         fused,
@@ -671,3 +755,106 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
         segments = segments[: inp.top_k_segments]
 
     return FusionOutput(segments=segments)
+
+
+# ---------------------------------------------------------------------------
+# NAT tool registration
+# ---------------------------------------------------------------------------
+
+
+class FusionConfig(FunctionBaseConfig, _SharedFusionParams, name="fusion"):
+    """YAML-configured defaults for the fusion tool.
+
+    Any inherited field the caller did not explicitly set in the request
+    falls through to the config value here (see :func:`_merge_config_defaults`).
+    """
+
+    # TODO move to search tool orchestrator in the future
+    payload_merge_priority: dict[str, int] = Field(
+        default_factory=lambda: {"attribute": 0, "embed": 1},
+        description=(
+            "Cross-space payload-merge priority used by search tool orchestrator "
+            "when joining payloads back onto FusedSegment.member_keys (not read "
+            "by fusion itself). Lower value = higher priority. Spaces missing "
+            "from this dict default to 99 silently."
+        ),
+    )
+
+    # -- Fields set once upon service startup --
+    space_weights_default: float = Field(
+        default=1.0,
+        description=(
+            "Fallback weight for a space that arrives in the request but is missing from both "
+            "`space_weights` and `FusionInput.space_weight_overrides`. Default 1.0 (neutral). "
+        ),
+    )
+
+    # -- Overridable fields in request --
+    space_weights: dict[str, float] = Field(
+        default_factory=lambda: {"embed": 1.0, "attribute": 0.5},
+        description=(
+            "Per-space trust weight used when fusing results. Higher values give more influence to that space. "
+            "Overridable only using *per-key* patches in the request via ``FusionInput.space_weight_overrides``."
+        ),
+    )
+
+
+def _merge_config_defaults(inp: FusionInput, config: FusionConfig) -> FusionInput:
+    """Overlay :class:`FusionConfig` defaults onto a :class:`FusionInput`.
+
+    Approach: take the shared knobs from ``config`` as the base layer, then
+    layer the caller's explicitly-set fields on top. Caller wins for any
+    field they sent, everything else falls through to deployment defaults.
+
+    Example: caller posts ``{"lists": [...], "rrf_k": 30}``.
+    - ``rrf_k`` was set in the request -> stays 30 (caller wins).
+    - ``method`` was not set -> falls through to ``config.method`` (e.g. "rrf").
+    - all other knobs -> fall through to config defaults.
+    """
+    # Fast path: caller already set every shared knob -> nothing to overlay
+    if _SharedFusionParams.model_fields.keys() <= inp.model_fields_set:
+        return inp
+
+    shared_defaults = {name: getattr(config, name) for name in _SharedFusionParams.model_fields}
+    caller_set = inp.model_dump(exclude_unset=True)
+    return FusionInput.model_validate({**shared_defaults, **caller_set})
+
+
+@register_function(config_type=FusionConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+async def fusion(config: FusionConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
+    """Register the fusion ranker as a NAT tool / FastAPI endpoint."""
+
+    async def _fusion(inp: FusionInput) -> FusionOutput:
+        """Fuse N ranked lists of 5s chunks. Pure ranker. No I/O, no searches.
+
+        Pipeline: overlay config defaults onto unset request fields, including per-key dict merges
+        """
+        # Normal overlay of fields from config onto the request
+        merged_params = _merge_config_defaults(inp, config)
+
+        # Per-key merges for dicts: config provides the base, caller can override individual keys in dicts
+        effective_weights: dict[str, float] = {
+            **config.space_weights,
+            **(merged_params.space_weight_overrides or {}),
+        }
+
+        # Weights passed must always be populated with all the (space, weight) values
+        # Hence set default value if missing
+        for rl in merged_params.lists:
+            if rl.space not in effective_weights:
+                effective_weights[rl.space] = config.space_weights_default
+
+        logger.debug(
+            "fusion: method=%s spaces=%s weights=%s",
+            merged_params.method,
+            [rl.space for rl in merged_params.lists],
+            effective_weights,
+        )
+        return run_fusion(merged_params, weights=effective_weights)
+
+    yield FunctionInfo.create(
+        single_fn=_fusion,
+        description=_fusion.__doc__,
+        input_schema=FusionInput,
+        single_output_schema=FusionOutput,
+    )
