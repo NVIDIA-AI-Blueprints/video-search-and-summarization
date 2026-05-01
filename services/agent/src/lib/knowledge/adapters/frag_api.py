@@ -165,7 +165,7 @@ class FragApiAdapter(BackendAdapter):
 
 
 # -----------------------------------------------------------------------------
-# Helpers (shared shape with frag_lib via the response normaliser)
+# Helpers
 # -----------------------------------------------------------------------------
 
 

@@ -17,17 +17,13 @@
 This is the only module in the agent service that imports `nat.*` for
 knowledge retrieval. It exposes:
 
-* `KnowledgeRetrievalConfig`   — flat schema (mirrors AIQ); fields are
-                                 backend-specific and validated by a
-                                 model_validator that warns when a field
-                                 is set for a backend that doesn't use it.
+* `KnowledgeRetrievalConfig`   — flat config schema (mirrors AIQ).
 * `knowledge_retrieval`        — async generator yielding the
                                  `search(query, top_k?, collection?, filters?)`
                                  NAT FunctionInfo.
 
-The lib (`lib.knowledge.*`) is fully NAT-independent. This file resolves
-NAT refs (LLMRef/EmbedderRef) into concrete URLs before handing the
-adapter a plain config dict.
+The lib (`lib.knowledge.*`) is fully NAT-independent. This file hands the
+adapter a plain config dict so the adapter never imports NAT itself.
 """
 from collections.abc import AsyncGenerator
 import logging
@@ -38,16 +34,21 @@ from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import EmbedderRef, LLMRef
+from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from lib.knowledge import RetrievalResult, get_retriever
 
 logger = logging.getLogger(__name__)
 
 # Names match adapter modules under lib.knowledge.adapters.
-BackendType = Literal["frag_api", "frag_lib"]
+# Only `frag_api` is supported today. `frag_lib` (in-process via nvidia-rag)
+# was scoped out of the initial branch — it's substantially more infra
+# (Milvus + embedder + reranker NIMs co-located) and adding it without an
+# end-to-end test would ship dead code. Re-introduce when there's a path
+# to validate it.
+BackendType = Literal["frag_api"]
 
 SUMMARIZE_SYSTEM_PROMPT = (
     "You are an analyst summarising retrieved knowledge-base excerpts. "
@@ -61,17 +62,13 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     """Configuration for the knowledge retrieval tool.
 
     Flat schema (mirrors AIQ). `_setup_backend` picks the subset that
-    applies to the selected backend; `model_validator` warns about fields
-    set for an unused backend.
+    applies to the selected backend.
     """
 
     # ----- Common across all backends ----------------------------------------
     backend: BackendType = Field(
         default="frag_api",
-        description=(
-            "Knowledge backend: 'frag_api' = HTTP to a deployed FRAG rag-server, "
-            "'frag_lib' = in-process via nvidia-rag>=2.4.0."
-        ),
+        description="Knowledge backend: 'frag_api' = HTTP to a deployed FRAG rag-server.",
     )
     collection_name: str = Field(
         default="default",
@@ -119,68 +116,11 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         description="Verify SSL certificates (frag_api only).",
     )
 
-    # ----- frag_lib ----------------------------------------------------------
-    llm: LLMRef | None = Field(
-        default=None,
-        description=(
-            "LLM reference (from `llms:`) used by the in-process nvidia-rag "
-            "pipeline (frag_lib only). Resolved via builder.get_llm_config()."
-        ),
-    )
-    embedder: EmbedderRef | None = Field(
-        default=None,
-        description=(
-            "Embedder reference (from `embedders:`) used by the in-process "
-            "nvidia-rag pipeline (frag_lib only). Resolved via builder.get_embedder_config()."
-        ),
-    )
-    milvus_uri: str | None = Field(
-        default=None,
-        description="Milvus URI (frag_lib only). Direct URI — no `retrievers:` ref.",
-    )
-    reranker_top_k: int = Field(
-        default=10,
-        description="Number of results after reranking (frag_lib only).",
-    )
-    enable_citations: bool | None = Field(
-        default=None,
-        description="Enable citations in nvidia_rag pipeline (frag_lib only).",
-    )
-    enable_guardrails: bool | None = Field(
-        default=None,
-        description="Enable guardrails in nvidia_rag pipeline (frag_lib only).",
-    )
-    enable_vlm_inference: bool | None = Field(
-        default=None,
-        description="Enable VLM inference in nvidia_rag pipeline (frag_lib only).",
-    )
-
-    @model_validator(mode="after")
-    def validate_config(self) -> "KnowledgeRetrievalConfig":
-        """Cross-field validation and warnings for unused fields."""
-        if self.generate_summary and not self.summary_model:
-            raise ValueError(
-                "generate_summary=true requires summary_model to be set. "
-                "Configure summary_model to reference an LLM from the llms: section."
-            )
-
-        if self.backend == "frag_api":
-            if self.llm or self.embedder or self.milvus_uri:
-                logger.warning(
-                    "llm/embedder/milvus_uri are set but backend='frag_api' — ignored. "
-                    "Switch backend to 'frag_lib' to use them."
-                )
-            if not self.verify_ssl:
-                logger.warning(
-                    "SSL verification disabled for frag_api. Use only in trusted environments."
-                )
-        elif self.backend == "frag_lib":
-            if not (self.llm and self.embedder and self.milvus_uri):
-                logger.warning(
-                    "backend='frag_lib' typically requires llm, embedder, and milvus_uri "
-                    "to be set."
-                )
-        return self
+    # frag_lib (in-process via nvidia-rag) backend was scoped out of the
+    # initial branch. Its config fields (llm/embedder/vdb_endpoint/reranker_*/
+    # enable_*) and the corresponding adapter live in the git history of this
+    # branch's earlier commits — restore them when there's a path to validate
+    # the in-process pipeline end-to-end.
 
 
 class KnowledgeRetrievalInput(BaseModel):
@@ -212,13 +152,13 @@ class KnowledgeRetrievalInput(BaseModel):
 
 
 def _setup_backend(
-    config: KnowledgeRetrievalConfig, builder: Builder
+    config: KnowledgeRetrievalConfig, _builder: Builder
 ) -> tuple[str, dict[str, Any]]:
     """Translate the flat config into a backend-specific config dict.
 
-    Resolves `LLMRef`/`EmbedderRef` references via the NAT builder so the
-    adapter sees concrete URLs/model names — the adapter itself does not
-    depend on NAT.
+    Only `frag_api` is supported today — the adapter receives plain URL/key
+    values and never imports NAT itself. Future backends (e.g. `frag_lib`,
+    `es_captions`) would slot in here.
     """
     if config.backend == "frag_api":
         return "frag_api", {
@@ -227,25 +167,6 @@ def _setup_backend(
             "timeout": config.timeout,
             "verify_ssl": config.verify_ssl,
         }
-
-    if config.backend == "frag_lib":
-        backend_config: dict[str, Any] = {
-            "milvus_uri": config.milvus_uri,
-            "reranker_top_k": config.reranker_top_k,
-        }
-        if config.llm:
-            llm_cfg = builder.get_llm_config(config.llm)
-            backend_config["llm_base_url"] = getattr(llm_cfg, "base_url", None)
-            backend_config["llm_model_name"] = getattr(llm_cfg, "model_name", None)
-        if config.embedder:
-            emb_cfg = builder.get_embedder_config(config.embedder)
-            backend_config["embedder_base_url"] = getattr(emb_cfg, "base_url", None)
-            backend_config["embedder_model_name"] = getattr(emb_cfg, "model_name", None)
-        for key in ("enable_citations", "enable_guardrails", "enable_vlm_inference"):
-            value = getattr(config, key)
-            if value is not None:
-                backend_config[key] = value
-        return "frag_lib", backend_config
 
     raise ValueError(f"Unknown backend: {config.backend}")
 

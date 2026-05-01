@@ -38,7 +38,6 @@ _lock = threading.RLock()
 # Avoids importing every backend's deps when only one is configured.
 _LAZY_BACKENDS: dict[str, str] = {
     "frag_api": "lib.knowledge.adapters.frag_api",
-    "frag_lib": "lib.knowledge.adapters.frag_lib",
 }
 
 

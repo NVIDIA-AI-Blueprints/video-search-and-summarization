@@ -104,14 +104,6 @@ classifiers = [
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 
-[project.optional-dependencies]
-# Foundational RAG `mode: local` runs the NVIDIA RAG Blueprint pipeline
-# in-process via the `nvidia-rag` package. Install only if you intend to
-# use that mode — the default `mode: api` only needs `requests`.
-nvidia_rag = ["nvidia-rag>=2.4.0"]
-
-
-
 [dependency-groups]
 dev = [
     "ipdb>=0.13.13",
