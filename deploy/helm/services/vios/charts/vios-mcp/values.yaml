@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-vios-mcp
-  tag: "3.1.0"
+  repository: nvcr.io/nvstaging/vss-core/vss-vios-mcp
+  tag: "2.1.0-26.04.1"
   pullPolicy: IfNotPresent
 replicas: 1
 service:

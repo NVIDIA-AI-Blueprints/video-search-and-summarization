@@ -60,7 +60,7 @@ With default **`values.yaml`** and typical overrides (both NIMs enabled, **`vss-
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
 - **StorageClass** : Need a storageclass present on cluster for PVC creation
-- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles all **`vss-vios-*`** microservice charts as subcharts. Run **`helm dependency update`** in this profile directory before **`helm install`** / **`helm package`**. To validate all developer profiles and remove generated **`charts/*.tgz`** afterward, run **`python3 -m eval.scripts.infra.validate_developer_profile_helm`** from the repo root (same as the preflight CI job).
+- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles all **`vss-vios-*`** microservice charts as subcharts. Before **`helm install`** / **`helm package`**, run **`helm dependency build`** in this profile directory (uses **`Chart.lock`** to populate **`charts/*.tgz`**, which are gitignored). Use **`helm dependency update`** if **`Chart.lock`** is missing or you changed **`Chart.yaml`** dependencies. To validate charts locally, from **`deploy/helm/developer-profiles`** run **`helm dependency build`** and **`helm lint`** on each **`dev-profile-*`** directory you use; remove generated **`charts/*.tgz`** afterward if you do not want vendored tarballs in your working tree.
 
 
 ## Quick start
@@ -181,6 +181,7 @@ You can still set **`llmNameSlug`** / **`vlmNameSlug`** for chart wiring where a
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization/deploy/helm/developer-profiles
 
+helm dependency build ./dev-profile-base
 
 # Update the values-base.yaml and install the chart
 helm upgrade --install <RELEASE NAME> ./dev-profile-base \

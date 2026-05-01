@@ -114,7 +114,8 @@ spec:
             {{- if ne $globalBase "" }}
             {{- /* Real-time: fillAlertBridgeUrlFromGlobal=false — do not set NEXT_PUBLIC_ALERTS_API_URL (Alerts tab uses MDX_WEB_API_URL). */}}
             {{- if not (and (kindIs "bool" .Values.fillAlertBridgeUrlFromGlobal) (eq .Values.fillAlertBridgeUrlFromGlobal false)) }}
-            {{- $_ := set $ov "NEXT_PUBLIC_ALERTS_API_URL" (index $ov "NEXT_PUBLIC_ALERTS_API_URL" | default (printf "%s/alert-bridge" $globalBase)) }}
+            {{- /* Includes the API version prefix so a future server-side bump (e.g. /api/v2) is a chart change, not a UI rebuild. */}}
+            {{- $_ := set $ov "NEXT_PUBLIC_ALERTS_API_URL" (index $ov "NEXT_PUBLIC_ALERTS_API_URL" | default (printf "%s/alert-bridge/api/v1" $globalBase)) }}
             {{- end }}
             {{- $mdxP := .Values.mdxWebApiPath | default "/video-analytics-api" }}
             {{- $_ := set $ov "NEXT_PUBLIC_MDX_WEB_API_URL" (index $ov "NEXT_PUBLIC_MDX_WEB_API_URL" | default (printf "%s%s" $globalBase $mdxP)) }}

@@ -15,9 +15,7 @@
 
 apiVersion: v2
 name: kafka
-description: Confluent Kafka broker (KRaft mode) for MDX message streaming
+description: Confluent Kafka broker (KRaft mode) for message streaming
 type: application
 version: 26.04.2
-appVersion: "8.1.1"
-maintainers:
-  - name: NVIDIA
+appVersion: "8.2.0"

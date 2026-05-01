@@ -95,7 +95,36 @@ static_resources:
                         local noHeaderTargetport = os.getenv("NOHEADERTARGETPORT")
                         local containerName = nil
                         local containerHost = nil
-                        id = request_handle:headers():get(routeHeader)
+                        local id = nil
+                        local headers = request_handle:headers()
+
+                        local isWebSocket = false
+                        if headers:get("Sec-WebSocket-Key") ~= nil or
+                           (headers:get("Connection") ~= nil and headers:get("Connection"):lower():find("upgrade")) then
+                          isWebSocket = true
+                          request_handle:logInfo("WebSocket connection detected")
+                        end
+
+                        if isWebSocket then
+                          request_handle:logInfo("Fetching streamid from Websocket request")
+                          local path = headers:get(":path")
+                          local params = {}
+                          if path ~= nil then
+                            local _, _, qs = string.find(path, "%?(.*)")
+                            if qs then
+                              for key, value in string.gmatch(qs, "([^&=?]+)=([^&=?]+)") do
+                                params[key] = value
+                              end
+                            end
+                            if params["streamId"] then
+                              id = params["streamId"]
+                              request_handle:logInfo("Id=" ..id)
+                            end
+                          end
+                        else
+                          id = request_handle:headers():get(routeHeader)
+                        end
+
                         if id ~= nil then
                           request_handle:logInfo("id not nil " ..id)
                           containerName = client:hget(wlObj, id )
@@ -107,15 +136,13 @@ static_resources:
                               request_handle:logInfo("routing stream id "..id.." to "..containerHost)
                             end
                           end
-
                           if containerName ~= nil then
                             request_handle:logInfo("containerName:" ..containerName)
-                            if request_handle:headers():get("Sec-WebSocket-Key") ~= nil then
+                            if isWebSocket then
                               request_handle:logInfo("Websocket request")
-                              request_handle:headers():replace (
-                                    "upstream-cluster",
-                                    containerName .. "-" .. containerName .."-websocket"
-                                )
+                              local wsCluster = containerName .. "-" .. containerName
+                              request_handle:logInfo("Setting WebSocket cluster: " .. wsCluster)
+                              request_handle:headers():replace("upstream-cluster", wsCluster)
                             else
                               request_handle:logInfo("Not a websocket request")
                               message_encoding_header = request_handle:headers():get("content-type")
@@ -160,21 +187,60 @@ static_resources:
               socket_address:
                 address: "127.0.0.1"
                 port_value: 4003
-  - type: STRICT_DNS
-    connect_timeout: 0.25s
+  - type: STATIC
+    connect_timeout: 2s
     name: headerless_service
     lb_policy: ROUND_ROBIN
+
+    outlier_detection:
+      consecutive_5xx: 5
+      consecutive_gateway_failure: 3
+      interval: 10s
+      base_ejection_time: 30s
+      max_ejection_percent: 40
+      success_rate_minimum_hosts: 3
+      success_rate_request_volume: 20
+      success_rate_stdev_factor: 1900
+
+    circuit_breakers:
+      thresholds:
+        - priority: DEFAULT
+          max_connections: 2048
+          max_pending_requests: 2048
+          max_requests: 2048
+          max_retries: 3
+          retry_budget:
+            budget_percent:
+              value: 25.0
+            min_retry_concurrency: 5
+
+    health_checks:
+      - timeout: 3s
+        interval: 5s
+        unhealthy_threshold: 3
+        healthy_threshold: 2
+        no_traffic_interval: 15s
+        http_health_check:
+          path: /v1/ready
+
     typed_extension_protocol_options:
       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
         "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
         explicit_http_config:
           http_protocol_options: {}
+
     load_assignment:
       cluster_name: headerless_service
       endpoints:
-        - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: "127.0.0.1"  # This should match container endpoint or service name
-                    port_value: "30001" # port
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: "127.0.0.1"
+                port_value: 30001
+        # [Pod 2 disabled] Uncomment to add second pod endpoint for load balancing
+        # - endpoint:
+        #     address:
+        #       socket_address:
+        #         address: "127.0.0.1"
+        #         port_value: 30002

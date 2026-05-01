@@ -107,7 +107,7 @@ kubectl get pods -n nim-operator
 - **kubectl**
 - **GPUs**: see [GPU Requirements](#gpu-requirements)
 - **NGC**: API key for image pull, model downloads, and NIM access
-- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles the reusable **`vss-vios-*`** microservice charts as subcharts (same sources as the alerts developer profile). Run **`helm dependency update`** in this chart directory before **`helm install`** / **`helm package`** so dependencies resolve (vendored **`charts/*.tgz`** are gitignored). CI runs **`python3 -m eval.scripts.infra.validate_developer_profile_helm`**, which updates dependencies, runs **`helm lint`** (including **`helm/services/vios`**), then deletes those **`.tgz`** files so the tree stays clean.
+- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles the reusable **`vss-vios-*`** microservice charts as subcharts (same sources as the alerts developer profile). Before **`helm install`** / **`helm package`**, run **`helm dependency build`** in this chart directory (uses **`Chart.lock`** to populate **`charts/*.tgz`**, which are gitignored). Use **`helm dependency update`** if **`Chart.lock`** is missing or you changed **`Chart.yaml`** dependencies. To lint after vendoring: from **`deploy/helm/developer-profiles`**, run **`helm dependency build ./dev-profile-search`** then **`helm lint ./dev-profile-search`** (and optionally **`helm lint ../../services/vios`**). Remove generated **`charts/*.tgz`** from the profile directory if you do not want vendored tarballs in your working tree.
 
 ## Environment Setup
 
@@ -184,6 +184,8 @@ The following Kubernetes secrets are **automatically created** by the chart when
 # Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization/deploy/helm/developer-profiles
+
+helm dependency build ./dev-profile-search
 ```
 
 ### Option A: Remote NIMs

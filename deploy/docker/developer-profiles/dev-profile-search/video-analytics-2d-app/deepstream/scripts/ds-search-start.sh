@@ -46,12 +46,14 @@ if [[ ! -f "${VISION_ENCODER_STORAGE}/${VISION_ENCODER_ONNX_FILE}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Stage config files from the read-only bind mount into the DeepStream app
-# directory. The shared ds-start.sh expects config files and the
-# metropolis_perception_app binary in the current working directory.
+# Stage config files from the read-only bind mount into the container's own
+# writable configs directory. The host configs are mounted at /opt/ds-configs-ro
+# (:ro) to avoid permission issues. Copying them into the image's configs dir
+# keeps them writable for sed -i here and in the downstream ds-start.sh,
+# whose config paths are hardcoded to this location.
 # ---------------------------------------------------------------------------
 CONFIGS_RO="/opt/ds-configs-ro"
-CONFIGS_DIR="${DS_APP_DIR}"
+CONFIGS_DIR="${DS_APP_DIR}/configs"
 if [[ ! -d "${CONFIGS_RO}" ]]; then
   echo "ERROR: Read-only configs mount not found at ${CONFIGS_RO}"
   echo "Ensure the compose volume mounts the host configs to ${CONFIGS_RO}:ro"
@@ -64,8 +66,8 @@ echo "##### Staged config files from ${CONFIGS_RO} -> ${CONFIGS_DIR} #####"
 # ---------------------------------------------------------------------------
 # Patch ds-main-*.txt config files with vision encoder paths.
 # ---------------------------------------------------------------------------
-for cfg in "${CONFIGS_DIR}/ds-main-config.txt" \
-           "${CONFIGS_DIR}/ds-main-redis-config.txt"; do
+for cfg in "${DS_APP_DIR}/configs/ds-main-config.txt" \
+           "${DS_APP_DIR}/configs/ds-main-redis-config.txt"; do
   [[ -f "$cfg" ]] || continue
   echo "##### Patching vision encoder paths in $(basename "$cfg") #####"
 
@@ -82,5 +84,4 @@ done
 # ---------------------------------------------------------------------------
 # Delegate to the shared ds-start.sh
 # ---------------------------------------------------------------------------
-cd "${DS_APP_DIR}"
 exec bash "${DS_APP_DIR}/ds-start.sh"

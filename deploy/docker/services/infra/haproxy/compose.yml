@@ -27,6 +27,14 @@ services:
       - "bp_developer_alerts_2d_cv"
       - "bp_developer_alerts_2d_vlm"
       - "bp_wh_2d"
+      - "bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}"
+      - "bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}"
+      - "bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}"
+      - "bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}"
+      - "playback_kafka_2d"
+      - "playback_kafka_3d"
+      - "playback_redis_2d"
+      - "playback_redis_3d"
     container_name: vss-haproxy-ingress
     network_mode: host
     restart: always
