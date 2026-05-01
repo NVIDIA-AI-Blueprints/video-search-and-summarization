@@ -112,36 +112,19 @@ async def run_agent() -> int:
 
     system_prompt = AGENTS_MD.read_text()
 
-    user_prompt = f"""
-PR #{pr_number} just pushed new commits and the accumulated diff
-touches `deploy/` (or this harness). Check whether the docker-side
-changes are reflected in the helm chart at `deploy/helm/`.
-
-Context:
-  repo          = {pr_repo}
-  PR number     = {pr_number}
-  base branch   = {pr_base}
-  mirror head   = {pr_head}
-  workflow run  = {run_id}
-  working dir   = {REPO_ROOT}
-
-Your workspace is the repo at `{REPO_ROOT}` (already checked out to
-the mirror head with full git history). You have `gh` authenticated
-via $GH_TOKEN (PAT with `repo` scope).
-
-Process this PR per AGENTS.md: diff `${{PR_BASE}}...pull-request/${{PR_NUMBER}}`
-(accumulated, NOT just the latest push) → bucket files docker-side
-vs helm-side under `deploy/` → for each docker-side change, compare
-to its helm counterpart at `deploy/helm/<group>/` → if drift,
-propose helm changes in the workspace and raise a bot PR against
-the source PR's branch (NOT the mirror) with a comment on PR
-#{pr_number} linking it.
-
-When done, emit a one-line final summary starting with `DONE:` (no
-drift) or `BLOCKED:` (drift surfaced, fork PR out of scope, no
-helm counterpart for the changed area, etc.) — see AGENTS.md
-§ Output requirements.
-"""
+    # User prompt = per-invocation runtime data only. Procedure,
+    # tool guidance, hard rules, output format all live in AGENTS.md
+    # (system prompt) — duplicating them here just spends tokens.
+    user_prompt = (
+        f"PR_NUMBER={pr_number}\n"
+        f"PR_BASE={pr_base}\n"
+        f"PR_HEAD_SHA={pr_head}\n"
+        f"PR_REPO={pr_repo}\n"
+        f"GITHUB_RUN_ID={run_id}\n"
+        f"REPO_ROOT={REPO_ROOT}\n"
+        f"\n"
+        f"Process this PR per AGENTS.md."
+    )
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"
     print(f"[agent] starting · pr={pr_number} base={pr_base} head={pr_head[:8]} "
