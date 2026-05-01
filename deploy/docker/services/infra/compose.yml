@@ -74,7 +74,8 @@ services:
       /opt/mdx/init-scripts/elasticsearch-ingest-pipeline-creation.sh
       "
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
 
   kafka:
     image: confluentinc/cp-kafka:8.2.0
