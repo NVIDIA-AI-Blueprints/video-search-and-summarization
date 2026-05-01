@@ -26,17 +26,22 @@ Reference: AIQ knowledge_layer/foundational_rag/adapter.py.
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 import logging
 import os
-import re
-from collections.abc import Callable
-from functools import partial
 from pathlib import Path
+import re
+from typing import TYPE_CHECKING
 from typing import Any
 
 from lib.knowledge.base import BackendAdapter
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 from lib.knowledge.factory import register_adapter
-from lib.knowledge.schema import Chunk, ContentType, RetrievalResult
+from lib.knowledge.schema import Chunk
+from lib.knowledge.schema import ContentType
+from lib.knowledge.schema import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +60,8 @@ class FragApiAdapter(BackendAdapter):
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
         import requests
-        import urllib3
         from requests.adapters import HTTPAdapter
+        import urllib3
         from urllib3.util.retry import Retry
 
         self.rag_url: str = self.config.get("rag_url", DEFAULT_RAG_URL).rstrip("/")

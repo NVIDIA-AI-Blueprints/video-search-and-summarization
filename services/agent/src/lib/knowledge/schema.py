@@ -19,13 +19,14 @@ these types so callers see a consistent shape regardless of backend.
 """
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from pydantic import Field
 
 
-class ContentType(str, Enum):
+class ContentType(StrEnum):
     """Content modality of a retrieved chunk."""
 
     TEXT = "text"

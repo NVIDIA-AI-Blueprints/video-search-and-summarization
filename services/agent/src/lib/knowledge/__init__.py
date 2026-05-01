@@ -10,9 +10,13 @@ retriever singletons as the agent.
 Adapters live under `lib.knowledge.adapters.*` and self-register via
 `@register_adapter("name")` at import time.
 """
-from .base import BackendAdapter, ChunkFilter
-from .factory import get_retriever, register_adapter
-from .schema import Chunk, ContentType, RetrievalResult
+from .base import BackendAdapter
+from .base import ChunkFilter
+from .factory import get_retriever
+from .factory import register_adapter
+from .schema import Chunk
+from .schema import ContentType
+from .schema import RetrievalResult
 
 __all__ = [
     "BackendAdapter",

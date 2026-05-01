@@ -18,18 +18,20 @@ Covers config validation, backend dispatch, result formatting, and the
 inner _search path via __wrapped__.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
-from lib.knowledge.schema import Chunk, ContentType, RetrievalResult
-from vss_agents.register_knowledge_layers import (
-    KnowledgeRetrievalConfig,
-    KnowledgeRetrievalInput,
-    _format_results,
-    _setup_backend,
-    knowledge_retrieval,
-)
+from lib.knowledge.schema import Chunk
+from lib.knowledge.schema import ContentType
+from lib.knowledge.schema import RetrievalResult
+from vss_agents.register_knowledge_layers import KnowledgeRetrievalConfig
+from vss_agents.register_knowledge_layers import KnowledgeRetrievalInput
+from vss_agents.register_knowledge_layers import _format_results
+from vss_agents.register_knowledge_layers import _setup_backend
+from vss_agents.register_knowledge_layers import knowledge_retrieval
 
 
 class TestKnowledgeRetrievalConfig:

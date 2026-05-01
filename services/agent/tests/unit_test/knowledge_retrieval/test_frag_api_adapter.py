@@ -22,16 +22,15 @@ Covers:
   error→failure-result mapping.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 import requests
 
-from lib.knowledge.adapters.frag_api import (
-    FragApiAdapter,
-    _filters_to_expr,
-    _normalise_search_result,
-)
+from lib.knowledge.adapters.frag_api import FragApiAdapter
+from lib.knowledge.adapters.frag_api import _filters_to_expr
+from lib.knowledge.adapters.frag_api import _normalise_search_result
 from lib.knowledge.schema import ContentType
 
 
@@ -51,13 +50,13 @@ class TestFiltersToExpr:
 
     def test_multiple_fields_joined_with_and(self):
         out = _filters_to_expr({"category": "safety", "page_number": 5})
-        assert "category == \"safety\"" in out
+        assert 'category == "safety"' in out
         assert "page_number == 5" in out
         assert " and " in out
 
     def test_callable_filter_returns_none(self):
         # Predicates run client-side; nothing is pushed to the server.
-        assert _filters_to_expr(lambda chunk: True) is None
+        assert _filters_to_expr(lambda _chunk: True) is None
 
     def test_empty_dict_returns_none(self):
         assert _filters_to_expr({}) is None

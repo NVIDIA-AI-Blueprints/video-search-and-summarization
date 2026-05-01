@@ -17,7 +17,7 @@
 This is the only module in the agent service that imports `nat.*` for
 knowledge retrieval. It exposes:
 
-* `KnowledgeRetrievalConfig`   — flat config schema 
+* `KnowledgeRetrievalConfig`   — flat config schema (mirrors AIQ).
 * `knowledge_retrieval`        — async generator yielding the
                                  `search(query, top_k?, collection?, filters?)`
                                  NAT FunctionInfo.
@@ -27,18 +27,22 @@ adapter a plain config dict so the adapter never imports NAT itself.
 """
 from collections.abc import AsyncGenerator
 import logging
-from typing import Any, Literal
+from typing import Any
+from typing import Literal
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import SystemMessage
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from pydantic import Field
 
-from lib.knowledge import RetrievalResult, get_retriever
+from lib.knowledge import RetrievalResult
+from lib.knowledge import get_retriever
 
 logger = logging.getLogger(__name__)
 

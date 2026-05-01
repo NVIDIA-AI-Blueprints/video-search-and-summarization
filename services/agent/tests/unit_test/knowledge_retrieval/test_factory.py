@@ -23,7 +23,9 @@ import pytest
 
 from lib.knowledge import factory
 from lib.knowledge.base import BackendAdapter
-from lib.knowledge.factory import _freeze, get_retriever, register_adapter
+from lib.knowledge.factory import _freeze
+from lib.knowledge.factory import get_retriever
+from lib.knowledge.factory import register_adapter
 from lib.knowledge.schema import RetrievalResult
 
 

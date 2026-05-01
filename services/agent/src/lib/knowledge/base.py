@@ -21,11 +21,13 @@ backends.
 """
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from .schema import Chunk, RetrievalResult
+from .schema import Chunk
+from .schema import RetrievalResult
 
 # A filter is a predicate over a Chunk: True keeps, False rejects.
 ChunkFilter = Callable[[Chunk], bool]
@@ -63,9 +65,9 @@ class BackendAdapter(ABC):
 
     async def summarize(
         self,
-        query: str,
+        _query: str,
         chunks: list[Chunk],
-        llm: Any | None = None,
+        _llm: Any | None = None,
     ) -> str:
         """Optional: backend-specific summarization of retrieved chunks.
 

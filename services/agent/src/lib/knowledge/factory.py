@@ -24,9 +24,11 @@ from __future__ import annotations
 import importlib
 import logging
 import threading
+from typing import TYPE_CHECKING
 from typing import Any
 
-from .base import BackendAdapter
+if TYPE_CHECKING:
+    from .base import BackendAdapter
 
 logger = logging.getLogger(__name__)
 
