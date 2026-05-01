@@ -152,6 +152,41 @@ class TestAlertsModeToEnvMode:
             dcu.alerts_mode_to_env_mode("verification", {})
 
 
+class TestResolveComposeProfiles:
+    def test_resolve_compose_profiles_uses_profile_template(self):
+        merged = {
+            "BP_PROFILE": "bp_developer_alerts",
+            "MODE": "2d_cv",
+            "HARDWARE_PROFILE": "H100",
+            "LLM_MODE": "local_shared",
+            "LLM_NAME_SLUG": "llm-a-slug",
+            "VLM_MODE": "local_shared",
+            "VLM_NAME_SLUG": "vlm-a-slug",
+            "COMPOSE_PROFILES": "${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+        }
+
+        assert (
+            dcu.resolve_compose_profiles(merged, dcu.PROFILE_ALERTS)
+            == "bp_developer_alerts_2d_cv,bp_developer_alerts_2d_cv_H100,llm_local_shared_llm-a-slug"
+        )
+
+    def test_resolve_compose_profiles_falls_back_for_legacy_env(self):
+        merged = {
+            "BP_PROFILE": "bp_developer_search",
+            "MODE": "2d",
+            "HARDWARE_PROFILE": "H100",
+            "LLM_MODE": "local_shared",
+            "LLM_NAME_SLUG": "llm-a-slug",
+            "VLM_MODE": "local_shared",
+            "VLM_NAME_SLUG": "vlm-a-slug",
+        }
+
+        assert (
+            dcu.resolve_compose_profiles(merged, dcu.PROFILE_SEARCH)
+            == "bp_developer_search_2d,llm_local_shared_llm-a-slug,vlm_local_shared_vlm-a-slug"
+        )
+
+
 class TestSanitizeResolvedCompose:
     def test_sanitize_resolved_compose_removes_dangling_depends_on(self):
         compose_text = """
@@ -202,6 +237,7 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=<HOST_IP>",
                 "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}",
                 "NGC_CLI_API_KEY=",  # pragma: allowlist secret
                 "NVIDIA_API_KEY=",  # pragma: allowlist secret
             ),
@@ -296,6 +332,7 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
             ),
             profile=dcu.PROFILE_ALERTS,
             env_overrides={"MODE": dcu.MODE_2D_VLM},
@@ -370,6 +407,8 @@ class TestGenerateDryRunArtifacts:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},"
+                "llm_${LLM_MODE}_${LLM_NAME_SLUG}",
             ),
             profile=dcu.PROFILE_ALERTS,
             env_overrides={"MODE": dcu.MODE_2D_VLM},
@@ -385,6 +424,10 @@ class TestGenerateDryRunArtifacts:
 
         assert resolved_env["MODE"] == dcu.MODE_2D_VLM
         assert "bp_developer_alerts_2d_vlm" in resolved_env["COMPOSE_PROFILES"]
+        assert "vlm_local" not in resolved_env["COMPOSE_PROFILES"]
         assert "MODE=2d_vlm" in env_path.read_text()
-        assert "COMPOSE_PROFILES=bp_developer_alerts_2d_vlm" in env_path.read_text()
+        assert (
+            "COMPOSE_PROFILES=bp_developer_alerts_2d_vlm,bp_developer_alerts_2d_vlm_igx,llm_local_shared_llm-a-slug"
+            in env_path.read_text()
+        )
         assert compose_path.read_text() == "services: {}\n"

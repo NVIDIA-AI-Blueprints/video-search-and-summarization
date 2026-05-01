@@ -55,6 +55,9 @@ SUPPORTED_PROFILES: Final[frozenset[str]] = frozenset(
 )
 VALID_ENV_KEY: Final[re.Pattern[str]] = re.compile(r"^[A-Z][A-Z0-9_]*$")
 UNRESOLVED_SHELL_VAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*")
+ENV_VAR_INTERPOLATION_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
+)
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
@@ -283,6 +286,37 @@ def alerts_mode_to_env_mode(alerts_mode: str, alerts_mode_to_env_modes: Mapping[
     raise ValidationError(f"Invalid alerts mode '{alerts_mode}'. Supported values: {supported_modes}.")
 
 
+def resolve_env_interpolation(value: str, env: Mapping[str, str]) -> str:
+    """Resolve simple $VAR and ${VAR} references using already-resolved env values."""
+
+    def _replace(match: re.Match[str]) -> str:
+        key = match.group("braced") or match.group("bare")
+        return env.get(key, "")
+
+    return ENV_VAR_INTERPOLATION_PATTERN.sub(_replace, value)
+
+
+def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfile) -> str:
+    """Resolve COMPOSE_PROFILES from the profile env template, with a legacy fallback."""
+
+    # COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}
+    configured_profiles = merged.get("COMPOSE_PROFILES", "").strip()
+    if configured_profiles:
+        return resolve_env_interpolation(configured_profiles, merged)
+
+    # fallback to old compose profiles
+    compose_profiles = [f"{merged['BP_PROFILE']}_{merged['MODE']}"]
+    if profile in {PROFILE_BASE, PROFILE_ALERTS}:
+        compose_profiles.append(f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['HARDWARE_PROFILE']}")
+    compose_profiles.extend(
+        [
+            f"llm_{merged['LLM_MODE']}_{merged['LLM_NAME_SLUG']}",
+            f"vlm_{merged['VLM_MODE']}_{merged['VLM_NAME_SLUG']}",
+        ]
+    )
+    return ",".join(compose_profiles)
+
+
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     merged = parse_env_file(config.source_env_file)
     merged.update(config.env_overrides)
@@ -401,16 +435,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
 
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
-    compose_profiles = [f"{merged['BP_PROFILE']}_{merged['MODE']}"]
-    if config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
-        compose_profiles.append(f"{merged['BP_PROFILE']}_{merged['MODE']}_{merged['HARDWARE_PROFILE']}")
-    compose_profiles.extend(
-        [
-            f"llm_{merged['LLM_MODE']}_{merged['LLM_NAME_SLUG']}",
-            f"vlm_{merged['VLM_MODE']}_{merged['VLM_NAME_SLUG']}",
-        ]
-    )
-    merged["COMPOSE_PROFILES"] = ",".join(compose_profiles)
+    merged["COMPOSE_PROFILES"] = resolve_compose_profiles(merged, config.profile)
     return merged
 
 
