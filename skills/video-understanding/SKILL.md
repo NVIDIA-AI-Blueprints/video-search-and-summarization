@@ -7,6 +7,8 @@ license: "Apache License 2.0"
 
 # Video QnA using VLM through VSS Agent
 
+> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
+
 Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip.
 
 ---

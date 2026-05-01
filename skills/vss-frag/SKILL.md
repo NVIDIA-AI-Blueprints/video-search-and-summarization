@@ -7,6 +7,8 @@ license: "Apache License 2.0"
 
 # VSS Frag — Video Analysis with Enterprise RAG
 
+> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
+
 Generate video summary reports using the VSS `video_search_frag` extension.
 This skill adds Enterprise RAG (Milvus) knowledge retrieval and guided
 human-in-the-loop (HITL) parameter collection on top of the base VSS agent.

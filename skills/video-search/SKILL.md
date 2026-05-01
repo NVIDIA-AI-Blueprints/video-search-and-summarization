@@ -7,6 +7,8 @@ license: "Apache License 2.0"
 
 # Video Search Workflows
 
+> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
+
 > **Alpha Feature** — not recommended for production use.
 
 Search video archives by natural language using Cosmos Embed1 embeddings. Requires the search profile — deploy with the `deploy` skill (`-p search`). These videos sources can be ingested files or RTSP streams.

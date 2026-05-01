@@ -7,6 +7,8 @@ license: "Apache License 2.0"
 
 # VSS Alert Management
 
+> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
+
 The alerts profile is deployed in **one** of two modes at a time. The mode is chosen at `deploy -p alerts -m {verification,real-time}` and is static until you tear down and redeploy. Which mode is running determines which flow to use — this skill does not route per-request.
 
 ## When to Use

@@ -7,6 +7,8 @@ license: "Apache License 2.0"
 
 # Video Analytics (VA-MCP)
 
+> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
+
 Queries incidents, alerts, and metrics stored in Elasticsearch via MCP JSON-RPC at **port 9901**.
 
 > **ALWAYS run the commands below yourself and relay results to the user. Do NOT guess or describe — actually execute and report back.**
