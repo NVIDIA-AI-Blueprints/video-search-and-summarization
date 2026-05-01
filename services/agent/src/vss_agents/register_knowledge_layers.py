@@ -35,7 +35,6 @@ from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from nat.builder.builder import Builder
-from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -202,11 +201,12 @@ class KnowledgeRetrievalInput(BaseModel):
     filters: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Optional metadata filter. Use shape "
-            "{\"filter_expr\": 'content_metadata[\"<field>\"] == \"<value>\"'}. "
-            "Example: {\"filter_expr\": 'content_metadata[\"filename\"] == \"Forklift.pdf\"'}. "
-            "Filterable fields are declared in the collection's metadata_schema "
-            "(typically filename, page_number). Omit to search the full collection."
+            "Optional metadata filter. OMIT unless the user EXPLICITLY names a "
+            "specific document or category in their message — never invent or "
+            "guess filenames; a wrong filter returns nothing. "
+            "When the user does name a document, use shape "
+            "{\"filter_expr\": 'content_metadata[\"filename\"] == \"<name>\"'} "
+            "with the user's exact filename. Default: omit and search the whole collection."
         ),
     )
 
@@ -279,14 +279,14 @@ async def knowledge_retrieval(
     )
 
     async def _search(tool_input: KnowledgeRetrievalInput) -> str:
-        # Prefer per-conversation collection from NAT context, then explicit
-        # tool input, then config default.
-        try:
-            ctx = Context.get()
-            session_collection = ctx.conversation_id if ctx else None
-        except Exception:
-            session_collection = None
-        target_collection = tool_input.collection or session_collection or config.collection_name
+        # Per-conversation collection scoping isn't wired up — there's no
+        # ingestion path that creates a collection named after a NAT
+        # conversation_id. Falling back to ctx.conversation_id here would
+        # send the agent's queries to a collection that doesn't exist on
+        # the rag-server (surfaces as cryptic "Max retries exceeded" via
+        # the urllib3 retry on 5xx). Skip straight from explicit tool
+        # input to the configured default collection.
+        target_collection = tool_input.collection or config.collection_name
         top_k = tool_input.top_k or config.top_k
 
         result = await retriever.retrieve(
