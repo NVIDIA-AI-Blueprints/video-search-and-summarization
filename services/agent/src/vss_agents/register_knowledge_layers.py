@@ -29,8 +29,6 @@ The lib (`lib.knowledge.*`) is fully NAT-independent. This file resolves
 NAT refs (LLMRef/EmbedderRef) into concrete URLs before handing the
 adapter a plain config dict.
 """
-from __future__ import annotations
-
 from collections.abc import AsyncGenerator
 import logging
 from typing import Any, Literal
@@ -159,7 +157,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     )
 
     @model_validator(mode="after")
-    def validate_config(self) -> KnowledgeRetrievalConfig:
+    def validate_config(self) -> "KnowledgeRetrievalConfig":
         """Cross-field validation and warnings for unused fields."""
         if self.generate_summary and not self.summary_model:
             raise ValueError(
