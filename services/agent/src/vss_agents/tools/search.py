@@ -72,7 +72,6 @@ Extract the following parameters from the user query:
 - has_action: REQUIRED boolean. Set to True if the query explicitly mentions an action/event/activity (e.g., running, walking, carrying, pushing, entering, leaving, moving). Set to False if the query only describes visual/physical attributes (what someone/something LOOKS LIKE) without any action. Examples: "person" → false, "person walking" → true, "red car" → false, "person carrying box" → true, "forklift" → false.
 - object_ids: List of integer object IDs if explicitly mentioned in the query (e.g., "find object 5" → [5], "search for objects 10, 20" → [10, 20]). null if no object IDs are mentioned.
 - top_k: Number of results to return (integer, only if explicitly mentioned, e.g., "top 5", "first 10")
-- min_cosine_similarity: Minimum similarity threshold between -1.0 and 1.0 (e.g., "highly similar" = 0.8, "somewhat similar" = 0.5, "exact match" = 0.9, "any match" = -1.0)
 
 Examples:
 {few_shot_examples}
@@ -136,7 +135,6 @@ class DecomposedQuery(BaseModel):
         default=None, description="List of integer object IDs if explicitly mentioned in the query"
     )
     top_k: int | None = Field(default=None, description="Number of results to return")
-    min_cosine_similarity: float | None = Field(default=None, description="Minimum similarity threshold (-1.0 to 1.0)")
 
 
 async def _run_attribute_only_search(
@@ -338,14 +336,6 @@ async def decompose_query(
             except (ValueError, TypeError):
                 logger.debug("Failed to parse top_k value: %s", extracted["top_k"])
 
-        # Parse min_cosine_similarity if present
-        min_cosine_similarity = None
-        if extracted.get("min_cosine_similarity") is not None:
-            try:
-                min_cosine_similarity = float(extracted["min_cosine_similarity"])
-            except (ValueError, TypeError):
-                logger.debug("Failed to parse min_cosine_similarity value: %s", extracted["min_cosine_similarity"])
-
         # Parse has_action if present
         has_action = None
         if extracted.get("has_action") is not None:
@@ -374,7 +364,6 @@ async def decompose_query(
             has_action=has_action,
             object_ids=object_ids,
             top_k=top_k,
-            min_cosine_similarity=min_cosine_similarity,
         )
     except Exception as e:
         logger.warning(f"Failed to decompose query, using original: {e}")
@@ -949,8 +938,6 @@ async def execute_core_search(
                     logger.warning(f"Failed to parse decomposed timestamp_end: {e}")
             if decomposed.top_k is not None:
                 search_input.top_k = decomposed.top_k
-            if decomposed.min_cosine_similarity is not None:
-                search_input.min_cosine_similarity = decomposed.min_cosine_similarity
 
             # Yield decomposition summary
             decomp_summary: dict[str, Any] = {
@@ -1006,7 +993,7 @@ async def execute_core_search(
                     behavior_index=config.behavior_index,
                     es=es,
                     top_k=top_k,
-                    min_similarity=search_input.min_cosine_similarity or 0.0,
+                    min_similarity=0.0,
                     video_sources=search_input.video_sources if search_input.video_sources else None,
                     timestamp_start=search_input.timestamp_start,
                     timestamp_end=search_input.timestamp_end,
@@ -1047,7 +1034,6 @@ async def execute_core_search(
     top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
     original_top_k = top_k
     top_k = top_k * 2
-    min_similarity = search_input.min_cosine_similarity
 
     # Build query_params for embed_search (used by embed-only and fusion paths)
     query_params: dict[str, str] = {"query": search_input.query}
@@ -1064,7 +1050,8 @@ async def execute_core_search(
     if search_input.timestamp_end:
         query_params["timestamp_end"] = search_input.timestamp_end.isoformat()
 
-    query_params["min_cosine_similarity"] = str(search_input.min_cosine_similarity)
+    if not search_input.agent_mode:
+        query_params["min_cosine_similarity"] = str(search_input.min_cosine_similarity)
 
     # Extract attributes list and check if attribute-only (used by both attribute-only and fusion paths)
     attribute_list = []
@@ -1138,7 +1125,7 @@ async def execute_core_search(
                     search_input=search_input,
                     attribute_search_fn=attribute_search_fn,
                     top_k=original_top_k,
-                    min_similarity=min_similarity,
+                    min_similarity=0.0,
                 )
 
             yield AgentMessageChunk(
@@ -1230,7 +1217,7 @@ async def execute_core_search(
                             search_input=search_input,
                             attribute_search_fn=attribute_search_fn,
                             top_k=top_k,
-                            min_similarity=min_similarity,
+                            min_similarity=0.0,
                         )
 
                     yield AgentMessageChunk(
@@ -1601,7 +1588,7 @@ class SearchInput(BaseModel):
 
     min_cosine_similarity: float = Field(
         default=0.0,
-        description="Minimum cosine similarity to filter the results. Default is 0.",
+        description="Minimum cosine similarity to filter non-agent embed-only search results. Default is 0.",
     )
 
     agent_mode: bool = Field(
