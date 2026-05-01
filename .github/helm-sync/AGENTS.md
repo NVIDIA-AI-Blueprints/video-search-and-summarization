@@ -33,36 +33,38 @@ deploy/
 │   ├── compose.yml                                    ← top-level compose
 │   ├── developer-profiles/
 │   │   ├── compose.yml
-│   │   ├── dev-profile-alerts/
+│   │   ├── dev-profile-{alerts,base,lvs,search}/
 │   │   │   ├── compose.yml                            ← profile compose
 │   │   │   └── Dockerfiles/...                        ← per-image
-│   │   ├── dev-profile-base/
-│   │   ├── dev-profile-lvs/
-│   │   └── dev-profile-search/
-│   └── services/
-│       ├── agent/vss-agent-docker-compose.yml
-│       ├── alert/compose.yml
-│       ├── infra/{Dockerfiles,...}/...
-│       └── nim/...
+│   ├── services/
+│   │   ├── agent/{vss-agent-docker-compose.yml, ...}
+│   │   ├── alert/compose.yml
+│   │   ├── infra/{Dockerfiles,...}/...
+│   │   └── nim/...
+│   ├── industry-profiles/                             ← stub today
+│   └── scripts/                                       ← not deployments
 └── helm/
-    └── developer-profiles/
-        ├── dev-profile-alerts/
-        │   ├── Chart.yaml                             ← parity target
-        │   ├── Chart.lock
-        │   ├── values-realtime.yaml
-        │   ├── templates/...
-        │   └── configs/...
-        ├── dev-profile-base/
-        ├── dev-profile-lvs/
-        └── dev-profile-search/
+    ├── developer-profiles/
+    │   ├── dev-profile-{alerts,base,lvs,search}/
+    │   │   ├── Chart.yaml                             ← parity target
+    │   │   ├── Chart.lock
+    │   │   ├── values*.yaml
+    │   │   ├── templates/...
+    │   │   └── configs/...
+    └── services/
+        ├── agent/{Chart.yaml, charts/, values.yaml}
+        ├── alert/{Chart.yaml, configs/, ...}
+        └── ...                                         ← parity for each service
 ```
 
 The helm chart for each `deploy/docker/<path>/<name>/compose.yml`
 lives at `deploy/helm/<path>/<name>/` (mirror layout). Today this
-mirroring exists for `developer-profiles/*` only — `deploy/docker/
-services/*` does NOT have a `deploy/helm/services/*` counterpart
-and changes there don't drive a sync (yet). Verify the actual layout
-in this PR's checkout before applying the convention; the repo evolves.
+mirroring is in place for **both** `developer-profiles/*` and
+`services/*`. The only docker subtree without helm parity is
+`industry-profiles/` (a stub today — `.gitkeep` only on both sides),
+plus `scripts/` which isn't a deployment path. Verify the actual
+layout in this PR's checkout before applying the convention; the
+repo evolves.
 
 ## Your job, in order
 
@@ -103,13 +105,16 @@ in this PR's checkout before applying the convention; the repo evolves.
    → helm   = deploy/helm/developer-profiles/dev-profile-alerts/
    ```
 
-   If the candidate helm dir doesn't exist (e.g. the docker change
-   is under `deploy/docker/services/`, where helm hasn't been
-   bootstrapped), comment on the source PR with a one-line note
-   ("docker change under `services/` has no helm counterpart yet —
-   bootstrap a chart at `deploy/helm/services/...` if you want
-   parity") and exit `BLOCKED: no helm counterpart for <path>`.
-   Don't try to scaffold a chart from scratch.
+   If the candidate helm dir doesn't exist for the changed path
+   (today: only `deploy/docker/industry-profiles/*` lacks a chart —
+   `developer-profiles/*` and `services/*` both have full helm parity),
+   comment on the source PR with a one-line note ("docker change
+   under `<group>/` has no helm counterpart yet — bootstrap a chart
+   at `deploy/helm/<group>/...` if you want parity") and exit
+   `BLOCKED: no helm counterpart for <path>`. Don't try to scaffold
+   a chart from scratch — that's a deliberate, human-driven decision.
+   Skip `deploy/docker/scripts/` entirely; it's tooling, not a
+   deployment unit.
 
 3. **For every docker-side change, look up the matching helm
    counterpart and compare semantics.** Concrete signals to check
