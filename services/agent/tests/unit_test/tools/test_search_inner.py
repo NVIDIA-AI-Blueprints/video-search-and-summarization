@@ -99,6 +99,48 @@ class TestSearchInner:
         assert result.data[0].similarity == 0.95
 
     @pytest.mark.asyncio
+    async def test_non_agent_embed_search_passes_min_cosine_similarity(self, config, mock_builder):
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "camera1.mp4",
+                    "similarity_score": 0.95,
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:30:00Z",
+                }
+            ]
+        )
+        inner_fn = await self._get_inner_fn(config, mock_builder, embed_output)
+
+        inp = SearchInput(query="find cars", source_type="video_file", agent_mode=False, min_cosine_similarity=0.7)
+        result = await inner_fn(inp)
+
+        assert isinstance(result, SearchOutput)
+        embed_input = json.loads(mock_builder.get_function.return_value.ainvoke.call_args.args[0])
+        assert embed_input["params"]["min_cosine_similarity"] == "0.7"
+
+    @pytest.mark.asyncio
+    async def test_agent_mode_request_min_cosine_similarity_not_forwarded(self, config, mock_builder):
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "camera1.mp4",
+                    "similarity_score": 0.95,
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:30:00Z",
+                }
+            ]
+        )
+        inner_fn = await self._get_inner_fn(config, mock_builder, embed_output)
+
+        inp = SearchInput(query="find cars", source_type="video_file", agent_mode=True, min_cosine_similarity=0.7)
+        result = await inner_fn(inp)
+
+        assert isinstance(result, SearchOutput)
+        embed_input = json.loads(mock_builder.get_function.return_value.ainvoke.call_args.args[0])
+        assert "min_cosine_similarity" not in embed_input["params"]
+
+    @pytest.mark.asyncio
     async def test_search_with_video_sources(self, config, mock_builder):
         embed_output = _make_embed_output_with_results(
             [
@@ -370,6 +412,8 @@ class TestSearchInner:
         inp = SearchInput(query="test", source_type="video_file", agent_mode=True)
         result = await inner_fn(inp)
         assert isinstance(result, SearchOutput)
+        embed_input = json.loads(mock_embed.ainvoke.call_args.args[0])
+        assert "min_cosine_similarity" not in embed_input["params"]
 
     @pytest.mark.asyncio
     async def test_search_agent_mode_invalid_json(self, config, mock_builder):
@@ -532,8 +576,8 @@ class TestSearchInner:
         assert len(result.data) == 1
 
     @pytest.mark.asyncio
-    async def test_search_agent_mode_with_min_cosine_similarity(self, config, mock_builder):
-        """Test agent mode extracting min_cosine_similarity."""
+    async def test_search_agent_mode_ignores_deprecated_min_cosine_similarity(self, config, mock_builder):
+        """Test agent mode ignores deprecated min_cosine_similarity."""
         embed_output = _make_embed_output_with_results(
             [
                 {
@@ -595,7 +639,6 @@ class TestSearchInner:
                 "query": "test",
                 "timestamp_start": "invalid-date",
                 "timestamp_end": "also-invalid",
-                "min_cosine_similarity": "not-a-number",
             }
         )
         mock_llm.ainvoke.return_value = mock_llm_response

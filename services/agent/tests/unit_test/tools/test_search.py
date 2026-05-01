@@ -381,7 +381,6 @@ class TestDecomposedQuery:
         assert dq.timestamp_end is None
         assert dq.attributes == []
         assert dq.top_k is None
-        assert dq.min_cosine_similarity is None
 
     def test_with_values(self):
         dq = DecomposedQuery(
@@ -392,7 +391,6 @@ class TestDecomposedQuery:
             timestamp_end="2025-01-01T14:00:00Z",
             attributes=["man", "beige shirt"],
             top_k=10,
-            min_cosine_similarity=0.7,
         )
         assert dq.query == "man pushing cart"
         assert dq.video_sources == ["Endeavor heart"]
@@ -401,15 +399,6 @@ class TestDecomposedQuery:
         assert dq.timestamp_end == "2025-01-01T14:00:00Z"
         assert dq.attributes == ["man", "beige shirt"]
         assert dq.top_k == 10
-        assert dq.min_cosine_similarity == 0.7
-
-    def test_with_negative_min_cosine_similarity(self):
-        """Test that negative min_cosine_similarity values are valid (-1.0 to 1.0 range)."""
-        dq = DecomposedQuery(
-            query="any match",
-            min_cosine_similarity=-0.5,
-        )
-        assert dq.min_cosine_similarity == -0.5
 
 
 class TestQueryDecompositionPrompt:
@@ -428,8 +417,7 @@ class TestQueryDecompositionPrompt:
         assert "timestamp_end" in QUERY_DECOMPOSITION_PROMPT
         assert "attributes" in QUERY_DECOMPOSITION_PROMPT
         assert "top_k" in QUERY_DECOMPOSITION_PROMPT
-        assert "min_cosine_similarity" in QUERY_DECOMPOSITION_PROMPT
-        assert "-1.0" in QUERY_DECOMPOSITION_PROMPT  # Verify correct range is documented
+        assert "min_cosine_similarity" not in QUERY_DECOMPOSITION_PROMPT
 
 
 class TestDecomposeQuery:
@@ -643,27 +631,14 @@ Output: {"query": "forklift", "source_type": "stream"}"""
         assert result.top_k == 5
 
     @pytest.mark.asyncio
-    async def test_query_with_min_cosine_similarity(self, mock_llm):
-        """Test extraction of min_cosine_similarity from query."""
-        mock_llm.ainvoke.return_value = MagicMock(content='{"query": "person running", "min_cosine_similarity": 0.8}')
-
-        result = await decompose_query("find highly similar matches of person running", mock_llm)
-
-        assert result.query == "person running"
-        assert result.min_cosine_similarity == 0.8
-
-    @pytest.mark.asyncio
     async def test_query_with_all_filtering_params(self, mock_llm):
-        """Test extraction of both top_k and min_cosine_similarity."""
-        mock_llm.ainvoke.return_value = MagicMock(
-            content='{"query": "blue truck", "top_k": 10, "min_cosine_similarity": 0.7}'
-        )
+        """Test extraction of filtering params."""
+        mock_llm.ainvoke.return_value = MagicMock(content='{"query": "blue truck", "top_k": 10}')
 
         result = await decompose_query("find top 10 highly similar blue trucks", mock_llm)
 
         assert result.query == "blue truck"
         assert result.top_k == 10
-        assert result.min_cosine_similarity == 0.7
 
     @pytest.mark.asyncio
     async def test_invalid_top_k_ignored(self, mock_llm):
@@ -674,26 +649,6 @@ Output: {"query": "forklift", "source_type": "stream"}"""
 
         assert result.query == "car"
         assert result.top_k is None
-
-    @pytest.mark.asyncio
-    async def test_invalid_min_cosine_similarity_ignored(self, mock_llm):
-        """Test that invalid min_cosine_similarity values are ignored."""
-        mock_llm.ainvoke.return_value = MagicMock(content='{"query": "car", "min_cosine_similarity": "high"}')
-
-        result = await decompose_query("find similar cars", mock_llm)
-
-        assert result.query == "car"
-        assert result.min_cosine_similarity is None
-
-    @pytest.mark.asyncio
-    async def test_negative_min_cosine_similarity(self, mock_llm):
-        """Test extraction of negative min_cosine_similarity (valid range is -1.0 to 1.0)."""
-        mock_llm.ainvoke.return_value = MagicMock(content='{"query": "any object", "min_cosine_similarity": -0.5}')
-
-        result = await decompose_query("find any matching objects", mock_llm)
-
-        assert result.query == "any object"
-        assert result.min_cosine_similarity == -0.5
 
 
 class TestQueryInputSourceType:
