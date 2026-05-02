@@ -24,6 +24,8 @@ ELASTICSEARCH_URL="http://localhost:9200"
 
 # ILM policy retention period (default: 4h)
 ELASTICSEARCH_ILM_MIN_AGE="${ELASTICSEARCH_ILM_MIN_AGE:-4h}"
+ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS="${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS:-5}"
+ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL="${ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL:-10}"
 
 #################################
 ## function: check_ES_status
@@ -66,24 +68,42 @@ configure_ilm_settings(){
 create_ilm_policy() {
     local policy_name="$1"
     local policy_config="$2"
+    local attempt=1
+    local response
+    local http_code
+    local response_body
     
     echo "Creating ILM policy: ${policy_name}"
-    response=$(curl -s -w "\\n%{http_code}" "${ELASTICSEARCH_URL}/_ilm/policy/${policy_name}" \
-      -X 'PUT' \
-      -H 'Content-Type: application/json' \
-      --data-raw "${policy_config}" \
-      --compressed \
-      --insecure)
-    
-    http_code=$(echo "$response" | tail -n1)
-    response_body=$(echo "$response" | sed '$d')
-    echo "HTTP code: ${http_code}"
-    if [ "${http_code}" -ne 200 ]; then
+
+    while [ "${attempt}" -le "${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS}" ]; do
+        response=$(curl -s -w "\\n%{http_code}" "${ELASTICSEARCH_URL}/_ilm/policy/${policy_name}" \
+          -X 'PUT' \
+          -H 'Content-Type: application/json' \
+          --data-raw "${policy_config}" \
+          --compressed \
+          --insecure)
+        
+        http_code=$(echo "$response" | tail -n1)
+        response_body=$(echo "$response" | sed '$d')
+        echo "HTTP code: ${http_code}"
+        if [ "${http_code}" -eq 200 ]; then
+            echo "Successfully created ${policy_name}."
+            return
+        fi
+
+        if [[ "${http_code}" =~ ^(429|503|504)$ ]] && [ "${attempt}" -lt "${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS}" ]; then
+            echo "Elasticsearch is not ready to process ${policy_name}; retrying in ${ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL}s (attempt ${attempt}/${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS})."
+            attempt=$((attempt+1))
+            sleep "${ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL}"
+            continue
+        fi
+
         echo "Error response from Elasticsearch:" >&2
         echo "${response_body}" >&2
         exit_with_msg "Curl command to create ${policy_name} in Elasticsearch failed with HTTP status ${http_code}."
-    fi
-    echo "Successfully created ${policy_name}."
+    done
+
+    exit_with_msg "Exceeded max attempts to create ${policy_name} in Elasticsearch."
 }
 
 create_ilm_policies(){

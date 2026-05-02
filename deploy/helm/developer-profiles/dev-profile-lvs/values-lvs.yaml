@@ -60,7 +60,7 @@ vss-summarization:
   llmService: ""
   vlmService: ""
 
-# LVS always enables vss-rtvi-vlm (shared NIM, no Kafka). Override here only when you need a different image tag,
+# LVS always enables vss-rtvi-vlm (shared NIM, Kafka enabled in values.yaml). Override here only when you need a different image tag,
 # a dedicated GPU (useSharedNim: false), or edge VLM_INPUT_* defaults. See values.yaml for the full env list.
 rtvi:
   enabled: true

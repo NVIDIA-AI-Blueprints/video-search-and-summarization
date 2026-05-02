@@ -1,0 +1,272 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+include:
+
+services:
+
+  vss-behavior-analytics-3d:
+    extends:
+      file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      service: vss-behavior-analytics-base
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d","playback_kafka_3d","playback_redis_3d"]
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+    container_name: vss-behavior-analytics
+    command: python3 apps/spatial_analytics/main_spatial_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+
+  vss-behavior-analytics-playback-3d:
+    extends:
+      file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      service: vss-behavior-analytics-base
+    profiles: ["playback_kafka_3d","playback_redis_3d"]
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+      - $MDX_DATA_DIR/playback/warehouse_20x20_playback.txt:/opt/mdx/playback/warehouse_20x20_playback.txt
+    container_name: vss-behavior-analytics-playback
+    command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_20x20_playback.txt
+
+  nvstreamer-3d:
+    container_name: vss-vios-nvstreamer
+    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    user: "0:0"
+    runtime: nvidia
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+    network_mode: "host"
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
+      resources:
+        reservations:
+          devices:
+          - capabilities:
+            - gpu
+            device_ids:
+            - "${RT_CV_DEVICE_ID:-0}"
+    volumes:    
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - $MDX_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
+      - $MDX_SAMPLE_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      bp-configurator-3d:
+        condition: service_healthy 
+
+
+  perception-sdr-3d:
+    extends:
+      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      service: perception-sdr
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    container_name: vss-rtvi-cv-sdr
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/sdr:/wdm-configs
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/sdr:/wdm-data
+    environment:
+      WDM_INITIALIZE_FROM_VST: false
+      WDM_KFK_ENABLE: true
+      WDM_PRELOAD_DELAY_FOR_DS_API: false
+      WDM_WL_THRESHOLD: 10
+      WDM_POD_WATCH_DOCKER_DELAY: 0.5
+      WDM_WL_OBJECT_NAME: sdr-perception
+      WDM_CONSUMER_GRP_ID: sdr-perception-cg
+      WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  bp-configurator-3d:
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.04.27
+    container_name: vss-configurator
+    network_mode: "host"
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    user: "0:0"
+    environment:
+      SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
+      ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
+      ENABLE_REDIS_DUPLICATOR_THREAD: false
+      SEND_CONFIG_TO_SDR: true
+      CALL_SENSOR_ADD_API: true
+      PROFILE_CONFIG_FILE: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
+      HARDWARE_PROFILE: $HARDWARE_PROFILE
+      NUM_STREAMS: ${NUM_STREAMS:-4}
+      MODE: $MODE
+      LOG_LEVEL: INFO
+      NVSTREAMER_STREAMS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/streams
+      NVSTREAMER_SENSOR_STATUS_ENDPOINT: http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/status
+      VST_CAMERA_ADD_ENDPOINT: http://${VST_IP}:${VST_PORT}/vst/api/v1/sensor/add
+      CALIBRATION_MODE: mount
+      CALIBRATION_DIR_MOUNT_PATH: /opt/data
+      CALIBRATION_FILE_NAME: calibration.json
+      PORT: 5001
+      MDX_DATA_DIR: $MDX_DATA_DIR
+      MDX_SAMPLE_APPS_DIR: $MDX_SAMPLE_APPS_DIR
+      DS_CONFIG_DIR: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs
+      NVSTREAMER_CONFIG_DIR: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs
+      MESSAGE_BROKER_TYPE: $STREAM_TYPE
+      WDM_REDIS_HOST: localhost
+      WDM_REDIS_PORT: 6379
+      WDM_REDIS_STREAM_NAME: vst.event
+      WDM_REDIS_MSG_KEY: sensor.id
+      WDM_KFK_MSG_KEY: vst.event
+      WDM_KFK_BOOTSTRAP_URL: localhost:9092
+      WDM_KFK_TOPIC: mdx-notification
+      WDM_WL_ID_FIELD: camera_id
+      WDM_WL_EVENT_FIELD: event
+      RECOMPUTE_BEV_CENTERS_ENABLED: true
+      SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
+      CHECK_SENSOR_IN_CALIBRATION_FILE: true
+    env_file: ${BP_CONFIGURATOR_ENV_FILE:-$MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/.env}
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR:$MDX_SAMPLE_APPS_DIR:rw
+      - $MDX_DATA_DIR:$MDX_DATA_DIR:rw
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations:$MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations:rw
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:5001/readyz', timeout=3).getcode()==200 else sys.exit(1)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  ds-configurator-3d:
+    image: nvcr.io/nvstaging/vss-core/vss-rt-config-adaptor:3.2-2026.04.27
+    network_mode: "host"
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    container_name: vss-rtvi-cv-config-adaptor
+    user: "0:0"
+    environment:
+      PORT: 9003
+      DS_CONFIG_PATH: /opt/data/ds-configurator/config.csv
+      EVENT_OBJECT_FIELD: event
+      METADATA_OBJECT_FIELD: metadata
+      DS_CONFIG_YAML_SOURCE_PATH: /opt/data/ds-configurator/config.yaml
+      DS_CONFIG_YAML_TARGET_PATH: /opt/data/ds-configurator/config.yaml
+      CALIB_FILE_PATH: /opt/data/ds-configurator/calibration.json
+    # depends_on:
+    #   sdr-3d:
+    #     condition: service_started
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs:/opt/data/ds-configurator
+
+  perception-3d:
+    extends:
+      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      service: perception
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    container_name: vss-rtvi-cv
+    volumes:
+      # General mountings
+     - perception-3d:/opt/storage
+     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/data/ds-configurator/calibration.json
+     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
+     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml:/opt/data/ds-configurator/config.yaml
+
+      # Config mountings
+     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
+
+     # Model related mountings
+     - $MDX_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.2.onnx
+     - $MDX_DATA_DIR/models/sparse4d/ov/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy
+    environment:
+      DS_MODEL_FAMILY: sparse4d-warehouse
+      DS_MODE_FLAG: "5"
+      DS_MESSAGE_RATE: 1
+      DS_TRACKER_REID: "false"
+      DS_SHOW_SENSOR_ID: "false"
+      SPARSE4D_DEBUG_TS: "1"
+      SPARSE4D_CONFIG_PATH: "/opt/data/ds-configurator/"
+      SPARSE4D_ENGINE_PATH: "/opt/storage/"
+      CUDA_MPS_PIPE_DIRECTORY: "/tmp/nvidia-mps-via/"
+      CUSTOM_LIB_PATH: "/usr/local/lib/python3.10/dist-packages/torch/lib:/opt/nvidia/deepstream/deepstream/sources/sparse4d/"
+      CUSTOM_PRELOAD_LIB: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so"
+      MSDA_PLUGIN_PATH: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so"
+      NETWORK_WIDTH: 960
+      NETWORK_HEIGHT: 540
+      HARDWARE_PROFILE: $HARDWARE_PROFILE
+    depends_on:
+      sdr-streamprocessing:
+        condition: service_started
+      sensor-ms-3d:
+        condition: service_started
+      broker-health-check:
+        condition: service_completed_successfully
+      # bp-configurator-3d:
+      #   condition: service_started
+      ds-configurator-3d:
+        condition: service_completed_successfully
+
+  kibana-init-container-3d:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app
+      dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
+    network_mode: "host"
+    profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
+    container_name: vss-kibana-init
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/kibana-dashboard/warehouse-3d-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
+    command: bash /opt/vss/init-scripts/kibana-import-dashboard.sh
+    depends_on:
+      kibana:
+        condition: service_healthy
+
+  vss-video-analytics-api-3d:
+    extends:
+      file: $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/compose.yml
+      service: vss-video-analytics-api
+    profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
+    container_name: vss-video-analytics-api
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+
+  import-calibration-output-container-3d:
+    build:
+      context: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app
+      dockerfile: Dockerfiles/import-calibration.Dockerfile
+    network_mode: "host"
+    profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
+    container_name: vss-import-calibration-output
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
+    command: bash /opt/vss/init-scripts/calibration-import.sh
+    depends_on:
+      - vss-video-analytics-api-3d
+
+volumes:
+  vss-behavior-analytics-3d:
+  mdx-nvstreamer-data:        
+  mdx-nvstreamer-videos: 
+  perception-3d:
+

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if eq (include "rtvi-cv.warehouseMode" .) "2d" }}
+{{- /* Same absolute config dir as Compose: warehouse-2d-app bind-mounts deepstream/configs here */}}
+{{- $bundle := "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rtvi-cv.fullname" . }}-warehouse-2d
+  labels:
+    {{- include "rtvi-cv.labels" . | nindent 4 }}
+data:
+{{- range $path, $_ := .Files.Glob "files/warehouse-2d/deepstream/configs/*" }}
+{{- $base := base $path }}
+{{- $content := $.Files.Get $path }}
+{{- if ne $base "ds-main-config.txt" }}
+  {{ $base }}: |
+{{ $content | nindent 4 }}
+{{- else }}
+  ds-main-config.txt: |
+{{- $patched := replace "ll-config-file=ds-nvdcf-accuracy-tracker-config.yml" (printf "ll-config-file=%s/ds-nvdcf-accuracy-tracker-config.yml" $bundle) (replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) (replace "config-file=ds-ppl-analytics-pgie-config.yml" (printf "config-file=%s/ds-ppl-analytics-pgie-config.yml" $bundle) $content)) }}
+{{ $patched | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

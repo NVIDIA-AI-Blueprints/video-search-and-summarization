@@ -92,12 +92,50 @@ def tool_call(
     if not stdout:
         raise RuntimeError(f"{name} returned no stdout. STDERR:\n{stderr}")
 
-    payload = json.loads(stdout)
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{name} returned invalid JSON.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}") from exc
     if show_response:
         if response_prefix:
             print(response_prefix)
         print(json.dumps(payload, indent=2))
     return payload
+
+
+def check_mcp_health(mcp_url: str, agent_dir: str | Path, timeout_s: int = 15) -> tuple[bool, str]:
+    cmd = [
+        "uv",
+        "run",
+        "nat",
+        "mcp",
+        "client",
+        "tool",
+        "call",
+        OrchestratorTool.PROFILES,
+        "--url",
+        mcp_url,
+        "--transport",
+        "streamable-http",
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=str(agent_dir),
+        capture_output=True,
+        text=True,
+        timeout=timeout_s,
+    )
+    stdout = _strip_ansi(result.stdout).strip()
+    stderr = _strip_ansi(result.stderr).strip()
+    if result.returncode != 0:
+        return False, f"health command exited {result.returncode}: {(stderr or stdout).strip()}"
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        return False, f"health command returned invalid JSON: {exc}\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    if payload.get("status") == "error":
+        return False, f"VSS Orchestrator MCP health check failed: {payload.get('error', payload)}"
+    return True, "VSS Orchestrator MCP health check succeeded"
 
 
 def require_success(result: dict[str, Any], label: str) -> dict[str, Any]:
