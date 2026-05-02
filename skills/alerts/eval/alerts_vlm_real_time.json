@@ -7,39 +7,44 @@
       }
     }
   },
-  "env": "Bare GPU host matching `{{platform}}` with Docker + NVIDIA Container Toolkit, `NGC_CLI_API_KEY`, and remote LLM/VLM endpoint env vars (`LLM_REMOTE_URL`, `LLM_REMOTE_MODEL`, `VLM_REMOTE_URL`, `VLM_REMOTE_MODEL`). The first query runs the **`deploy`** skill end-to-end to bring up the VSS **alerts** profile in **real-time** (VLM) mode with **remote-all** placement (no local NIMs). The second query exercises the **`alerts`** skill via the VSS Agent on port `8000` (Workflow B — VLM mode); on this profile, NVStreamer (`mdx-nvstreamer-alerts`) auto-loads the `warehouse_sample` sensor used by the canonical examples in `skills/alerts/SKILL.md`. The third query exercises the **`video-analytics`** skill against VA-MCP on port `9901` using the required two-step session pattern.",
+  "env": "Bare GPU host matching `{{platform}}` with Docker + NVIDIA Container Toolkit, `NGC_CLI_API_KEY`, and remote LLM/VLM endpoint env vars (`LLM_REMOTE_URL`, `LLM_REMOTE_MODEL`, `VLM_REMOTE_URL`, `VLM_REMOTE_MODEL`). The eval runs the full sequence end-to-end: deploy the VSS **alerts** profile in **real-time** (VLM) mode with **remote-all** placement, add the `warehouse_sample.mp4` sample video through NVStreamer (`mdx-nvstreamer-alerts` on port `31000` HTTP / `31554` RTSP) so it becomes a simulated live camera, verify the sensor appears in VIOS (port `30888`), then poll VA-MCP (port `9901`) for incidents until one shows up. Sample data ships in NGC bundle `nvidia/vss-developer/dev-profile-sample-data:3.1.0`. Pre-authorized to deploy prerequisites and start any alerts needed to drive incident generation in real-time mode.",
   "expects": [
     {
-      "query": "Deploy the VSS **alerts** profile on {{platform}} in **real-time** (VLM) mode with **remote-all** placement using the **deploy** skill (`/deploy -p alerts -m real-time`, remote LLM + remote VLM). Run end-to-end and autonomously — assume pre-authorization to deploy prerequisites.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Run end-to-end and autonomously.",
       "checks": [
-        "The agent used the `/deploy` skill to deploy the VSS `alerts` profile in `real-time` mode with remote LLM + remote VLM placement (not `verification`, not local).",
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (VSS Agent REST API responsive).",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0 (Agent backend).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
         "`docker ps --format '{{.Names}}' | grep -qx rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
-        "`docker ps --format '{{.Names}}' | grep -qx mdx-nvstreamer-alerts` returns exit 0 (NVStreamer simulates live cameras for the alerts profile, including the `warehouse_sample` sensor).",
+        "`docker ps --format '{{.Names}}' | grep -qx mdx-nvstreamer-alerts` returns exit 0 (NVStreamer simulates live cameras).",
         "`docker ps --format '{{.Names}}' | grep -qx mdx-kafka` returns exit 0 (Kafka backplane for alert/incident topics).",
-        "`! docker ps --format '{{.Names}}' | grep -qx perception-alerts` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification).",
-        "`! docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts` returns exit 0 (CV-only behavior-analytics is NOT running)."
+        "`! docker ps --format '{{.Names}}' | grep -qx perception-alerts` returns exit 0 (CV-only perception is NOT running — confirms VLM real-time, not verification)."
       ]
     },
     {
-      "query": "Set up a real-time alert for **boxes being dropped** on sensor `warehouse_sample`. Use the **alerts** skill (Workflow B — VLM mode): drive the request through the VSS Agent's `POST /generate` endpoint. The agent will internally dispatch `rtvi_prompt_gen` and `rtvi_vlm_alert action=start` to register the stream with `rtvi-vlm` and begin continuous monitoring. Do NOT call the `rtvi-vlm` microservice (`http://localhost:8018/v1/...`) directly — always go through the agent.",
+      "query": "Add the `warehouse_sample.mp4` sample video through NVStreamer so it becomes a live camera that the alerts pipeline can monitor, then start a real-time alert on it for boxes being dropped.",
       "checks": [
-        "The run performed at least one successful `POST http://localhost:8000/generate` (or equivalent agent base URL) with `Content-Type: application/json` and a JSON body containing `input_message` returning HTTP 2xx.",
-        "The `input_message` text asks the agent to **start** a real-time alert on sensor `warehouse_sample` and references **boxes** / **dropped** (the user's detection target).",
-        "The trajectory does NOT call `http://localhost:8018/v1/streams/add`, `http://localhost:8018/v1/generate_captions_alerts`, or any other `rtvi-vlm` microservice endpoint directly — those are dispatched by the agent's `rtvi_vlm_alert` tool, not by the skill.",
-        "After the start request, `curl -sf --max-time 15 http://localhost:8018/v1/streams/get-stream-info` returns HTTP 200 and the response includes a stream whose description / sensor_name references `warehouse_sample` (confirms the agent registered the stream with rtvi-vlm).",
-        "The final assistant reply confirms that real-time monitoring has started for `warehouse_sample` (e.g. references `started`, `monitoring`, or `running` and the sensor name) without errors in the response body."
+        "The trajectory uploaded the file to NVStreamer (`PUT http://localhost:31000/vst/api/v1/storage/file/...`) — i.e. used the NVStreamer VST API on port `31000`, NOT VIOS on port `30888` or the `rtvi-vlm` microservice on `8018`.",
+        "After upload, the resulting NVStreamer-served RTSP (port `31554`) was registered in VIOS via `POST http://localhost:30888/vst/api/v1/sensor/add` with a `sensorUrl` referencing `:31554` — i.e. VIOS points at NVStreamer, not at any external/public RTSP host.",
+        "The trajectory issued at least one `POST http://localhost:8000/generate` whose `input_message` references **start** + the sensor name + **boxes**/**dropped** (drives `rtvi_prompt_gen` + `rtvi_vlm_alert action=start` through the agent, not via direct `rtvi-vlm` calls).",
+        "The trajectory does NOT call `http://localhost:8018/v1/streams/add` or `http://localhost:8018/v1/generate_captions_alerts` directly.",
+        "After the start, `curl -sf --max-time 15 http://localhost:8018/v1/streams/get-stream-info` returns HTTP 200 and includes a stream whose URL contains `:31554` or whose description references the warehouse sample sensor (confirms the agent registered the NVStreamer-served stream with rtvi-vlm)."
       ]
     },
     {
-      "query": "List recent incidents/alerts for sensor `warehouse_sample`. Use the **video-analytics** skill — call VA-MCP at `http://localhost:9901/mcp` with the required two-step pattern (`initialize` → capture `mcp-session-id` from the response **header** → `tools/call` with that header) and invoke the `video_analytics__get_incidents` tool filtered to that sensor.",
+      "query": "List all sensors currently configured in VIOS.",
       "checks": [
-        "The trajectory shows two sequential POSTs to `http://localhost:9901/mcp` — first an `initialize` JSON-RPC method, then a `tools/call` — not a single one-shot call.",
-        "The trajectory captures the `mcp-session-id` from the initialize **response header** (not the body) and passes it as the `mcp-session-id` request header on the `tools/call` POST.",
-        "The `tools/call` payload invokes the tool name `video_analytics__get_incidents` with arguments referencing `warehouse_sample` (e.g. `\"source\": \"warehouse_sample\"` and `\"source_type\": \"sensor\"`, optionally with `max_count`).",
-        "The trajectory does NOT bypass VA-MCP by hitting Elasticsearch directly (no `:9200/_search` calls) and does NOT route this query through the VSS Agent's `/generate` endpoint (the video-analytics skill is the canonical path for this question, not the agent).",
-        "The final assistant reply is plain text or light markdown that either lists incidents for `warehouse_sample` OR clearly states that no incidents have been recorded yet for that sensor — not an error trace, not a raw tool dump, not a `Bad Request: Missing session ID` failure (which would indicate the two-step pattern was not followed)."
+        "The trajectory issued a `GET http://localhost:30888/vst/api/v1/sensor/list` (or equivalent VIOS sensor-list call) — not a direct database query, not via NVStreamer's port `31000`.",
+        "`curl -sf http://localhost:30888/vst/api/v1/sensor/list` returns a JSON array containing at least one sensor whose name references the warehouse sample (e.g. `warehouse_sample`, `warehouse_sample.mp4`, or similar) — confirms the prior NVStreamer onboarding propagated into VIOS.",
+        "The final assistant reply renders the sensor list as readable text/markdown including each sensor's name and state — not a raw response dump or an error trace."
+      ]
+    },
+    {
+      "query": "List incidents from the past 5 minutes for the warehouse sample sensor. If none have been recorded yet, keep polling every 30 seconds until at least one incident shows up (or fail clearly after a reasonable timeout).",
+      "checks": [
+        "The trajectory issued at least two POSTs to `http://localhost:9901/mcp` — one `initialize` to obtain `mcp-session-id` from the response **header**, then `tools/call` invocations passing that header (the required two-step VA-MCP pattern; one-shot calls fail with `Bad Request: Missing session ID`).",
+        "At least one `tools/call` payload invoked `video_analytics__get_incidents` with arguments scoping the query to the warehouse sample sensor and to the past 5 minutes (e.g. `source` set to the sensor and `start_time` ~5 minutes before now in ISO 8601 UTC).",
+        "The trajectory shows polling behaviour — multiple `get_incidents` calls separated in time (e.g. ~30s apart) until the result returned a non-empty incident list, rather than a single one-shot call.",
+        "The final assistant reply summarizes at least one real incident returned by `get_incidents` (timestamp, sensor, and either a category/description or verdict) — not `[]`, not an error trace, not a `Missing session ID` failure, and not a fabricated incident absent from the tool response."
       ]
     }
   ]
