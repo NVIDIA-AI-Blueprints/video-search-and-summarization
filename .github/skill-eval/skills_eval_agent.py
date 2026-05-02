@@ -192,14 +192,34 @@ line starting with `BLOCKED:` followed by the reason.
 
     print(f"[agent] finished · cost=${total_cost:.2f}", flush=True)
     if hit_max_turns:
-        print("[agent] hit max_turns — agent may not have completed", file=sys.stderr)
+        print("[agent] hit max_turns — agent may not have completed",
+              file=sys.stderr)
         return 3
 
+    # Protocol enforcement: the agent must end with `DONE:` or `BLOCKED:`
+    # in its last few text blocks. Without this guard, an agent that
+    # quits mid-flow (model decided the conversation was over without
+    # reaching the comment-post step — observed on run 25256515296,
+    # PR #221, where the agent burned ~25 turns polling and then
+    # stopped without DONE/BLOCKED, leaving the workflow green ✓ but
+    # the source PR with no result comment) would produce a silent
+    # green check. Treat that as a real failure with exit code 4.
     summary = "\n".join(final_text[-10:])
     if "BLOCKED:" in summary:
         print("[agent] reported blocker", file=sys.stderr)
         return 0   # blocker is a valid outcome, not a crash
-    return 0
+    if "DONE:" in summary:
+        return 0
+    print(
+        "[agent] exited without a final DONE: or BLOCKED: marker — "
+        "protocol failure (no verdict reached). This typically means "
+        "the agent gave up mid-trial without posting a results comment. "
+        "Look at the trial logs and the workflow artifact; per AGENTS.md "
+        "§ Output requirements the final printed line must start with "
+        "DONE: or BLOCKED:.",
+        file=sys.stderr,
+    )
+    return 4
 
 
 # ---------------------------------------------------------------------------
