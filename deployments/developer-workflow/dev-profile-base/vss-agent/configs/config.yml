@@ -186,7 +186,8 @@ llms:
   openai_vlm:
     _type: openai
     model_name: ${VLM_NAME}
-    # uses https://api.openai.com/v1 by default
+    # OpenAI-compatible API (set base_url for NVIDIA NIM / integrate.api.nvidia.com; omit for api.openai.com)
+    base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 4096
 
