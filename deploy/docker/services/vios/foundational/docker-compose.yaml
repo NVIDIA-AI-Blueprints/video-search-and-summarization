@@ -49,7 +49,7 @@ services:
     environment:
       - VST_INGRESS_HTTP_PORT=${VST_INGRESS_HTTP_PORT}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}/nginx-${VST_NGINX_MODE:-2d}.conf:/etc/nginx/nginx.conf:ro
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}/nginx-${VST_NGINX_MODE:-vst}.conf:/etc/nginx/nginx.conf:ro
       - ${VST_LOGS}/nginx_logs:/var/log/nginx
     network_mode: host
     container_name: vss-vios-ingress
@@ -62,10 +62,13 @@ services:
       retries: 30
       start_period: 2s
     depends_on:
-      sensor-ms-bp:
+      sensor-ms:
         condition: service_healthy
         required: false
-      sensor-ms-dev:
+      sensor-ms-2d:
+        condition: service_healthy
+        required: false
+      sensor-ms-3d:
         condition: service_healthy
         required: false
 
@@ -78,18 +81,21 @@ services:
       - MCP_GATEWAY_CPP_API_TIMEOUT=${MCP_GATEWAY_CPP_API_TIMEOUT:-30}
       - MCP_GATEWAY_SERVER_NAME=${MCP_GATEWAY_SERVER_NAME:-vst-mcp-server}
       - MCP_GATEWAY_SERVER_VERSION=${MCP_GATEWAY_SERVER_VERSION:-1.0.0}
-      - MCP_GATEWAY_SERVER_HOST=${MCP_GATEWAY_SERVER_HOST}
-      - MCP_GATEWAY_SERVER_PORT=${MCP_GATEWAY_SERVER_PORT}
+      - MCP_GATEWAY_SERVER_HOST=${MCP_GATEWAY_SERVER_HOST:-${HOST_IP:-localhost}}
+      - MCP_GATEWAY_SERVER_PORT=${MCP_GATEWAY_SERVER_PORT:-8001}
       - MCP_GATEWAY_LOG_LEVEL=${MCP_GATEWAY_LOG_LEVEL:-INFO}
       - MCP_GATEWAY_ENABLE_JSONRPC_LOGGING=${MCP_GATEWAY_ENABLE_JSONRPC_LOGGING:-true}
     network_mode: host
     container_name: vss-vios-mcp
     restart: always
     depends_on:
-      sensor-ms-bp:
+      sensor-ms:
         condition: service_healthy
         required: false
-      sensor-ms-dev:
+      sensor-ms-2d:
+        condition: service_healthy
+        required: false
+      sensor-ms-3d:
         condition: service_healthy
         required: false
       vst-ingress:

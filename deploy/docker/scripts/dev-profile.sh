@@ -16,6 +16,7 @@
 # limitations under the License.
 
 script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+# scripts → docker → deploy → repo root (../.. alone pointed at deploy/ and broke paths).
 repo_root="$( cd -- "${script_dir}/../../.." &> /dev/null && pwd )"
 
 # Default values
@@ -145,6 +146,23 @@ function get_mode_display_value() {
   esac
 }
 
+# Alerts UI: set NEXT_PUBLIC_APP_SUBTITLE from MODE in generated.env (2d_cv vs 2d_vlm).
+function set_alerts_ui_subtitle_from_mode() {
+  local _generated_env="${1}"
+  local _mode
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  case "${_mode}" in
+    2d_cv)
+      sed -i 's|^NEXT_PUBLIC_APP_SUBTITLE=.*|NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - CV)"|' "${_generated_env}"
+      echo "[INFO] Set NEXT_PUBLIC_APP_SUBTITLE for alerts (MODE=2d_cv → Vision (Alerts - CV))"
+      ;;
+    2d_vlm)
+      sed -i 's|^NEXT_PUBLIC_APP_SUBTITLE=.*|NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"|' "${_generated_env}"
+      echo "[INFO] Set NEXT_PUBLIC_APP_SUBTITLE for alerts (MODE=2d_vlm → Vision (Alerts - VLM))"
+      ;;
+  esac
+}
+
 # Gets model name from remote API endpoint (works for both LLM and VLM)
 # Arguments: base_url (e.g., http://localhost:30082/v1)
 # Returns: model name from the /models endpoint, or empty string on error
@@ -239,7 +257,7 @@ function usage() {
   echo "  • LLM_ENDPOINT_URL    — optional; required when --use-remote-llm is passed (both must be set)"
   echo "  • VLM_ENDPOINT_URL    — optional; required when --use-remote-vlm is passed (both must be set)"
   echo "  • VLM_CUSTOM_WEIGHTS  — optional; when --use-remote-vlm is not passed: absolute path to custom weights dir; when --use-remote-vlm is passed, ignored"
-  echo "  • ENABLE_CRITIC       — optional; search profile: when true (case-insensitive), enables the critic agent; local VLM is deployed only when the critic agent is enabled and --use-remote-vlm is not passed"
+  echo "  • ENABLE_CRITIC       — optional; search profile: enabled by default; when false (case-insensitive), disables the critic agent and skips local VLM deployment"
   echo ""
   echo "Options for 'up':"
   echo "  -p, --profile                    [REQUIRED] Profile."
@@ -963,7 +981,7 @@ function state_up() {
   echo "[INFO] Copied ${_source_env} to ${_generated_env}"
 
   # Append compose-wide defaults for variables not already defined in the profile
-  local _compose_defaults="${deployment_directory}/services/vios/compose-defaults.env"
+  local _compose_defaults="${deployment_directory}/vst/compose-defaults.env"
   if [[ -f "${_compose_defaults}" ]]; then
     while IFS= read -r line || [[ -n "${line}" ]]; do
       [[ "${line}" =~ ^[[:space:]]*# ]] && continue
@@ -1026,6 +1044,9 @@ function state_up() {
   set_env_var "HARDWARE_PROFILE" "${hardware_profile}"
   if [[ -n "${mode_env}" ]]; then
     set_env_var "MODE" "${mode_env}"
+  fi
+  if [[ "${profile}" == "alerts" ]]; then
+    set_alerts_ui_subtitle_from_mode "${_generated_env}"
   fi
 
   # ===== LLM Configuration =====
@@ -1113,14 +1134,14 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # For local_shared/local VLM modes with 2d_vlm, configure rtvi-vlm to use the shared NIM endpoint
-  if [[ "${profile}" == "alerts" ]] && [[ "${mode_env}" == "2d_vlm" ]] && [[ "${vlm_mode}" != "remote" ]]; then
-    local _vlm_port
-    _vlm_port="$(get_env_value "${_source_env}" "VLM_PORT")"
-    _vlm_port="${_vlm_port:-30082}"
-    set_env_var "RTVI_VLM_MODEL_PATH" "none"
-    set_env_var "RTVI_VLM_ENDPOINT" "http://\${HOST_IP}:${_vlm_port}/v1"
-    echo "[INFO] Configured rtvi-vlm to use shared NIM endpoint on port ${_vlm_port}"
+  # Alerts + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # switch rtvi-vlm to openai-compat mode (cosmos-reason2 is only valid when the
+  # local rtvi-vlm container is serving the model).
+  # The rtvi-vlm container (not deployed when remote) defaults to 8018 for local alerts;
+  # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
+  if [[ "${profile}" == "alerts" ]] && [[ "${vlm_mode}" == "remote" ]]; then
+    set_env_var "VLM_PORT" "30082"
+    set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
   fi
 
   # Handle custom weights for VLM
@@ -1155,21 +1176,62 @@ function state_up() {
     set_env_var "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" "EDGE-LOCAL-VLM-"
   fi
 
-  # DGX-SPARK, IGX-THOR, AGX-THOR with alerts profile only: set RTVI VLM input dimensions and frame rate (not set on any other platform or profile)
-  if [[ "${profile}" == "alerts" ]] && contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
-    set_env_var "RTVI_VLM_INPUT_WIDTH" "860"
-    set_env_var "RTVI_VLM_INPUT_HEIGHT" "467"
-    set_env_var "RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK" "20"
-  fi
-
   # Alerts or base profile on IGX-THOR or AGX-THOR: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "base" ]]); then
+  if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && ([[ "${profile}" == "base" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
     set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
     set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
-    set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
+    set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
+  fi
+  # Alerts profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
+  if  ([[ "${profile}" == "alerts" ]]); then
+    set_env_var "VLM_NAME_SLUG" "none"
+    # Local VLM only: rtvi-vlm serves cosmos-reason2 locally on port 8018, so fix
+    # VLM_NAME / VLM_BASE_URL / RTVI_VLM_MODEL_PATH to the NIM-packaged cosmos-reason2 model.
+    # RTVI_VLM_MODEL_TO_USE and RTVI_VLM_ENDPOINT come from the profile .env defaults for local
+    # (see dev-profile-alerts/.env). Remote VLM overrides these in the block above via VLM_BASE_URL/vlm.
+    if [[ "${vlm_mode}" != "remote" ]]; then
+      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
+      set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
+      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+    fi
+    # RTVI_VLLM_GPU_MEMORY_UTILIZATION: mirrors NIM NIM_KVCACHE_PERCENT hw-*.env pattern.
+    # IGX-THOR/AGX-THOR have no NIM hw env file → ignored here, handled in the hw sub-block below.
+    # OTHER has no NIM hw env file → not set.
+    if [[ "${hardware_profile}" != "OTHER" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
+      if [[ "${vlm_mode}" == "local_shared" ]]; then
+        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
+      else
+        case "${hardware_profile}" in
+          DGX-SPARK|L40S)
+            set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
+            ;;
+          *)
+            set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+            ;;
+        esac
+      fi
+    fi
+    # RT_VLM_DEVICE_ID: mirrors NIM compose device_ids pattern.
+    # local → VLM_DEVICE_ID; local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
+    # IGX-THOR/AGX-THOR are handled in the hw sub-block below.
+    if [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
+      if [[ "${vlm_mode}" == "local_shared" ]]; then
+        local _shared_rt_dev_id
+        _shared_rt_dev_id="$(get_env_value "${_source_env}" "SHARED_LLM_VLM_DEVICE_ID")"
+        set_env_var "RT_VLM_DEVICE_ID" "${_shared_rt_dev_id:-${vlm_device_id}}"
+      elif [[ "${vlm_mode}" == "remote" ]]; then
+        set_env_var "RT_VLM_DEVICE_ID" "0"
+      else
+        set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
+      fi
+    fi
+    if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
+      set_env_var "RT_VLM_DEVICE_ID" "0"
+    fi
   fi
   # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi (alerts does not use rtvi)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then

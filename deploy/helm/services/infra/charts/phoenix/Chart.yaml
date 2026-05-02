@@ -18,4 +18,4 @@ name: phoenix
 description: Arize Phoenix observability and tracing UI
 type: application
 version: 26.04.2
-appVersion: "8.12.1"
+appVersion: "14.15.0"

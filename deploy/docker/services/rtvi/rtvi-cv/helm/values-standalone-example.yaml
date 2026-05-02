@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Example overrides after unpacking the chart tarball anywhere.
+#   helm install rtvi-cv . -f values-standalone-example.yaml
+#
+# 2D (default below): set models.path (node dir → /opt/storage) or models.pvcClaimName.
+# 3D: set rtviCv.warehouse.mode: "3d", models.path (or pvcClaimName), and calibration.
+
+rtviCv:
+  warehouse:
+    mode: "2d"
+  podHostname: vss-rtvi-cv
+  models:
+    path: /data/mdx/models/mtmc
+    pvcClaimName: ""
+  datasets:
+    calibration:
+      hostPath: /data/calibration/warehouse-3d-calibration.json
+      existingConfigMap: ""
+      existingConfigMapKey: calibration.json
+  hardwareProfile: ""
+  runtimeClassName: nvidia

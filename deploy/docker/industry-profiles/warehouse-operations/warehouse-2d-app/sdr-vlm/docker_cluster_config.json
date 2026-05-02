@@ -1,0 +1,6 @@
+{
+    "vss-alerts": {
+      "provisioning_address": "localhost:9080",
+      "process_type": "docker"
+    }
+}

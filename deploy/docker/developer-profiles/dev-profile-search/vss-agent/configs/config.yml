@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,9 +18,7 @@ general:
   front_end:
     _type: vss_fastapi
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
-    # Use custom FastAPI worker to enable streaming video ingest endpoint
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
-    # Configuration for streaming video ingest endpoint
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       enable_videos_for_search: true
@@ -29,7 +27,7 @@ general:
       # storage in place when an RTSP stream is removed.
       delete_vst_storage_on_stream_remove: false
       rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT}
-      rtvi_embed_model: cosmos-embed1-448p
+      rtvi_embed_model: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       rtvi_embed_chunk_duration: 5
       rtvi_cv_base_url: http://${HOST_IP}:${RTVI_CV_PORT}
       vlm_mode: ${VLM_MODE}
@@ -70,10 +68,6 @@ general:
         _type: phoenix
         endpoint: ${PHOENIX_ENDPOINT}/v1/traces
         project: DEV-SEARCH-vss-agent-${VSS_AGENT_VERSION}
-        #  Uncomment the following to enable Weave experiment tracking:
-        # weave:
-        #   _type: weave
-        #   project: ${WEAVE_PROJECT}
 
 object_stores:
   local_object_store:
@@ -83,7 +77,7 @@ functions:
   video_upload_url:
     _type: video_upload_url
     vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: "http://${EXTERNAL_IP}:${VSS_AGENT_PORT}"
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
 
   search:
     _type: search
@@ -92,7 +86,7 @@ functions:
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true  # Internal config: enable fusion reranking with attribute search
     critic_agent: critic_agent  # Optional: enables VLM verification
-    enable_critic: true
+    enable_critic: ${ENABLE_CRITIC:-true}
     search_max_iterations: 1
     default_max_results: 10
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
@@ -108,7 +102,7 @@ functions:
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
     embed_confidence_threshold: 0.1  # Minimum embed score threshold. fallback to attribute-only search if low
     critic_agent: critic_agent  # Optional: enables VLM verification
-    enable_critic: true
+    enable_critic: ${ENABLE_CRITIC:-true}
     search_max_iterations: 1
     default_max_results: 10
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
@@ -123,7 +117,6 @@ functions:
     _type: embed_search
     cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
     es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
-    # source_type="video_file" searches this, source_type="rtsp" searches all except this
     es_index: ${ELASTIC_SEARCH_INDEX}
     vst_external_url: ${VST_EXTERNAL_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
@@ -133,9 +126,7 @@ functions:
     _type: attribute_search
     rtvi_cv_endpoint: http://${HOST_IP}:${RTVI_CV_PORT}
     es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}  # Use same ES as embed_search
-    # source_type="video_file" searches this, source_type="rtsp" searches all except this)
     behavior_index: mdx-behavior-2025-01-01
-    # Corresponding frames index for uploaded video files (source_type="rtsp" searches all except this
     frames_index: mdx-raw-2025-01-01
     enable_frame_lookup: false
     vst_external_url: ${VST_EXTERNAL_URL}
@@ -208,7 +199,6 @@ workflow:
   max_iterations: 20
   max_history: 10
   subagent_names:
-  # Use search_agent as a sub-agent for streaming output
   - search_agent
   prompt: |
     You are a video search assistant. Use the search_agent to find videos matching user queries.

@@ -1,0 +1,126 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+BaseConfig:
+  minDetectorConfidence: 0.059091767738520054   # If the confidence of a detector bbox is lower than this, then it won't be considered for tracking
+
+TargetManagement:
+  enableBboxUnClipping: 1   # In case the bbox is likely to be clipped by image border, unclip bbox
+  preserveStreamUpdateOrder: 0   # When assigning new target ids, preserve input streams' order to keep target ids in a deterministic order over multuple runs
+  maxTargetsPerStream: 150  # Max number of targets to track per stream. Recommended to set >10. Note: this value should account for the targets being tracked in shadow mode as well. Max value depends on the GPU memory capacity
+
+  # [Creation & Termination Policy]
+  minIouDiff4NewTarget: 0.40803391831819774   # If the IOU between the newly detected object and any of the existing targets is higher than this threshold, this newly detected object will be discarded.
+  minTrackerConfidence: 0.2379867160124702    # If the confidence of an object tracker is lower than this on the fly, then it will be tracked in shadow mode. Valid Range: [0.0, 1.0]
+  probationAge: 2 # If the target's age exceeds this, the target will be considered to be valid.
+  maxShadowTrackingAge: 49  # Max length of shadow tracking. If the shadowTrackingAge exceeds this limit, the tracker will be terminated.
+  earlyTerminationAge: 1 # If the shadowTrackingAge reaches this threshold while in TENTATIVE period, the target will be terminated prematurely.
+
+TrajectoryManagement:
+  useUniqueID: 0  # Use 64-bit long Unique ID when assignining tracker ID.
+  enableReAssoc: 1 # Enable Re-Assoc
+
+  # [Re-Assoc Metric: Thresholds for valid candidates]
+  minMatchingScore4Overall: 0.6491824364015243  # min matching score for overall
+  minTrackletMatchingScore: 0.3365923298667557  # min tracklet similarity score for matching
+  minMatchingScore4ReidSimilarity: 0.41004668162204816  # min reid similarity score for re-assoc
+
+  # [Re-Assoc Metric: Weights]
+  matchingScoreWeight4TrackletSimilarity: 0.8531794819299393   # weight for tracklet similarity score
+  matchingScoreWeight4ReidSimilarity: 0.13580096342687126   # weight for reid similarity score
+
+  # [Re-Assoc: Motion-based]
+  minTrajectoryLength4Projection: 33  # min trajectory length required to make projected trajectory
+  prepLength4TrajectoryProjection: 53 # the length of the trajectory during which the state estimator is updated to make projections
+  trajectoryProjectionLength: 99  # the length of the projected trajectory
+  maxAngle4TrackletMatching: 70   # max angle difference for tracklet matching [degree]
+  minSpeedSimilarity4TrackletMatching: 0.03284195344815558  # min speed similarity for tracklet matching
+  minBboxSizeSimilarity4TrackletMatching: 0.40454200672158597   # min bbox size similarity for tracklet matching
+  maxTrackletMatchingTimeSearchRange: 24  # the search space in time for max tracklet similarity
+  trajectoryProjectionProcessNoiseScale: 0.01   # trajectory projector's process noise scale w.r.t. state estimator
+  trajectoryProjectionMeasurementNoiseScale: 100   # trajectory projector's measurement noise scale w.r.t. state estimator
+  trackletSpacialSearchRegionScale: 0.01   # the search region scale for peer tracklet
+
+  # [Re-Assoc: Reid based. Reid model params are set in ReID section]
+  reidExtractionInterval: 0   # frame interval to extract reid features per target
+
+DataAssociator:
+  dataAssociatorType: 0  # the type of data associator among { DEFAULT= 0 }
+  associationMatcherType: 1  # the type of matching algorithm among { GREEDY=0, GLOBAL=1 }
+  checkClassMatch: 1  # If checked, only the same-class objects are associated with each other. Default: true
+
+  # [Association Metric: Thresholds for valid candidates]
+  minMatchingScore4Overall: 0.16498049370431805   # Min total score
+  minMatchingScore4SizeSimilarity: 0.2470318611174308   # Min bbox size similarity score
+  minMatchingScore4Iou: 0.09268843253527276   # Min IOU score
+  minMatchingScore4VisualSimilarity: 0.5306397916012133   # Min visual similarity score
+
+  # [Association Metric: Weights]
+  matchingScoreWeight4VisualSimilarity: 0.2593903206246254  # Weight for the visual similarity (in terms of correlation response ratio)
+  matchingScoreWeight4SizeSimilarity: 0.8737211144111663    # Weight for the Size-similarity score
+  matchingScoreWeight4Iou: 0.3538715510450657   # Weight for the IOU score
+
+  # [Association Metric: Tentative detections] only uses iou similarity for tentative detections
+  tentativeDetectorConfidence: 0.07696106106777956    # If a detection's confidence is lower than this but higher than minDetectorConfidence, then it's considered as a tentative detection
+  minMatchingScore4TentativeIou: 0.18259431931328785    # Min iou threshold to match targets and tentative detection
+
+StateEstimator:
+  stateEstimatorType: 1   # the type of state estimator among { DUMMY=0, SIMPLE=1, REGULAR=2 }
+
+   # [Dynamics Modeling]
+  processNoiseVar4Loc: 5500.457806079246    # Process noise variance for bbox center
+  processNoiseVar4Size: 2784.2546323956462  # Process noise variance for bbox size
+  processNoiseVar4Vel: 545.3315792468695    # Process noise variance for velocity
+  measurementNoiseVar4Detector: 100.00000497224985  # Measurement noise variance for detector's detection
+  measurementNoiseVar4Tracker: 294.4755412477389    # Measurement noise variance for tracker's localization
+
+VisualTracker:
+  visualTrackerType: 1  # the type of visual tracker among { DUMMY=0, NvDCF=1 }
+
+  # [NvDCF: Feature Extraction]
+  useColorNames: 1    # Use ColorNames feature
+  useHog: 1   # Use Histogram-of-Oriented-Gradient (HOG) feature
+  featureImgSizeLevel: 3    # Size of a feature image. Valid range: {1, 2, 3, 4, 5}, from the smallest to the largest
+  featureFocusOffsetFactor_y: -0.21492658069764317    # The offset for the center of hanning window relative to the feature height. The center of hanning window would move by (featureFocusOffsetFactor_y*featureMatSize.height) in vertical direction
+
+  # [NvDCF: Correlation Filter]
+  filterLr: 0.04747373772798158   # learning rate for DCF filter in exponential moving average. Valid Range: [0.0, 1.0]
+  filterChannelWeightsLr: 0.06898637782721721   # learning rate for the channel weights among feature channels. Valid Range: [0.0, 1.0]
+  gaussianSigma: 0.7195646880047487   # Standard deviation for Gaussian for desired response when creating DCF filter [pixels]
+
+ReID:
+  reidType: 2   # The type of reid among { DUMMY=0, NvDEEPSORT=1, Reid based reassoc=2, both NvDEEPSORT and reid based reassoc=3}
+
+  # [Reid Network Info]
+  outputReidTensor: 1   # Output Re-ID features to the tracker plugin for downstream usage
+  batchSize: 100  # Batch size of reid network
+  workspaceSize: 1000   # Workspace size to be used by reid engine, in MB
+  reidFeatureSize: 256    # Size of reid feature
+  reidHistorySize: 100    # Max number of reid features kept for one object
+  inferDims: [3, 256, 128]    # Reid network input dimension CHW or HWC based on inputOrder
+  networkMode: 1    # Reid network inference precision mode among {fp32=0, fp16=1, int8=2 }
+
+  # [Input Preprocessing]
+  inputOrder: 0   # Reid network input order among { NCHW=0, NHWC=1 }. Batch will be converted to the specified order before reid input.
+  colorFormat: 0    # Reid network input color format among {RGB=0, BGR=1 }. Batch will be converted to the specified color before reid input.
+  offsets: [127.5, 127.5, 127.5]    # Array of values to be subtracted from each input channel, with length equal to number of channels
+  netScaleFactor: 0.007843137254902   # Scaling factor for reid network input after substracting offsets
+  keepAspc: 1    # Whether to keep aspc ratio when resizing input objects for reid
+  addFeatureNormalization: 1    # If reid feature is not normalized in network, adding normalization on output so each reid feature has l2 norm equal to 1
+
+  # [Paths and Names]
+  tltModelKey: nvidia_tao   # NVIDIA TAO model key
+  onnxFile: /opt/storage/swin_tiny_v2.onnx  # ONNX Model Path
+  modelEngineFile: /opt/storage/swin_tiny_v2.onnx_b100_gpu0_fp16.engine   # Engine file path

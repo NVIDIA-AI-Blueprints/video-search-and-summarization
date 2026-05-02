@@ -116,6 +116,17 @@ class TestParseEnvFile:
         }
 
 
+class TestDeriveRtviOpenaiModelId:
+    def test_derive_rtvi_openai_model_id_from_ngc_nim_path(self):
+        assert (
+            dcu.derive_rtvi_openai_model_id("ngc:nim/nvidia/cosmos-reason2-8b:hf-1208")
+            == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        )
+
+    def test_derive_rtvi_openai_model_id_ignores_unrecognized_paths(self):
+        assert dcu.derive_rtvi_openai_model_id("nvidia/cosmos-reason2-8b") is None
+
+
 class TestFirstNonPlaceholder:
     def test_first_non_placeholder_skips_known_placeholders(self):
         result = dcu.first_non_placeholder(
@@ -150,6 +161,41 @@ class TestAlertsModeToEnvMode:
     def test_alerts_mode_to_env_mode_rejects_when_not_configured(self):
         with pytest.raises(dcu.ValidationError, match="not configured"):
             dcu.alerts_mode_to_env_mode("verification", {})
+
+
+class TestResolveComposeProfiles:
+    def test_resolve_compose_profiles_uses_profile_template(self):
+        merged = {
+            "BP_PROFILE": "bp_developer_alerts",
+            "MODE": "2d_cv",
+            "HARDWARE_PROFILE": "H100",
+            "LLM_MODE": "local_shared",
+            "LLM_NAME_SLUG": "llm-a-slug",
+            "VLM_MODE": "local_shared",
+            "VLM_NAME_SLUG": "vlm-a-slug",
+            "COMPOSE_PROFILES": "${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+        }
+
+        assert (
+            dcu.resolve_compose_profiles(merged, dcu.PROFILE_ALERTS)
+            == "bp_developer_alerts_2d_cv,bp_developer_alerts_2d_cv_H100,llm_local_shared_llm-a-slug"
+        )
+
+    def test_resolve_compose_profiles_falls_back_for_legacy_env(self):
+        merged = {
+            "BP_PROFILE": "bp_developer_search",
+            "MODE": "2d",
+            "HARDWARE_PROFILE": "H100",
+            "LLM_MODE": "local_shared",
+            "LLM_NAME_SLUG": "llm-a-slug",
+            "VLM_MODE": "local_shared",
+            "VLM_NAME_SLUG": "vlm-a-slug",
+        }
+
+        assert (
+            dcu.resolve_compose_profiles(merged, dcu.PROFILE_SEARCH)
+            == "bp_developer_search_2d,llm_local_shared_llm-a-slug,vlm_local_shared_vlm-a-slug"
+        )
 
 
 class TestSanitizeResolvedCompose:
@@ -202,6 +248,7 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=<HOST_IP>",
                 "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}",
                 "NGC_CLI_API_KEY=",  # pragma: allowlist secret
                 "NVIDIA_API_KEY=",  # pragma: allowlist secret
             ),
@@ -296,6 +343,8 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
+                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
             ),
             profile=dcu.PROFILE_ALERTS,
             env_overrides={"MODE": dcu.MODE_2D_VLM},
@@ -314,10 +363,46 @@ class TestBuildResolvedEnv:
         assert resolved["RTVI_VLM_INPUT_WIDTH"] == dcu.EDGE_ALERTS_RTVI_INPUT_WIDTH
         assert resolved["RTVI_VLM_INPUT_HEIGHT"] == dcu.EDGE_ALERTS_RTVI_INPUT_HEIGHT
         assert resolved["RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK"] == dcu.EDGE_ALERTS_RTVI_FPS
-        assert resolved["RTVI_VLM_MODEL_PATH"] == dcu.MODEL_SLUG_NONE
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
         assert resolved["RTVI_VLM_ENDPOINT"] == "http://10.0.0.9:30099/v1"
         assert resolved["LLM_DEVICE_ID"] == "0"
         assert resolved["VLM_DEVICE_ID"] == "1"
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME_SLUG"] == "none"
+
+    def test_build_resolved_env_alerts_local_applies_vlm_runtime_overrides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=2d_cv",
+                "BP_PROFILE=bp_developer_alerts",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=igx",
+                "LLM_MODE=local_shared",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local_shared",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.9",
+                "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
+                "RTVI_VLM_MODEL_TO_USE=cosmos-reason2",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}",
+            ),
+            profile=dcu.PROFILE_ALERTS,
+        )
+
+        monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
+        monkeypatch.setattr(dcu, "detect_external_ip", lambda: "10.0.0.9")
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_NAME"] == "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        assert resolved["VLM_NAME_SLUG"] == "none"
+        assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+        assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason2"
 
     def test_build_resolved_env_alerts_thor_applies_shared_vlm_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -370,6 +455,8 @@ class TestGenerateDryRunArtifacts:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},"
+                "llm_${LLM_MODE}_${LLM_NAME_SLUG}",
             ),
             profile=dcu.PROFILE_ALERTS,
             env_overrides={"MODE": dcu.MODE_2D_VLM},
@@ -385,6 +472,10 @@ class TestGenerateDryRunArtifacts:
 
         assert resolved_env["MODE"] == dcu.MODE_2D_VLM
         assert "bp_developer_alerts_2d_vlm" in resolved_env["COMPOSE_PROFILES"]
+        assert "vlm_local" not in resolved_env["COMPOSE_PROFILES"]
         assert "MODE=2d_vlm" in env_path.read_text()
-        assert "COMPOSE_PROFILES=bp_developer_alerts_2d_vlm" in env_path.read_text()
+        assert (
+            "COMPOSE_PROFILES=bp_developer_alerts_2d_vlm,bp_developer_alerts_2d_vlm_igx,llm_local_shared_llm-a-slug"
+            in env_path.read_text()
+        )
         assert compose_path.read_text() == "services: {}\n"

@@ -13,7 +13,7 @@ enabled: true
 
 useSharedNim: false
 # NGC NIM model artifact path inside the vss-rtvi-vlm container (see deployment template when useSharedNim is false)
-modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8"
+modelPath: "git:https://huggingface.co/nvidia/Cosmos3-Reasoner-8B-Private"
 
 waitForKafka:
   enabled: false
@@ -50,7 +50,7 @@ env:
   - name: NVIDIA_VISIBLE_DEVICES
     value: "all"
   - name: VLM_MODEL_TO_USE
-    value: "cosmos-reason2"
+    value: "cosmos-reason3"
   - name: KAFKA_ENABLED
     value: "false"
   # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)

@@ -46,12 +46,12 @@ services:
       # Database configuration
       - MILVUS_DB_HOST=${MILVUS_DB_HOST}
       - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT}
-      - ES_HOST=${ES_HOST:-${HOST_IP}}
-      - ES_PORT=${ES_PORT:-9200}
+      - ES_HOST=${ES_HOST}
+      - ES_PORT=${ES_PORT}
       - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
 
       # LLM configuration
-      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME:-${LLM_NAME}}
+      - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
       - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
       - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
@@ -59,7 +59,7 @@ services:
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration
-      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE:-false}
+      - LVS_EMB_ENABLE=${LVS_EMB_ENABLE}
       - LVS_EMB_MODEL_NAME=${LVS_EMB_MODEL_NAME}
       - LVS_EMB_BASE_URL=${LVS_EMB_BASE_URL}
 
@@ -148,10 +148,8 @@ services:
       qwen3-vl-8b-instruct-shared-gpu:
         condition: service_healthy
         required: false
-      rtvi-vlm:
-        condition: service_healthy
-        required: false
 
     # Network mode: bridge (default) to enable port mapping
     # To use host network instead (ignores port mapping), uncomment:
     # network_mode: host
+

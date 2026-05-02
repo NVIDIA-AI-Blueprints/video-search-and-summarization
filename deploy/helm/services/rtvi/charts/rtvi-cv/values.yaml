@@ -25,8 +25,8 @@ scripts:
   data: {}
 
 image:
-  repository: nvcr.io/nvidia/vss-core/vss-rt-cv
-  tag: "3.1.0"
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
+  tag: "3.2.0-26.04.2"
   pullPolicy: IfNotPresent
 
 replicas: 1

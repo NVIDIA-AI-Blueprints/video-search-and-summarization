@@ -1,6 +1,0 @@
-{
-  "recorder-ms-1": {
-    "provisioning_address": "localhost:30006",
-    "process_type": "docker"
-  }
-}

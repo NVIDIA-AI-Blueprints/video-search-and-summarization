@@ -53,6 +53,7 @@ agent:
 # No alert-bridge; do not set NEXT_PUBLIC_ALERTS_API_URL
 vss-agent-ui:
   fillAlertBridgeUrlFromGlobal: false
+  appSubtitle: "Vision (Alerts - VLM)"
 
 vss-alert-bridge:
   enabled: false

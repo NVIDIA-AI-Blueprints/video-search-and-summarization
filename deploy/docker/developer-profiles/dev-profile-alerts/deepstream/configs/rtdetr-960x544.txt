@@ -17,7 +17,7 @@
 gpu-id=0
 offsets=0;0;0
 net-scale-factor=0.00392156862745098
-labelfile-path=/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/rtdetr-960x544-labels.txt
+labelfile-path=/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/rtdetr-960x544-labels.txt
 model-engine-file=/opt/storage/rtdetr-its/model_epoch_035.fp16.onnx_b30_gpu0_fp16.engine
 onnx-file=/opt/storage/rtdetr-its/model_epoch_035.fp16.onnx
 batch-size=1

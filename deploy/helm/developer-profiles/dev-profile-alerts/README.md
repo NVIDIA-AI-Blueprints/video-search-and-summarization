@@ -82,7 +82,7 @@ With default **`values.yaml`** and the mode values files (both NIMs enabled; ver
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
 - **StorageClass** : Need a storageclass present on cluster for PVC creation
-- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles the canonical **`vss-vios-*`** microservice charts as subcharts. Run **`helm dependency update`** in this profile directory before **`helm install`** / **`helm package`**. Preflight validation (and **`.tgz`** cleanup) uses **`python3 -m eval.scripts.infra.validate_developer_profile_helm`** from the repo root.
+- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles the canonical **`vss-vios-*`** microservice charts as subcharts. Before **`helm install`** / **`helm package`**, run **`helm dependency build`** in this profile directory (uses **`Chart.lock`** to populate **`charts/*.tgz`**, which are gitignored). Use **`helm dependency update`** if **`Chart.lock`** is missing or you changed **`Chart.yaml`** dependencies. To lint after vendoring: from **`deploy/helm/developer-profiles`**, run **`helm dependency build ./dev-profile-alerts`** then **`helm lint ./dev-profile-alerts`**. Remove generated **`charts/*.tgz`** from the profile directory if you do not want vendored tarballs in your working tree.
 
 ## Quick start
 
@@ -183,7 +183,7 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vss-agent-ui.chatCompletionUrl`** | **`""`** | HTTP chat completion URL (**`NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL`**). If unset, built as **`<global>/chat/stream`**, else **`http://<release>-vss-agent:8000/chat/stream`**. |
 | **`vss-agent-ui.websocketChatUrl`** | **`""`** | WebSocket chat URL (**`NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL`**). If unset and **`global.externalHost`** is set, built as **`<ws-scheme>://<host>[:port]/websocket`** (**`ws`** / **`wss`** from **`global.externalScheme`**). If both this and **`global.externalHost`** are empty, the chart may omit WebSocket env vars; set explicitly for port-forward or custom routing. |
 | **`vss-agent-ui.alertsApiUrl`** | **`""`** | Browser **Alerts API** base URL when **vss-alert-bridge** exposure differs from other globals. |
-| **`vss-agent-ui.appSubtitle`** | **`"Vision (Alerts)"`** | Subtitle for the UI (**`NEXT_PUBLIC_APP_SUBTITLE`** via **vss-agent-ui** template); matches **met-blueprints** alerts profile. |
+| **`vss-agent-ui.appSubtitle`** | **`"Vision (Alerts - CV)"`** in **`values.yaml`**; **`"Vision (Alerts - VLM)"`** in **`values-realtime.yaml`** | Subtitle for the UI (**`NEXT_PUBLIC_APP_SUBTITLE`**); **verification** mode (2d_cv) vs **real-time** (2d_vlm), aligned with **met-blueprints** **dev-profile-alerts**. |
 | **`vss-agent-ui.enableDashboardTab`** | **`"false"`** | Dashboard tab toggle; same default as **met-blueprints** embedded **vss-agent-ui** chart. |
 | **`vss-agent-ui.envOverrides`** | short list | Alerts-only **`NEXT_PUBLIC_*`** deltas aligned with **met-blueprints** **`dev-profile-alerts/values.yaml`** (workflow, **Alerts** tab, upload/RTSP/WebSocket, verified flag); other **`NEXT_PUBLIC_*`** keys come from **`deploy/helm/services/ui/values.yaml`** **`env`**. |
 | **`vss-summarization.enabled`** | **`false`** | Keep **`false`** for alerts. |
@@ -260,6 +260,8 @@ When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`fals
 # Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization/deploy/helm/developer-profiles
+
+helm dependency build ./dev-profile-alerts
 ```
 
 **Verification mode:**

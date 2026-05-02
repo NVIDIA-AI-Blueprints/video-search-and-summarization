@@ -1,0 +1,52 @@
+# Sample configuration for the POST /api/v1/realtime/always-on endpoint.
+#
+# How it's used:
+#   - Each camera event delivered to /always-on triggers ONE RTVI alert per
+#     rule in `always_on_rules` below (N rules -> N RTVI calls).
+#   - `live_stream_url` is populated automatically from the incoming event's
+#     `camera_url` field — do NOT set it here.
+#
+# Resolution order for this file (first match wins):
+#   1. $ALWAYS_ON_RULES_CONFIG             (env var, explicit path)
+#   2. ./realtime-config.yaml              (project root, recommended)
+#   3. ./realtime-config-sample.yaml       (this file, for dev only)
+
+always_on_rules:
+  # ── Rule 1 ──────────────────────────────────────────────────────────────
+  - rule_id: ppe_confirmation             # Required. Free-form label used in logs + response.
+    description: "PPE confirmation"  # Optional. Human-readable notes.
+    alert_type: "ppe"                        # Required. Passed to RTVI as `alert_category`.
+    always_on_params:
+      # ── Required ────────────────────────────────────────────────────────
+      system_prompt: "You are a helpful assistant."
+      prompt: "Are there any people without personal protective equipment? Answer yes or no."      # Required. The detection prompt sent to the VLM.
+
+      # ── Optional (shown with their defaults if omitted) ─────────────────
+    #  system_prompt: "You are a traffic safety monitoring assistant"  # default: "You are a helpful assistant."
+      model: "nim_nvidia_cosmos-reason2-8b_hf-1208"                   # default: "" (falls back to rtvi_vlm.default_model in config.yaml)
+      chunk_duration: 5                           # default: 30   — seconds of video per VLM chunk
+      chunk_overlap_duration: 1                    # default: 5    — seconds of overlap between chunks
+      num_frames_per_second_or_fixed_frames_chunk: 1  # default: 10  — interpreted per `use_fps_for_chunking`
+      use_fps_for_chunking: true                   # default: true — if false, the value above is a fixed frame count
+      vlm_input_width: 256                         # default: 256  — VLM input frame width (pixels)
+      vlm_input_height: 256                        # default: 256  — VLM input frame height (pixels)
+      enable_reasoning: false                       # default: true — ask the VLM to emit reasoning alongside alerts
+
+  # ── Rule 2 (minimal) ────────────────────────────────────────────────────
+  # Everything except `prompt` is optional; omit anything you want to keep at
+  # its default. This rule will run with defaults for chunking, model, etc.
+  - rule_id: person_count
+    description: "Person visible"
+    alert_type: "person_visible"
+    always_on_params:
+      system_prompt: "You are a helpful assistant."
+      prompt: "Are there any people visible in the scene? Answer yes or no."
+      model: "nim_nvidia_cosmos-reason2-8b_hf-1208"                   # default: "" (falls back to rtvi_vlm.default_model in config.yaml)
+      chunk_duration: 5                           # default: 30   — seconds of video per VLM chunk
+      chunk_overlap_duration: 1                    # default: 5    — seconds of overlap between chunks
+      num_frames_per_second_or_fixed_frames_chunk: 1  # default: 10  — interpreted per `use_fps_for_chunking`
+      use_fps_for_chunking: true                   # default: true — if false, the value above is a fixed frame count
+      vlm_input_width: 256                         # default: 256  — VLM input frame width (pixels)
+      vlm_input_height: 256                        # default: 256  — VLM input frame height (pixels)
+      enable_reasoning: false                       # default: true — ask the VLM to emit reasoning alongside alerts
+

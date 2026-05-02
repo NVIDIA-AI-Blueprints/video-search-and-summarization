@@ -19,7 +19,7 @@ serviceAccount:
   create: false
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-  tag: "3.2.0-26.04.3"
+  tag: "3.2.0-26.04.4-3"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -56,16 +56,17 @@ chatCompletionUrl: ""
 websocketChatUrl: ""
 # LVS: explicit Kibana base URL for the Dashboard tab (overrides auto-derived kibana.<externalHost>).
 dashboardKibanaBaseUrl: ""
-# Alerts tab: base URL for alerts API (vss-alert-bridge). Set in alerts profile so NEXT_PUBLIC_ALERTS_API_URL is set.
+# Alerts tab: base URL for alerts API (vss-alert-bridge), including the API version prefix.
+# Set in alerts profile so NEXT_PUBLIC_ALERTS_API_URL is populated. Override here (or via envOverrides) when bumping the server-side API version (e.g. /api/v2) without rebuilding the UI.
 alertsApiUrl: ""
-# When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge (Ingress path; backend is vss-alert-bridge).
+# When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge/api/v1 (Ingress path; backend is vss-alert-bridge).
 # When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_MDX_WEB_API_URL only).
 fillAlertBridgeUrlFromGlobal: true
 env:
   # Bind to all interfaces so port-forward and K8s probes can reach the server (Next.js otherwise binds to pod hostname only).
   - name: HOSTNAME
     value: "0.0.0.0"
-  # Must match app bundle inside the image (same as deployments/agents/agent_ui/compose.yml and dev-profile-lvs vss-ui).
+  # Must match app bundle inside the image (same as deploy/docker/services/ui/compose.yml and dev-profile-lvs vss-ui).
   - name: RUN_APP_NAME
     value: nv-metropolis-bp-vss-ui
   - name: NEXT_PUBLIC_APP_TITLE
@@ -79,9 +80,9 @@ env:
     value: "false"
   - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
     value: "true"
-  - name: NEXT_PUBLIC_ALERTS_TAB_MAX_RESULT_SIZE
+  - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE
     value: "100"
-  - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_TIME_WINDOW_IN_MINUTES
+  - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES
     value: "10"
   - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS
     value: "1000"
@@ -120,7 +121,7 @@ env:
     value: ""
   - name: NEXT_PUBLIC_MDX_WEB_API_URL
     value: ""
-  # App-wide chat sidebar (deployments/agents/agent_ui/compose.yml)
+  # App-wide chat sidebar (deploy/docker/services/ui/compose.yml)
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
     value: "Vision Agent"
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON

@@ -15,9 +15,9 @@
 
 services:
   alert-bridge:
-    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.61
+    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.62
     container_name: vss-alert-bridge
-    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv"]
+    profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     network_mode: host
     restart: unless-stopped
     environment:
@@ -28,7 +28,12 @@ services:
       INTERNAL_IP: ${HOST_IP}
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
+      # Realtime REST API (restapi-realtime-alerts feature)
+      RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
+      CONFIG_PATH: /app/runtime/config.yml
+      ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
     volumes:
+      - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
       - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE:-/path/to/alert_type_config.json}:/app/alert_type_config.json:ro
       - $MDX_SAMPLE_APPS_DIR/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
@@ -43,6 +48,9 @@ services:
         condition: service_healthy
       kafka-topic-init-container:
         condition: service_completed_successfully
+      nvstreamer-alerts:
+        condition: service_started
+        required: false
       cosmos-reason1-7b:
         condition: service_healthy
         required: false
@@ -60,12 +68,6 @@ services:
         required: false
       qwen3-vl-8b-instruct-shared-gpu:
         condition: service_healthy
-        required: false
-      nvstreamer-alerts:
-        condition: service_started
-        required: false
-      nvstreamer-2d:
-        condition: service_started
         required: false
       rtvi-vlm:
         condition: service_healthy

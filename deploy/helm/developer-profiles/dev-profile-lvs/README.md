@@ -49,7 +49,8 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 | `rtvi.vss-rtvi-vlm.enabled` | `true` | Deploy the RTVI-VLM pod. |
 | `rtvi.vss-rtvi-vlm.useSharedNim` | `true` | Share the `nvidia-cosmos-reason2-8b` NIM instead of loading a second model copy. Sets `MODEL_PATH=none`, `VIA_VLM_ENDPOINT=http://<release>-nvidia-cosmos-reason2-8b:8000/v1`. |
 | `rtvi.vss-rtvi-vlm.vlmNameSlug` | `nvidia-cosmos-reason2-8b` | NIM service slug used when `useSharedNim: true`. Keep aligned with the NIM you enable under `nims`. |
-| `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `false` | Kafka isn't part of the LVS infra stack; the wait-for-kafka init container is disabled and `KAFKA_ENABLED=false` is set in `env`. Re-enable only if you also enable Kafka in `infra`. |
+| `infra.kafka.enabled` | `true` | Deploy Kafka for RTVI-VLM event publishing and create the default VSS topics, including `mdx-vlm` and `mdx-vlm-incidents`. |
+| `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `true` | The RTVI-VLM init container waits for Kafka and required RTVI topics before startup. |
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
 | `vss-summarization.extraEnv` | 3 RTVI vars | `USE_RTVI_VLM`, `RTVI_VLM_URL`, `RTVI_VLM_URL_PASSTHROUGH`. `RTVI_VLM_URL` is rendered with `tpl`, so it picks up `{{ .Release.Name }}` when `global.useReleaseNamePrefix` is true. |
 | `agent.vss-agent.rtviVlmEnabled` / `rtviVlmServiceName` | `true` / `vss-rtvi-vlm` | Parity flags; `RTVI_VLM_BASE_URL` in the `env` list reads `rtviVlmServiceName`. |
@@ -87,7 +88,7 @@ Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmB
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
 - **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above—**Volume provisioner**).
-- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles the reusable **`vss-vios-*`** microservice charts as subcharts. Run **`helm dependency update`** in this profile directory before **`helm install`** / **`helm package`**. For lint plus automatic removal of generated **`charts/*.tgz`**, run **`python3 -m eval.scripts.infra.validate_developer_profile_helm`** from the repo root.
+- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles the reusable **`vss-vios-*`** microservice charts as subcharts. Before **`helm install`** / **`helm package`**, run **`helm dependency build`** in this profile directory (uses **`Chart.lock`** to populate **`charts/*.tgz`**, which are gitignored). Use **`helm dependency update`** if **`Chart.lock`** is missing or you changed **`Chart.yaml`** dependencies. To lint after vendoring: from **`deploy/helm/developer-profiles`**, run **`helm dependency build ./dev-profile-lvs`** then **`helm lint ./dev-profile-lvs`**. Remove generated **`charts/*.tgz`** from the profile directory if you do not want vendored tarballs in your working tree.
 
 ## Quick start
 
@@ -230,6 +231,7 @@ When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`fals
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization/deploy/helm/developer-profiles
 
+helm dependency build ./dev-profile-lvs
 
 # Update the values-lvs.yaml and install the chart
 helm upgrade --install <RELEASE NAME> ./dev-profile-lvs \

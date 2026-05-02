@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: docker.elastic.co/elasticsearch/elasticsearch
-  tag: "9.3.0"
+  tag: "9.3.3"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -44,7 +44,7 @@ init:
   enabled: false
   image:
     repository: alpine
-    tag: "3.23.2"
+    tag: "3.23.4"
     pullPolicy: IfNotPresent
   backoffLimit: 10
   elasticsearchUrl: ""

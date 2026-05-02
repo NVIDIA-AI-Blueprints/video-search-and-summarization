@@ -14,6 +14,9 @@
 # limitations under the License.
 
 {{- if .Values.enabled }}
+{{- $rt := .Values.reportTemplates | default dict }}
+{{- /* Kubernetes rejects `items` keys missing from the ConfigMap; optional:true only helps when the CM itself is absent. */}}
+{{- $mountReportTemplates := and (eq (.Values.profile | default "base") "alerts") ($rt.enabled | default false) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -94,7 +97,7 @@ spec:
               subPath: config_edge.yml
               readOnly: true
             {{- end }}
-            {{- if eq (.Values.profile | default "base") "alerts" }}
+            {{- if $mountReportTemplates }}
             - name: report-templates
               mountPath: /etc/vss-agent/report-templates
               readOnly: true
@@ -136,13 +139,13 @@ spec:
         - name: config
           configMap:
             name: {{ include "vss-agent.fullname" . }}-config
-        {{- if eq (.Values.profile | default "base") "alerts" }}
+        {{- if $mountReportTemplates }}
         - name: report-templates
           configMap:
             name: {{ include "vss-agent.fullname" . }}-config
             items:
-              - key: incident_report_template.md
-                path: incident_report_template.md
+              - key: {{ $rt.configMapKey | default "incident_report_template.md" }}
+                path: {{ $rt.configMapKey | default "incident_report_template.md" }}
         {{- end }}
         {{- if .Values.mountEvalOutput }}
         - name: eval-output

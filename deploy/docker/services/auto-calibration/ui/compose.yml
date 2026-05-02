@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  vss-auto-calibration-ui:
+    image: nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.2.0-1
+    container_name: vss-auto-calibration-ui
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_redis_2d","bp_wh_redis_3d","auto-calib"]
+
+    # network_mode: "host"
+    ports:
+      - ${VSS_AUTO_CALIBRATION_UI_PORT:-5000}:5000
+    
+    # IPC settings for GPU memory sharing
+    ipc: host
+
+    environment:
+      - API_URL=${AUTO_CALIBRATION_MS_API_URL:-http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1}
+
+    restart: unless-stopped
+

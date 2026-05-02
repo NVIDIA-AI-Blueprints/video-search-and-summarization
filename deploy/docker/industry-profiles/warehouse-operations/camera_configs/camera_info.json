@@ -1,0 +1,16 @@
+{
+    "sensors": [
+      {
+        "camera_name": "<camera_name_1>",
+        "rtsp_url": "<rtsp_url_1>",
+        "group_id": "<group_id_1>", // optional
+        "region": "<region_1>" // optional
+      },
+      {
+        "camera_name": "<camera_name_2>",
+        "rtsp_url": "<rtsp_url_2>"
+      }
+    ]
+  }
+  
+  
