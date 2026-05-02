@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
+NEMOCLAW_REPO_DIR="${NEMOCLAW_REPO_DIR:-${HOME}/NemoClaw}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
 # Nemoclaw onboard/install only accepts: build, openai, … — "build" is NVIDIA Endpoints (integrate.api.nvidia.com).
 NEMOCLAW_ONBOARD_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER:-build}"
@@ -49,6 +50,7 @@ Options:
   --sandbox-name NAME         Sandbox name (default: demo)
   --model NAME                NVIDIA model ID (default: nvidia/nemotron-3-super-120b-a12b)
   --nvidia-base-url URL       NVIDIA API base URL (default: https://integrate.api.nvidia.com/v1)
+  --nemoclaw-repo-dir PATH    Path to NemoClaw source checkout (default: $HOME/NemoClaw)
   --openclaw-config-script PATH
                               Path to the OpenClaw config update helper
   --policy-file PATH          Path to the custom sandbox policy file
@@ -79,6 +81,10 @@ parse_args() {
         ;;
       --nvidia-base-url)
         NVIDIA_BASE_URL="$2"
+        shift 2
+        ;;
+      --nemoclaw-repo-dir)
+        NEMOCLAW_REPO_DIR="$2"
         shift 2
         ;;
       --openclaw-config-script)
@@ -312,14 +318,16 @@ run_onboard() {
 }
 
 run_install() {
-  if [ ! -x /home/ubuntu/NemoClaw/install.sh ]; then
-    log "/home/ubuntu/NemoClaw/install.sh is not available"
+  local install_script="${NEMOCLAW_REPO_DIR}/install.sh"
+
+  if [ ! -x "$install_script" ]; then
+    log "${install_script} is not available"
     exit 1
   fi
 
   log "Running NemoClaw installer (NEMOCLAW_PROVIDER=${NEMOCLAW_ONBOARD_PROVIDER})"
   (
-    cd /home/ubuntu/NemoClaw && env \
+    cd "$NEMOCLAW_REPO_DIR" && env \
       NEMOCLAW_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER}" \
       NEMOCLAW_MODEL="${NEMOCLAW_MODEL}" \
       NEMOCLAW_NON_INTERACTIVE="${NEMOCLAW_NON_INTERACTIVE}" \
@@ -362,6 +370,6 @@ main() {
 
 parse_args "$@"
 export NEMOCLAW_SANDBOX_NAME NEMOCLAW_ONBOARD_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
-export OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
+export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
 
 main

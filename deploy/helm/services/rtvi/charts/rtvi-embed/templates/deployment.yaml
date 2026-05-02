@@ -66,7 +66,11 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- $wfk := .Values.waitForKafka | default dict }}
+      {{- $waitKafka := and .Values.kafkaEnabled (or (not (hasKey $wfk "enabled")) $wfk.enabled) }}
+      {{- if or $waitKafka .Values.clearCachedEnginesOnStart }}
       initContainers:
+        {{- if $waitKafka }}
         - name: wait-for-kafka
           image: busybox:1.37.0
           imagePullPolicy: IfNotPresent
@@ -83,7 +87,8 @@ spec:
                 sleep 10
               done
               echo "Kafka is ready."
-      {{- if .Values.clearCachedEnginesOnStart }}
+        {{- end }}
+        {{- if .Values.clearCachedEnginesOnStart }}
         - name: clear-rtvi-trt-cache
           image: busybox:1.37.0
           imagePullPolicy: IfNotPresent
@@ -95,14 +100,20 @@ spec:
               rm -rf /opt/nvidia/rtvi/.rtvi/ngc_model_cache/Cosmos-Embed1-448p || true;
               find /opt/nvidia/rtvi/.rtvi/ngc_model_cache -type f
               \( -name "*.engine" -o -name "*.plan" -o -name "*.onnx" \) -print -delete || true;
+              find /tmp/triton_model_repo -type f
+              \( -name "*.engine" -o -name "*.plan" -o -name "*.onnx" \) -print -delete || true;
               chown -R 1001:1001 /opt/nvidia/rtvi/.rtvi/ngc_model_cache;
               chown -R 1001:1001 /tmp/huggingface;
+              chown -R 1001:1001 /tmp/triton_model_repo;
               echo "RTVI cache cleanup complete."
           volumeMounts:
             - name: ngc-model-cache
               mountPath: /opt/nvidia/rtvi/.rtvi/ngc_model_cache
             - name: hf-cache
               mountPath: /tmp/huggingface
+            - name: triton-model-repo
+              mountPath: /tmp/triton_model_repo
+        {{- end }}
       {{- end }}
       containers:
         - name: vss-rtvi-embed
@@ -173,8 +184,17 @@ spec:
               value: {{ .Values.nvidiaApiKey | default "NOAPIKEYSET" | quote }}
             - name: NGC_API_KEY
               value: {{ .Values.ngcApiKey | default "" | quote }}
+            {{- $hfTok := .Values.hfTokenSecret | default dict }}
+            {{- $hfTokName := trim (default "" $hfTok.name) }}
             - name: HF_TOKEN
+              {{- if ne $hfTokName "" }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $hfTokName | quote }}
+                  key: {{ $hfTok.key | default "HF_TOKEN" | quote }}
+              {{- else }}
               value: {{ .Values.hfToken | default "" | quote }}
+              {{- end }}
             - name: RTVI_RTSP_RECONNECTION_INTERVAL
               value: {{ .Values.rtspReconnectionInterval | quote }}
             - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS

@@ -16,21 +16,29 @@
 services:
 
   vss-search-analytics-2d-fusion:
-    image: nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.1.0
-    network_mode: "host"
+    extends:
+      file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      service: vss-behavior-analytics-base
     profiles: ["bp_developer_search_2d"]
     volumes:
       - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
-    restart: always
     container_name: vss-behavior-analytics
     command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json 
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
+
+  vss-video-analytics-api-fusion:
+    extends:
+      file: $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/compose.yml
+      service: vss-video-analytics-api
+    profiles: ["bp_developer_search_2d"]
+    container_name: vss-video-analytics-api
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+
 
   nvstreamer-2d-fusion:
     container_name: vss-vios-nvstreamer
-    image: nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
     profiles: ["bp_developer_search_2d"]
@@ -68,8 +76,8 @@ services:
   #       max-file: "3"
   #   container_name: vss-rtvi-cv-sdr
   #   volumes:
-  #     - $MDX_SAMPLE_APPS_DIR/warehouse/warehouse-2d-app/sdr:/wdm-configs
-  #     - $MDX_SAMPLE_APPS_DIR/warehouse/warehouse-2d-app/sdr:/wdm-data
+  #     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-configs
+  #     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-data
   #     - /var/run/docker.sock:/var/run/docker.sock
   #   environment:
   #     PORT: 4001
@@ -155,7 +163,7 @@ services:
 
   perception-2d-fusion:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yml
+      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
     profiles: ["bp_developer_search_2d"]
     container_name: vss-rtvi-cv
@@ -188,7 +196,7 @@ services:
     depends_on:
       perception-2d-init:
         condition: service_completed_successfully
-      sensor-ms-dev:
+      sensor-ms:
         condition: service_started
       broker-health-check:
         condition: service_completed_successfully

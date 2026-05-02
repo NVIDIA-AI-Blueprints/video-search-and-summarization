@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +21,9 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      # Published 26.04.2/26.04.3 agent images still require a non-empty embed config when streaming_ingest exists.
+      stream_mode: other
+      rtvi_embed_base_url: disabled
       enable_video_delete: true
     endpoints:
     - path: /api/v1/videos
@@ -52,7 +55,7 @@ functions:
   video_upload_url:
     _type: video_upload_url
     vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
 
   video_understanding:
     _type: video_understanding
@@ -178,17 +181,6 @@ llms:
     max_tokens: 4096
     temperature: 0.0
 
-  vllm_llm:
-    _type: openai
-    model_name: ${LLM_NAME}
-    base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 4096
-    temperature: 0.0
-    model_kwargs:
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: false
-
   # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
   nim_vlm:
     _type: nim
@@ -256,10 +248,8 @@ workflow:
       **report_agent**
       - Only call report_agent when user mentions "report" in the question.
       - Don't use the report from previous interactions.
-      - CRITICAL: For multiple videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
-      - Examples: "Generate a report for, "Create an analysis report", I need a safety report for this video", "Generate a report for video1 & video2"
+      - Examples: "Generate a report for, "Create an analysis report", I need a safety report for this video"
       **video_understanding** - For any question about video content.
-      - CRITICAL: ALWAYS call video_understanding for question about video content of a video. You MUST NOT use conversation history to answer question about a video.
       - Examples: "what happens in the video?", "Was there any breach of safety protocol?", "Were there any vehicle collisions?", "Is the bridge in good condition?"
       **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
@@ -359,12 +349,8 @@ eval:
              steps (i.e., sequentially), penalize for inefficiency.
 
         NOTE: If the ground truth contains a single call to video_understanding, and the agent calls an additional
-        vst_video_list or vst_video_clip before the video_understanding or report_agent call and the
-        video_understanding or report_agent call is correct, it should be considered as a success (1.0).
-
-        NOTE: If step numbers in the actual tool calls have gaps (e.g., step 1 then step 3, skipping step 2),
-        it means a tool call at the skipped step failed and the agent retried automatically (auto-recovery).
-        Penalize only slightly for this (e.g., -0.1) since the agent did eventually recover and complete the task.
+        vst_video_list or vst_video_clip before the video_understanding call and the video_understanding call is
+        correct, it should be considered as a success (1.0).
 
         SCORING GUIDELINES:
         - 1.0: All expected tools called with correct parameters
@@ -487,7 +473,7 @@ eval:
     report_evaluator:
       _type: report_evaluator
       eval_metrics_config_path: ${EVAL_DIR}/report_eval_metrics.yaml
-      reference_base_dir: ${DATASET_DIR:-${EVAL_DIR}}/gt/
+      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR}
       evaluation_method_id: report
       object_store: local_object_store
       report_url_pattern: 'http://[^\s)]+/(vss_report_(?:[^/\s)]+_)?\d{8}_\d{6}\.md)'

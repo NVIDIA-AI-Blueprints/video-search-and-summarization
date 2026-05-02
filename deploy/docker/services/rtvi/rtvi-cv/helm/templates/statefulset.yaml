@@ -1,0 +1,288 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $mode := include "rtvi-cv.warehouseMode" . }}
+{{- if eq $mode "2d" }}
+{{- if and (not .Values.rtviCv.models.path) (not .Values.rtviCv.models.pvcClaimName) }}
+{{- fail "2D requires rtviCv.models.path (directory on the node) or rtviCv.models.pvcClaimName (PVC mounted at /opt/storage)." }}
+{{- end }}
+{{- else }}
+{{- $m := .Values.rtviCv.models }}
+{{- if and (not $m.path) (not $m.pvcClaimName) }}
+{{- fail "3D requires rtviCv.models.path (host dir with ONNX, NPY, and engine cache) or rtviCv.models.pvcClaimName." }}
+{{- end }}
+{{- $cal := .Values.rtviCv.datasets.calibration }}
+{{- if and (not $cal.hostPath) (not $cal.existingConfigMap) }}
+{{- fail "3D requires rtviCv.datasets.calibration.hostPath (calibration.json on the node) or existingConfigMap (pre-loaded calibration)." }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "rtvi-cv.fullname" . }}
+  labels:
+    {{- include "rtvi-cv.labels" . | nindent 4 }}
+    rtvi-cv.warehouse.mode: {{ $mode | quote }}
+spec:
+  serviceName: {{ include "rtvi-cv.headlessServiceName" . }}
+  podManagementPolicy: OrderedReady
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "rtvi-cv.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "rtvi-cv.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      hostNetwork: {{ .Values.rtviCv.hostNetwork }}
+      dnsPolicy: {{ .Values.rtviCv.dnsPolicy | quote }}
+      {{- if .Values.rtviCv.podHostname }}
+      hostname: {{ .Values.rtviCv.podHostname | quote }}
+      {{- end }}
+      {{- if .Values.rtviCv.runtimeClassName }}
+      runtimeClassName: {{ .Values.rtviCv.runtimeClassName | quote }}
+      {{- end }}
+      containers:
+        - name: rtvi-cv
+          image: {{ include "rtvi-cv.perceptionImage" . }}
+          imagePullPolicy: {{ .Values.rtviCv.images.perception.pullPolicy }}
+          workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
+          command:
+            - bash
+            - -c
+            - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+          env:
+            - name: DS_MODEL_FAMILY
+              value: {{ ternary "sparse4d-warehouse" "rtdetr-warehouse" (eq $mode "3d") | quote }}
+            - name: DS_MODE_FLAG
+              value: {{ ternary .Values.rtviCv.perception.dsModeFlag3d .Values.rtviCv.perception.dsModeFlag2d (eq $mode "3d") | quote }}
+            - name: DS_MESSAGE_RATE
+              value: {{ .Values.rtviCv.perception.dsMessageRate | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ .Values.rtviCv.perception.dsTrackerReid | quote }}
+            - name: DS_SHOW_SENSOR_ID
+              value: {{ .Values.rtviCv.perception.dsShowSensorId | quote }}
+            - name: STREAM_TYPE
+              value: {{ .Values.rtviCv.streamType | quote }}
+            - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+              value: "1"
+            - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
+              value: "1"
+            - name: OTEL_SERVICE_NAME
+              value: rtvi-cv
+            - name: OTEL_SDK_DISABLED
+              value: {{ .Values.rtviCv.perception.otelSdkDisabled | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.rtviCv.perception.otelExporterOtlpEndpoint | quote }}
+            - name: OTEL_METRICS_EXPORTER
+              value: {{ .Values.rtviCv.perception.otelMetricsExporter | quote }}
+            {{- if .Values.rtviCv.hardwareProfile }}
+            - name: HARDWARE_PROFILE
+              value: {{ .Values.rtviCv.hardwareProfile | quote }}
+            {{- end }}
+            {{- if eq $mode "2d" }}
+            - name: GST_PLUGIN_PATH
+              value: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
+            - name: TRANSFORMERS_OFFLINE
+              value: "0"
+            - name: HF_HUB_OFFLINE
+              value: "0"
+            {{- else }}
+            - name: SPARSE4D_DEBUG_TS
+              value: {{ .Values.rtviCv.perception.sparse4dDebugTs | quote }}
+            - name: SPARSE4D_CONFIG_PATH
+              value: /opt/data/ds-configurator/
+            - name: SPARSE4D_ENGINE_PATH
+              value: /opt/storage/
+            - name: CUDA_MPS_PIPE_DIRECTORY
+              value: /tmp/nvidia-mps-via/
+            - name: CUSTOM_LIB_PATH
+              value: /usr/local/lib/python3.10/dist-packages/torch/lib:/opt/nvidia/deepstream/deepstream/sources/sparse4d/
+            - name: CUSTOM_PRELOAD_LIB
+              value: /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so
+            - name: MSDA_PLUGIN_PATH
+              value: /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so
+            - name: NETWORK_WIDTH
+              value: {{ .Values.rtviCv.perception.networkWidth | quote }}
+            - name: NETWORK_HEIGHT
+              value: {{ .Values.rtviCv.perception.networkHeight | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: ds-start-sh
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+              subPath: ds-start.sh
+              readOnly: true
+            {{- if eq $mode "2d" }}
+            # Same mount target as Compose (warehouse-2d-app): configs directory replaces image defaults.
+            - name: warehouse-2d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
+              readOnly: true
+            - name: models-mtmc
+              mountPath: /opt/storage
+            {{- else }}
+            # Same as 2D / Compose perception-3d volume: writable /opt/storage for TRT engines and caches.
+            - name: models-mtmc
+              mountPath: /opt/storage
+            - name: warehouse-calibration-json
+              mountPath: /opt/data/ds-configurator/calibration.json
+              {{- if .Values.rtviCv.datasets.calibration.existingConfigMap }}
+              subPath: calibration.json
+              {{- end }}
+              readOnly: true
+            - name: warehouse-3d-labels
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
+              subPath: labels.txt
+              readOnly: true
+            # Same layout as Compose: warehouse-3d-app deepstream/configs → .../metropolis_perception_app/configs/
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config-ocr.yaml
+              subPath: config-ocr.yaml
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/data/ds-configurator/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-kafka-config.txt
+              subPath: ds-kafka-config.txt
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-main-config.txt
+              subPath: ds-main-config.txt
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-mtmc-preprocess-config.txt
+              subPath: ds-mtmc-preprocess-config.txt
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-mtmc-preprocess-ocr-config.txt
+              subPath: ds-mtmc-preprocess-ocr-config.txt
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-mtmc-videotemplate_custom_lib_config.txt
+              subPath: ds-mtmc-videotemplate_custom_lib_config.txt
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-nvdcf-accuracy-tracker-config.yml
+              subPath: ds-nvdcf-accuracy-tracker-config.yml
+              readOnly: true
+            - name: warehouse-3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-redis-config.txt
+              subPath: ds-redis-config.txt
+              readOnly: true
+            - name: model-sparse4d-onnx
+              mountPath: {{ printf "/opt/nvidia/deepstream/deepstream/sources/sparse4d/%s" .Values.rtviCv.models.sparse4dOnnxFile | quote }}
+              {{- if .Values.rtviCv.models.pvcClaimName }}
+              subPath: {{ .Values.rtviCv.models.pvcOnnxSubPath | quote }}
+              {{- end }}
+              readOnly: true
+            - name: model-sparse4d-npy
+              mountPath: {{ printf "/opt/nvidia/deepstream/deepstream/sources/sparse4d/%s" .Values.rtviCv.models.sparse4dNpyFile | quote }}
+              {{- if .Values.rtviCv.models.pvcClaimName }}
+              subPath: {{ .Values.rtviCv.models.pvcNpySubPath | quote }}
+              {{- end }}
+              readOnly: true
+            {{- end }}
+          {{- with .Values.rtviCv.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: ds-start-sh
+          configMap:
+            name: {{ include "rtvi-cv.cm.scripts" . }}
+            defaultMode: 493
+            items:
+              - key: ds-start.sh
+                path: ds-start.sh
+        {{- if eq $mode "2d" }}
+        - name: warehouse-2d-cfg
+          configMap:
+            name: {{ include "rtvi-cv.cm.warehouse2d" . }}
+            defaultMode: 420
+        - name: models-mtmc
+          {{- if .Values.rtviCv.models.pvcClaimName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.rtviCv.models.pvcClaimName | quote }}
+          {{- else }}
+          hostPath:
+            path: {{ .Values.rtviCv.models.path | trimSuffix "/" | quote }}
+            type: Directory
+          {{- end }}
+        {{- else }}
+        - name: warehouse-3d-cfg
+          configMap:
+            name: {{ include "rtvi-cv.cm.warehouse3d" . }}
+            defaultMode: 420
+        - name: warehouse-3d-labels
+          configMap:
+            name: {{ include "rtvi-cv.cm.warehouse3dLabels" . }}
+            defaultMode: 420
+        - name: models-mtmc
+          {{- if .Values.rtviCv.models.pvcClaimName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.rtviCv.models.pvcClaimName | quote }}
+          {{- else }}
+          hostPath:
+            path: {{ .Values.rtviCv.models.path | trimSuffix "/" | quote }}
+            type: Directory
+          {{- end }}
+        {{- if .Values.rtviCv.datasets.calibration.existingConfigMap }}
+        - name: warehouse-calibration-json
+          configMap:
+            name: {{ .Values.rtviCv.datasets.calibration.existingConfigMap | quote }}
+            defaultMode: 420
+            items:
+              - key: {{ .Values.rtviCv.datasets.calibration.existingConfigMapKey | default "calibration.json" | quote }}
+                path: calibration.json
+        {{- else }}
+        - name: warehouse-calibration-json
+          hostPath:
+            path: {{ .Values.rtviCv.datasets.calibration.hostPath | quote }}
+            type: File
+        {{- end }}
+        {{- if .Values.rtviCv.models.pvcClaimName }}
+        - name: model-sparse4d-onnx
+          persistentVolumeClaim:
+            claimName: {{ .Values.rtviCv.models.pvcClaimName | quote }}
+        - name: model-sparse4d-npy
+          persistentVolumeClaim:
+            claimName: {{ .Values.rtviCv.models.pvcClaimName | quote }}
+        {{- else }}
+        - name: model-sparse4d-onnx
+          hostPath:
+            path: {{ include "rtvi-cv.sparse4dOnnxHostPath" . | quote }}
+            type: File
+        - name: model-sparse4d-npy
+          hostPath:
+            path: {{ include "rtvi-cv.sparse4dNpyHostPath" . | quote }}
+            type: File
+        {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

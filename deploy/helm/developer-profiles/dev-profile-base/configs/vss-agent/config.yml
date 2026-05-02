@@ -470,7 +470,7 @@ eval:
     report_evaluator:
       _type: report_evaluator
       eval_metrics_config_path: ${EVAL_DIR}/report_eval_metrics.yaml
-      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR}
+      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR:-${EVAL_DIR}}/gt
       evaluation_method_id: report
       object_store: local_object_store
       report_url_pattern: 'http://[^\s)]+/(vss_report_(?:[^/\s)]+_)?\d{8}_\d{6}\.md)'
