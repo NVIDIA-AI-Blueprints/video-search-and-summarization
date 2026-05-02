@@ -45,10 +45,19 @@ defaults:
 jobs:
   sync-check:
     name: Check helm parity for deploy/docker changes
-    # GitHub-hosted runner — repo is public, so usage is unmetered. The
-    # agent is pure file comparison + (optionally) one bot-PR push;
-    # no GPU, no Brev provisioning, no harbor trials.
-    runs-on: ubuntu-latest
+    # Self-hosted runner labelled `helm-sync`, registered on the
+    # vss-skill-validator coordinator host as a SECOND runner process
+    # alongside the existing `vss-eval` runner. We tried ubuntu-latest
+    # first but `inference-api.nvidia.com` is IP-allowlisted to NVIDIA
+    # infra and refused TCP from Azure runners (run 25220887217
+    # attempt 2: `API Error: Unable to connect to API
+    # (ConnectionRefused)`). The vss-skill-validator host IS allowlisted
+    # since it's where the coordinator already runs, and adding a
+    # second runner there is $0 incremental cost. The two runner
+    # processes share the box but pick up jobs by label, so a long
+    # skills-eval batch on `vss-eval` doesn't block helm-sync (and
+    # vice versa).
+    runs-on: [self-hosted, helm-sync]
 
     # 60 min cap. The agent does pure file comparison + at most one
     # bot-PR push. Order-of-magnitude shorter than skills-eval (480m).
@@ -104,6 +113,30 @@ jobs:
               - 'deploy/**'
               - '.github/helm-sync/**'
               - '.github/workflows/helm-sync.yml'
+
+      - name: Diagnose runner egress (TEMPORARY — revert once root-cause known)
+        if: steps.changes.outputs.relevant == 'true'
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+        run: |
+          set +e
+          echo "=== url byte length (catches trailing newline / whitespace) ==="
+          printf '%s' "$ANTHROPIC_BASE_URL" | wc -c
+          echo "=== printable form (chars X-masked, shape visible) ==="
+          printf '%s' "$ANTHROPIC_BASE_URL" | tr 'a-zA-Z0-9' 'X'; echo
+          echo "=== /etc/resolv.conf (top 5) ==="
+          cat /etc/resolv.conf | head -5
+          echo "=== getent hosts inference-api.nvidia.com ==="
+          getent hosts inference-api.nvidia.com | head -3
+          echo "=== curl HEAD via configured URL (5s budget) ==="
+          curl -sI -o /dev/null -w "HTTP %{http_code} (resolved %{remote_ip}, total %{time_total}s)\n" --max-time 5 "${ANTHROPIC_BASE_URL}/v1/messages"
+          echo "=== curl HEAD against api.anthropic.com (5s budget) ==="
+          curl -sI -o /dev/null -w "HTTP %{http_code} (resolved %{remote_ip}, total %{time_total}s)\n" --max-time 5 https://api.anthropic.com/v1/messages
+          echo "=== outbound public IP (what an allowlist sees) ==="
+          curl -s --max-time 5 https://api.ipify.org; echo
+          echo "=== whoami + process tree ==="
+          whoami
+          ps -ef --forest 2>/dev/null | grep -E "Runner.Listener|runsvc|/bin/bash" | head -10
 
       - name: Run helm-sync agent
         id: agent
