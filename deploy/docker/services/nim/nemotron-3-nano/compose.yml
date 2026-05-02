@@ -15,7 +15,7 @@
 
 services:
   nemotron-3-nano-init:
-    image: alpine:3.23.2
+    image: alpine:3.23.4
     container_name: llm-nim-init
     profiles:
     - llm_local_nemotron-3-nano

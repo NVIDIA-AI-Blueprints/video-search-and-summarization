@@ -18,6 +18,6 @@ name: vss-rtvi-embed
 description: RTVI Cosmos Embed1 embedding service for MDX search
 type: application
 version: 26.04.2
-appVersion: "3.1.0-26.02.2"
+appVersion: "3.2.0-26.04.2"
 maintainers:
   - name: NVIDIA

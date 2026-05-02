@@ -66,6 +66,7 @@ from .docker_compose_util import parse_env_overrides
 from .prereqs_check import run_prereqs_checks
 from .storage import ArtifactKind
 from .storage import ModelArtifact
+from .storage import ensure_alerts_engine_directories
 from .storage import ensure_data_directories
 from .storage import ensure_model_artifacts
 
@@ -91,6 +92,13 @@ class ComposeOperation:
     compose_file: str
     started_at_epoch_s: int
     log_lines: deque[str] = field(default_factory=lambda: deque(maxlen=_MAX_OPERATION_LOG_LINES))
+
+
+@dataclass(frozen=True)
+class PreComposeCheck:
+    name: str
+    profile: str
+    run: Callable[[], object]
 
 
 RegistryKeyT = TypeVar("RegistryKeyT")
@@ -531,6 +539,41 @@ async def vss_orchestrator(
             with suppress(subprocess.TimeoutExpired, ProcessLookupError, OSError):
                 process.wait(timeout=1.0)
 
+    def _finish_compose_op(docker_compose_ops_id: str, *, exit_code: int) -> str:
+        resolved_status = ComposeStatus.CANCELLED.value
+        with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
+            op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
+            if op is not None:
+                op.exit_code = exit_code
+                op.process = None
+                op.running = False
+                if op.status != ComposeStatus.CANCELLED.value:
+                    op.status = ComposeStatus.SUCCESS.value if exit_code == 0 else ComposeStatus.ERROR.value
+                resolved_status = op.status
+            _COMPOSE_OPERATIONS.evict()
+            _COMPOSE_SPECS.evict()
+        return resolved_status
+
+    def _run_pre_compose_checks(
+        *,
+        pre_compose_checks: list[PreComposeCheck],
+        docker_compose_ops_id: str,
+        append_op_log: Callable[[str], None],
+    ) -> bool:
+        for pre_compose_check in pre_compose_checks:
+            append_op_log(
+                f"Running pre-compose check '{pre_compose_check.name}' for profile '{pre_compose_check.profile}'..."
+            )
+            try:
+                pre_compose_check.run()
+            except RuntimeError as exc:
+                append_op_log(f"Pre-compose check failed: {exc}")
+                _finish_compose_op(docker_compose_ops_id, exit_code=1)
+                append_op_log("Compose operation failed (pre-compose check).")
+                return False
+            append_op_log("Pre-compose check succeeded.")
+        return True
+
     def _start_compose_op(docker_compose_id: str, action: str, action_args: list[str]) -> dict:
         if action not in _SUPPORTED_COMPOSE_ACTIONS:
             return {
@@ -564,25 +607,48 @@ async def vss_orchestrator(
         if missing:
             return {"status": ComposeStatus.ERROR.value, "error": missing}
 
-        pre_compose_check: dict[str, str] | None = None
+        pre_compose_checks: list[PreComposeCheck] = []
         if action == ComposeAction.UP.value:
             profile = str(spec.get("profile") or "").strip()
+            resolved_env = parse_env_file(env_path)
+            mdx_data_dir = resolved_env.get("MDX_DATA_DIR", "").strip()
+            if not mdx_data_dir:
+                return {
+                    "status": ComposeStatus.ERROR.value,
+                    "error": f"MDX_DATA_DIR is missing in generated env file: {env_path}",
+                }
+            pre_compose_checks.append(
+                PreComposeCheck(
+                    name="ensure_data_directories",
+                    profile=profile,
+                    run=lambda: ensure_data_directories(
+                        mdx_data_dir,
+                        required_subdirectories=configured_mdx_data_directories,
+                    ),
+                )
+            )
             profile_artifacts = configured_model_artifacts_by_profile.get(profile)
             if profile_artifacts:
-                resolved_env = parse_env_file(env_path)
-                mdx_data_dir = resolved_env.get("MDX_DATA_DIR", "").strip()
-                if not mdx_data_dir:
-                    return {
-                        "status": ComposeStatus.ERROR.value,
-                        "error": f"MDX_DATA_DIR is missing in generated env file: {env_path}",
-                    }
                 ngc_cli_api_key = resolved_env.get("NGC_CLI_API_KEY", "").strip()
-                pre_compose_check = {
-                    "type": "ensure_model_artifacts",
-                    "profile": profile,
-                    "mdx_data_dir": mdx_data_dir,
-                    "ngc_cli_api_key": ngc_cli_api_key,
-                }
+                pre_compose_checks.append(
+                    PreComposeCheck(
+                        name="ensure_model_artifacts",
+                        profile=profile,
+                        run=lambda: ensure_model_artifacts(
+                            mdx_data_dir,
+                            ngc_cli_api_key,
+                            artifacts=profile_artifacts,
+                        ),
+                    )
+                )
+            if profile == "alerts":
+                pre_compose_checks.append(
+                    PreComposeCheck(
+                        name="ensure_alerts_engine_directories",
+                        profile=profile,
+                        run=lambda: ensure_alerts_engine_directories(deployments_dir),
+                    )
+                )
 
         docker_compose_ops_id = f"{action}-{docker_compose_id}-{uuid4().hex[:8]}"
         running_ops: list[ComposeOperation] = []
@@ -662,39 +728,12 @@ async def vss_orchestrator(
                         return True
                     return op.status == ComposeStatus.CANCELLED.value or not op.running
 
-            if pre_compose_check is not None:
-                check_type = pre_compose_check.get("type")
-                check_profile = pre_compose_check.get("profile", "unknown")
-                _append_op_log(f"Running pre-compose check '{check_type}' for profile '{check_profile}'...")
-                try:
-                    if check_type == "ensure_model_artifacts":
-                        profile_artifacts = configured_model_artifacts_by_profile.get(check_profile)
-                        if profile_artifacts is None:
-                            raise RuntimeError(
-                                f"No model_artifacts configured for profile '{check_profile}'. "
-                                "Add model_artifacts.<profile> in MCP config."
-                            )
-                        ensure_model_artifacts(
-                            pre_compose_check["mdx_data_dir"],
-                            pre_compose_check["ngc_cli_api_key"],
-                            artifacts=profile_artifacts,
-                        )
-                    else:
-                        raise RuntimeError(f"Unsupported pre-compose check: {check_type}")
-                except RuntimeError as exc:
-                    _append_op_log(f"Pre-compose check failed: {exc}")
-                    with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
-                        op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
-                        if op is not None:
-                            op.exit_code = 1
-                            op.running = False
-                            if op.status != ComposeStatus.CANCELLED.value:
-                                op.status = ComposeStatus.ERROR.value
-                        _COMPOSE_OPERATIONS.evict()
-                        _COMPOSE_SPECS.evict()
-                    _append_op_log("Compose operation failed (pre-compose check).")
-                    return
-                _append_op_log("Pre-compose check succeeded.")
+            if not _run_pre_compose_checks(
+                pre_compose_checks=pre_compose_checks,
+                docker_compose_ops_id=docker_compose_ops_id,
+                append_op_log=_append_op_log,
+            ):
+                return
 
             if _is_cancelled_or_not_running():
                 return
@@ -720,15 +759,7 @@ async def vss_orchestrator(
                 )
             except FileNotFoundError:
                 _append_op_log("docker command not found. Install Docker with Compose v2.")
-                with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
-                    op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
-                    if op is not None:
-                        op.exit_code = 127
-                        op.running = False
-                        if op.status != ComposeStatus.CANCELLED.value:
-                            op.status = ComposeStatus.ERROR.value
-                    _COMPOSE_OPERATIONS.evict()
-                    _COMPOSE_SPECS.evict()
+                _finish_compose_op(docker_compose_ops_id, exit_code=127)
                 _append_op_log("Compose operation failed (docker command not found).")
                 return
 
@@ -747,18 +778,7 @@ async def vss_orchestrator(
                     _append_op_log(line)
             finally:
                 exit_code = process.wait()
-                resolved_status = ComposeStatus.CANCELLED.value
-                with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
-                    op = _COMPOSE_OPERATIONS.peek(docker_compose_ops_id)
-                    if op is not None:
-                        op.exit_code = exit_code
-                        op.process = None
-                        op.running = False
-                        if op.status != ComposeStatus.CANCELLED.value:
-                            op.status = ComposeStatus.SUCCESS.value if exit_code == 0 else ComposeStatus.ERROR.value
-                        resolved_status = op.status
-                    _COMPOSE_OPERATIONS.evict()
-                    _COMPOSE_SPECS.evict()
+                resolved_status = _finish_compose_op(docker_compose_ops_id, exit_code=exit_code)
 
                 status_log_message = (
                     "Compose operation succeeded."
@@ -878,6 +898,8 @@ async def vss_orchestrator(
                     resolved_env["MDX_DATA_DIR"],
                     required_subdirectories=configured_mdx_data_directories,
                 )
+                if input.profile == "alerts":
+                    ensure_alerts_engine_directories(deployments_dir)
                 with _COMPOSE_OPS_LOCK, _COMPOSE_SPECS_LOCK:
                     _COMPOSE_SPECS.set(
                         docker_compose_id,

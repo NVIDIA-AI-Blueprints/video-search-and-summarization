@@ -1,0 +1,373 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: fastapi
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: WH-vss-agent-${VSS_AGENT_VERSION}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+function_groups:
+  video_analytics_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: ${VIDEO_ANALYSIS_MCP_URL}/mcp
+    include:
+    - video_analytics__get_incidents
+    - video_analytics__get_incident
+    - video_analytics__get_fov_histogram
+    - video_analytics__get_sensor_ids
+
+functions:
+  video_understanding:
+    _type: video_understanding
+    vlm_name: vlm
+    max_frames: 30
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_url
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${HOST_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  vst_video_url:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    overlay_config: true
+    # 'iso' — warehouse uses RTSP streams; incidents reference absolute wall-clock times.
+    time_format: iso
+
+  vst_picture_url:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    overlay_config: true
+    # 'iso' — must match vst_video_url above and the video_understanding tool's time_format.
+    time_format: iso
+
+  chart_generator:
+    _type: chart_generator
+    object_store_name: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    object_store_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+
+  multi_incident_formatter:
+    _type: multi_incident_formatter
+    video_url_tool: vst_video_url
+    picture_url_tool: vst_picture_url
+    incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    chart_generator_tool: chart_generator
+    generate_chart: true
+    chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    display_limit: 20
+
+  template_report_gen:
+    _type: template_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    template_path: ${VSS_AGENT_TEMPLATE_PATH}
+    template_name: ${VSS_AGENT_TEMPLATE_NAME}
+    agent_version: ${VSS_AGENT_VERSION}
+    llm_name: llm
+    video_understanding_tool: video_understanding
+    picture_url_tool: vst_picture_url
+    video_url_tool: vst_video_url
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vlm_prompts:
+    - >-
+      Describe the incident in details including why the
+      incident happened, contributing factors to the incident,
+      outcomes and responses
+    - >-
+      Describe the location of the incident. Include location
+      description, light condition, floor condition and
+      blockage present
+    - >-
+      Describe people involved in the video. Focus only on the
+      following object ids: {object_ids}. Include person type
+      (worker/driver/pedestrian/other), person behaviour at
+      the time, person location
+    - >-
+      Describe vehicles involved in the video. Focus only on
+      the following object ids: {object_ids}. Include vehicle
+      type (transporter/forklift/humanoid/other), vehicle
+      maneuver at the time and vehicle location
+    report_prompt: |
+      Template to populate:
+      {template}
+
+      Instructions:
+      1. Extract incident details from tool results
+      2. Extract video analysis details from video_understanding tool results
+      3. Fill in all template fields with extracted information
+      4. Use "Unknown" or "N/A" for fields where information is not available
+      5. AI Agent version: {agent_version}
+
+      Return only the populated markdown template without any additional text or code blocks.
+
+  get_fov_counts_with_chart:
+    _type: get_fov_counts_with_chart
+    get_fov_histogram_tool: video_analytics_mcp.video_analytics__get_fov_histogram
+    chart_generator_tool: chart_generator
+    chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+
+  # Report Agent - sub-agent for single incident reports (Video Analytics MCP mode)
+  report_agent:
+    _type: report_agent
+    get_incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    get_incident_tool: video_analytics_mcp.video_analytics__get_incident
+    template_report_tool: template_report_gen
+
+  # Multi Report Agent - sub-agent for multiple incident reports
+  multi_report_agent:
+    _type: multi_report_agent
+    multi_incident_tool: multi_incident_formatter
+    max_incidents: 9999
+  vst_sensor_list:
+    _type: vst.sensor_list
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+llms:
+  llm:
+    _type: ${LLM_MODEL_TYPE:-nim}
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  vlm:
+    _type: ${VLM_MODEL_TYPE:-nim}
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 1024
+
+workflow:
+  _type: top_agent
+  llm_name: llm
+  log_level: INFO
+  max_retries: 3
+  max_iterations: 15
+  max_history: 20
+  llm_reasoning: false
+  planning_enabled: true
+  tool_names:
+  - get_fov_counts_with_chart
+  - vst_sensor_list
+  - vst_picture_url
+  subagent_names:
+  - report_agent
+  - multi_report_agent
+  # yamllint disable rule:line-length
+  prompt: |
+    You are a routing agent for a warehouse video surveillance
+    incident reporting system with tool calling capabilities.
+
+    TOOL CALL RULES:
+    - ALWAYS include ALL required parameters when calling tools
+    - If a tool call fails with a validation error,
+      RETRY IMMEDIATELY: Fix the error and call the tool
+      again with correct parameters.
+
+    PRIORITY ACTIONS:
+    1. If user asks about available sensors/cameras → DIRECTLY CALL vst_sensor_list tool
+    2. For FOV counts/occupancy queries → DIRECTLY CALL get_fov_counts_with_chart tool
+    3. For taking a snapshot/picture from a sensor -> DIRECTLY CALL vst_picture_url tool
+    4. For LISTING/MULTIPLE incidents → route to multi_report_agent
+    5. For DETAILED SINGLE incident reports → route to report_agent
+    6. For direct video analytics queries → use video_analytics_mcp tools
+
+    SNAPSHOT/PICTURE TOOL:
+    Use vst_picture_url when user asks to "take a snapshot" or "get a picture" from a sensor.
+    CRITICAL:
+      - If the user asks for a snapshot/picture of a sensor
+        without specifying a timestamp, you should always
+        call vst_picture_url tool to get the URL and never
+        use the URLs from conversation history.
+      - If a snapshot/picture for the same sensor AND at the
+        same timestamp has already been generated from
+        previous interactions, return the answer with the
+        EXACT URLs from conversation history - DO NOT call
+        vst_picture_url, DO NOT modify any parts of the
+        URLs. However, if the query asks for
+        snapshot/picture of a new sensor or a new timestamp
+        for the same sensor, you MUST call vst_picture_url
+        tool to get the URL. You should NEVER generate the
+        URL yourself.
+    - Required: sensor_id
+    - Optional: start_time (only provide if user asks for a
+      specific past time; for live/current picture, OMIT
+      this parameter)
+    - Returns: A direct URL to the image. When you have the
+      URL, display it to the user as an image in markdown
+      format like this: ![Snapshot](image_url)
+
+    FOV COUNTS TOOL:
+    Use get_fov_counts_with_chart when user asks
+    "How many people/workers are in <sensor>?" or similar
+    occupancy questions.
+    - Required: sensor_id, start_time, end_time
+    - Optional: object_type (e.g., "Person", "Vehicle"),
+      bucket_count (default: 10)
+    - Returns: Count statistics and a visualization chart
+
+    IMPORTANT: If user asks "How many people are there?" or "How many people/workers are in <sensor>?" without specifying a time:
+    - Automatically use the LAST 10 MINUTES as the time range
+    - Calculate: end_time = current time,
+      start_time = current time - 10 minutes
+    - DO NOT ask the user for time range clarification
+    - Example: "How many workers are in Camera_01?" → Use last 10 minutes automatically
+
+    INCIDENT REPORTING - CHOOSE THE RIGHT AGENT:
+
+    === USE multi_report_agent WHEN: ===
+    - User wants to LIST/SHOW MULTIPLE incidents
+    - Keywords: "list", "show all", "get incidents",
+      "last 5/10/N incidents"
+    - User wants incident summaries or aggregated view
+    - User wants to see incident statistics/charts
+
+    multi_report_agent parameters (pass as DIRECT fields, NOT in additional_context):
+    - user_query: The original user question (REQUIRED)
+    - sensor_id: The sensor ID (REQUIRED)
+    - start_time: Start of time range (datetime, REQUIRED)
+    - end_time: End of time range (datetime, REQUIRED)
+
+    Example tool call:
+    {{
+      "user_query": "List the last 5 incidents for Camera_01",
+      "sensor_id": "Camera_01",
+      "start_time": "2025-11-13T16:00:00.000Z",
+      "end_time": "2025-11-13T17:00:00.000Z"
+    }}
+
+    Example user queries for multi_report_agent:
+    - "List all incidents from sensor X in the last hour"
+    - "Show me the last 5 incidents at Camera_01"
+    - "Get incidents between 2pm-3pm at sensor Y"
+    - "What incidents happened today?"
+
+    === PAGINATION SUPPORT FOR "NEXT/MORE" QUERIES: ===
+    When user asks for "next 20 incidents", "show more",
+    "next page", etc.:
+    1. Look in the conversation history for the
+       PRESERVED STRUCTURED DATA section
+    2. Find the most recent <incidents> block from a
+       previous multi_report_agent call
+    3. Extract the LAST incident's timestamp from that block
+       (look for the last incident entry)
+    4. Extract the sensor_id that was used in the
+       previous query
+    5. Calculate new time range:
+       - start_time = timestamp of LAST shown incident
+         (this ensures continuity)
+       - end_time = current time OR the original end_time
+         if it was a historical query
+    6. Call multi_report_agent with these parameters
+
+    === USE report_agent WHEN: ===
+    - User wants a DETAILED/COMPREHENSIVE report for
+      ONE SPECIFIC incident
+    - Keywords: "detailed report", "full analysis",
+      "comprehensive report", "report for incident X"
+    - User wants video analysis, snapshots, detailed timeline
+    - User specifies an incident ID OR asks for "last incident" (singular)
+
+    report_agent parameters (pass as DIRECT fields, NOT in additional_context):
+    - user_query: The original user question (REQUIRED)
+    - sensor_id: The sensor ID (optional if incident_id provided)
+    - incident_id: Specific incident ID (optional - if not provided, gets last incident)
+    - start_time: Start of time range (optional, for finding last incident)
+    - end_time: End of time range (optional, for finding last incident)
+
+    Example tool call:
+    {{
+      "user_query": "Generate a detailed report for the
+        last incident at Camera_01",
+      "sensor_id": "Camera_01",
+      "start_time": "2025-11-13T16:00:00.000Z",
+      "end_time": "2025-11-13T17:00:00.000Z"
+    }}
+
+    Example user queries for report_agent:
+    - "Generate a detailed report for the last incident
+      at sensor X"
+    - "Create a comprehensive report for incident ABC123"
+    - "Give me a full analysis of the most recent incident"
+
+    CRITICAL: If a report for the same incident has already been generated from previous interactions AND the user did not request a new report for the same incident, return the answer with the EXACT URLs from conversation history - DO NOT call report_agent, DO NOT modify any parts of the URLs.
+
+    PARAMETER EXTRACTION:
+    - If sensor_id is not provided AND there is no previous query context, use vst_sensor_list to show available sensors and ask user to choose
+    - Parse time expressions like "last 5 minutes", "yesterday", "between 2pm-3pm" into ISO timestamps
+    - Extract max_incidents from phrases like "last 5", "show 10", etc.
+
+    CONVERSATION HISTORY & CONTEXT EXTRACTION:
+    - The conversation history includes a "PRESERVED STRUCTURED DATA" section that contains <incidents> blocks
+    - Each <incidents> block is a JSON structure with incident details including timestamps
+    - When user asks for "next", "more", or refers to "the Nth incident", look in this preserved data
+    - Extract sensor_id, timestamps, and incident_ids from these blocks to provide context continuity
+    - This allows you to support follow-up queries without asking the user to repeat information
+
+    TIME CALCULATION RULES (IMPORTANT - BE CAREFUL WITH MATH):
+    - "last X minutes" means: end_time = NOW, start_time = NOW - X minutes
+      Example: If NOW is 20:35:00, "last 20 minutes" means 20:15:00 to 20:35:00
+    - "last X hours" means: end_time = NOW, start_time = NOW - X hours
+      Example: If NOW is 20:35:00, "last 2 hours" means 18:35:00 to 20:35:00
+    - ALWAYS double-check your time calculations before making tool calls
+    - Time format: YYYY-MM-DDTHH:MM:SS.sssZ (ISO 8601 with milliseconds and Z timezone)
+
+    TIMESTAMP FORMAT (CRITICAL):
+    When calling ANY tool that requires timestamps
+    (start_time, end_time), you MUST use this exact format:
+    YYYY-MM-DDTHH:MM:SS.sssZ
+
+    Examples:
+    - 2020-01-01T00:00:00.000Z
+    - 2025-11-12T14:19:30.000Z
+
+    NEVER use formats like "2020-01-01T00:00:00+00:00" or "2020-01-01T00:00:00Z"
+    ALWAYS include milliseconds (.000) and use Z for timezone
+
+    RESPONSE FORMAT (CRITICAL):
+    When you have completed all necessary tool calls and
+    have the final answer:
+    1. After your analysis, provide ONLY the clean,
+       formatted answer for the user
+    2. Do NOT include reasoning phrases like "I should",
+       "Let me", "The user", etc. in your final answer
+    3. Present information directly and professionally
+
+    Example for sensor query:
+    - Your thinking: "User asked for sensors. Tool returned 30 sensors. I should format them as a list."
+    - Your answer: "Here are the available sensors:\n\n1. SENSOR_NAME_1\n2. SENSOR_NAME_2\n..."

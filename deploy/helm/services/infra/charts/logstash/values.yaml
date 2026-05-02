@@ -16,7 +16,7 @@
 replicas: 1
 image:
   repository: docker.elastic.co/logstash/logstash
-  tag: "9.3.0"
+  tag: "9.3.3"
   pullPolicy: IfNotPresent
 javaOpts: "-Xmx1536m -Xms512m"
 streamType: "kafka"

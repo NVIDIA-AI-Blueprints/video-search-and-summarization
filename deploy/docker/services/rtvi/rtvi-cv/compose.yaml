@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Perception service — standalone and base for blueprint `extends`.
+#
+# Uses the published `vss-rt-cv` image plus a bind-mounted `ds-start.sh`
+# from this repo. Blueprints extend `perception` and add config/model mounts.
+#
+# Bind mount for `ds-start.sh` uses a path relative to this file (`./ds-start.sh`)
+# so it stays correct whether MDX_SAMPLE_APPS_DIR points at `deploy/docker/` or
+# another layout. (Do not use ${MDX_SAMPLE_APPS_DIR}/rtvi/rtvi-cv/... here — that
+# duplicates the segment when MDX is already .../deploy/docker/rtvi/rtvi-cv.)
+#
+# Standalone: from this directory, `docker compose -f compose.yaml up`
+
+services:
+  perception:
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.04.2}
+    network_mode: "host"
+    runtime: nvidia
+    container_name: vss-rtvi-cv
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
+      resources:
+        reservations:
+          devices:
+          - capabilities: [gpu]
+            device_ids: ["${RT_CV_DEVICE_ID:-0}"]
+    volumes:
+      - type: bind
+        source: ./ds-start.sh
+        target: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+        read_only: true
+    environment:
+      DS_MODEL_FAMILY: ${DS_MODEL_FAMILY:-rtdetr-warehouse}
+      DS_MODE_FLAG: ${DS_MODE_FLAG:-1}
+      DS_MESSAGE_RATE: ${DS_MESSAGE_RATE:-1}
+      DS_TRACKER_REID: ${DS_TRACKER_REID:-false}
+      DS_SHOW_SENSOR_ID: ${DS_SHOW_SENSOR_ID:-false}
+      STREAM_TYPE: ${STREAM_TYPE:-kafka}
+      DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "1"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
+      OTEL_SERVICE_NAME: "rtvi-cv"
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+    command:
+      - bash
+      - -c
+      - /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+
+  perception-sdr:
+    image: nvcr.io/nvidia/vss-core/sdr:${SDR_IMAGE_TAG:-3.1.0}
+    network_mode: "host"
+    container_name: vss-rtvi-cv-sdr
+    profiles: ["sdr"]
+    volumes:
+      - ./sdr:/wdm-configs
+      - ./sdr:/wdm-data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      PORT: 4001
+      OTEL_SDK_DISABLED: true
+      WDM_INITIALIZE_FROM_VST: false
+      WDM_WL_SPEC: /wdm-data/ds-data_wl.yaml
+      WDM_CLUSTER_CONFIG_FILE: /wdm-configs/docker_cluster_config.json
+      WDM_MSG_KEY: vst.event
+      WDM_WL_REDIS_MSG_FIELD: sensor.id
+      WDM_WL_ADD_URL: /api/v1/stream/add
+      WDM_WL_DELETE_URL: /api/v1/stream/remove
+      WDM_WL_HEALTH_CHECK_URL: /api/v1/stream/add
+      VST_STREAMS_ENDPOINT: http://localhost:30888/vst/api/v1/live/streams
+      VST_STATUS_ENDPOINT: http://localhost:30888/vst/api/v1/sensor/status
+      WDM_WL_CHANGE_ID_ADD: camera_streaming
+      WDM_PRELOAD_WORKLOAD: ./tests/event_pre-roll.json
+      WDM_CLEAR_DATA_WL: true
+      WDM_KFK_ENABLE: true
+      WDM_DS_SWAP_ID_NAME: false
+      WDM_VALIDATE_BEFORE_ADD: true
+      WDM_PRELOAD_DELAY_FOR_DS_API: false
+      WDM_WL_THRESHOLD: 10
+      WDM_CLUSTER_TYPE: docker
+      WDM_POD_WATCH_DOCKER_DELAY: 0.05
+      WDM_DS_STATUS_CHECK: true
+      WDM_RESTART_DS_ON_ADD_FAIL: false
+      WDM_DISABLE_WERKZEUG_LOGGING: true
+      WDM_WL_OBJECT_NAME: sdr-perception
+      WDM_CONSUMER_GRP_ID: sdr-perception-cg
+      WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+      WDM_MSG_TOPIC: mdx-notification
+      WDM_CONFIG_PORT: 9003
+      WDM_ADD_REMOVE_RETRY_ATTEMPTS: 100
+      WDM_ADD_CALL_DELAY: 10
+      WDM_REAPPLY_ON_WL_RESTART: true
+      WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv"]'
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+      restart_policy:
+        condition: always
+    entrypoint: []
+    command: sh -c '/wdm/dist/sdr'

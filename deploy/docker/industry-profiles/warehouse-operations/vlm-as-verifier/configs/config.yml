@@ -1,0 +1,145 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ============================================================================
+# SIMPLIFIED ALERT AGENT CONFIGURATION
+# ============================================================================
+# This configuration supports the simplified alert processing flow:
+# JSON Input → Entity Building → VSS Video Analysis → Enhanced JSON Output
+
+# Base directory for media used during alert review (optional)
+# If set, components can resolve relative media paths against this base dir
+ALERT_REVIEW_MEDIA_BASE_DIR: ""
+
+# VST Configuration
+vst_config:
+  # Base URL for general VST APIs already used elsewhere in the codebase
+  base_url: "http://localhost:30888"
+  sensor_list_endpoint: "/vst/api/v1/sensor/streams"
+  add_overlay: true
+  segment_duration_seconds: 15
+  segment_anchor: "end"
+  timeout: 30 #timeout in seconds to get the video url from vst
+  retry_without_overlay: false
+  verify_time_existence: true
+  url_retention_minutes: 20160
+  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  storage:
+    base_url: "http://localhost:30888"
+    # Endpoint to fetch media file path by VST id
+    media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+# Kafka Configuration - Message Processing
+kafka:
+  bootstrap_servers: "localhost:9092"
+  group_id: 'kafka-incidents-dumper'
+  enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"     # Output topic for enhanced results
+  incidents_topic: "alert-bridge-incidents"             # Output topic for incidents
+  max_poll_records: 1                          # Process one record at a time (immediate processing)
+  auto_offset_reset: 'latest'
+  enable_auto_commit: false
+  max_poll_interval_ms: 600000
+  session_timeout_ms: 45000
+  heartbeat_interval_ms: 15000
+  poll_timeout: 1                            # Increased to 1 second for better polling efficiency
+  message_type: "Incident"  # Protobuf message type: "Behavior" or "Incident"
+
+#VLM Configuration
+vlm:
+  base_url: "${VLM_BASE_URL}/v1"
+  model: "${VLM_NAME}"
+  max_tokens: 4096
+  # Beware that these parameters need to be set in accordance with the VLM max context window
+  min_pixels: 1568
+  max_pixels: 345600
+  enable_sampling: true
+  sampling_fps: 30
+  max_retries: 3
+  request_timeout: 25
+  temperature: 0.0
+  do_resize: false
+
+
+# Event Bridge Configuration - Choose between kafka and redisStream
+event_bridge:
+  sourceType: "kafka"                     # redisStream or "kafka"
+  sinkType: "kafka"                       # redisStream or "kafka"
+
+  kafka_source:
+    group_id: 'alert-bridge-vlm-group-ab'
+    topics:
+      incident: 'mdx-incidents'
+      alert: 'mdx-alerts'
+
+  # Redis Streams Configuration
+  redis_source:
+    host: "localhost"
+    port: 6379
+    db: 0
+    dedup_ttl_seconds: 2
+    # Categories listed here will retain the incident end timestamp when building the dedup key.
+    # Any category not listed will omit the end timestamp for deduplication purposes.
+    end_time_in_dedup_key_categories: []
+    streams:
+      anomaly_stream: "alert-bridge-input-stream"
+      heartbeat_stream: "alert-bridge-heartbeats-stream"
+    consumer_group: "vlm_agents_group"
+    consumer_config:
+      block_time: 10                          
+      count: 1                                 
+      batch_size: 1     
+  
+  redis_sink:
+    host: "localhost"
+    port: 6379
+    db: 0
+    streams:
+      enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
+      incidents_stream: "alert-bridge-incidents-stream"
+  
+prompt:
+  prefer_payload_prompt: false
+  override_prompts_on_start: true
+  
+# Alert Type Configuration
+alert_type_config_file: "alert_type_config.json"
+
+# Alert Agent Configuration - Processing Settings
+alert_agent:
+  num_workers: 80                                # Number of worker threads
+  max_allowed_stream_size: 2                    # Maximum stream size in minutes
+  default_stream_interval: 1                    # Default stream interval in minutes
+  vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
+  always_on: true
+
+elastic:
+  enabled: true
+  hosts:
+    - http://localhost:9200
+
+vlm_enhanced_sink:
+  incident:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-incidents"
+  alert:
+    type: "elastic"
+    elastic:
+      index: "mdx-vlm-alerts"
+
+logging:
+  level: "DEBUG"                                # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL (applies to all components)
+  format: "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
+  third_party_level: "WARNING"                  # Level for urllib3/httpcore/httpx/elasticsearch, etc.

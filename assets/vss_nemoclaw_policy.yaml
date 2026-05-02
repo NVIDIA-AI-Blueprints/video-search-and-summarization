@@ -1,7 +1,7 @@
 version: 2
 
 filesystem_policy:
-  include_workdir: false
+  include_workdir: true
   read_only:
   - /usr
   - /lib
@@ -11,9 +11,9 @@ filesystem_policy:
   - /etc
   - /var/log
   - /sandbox
-  - /sandbox/.openclaw
   read_write:
   - /sandbox/.nemoclaw
+  - /sandbox/.openclaw
   - /tmp
   - /dev/null
   - /sandbox/.openclaw-data

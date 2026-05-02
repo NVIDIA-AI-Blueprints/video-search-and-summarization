@@ -16,13 +16,13 @@
 replicas: 1
 image:
   repository: confluentinc/cp-kafka
-  tag: "8.1.1"
+  tag: "8.2.0"
   pullPolicy: IfNotPresent
 nodeId: "1"
 brokerId: "1"
 advertisedHost: ""
 advertisedPort: "9092"
-heapOpts: "-Xmx4G -Xms4G"
+heapOpts: "-Xmx6G -Xms6G"
 maxRequestSize: "10485760"
 # KRaft single-node: higher timeout avoids spurious quorum timeouts under GC/load (optional).
 controllerQuorumRequestTimeoutMs: "10000"
@@ -61,7 +61,7 @@ persistence:
   size: 50Gi
 resources:
   requests:
-    memory: "4Gi"
+    memory: "6Gi"
     cpu: "1"
   limits:
     memory: "8Gi"

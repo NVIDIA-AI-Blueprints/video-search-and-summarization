@@ -170,6 +170,19 @@ def get_dashboard_token(
     sandbox_name: str,
 ) -> str | None:
     try:
+        result = subprocess.run(
+            ["nemoclaw", sandbox_name, "gateway-token", "--quiet"],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        token = result.stdout.strip()
+        if token:
+            return token
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    try:
         result = run_kubectl_exec(
             container,
             namespace,

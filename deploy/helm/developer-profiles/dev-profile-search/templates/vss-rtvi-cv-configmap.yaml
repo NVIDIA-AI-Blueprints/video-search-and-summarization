@@ -203,7 +203,7 @@ data:
     num-source-bins=0
     use-nvmultiurisrcbin=1
     stream-name-display=1
-    max-batch-size=8
+    max-batch-size=16
     http-ip=0.0.0.0
     http-port=9000
     extract-sei-type5-data=1
@@ -265,6 +265,9 @@ data:
 
     [text-embedder]
     enable=1
+    model-name={{ dig "models" "visionEncoder" "dsModelName" "siglip2-onnx" $rtvi }}
+    onnx-model-path=/opt/storage/{{ dig "models" "visionEncoder" "onnxFile" "" $rtvi }}
+    tokenizer-dir=/opt/storage/{{ dig "models" "visionEncoder" "tokenizerDir" "" $rtvi }}/
 
     [osd]
     enable=0
@@ -284,7 +287,7 @@ data:
     [streammux]
     gpu-id=0
     live-source=1
-    batch-size=8
+    batch-size=16
     batched-push-timeout=33000
     width=1920
     height=1080
@@ -296,7 +299,7 @@ data:
     [primary-gie]
     enable=1
     gpu-id=0
-    batch-size=8
+    batch-size=16
     bbox-border-color0=1;0;0;1
     bbox-border-color1=0;1;1;1
     bbox-border-color2=0;1;1;1
@@ -320,11 +323,13 @@ data:
     backend=tensorrt
     tensorrt-engine=/opt/storage/{{ dig "models" "visionEncoder" "onnxFile" "" $rtvi }}_batch16.plan
     onnx-model=/opt/storage/{{ dig "models" "visionEncoder" "onnxFile" "" $rtvi }}
-    batch-size=3
+    batch-size=128
     min-crop-size=32
     verbose=1
     gpu-id=0
     skip-interval=0
+    smart-infer=1
+    ofa-predict=1
 
     [secondary-gie0]
     enable=0

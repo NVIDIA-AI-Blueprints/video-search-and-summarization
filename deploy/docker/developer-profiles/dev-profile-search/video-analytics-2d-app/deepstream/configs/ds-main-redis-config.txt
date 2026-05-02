@@ -215,11 +215,13 @@ enable=1
 backend=tensorrt
 tensorrt-engine=/opt/storage/model_batch16.plan
 onnx-model=/opt/storage/radio-clip_v1.0.onnx
-batch-size=3
+batch-size=128
 min-crop-size=32
 verbose=1
 gpu-id=0
 skip-interval=0
+smart-infer=1
+ofa-predict=1
 
 [secondary-gie0]
 enable=0

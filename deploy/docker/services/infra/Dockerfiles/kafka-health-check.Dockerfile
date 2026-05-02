@@ -16,7 +16,7 @@
 # Dockerfile specifically for Kafka health check
 # Uses Confluent Kafka image with all Kafka tools
 
-FROM confluentinc/cp-kafka:8.1.1
+FROM confluentinc/cp-kafka:8.2.0
 
 # Install jq in a user-writable location with architecture detection
 RUN mkdir -p /home/appuser/jqbin && \

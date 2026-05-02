@@ -1,0 +1,224 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[application]
+enable-perf-measurement=1
+perf-measurement-interval-sec=5
+#gie-kitti-output-dir=streamscl
+
+[tiled-display]
+enable=3
+rows=3
+columns=4
+width=1920
+height=1080
+gpu-id=0
+nvbuf-memory-type=0
+#Set to 1 to automatically tile in Square Grid
+square-seq-grid=0
+
+#Note: [source-list] now support REST Server with use-nvmultiurisrcbin=1
+
+# Sources
+[source-list]
+num-source-bins=0
+list=
+sensor-id-list=
+sensor-name-list=
+# Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
+use-nvmultiurisrcbin=1
+stream-name-display=1
+max-batch-size=4
+http-ip=localhost
+http-port=9000
+#Set low latency mode for bitstreams having I and IPPP frames on decoder
+low-latency-mode=1
+extract-sei-type5-data=0
+#sei-uuid=NVDS_CUSTOMMETA
+dummy-payload=0
+custom-ts-to-rfc=1
+
+[source-attr-all]
+enable=1
+type=3
+num-sources=1
+gpu-id=0
+cudadec-memtype=0
+sensorID-padID-mapping=0
+latency=2000
+drop-on-latency=1
+# For MEGA usecases, batch of frames from all sources should be clubbed together. Once source connection is established
+# that particular source should avoid to reconnect if data is not available for smaller duration. So this value should be as large as possible
+# to avoid reconnection once the connection has established, setting default value to 12000 secs which is 200 minutes, which means reconnection
+# will not be attempted till 12000 seconds i.e. 200 minutes.
+rtsp-reconnect-interval-sec=60
+init-rtsp-reconnect-interval-sec=5
+#Limit the rtsp reconnection attempts
+rtsp-reconnect-attempts=-1
+set-rtp-protocol=1
+
+[streammux]
+gpu-id=0
+#Note: when used with [source-list], batch-size is ignored
+#instead, max-batch-size config is used
+batch-size=4
+##time out in usec, to wait after the first buffer is available
+##to push the batch even if the complete batch is not formed
+batched-push-timeout=33000
+## Set muxer output width and height
+width=1920
+height=1080
+##Enable to maintain aspect ratio wrt source, and allow black borders, works
+##along with width, height properties
+enable-padding=0
+nvbuf-memory-type=0
+## If set to TRUE, system timestamp will be attached as ntp timestamp
+## If set to FALSE, ntp timestamp from rtspsrc, if available, will be attached
+attach-sys-ts-as-ntp=0
+drop-pipeline-eos=1
+##Boolean property to inform muxer that sources are live
+##When using nvmultiurisrcbin live-source=1 is preferred default
+##to allow batching of available buffers when number of sources is < max-batch-size configuration
+live-source=1
+sort-batch=1
+extract-sei-sim-time=0
+align-first-buffer=0
+sync-inputs=0
+sync-inputs-ntp=33333333
+drop-backward-sei=0
+
+[sink0]
+enable=0
+#Type - 1=FakeSink 2=EglSink 3=File
+type=1
+sync=0
+source-id=0
+gpu-id=0
+nvbuf-memory-type=0
+
+[sink1]
+enable=1
+#Type - 1=FakeSink 2=EglSink 3=File 4=UDPSink 5=nvoverlaysink 6=MsgConvBroker
+type=1
+msg-conv-config=/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/deepstream-test5/configs/dstest5_msgconv_sample_config.txt
+#(0): PAYLOAD_DEEPSTREAM - Deepstream schema payload
+#(1): PAYLOAD_DEEPSTREAM_MINIMAL - Deepstream schema payload minimal
+#(256): PAYLOAD_RESERVED - Reserved type
+#(257): PAYLOAD_CUSTOM   - Custom schema payload
+msg-conv-payload-type=2
+#(0): Create payload using NvdsEventMsgMeta
+#(1): New Api to create payload using NvDsFrameMeta
+msg-conv-msg2p-new-api=0
+#Frame interval at which payload is generated
+msg-conv-frame-interval=1
+msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so
+#Provide your msg-broker-conn-str here
+#msg-broker-conn-str=qvs-ds-kafka-01;9092;metromind-raw
+#topic=metromind-raw
+# msg-broker-conn-str=mdx-kafka-cluster-kafka-brokers;9092;mdx-raw
+msg-broker-conn-str=localhost;9092;mdx-bev
+#topic=mdx-raw
+topic=mdx-bev
+#Optional:
+msg-broker-config=ds-kafka-config.txt
+#new-api=0
+#(0) Use message adapter library api's
+#(1) Use new msgbroker library api's
+msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega.so
+sync=0
+msg-conv-embedding-filter=Person
+qos=0
+nvdslogger=1
+
+[sink2]
+enable=0
+type=3
+#1=mp4 2=mkv
+container=1
+#1=h264 2=h265 3=mpeg4
+## only SW mpeg4 is supported right now.
+codec=3
+sync=1
+bitrate=2000000
+output-file=out.mp4
+source-id=0
+
+[sink3]
+enable=0
+#Type - 1=FakeSink 2=EglSink 3=File 4=RTSPStreaming
+type=4
+#1=h264 2=h265
+codec=1
+sync=0
+bitrate=20000000
+# set below properties in case of RTSPStreaming
+rtsp-port=8880
+udp-port=5400
+enc-type=1
+
+# sink type = 6 by default creates msg converter + broker.
+# To use multiple brokers use this group for converter and use
+# sink type = 6 with disable-msgconv = 1
+[message-converter]
+enable=0
+msg-conv-config=ds-msgconv-config.txt
+#(0): PAYLOAD_DEEPSTREAM - Deepstream schema payload
+#(1): PAYLOAD_DEEPSTREAM_MINIMAL - Deepstream schema payload minimal
+#(256): PAYLOAD_RESERVED - Reserved type
+#(257): PAYLOAD_CUSTOM   - Custom schema payload
+msg-conv-payload-type=0
+# Name of library having custom implementation.
+#msg-conv-msg2p-lib=<val>
+# Id of component in case only selected message to parse.
+#msg-conv-comp-id=<val>
+
+# Configure this group to enable cloud message consumer.
+[message-consumer0]
+enable=0
+proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so
+conn-str=<host>;<port>
+config-file=/opt/nvidia/deepstream/deepstream/sources/libs/kafka_protocol_adaptor/cfg_kafka.txt
+subscribe-topic-list=<topic1>;<topic2>;<topicN>
+# Use this option if message has sensor name as id instead of index (0,1,2 etc.).
+#sensor-list-file=ds-msgconv-config.txt
+
+[osd]
+enable=0
+gpu-id=0
+border-width=1
+text-size=15
+text-color=1;1;1;1;
+text-bg-color=0.3;0.3;0.3;1
+font=Arial
+show-clock=0
+clock-x-offset=800
+clock-y-offset=820
+clock-text-size=12
+clock-color=1;0;0;0
+nvbuf-memory-type=0
+
+[pre-process]
+enable=1
+config-file=ds-mtmc-preprocess-config.txt
+
+# Using custom videotemplate 
+[primary-gie]
+enable=1
+plugin-type=2
+config-file=ds-mtmc-videotemplate_custom_lib_config.txt
+
+
+[tests]
+file-loop=0

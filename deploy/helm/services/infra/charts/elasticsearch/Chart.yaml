@@ -18,5 +18,5 @@ name: elasticsearch
 description: Elasticsearch (StatefulSet, ConfigMap config, optional bootstrap Job)
 type: application
 version: 26.04.2
-appVersion: "9.3.0"
+appVersion: "9.3.3"
 maintainers: []

@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "alerts": [
+    {
+      "alert_type": "proximity violation",
+      "prompts": {
+        "system": "You are a helpful assistant.",
+        "user": "You are a collision risk detection system. Your task is to classify whether the video shows any risk of collision or physical accident. Only focus on the objects with the green colored bounding boxes. The other objects that are not highlighted with a green bounding box can be fully ignored independently of their proximity with any other object. \n\nA collision risk exists when:\n- People, vehicles, or objects are too close and could collide\n- Movement trajectories indicate potential impact\n- Safety distance rules are violated (inadequate spacing around machinery, equipment, or moving objects)\n- Objects or people are in dangerous proximity to hazards Analyze this video and determine if there is any risk of collision or physical accident.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer (A or B) immediately after the </think> tag."
+      }
+    }
+  ]
+}

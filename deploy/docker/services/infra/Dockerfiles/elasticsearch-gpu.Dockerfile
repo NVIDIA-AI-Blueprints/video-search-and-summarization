@@ -14,7 +14,7 @@
 # limitations under the License.
 
 #
-#   ES_VERSION    - Elasticsearch image tag (9.3.0)
+#   ES_VERSION    - Elasticsearch image tag (9.3.3)
 #   CUDA_VERSION  - CUDA runtime version (12.9.0)
 #   CUVS_VERSION  - Elastic cuVS tarball version (25.12.0)
 #
@@ -30,7 +30,7 @@ RUN mkdir -p /out/cuvs && cd /out/cuvs \
     && if [ -d "${CUVS_VERSION}" ]; then mv "${CUVS_VERSION}"/* .; rmdir "${CUVS_VERSION}" 2>/dev/null || true; fi \
     && cp -P /usr/lib/x86_64-linux-gnu/libgomp.so* /out/cuvs/
 
-FROM docker.elastic.co/elasticsearch/elasticsearch:9.3.0
+FROM docker.elastic.co/elasticsearch/elasticsearch:9.3.3
 
 ENV ES_HOME=/usr/share/elasticsearch
 ENV LIBCUVS_DIR=/opt/cuvs

@@ -20,15 +20,9 @@ set -e  # Exit on any error
 # Ensure non-interactive mode for apt operations
 export DEBIAN_FRONTEND=noninteractive
 
-# Random initial sleep (0-5 seconds) to stagger container starts
-INITIAL_SLEEP=$((RANDOM % 6))
-
 # Generate random timeout to avoid thundering herd problem
 APT_UPDATE_TIMEOUT=$((200 + RANDOM % 101))    # 200-300 seconds for apt-get update
 MAX_RETRIES=3
-
-echo "Staggering start with ${INITIAL_SLEEP}s delay..."
-sleep ${INITIAL_SLEEP}
 
 # Function to check if dpkg is in a broken state
 is_dpkg_broken() {

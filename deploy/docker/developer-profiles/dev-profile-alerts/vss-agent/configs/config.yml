@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +22,8 @@ general:
     # Configuration for streaming video ingest endpoint
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      stream_mode: other
+      rtvi_embed_base_url: http://127.0.0.1:9
       enable_rtsp_streams: true
       enable_video_delete: true
     endpoints:
@@ -63,7 +65,7 @@ functions:
   video_upload_url:
     _type: video_upload_url
     vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
 
   video_understanding:
     _type: video_understanding
@@ -261,6 +263,7 @@ workflow:
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   log_level: INFO
   max_iterations: 15
+  planning_enabled: true
   tool_names:
   - video_understanding
   - video_understanding_iso
