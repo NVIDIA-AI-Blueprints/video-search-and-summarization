@@ -238,7 +238,7 @@ async def get_video_url(
             "startTime": start_time_iso,
             "endTime": end_time_iso,
             "blocking": "true",
-            "disableAudio": "true",
+            "disableAudio": "false",
         }
     )
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{stream_id}/url?{query_params}"
