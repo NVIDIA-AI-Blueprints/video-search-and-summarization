@@ -544,6 +544,42 @@ Notes that have burned prior runs:
 - Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
   Then migrate to the viewer (see § Harbor viewer).
 
+### No polling — block on harbor
+
+`uvx harbor run` MUST block this SDK turn until the trial exits.
+Do NOT background the harbor invocation and then sit in a polling
+loop watching `/logs/agent/claude-code.txt` line counts (or any
+other progress indicator) over `brev exec`. Each poll iteration
+counts as a tool turn and burns the SDK's turn budget. We
+observed run 25256515296 on PR #221 spend ~25 turns in
+`until [ "$(brev exec ... 'wc -l ...')" -gt N ]; do sleep 30; done`
+loops, then run out of turns mid-trial and exit without ever
+posting a comment — green ✓ workflow with $23.52 spent and zero
+signal to the contributor. The wrapper now exits 4 in that case
+(see § Output requirements), so silently giving up is a real
+failure now, not a quiet success.
+
+Acceptable patterns:
+- `uvx harbor run …` (foreground, blocks until trial exits) —
+  preferred.
+- `timeout 1h uvx harbor run …` — bounded blocking.
+- `uvx harbor run … &; wait $!` — backgrounded then a single
+  blocking `wait`. No polling.
+
+Forbidden pattern:
+
+```bash
+# DO NOT do this. Trial-supervision via tool-turn polling.
+uvx harbor run … &
+until [ "$(brev exec "$INSTANCE" -- 'wc -l /logs/agent/claude-code.txt' | awk 'NR==1{print $1}')" -gt "$N" ]; do
+    sleep 30
+done
+```
+
+If you need to peek at intermediate state (rare — usually only when
+debugging a stuck trial), do it ONCE between trials, not in a loop.
+The trial owns the trial; don't supervise it tool-call-by-tool-call.
+
 If a trial errors out, read
 `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/trial.log` —
 it has the harness + adapter traceback. Fix the adapter
@@ -695,9 +731,19 @@ separate; don't conflate the two.
 
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
-- On success, final line: `DONE: <N>/<M> specs passed; <K> blockers`
-- On blocker: final line: `BLOCKED: <short reason>` (no DONE
-  needed).
+- **Mandatory final marker.** Your last printed line MUST start with
+  either `DONE:` or `BLOCKED:`. The Python wrapper checks for this
+  and **fails the workflow with exit code 4** if neither appears —
+  so a workflow that "completed successfully" but didn't reach a
+  verdict is treated as a real failure (it isn't a green ✓ anymore).
+  Examples:
+    - `DONE: 3/3 specs passed; 0 blockers`
+    - `DONE: 2/3 specs passed; 1 spec failed (rt-vlm/step-2 reward=0.83)`
+    - `BLOCKED: anthropic rate limit after 3 retries`
+    - `BLOCKED: lock timeout on vss-eval-l40s`
+  If you ran trials, you MUST also have called `gh pr comment
+  $PR_NUMBER` with the per-batch results before printing
+  `DONE:` — otherwise the contributor sees no signal on their PR.
 - Don't tear down or `brev stop` / `brev delete` any instance. The
   `vss-eval-*` pool is operator-managed and stays warm across runs.
 
