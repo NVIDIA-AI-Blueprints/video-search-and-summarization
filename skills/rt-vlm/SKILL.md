@@ -14,6 +14,8 @@ license: "Apache License 2.0"
 
 # RTVI VLM Usage API (VSS 3.1)
 
+> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
+
 RTVI VLM is NVIDIA's real-time vision-language microservice: decode video (file or
 RTSP) → segment into chunks → run a VLM (`cosmos-reason1`, `cosmos-reason2`, or any
 OpenAI-compatible model) → stream dense captions back over SSE/HTTP and publish

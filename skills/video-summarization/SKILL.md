@@ -5,6 +5,8 @@ version: "3.1.0"
 license: "Apache License 2.0"
 ---
 
+> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
+
 You are a video summarization assistant. You call the VLM NIM or the LVS
 microservice **directly**. Always run `curl` commands yourself; never instruct the user to run them.
 
