@@ -43,6 +43,20 @@ alertReviewMediaBaseDir: ""
 # When "edge-local-vlm", uses EDGE-LOCAL-VLM-config.yml content (adds request_timeout, use_vlm_media_defaults).
 configVariant: ""
 
+# Realtime REST API (restapi-realtime-alerts feature). Compose parity: RTVI_VLM_MODEL_TO_USE,
+# ALWAYS_ON_RULES_CONFIG, and the realtime-config.yml volume.
+# rtviVlmModelToUse: model selector passed as RTVI_VLM_MODEL_TO_USE (e.g. "cosmos-reason2"). Leave "" to skip env injection.
+rtviVlmModelToUse: ""
+# alwaysOnRulesConfigFile: container path for ALWAYS_ON_RULES_CONFIG. Matches Compose default.
+alwaysOnRulesConfigFile: "/app/configs/realtime-config.yml"
+# realtimeConfig: supply the realtime-config.yml via an existing ConfigMap.
+# When name is non-empty, the CM key is mounted at alwaysOnRulesConfigFile.
+# When name is empty an emptyDir is used (service starts but realtime rules are absent).
+realtimeConfig:
+  configMap:
+    name: ""
+    key: "realtime-config.yml"
+
 # App listens on 9080 (see logs: "Uvicorn running on http://0.0.0.0:9080")
 service:
   port: 9080

@@ -98,6 +98,12 @@ spec:
               value: {{ ternary "remote" "local" (ne $vlmUrl "") | quote }}
             - name: VLM_NAME
               value: {{ $vlmNameStr | quote }}
+            {{- if .Values.rtviVlmModelToUse }}
+            - name: RTVI_VLM_MODEL_TO_USE
+              value: {{ .Values.rtviVlmModelToUse | quote }}
+            {{- end }}
+            - name: ALWAYS_ON_RULES_CONFIG
+              value: {{ .Values.alwaysOnRulesConfigFile | default "/app/configs/realtime-config.yml" | quote }}
           volumeMounts:
             - name: runtime-config
               mountPath: /app/runtime
@@ -105,6 +111,9 @@ spec:
             - name: alert-type-config
               mountPath: /app/alert_type_config.json
               subPath: alert_type_config.json
+              readOnly: true
+            - name: realtime-config
+              mountPath: {{ dir (.Values.alwaysOnRulesConfigFile | default "/app/configs/realtime-config.yml") }}
               readOnly: true
           ports:
             - name: http
@@ -126,6 +135,16 @@ spec:
             items:
               - key: alert_type_config.json
                 path: alert_type_config.json
+        - name: realtime-config
+          {{- if .Values.realtimeConfig.configMap.name }}
+          configMap:
+            name: {{ .Values.realtimeConfig.configMap.name }}
+            items:
+              - key: {{ .Values.realtimeConfig.configMap.key | default "realtime-config.yml" }}
+                path: {{ base (.Values.alwaysOnRulesConfigFile | default "/app/configs/realtime-config.yml") }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

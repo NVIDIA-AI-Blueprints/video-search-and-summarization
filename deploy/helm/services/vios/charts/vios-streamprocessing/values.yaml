@@ -34,21 +34,22 @@ service:
 # Compose parity: entrypoint, healthcheck, env and volumes
 command: ["/bin/bash", "-c"]
 args: ["if [ \"$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
-# Compose healthcheck: tcp 30001; timeout 3s, interval 15s, retries 30, start_period 20s
+# Compose healthcheck: tcp 30001; timeout 10s, interval 20s, retries 75, start_period 20s
+# (Widened in docker to outlast slow apt mirrors during package install at startup.)
 livenessProbe:
   tcpSocket:
     port: 30001
   initialDelaySeconds: 20
-  periodSeconds: 15
-  timeoutSeconds: 3
-  failureThreshold: 30
+  periodSeconds: 20
+  timeoutSeconds: 10
+  failureThreshold: 75
 readinessProbe:
   tcpSocket:
     port: 30001
   initialDelaySeconds: 20
-  periodSeconds: 15
-  timeoutSeconds: 3
-  failureThreshold: 30
+  periodSeconds: 20
+  timeoutSeconds: 10
+  failureThreshold: 75
 sensorModuleEndpoint: ""
 vstIngressEndpoint: ""   # default: <Release>-vss-vios-ingress:30888/vst (host:port/path, no scheme). When global.vlmBaseUrl and global.externalHost are set, defaults to <externalHost>[:externalPort]/vst so incident URLs work for remote VLM. Override explicitly if needed.
 # Redis: used in vst_config.json notifications.redis_server_env_var. Default "" means use Release.Name (e.g. vss-redis:6379).
@@ -81,6 +82,9 @@ env:
     value: nvcentralizedb
   - name: CENTRALIZE_DB_USERNAME
     value: vst
+  # Compose parity: ENABLE_AGING_POLICY controls VST stream aging. Matches docker default of "true".
+  - name: ENABLE_AGING_POLICY
+    value: "true"
   # SENSOR_MODULE_ENDPOINT and VST_INGRESS_ENDPOINT are set by the template from sensorModuleEndpoint / vstIngressEndpoint (with release-based defaults)
 
 # Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH, CLIP_STORAGE_PATH. Optional PVCs for vst-data, vst-video, streamer-videos. temp-files stays EmptyDir.
