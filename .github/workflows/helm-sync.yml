@@ -45,10 +45,19 @@ defaults:
 jobs:
   sync-check:
     name: Check helm parity for deploy/docker changes
-    # GitHub-hosted runner — repo is public, so usage is unmetered. The
-    # agent is pure file comparison + (optionally) one bot-PR push;
-    # no GPU, no Brev provisioning, no harbor trials.
-    runs-on: ubuntu-latest
+    # Self-hosted runner labelled `helm-sync`, registered on the
+    # vss-skill-validator coordinator host as a SECOND runner process
+    # alongside the existing `vss-eval` runner. We tried ubuntu-latest
+    # first but `inference-api.nvidia.com` is IP-allowlisted to NVIDIA
+    # infra and refused TCP from Azure runners (run 25220887217
+    # attempt 2: `API Error: Unable to connect to API
+    # (ConnectionRefused)`). The vss-skill-validator host IS allowlisted
+    # since it's where the coordinator already runs, and adding a
+    # second runner there is $0 incremental cost. The two runner
+    # processes share the box but pick up jobs by label, so a long
+    # skills-eval batch on `vss-eval` doesn't block helm-sync (and
+    # vice versa).
+    runs-on: [self-hosted, helm-sync]
 
     # 60 min cap. The agent does pure file comparison + at most one
     # bot-PR push. Order-of-magnitude shorter than skills-eval (480m).
