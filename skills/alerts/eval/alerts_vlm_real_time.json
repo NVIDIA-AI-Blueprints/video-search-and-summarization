@@ -9,54 +9,59 @@
       }
     }
   },
-  "env": "VSS **alerts** profile deployed in **real-time** (VLM) mode on the target host: VSS agent HTTP API on **8000** (e.g. `http://localhost:8000/docs`), VST/VIOS reachable at `http://localhost:30888/vst/api/v1`, and the `rtvi-vlm` and `mdx-kafka` containers running. Use **remote-all** (remote LLM + VLM) so no local NIMs are required. The skill's canonical pattern is to drive every alert action through the VSS Agent's `POST /generate` endpoint — never call the `rtvi-vlm` microservice directly. A public NVIDIA sample RTSP stream (`rtsp://nv-wowza-pdc.nvidia.com:1935/vod/warehouse_1.mp4`) must be reachable from the host (see `skills/alerts/SKILL.md` § *Workflow B — VLM Mode*).",
+  "env": "VSS **alerts** profile deployed in **real-time** (VLM) mode on the target host: VSS agent HTTP API on **8000**, VIOS at `http://localhost:30888/vst/api/v1`, **NVStreamer (`mdx-nvstreamer-alerts`) reachable at `http://localhost:31000/vst/api/v1` (HTTP) and `rtsp://localhost:31554/...` (RTSP)**, plus the `rtvi-vlm` and `mdx-kafka` containers running. Use **remote-all** (remote LLM + VLM) so no local NIMs are required. The skill's canonical pattern is to drive every alert action through the VSS Agent's `POST /generate` endpoint — never call the `rtvi-vlm` microservice directly. Sample data: NGC bundle `nvidia/vss-developer/dev-profile-sample-data:3.1.0` (per `skills/vios/SKILL.md` § *Sample data bootstrap*) provides `warehouse_sample.mp4`. The eval simulates a live camera by uploading that mp4 to NVStreamer and registering the resulting NVStreamer-served RTSP URL in VIOS.",
   "expects": [
     {
-      "query": "Verify the VSS **alerts** profile is running in **real-time** (VLM) mode and is ready for the alerts skill. Confirm the agent serves OpenAPI at `/docs`, that the container layout matches VLM mode (rtvi-vlm present, perception-alerts absent), and that VIOS is reachable. Report the detected mode using the `docker ps` signal from the skill.",
+      "query": "Verify the VSS **alerts** profile is running in **real-time** (VLM) mode and is ready for the alerts skill. Confirm the agent serves OpenAPI at `/docs`, that the container layout matches VLM mode (rtvi-vlm present, perception-alerts absent), that NVStreamer (`mdx-nvstreamer-alerts`) is up, and that VIOS is reachable. Report the detected mode using the `docker ps` signal from the skill.",
       "checks": [
         "`curl -sf --max-time 10 http://localhost:8000/docs` returns exit 0 (VSS Agent REST API responsive).",
         "`docker ps --format '{{.Names}}' | grep -qx rtvi-vlm` returns exit 0 (continuous VLM processor — required for VLM real-time mode).",
         "`! docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts` returns exit 0 (CV-only behavior-analytics container is NOT running — confirms VLM mode, not CV).",
         "`! docker ps --format '{{.Names}}' | grep -qx perception-alerts` returns exit 0 (CV-only perception container is NOT running).",
         "`docker ps --format '{{.Names}}' | grep -qx mdx-kafka` returns exit 0 (Kafka backplane for alert/incident topics).",
+        "`docker ps --format '{{.Names}}' | grep -qx mdx-nvstreamer-alerts` returns exit 0 (NVStreamer simulates live cameras for the alerts profile).",
         "`curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/list` returns exit 0 (VIOS reachable).",
+        "`curl -sf --max-time 10 http://localhost:31000/vst/api/v1/sensor/version` returns exit 0 (NVStreamer's VST API on port 31000 reachable).",
         "Trajectory or final reply names the deployed mode as VLM / real-time (e.g. `mode=VLM`, `real-time`, or equivalent), derived from the `docker ps` mode-detection signal in `skills/alerts/SKILL.md` § *Step 1*."
       ]
     },
     {
-      "query": "Onboard the public NVIDIA sample RTSP `rtsp://nv-wowza-pdc.nvidia.com:1935/vod/warehouse_1.mp4` to VIOS as a sensor named `alerts-eval-warehouse`. If a sensor with that name already exists, skip onboarding. Use the `vios` skill (`POST /sensor/add`) — do NOT call the `rtvi-vlm` `/v1/streams/add` endpoint directly.",
+      "query": "Onboard `warehouse_sample.mp4` into the alerts pipeline so it appears in VIOS as sensor `warehouse_sample`. NVStreamer is what simulates a live camera in this profile, so do this in two steps: (1) upload `warehouse_sample.mp4` to NVStreamer at `http://localhost:31000/vst/api/v1/storage/file/warehouse_sample.mp4` (NVStreamer is a VST instance running on port 31000 — use the same `PUT /storage/file/<filename>` API as VIOS, per the `vios` skill); (2) take the RTSP URL that NVStreamer now serves for that file (RTSP server runs on port 31554; resolve the exact URL from NVStreamer's `GET /sensor/streams` `url` field) and register it in VIOS via `POST http://localhost:30888/vst/api/v1/sensor/add` with `sensorUrl` set to that NVStreamer RTSP URL and `name` set to `warehouse_sample`. If a VIOS sensor named `warehouse_sample` already exists, skip both steps. The sample mp4 ships in NGC bundle `nvidia/vss-developer/dev-profile-sample-data:3.1.0` — extract per the `vios` skill's *Sample data bootstrap* section if not already on disk. Do NOT call the `rtvi-vlm` `/v1/streams/add` endpoint directly, do NOT pass an external/public RTSP URL to VIOS, and do NOT use VIOS `/sensor/add` for the file upload itself (only for registering the NVStreamer RTSP URL).",
       "checks": [
-        "Trajectory shows the agent probed `GET http://localhost:30888/vst/api/v1/sensor/list` for the `alerts-eval-warehouse` sensor BEFORE deciding to add it (skip-if-exists behavior, not unconditional add).",
-        "If the sensor was added, the trajectory shows a `POST http://localhost:30888/vst/api/v1/sensor/add` (or equivalent VIOS add-sensor call) with the RTSP URL exactly `rtsp://nv-wowza-pdc.nvidia.com:1935/vod/warehouse_1.mp4`.",
+        "Trajectory shows the agent probed `GET http://localhost:30888/vst/api/v1/sensor/list` for the `warehouse_sample` sensor BEFORE deciding to upload/add it (skip-if-exists behavior, not unconditional add).",
+        "If onboarding ran, the trajectory shows a `PUT http://localhost:31000/vst/api/v1/storage/file/warehouse_sample.mp4` (or equivalent NVStreamer file upload on port 31000) — the file goes to NVStreamer, NOT to VIOS port 30888.",
+        "If onboarding ran, the trajectory then shows `POST http://localhost:30888/vst/api/v1/sensor/add` to VIOS with a `sensorUrl` whose value starts with `rtsp://` and references port `31554` (the NVStreamer RTSP server port) — i.e. VIOS is registering the NVStreamer-served RTSP, not a public/internet RTSP.",
+        "The `sensor/add` request body sets `name` to exactly `warehouse_sample`.",
         "The trajectory does NOT show a direct call to `http://localhost:8018/v1/streams/add` or any other `rtvi-vlm` microservice endpoint (skill rule: always go through the VSS Agent / VIOS, never `rtvi-vlm` directly).",
-        "`curl -sf http://localhost:30888/vst/api/v1/sensor/list` returns a JSON array containing a sensor whose name is exactly `alerts-eval-warehouse`.",
-        "`curl -sf http://localhost:30888/vst/api/v1/sensor/alerts-eval-warehouse/streams` returns HTTP 200 and a non-empty streams array whose main stream's url begins with `rtsp://`."
+        "The trajectory does NOT pass an external/public RTSP URL (e.g. `rtsp://nv-wowza-pdc.nvidia.com…` or any non-localhost RTSP host) to VIOS `/sensor/add` — the only RTSP given to VIOS must come from NVStreamer.",
+        "`curl -sf http://localhost:30888/vst/api/v1/sensor/list` returns a JSON array containing a sensor whose name is exactly `warehouse_sample`.",
+        "`curl -sf http://localhost:30888/vst/api/v1/sensor/<warehouse_sample_id>/streams` returns HTTP 200 and a non-empty streams array whose main stream's `url` begins with `rtsp://` and includes `:31554` (i.e. points at NVStreamer)."
       ]
     },
     {
-      "query": "Start a real-time alert on sensor `alerts-eval-warehouse` for boxes being dropped. Drive the request through the VSS Agent's `/generate` endpoint per the alerts skill — let the agent dispatch `rtvi_prompt_gen` and `rtvi_vlm_alert action=start` internally.",
+      "query": "Start a real-time alert on sensor `warehouse_sample` for boxes being dropped. Drive the request through the VSS Agent's `/generate` endpoint per the alerts skill — let the agent dispatch `rtvi_prompt_gen` and `rtvi_vlm_alert action=start` internally.",
       "checks": [
         "The run performed at least one successful `POST http://localhost:8000/generate` (or equivalent agent base URL) with `Content-Type: application/json` and a JSON body containing `input_message` returning HTTP 2xx.",
-        "The `input_message` text asks the agent to **start** a real-time alert on sensor `alerts-eval-warehouse` and references **boxes** / **dropped** (the user's detection target).",
+        "The `input_message` text asks the agent to **start** a real-time alert on sensor `warehouse_sample` and references **boxes** / **dropped** (the user's detection target).",
         "The trajectory does NOT call `http://localhost:8018/v1/streams/add` or `http://localhost:8018/v1/generate_captions_alerts` directly — those are dispatched by the agent's `rtvi_vlm_alert` tool, not by the skill.",
-        "After the start request, `curl -sf --max-time 15 http://localhost:8018/v1/streams/get-stream-info` returns HTTP 200 and the response includes a stream whose URL matches `rtsp://nv-wowza-pdc.nvidia.com:1935/vod/warehouse_1.mp4` or whose description references the `alerts-eval-warehouse` sensor (confirms the agent registered the stream with rtvi-vlm).",
-        "The final assistant reply confirms that real-time monitoring has started for `alerts-eval-warehouse` (e.g. references `started`, `monitoring`, or `running` and the sensor name) without errors in the response body."
+        "After the start request, `curl -sf --max-time 15 http://localhost:8018/v1/streams/get-stream-info` returns HTTP 200 and the response includes a stream whose URL points at NVStreamer (contains `:31554`) or whose description / sensor_name references `warehouse_sample` (confirms the agent registered the NVStreamer-served RTSP with rtvi-vlm).",
+        "The final assistant reply confirms that real-time monitoring has started for `warehouse_sample` (e.g. references `started`, `monitoring`, or `running` and the sensor name) without errors in the response body."
       ]
     },
     {
-      "query": "Show me recent alerts for sensor `alerts-eval-warehouse`. Drive the query through the VSS Agent's `/generate` endpoint — the agent should dispatch `video_analytics_mcp.get_incidents` internally (see `skills/alerts/SKILL.md` § *Workflow C*).",
+      "query": "Show me recent alerts for sensor `warehouse_sample`. Drive the query through the VSS Agent's `/generate` endpoint — the agent should dispatch `video_analytics_mcp.get_incidents` internally (see `skills/alerts/SKILL.md` § *Workflow C*).",
       "checks": [
-        "The run performed at least one successful `POST http://localhost:8000/generate` with an `input_message` that asks for **alerts** / **incidents** for sensor `alerts-eval-warehouse` and returns HTTP 2xx.",
+        "The run performed at least one successful `POST http://localhost:8000/generate` with an `input_message` that asks for **alerts** / **incidents** for sensor `warehouse_sample` and returns HTTP 2xx.",
         "The trajectory or agent reasoning shows the agent called the `video_analytics_mcp.get_incidents` tool (or equivalent VA-MCP `get_incidents` invocation) — not a direct Elasticsearch query and not a direct `rtvi-vlm` call.",
-        "The final assistant reply is plain text or light markdown that either lists incidents for `alerts-eval-warehouse` OR clearly states that no incidents have been recorded yet for that sensor — not an error trace, not a raw tool dump."
+        "The final assistant reply is plain text or light markdown that either lists incidents for `warehouse_sample` OR clearly states that no incidents have been recorded yet for that sensor — not an error trace, not a raw tool dump."
       ]
     },
     {
-      "query": "Stop the real-time alert on sensor `alerts-eval-warehouse`. Drive the stop through the VSS Agent's `/generate` endpoint — the agent should tear down both the caption stream and the rtvi-vlm stream registration.",
+      "query": "Stop the real-time alert on sensor `warehouse_sample`. Drive the stop through the VSS Agent's `/generate` endpoint — the agent should tear down both the caption stream and the rtvi-vlm stream registration.",
       "checks": [
-        "The run performed at least one successful `POST http://localhost:8000/generate` with an `input_message` containing **stop** and the sensor name `alerts-eval-warehouse`, returning HTTP 2xx.",
-        "After the stop request, `curl -sf --max-time 15 http://localhost:8018/v1/streams/get-stream-info` returns HTTP 200 and the response no longer contains any stream whose URL matches `rtsp://nv-wowza-pdc.nvidia.com:1935/vod/warehouse_1.mp4` or whose description references `alerts-eval-warehouse` (confirms the agent un-registered the stream).",
-        "The final assistant reply confirms that monitoring has stopped for `alerts-eval-warehouse` (e.g. references `stopped`, `terminated`, or `removed` and the sensor name) without errors."
+        "The run performed at least one successful `POST http://localhost:8000/generate` with an `input_message` containing **stop** and the sensor name `warehouse_sample`, returning HTTP 2xx.",
+        "After the stop request, `curl -sf --max-time 15 http://localhost:8018/v1/streams/get-stream-info` returns HTTP 200 and the response no longer contains any stream whose URL points at NVStreamer (`:31554`) for `warehouse_sample` or whose description references `warehouse_sample` (confirms the agent un-registered the stream).",
+        "The final assistant reply confirms that monitoring has stopped for `warehouse_sample` (e.g. references `stopped`, `terminated`, or `removed` and the sensor name) without errors."
       ]
     }
   ]
