@@ -82,7 +82,33 @@ workflow runs your invocation with a 1-hour hard timeout.
         --max-retries 0 -n 1 --yes \
         -o /tmp/skill-eval/results/<run_id>
       ```
-   d. After each trial, parse
+   d. **Run `uvx harbor run` in the foreground and let it BLOCK
+      until the trial exits.** Do NOT background it and then poll
+      `wc -l /logs/agent/claude-code.txt` or any other progress
+      indicator — every poll iteration burns an SDK turn (we
+      observed run 25256515296 spending ~25 turns on
+      `until [ wc -l > N ]; do sleep 30; done` loops, then
+      timing out without ever reaching the comment-post step).
+      One harbor invocation = one tool call = one turn.
+
+      Acceptable patterns:
+      - `uvx harbor run …` (foreground, blocking) — preferred.
+      - `timeout 1h uvx harbor run …` — bounded wait.
+      - `uvx harbor run … &` followed by `wait $!` — background
+        then single blocking wait, no polling.
+
+      Forbidden pattern:
+      ```bash
+      # DON'T do this — burns turns, exits without comment:
+      until [ "$(brev exec "$INSTANCE" -- 'wc -l /logs/agent/claude-code.txt' | awk 'NR==1{print $1}')" -gt "$N" ]; do
+          sleep 30
+      done
+      ```
+      If you genuinely need to peek at intermediate state (rare),
+      do it ONCE between trials, not in a loop. The trial owns
+      the trial; don't supervise it tool-call-by-tool-call.
+
+   e. After each trial, parse
       `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
       and `test-stdout.txt`. Record `(spec, platform, mode, reward,
       checks_passed/total, duration_s, trace_url)` for the comment.
@@ -238,9 +264,19 @@ separate; don't conflate the two.
 
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
-- On success, final line: `DONE: <N>/<M> specs passed; <K> blockers`
-- On blocker: final line: `BLOCKED: <short reason>` (no DONE
-  needed).
+- **Mandatory final marker.** Your last printed line MUST start with
+  either `DONE:` or `BLOCKED:`. The Python wrapper checks for this
+  and **fails the workflow with exit code 4** if neither appears —
+  so a workflow that "completed successfully" but didn't reach a
+  verdict is treated as a real failure (it isn't a green ✓ anymore).
+  Examples:
+    - `DONE: 3/3 specs passed; 0 blockers`
+    - `DONE: 2/3 specs passed; 1 spec failed (rt-vlm/step-2 reward=0.83)`
+    - `BLOCKED: anthropic rate limit after 3 retries`
+    - `BLOCKED: lock timeout on vss-eval-l40s`
+  If you ran trials, you MUST also have called `gh pr comment
+  $PR_NUMBER` with the per-batch results before printing
+  `DONE:` — otherwise the contributor sees no signal on their PR.
 - Always populate `/tmp/brev/started-by-${GITHUB_RUN_ID}.txt` with
   instance names you brought online (one per line). The CI wrapper
   uses it for the 5-minute cooldown teardown.
