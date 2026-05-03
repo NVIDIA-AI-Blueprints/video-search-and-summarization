@@ -12,19 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""NAT bridge for the knowledge retrieval tool.
-
-This is the only module in the agent service that imports `nat.*` for
-knowledge retrieval. It exposes:
-
-* `KnowledgeRetrievalConfig`   — flat config schema (mirrors AIQ).
-* `knowledge_retrieval`        — async generator yielding the
-                                 `search(query, top_k?, collection?, filters?)`
-                                 NAT FunctionInfo.
-
-The lib (`lib.knowledge.*`) is fully NAT-independent. This file hands the
-adapter a plain config dict so the adapter never imports NAT itself.
-"""
+"""Knowledge retrieval tool registration."""
 from collections.abc import AsyncGenerator
 import logging
 from typing import Any
@@ -39,6 +27,7 @@ from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 
 from lib.knowledge import RetrievalResult
@@ -46,12 +35,6 @@ from lib.knowledge import get_retriever
 
 logger = logging.getLogger(__name__)
 
-# Names match adapter modules under lib.knowledge.adapters.
-# Only `frag_api` is supported today. `frag_lib` (in-process via nvidia-rag)
-# was scoped out of the initial branch — it's substantially more infra
-# (Milvus + embedder + reranker NIMs co-located) and adding it without an
-# end-to-end test would ship dead code. Re-introduce when there's a path
-# to validate it.
 BackendType = Literal["frag_api"]
 
 SUMMARIZE_SYSTEM_PROMPT = (
@@ -63,13 +46,10 @@ SUMMARIZE_SYSTEM_PROMPT = (
 
 
 class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
-    """Configuration for the knowledge retrieval tool.
+    """Common fields plus backend-specific extras dispatched by `backend`."""
 
-    Flat schema (mirrors AIQ). `_setup_backend` picks the subset that
-    applies to the selected backend.
-    """
+    model_config = ConfigDict(extra="allow")
 
-    # ----- Common across all backends ----------------------------------------
     backend: BackendType = Field(
         default="frag_api",
         description="Knowledge backend: 'frag_api' = HTTP to a deployed FRAG rag-server.",
@@ -97,34 +77,6 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         default=None,
         description="LLM reference (from `llms:`) used when `generate_summary=true`.",
     )
-
-    # ----- frag_api ----------------------------------------------------------
-    rag_url: str = Field(
-        default="http://localhost:8081/v1",
-        description="RAG query server URL (frag_api only).",
-    )
-    ingest_url: str = Field(
-        default="http://localhost:8082/v1",
-        description="RAG ingestion server URL (reserved; not consumed by retrieve).",
-    )
-    api_key: str | None = Field(
-        default=None,
-        description="Optional bearer token for the rag-server (frag_api only).",
-    )
-    timeout: int = Field(
-        default=300,
-        description="Request timeout in seconds (frag_api only).",
-    )
-    verify_ssl: bool = Field(
-        default=True,
-        description="Verify SSL certificates (frag_api only).",
-    )
-
-    # frag_lib (in-process via nvidia-rag) backend was scoped out of the
-    # initial branch. Its config fields (llm/embedder/vdb_endpoint/reranker_*/
-    # enable_*) and the corresponding adapter live in the git history of this
-    # branch's earlier commits — restore them when there's a path to validate
-    # the in-process pipeline end-to-end.
 
 
 class KnowledgeRetrievalInput(BaseModel):
@@ -158,35 +110,16 @@ class KnowledgeRetrievalInput(BaseModel):
 def _setup_backend(
     config: KnowledgeRetrievalConfig, _builder: Builder
 ) -> tuple[str, dict[str, Any]]:
-    """Translate the flat config into a backend-specific config dict.
-
-    Only `frag_api` is supported today — the adapter receives plain URL/key
-    values and never imports NAT itself. Future backends (e.g. `frag_lib`,
-    `es_captions`) would slot in here.
-    """
-    if config.backend == "frag_api":
-        return "frag_api", {
-            "rag_url": config.rag_url,
-            "api_key": config.api_key,
-            "timeout": config.timeout,
-            "verify_ssl": config.verify_ssl,
-        }
-
-    raise ValueError(f"Unknown backend: {config.backend}")
+    return config.backend, config.model_extra or {}
 
 
 @register_function(config_type=KnowledgeRetrievalConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def knowledge_retrieval(
     config: KnowledgeRetrievalConfig, builder: Builder
 ) -> AsyncGenerator[FunctionInfo]:
-    """Retrieve grounded excerpts with citations from indexed knowledge sources.
-
-    Use this when the user's question references domain knowledge that
-    isn't in the conversation — SOPs, manuals, ingested documents, prior
-    incident reports. Returns excerpts with citation tags.
-    """
+    """Retrieve excerpts with citations from indexed knowledge sources."""
     backend, backend_config = _setup_backend(config, builder)
-    retriever = get_retriever(backend, backend_config)
+    retriever = await get_retriever(backend, backend_config)
 
     summary_llm: Any | None = None
     if config.generate_summary and config.summary_model:
@@ -204,13 +137,6 @@ async def knowledge_retrieval(
     )
 
     async def _search(tool_input: KnowledgeRetrievalInput) -> str:
-        # Per-conversation collection scoping isn't wired up — there's no
-        # ingestion path that creates a collection named after a NAT
-        # conversation_id. Falling back to ctx.conversation_id here would
-        # send the agent's queries to a collection that doesn't exist on
-        # the rag-server (surfaces as cryptic "Max retries exceeded" via
-        # the urllib3 retry on 5xx). Skip straight from explicit tool
-        # input to the configured default collection.
         target_collection = tool_input.collection or config.collection_name
         top_k = tool_input.top_k or config.top_k
 
@@ -245,7 +171,7 @@ async def knowledge_retrieval(
 async def _summarise_chunks(llm: Any, query: str, result: RetrievalResult) -> str:
     """Summarisation pass over retrieved excerpts using the provided LLM."""
     excerpts = "\n\n".join(
-        f"{chunk.display_citation or '[' + chunk.file_name + ']'} {chunk.content.strip()}"
+        f"{chunk.metadata.get('display_citation') or '[' + chunk.metadata.get('file_name', 'unknown') + ']'} {chunk.content.strip()}"
         for chunk in result.chunks
         if chunk.content
     )
@@ -273,17 +199,22 @@ def _format_results(result: RetrievalResult, query: str) -> str:
     lines.append("")
 
     for i, chunk in enumerate(result.chunks, start=1):
+        file_name = chunk.metadata.get("file_name", "unknown")
+        page_number = chunk.metadata.get("page_number")
+        content_type = chunk.metadata.get("content_type")
         citation = (
-            f"{chunk.file_name}, p.{chunk.page_number}"
-            if chunk.page_number and chunk.page_number > 0
-            else chunk.file_name
+            f"{file_name}, p.{page_number}"
+            if page_number and page_number > 0
+            else file_name
         )
         lines.append(f"--- Result {i} ---")
-        lines.append(f"Source: {chunk.file_name}")
-        if chunk.page_number and chunk.page_number > 0:
-            lines.append(f"Page: {chunk.page_number}")
+        lines.append(f"Source: {file_name}")
+        if page_number and page_number > 0:
+            lines.append(f"Page: {page_number}")
         lines.append(f"Citation: {citation}")
-        lines.append(f"Content Type: {chunk.content_type.value}")
+        if content_type:
+            value = content_type.value if hasattr(content_type, "value") else content_type
+            lines.append(f"Content Type: {value}")
         lines.append(f"Relevance Score: {chunk.score:.2f}")
         lines.append("")
         content = chunk.content

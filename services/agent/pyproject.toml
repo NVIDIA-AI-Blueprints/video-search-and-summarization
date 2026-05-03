@@ -87,8 +87,6 @@ dependencies = [
   "urllib3>=2.6.3",
   "xhtml2pdf>=0.2.11",
   "elasticsearch~=8.17.0",
-  # foundational_rag (api mode) is the default knowledge backend — HTTP only.
-  "requests>=2.32",
 ]
 requires-python = ">=3.13,<3.15"
 description = "Deep Search Agent"

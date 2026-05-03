@@ -49,14 +49,14 @@ class TestKnowledgeRetrievalConfig:
         assert cfg.backend == "frag_api"
         assert cfg.collection_name == "default"
         assert cfg.top_k == 5
-        assert cfg.verify_ssl is True
+        assert cfg.model_extra == {}
         assert cfg.generate_summary is False
 
 
 class TestSetupBackend:
-    """Translate flat NAT config into the adapter's plain config dict."""
+    """`_setup_backend` returns extras for the factory to validate."""
 
-    def test_frag_api_returns_expected_keys(self):
+    def test_frag_api_routes_extras_to_backend_config(self):
         cfg = KnowledgeRetrievalConfig(
             backend="frag_api",
             rag_url="http://rag:8081/v1",
@@ -107,9 +107,11 @@ class TestFormatResults:
                     chunk_id="c1",
                     content="body text",
                     score=0.87,
-                    file_name="Manual.pdf",
-                    page_number=3,
-                    content_type=ContentType.TEXT,
+                    metadata={
+                        "file_name": "Manual.pdf",
+                        "page_number": 3,
+                        "content_type": ContentType.TEXT,
+                    },
                 ),
             ],
         )
@@ -126,7 +128,7 @@ class TestFormatResults:
         result = RetrievalResult(
             backend="frag_api",
             success=True,
-            chunks=[Chunk(chunk_id="c", content=long_text, file_name="F.pdf")],
+            chunks=[Chunk(chunk_id="c", content=long_text, score=0.5, metadata={"file_name": "F.pdf"})],
         )
         out = _format_results(result, query="q")
         assert "[truncated]" in out
@@ -138,7 +140,7 @@ class TestFormatResults:
             backend="frag_api",
             success=True,
             summary="Top-line answer.",
-            chunks=[Chunk(chunk_id="c", content="x", file_name="F.pdf")],
+            chunks=[Chunk(chunk_id="c", content="x", score=0.5, metadata={"file_name": "F.pdf"})],
         )
         out = _format_results(result, query="q")
         # Summary appears before the per-chunk results.
@@ -176,7 +178,8 @@ class TestKnowledgeRetrievalInner:
             query="q", backend="frag_api", success=True, chunks=[]
         )
         with patch(
-            "vss_agents.register_knowledge_layers.get_retriever", return_value=mock_retriever
+            "vss_agents.register_knowledge_layers.get_retriever",
+            new=AsyncMock(return_value=mock_retriever),
         ):
             inner_fn = await self._get_inner_fn(config, mock_builder)
             await inner_fn(KnowledgeRetrievalInput(query="hello"))
@@ -191,7 +194,8 @@ class TestKnowledgeRetrievalInner:
             query="q", backend="frag_api", success=True, chunks=[]
         )
         with patch(
-            "vss_agents.register_knowledge_layers.get_retriever", return_value=mock_retriever
+            "vss_agents.register_knowledge_layers.get_retriever",
+            new=AsyncMock(return_value=mock_retriever),
         ):
             inner_fn = await self._get_inner_fn(config, mock_builder)
             await inner_fn(
@@ -208,7 +212,8 @@ class TestKnowledgeRetrievalInner:
             query="q", backend="frag_api", success=True, chunks=[]
         )
         with patch(
-            "vss_agents.register_knowledge_layers.get_retriever", return_value=mock_retriever
+            "vss_agents.register_knowledge_layers.get_retriever",
+            new=AsyncMock(return_value=mock_retriever),
         ):
             inner_fn = await self._get_inner_fn(config, mock_builder)
             await inner_fn(

@@ -12,52 +12,58 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Backend registry and singleton factory.
-
-Adapters self-register via `@register_adapter("name")` at import time. The
-factory caches one instance per (backend, frozen-config) key so the same
-retriever can be shared across the agent tool and any other in-process
-caller.
-"""
+"""Backend registry and singleton factory."""
 from __future__ import annotations
 
+import asyncio
 import importlib
 import logging
-import threading
 from typing import TYPE_CHECKING
 from typing import Any
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from .base import BackendAdapter
 
 logger = logging.getLogger(__name__)
 
-_registry: dict[str, type[BackendAdapter]] = {}
+_registry: dict[str, tuple[type[BackendAdapter], type[BaseModel]]] = {}
 _instances: dict[tuple[str, frozenset[tuple[str, Any]]], BackendAdapter] = {}
-_lock = threading.RLock()
+_lock = asyncio.Lock()
 
-# Lazy-import map: backend name -> module to import to trigger self-registration.
-# Avoids importing every backend's deps when only one is configured.
 _LAZY_BACKENDS: dict[str, str] = {
     "frag_api": "lib.knowledge.adapters.frag_api",
 }
 
 
-def register_adapter(name: str):
-    """Decorator: register a BackendAdapter subclass under `name`."""
+def register_adapter(name: str, *, config_type: type[BaseModel]):
+    """Register a BackendAdapter under `name` with its config class."""
 
     def _decorator(cls: type[BackendAdapter]) -> type[BackendAdapter]:
-        if name in _registry and _registry[name] is not cls:
+        cls.backend_name = name
+        if name in _registry and _registry[name][0] is not cls:
             logger.warning("Re-registering knowledge backend '%s'", name)
-        _registry[name] = cls
+        _registry[name] = (cls, config_type)
         return cls
 
     return _decorator
 
 
-def _freeze(config: dict[str, Any]) -> frozenset[tuple[str, Any]]:
-    """Produce a hashable cache key from a config dict."""
+def _ensure_loaded(backend: str) -> None:
+    if backend not in _registry and backend in _LAZY_BACKENDS:
+        importlib.import_module(_LAZY_BACKENDS[backend])
+    if backend not in _registry:
+        available = sorted(set(_registry) | set(_LAZY_BACKENDS))
+        raise ValueError(f"Unknown knowledge backend '{backend}'. Available: {available}")
 
+
+def get_config_cls(backend: str) -> type[BaseModel]:
+    _ensure_loaded(backend)
+    return _registry[backend][1]
+
+
+def _freeze(config: dict[str, Any]) -> frozenset[tuple[str, Any]]:
     def _hashable(v: Any) -> Any:
         if isinstance(v, dict):
             return frozenset((k, _hashable(x)) for k, x in v.items())
@@ -68,25 +74,28 @@ def _freeze(config: dict[str, Any]) -> frozenset[tuple[str, Any]]:
     return frozenset((k, _hashable(v)) for k, v in (config or {}).items())
 
 
-def get_retriever(backend: str, config: dict[str, Any] | None = None) -> BackendAdapter:
-    """Return a singleton BackendAdapter for (backend, config).
+async def get_retriever(
+    backend: str,
+    config: dict[str, Any] | BaseModel | None = None,
+) -> BackendAdapter:
+    """Return a singleton adapter for (backend, config)."""
+    _ensure_loaded(backend)
+    cls, config_cls = _registry[backend]
 
-    Triggers lazy import of the backend module if needed, so adapters'
-    optional dependencies are only imported when actually used.
-    """
-    config = config or {}
-    if backend not in _registry and backend in _LAZY_BACKENDS:
-        importlib.import_module(_LAZY_BACKENDS[backend])
+    if config is None:
+        config = config_cls()
+    elif isinstance(config, dict):
+        config = config_cls(**config)
+    elif not isinstance(config, config_cls):
+        raise TypeError(
+            f"Backend '{backend}' expects {config_cls.__name__}, got {type(config).__name__}"
+        )
 
-    if backend not in _registry:
-        available = sorted(set(_registry) | set(_LAZY_BACKENDS))
-        raise ValueError(f"Unknown knowledge backend '{backend}'. Available: {available}")
-
-    cache_key = (backend, _freeze(config))
-    with _lock:
+    cache_key = (backend, _freeze(config.model_dump()))
+    async with _lock:
         instance = _instances.get(cache_key)
         if instance is None:
-            instance = _registry[backend](config=config)
+            instance = cls(config=config)
             _instances[cache_key] = instance
             logger.info("Initialised knowledge backend '%s'", backend)
     return instance

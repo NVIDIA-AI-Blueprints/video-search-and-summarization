@@ -13,12 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests for lib.knowledge.factory.
-
-Covers behaviour that isn't trivially obvious from the source: singleton
-caching keyed on (backend, config), lazy-import triggering on first lookup,
-and recursive config-key normalisation.
 """
 
+from pydantic import BaseModel
 import pytest
 
 from lib.knowledge import factory
@@ -29,10 +26,12 @@ from lib.knowledge.factory import register_adapter
 from lib.knowledge.schema import RetrievalResult
 
 
+class _StubConfig(BaseModel):
+    x: int = 0
+
+
 class _StubAdapter(BackendAdapter):
-    @property
-    def backend_name(self) -> str:
-        return "_stub"
+    config_cls = _StubConfig
 
     async def retrieve(self, query, collection_name, top_k=5, filters=None):
         return RetrievalResult(query=query, backend="_stub")
@@ -58,30 +57,34 @@ def _isolate_registry():
 class TestGetRetriever:
     """Singleton + dispatch behaviour of the factory."""
 
-    def test_returns_singleton_for_same_config(self):
-        register_adapter("_stub")(_StubAdapter)
-        a = get_retriever("_stub", {"x": 1})
-        b = get_retriever("_stub", {"x": 1})
+    @pytest.mark.asyncio
+    async def test_returns_singleton_for_same_config(self):
+        register_adapter("_stub", config_type=_StubConfig)(_StubAdapter)
+        a = await get_retriever("_stub", {"x": 1})
+        b = await get_retriever("_stub", {"x": 1})
         assert a is b
 
-    def test_separate_instances_for_distinct_configs(self):
-        register_adapter("_stub")(_StubAdapter)
-        a = get_retriever("_stub", {"x": 1})
-        b = get_retriever("_stub", {"x": 2})
+    @pytest.mark.asyncio
+    async def test_separate_instances_for_distinct_configs(self):
+        register_adapter("_stub", config_type=_StubConfig)(_StubAdapter)
+        a = await get_retriever("_stub", {"x": 1})
+        b = await get_retriever("_stub", {"x": 2})
         assert a is not b
 
-    def test_unknown_backend_raises_with_available_list(self):
+    @pytest.mark.asyncio
+    async def test_unknown_backend_raises_with_available_list(self):
         with pytest.raises(ValueError) as excinfo:
-            get_retriever("does_not_exist", {})
+            await get_retriever("does_not_exist", {})
         msg = str(excinfo.value)
         assert "does_not_exist" in msg
         # Lazy-import map is included in the available list — frag_api ships by default.
         assert "frag_api" in msg
 
-    def test_lazy_import_registers_on_first_lookup(self):
+    @pytest.mark.asyncio
+    async def test_lazy_import_registers_on_first_lookup(self):
         # frag_api lives in _LAZY_BACKENDS but isn't pre-imported. The factory
         # must trigger its import the first time it's requested.
-        adapter = get_retriever(
+        adapter = await get_retriever(
             "frag_api",
             {"rag_url": "http://localhost:8081/v1", "timeout": 5, "verify_ssl": True},
         )

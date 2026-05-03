@@ -12,21 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Foundational RAG adapter — HTTP transport.
-
-Talks to a deployed NVIDIA RAG Blueprint rag-server via `POST /search`.
-The rag-server owns Milvus, the embedder, the reranker, and the rest of
-the pipeline; this adapter is just an HTTP client.
-
-FRAG deployment is out of scope for VSS — operators deploy it separately
-and point at it via `rag_url`.
-
-Reference: AIQ knowledge_layer/foundational_rag/adapter.py.
-"""
+"""HTTP adapter for a deployed NVIDIA RAG Blueprint rag-server."""
 from __future__ import annotations
 
-import asyncio
-from functools import partial
 import logging
 import os
 from pathlib import Path
@@ -34,60 +22,47 @@ import re
 from typing import TYPE_CHECKING
 from typing import Any
 
-from lib.knowledge.base import BackendAdapter
+import aiohttp
+from pydantic import BaseModel
+from pydantic import Field
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from lib.knowledge.base import BackendAdapter
 from lib.knowledge.factory import register_adapter
 from lib.knowledge.schema import Chunk
 from lib.knowledge.schema import ContentType
 from lib.knowledge.schema import RetrievalResult
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-DEFAULT_RAG_URL = os.environ.get("RAG_SERVER_URL", "http://localhost:8081/v1")
-DEFAULT_TIMEOUT = 300
+logger = logging.getLogger(__name__)
 
 # vdb_top_k oversamples vs the reranker's final top_k for better recall.
 VDB_TOP_K_MULTIPLIER = 10
 MAX_VDB_TOP_K = 100
 
 
-@register_adapter("frag_api")
+class FragApiConfig(BaseModel):
+    rag_url: str = Field(
+        default_factory=lambda: os.environ.get("RAG_SERVER_URL", "http://localhost:8081/v1"),
+    )
+    api_key: str | None = Field(
+        default_factory=lambda: os.environ.get("RAG_API_KEY"),
+    )
+    timeout: int = 300
+    verify_ssl: bool = True
+
+
+@register_adapter("frag_api", config_type=FragApiConfig)
 class FragApiAdapter(BackendAdapter):
-    """HTTP client for a deployed FRAG rag-server."""
-
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
+    def __init__(self, config: FragApiConfig) -> None:
         super().__init__(config)
-        import requests
-        from requests.adapters import HTTPAdapter
-        import urllib3
-        from urllib3.util.retry import Retry
-
-        self.rag_url: str = self.config.get("rag_url", DEFAULT_RAG_URL).rstrip("/")
-        self.api_key: str | None = self.config.get("api_key", os.environ.get("RAG_API_KEY"))
-        self.timeout: int = self.config.get("timeout", DEFAULT_TIMEOUT)
-        self.verify_ssl: bool = self.config.get("verify_ssl", True)
-        if not self.verify_ssl:
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-        session = requests.Session()
-        session.verify = self.verify_ssl
-        retries = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=[500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "PATCH"],
-        )
-        http_adapter = HTTPAdapter(max_retries=retries)
-        session.mount("http://", http_adapter)
-        session.mount("https://", http_adapter)
-        self._session = session
+        # Local convenience accessors with stripped trailing slash on the URL.
+        self.rag_url: str = config.rag_url.rstrip("/")
+        self.api_key: str | None = config.api_key
+        self.timeout: int = config.timeout
+        self.verify_ssl: bool = config.verify_ssl
         logger.info("frag_api initialised: rag_url=%s", self.rag_url)
-
-    @property
-    def backend_name(self) -> str:
-        return "frag_api"
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -102,9 +77,6 @@ class FragApiAdapter(BackendAdapter):
         top_k: int = 5,
         filters: Callable[[Chunk], bool] | dict[str, Any] | None = None,
     ) -> RetrievalResult:
-        import requests
-
-        endpoint = f"{self.rag_url}/search"
         payload: dict[str, Any] = {
             "query": query,
             "collection_names": [collection_name],
@@ -116,27 +88,24 @@ class FragApiAdapter(BackendAdapter):
         if filter_expr:
             payload["filter_expr"] = filter_expr
 
+        endpoint = f"{self.rag_url}/search"
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
         try:
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                partial(
-                    self._session.post,
-                    endpoint,
-                    json=payload,
-                    headers=self._headers(),
-                    timeout=self.timeout,
-                ),
-            )
-            response.raise_for_status()
-            data = response.json() or {}
-        except requests.exceptions.ConnectionError as e:
+            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+                endpoint,
+                json=payload,
+                headers=self._headers(),
+                ssl=self.verify_ssl,
+            ) as response:
+                response.raise_for_status()
+                data = (await response.json()) or {}
+        except aiohttp.ClientConnectionError as e:
             return _failure(query, self.backend_name, f"Cannot connect to RAG server: {str(e)[:100]}")
-        except requests.exceptions.Timeout:
+        except TimeoutError:
             return _failure(query, self.backend_name, f"Request timed out after {self.timeout}s")
-        except requests.exceptions.HTTPError as e:
+        except aiohttp.ClientResponseError as e:
             return _failure(query, self.backend_name, f"Server error: {str(e)[:100]}")
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientError as e:
             return _failure(query, self.backend_name, f"Request failed: {str(e)[:100]}")
 
         chunks = [_normalise_search_result(r, idx=i) for i, r in enumerate(data.get("results", []))]
@@ -155,23 +124,18 @@ class FragApiAdapter(BackendAdapter):
         )
 
     async def health_check(self) -> bool:
+        endpoint = f"{self.rag_url}/health"
+        timeout = aiohttp.ClientTimeout(total=10)
         try:
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self._session.get(
-                    f"{self.rag_url}/health", headers=self._headers(), timeout=10
-                ),
-            )
-            return response.status_code == 200
+            async with aiohttp.ClientSession(timeout=timeout) as session, session.get(
+                endpoint,
+                headers=self._headers(),
+                ssl=self.verify_ssl,
+            ) as response:
+                return response.status == 200
         except Exception as e:
             logger.warning("frag_api health check failed: %s", e)
             return False
-
-
-# -----------------------------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------------------------
 
 
 def _failure(query: str, backend: str, message: str) -> RetrievalResult:
@@ -186,11 +150,7 @@ def _failure(query: str, backend: str, message: str) -> RetrievalResult:
 
 
 def _filters_to_expr(filters: Any) -> str | None:
-    """Translate a dict-of-equalities into a Milvus filter_expr.
-
-    Predicate (callable) filters are applied client-side after retrieval;
-    only dicts are pushed down here.
-    """
+    """Translate a dict-of-equalities into a Milvus filter_expr."""
     if not isinstance(filters, dict):
         return None
     if "filter_expr" in filters:
@@ -249,11 +209,11 @@ def _normalise_search_result(result: dict[str, Any], idx: int = 0) -> Chunk | No
         chunk_id=chunk_id,
         content=content,
         score=float(score),
-        file_name=display_name,
-        page_number=page_number,
-        display_citation=display_citation,
-        content_type=content_type,
         metadata={
+            "file_name": display_name,
+            "page_number": page_number,
+            "display_citation": display_citation,
+            "content_type": content_type,
             "document_id": result.get("document_id") or document_name_raw,
             "collection_name": result.get("collection_name", ""),
             "source_metadata": metadata,

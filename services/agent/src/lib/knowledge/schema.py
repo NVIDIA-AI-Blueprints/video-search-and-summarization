@@ -12,11 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Universal data models for retrieval results.
-
-Backend-agnostic. Adapters normalise their native response format into
-these types so callers see a consistent shape regardless of backend.
-"""
+"""Data models for retrieval results."""
 from __future__ import annotations
 
 from enum import StrEnum
@@ -27,8 +23,6 @@ from pydantic import Field
 
 
 class ContentType(StrEnum):
-    """Content modality of a retrieved chunk."""
-
     TEXT = "text"
     TABLE = "table"
     CHART = "chart"
@@ -36,21 +30,13 @@ class ContentType(StrEnum):
 
 
 class Chunk(BaseModel):
-    """A single retrieved excerpt with citation metadata."""
-
     chunk_id: str
     content: str
-    score: float = 0.0
-    file_name: str = "unknown"
-    page_number: int | None = None
-    display_citation: str = ""
-    content_type: ContentType = ContentType.TEXT
+    score: float
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RetrievalResult(BaseModel):
-    """Result of a single retrieve() call."""
-
     chunks: list[Chunk] = Field(default_factory=list)
     query: str = ""
     backend: str = ""
