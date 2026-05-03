@@ -35,7 +35,7 @@ num-source-bins=0
 # Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
 use-nvmultiurisrcbin=1
 stream-name-display=1
-max-batch-size=8
+max-batch-size=16
 http-ip=localhost
 http-port=9000
 extract-sei-type5-data=1
@@ -161,7 +161,7 @@ nvbuf-memory-type=0
 gpu-id=0
 ##Boolean property to inform muxer that sources are live
 live-source=1
-batch-size=8
+batch-size=16
 ##time out in usec, to wait after the first buffer is available
 ##to push the batch even if the complete batch is not formed
 batched-push-timeout=33000
@@ -188,7 +188,7 @@ enable=1
 gpu-id=0
 #Required to display the PGIE labels, should be added even when using config-file
 #property
-batch-size=8
+batch-size=16
 #Required by the app for OSD, not a plugin property
 bbox-border-color0=1;0;0;1
 bbox-border-color1=0;1;1;1
@@ -219,11 +219,13 @@ enable=1
 backend=tensorrt
 tensorrt-engine=/opt/storage/model_batch16.plan
 onnx-model=/opt/storage/radio-clip_v1.0.onnx
-batch-size=3
+batch-size=128
 min-crop-size=32
 verbose=1
 gpu-id=0
 skip-interval=0
+smart-infer=1
+ofa-predict=1
 
 [secondary-gie0]
 enable=0

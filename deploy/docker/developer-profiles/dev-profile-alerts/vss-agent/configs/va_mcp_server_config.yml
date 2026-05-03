@@ -45,7 +45,8 @@ llms:
 
 # dummy workflow required to start MCP server
 workflow:
-  _type: top_agent
+  _type: react_agent
   tool_names: [video_analytics]
   llm_name: nim_llm
-  prompt: "MCP server workflow placeholder."
+  verbose: true
+  parse_agent_response_max_retries: 3

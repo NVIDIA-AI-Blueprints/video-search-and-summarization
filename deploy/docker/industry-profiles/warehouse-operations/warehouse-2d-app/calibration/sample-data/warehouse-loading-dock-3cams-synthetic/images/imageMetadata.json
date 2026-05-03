@@ -1,0 +1,9 @@
+{
+  "images": [
+    {
+      "place": "building=Warehouse/room=Room-1",
+      "fileName": "Top.png",
+      "view": "plan-view"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Standalone install example for rtvi-embed.
+# This override is intended for environments where you run only the embed chart
+# and provide dependency endpoints/secrets explicitly.
+#
+# Usage:
+#   helm upgrade --install vss-rtvi-embed . -n <ns> -f overrides_rtvi_embed.yaml
+#
+# Prerequisites in target namespace:
+#   - image pull secret for nvcr (example: ngc-image-pull-secret)
+#   - secret with HF token      (example: hf-token-secret, key HF_TOKEN)
+#   - if using private NGC model source, set ngcApiKey or adapt to secret flow
+#
+
+imagePullSecrets:
+  - name: ngc-image-pull-secret
+
+# Keep image aligned with chart defaults unless you need a specific build.
+image:
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
+  tag: "3.2.0-26.04.2"
+  pullPolicy: IfNotPresent
+
+gpuDeviceId: "all"
+
+# Model source and implementation paths
+modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
+modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+
+# Standalone dependency endpoints (chart does not deploy kafka/redis itself)
+kafkaEnabled: false
+kafkaBootstrapServers: "127.0.0.1:9092"
+kafkaTopic: "mdx-embed"
+waitForKafka:
+  enabled: false
+redisHost: "127.0.0.1"
+redisPort: "6379"
+
+# Secret-based HF token injection (preferred)
+hfTokenSecret:
+  name: hf-token-secret
+  key: HF_TOKEN
+
+# Fallback plain value path (unused when hfTokenSecret.name is set)
+hfToken: ""
+
+# Optional runtime tuning
+logLevel: "INFO"
+enableOtelMonitoring: false
+enableRedisErrorMessages: false
+enableRequestProfiling: false
+installProprietaryCodes: false
+
+numGpus: ""
+numVlmProcs: ""
+vlmBatchSize: "8"
+
+rtspTimeout: ""
+rtspLatency: ""
+rtspReconnectionInterval: "5"
+rtspReconnectionMaxAttempts: "10"
+rtspReconnectionWindow: "60"
+
+resources:
+  limits:
+    nvidia.com/gpu: 1

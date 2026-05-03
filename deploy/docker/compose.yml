@@ -14,13 +14,6 @@
 # limitations under the License.
 
 include:
-  - path: ./services/infra/mdx-foundational.yml
-  - path: ./services/vios/compose.yml
-  - path: ./services/agent/vss-agent-docker-compose.yml
-  - path: ./services/ui/compose.yml
-  - path: ./services/alert/compose.yml
-  - path: ./services/rtvi/compose.yml
-  - path: ./services/video-summarization/compose.yml
-  - path: ./services/nim/compose.yml
+  - path: ./services/compose.yml
   - path: ./developer-profiles/compose.yml
-  - path: ./services/infra/haproxy/compose.yml
+  - path: ./industry-profiles/compose.yml

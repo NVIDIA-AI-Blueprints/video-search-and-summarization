@@ -1,0 +1,11 @@
+Workload: StatefulSet — first pod is <fullname>-0 (set fullnameOverride for a fixed base name).
+
+rtvi-cv ships configs + ds-start.sh (ConfigMaps). Set:
+
+  2D — rtviCv.models.path or rtviCv.models.pvcClaimName (→ /opt/storage)
+
+  3D — models.path or pvcClaimName (same dir: ONNX + NPY + engines under /opt/storage); plus calibration.*
+
+This chart does not run vss-rt-config-adaptor (Flask server; incompatible with init containers). See README.
+
+Refresh bundled files: scripts/sync-bundled-files.sh

@@ -27,7 +27,7 @@ phoenix:
   replicas: 1
   image:
     repository: arizephoenix/phoenix
-    tag: "version-8.12.1"
+    tag: "14.15.0"
     pullPolicy: IfNotPresent
   phoenixHost: "0.0.0.0"
   env: []
@@ -47,7 +47,7 @@ redis:
   replicas: 1
   image:
     repository: redis
-    tag: 8.2.2-alpine
+    tag: 8.6.2-alpine
     pullPolicy: IfNotPresent
   port: 6379
   persistence:
