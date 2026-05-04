@@ -28,6 +28,7 @@ from pydantic import ValidationError
 import pytest
 
 from vss_agents.tools.fusion import ChunkKey
+from vss_agents.tools.fusion import FusionConfig
 from vss_agents.tools.fusion import FusionInput
 from vss_agents.tools.fusion import RankedChunk
 from vss_agents.tools.fusion import RankedList
@@ -1048,6 +1049,37 @@ class TestFusionInputContract:
     def test_keep_if_top_n_in_any_space_none_accepted(self):
         """``keep_if_top_n_in_any_space=None`` disables the exemption and must remain valid."""
         FusionInput(space_weights={}, keep_if_top_n_in_any_space=None)
+
+
+class TestSpaceWeightsContract:
+    """Negative/non-finite values rejected at the model boundary."""
+
+    def test_negative_value_in_space_weights_rejected(self):
+        with pytest.raises(ValidationError):
+            FusionInput(space_weights={"embed": -0.1})
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+    def test_non_finite_value_in_space_weights_rejected(self, bad):
+        with pytest.raises(ValidationError):
+            FusionInput(space_weights={"embed": bad})
+
+    def test_negative_space_weights_default_rejected(self):
+        with pytest.raises(ValidationError):
+            FusionConfig(space_weights_default=-0.1)
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+    def test_non_finite_space_weights_default_rejected(self, bad):
+        with pytest.raises(ValidationError):
+            FusionConfig(space_weights_default=bad)
+
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+    def test_non_finite_value_in_per_space_min_score_rejected(self, bad):
+        with pytest.raises(ValidationError):
+            FusionInput(space_weights={}, per_space_min_score={"embed": bad})
+
+    def test_negative_value_in_per_space_min_score_accepted(self):
+        """Negative thresholds are legitimate for cosine/dot-product scores."""
+        FusionInput(space_weights={}, per_space_min_score={"embed": -0.5})  # must not raise
 
 
 class TestChunkKeyTimezoneContract:
