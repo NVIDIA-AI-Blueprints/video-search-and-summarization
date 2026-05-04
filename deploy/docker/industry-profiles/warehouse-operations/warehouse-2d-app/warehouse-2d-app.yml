@@ -99,7 +99,7 @@ services:
         condition: service_completed_successfully
 
   bp-configurator-2d:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.04.27
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.04
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
     container_name: vss-configurator
     network_mode: "host"
