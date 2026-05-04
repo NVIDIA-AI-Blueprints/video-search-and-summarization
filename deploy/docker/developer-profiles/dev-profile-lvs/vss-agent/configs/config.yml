@@ -21,8 +21,6 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      stream_mode: other
-      rtvi_embed_base_url: disabled
       enable_video_delete: true
     endpoints:
     - path: /api/v1/videos
