@@ -35,6 +35,10 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
+node_major_version() {
+  node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || printf '0\n'
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -134,7 +138,7 @@ parse_args() {
 }
 
 ensure_nvm_loaded() {
-  if have node; then
+  if have node && [ "$(node_major_version)" -ge 22 ]; then
     return 0
   fi
   if [ -z "${NVM_DIR:-}" ]; then
@@ -143,9 +147,13 @@ ensure_nvm_loaded() {
   if [ -s "$NVM_DIR/nvm.sh" ]; then
     # shellcheck disable=SC1090
     . "$NVM_DIR/nvm.sh"
-    # Sourcing nvm.sh alone often leaves no node on PATH; nemoclaw uses `#!/usr/bin/env node`.
-    if ! have node; then
-      nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+    # Sourcing nvm.sh alone can leave an older node first on PATH; nemoclaw requires Node 22+.
+    if ! have node || [ "$(node_major_version)" -lt 22 ]; then
+      nvm use 22 >/dev/null 2>&1 || nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+    fi
+    if [ -n "${NVM_BIN:-}" ] && [ -d "${NVM_BIN}" ]; then
+      export PATH="${NVM_BIN}:${PATH}"
+      hash -r 2>/dev/null || true
     fi
   fi
 }
