@@ -45,17 +45,18 @@ from pydantic import model_validator
 
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
+from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS as _CHUNK_SECONDS
+from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import RankedList
+from vss_agents.data_models.ranking import snap
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.attribute_search import AttributeSearchInput
 from vss_agents.tools.attribute_search import AttributeSearchResult
 from vss_agents.tools.embed_search import EmbedSearchOutput
-from vss_agents.tools.fusion import ChunkKey
 from vss_agents.tools.fusion import FusedSegment
 from vss_agents.tools.fusion import FusionInput
 from vss_agents.tools.fusion import FusionOutput
-from vss_agents.tools.fusion import RankedChunk
-from vss_agents.tools.fusion import RankedList
-from vss_agents.tools.fusion import snap
 from vss_agents.tools.vst.utils import get_streams_info
 from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
@@ -824,11 +825,6 @@ def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchRes
     merged.sort(key=lambda r: r.similarity, reverse=True)
     return merged
 
-
-# Orchestrator's snap grid in seconds
-# Used by per-space adapters to bucketize raw upstream timestamps
-# TODO: maybe expose as part of yaml search config or consolidate in shared data model to align with fusion as well
-_CHUNK_SECONDS = 5
 
 # -- Generalized fusion path helpers --
 # TODO: In a future refactor, we make embedding spaces (embed, attribute, new ones)
