@@ -29,6 +29,7 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 import logging
+from typing import Annotated
 from typing import Literal
 
 from nat.builder.builder import Builder
@@ -46,6 +47,9 @@ FusionMethod = Literal["rrf", "weighted_linear"]
 Aggregation = Literal["max", "mean"]
 DEFAULT_CHUNK_SECONDS = 5
 DEFAULT_RRF_K = 60
+
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+FiniteNonNegFloat = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
 logger = logging.getLogger(__name__)
@@ -123,6 +127,8 @@ class _SharedFusionParams(BaseModel):
     Overridable fields via user request, they get overlayed on top of the deployment config.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     chunk_seconds: int = Field(
         default=DEFAULT_CHUNK_SECONDS,
         gt=0,
@@ -144,7 +150,7 @@ class _SharedFusionParams(BaseModel):
     )
 
     # Pre-fuse filter
-    per_space_min_score: dict[str, float] = Field(
+    per_space_min_score: dict[str, FiniteFloat] = Field(
         default_factory=dict,
         description=(
             "Drop per-space chunks early below a raw-unit threshold. "
@@ -172,11 +178,6 @@ class _SharedFusionParams(BaseModel):
             "Drop chunks below ratio x theoretical ceiling. E.g. 0.3 -> keep only >=30% of best-possible fused_score."
         ),
     )
-    top_k_segments: int | None = Field(
-        default=10,
-        gt=0,
-        description="Cap the final segments by fused_score. E.g. =10 -> only top 10 returned.",
-    )
 
     # Merge knobs (applied after filtering and fusion)
     merge_adjacent: bool = Field(
@@ -198,6 +199,13 @@ class _SharedFusionParams(BaseModel):
         ),
     )
 
+    # End of pipeline knobs
+    top_k_segments: int | None = Field(
+        default=10,
+        gt=0,
+        description="Cap the final segments by fused_score. E.g. =10 -> only top 10 returned.",
+    )
+
 
 class FusionInput(_SharedFusionParams):
     """Request body for fusion. Carries only what the math needs.
@@ -205,14 +213,12 @@ class FusionInput(_SharedFusionParams):
     Inherits all shared knobs that can be overridden by the user in the request.
     """
 
-    model_config = ConfigDict(frozen=True)
-
     lists: list[RankedList] = Field(
         default_factory=list,
         description="N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]",
     )
 
-    space_weights: dict[str, float] = Field(
+    space_weights: dict[str, FiniteNonNegFloat] = Field(
         ...,
         description=(
             "Per-space trust weight used when fusing results. Higher values give "
@@ -757,13 +763,13 @@ class FusionConfig(FunctionBaseConfig, _SharedFusionParams, name="fusion"):
     falls through to the config value here (see :func:`_merge_config_defaults`).
     """
 
-    # -- Fields set once upon service startup --
-    space_weights_default: float = Field(
+    # -- Fields set once upon service startup (not overridable per request) --
+    space_weights_default: FiniteNonNegFloat = Field(
         default=1.0,
         description=(
             "Safety-net fallback weight used by the fusion NAT wrapper to fill in"
             "``FusionInput.space_weights`` for any missing space."
-            "Default 1.0 (neutral). Set once at startup; not overridable per request."
+            "Default 1.0 (neutral)."
         ),
     )
 
@@ -800,17 +806,19 @@ async def fusion(config: FusionConfig, _builder: Builder) -> AsyncGenerator[Func
         """
         merged_params = _merge_config_defaults(inp, config)
 
-        # Fill up any missing weight for spaces
+        # Fill up any missing weight for spaces (via new copy)
+        weights = {**merged_params.space_weights}
         for rl in merged_params.lists:
-            merged_params.space_weights.setdefault(rl.space, config.space_weights_default)
+            weights.setdefault(rl.space, config.space_weights_default)
+        merged_params_with_weights = merged_params.model_copy(update={"space_weights": weights})
 
         logger.debug(
             "fusion: method=%s spaces=%s weights=%s",
             merged_params.method,
             [rl.space for rl in merged_params.lists],
-            merged_params.space_weights,
+            weights,
         )
-        return run_fusion(merged_params)
+        return run_fusion(merged_params_with_weights)
 
     yield FunctionInfo.create(
         single_fn=_fusion,

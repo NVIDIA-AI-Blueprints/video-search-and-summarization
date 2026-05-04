@@ -827,7 +827,7 @@ def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchRes
 
 # Orchestrator's snap grid in seconds
 # Used by per-space adapters to bucketize raw upstream timestamps
-# TODO: maybe expose as part of yaml search config
+# TODO: maybe expose as part of yaml search config or consolidate in shared data model to align with fusion as well
 _CHUNK_SECONDS = 5
 
 # -- Generalized fusion path helpers --
@@ -843,8 +843,7 @@ def _make_chunk_key(sensor_id: str, start_iso: str, chunk_seconds: int = _CHUNK_
     the raw upstream end.
     """
     snapped_start = snap(iso8601_to_datetime(start_iso), chunk_seconds)
-    snapped_end = snapped_start + timedelta(seconds=chunk_seconds)
-    return ChunkKey(sensor_id=sensor_id, start=snapped_start, end=snapped_end)
+    return ChunkKey(sensor_id=sensor_id, start=snapped_start)
 
 
 def _embed_to_ranked_list_and_payloads(
@@ -1111,7 +1110,7 @@ async def _run_generalized_fusion_path(
     fusion_fn: Any,
     default_top_k: int,
 ) -> list["SearchResult"]:
-    """Generalized fusion path - replaces ``fusion_search_rerank`` when flag is on."""
+    """Generalized fusion path - replaces ``fusion_search_rerank`` (legacy) when flag is on."""
     # Embed-anchored gate.
     if not embed_output.results:
         return []
@@ -1836,6 +1835,7 @@ class RankingSpaceConfig(BaseModel):
     # TODO: review validation because becomes a key in ``FusionInput.space_weights`` and must also match the keys used in fusion's ``per_space_min_score``
     space: str = Field(
         ...,
+        min_length=1,
         description=(
             "Logical space name, e.g. 'embed', 'attribute', 'caption', 'face'. "
             "Becomes a key in ``FusionInput.space_weights`` and must also match "
@@ -1849,12 +1849,14 @@ class RankingSpaceConfig(BaseModel):
     weight: float = Field(
         default=1.0,
         ge=0.0,
+        allow_inf_nan=False,
         description=(
             "Per-search trust weight, threaded into the fusion input. Higher values give more influence to this space."
         ),
     )
     top_k: int | None = Field(
         default=None,
+        gt=0,
         description=(
             "Per-space cap on candidates fetched from this tool. None inherits the "
             "search-level ``top_k`` (with embed's 2x critic-loop slack) per the "
