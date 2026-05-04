@@ -107,14 +107,14 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5
-            failureThreshold: 10
+            failureThreshold: 60
           readinessProbe:
             tcpSocket:
               port: 9092
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 10
+            failureThreshold: 60
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
