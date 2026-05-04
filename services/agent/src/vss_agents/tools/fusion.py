@@ -250,9 +250,24 @@ def snap(ts: datetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
     return epoch + timedelta(seconds=snapped)
 
 
+def _score_with_tiebreak(score: float, sensor_id: str, start: datetime) -> tuple[float, str, datetime]:
+    """Deterministic sort key for the fusion pipeline.
+
+    Ties on raw score are broken by ``(sensor_id, start)`` so identical inputs
+    in any order produce identical rank assignments. Without an explicit
+    tie-breaker, Python's stable sort would preserve input-list order, leaking
+    non-determinism to downstream consumers of fusion.
+    """
+    # -score makes high scores come first hence DESC, and tie breakers like sensor_id stays ASC
+    return (-score, sensor_id, start)
+
+
 def _rerank_by_score(rl: RankedList, survivors: Iterable[RankedChunk]) -> RankedList:
     """Reorders chunks by importance for fusion."""
-    sorted_chunks = sorted(survivors, key=lambda c: c.score, reverse=True)
+    sorted_chunks = sorted(
+        survivors,
+        key=lambda c: _score_with_tiebreak(c.score, c.key.sensor_id, c.key.start),
+    )
     reranked = [RankedChunk(key=c.key, score=c.score, rank=i + 1) for i, c in enumerate(sorted_chunks)]
     return RankedList(space=rl.space, weight=rl.weight, chunks=reranked)
 
@@ -505,7 +520,7 @@ def merge_adjacent_rows(
         if group:
             segments.append(_finalize_group(group, chunk_seconds, aggregation))
 
-    segments.sort(key=lambda s: s.fused_score, reverse=True)
+    segments.sort(key=lambda s: _score_with_tiebreak(s.fused_score, s.sensor_id, s.start))
     return segments
 
 
@@ -615,7 +630,10 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
         score_threshold=threshold,
     )
 
-    rows = sorted(fused.values(), key=lambda r: r.score, reverse=True)
+    rows = sorted(
+        fused.values(),
+        key=lambda r: _score_with_tiebreak(r.score, r.key.sensor_id, r.key.start),
+    )
     if inp.merge_adjacent:
         segments = merge_adjacent_rows(
             rows,

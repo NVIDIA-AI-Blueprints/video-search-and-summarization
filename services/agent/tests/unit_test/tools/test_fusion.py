@@ -620,6 +620,20 @@ class TestMergeAdjacent:
         segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0)
         assert [k.start for k in segments[0].member_keys] == [_ts(0), _ts(5), _ts(10)]
 
+    def test_ties_resolved_deterministically_by_sensor_then_start(self):
+        """Two segments tied on ``fused_score`` must keep the same final order
+        regardless of input row order. Pins the deterministic tie-breaker on
+        the final ``segments.sort`` inside :func:`merge_adjacent_rows`.
+        """
+        forward = [_row("cam-1", 0, 0.5), _row("cam-2", 0, 0.5)]
+        reversed_rows = list(reversed(forward))
+
+        seg_forward = merge_adjacent_rows(forward, chunk_seconds=5, merge_gap_chunks=0)
+        seg_reversed = merge_adjacent_rows(reversed_rows, chunk_seconds=5, merge_gap_chunks=0)
+
+        assert [s.sensor_id for s in seg_forward] == ["cam-1", "cam-2"]
+        assert [s.sensor_id for s in seg_reversed] == ["cam-1", "cam-2"]
+
 
 # ---------------------------------------------------------------------------
 # run_fusion() - end-to-end pipeline
@@ -795,6 +809,47 @@ class TestRunFusion:
         )
         # No cap -> all 5 unique chunks survive default min_contributing_spaces=1.
         assert len(out.segments) == 5
+
+    def test_tied_rrf_score_winner_independent_of_input_list_order(self):
+        """Regression: tied fused_score must resolve via deterministic
+        tie-breaker, not via dict insertion order from the input lists.
+
+        Setup: two equally-weighted spaces with rank 1 ↔ 2 swapped across
+        sensors. Under RRF with k=60, w=1, both chunks score exactly
+        1/61 + 1/62 - i.e. they tie. Without a deterministic tie-breaker,
+        whichever list is first determines the dict insertion order, which
+        then determines the winner of ``top_k_segments=1`` because
+        Python's ``sorted`` is stable.
+
+        Ensure this is deterministic via a tie-breaker.
+        """
+        embed = RankedList(
+            space="embed",
+            weight=1.0,
+            chunks=[
+                _chunk("cam-1", 0, 0.9, 1),
+                _chunk("cam-2", 0, 0.8, 2),
+            ],
+        )
+        attribute = RankedList(
+            space="attribute",
+            weight=1.0,
+            chunks=[
+                _chunk("cam-2", 0, 0.9, 1),
+                _chunk("cam-1", 0, 0.8, 2),
+            ],
+        )
+
+        fwd = run_fusion(FusionInput(lists=[embed, attribute], merge_adjacent=False, top_k_segments=1))
+        rev = run_fusion(FusionInput(lists=[attribute, embed], merge_adjacent=False, top_k_segments=1))
+
+        assert len(fwd.segments) == 1
+        assert len(rev.segments) == 1
+        # cam-1 wins both ways via deterministic tie-break (cam-1 < cam-2 lex).
+        assert fwd.segments[0].sensor_id == "cam-1"
+        assert rev.segments[0].sensor_id == "cam-1"
+        # Sanity: the two chunks really did tie on fused_score.
+        assert fwd.segments[0].fused_score == pytest.approx(1 / 61 + 1 / 62)
 
     def test_same_moment_two_timezones_fuse_into_one_segment(self):
         """End-to-end regression: same wall moment from two spaces in
