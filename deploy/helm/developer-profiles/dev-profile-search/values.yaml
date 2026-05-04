@@ -404,6 +404,8 @@ analytics:
         cpu: 500m
     nodeSelector: {}
     tolerations: []
+    waitForDependencies:
+      enabled: true
 rtviEmbedModel: "cosmos-embed1-448p-anomaly-detection"
 agent:
   enabled: true

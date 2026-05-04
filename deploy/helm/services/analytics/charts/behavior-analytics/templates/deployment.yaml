@@ -49,6 +49,30 @@ spec:
       imagePullSecrets:
         {{- toYaml (index $g "imagePullSecrets") | nindent 8 }}
       {{- end }}
+      {{- if .Values.waitForDependencies.enabled }}
+      {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+      {{- $kafkaDef := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+      {{- $kafkaH := .Values.waitForDependencies.kafkaHost | default $kafkaDef }}
+      initContainers:
+        - name: wait-for-kafka
+          image: {{ .Values.waitForDependencies.image.repository }}:{{ .Values.waitForDependencies.image.tag }}
+          imagePullPolicy: {{ .Values.waitForDependencies.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka {{ $kafkaH }}:{{ .Values.waitForDependencies.kafkaPort }}"
+              for i in $(seq 1 {{ .Values.waitForDependencies.maxRetries }}); do
+                if nc -z {{ $kafkaH }} {{ .Values.waitForDependencies.kafkaPort }} 2>/dev/null; then
+                  echo "Kafka is accepting connections"
+                  exit 0
+                fi
+                echo "Attempt $i: waiting..."
+                sleep {{ .Values.waitForDependencies.retryInterval }}
+              done
+              echo "Timeout waiting for Kafka"
+              exit 1
+      {{- end }}
       containers:
         - name: vss-behavior-analytics
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

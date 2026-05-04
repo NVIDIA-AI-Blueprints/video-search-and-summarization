@@ -45,3 +45,16 @@ resources: {}
 nodeSelector: {}
 
 tolerations: []
+
+# Wait until Kafka accepts TCP connections before starting the analytics app
+# (mirrors compose depends_on: broker-health-check: condition: service_completed_successfully).
+waitForDependencies:
+  enabled: false
+  image:
+    repository: busybox
+    tag: "1.37.0"
+    pullPolicy: IfNotPresent
+  kafkaHost: ""
+  kafkaPort: "9092"
+  maxRetries: "90"
+  retryInterval: "2"
