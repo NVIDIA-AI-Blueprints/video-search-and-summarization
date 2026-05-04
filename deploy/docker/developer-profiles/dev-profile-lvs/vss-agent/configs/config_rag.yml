@@ -21,6 +21,8 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      stream_mode: other
+      rtvi_embed_base_url: disabled
       enable_video_delete: true
     endpoints:
     - path: /api/v1/videos
@@ -51,7 +53,7 @@ functions:
   video_upload_url:
     _type: video_upload_url
     vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
 
   video_understanding:
     _type: video_understanding
@@ -92,7 +94,6 @@ functions:
     _type: vst.snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
-    timeout_seconds: 20
 
   vst_video_list:
     _type: vst.video_list
