@@ -36,7 +36,7 @@ have() {
 }
 
 node_major_version() {
-  node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || printf '0\n'
+  node -e 'process.stdout.write(String(parseInt(process.versions.node, 10)))' 2>/dev/null || printf '0'
 }
 
 usage() {
