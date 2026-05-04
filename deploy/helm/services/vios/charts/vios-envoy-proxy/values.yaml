@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+image:
+  repository: nvcr.io/nvidia/vss-core/envoy-proxy
+  tag: "3.1.0"
+  pullPolicy: IfNotPresent
+replicas: 1
+
+# Wait for Redis before Envoy starts (Lua loads redis.lua at bootstrap and connects immediately).
+initContainers:
+  enabled: true
+  image: busybox:1.37.0
+
+command:
+  - /usr/local/bin/envoy
+  - -c
+  - /etc/envoy/envoy.yaml
+  - --concurrency
+  - "16"
+  - --base-id
+  - "1"
+service:
+  port: 10000
+  type: ClusterIP
+# Compose parity: environment block from vss-vios-sdr/sdr-compose.yaml
+# redisServer default: <release>-redis; override from parent (e.g. global.redis.host).
+redisServer: ""
+redisPort: "6379"
+# Kafka: used by env only; Lua routing uses only Redis. Default: kafka-kafka:9092 (<release>-kafka-kafka:9092 if global.useReleaseNamePrefix).
+kafkaBootstrapUrl: ""
+# xDS (routes/clusters): SDR serves on port 4003. In K8s use SDR service; in Compose use 127.0.0.1.
+xdsServer: ""   # default: <release>-vss-vios-sdr
+xdsPort: 4003
+# headerless_service: when request has no streamid, route to vss-vios-streamprocessing. In K8s use ClusterIP or headless.
+# With SDR headless discovery (k8sHeadlessBaseDomain), use headerlessService: "vss-vios-streamprocessing" to match met-bp3.
+headerlessService: ""  # default: <release>-vss-vios-streamprocessing
+headerlessPort: 30001
+env:
+  - name: CONTAINER_NAME
+    value: "vss-vios-envoy-proxy"
+  - name: ENVOYROUTEHEADER
+    value: "streamid"
+  # With SDR headless + WDM_TARGET_PORT_MAPPING "default", SDR may use pod name vss-vios-streamprocessing-0 in Redis.
+  - name: NOHEADERTARGETCONTAINER
+    value: "vss-vios-streamprocessing-0"  # or "vss-vios-streamprocessing-0" when using SDR k8sHeadlessBaseDomain (StatefulSet first pod)
+  - name: WDM_WL_OBJECT_NAME
+    value: "vss-vios-streamprocessing"    # Redis hash key for workload lookup; SDR writes this. Keep in sync with SDR config.
+resources: {}
+nodeSelector: {}
+tolerations: []

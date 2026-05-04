@@ -16,16 +16,10 @@
 include:
   - path: foundational/docker-compose.yaml
     env_file:
-      - vst.env
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/vst.env
   - path: initiator/docker-compose.yaml
     env_file:
-      - vst.env
-  - path: sdr/rtspserver/docker-compose.yaml
-    env_file:
-      - vst.env
-  - path: sdr/recorder/docker-compose.yaml
-    env_file:
-      - vst.env
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/vst.env
   - path: sdr/streamprocessing/docker-compose.yaml
     env_file:
-      - vst.env
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/vst.env

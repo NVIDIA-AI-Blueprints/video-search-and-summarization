@@ -1,0 +1,162 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+{{- $rt := .Values.reportTemplates | default dict }}
+{{- /* Kubernetes rejects `items` keys missing from the ConfigMap; optional:true only helps when the CM itself is absent. */}}
+{{- $mountReportTemplates := and (eq (.Values.profile | default "base") "alerts") ($rt.enabled | default false) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-agent.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-agent
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-agent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-agent
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.waitForDependencies .Values.waitForDependencies.enabled }}
+      {{- $g := .Values.global | default dict }}
+      {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+      {{- $kafkaDef := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+      {{- $redisDef := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+      {{- $esDef := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+      {{- $kafkaH := .Values.waitForDependencies.kafkaHost | default $kafkaDef }}
+      {{- $redisH := .Values.waitForDependencies.redisHost | default $redisDef }}
+      {{- $esH := .Values.waitForDependencies.elasticsearchHost | default $esDef }}
+      initContainers:
+        - name: wait-for-kafka-redis-elasticsearch
+          image: {{ .Values.waitForDependencies.image.repository }}:{{ .Values.waitForDependencies.image.tag }}
+          imagePullPolicy: {{ .Values.waitForDependencies.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka {{ $kafkaH }}:{{ .Values.waitForDependencies.kafkaPort }}, Redis {{ $redisH }}:{{ .Values.waitForDependencies.redisPort }}, Elasticsearch {{ $esH }}:{{ .Values.waitForDependencies.elasticsearchPort }}"
+              for i in $(seq 1 {{ .Values.waitForDependencies.maxRetries }}); do
+                if nc -z {{ $kafkaH }} {{ .Values.waitForDependencies.kafkaPort }} 2>/dev/null \
+                   && nc -z {{ $redisH }} {{ .Values.waitForDependencies.redisPort }} 2>/dev/null \
+                   && nc -z {{ $esH }} {{ .Values.waitForDependencies.elasticsearchPort }} 2>/dev/null; then
+                  echo "Kafka, Redis, and Elasticsearch are accepting connections"
+                  exit 0
+                fi
+                echo "Attempt $i: waiting..."
+                sleep {{ .Values.waitForDependencies.retryInterval }}
+              done
+              echo "Timeout waiting for Kafka, Redis, or Elasticsearch"
+              exit 1
+      {{- end }}
+      containers:
+        - name: vss-agent
+          image: {{ include "vss-agent.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --config_file
+            - {{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}
+            - --host
+            - "0.0.0.0"
+            - --port
+            - {{ .Values.service.port | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vss-agent/config.yml
+              subPath: config.yml
+              readOnly: true
+            {{- if .Values.mountConfigEdge }}
+            - name: config
+              mountPath: /etc/vss-agent/config_edge.yml
+              subPath: config_edge.yml
+              readOnly: true
+            {{- end }}
+            {{- if $mountReportTemplates }}
+            - name: report-templates
+              mountPath: /etc/vss-agent/report-templates
+              readOnly: true
+            {{- end }}
+            {{- if .Values.mountEvalOutput }}
+            - name: eval-output
+              mountPath: /vss-agent/eval-output
+            {{- end }}
+          env:
+            {{- /*
+              Option B: container env is the explicit list `env` (each value may use Helm `tpl` with .Values / .Release).
+              `extraEnv` is appended last (duplicate names: last wins). No envOverrides layer.
+            */}}
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ tpl (.value | default "" | toString) $ | quote }}
+            {{- end }}
+            {{- range (.Values.extraEnv | default list) }}
+            - name: {{ .name }}
+              value: {{ tpl (.value | default "" | toString) $ | quote }}
+            {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "vss-agent.fullname" . }}-config
+        {{- if $mountReportTemplates }}
+        - name: report-templates
+          configMap:
+            name: {{ include "vss-agent.fullname" . }}-config
+            items:
+              - key: {{ $rt.configMapKey | default "incident_report_template.md" }}
+                path: {{ $rt.configMapKey | default "incident_report_template.md" }}
+        {{- end }}
+        {{- if .Values.mountEvalOutput }}
+        - name: eval-output
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

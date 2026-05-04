@@ -1,0 +1,96 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Alerts profile — real-time mode (MODE=2d_vlm)
+# Single-file install: helm upgrade --install vss-alerts . -f values-realtime.yaml -n vss-alerts --create-namespace
+#
+# Before install: set ngc.apiKey, global.storageClass, global.externalHost (+ optional scheme/port).
+# Disables verification-only services (alert-bridge, perception, behavior analytics); enables rtvi-vlm.
+
+profile: alerts
+mode: real-time
+vlmName: "nvidia/cosmos-reason2-8b"
+
+ngc:
+  createSecrets: true
+  apiKey: ""
+
+global:
+  useReleaseNamePrefix: false
+  storageClass: ""
+  externalScheme: "http" # http or https
+  externalHost: "EXTERNAL_HOST" # e.g. vss-alerts.140.238.75.84.nip.io
+  externalPort: "" # Default 80 (http) / 443 (https): use "" — chart omits :port in URLs. Non-default port only: e.g. "8080", "8443".
+  # When empty and externalHost is set, vss-agent-ui / kibana derive http(s)://kibana.<externalHost> (same host as ingress kibana rule).
+  kibanaPublicUrl: ""
+  # Remote NIM: one place for vss-agent (same pattern as dev-profile-lvs). Override with agent.vss-agent.llmBaseUrl / llmName if needed.
+  llmBaseUrl: ""
+  vlmBaseUrl: ""
+  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  vlmName: "nvidia/cosmos-reason2-8b"
+
+# Real-time (reference: met-blueprints values-realtime.yaml): disables verification-only services; enables vss-rtvi-vlm.
+# agent.vss-agent: wire RTVI_VLM_BASE_URL to in-cluster vss-rtvi-vlm (rtviVlmEnabled + rtviVlmServiceName; image override optional).
+# COSMOS_EMBED_ENDPOINT stays empty — alerts profile does not ship vss-rtvi-embed (same as reference; search profile uses embed).
+agent:
+  vss-agent:
+    rtviVlmEnabled: true
+    rtviVlmServiceName: "vss-rtvi-vlm"
+    cosmosEmbedEnabled: false
+
+# No alert-bridge; do not set NEXT_PUBLIC_ALERTS_API_URL
+vss-agent-ui:
+  fillAlertBridgeUrlFromGlobal: false
+  appSubtitle: "Vision (Alerts - VLM)"
+
+vss-alert-bridge:
+  enabled: false
+
+analytics:
+  enabled: true
+  vss-behavior-analytics:
+    enabled: false
+
+rtvi:
+  enabled: true
+  vss-rtvi-cv:
+    enabled: false
+  vss-rtvi-cv-sdr:
+    enabled: false
+  vss-rtvi-vlm:
+    enabled: true
+    useSharedNim: true
+
+# Shared umbrella helm/services/nims — override gpuType here (see dev-profile-alerts/values.yaml for full nims.* defaults).
+nims:
+  enabled: true
+  gpuType: RTXPRO6000BW
+
+# VIOS umbrella (../../services/vios): parent Chart.yaml uses condition: vios.enabled — keep true here or in values.yaml or the whole VST stack is skipped.
+vios:
+  enabled: true
+
+vssIngress:
+  enabled: true
+  ingressClassName: haproxy
+  host: ""
+  vssUiPort: 3000
+  vssAgentPort: 8000
+  vstIngressPort: 30888
+  videoAnalyticsApiPort: 8081
+  alertBridgePort: 9080
+  kibanaPort: 5601
+  phoenixPort: 6006
+  streamerPort: 31000

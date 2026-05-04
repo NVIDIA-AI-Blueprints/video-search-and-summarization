@@ -14,7 +14,6 @@
 # limitations under the License.
 """Unit tests for rtsp_stream_api module."""
 
-import os
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -30,7 +29,6 @@ from vss_agents.api.rtsp_stream_api import AddStreamRequest
 from vss_agents.api.rtsp_stream_api import AddStreamResponse
 from vss_agents.api.rtsp_stream_api import DeleteStreamResponse
 from vss_agents.api.rtsp_stream_api import ServiceConfig
-from vss_agents.api.rtsp_stream_api import StreamMode
 from vss_agents.api.rtsp_stream_api import add_to_rtvi_cv
 from vss_agents.api.rtsp_stream_api import add_to_rtvi_embed
 from vss_agents.api.rtsp_stream_api import add_to_vst
@@ -60,20 +58,6 @@ def _multi_attempt_retry(attempts: int = 3) -> AsyncRetrying:
     )
 
 
-class TestStreamMode:
-    """Test StreamMode enum."""
-
-    def test_search_mode(self):
-        assert StreamMode.SEARCH.value == "search"
-
-    def test_other_mode(self):
-        assert StreamMode.OTHER.value == "other"
-
-    def test_from_string(self):
-        assert StreamMode("search") == StreamMode.SEARCH
-        assert StreamMode("other") == StreamMode.OTHER
-
-
 class TestServiceConfig:
     """Test ServiceConfig class."""
 
@@ -84,7 +68,8 @@ class TestServiceConfig:
         assert config.rtvi_embed_url == ""
         assert config.rtvi_embed_model == "cosmos-embed1-448p"
         assert config.rtvi_embed_chunk_duration == 5
-        assert config.default_stream_mode == StreamMode.SEARCH
+        # default: alerts/base/lvs-style behavior — VST owns storage, so delete it on remove
+        assert config.delete_vst_storage_on_stream_remove is True
 
     def test_full_config(self):
         config = ServiceConfig(
@@ -93,14 +78,15 @@ class TestServiceConfig:
             rtvi_embed_base_url="http://rtvi-embed:8017/",
             rtvi_embed_model="custom-model",
             rtvi_embed_chunk_duration=10,
-            default_stream_mode="other",
+            delete_vst_storage_on_stream_remove=False,
         )
         assert config.vst_url == "http://vst:30888"
         assert config.rtvi_cv_url == "http://rtvi-cv:9000"
         assert config.rtvi_embed_url == "http://rtvi-embed:8017"
         assert config.rtvi_embed_model == "custom-model"
         assert config.rtvi_embed_chunk_duration == 10
-        assert config.default_stream_mode == StreamMode.OTHER
+        # search-style: RTVI owns storage lifecycle, leave VST storage alone
+        assert config.delete_vst_storage_on_stream_remove is False
 
 
 class TestAddStreamRequest:
@@ -646,7 +632,7 @@ class TestCreateRtspStreamApiRouter:
             rtvi_embed_base_url="http://rtvi-embed:8017",
             rtvi_embed_model="custom-model",
             rtvi_embed_chunk_duration=10,
-            default_stream_mode="other",
+            delete_vst_storage_on_stream_remove=True,
         )
         assert router is not None
 
@@ -664,15 +650,14 @@ class TestAddStreamEndpoint:
     @patch("vss_agents.api.rtsp_stream_api.add_to_rtvi_cv")
     @patch("vss_agents.api.rtsp_stream_api.add_to_vst")
     @patch("vss_agents.api.rtsp_stream_api.httpx.AsyncClient")
-    async def test_successful_add_search_mode(
+    async def test_successful_add_with_full_rtvi(
         self, mock_client_class, mock_add_vst, mock_add_rtvi_cv, mock_add_rtvi_embed, mock_start_embed
     ):
-        """Test successful stream addition in search mode."""
+        """Test successful stream addition with RTVI-CV + RTVI-embed configured (search-style)."""
         router = create_rtsp_stream_api_router(
             vst_internal_url="http://vst:30888",
             rtvi_cv_base_url="http://rtvi-cv:9000",
             rtvi_embed_base_url="http://rtvi-embed:8017",
-            default_stream_mode="search",
         )
 
         # Mock httpx client
@@ -696,12 +681,14 @@ class TestAddStreamEndpoint:
 
     @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_stream_api.add_to_vst")
-    async def test_successful_add_other_mode(self, mock_add_vst):
-        """Test successful stream addition in 'other' mode (VST only)."""
-        router = create_rtsp_stream_api_router(
-            vst_internal_url="http://vst:30888",
-            default_stream_mode="other",
-        )
+    async def test_successful_add_vst_only(self, mock_add_vst):
+        """Test successful stream addition with VST only (no RTVI URLs configured).
+
+        With no RTVI URLs, ``add_to_rtvi_cv``/``add_to_rtvi_embed``/
+        ``start_embedding_generation`` self-skip — VST add is the only real
+        side effect. This is the alerts/base/lvs-style behavior.
+        """
+        router = create_rtsp_stream_api_router(vst_internal_url="http://vst:30888")
 
         # Mock VST add
         mock_add_vst.return_value = (True, "OK", "sensor-123", "rtsp://vst:554/sensor-123")
@@ -718,7 +705,7 @@ class TestAddStreamEndpoint:
         """Test that VST failure doesn't trigger rollback (nothing to rollback)."""
         router = create_rtsp_stream_api_router(
             vst_internal_url="http://vst:30888",
-            default_stream_mode="search",
+            rtvi_embed_base_url="http://rtvi-embed:8017",
         )
 
         mock_add_vst.return_value = (False, "VST returned 500: Server error", None, None)
@@ -744,7 +731,6 @@ class TestAddStreamEndpoint:
             vst_internal_url="http://vst:30888",
             rtvi_cv_base_url="http://rtvi-cv:9000",
             rtvi_embed_base_url="http://rtvi-embed:8017",
-            default_stream_mode="search",
         )
 
         # Mock httpx client
@@ -779,7 +765,7 @@ class TestDeleteStreamEndpoint:
     @patch("vss_agents.api.rtsp_stream_api.cleanup_rtvi_embed_generation")
     @patch("vss_agents.api.rtsp_stream_api.get_stream_info_by_name")
     @patch("vss_agents.api.rtsp_stream_api.httpx.AsyncClient")
-    async def test_successful_delete_search_mode(
+    async def test_successful_delete_with_full_rtvi(
         self,
         mock_client_class,
         mock_get_stream_info,
@@ -788,12 +774,12 @@ class TestDeleteStreamEndpoint:
         mock_cleanup_rtvi_cv,
         mock_cleanup_vst_sensor,
     ):
-        """Test successful stream deletion in search mode."""
+        """Test successful stream deletion when RTVI is fully configured (search-style)."""
         router = create_rtsp_stream_api_router(
             vst_internal_url="http://vst:30888",
             rtvi_cv_base_url="http://rtvi-cv:9000",
             rtvi_embed_base_url="http://rtvi-embed:8017",
-            default_stream_mode="search",
+            delete_vst_storage_on_stream_remove=False,
         )
 
         # Mock httpx client
@@ -818,10 +804,7 @@ class TestDeleteStreamEndpoint:
     @patch("vss_agents.api.rtsp_stream_api.get_stream_info_by_name")
     async def test_delete_stream_not_found(self, mock_get_stream_info):
         """Test deletion when stream is not found."""
-        router = create_rtsp_stream_api_router(
-            vst_internal_url="http://vst:30888",
-            default_stream_mode="search",
-        )
+        router = create_rtsp_stream_api_router(vst_internal_url="http://vst:30888")
 
         mock_get_stream_info.return_value = (False, "Stream not found", None, None)
 
@@ -852,7 +835,7 @@ class TestDeleteStreamEndpoint:
             vst_internal_url="http://vst:30888",
             rtvi_cv_base_url="http://rtvi-cv:9000",
             rtvi_embed_base_url="http://rtvi-embed:8017",
-            default_stream_mode="search",
+            delete_vst_storage_on_stream_remove=False,
         )
 
         # Mock httpx client
@@ -876,8 +859,8 @@ class TestDeleteStreamEndpoint:
 class TestRegisterRtspStreamApiRoutes:
     """Test register_rtsp_stream_api_routes function."""
 
-    def test_register_with_config(self):
-        """Test registering routes using config object."""
+    def test_register_with_full_rtvi_config(self):
+        """search-style: VST + RTVI-CV + RTVI-embed all configured, RTVI manages storage."""
         mock_app = MagicMock()
         mock_config = MagicMock()
 
@@ -887,7 +870,7 @@ class TestRegisterRtspStreamApiRoutes:
         mock_streaming_config.rtvi_embed_base_url = "http://rtvi-embed:8017"
         mock_streaming_config.rtvi_embed_model = "test-model"
         mock_streaming_config.rtvi_embed_chunk_duration = 10
-        mock_streaming_config.stream_mode = "search"
+        mock_streaming_config.delete_vst_storage_on_stream_remove = False
 
         mock_config.general.front_end.streaming_ingest = mock_streaming_config
 
@@ -895,39 +878,53 @@ class TestRegisterRtspStreamApiRoutes:
 
         assert mock_app.include_router.called
 
-    def test_register_with_env_vars(self):
-        """Test registering routes using environment variables."""
+    def test_register_vst_only_no_rtvi_urls(self):
+        """alerts-style: only VST configured, no RTVI URLs.
+
+        ``register_rtsp_stream_api_routes`` no longer requires
+        ``rtvi_embed_base_url`` — empty values mean RTVI steps self-skip at
+        request time. This must succeed.
+        """
         mock_app = MagicMock()
         mock_config = MagicMock()
-        mock_config.general.front_end = MagicMock(spec=[])  # No streaming_ingest attribute
 
-        with patch.dict(
-            os.environ,
-            {
-                "VST_INTERNAL_URL": "http://vst:30888",
-                "HOST_IP": "127.0.0.1",
-                "RTVI_EMBED_PORT": "8017",
-            },
-        ):
+        mock_streaming_config = MagicMock()
+        mock_streaming_config.vst_internal_url = "http://vst:30888"
+        mock_streaming_config.rtvi_cv_base_url = ""
+        mock_streaming_config.rtvi_embed_base_url = ""
+        mock_streaming_config.rtvi_embed_model = "cosmos-embed1-448p"
+        mock_streaming_config.rtvi_embed_chunk_duration = 5
+        mock_streaming_config.delete_vst_storage_on_stream_remove = True
+
+        mock_config.general.front_end.streaming_ingest = mock_streaming_config
+
+        register_rtsp_stream_api_routes(mock_app, mock_config)
+
+        assert mock_app.include_router.called
+
+    def test_register_missing_streaming_ingest_raises(self):
+        """Without streaming_ingest configured, registration must fail loudly."""
+        mock_app = MagicMock()
+        mock_config = MagicMock()
+        mock_config.general.front_end = MagicMock(spec=[])  # no streaming_ingest
+
+        with pytest.raises(ValueError, match="streaming_ingest"):
             register_rtsp_stream_api_routes(mock_app, mock_config)
 
-            assert mock_app.include_router.called
-
-    def test_register_missing_vst_url(self):
-        """Test error when VST_INTERNAL_URL is not set."""
+    def test_register_missing_vst_url_raises(self):
+        """streaming_ingest present but vst_internal_url empty must raise."""
         mock_app = MagicMock()
         mock_config = MagicMock()
-        mock_config.general.front_end = MagicMock(spec=[])
 
-        with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="VST_INTERNAL_URL"):
+        mock_streaming_config = MagicMock()
+        mock_streaming_config.vst_internal_url = ""
+        mock_streaming_config.rtvi_cv_base_url = ""
+        mock_streaming_config.rtvi_embed_base_url = ""
+        mock_streaming_config.rtvi_embed_model = "cosmos-embed1-448p"
+        mock_streaming_config.rtvi_embed_chunk_duration = 5
+        mock_streaming_config.delete_vst_storage_on_stream_remove = True
+
+        mock_config.general.front_end.streaming_ingest = mock_streaming_config
+
+        with pytest.raises(ValueError, match="vst_internal_url"):
             register_rtsp_stream_api_routes(mock_app, mock_config)
-
-    def test_register_missing_rtvi_embed_url(self):
-        """Test error when RTVI-embed URL is not configured."""
-        mock_app = MagicMock()
-        mock_config = MagicMock()
-        mock_config.general.front_end = MagicMock(spec=[])
-
-        with patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst:30888"}, clear=True):
-            with pytest.raises(ValueError, match="RTVI-embed"):
-                register_rtsp_stream_api_routes(mock_app, mock_config)

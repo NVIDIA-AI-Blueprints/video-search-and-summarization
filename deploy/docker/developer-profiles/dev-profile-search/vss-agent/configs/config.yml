@@ -16,11 +16,16 @@
 general:
   use_uvloop: false
   front_end:
-    _type: fastapi
+    _type: vss_fastapi
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      enable_videos_for_search: true
+      enable_rtsp_streams: true
+      enable_video_delete: true
+      # storage in place when an RTSP stream is removed.
+      delete_vst_storage_on_stream_remove: false
       rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT}
       rtvi_embed_model: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}
       rtvi_embed_chunk_duration: 5
@@ -30,7 +35,6 @@ general:
       external_ip: ${EXTERNAL_IP}
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
-      stream_mode: ${STREAM_MODE}  # 'search' for search profile, 'other' for VST only
     endpoints:
     - path: /api/v1/videos
       method: POST
@@ -82,7 +86,7 @@ functions:
     agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
     use_attribute_search: true  # Internal config: enable fusion reranking with attribute search
     critic_agent: critic_agent  # Optional: enables VLM verification
-    enable_critic: ${ENABLE_CRITIC:-false}
+    enable_critic: ${ENABLE_CRITIC:-true}
     search_max_iterations: 1
     default_max_results: 10
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
@@ -98,7 +102,7 @@ functions:
     vst_internal_url: ${VST_INTERNAL_URL}  # For stream_id to sensor_id conversion in fusion reranking
     embed_confidence_threshold: 0.1  # Minimum embed score threshold. fallback to attribute-only search if low
     critic_agent: critic_agent  # Optional: enables VLM verification
-    enable_critic: ${ENABLE_CRITIC:-false}
+    enable_critic: ${ENABLE_CRITIC:-true}
     search_max_iterations: 1
     default_max_results: 10
     behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}

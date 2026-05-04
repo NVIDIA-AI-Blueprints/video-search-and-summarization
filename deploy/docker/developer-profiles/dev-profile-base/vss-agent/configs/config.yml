@@ -16,9 +16,15 @@
 general:
   use_uvloop: true
   front_end:
-    _type: fastapi
+    _type: vss_fastapi
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      # Published 26.04.2/26.04.3 agent images still require a non-empty embed config when streaming_ingest exists.
+      stream_mode: other
+      rtvi_embed_base_url: disabled
+      enable_video_delete: true
     endpoints:
     - path: /api/v1/videos
       method: POST
@@ -199,8 +205,8 @@ llms:
 
   rtvi_vlm:
     _type: openai
-    model_name: nim_nvidia_cosmos-reason2-8b_hf-1208
-    base_url: ${VLM_BASE_URL}/v1
+    model_name: nvidia/cosmos-reason2-8b
+    base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
       extra_body:
@@ -470,7 +476,7 @@ eval:
       reference_base_dir: ${REPORT_REFERENCE_BASE_DIR}
       evaluation_method_id: report
       object_store: local_object_store
-      report_url_pattern: 'http://[^\s]+/(vss_report_\d{8}_\d{6}\.md)'
+      report_url_pattern: 'http://[^\s)]+/(vss_report_(?:[^/\s)]+_)?\d{8}_\d{6}\.md)'
       include_vlm_output: false
       metric_configs:
         llm_judge:

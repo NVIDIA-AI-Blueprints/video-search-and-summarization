@@ -1,0 +1,193 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: false
+global: {}
+serviceAccount:
+  create: false
+image:
+  repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
+  tag: "3.2.0-26.04.4-3"
+  pullPolicy: IfNotPresent
+replicas: 1
+service:
+  port: 3000
+  type: ClusterIP
+  nodePort: ""
+# Compose parity: NEXT_PUBLIC_* env (parameterized). These are sent to the browser (__ENV.js);
+# the browser fetches agent and VST APIs from these URLs. Use in-cluster URLs (default) when
+# the UI is reached via Ingress/LoadBalancer that proxies to the same cluster. For local
+# port-forward, set to 127.0.0.1 and run three port-forwards (UI 3000, agent 8000, vst-ingress 30888);
+# see helm_dp/vss/values-local-portforward.example.yaml. Chat tab needs chatCompletionUrl and websocketChatUrl (agent serves /chat/stream and /websocket, not /api/chat).
+# Parent developer-profile sets these (e.g. dev-profile-base, dev-profile-lvs, dev-profile-alerts, dev-profile-search).
+# Set global.externalHost to the browser-reachable host (e.g. vss-search.<ip>.nip.io). Trailing NEXT_PUBLIC_* URLs are derived from {scheme}://{externalHost} (and wss/ws for websockets).
+# If externalHost is vss-search.<ip>.nip.io, the Dashboard Kibana base defaults to http://kibana.<ip>.nip.io{kibanaNipPathSuffix} unless global.kibanaPublicUrl or dashboardKibanaBaseUrl is set.
+mdxWebApiPath: "/video-analytics-api"
+mapAppPath: ""
+kibanaNipPathSuffix: "/app/dashboards"
+appSubtitle: ""
+enableDashboardTab: ""
+# Optional: when set, template emits NEXT_PUBLIC_CUSTOM_AGENT_PARAMS_JSON.
+customAgentParamsJson: ""
+# Optional: ConfigMap name (same namespace) with keys = env var names; mounted via envFrom before explicit env.
+staticEnvConfigMapName: ""
+# Optional: envFrom entries (e.g. configMapRef). Merged with staticEnvConfigMapName; later `env` wins on duplicate keys.
+extraEnvFrom: []
+# Optional: extra container env entries appended last (parent profile values.yaml). Use for NEXT_PUBLIC_* not covered by `env` + `envOverrides`.
+extraEnv: []
+# Optional: list of {name, value} env overrides (appended after env; later vars win). Parent uses for alerts profile.
+envOverrides: []
+agentApiUrlBase: ""
+vstApiUrl: ""
+# Empty: NEXT_PUBLIC_*_HTTP_CHAT_* → http://<release>-vss-agent:8000/chat/stream
+chatCompletionUrl: ""
+websocketChatUrl: ""
+# LVS: explicit Kibana base URL for the Dashboard tab (overrides auto-derived kibana.<externalHost>).
+dashboardKibanaBaseUrl: ""
+# Alerts tab: base URL for alerts API (vss-alert-bridge), including the API version prefix.
+# Set in alerts profile so NEXT_PUBLIC_ALERTS_API_URL is populated. Override here (or via envOverrides) when bumping the server-side API version (e.g. /api/v2) without rebuilding the UI.
+alertsApiUrl: ""
+# When true (default), global.external* sets NEXT_PUBLIC_ALERTS_API_URL to {global}/alert-bridge/api/v1 (Ingress path; backend is vss-alert-bridge).
+# When false (real-time / no vss-alert-bridge), NEXT_PUBLIC_ALERTS_API_URL is left unset unless envOverrides/alertsApiUrl (Compose 3.1.0: UI uses NEXT_PUBLIC_MDX_WEB_API_URL only).
+fillAlertBridgeUrlFromGlobal: true
+env:
+  # Bind to all interfaces so port-forward and K8s probes can reach the server (Next.js otherwise binds to pod hostname only).
+  - name: HOSTNAME
+    value: "0.0.0.0"
+  # Must match app bundle inside the image (same as deploy/docker/services/ui/compose.yml and dev-profile-lvs vss-ui).
+  - name: RUN_APP_NAME
+    value: nv-metropolis-bp-vss-ui
+  - name: NEXT_PUBLIC_APP_TITLE
+    value: VSS BLUEPRINT
+  # Merged via envOverrides and/or appSubtitle / enableDashboardTab in deployment (see templates/deployment.yaml).
+  - name: NEXT_PUBLIC_APP_SUBTITLE
+    value: ""
+  - name: NEXT_PUBLIC_ENABLE_DASHBOARD_TAB
+    value: ""
+  - name: NEXT_PUBLIC_ENABLE_CHAT_TAB
+    value: "false"
+  - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
+    value: "true"
+  - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE
+    value: "100"
+  - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES
+    value: "10"
+  - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS
+    value: "1000"
+  - name: NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT
+    value: "false"
+  - name: NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE
+    value: "Generate a report for incident {incidentId} with sensor id {sensorId}."
+  - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
+    value: "0"
+  - name: NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB
+    value: "true"
+  - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE
+    value: "true"
+  - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE
+    value: "true"
+  - name: NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON
+    value: "false"
+  - name: NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR
+    value: "true"
+  - name: NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT
+    value: "false"
+  - name: NEXT_PUBLIC_WORKFLOW
+    value: "Vision Agent"
+  - name: NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
+    value: '{}'
+  - name: NEXT_PUBLIC_ENABLE_MAP_TAB
+    value: "false"
+  - name: NEXT_PUBLIC_ENABLE_SEARCH_TAB
+    value: "false"
+  - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
+    value: "true"
+  # Optional: set when tabs are enabled (override from parent or leave empty)
+  - name: NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL
+    value: ""
+  - name: NEXT_PUBLIC_MAP_URL
+    value: ""
+  - name: NEXT_PUBLIC_MDX_WEB_API_URL
+    value: ""
+  # App-wide chat sidebar (deploy/docker/services/ui/compose.yml)
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
+    value: "Vision Agent"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON
+    value: "true"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_INTERMEDIATE_STEPS
+    value: "true"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_DARK_THEME_DEFAULT
+    value: "true"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_SIDE_CHATBAR_COLLAPSED
+    value: "true"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE
+    value: "true"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON
+    value: "false"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
+    value: '{}'
+  - name: NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX
+    value: "true"
+  - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_COPY_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_METADATA_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_RIGHT_MENU_OPEN
+    value: "false"
+  - name: NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON
+    value: "false"
+  - name: NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_DARK_THEME_DEFAULT
+    value: "true"
+  - name: NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON
+    value: "true"
+  - name: NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS
+    value: "true"
+  - name: NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE
+    value: "Let's show the videos just uploaded {filenames}?"
+  - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
+    value: '{}'
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_SPEAKER_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_EDIT_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE
+    value: "Can you show the video clip of the video {filenames} that I just uploaded?"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_SHOW_THEME_TOGGLE_BUTTON
+    value: "false"
+  - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
+    value: "false"
+  - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
+    value: "true"
+  - name: NEXT_PUBLIC_SIDE_CHATBAR_COLLAPSED
+    value: "true"
+  - name: NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED
+    value: "false"
+  # NEXT_PUBLIC_ALERTS_API_URL set only in template from alertsApiUrl or envOverrides (avoids duplicate env entry)
+  # NEXT_PUBLIC_AGENT_API_URL_BASE, NEXT_PUBLIC_VST_API_URL, chat URLs set by template from agentApiUrlBase / vstApiUrl / chatCompletionUrl / websocketChatUrl
+resources: {}
+nodeSelector: {}
+tolerations: []

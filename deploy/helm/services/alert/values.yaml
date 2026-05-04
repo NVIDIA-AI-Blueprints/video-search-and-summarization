@@ -1,0 +1,70 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# vss-alert-bridge: VLM alert verification. Compose: vss-alert-verification, entrypoint env-substitute + command enhance_alert_with_vlm.py
+enabled: false
+global: {}
+
+image:
+  repository: nvcr.io/nvstaging/vss-core/vss-alert-verification
+  tag: "0.0.62"
+  pullPolicy: IfNotPresent
+replicas: 1
+
+# Parameterized from parent / profile. In K8s use service names. Leave "" for release-based defaults.
+kafkaBootstrapServers: ""
+redisHost: ""
+redisPort: "6379"
+elasticHosts: ""
+vlmBaseUrl: ""
+vlmName: "nvidia/cosmos-reason2-8b"
+# VST base for URLs passed to the VLM (video fetch). Default: in-cluster vst-ingress service. If global.vlmBaseUrl is set (remote VLM), default becomes global.externalScheme/Host/Port so the VLM can reach media via ingress (set vss-alert-bridge.vstBaseUrl explicitly if you use remote VLM without global.vlmBaseUrl).
+vstBaseUrl: ""
+
+externalIp: ""
+internalIp: ""
+
+# Base directory for media used during alert review (optional). Leave "" if not set.
+alertReviewMediaBaseDir: ""
+
+# Config variant: "" (default) or "edge-local-vlm" (DGX-SPARK, IGX-THOR, AGX-THOR with local VLM)
+# When "edge-local-vlm", uses EDGE-LOCAL-VLM-config.yml content (adds request_timeout, use_vlm_media_defaults).
+configVariant: ""
+
+# App listens on 9080 (see logs: "Uvicorn running on http://0.0.0.0:9080")
+service:
+  port: 9080
+  type: ClusterIP
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+
+# Block the main container until Kafka, Redis, and Elasticsearch accept TCP (avoids
+# startup crashes when alert-bridge runs before infra stack services are listening).
+waitForDependencies:
+  enabled: false
+  image:
+    repository: busybox
+    tag: "1.37.0"
+    pullPolicy: IfNotPresent
+  kafkaHost: ""
+  kafkaPort: "9092"
+  redisHost: ""
+  redisPort: "6379"
+  elasticsearchHost: ""
+  elasticsearchPort: "9200"
+  maxRetries: "90"
+  retryInterval: "2"

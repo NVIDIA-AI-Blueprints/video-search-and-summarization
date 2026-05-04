@@ -32,7 +32,7 @@ services:
             device_ids:
             - "${RT_EMBED_DEVICE_ID:-0}"
     ports:
-      - "${RTVI_EMBED_PORT:-8017}:8000"
+      - "${RTVI_EMBED_PORT?}:8000"
 
     environment:
       MODEL_PATH: "${MODEL_PATH:-git:https://huggingface.co/nvidia/Cosmos-Embed1-448p}"

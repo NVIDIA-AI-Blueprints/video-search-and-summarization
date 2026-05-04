@@ -1,0 +1,177 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# vss-rtvi-vlm: Real-time VLM for alerts profile (2d_vlm). Compose: deploy/docker/services/rtvi/vss-rtvi-vlm/vss-rtvi-vlm-docker-compose.yml
+enabled: false
+global: {}
+
+image:
+  repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
+  tag: "3.2.0-26.04.3"
+  pullPolicy: IfNotPresent
+replicas: 1
+
+# When true, use shared NIM VLM (nvidia-cosmos-reason2-8b) instead of loading model in this pod (MODEL_PATH=none, VIA_VLM_ENDPOINT set).
+useSharedNim: false
+# NIM VLM service for useSharedNim: default <release>-nvidia-cosmos-reason2-8b:8000
+sharedNimService: ""
+sharedNimPort: "8000"
+# Optional override of global.vlmBaseUrl / global.vlmName. Used only when nims.enabled below is false (remote VLM).
+vlmBaseUrl: ""
+# Optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME when useSharedNim (same idea as vss-agent.vlmName).
+vlmName: ""
+# When useSharedNim: VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME. Empty defaults to global.vlmName (e.g. nvidia/cosmos-reason2-8b), not vlmNameSlug.
+viaVlmOpenAiModelDeploymentName: ""
+# Umbrella installs: keep enabled in sync with top-level nims.enabled. true = in-cluster NIM (http://<release>-nvidia-cosmos-reason2-8b:…/v1). false = remote global.vlmBaseUrl / global.vlmName. If omitted, the template defaults to in-cluster (local LLM/VLM safe).
+nims:
+  enabled: true
+
+# NGC API key for calling NIM (when useSharedNim). Leave empty to use global.ngcApiSecret from parent.
+ngcApiSecret:
+  name: ""   # default: ngc-api (from parent global.ngcApiSecret)
+  key: ""    # default: NGC_API_KEY
+
+# If name is non-empty, HF_TOKEN is taken from this Secret (key defaults to HF_TOKEN). Plain HF_TOKEN in env is then ignored for injection.
+# hfTokenSecret:
+#   name: ""
+#   key: HF_TOKEN
+
+# Kafka/Redis: leave "" for defaults — kafka-kafka:9092 and redis:6379; with global.useReleaseNamePrefix, <release>-kafka-kafka:9092 and <release>-redis:6379
+kafkaBootstrapServers: ""
+# Init container: wait until Kafka answers and RTVI topics exist (topic-init Job may still be running).
+# Disable only if you orchestrate ordering elsewhere.
+waitForKafka:
+  enabled: true
+  image:
+    repository: confluentinc/cp-kafka
+    tag: "8.2.0"
+  imagePullPolicy: IfNotPresent
+  timeoutSeconds: 1200
+  topics:
+    - mdx-vlm
+    - mdx-vlm-incidents
+redisHost: ""
+redisPort: "6379"
+redisDb: "0"
+redisPassword: ""
+
+service:
+  port: 8000
+  type: ClusterIP
+
+# Compose: user 1001:1001, shm 16gb, GPU
+securityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+shmSize: "16Gi"
+
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    nvidia.com/gpu: 1
+
+# Env (Compose parity). Template injects KAFKA_BOOTSTRAP_SERVERS, REDIS_*, VIA_VLM_ENDPOINT/MODEL_PATH/VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME when useSharedNim.
+# Align with helm-work/docker-compose-out-alert-realtime.yaml vss-rtvi-vlm.service.environment
+# Edge (DGX-SPARK, IGX-THOR, AGX-THOR): set VLM_INPUT_WIDTH=860, VLM_INPUT_HEIGHT=467, VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=20 to match dev-profile.sh.
+env:
+  - name: OPENAI_API_KEY
+    value: "NOAPIKEYSET"
+  - name: OPENAI_API_VERSION
+    value: ""
+  - name: NVIDIA_API_KEY
+    value: "NOAPIKEYSET"
+  - name: NVIDIA_VISIBLE_DEVICES
+    value: "all"
+  - name: VLM_MODEL_TO_USE
+    value: "openai-compat"
+  - name: KAFKA_ENABLED
+    value: "true"
+  # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)
+  - name: KAFKA_TOPIC
+    value: "mdx-vlm"
+  - name: KAFKA_INCIDENT_TOPIC
+    value: "mdx-vlm-incidents"
+  - name: ERROR_MESSAGE_TOPIC
+    value: "vision-llm-errors"
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: ENABLE_OTEL_MONITORING
+    value: "false"
+  - name: ENABLE_REDIS_ERROR_MESSAGES
+    value: "false"
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://otel-collector:4318"
+  - name: OTEL_METRIC_EXPORT_INTERVAL
+    value: "60000"
+  - name: OTEL_RESOURCE_ATTRIBUTES
+    value: ""
+  - name: OTEL_TRACES_EXPORTER
+    value: "otlp"
+  - name: NUM_GPUS
+    value: "1"
+  - name: NUM_VLM_PROCS
+    value: ""
+  - name: MODEL_IMPLEMENTATION_PATH
+    value: ""
+  - name: HF_TOKEN
+    value: ""
+  - name: INSTALL_PROPRIETARY_CODECS
+    value: "false"
+  - name: FORCE_SW_AV1_DECODER
+    value: ""
+  - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
+    value: ""
+  - name: RTVI_EXTRA_ARGS
+    value: ""
+  - name: RTVI_RTSP_LATENCY
+    value: ""
+  - name: RTVI_RTSP_TIMEOUT
+    value: ""
+  - name: RTVI_RTSP_RECONNECTION_INTERVAL
+    value: "5"
+  - name: RTVI_RTSP_RECONNECTION_WINDOW
+    value: "60"
+  - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
+    value: "10"
+  - name: VLLM_GPU_MEMORY_UTILIZATION
+    value: ""
+  - name: VLM_BATCH_SIZE
+    value: ""
+  # For edge (DGX-SPARK, IGX-THOR, AGX-THOR): dev-profile.sh sets 860, 467, 20. Override when using edge hardware.
+  - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
+    value: "1"
+  - name: VLM_INPUT_WIDTH
+    value: ""
+  - name: VLM_INPUT_HEIGHT
+    value: ""
+  - name: VLM_SYSTEM_PROMPT
+    value: ""
+  - name: VSS_NUM_GPUS_PER_VLM_PROC
+    value: ""
+  - name: VSS_SKIP_INPUT_MEDIA_VERIFICATION
+    value: ""
+  # Enable native audio for Omni models (replaces ENABLE_AUDIO); disables Riva ASR.
+  - name: VLM_MODEL_SUPPORTS_AUDIO
+    value: "false"
+  # Required for Nemotron Nano Omni models.
+  - name: VLM_TRUST_REMOTE_CODE
+    value: "false"
+  # EVS pruning rate 0.0-1.0.
+  - name: VLM_VIDEO_PRUNING_RATE
+    value: "0.0"
+
+nodeSelector: {}
+tolerations: []

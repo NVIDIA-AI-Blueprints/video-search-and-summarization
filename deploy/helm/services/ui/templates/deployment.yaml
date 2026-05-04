@@ -1,0 +1,171 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-agent-ui.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-agent-ui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-agent-ui
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-agent-ui
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-agent-ui
+          image: {{ include "vss-agent-ui.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          {{- /*
+            Container env is built in layers. Kubernetes applies envFrom first, then env;
+            duplicate variable names are resolved by the later env entry winning.
+
+            1) envFrom — optional ConfigMap / secret refs (staticEnvConfigMapName, extraEnvFrom, or global.vssAgentUiEnvFromConfigMap).
+            2) env list — from this chart's values.yaml `env`. Parent `envOverrides` and global-derived keys in $ov override by name.
+            3) Trailing env — URL-style NEXT_PUBLIC_*; optional customAgentParamsJson. appSubtitle / enableDashboardTab merge into $ov when not set by envOverrides.
+            4) extraEnv — parent-supplied list appended last (override or add arbitrary vars from profile values.yaml).
+          */}}
+          {{- $g := .Values.global | default dict }}
+          {{- $cm := .Values.staticEnvConfigMapName | default (index $g "vssAgentUiEnvFromConfigMap" | default "") | trim }}
+          {{- if or .Values.extraEnvFrom $cm }}
+          envFrom:
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if $cm }}
+            - configMapRef:
+                name: {{ $cm }}
+            {{- end }}
+          {{- end }}
+          env:
+            {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+            {{- $eh := index $g "externalHost" | default "" | trim }}
+            {{- $es := index $g "externalScheme" | default "http" }}
+            {{- $ep := index $g "externalPort" | default "" | trim }}
+            {{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}
+            {{- $wsSch := ternary "wss" "ws" (eq $es "https") }}
+            {{- $globalWs := ternary (ternary (printf "%s://%s:%s" $wsSch $eh $ep) (printf "%s://%s" $wsSch $eh) (ne $ep "")) "" (ne $eh "") }}
+            {{- $ov := dict }}{{ range .Values.envOverrides }}{{ $_ := set $ov .name .value }}{{ end }}
+            {{- if not (hasKey $ov "NEXT_PUBLIC_APP_SUBTITLE") }}
+            {{- if ne (.Values.appSubtitle | default "" | trim) "" }}
+            {{- $_ := set $ov "NEXT_PUBLIC_APP_SUBTITLE" .Values.appSubtitle }}
+            {{- else if not $cm }}
+            {{- $_ := set $ov "NEXT_PUBLIC_APP_SUBTITLE" "VISION" }}
+            {{- end }}
+            {{- end }}
+            {{- if not (hasKey $ov "NEXT_PUBLIC_ENABLE_DASHBOARD_TAB") }}
+            {{- $edb := .Values.enableDashboardTab }}
+            {{- $edbSet := or (kindIs "bool" $edb) (and (kindIs "string" $edb) (ne ($edb | toString | trim) "")) }}
+            {{- if $edbSet }}
+            {{- $_ := set $ov "NEXT_PUBLIC_ENABLE_DASHBOARD_TAB" ($edb | toString) }}
+            {{- else if not $cm }}
+            {{- $_ := set $ov "NEXT_PUBLIC_ENABLE_DASHBOARD_TAB" "true" }}
+            {{- end }}
+            {{- end }}
+            {{- $kibanaPub := index $g "kibanaPublicUrl" | default "" | trim }}
+            {{- if and (eq $kibanaPub "") (ne $eh "") }}
+            {{- if and (hasPrefix "vss-search." $eh) (hasSuffix "nip.io" $eh) }}
+            {{- $kibSuff := .Values.kibanaNipPathSuffix | default "/app/dashboards" }}
+            {{- $kibCore := $eh | trimPrefix "vss-search." | trimSuffix ".nip.io" }}
+            {{- $kibanaPub = printf "http://kibana.%s.nip.io%s" $kibCore $kibSuff }}
+            {{- else }}
+            {{- $kibHost := printf "kibana.%s" $eh }}
+            {{- if ne $ep "" }}
+            {{- $kibanaPub = printf "%s://%s:%s" $es $kibHost $ep }}
+            {{- else }}
+            {{- $kibanaPub = printf "%s://%s" $es $kibHost }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if $kibanaPub }}
+            {{- $_ := set $ov "NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL" (index $ov "NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL" | default $kibanaPub) }}
+            {{- end }}
+            {{- if .Values.dashboardKibanaBaseUrl }}
+            {{- $_ := set $ov "NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL" .Values.dashboardKibanaBaseUrl }}
+            {{- end }}
+            {{- if ne $globalBase "" }}
+            {{- /* Real-time: fillAlertBridgeUrlFromGlobal=false — do not set NEXT_PUBLIC_ALERTS_API_URL (Alerts tab uses MDX_WEB_API_URL). */}}
+            {{- if not (and (kindIs "bool" .Values.fillAlertBridgeUrlFromGlobal) (eq .Values.fillAlertBridgeUrlFromGlobal false)) }}
+            {{- /* Includes the API version prefix so a future server-side bump (e.g. /api/v2) is a chart change, not a UI rebuild. */}}
+            {{- $_ := set $ov "NEXT_PUBLIC_ALERTS_API_URL" (index $ov "NEXT_PUBLIC_ALERTS_API_URL" | default (printf "%s/alert-bridge/api/v1" $globalBase)) }}
+            {{- end }}
+            {{- $mdxP := .Values.mdxWebApiPath | default "/video-analytics-api" }}
+            {{- $_ := set $ov "NEXT_PUBLIC_MDX_WEB_API_URL" (index $ov "NEXT_PUBLIC_MDX_WEB_API_URL" | default (printf "%s%s" $globalBase $mdxP)) }}
+            {{- $mapP := .Values.mapAppPath | default "" | trim }}
+            {{- if ne $mapP "" }}
+            {{- $_ := set $ov "NEXT_PUBLIC_MAP_URL" (index $ov "NEXT_PUBLIC_MAP_URL" | default (printf "%s%s" $globalBase $mapP)) }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ (index $ov .name | default .value) | quote }}
+            {{- end }}
+            {{- if .Values.customAgentParamsJson }}
+            - name: NEXT_PUBLIC_CUSTOM_AGENT_PARAMS_JSON
+              value: {{ .Values.customAgentParamsJson | quote }}
+            {{- end }}
+            - name: NEXT_PUBLIC_AGENT_API_URL_BASE
+              value: {{ .Values.agentApiUrlBase | default (ternary (printf "%s/api/v1" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/api/v1" .Release.Name) "http://vss-agent:8000/api/v1" $pfx) | quote }}
+            - name: NEXT_PUBLIC_SIDEBAR_CHAT_AGENT_API_URL_BASE
+              value: {{ .Values.agentApiUrlBase | default (ternary (printf "%s/api/v1" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/api/v1" .Release.Name) "http://vss-agent:8000/api/v1" $pfx) | quote }}
+            - name: NEXT_PUBLIC_VST_API_URL
+              value: {{ .Values.vstApiUrl | default (ternary (printf "%s/vst/api" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-vios-ingress:30888/vst/api" .Release.Name) "http://vss-vios-ingress:30888/vst/api" $pfx) | quote }}
+            {{- $httpChat := .Values.chatCompletionUrl | default (ternary (printf "%s/chat/stream" $globalBase) "" (ne $globalBase "")) | default (ternary (printf "http://%s-vss-agent:8000/chat/stream" .Release.Name) "http://vss-agent:8000/chat/stream" $pfx) }}
+            - name: NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL
+              value: {{ $httpChat | quote }}
+            - name: NEXT_PUBLIC_SIDEBAR_CHAT_HTTP_CHAT_COMPLETION_URL
+              value: {{ $httpChat | quote }}
+            {{- $wsUrl := .Values.websocketChatUrl | default (ternary (printf "%s/websocket" $globalWs) "" (ne $globalWs "")) }}
+            {{- if $wsUrl }}
+            - name: NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL
+              value: {{ $wsUrl | quote }}
+            - name: NEXT_PUBLIC_SIDEBAR_CHAT_WEBSOCKET_CHAT_COMPLETION_URL
+              value: {{ $wsUrl | quote }}
+            {{- end }}
+            - name: NEXT_PUBLIC_ALERTS_API_URL
+              value: {{ (index $ov "NEXT_PUBLIC_ALERTS_API_URL") | default .Values.alertsApiUrl | default "" | quote }}
+            {{- range .Values.extraEnv }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

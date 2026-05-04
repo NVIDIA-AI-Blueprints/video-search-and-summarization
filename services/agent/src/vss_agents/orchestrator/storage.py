@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 DEFAULT_PERMISSION_RELATIVE_ROOTS: Final[tuple[str, ...]] = ("data_log", "agent_eval", "models")
 DEFAULT_PERMISSION_MODE: Final[int] = 0o777
+ALERTS_ENGINE_RELATIVE_PATHS: Final[tuple[str, ...]] = ("engines/gdino", "engines/rtdetr-its")
 
 NGC_ENV_API_KEY: Final[str] = "NGC_CLI_API_KEY"
 NGC_DOWNLOAD_TIMEOUT_S: Final[int] = 1800
@@ -174,6 +175,8 @@ def ensure_required_directories(
     data_directory: str | Path,
     *,
     relative_paths: Iterable[str],
+    require_writable: bool = True,
+    root_label: str = "data root",
 ) -> list[Path]:
     """Create required directories under ``data_directory`` and return paths."""
 
@@ -186,7 +189,7 @@ def ensure_required_directories(
         except PermissionError as exc:
             raise RuntimeError(
                 f"Permission denied creating required directory: {full_path}. "
-                f"Check ownership/permissions under data root: {root}"
+                f"Check ownership/permissions under {root_label}: {root}"
             ) from exc
         except OSError as exc:
             raise RuntimeError(f"Failed creating required directory: {full_path}. {exc}") from exc
@@ -196,10 +199,10 @@ def ensure_required_directories(
 
         # Even when the directory already exists, fail early if the current user
         # cannot traverse/write it; compose bind mounts will fail later otherwise.
-        if not os.access(full_path, os.X_OK | os.W_OK):
+        if require_writable and not os.access(full_path, os.X_OK | os.W_OK):
             raise RuntimeError(
                 f"Required directory is not writable by current user: {full_path}. "
-                f"Check ownership/permissions under data root: {root}"
+                f"Check ownership/permissions under {root_label}: {root}"
             )
         created_paths.append(full_path)
     return created_paths
@@ -258,4 +261,28 @@ def ensure_data_directories(
         relative_paths=required_subdirectories,
     )
     ensure_permissions(data_directory, best_effort=True)
+    return created_paths
+
+
+def ensure_alerts_engine_directories(deployments_dir: str | Path) -> list[Path]:
+    """Create alerts TensorRT engine directories under ``deploy/docker`` and make them writable."""
+
+    root = Path(deployments_dir).expanduser().resolve()
+    created_paths = ensure_required_directories(
+        root,
+        relative_paths=ALERTS_ENGINE_RELATIVE_PATHS,
+        require_writable=False,
+        root_label="deployment root",
+    )
+    ensure_permissions(
+        root,
+        relative_roots=("engines",),
+        best_effort=True,
+    )
+    for full_path in created_paths:
+        if not os.access(full_path, os.X_OK | os.W_OK):
+            raise RuntimeError(
+                f"Alerts engine directory is not writable by current user: {full_path}. "
+                f"Check ownership/permissions under deployment root: {root}"
+            )
     return created_paths

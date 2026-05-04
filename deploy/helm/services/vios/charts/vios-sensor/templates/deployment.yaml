@@ -1,0 +1,141 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-vios-sensor.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-vios-sensor
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-vios-sensor
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-vios-sensor
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ list (.Files.Get "configs/vst_config.json") (.Files.Get "configs/adaptor_config.json") (.Files.Get "configs/vst_storage.json") (.Files.Get "configs/rtsp_streams.json") | join "" | sha256sum }}
+    spec:
+      {{- with .Values.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vss-vios-sensor
+          image: {{ include "vss-vios-sensor.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            {{- toYaml .Values.env | nindent 12 }}
+            - name: CENTRALIZE_DB_HOSTADDR
+              value: {{ (.Values.centralizedDbHost | default (include "vss-vios-sensor.postgresFullname" .)) | quote }}
+            - name: CENTRALIZE_DB_PORT
+              value: {{ (.Values.centralizedDbPort | default "5432") | quote }}
+            {{- if .Values.centralizedDbPassword }}
+            - name: CENTRALIZE_DB_PASSWORD
+              value: {{ .Values.centralizedDbPassword | quote }}
+            {{- else }}
+            - name: CENTRALIZE_DB_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "vss-vios-sensor.postgresCmName" . }}
+                  key: CENTRALIZE_DB_PASSWORD
+            {{- end }}
+            - name: STREAM_PROCESSOR_MODULE_ENDPOINT
+              value: {{ or .Values.streamProcessorEndpoint (printf "http://%s:10000" (include "vss-vios-sensor.peerHost" (dict "root" . "short" (default "vss-vios-envoy-proxy" .Values.streamProcessorService)))) | quote }}
+            - name: VST_INGRESS_ENDPOINT
+              value: {{ include "vss-vios-sensor.vstIngressEndpointUrl" . | quote }}
+          volumeMounts:
+            - name: configs
+              mountPath: /home/vst/vst_release/configs
+              readOnly: true
+            - name: vst-data
+              mountPath: /home/vst/vst_release/vst_data
+            - name: vst-video
+              mountPath: /home/vst/vst_release/vst_video
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: configs
+          configMap:
+            name: {{ include "vss-vios-sensor.fullname" . }}-configs
+        - name: vst-data
+          {{- if and (index .Values "persistence") .Values.persistence.vstData.enabled }}
+          persistentVolumeClaim:
+            {{- $g := .Values.global | default dict }}
+            {{- if .Values.persistence.vstData.existingClaim }}
+            claimName: {{ .Values.persistence.vstData.existingClaim }}
+            {{- else if and (hasKey $g "createSharedVstPvcs") (not (index $g "createSharedVstPvcs")) }}
+            claimName: {{ printf "%s-vst-data" (include "vss-vios-sensor.fullname" .) }}
+            {{- else }}
+            claimName: {{ printf "%s-vst-data" (include "vss-vios-sensor.streamprocessingSharedPvcBase" .) }}
+            {{- end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: vst-video
+          {{- if and (index .Values "persistence") .Values.persistence.vstVideo.enabled }}
+          persistentVolumeClaim:
+            {{- $g := .Values.global | default dict }}
+            {{- if .Values.persistence.vstVideo.existingClaim }}
+            claimName: {{ .Values.persistence.vstVideo.existingClaim }}
+            {{- else if and (hasKey $g "createSharedVstPvcs") (not (index $g "createSharedVstPvcs")) }}
+            claimName: {{ printf "%s-vst-video" (include "vss-vios-sensor.fullname" .) }}
+            {{- else }}
+            claimName: {{ printf "%s-vst-video" (include "vss-vios-sensor.streamprocessingSharedPvcBase" .) }}
+            {{- end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

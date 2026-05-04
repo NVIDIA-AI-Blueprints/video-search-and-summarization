@@ -47,6 +47,7 @@ from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.vst.utils import get_streams_info
+from vss_agents.utils.es_client import VSSESClient
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 from vss_agents.utils.reasoning_utils import get_thinking_tag
 from vss_agents.utils.time_convert import datetime_to_iso8601
@@ -71,7 +72,6 @@ Extract the following parameters from the user query:
 - has_action: REQUIRED boolean. Set to True if the query explicitly mentions an action/event/activity (e.g., running, walking, carrying, pushing, entering, leaving, moving). Set to False if the query only describes visual/physical attributes (what someone/something LOOKS LIKE) without any action. Examples: "person" → false, "person walking" → true, "red car" → false, "person carrying box" → true, "forklift" → false.
 - object_ids: List of integer object IDs if explicitly mentioned in the query (e.g., "find object 5" → [5], "search for objects 10, 20" → [10, 20]). null if no object IDs are mentioned.
 - top_k: Number of results to return (integer, only if explicitly mentioned, e.g., "top 5", "first 10")
-- min_cosine_similarity: Minimum similarity threshold between -1.0 and 1.0 (e.g., "highly similar" = 0.8, "somewhat similar" = 0.5, "exact match" = 0.9, "any match" = -1.0)
 
 Examples:
 {few_shot_examples}
@@ -135,7 +135,6 @@ class DecomposedQuery(BaseModel):
         default=None, description="List of integer object IDs if explicitly mentioned in the query"
     )
     top_k: int | None = Field(default=None, description="Number of results to return")
-    min_cosine_similarity: float | None = Field(default=None, description="Minimum similarity threshold (-1.0 to 1.0)")
 
 
 async def _run_attribute_only_search(
@@ -337,14 +336,6 @@ async def decompose_query(
             except (ValueError, TypeError):
                 logger.debug("Failed to parse top_k value: %s", extracted["top_k"])
 
-        # Parse min_cosine_similarity if present
-        min_cosine_similarity = None
-        if extracted.get("min_cosine_similarity") is not None:
-            try:
-                min_cosine_similarity = float(extracted["min_cosine_similarity"])
-            except (ValueError, TypeError):
-                logger.debug("Failed to parse min_cosine_similarity value: %s", extracted["min_cosine_similarity"])
-
         # Parse has_action if present
         has_action = None
         if extracted.get("has_action") is not None:
@@ -373,11 +364,52 @@ async def decompose_query(
             has_action=has_action,
             object_ids=object_ids,
             top_k=top_k,
-            min_cosine_similarity=min_cosine_similarity,
         )
     except Exception as e:
         logger.warning(f"Failed to decompose query, using original: {e}")
         return DecomposedQuery(query=user_query)
+
+
+def _resolve_video_sources_for_search(
+    video_sources: list[str],
+    name_to_uuid: dict[str, str],
+    source_type: str | None,
+) -> list[str]:
+    """Resolve source names to the IDs expected by each ES source index."""
+    if not video_sources or not name_to_uuid:
+        return video_sources
+
+    if source_type == "rtsp":
+        uuid_to_name = {stream_id: name for name, stream_id in name_to_uuid.items()}
+        resolved_sources = []
+        for video_source in video_sources:
+            stream_id = name_to_uuid.get(video_source)
+            if stream_id:
+                resolved_sources.append(video_source)
+                logger.debug(
+                    "Keeping RTSP video source '%s' as sensor name; VST stream UUID is '%s'",
+                    video_source,
+                    stream_id,
+                )
+            elif video_source in uuid_to_name:
+                sensor_name = uuid_to_name[video_source]
+                resolved_sources.append(sensor_name)
+                logger.debug("Resolved RTSP stream UUID '%s' to sensor name '%s'", video_source, sensor_name)
+            else:
+                resolved_sources.append(video_source)
+                logger.debug("RTSP video source '%s' not resolved in VST map; keeping original name", video_source)
+        return resolved_sources
+
+    resolved_sources = []
+    for video_source in video_sources:
+        stream_id = name_to_uuid.get(video_source)
+        if stream_id:
+            resolved_sources.append(stream_id)
+            logger.debug("Resolved video source '%s' to UUID '%s'", video_source, stream_id)
+        else:
+            resolved_sources.append(video_source)
+            logger.debug("Video source '%s' not resolved; will use wildcard filter", video_source)
+    return resolved_sources
 
 
 def _apply_weighted_linear_fusion(
@@ -886,19 +918,14 @@ async def execute_core_search(
                 search_input.query = decomposed.query
             if decomposed.video_sources:
                 search_input.video_sources = decomposed.video_sources
-            # Resolve video source names → UUIDs using the VST mapping (two-tier filtering)
-            # Resolved UUIDs get fast exact-match ES filters; unresolved names fall back to wildcards
+            # Resolve video sources to the identifier expected by the selected source index.
+            # Video files filter by UUID; RTSP indices filter by camera/sensor name.
             if search_input.video_sources and name_to_uuid:
-                resolved_sources = []
-                for vname in search_input.video_sources:
-                    uuid = name_to_uuid.get(vname)
-                    if uuid:
-                        resolved_sources.append(uuid)
-                        logger.info(f"Resolved video source '{vname}' to UUID '{uuid}'")
-                    else:
-                        resolved_sources.append(vname)
-                        logger.info(f"Video source '{vname}' not resolved — will use wildcard filter")
-                search_input.video_sources = resolved_sources
+                search_input.video_sources = _resolve_video_sources_for_search(
+                    video_sources=search_input.video_sources,
+                    name_to_uuid=name_to_uuid,
+                    source_type=search_input.source_type,
+                )
             if decomposed.timestamp_start:
                 try:
                     search_input.timestamp_start = iso8601_to_datetime(decomposed.timestamp_start)
@@ -911,8 +938,6 @@ async def execute_core_search(
                     logger.warning(f"Failed to parse decomposed timestamp_end: {e}")
             if decomposed.top_k is not None:
                 search_input.top_k = decomposed.top_k
-            if decomposed.min_cosine_similarity is not None:
-                search_input.min_cosine_similarity = decomposed.min_cosine_similarity
 
             # Yield decomposition summary
             decomp_summary: dict[str, Any] = {
@@ -955,42 +980,35 @@ async def execute_core_search(
             content=f"Searching for similar objects to: {decomposed.object_ids}",
         )
 
-        from elasticsearch import AsyncElasticsearch
-
         from vss_agents.tools.attribute_search import AttributeSearchResult
         from vss_agents.tools.attribute_search import enrich_attribute_results
         from vss_agents.tools.attribute_search import search_by_object_embedding
+
+        es = await VSSESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
 
         async def _safe_object_search(oid: int) -> list[AttributeSearchResult]:
             try:
                 return await search_by_object_embedding(
                     object_id=str(oid),
-                    es_client=es_client,
                     behavior_index=config.behavior_index,
+                    es=es,
                     top_k=top_k,
-                    min_similarity=search_input.min_cosine_similarity or 0.0,
+                    min_similarity=0.0,
                     video_sources=search_input.video_sources if search_input.video_sources else None,
                     timestamp_start=search_input.timestamp_start,
                     timestamp_end=search_input.timestamp_end,
+                    source_type=search_input.source_type,
                 )
             except Exception as e:
                 logger.warning(f"Object ID {oid} search failed: {e}")
                 return []
 
-        es_client = AsyncElasticsearch(
-            hosts=[config.behavior_es_endpoint],
-            request_timeout=30,
-            max_retries=1,
-        )
-        try:
-            with TimeMeasure("search: object_ids behavior KNN"):
-                results_list = await asyncio.gather(*[_safe_object_search(oid) for oid in decomposed.object_ids])
+        with TimeMeasure("search: object_ids behavior KNN"):
+            results_list = await asyncio.gather(*[_safe_object_search(oid) for oid in decomposed.object_ids])
 
-            all_results: list[AttributeSearchResult] = []
-            for obj_results in results_list:
-                all_results.extend(obj_results)
-        finally:
-            await es_client.close()
+        all_results: list[AttributeSearchResult] = []
+        for obj_results in results_list:
+            all_results.extend(obj_results)
 
         # Deduplicate by object_id, keep highest similarity
         seen: dict = {}
@@ -1016,7 +1034,6 @@ async def execute_core_search(
     top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
     original_top_k = top_k
     top_k = top_k * 2
-    min_similarity = search_input.min_cosine_similarity
 
     # Build query_params for embed_search (used by embed-only and fusion paths)
     query_params: dict[str, str] = {"query": search_input.query}
@@ -1033,7 +1050,8 @@ async def execute_core_search(
     if search_input.timestamp_end:
         query_params["timestamp_end"] = search_input.timestamp_end.isoformat()
 
-    query_params["min_cosine_similarity"] = str(search_input.min_cosine_similarity)
+    if not search_input.agent_mode:
+        query_params["min_cosine_similarity"] = str(search_input.min_cosine_similarity)
 
     # Extract attributes list and check if attribute-only (used by both attribute-only and fusion paths)
     attribute_list = []
@@ -1107,7 +1125,7 @@ async def execute_core_search(
                     search_input=search_input,
                     attribute_search_fn=attribute_search_fn,
                     top_k=original_top_k,
-                    min_similarity=min_similarity,
+                    min_similarity=0.0,
                 )
 
             yield AgentMessageChunk(
@@ -1199,7 +1217,7 @@ async def execute_core_search(
                             search_input=search_input,
                             attribute_search_fn=attribute_search_fn,
                             top_k=top_k,
-                            min_similarity=min_similarity,
+                            min_similarity=0.0,
                         )
 
                     yield AgentMessageChunk(
@@ -1570,7 +1588,7 @@ class SearchInput(BaseModel):
 
     min_cosine_similarity: float = Field(
         default=0.0,
-        description="Minimum cosine similarity to filter the results. Default is 0.",
+        description="Minimum cosine similarity to filter non-agent embed-only search results. Default is 0.",
     )
 
     agent_mode: bool = Field(
@@ -1685,16 +1703,22 @@ async def search(config: SearchConfig, _builder: Builder) -> AsyncGenerator[Func
         logger.info(f"Chat response chunk output: {response}")
         return ChatResponseChunk.from_string(_output_converter(response))
 
-    yield FunctionInfo.create(
-        single_fn=_search,
-        description=_search.__doc__,
-        input_schema=SearchInput,
-        single_output_schema=SearchOutput,
-        converters=[
-            _str_input_converter,
-            _chat_request_input_converter,
-            _output_converter,
-            _chat_response_output_converter,
-            _chat_response_chunk_output_converter,
-        ],
-    )
+    try:
+        yield FunctionInfo.create(
+            single_fn=_search,
+            description=_search.__doc__,
+            input_schema=SearchInput,
+            single_output_schema=SearchOutput,
+            converters=[
+                _str_input_converter,
+                _chat_request_input_converter,
+                _output_converter,
+                _chat_response_output_converter,
+                _chat_response_chunk_output_converter,
+            ],
+        )
+    finally:
+        try:
+            await VSSESClient.close_all()
+        except Exception as e:
+            logger.warning(f"Error closing ES clients: {e}")

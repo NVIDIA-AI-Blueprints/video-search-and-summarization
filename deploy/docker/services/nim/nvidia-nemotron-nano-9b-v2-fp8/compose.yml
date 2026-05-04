@@ -16,7 +16,7 @@
 services:
   nvidia-nemotron-nano-9b-v2-fp8-toolcall-init:
     # Fetch toolcall parser from Hugging Face (public repo, no HF_TOKEN required).
-    image: docker.io/alpine/curl:8.12.1
+    image: alpine/curl:8.17.0
     container_name: nvidia-nemotron-nano-9b-v2-fp8-toolcall-init
     profiles:
     - llm_local_nvidia-nemotron-nano-9b-v2-fp8
