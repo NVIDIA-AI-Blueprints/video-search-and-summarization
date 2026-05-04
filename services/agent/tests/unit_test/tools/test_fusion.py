@@ -693,6 +693,43 @@ class TestRunFusion:
         sensor_starts = {(s.sensor_id, s.start) for s in out.segments}
         assert (_D, _ts(_D_500)) not in sensor_starts
 
+    def test_min_fused_score_ratio_ignores_emptied_lists_in_ceiling(self):
+        # Regression: a list emptied by per_space_min_score (or bucketize dedupe)
+        # contributes 0 to every fused score; its weight must NOT count toward
+        # the ceiling, otherwise min_fused_score_ratio over-tightens and drops
+        # legitimate survivors.
+        #
+        # Setup: 2 lists [embed w=1.0, attribute w=1.0] under RRF (k=60).
+        # per_space_min_score wipes the entire attribute list.
+        # The lone embed rank-1 hit fuses to score 1/61 ~= 0.01639.
+        #
+        #   buggy ceiling = (1.0 + 1.0) / 61 = 2/61   -> threshold 0.6 * 2/61 = 1.2/61 -> DROP (1/61 < 1.2/61)
+        #   fixed ceiling = 1.0 / 61         = 1/61   -> threshold 0.6 * 1/61 = 0.6/61 -> KEEP (1/61 > 0.6/61)
+        embed = RankedList(
+            space="embed",
+            weight=1.0,
+            chunks=[_chunk(_W, _W_125, 0.9, 1)],
+        )
+        attribute = RankedList(
+            space="attribute",
+            weight=1.0,
+            chunks=[_chunk(_W, _W_125, 0.5, 1)],
+        )
+        inp = FusionInput(
+            lists=[embed, attribute],
+            chunk_seconds=5,
+            method="rrf",
+            rrf_k=60,
+            per_space_min_score={"attribute": 0.99},
+            min_fused_score_ratio=0.6,
+        )
+        out = run_fusion(inp)
+
+        assert len(out.segments) == 1
+        assert out.segments[0].sensor_id == _W
+        assert out.segments[0].fused_score == pytest.approx(1 / 61)
+        assert out.segments[0].contributing_spaces == ["embed"]
+
     def test_min_contributing_spaces_2_keeps_only_warehouse(self):
         inp = FusionInput(
             lists=[_warehouse_embed_list(), _warehouse_attribute_list()],

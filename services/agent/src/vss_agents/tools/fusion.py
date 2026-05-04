@@ -601,7 +601,13 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
 
     fused = fuse(bucketed, method=inp.method, rrf_k=inp.rrf_k)
 
-    threshold = score_threshold(inp, inp.min_fused_score_ratio) if inp.min_fused_score_ratio is not None else None
+    threshold: float | None = None
+    if inp.min_fused_score_ratio is not None:
+        # Skip empty lists. They contribute 0, so counting their weight inflates the ceiling
+        contributing_weights = [rl.weight for rl in bucketed if rl.chunks]
+        ceiling = _theoretical_ceiling(inp.method, inp.rrf_k, contributing_weights)
+        threshold = ceiling * inp.min_fused_score_ratio
+
     fused = apply_global_filters(
         fused,
         min_contributing_spaces=inp.min_contributing_spaces,
