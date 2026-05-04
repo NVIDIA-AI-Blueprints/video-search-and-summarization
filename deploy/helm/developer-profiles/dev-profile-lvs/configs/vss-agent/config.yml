@@ -210,6 +210,7 @@ functions:
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     video_understanding_tool: video_understanding
     lvs_video_understanding_tool: lvs_video_understanding
+    lvs_stream_understanding_tool: lvs_stream_understanding
     video_url_tool: vst_video_clip
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}

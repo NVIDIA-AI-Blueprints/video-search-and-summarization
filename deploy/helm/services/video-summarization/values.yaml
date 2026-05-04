@@ -56,6 +56,12 @@ env:
     value: "38113"
   - name: GPU_DEVICES
     value: "0"
+  - name: KAFKA_BOOTSTRAP_SERVERS
+    value: "kafka:9092"
+  - name: KAFKA_ENABLED
+    value: "false"
+  - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
+    value: "structured-events-summary"
   - name: LVS_DATABASE_BACKEND
     value: elasticsearch_db
   - name: LVS_DISABLE_DB_RESET_ON_REQUEST_DONE
