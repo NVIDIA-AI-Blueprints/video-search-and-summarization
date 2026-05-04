@@ -14,20 +14,6 @@
 # limitations under the License.
 
 services:
-  sensor-bp-wait-sdr-streaming:
-    image: busybox:1.37.0
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d"]
-    network_mode: host
-    container_name: sensor-bp-wait-sdr-streaming
-    restart: "no"
-    volumes:
-      - ${MDX_SAMPLE_APPS_DIR}/vst/initiator/scripts/sensor-bp-wait-sdr-streaming.sh:/scripts/sensor-bp-wait-sdr-streaming.sh:ro
-    environment:
-      SDR_HTTP_REPLAYSTREAM_PORT: ${SDR_HTTP_REPLAYSTREAM_PORT:-4004}
-      SDR_HTTP_LIVESTREAM_PORT: ${SDR_HTTP_LIVESTREAM_PORT:-4005}
-      SENSOR_BP_WAIT_SDR_STREAM_MAX_SEC: ${SENSOR_BP_WAIT_SDR_STREAM_MAX_SEC:-300}
-    command: ["/bin/sh", "/scripts/sensor-bp-wait-sdr-streaming.sh"]
-
   sensor-bp-wait-bp-configurator:
     image: busybox:1.37.0
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d"]
@@ -35,83 +21,25 @@ services:
     container_name: sensor-bp-wait-bp-configurator
     restart: "no"
     volumes:
-      - ${MDX_SAMPLE_APPS_DIR}/vst/initiator/scripts/sensor-bp-wait-bp-configurator.sh:/scripts/sensor-bp-wait-bp-configurator.sh:ro
+      - ${MDX_SAMPLE_APPS_DIR}/services/vios/initiator/scripts/sensor-bp-wait-bp-configurator.sh:/scripts/sensor-bp-wait-bp-configurator.sh:ro
     environment:
       BP_CONFIGURATOR_READYZ_URL: ${BP_CONFIGURATOR_READYZ_URL:-http://127.0.0.1:5001/readyz}
       SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC: ${SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC:-300}
     command: ["/bin/sh", "/scripts/sensor-bp-wait-bp-configurator.sh"]
 
-  sensor-bp-wait-storage:
-    image: busybox:1.37.0
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d"]
-    network_mode: host
-    container_name: sensor-bp-wait-storage
-    restart: "no"
-    volumes:
-      - ${MDX_SAMPLE_APPS_DIR}/vst/initiator/scripts/sensor-bp-wait-storage.sh:/scripts/sensor-bp-wait-storage.sh:ro
-    environment:
-      STORAGE_HTTP_PORT: ${STORAGE_HTTP_PORT:-30011}
-      SENSOR_BP_WAIT_STORAGE_MAX_SEC: ${SENSOR_BP_WAIT_STORAGE_MAX_SEC:-300}
-    command: ["/bin/sh", "/scripts/sensor-bp-wait-storage.sh"]
-
-  sensor-ms-bp:
+  sensor-ms:
     image: ${VST_SENSOR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles:
+      - bp_developer_base_2d
+      - bp_developer_search_2d
+      - bp_developer_lvs_2d
+      - bp_developer_alerts_2d_cv
+      - bp_developer_alerts_2d_vlm
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
     environment:
-      - ADAPTOR=${VST_ADAPTOR}
-      - NEED_RECORDING=false
-      - NEED_RTSPSERVER=false
-      - NEED_STORAGE=false
-      - NEED_STREAM_MONITORING=true
-      - HTTP_PORT=${SENSOR_HTTP_PORT:-30000}
-      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
-      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
-      - RTSP_SERVER_MODULE_ENDPOINT=${RTSP_SERVER_MODULE_ENDPOINT}
-      - RECORDER_MODULE_ENDPOINT=${RECORDER_MODULE_ENDPOINT}
-      - STORAGE_MODULE_ENDPOINT=${STORAGE_MODULE_ENDPOINT}
-    volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}:/home/vst/vst_release/configs
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/vst_config_${STREAM_TYPE:-redis}.json:/home/vst/vst_release/configs/vst_config.json
-      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
-      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
-    network_mode: host
-    container_name: sensor-ms-bp
-    restart: on-failure    # Restart only if the container exits with non-zero status
-    healthcheck:
-      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
-      timeout: 3s
-      interval: 10s
-      retries: 20
-      start_period: 5s
-    depends_on:
-      redis:
-        condition: service_started
-      centralizedb:
-        condition: service_healthy
-      sdr-http-rtspserver:
-        condition: service_healthy
-        required: false
-      sdr-http-recorder:
-        condition: service_healthy
-        required: false
-      sensor-bp-wait-sdr-streaming:
-        condition: service_completed_successfully
-        required: false
-      sensor-bp-wait-bp-configurator:
-        condition: service_completed_successfully
-        required: false
-
-  sensor-ms-dev:
-    image: ${VST_SENSOR_IMAGE}
-    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
-    user: "0:0"
-    runtime: nvidia
-    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
-    environment:
-      - ADAPTOR=${VST_ADAPTOR}
+      - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
       - NEED_RECORDING=false
       - NEED_RTSPSERVER=false
       - NEED_STORAGE=false
@@ -121,22 +49,111 @@ services:
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}:/home/vst/vst_release/configs
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/vst/configs}/vst_config_${STREAM_TYPE:-redis}.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
     network_mode: host
     container_name: vss-vios-sensor
     restart: on-failure    # Restart only if the container exits with non-zero status
     healthcheck:
-      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/${HTTP_PORT:-30000}'"]
-      interval: 10s
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
       timeout: 3s
+      interval: 10s
       retries: 20
       start_period: 5s
     depends_on:
       centralizedb:
         condition: service_healthy
+      sensor-bp-wait-bp-configurator:
+        condition: service_completed_successfully
+        required: false
+      sdr-streamprocessing:
+        condition: service_started
+      envoy-streamprocessing:
+        condition: service_started
+
+  sensor-ms-2d:
+    image: ${VST_SENSOR_IMAGE}
+    profiles:
+      - bp_wh_kafka_2d
+      - bp_wh_redis_2d
+      - bp_wh_2d
+    user: "0:0"
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      - NEED_RECORDING=false
+      - NEED_RTSPSERVER=false
+      - NEED_STORAGE=false
+      - NEED_STREAM_MONITORING=true
+      - HTTP_PORT=${SENSOR_HTTP_PORT:-30000}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+    network_mode: host
+    container_name: vss-vios-sensor
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
+      timeout: 3s
+      interval: 10s
+      retries: 20
+      start_period: 5s
+    depends_on:
+      centralizedb:
+        condition: service_healthy
+      sensor-bp-wait-bp-configurator:
+        condition: service_completed_successfully
+        required: false
+      sdr-streamprocessing:
+        condition: service_started
+      envoy-streamprocessing:
+        condition: service_started
+
+  sensor-ms-3d:
+    image: ${VST_SENSOR_IMAGE}
+    profiles:
+      - bp_wh_kafka_3d
+      - bp_wh_redis_3d
+    user: "0:0"
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      - NEED_RECORDING=false
+      - NEED_RTSPSERVER=false
+      - NEED_STORAGE=false
+      - NEED_STREAM_MONITORING=true
+      - HTTP_PORT=${SENSOR_HTTP_PORT:-30000}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+    network_mode: host
+    container_name: vss-vios-sensor
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
+      timeout: 3s
+      interval: 10s
+      retries: 20
+      start_period: 5s
+    depends_on:
+      centralizedb:
+        condition: service_healthy
+      sensor-bp-wait-bp-configurator:
+        condition: service_completed_successfully
+        required: false
       sdr-streamprocessing:
         condition: service_started
       envoy-streamprocessing:

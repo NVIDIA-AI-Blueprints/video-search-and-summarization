@@ -1,0 +1,5 @@
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $esH := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+{{- $kafkaH := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx -}}
+{"server":{"port":8081,"configs":[{"name":"postBodySizeLimit","value":"50mb"},{"name":"amrRetentionInSec","value":"3"},{"name":"inSimulationMode","value":"false"}]},"elasticsearch":{"node":"{{ .Values.elasticsearchNode | default (printf "http://%s:9200" $esH) }}","indexPrefix":"mdx-","rawIndex":"mdx-raw-*"},"kafka":{"brokers":["{{ .Values.kafkaBrokers | default (printf "%s:9092" $kafkaH) }}"]}}

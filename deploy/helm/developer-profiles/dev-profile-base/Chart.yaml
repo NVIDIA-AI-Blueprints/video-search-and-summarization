@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v2
+name: vss
+description: "VSS stack - Helm chart for developer profiles - base"
+type: application
+version: 26.04.2
+appVersion: "1.0"
+dependencies:
+  - name: infra
+    version: 26.04.2
+    repository: "file://../../services/infra"
+    condition: infra.enabled
+  - name: vios
+    version: 26.04.2
+    repository: "file://../../services/vios"
+    condition: vios.enabled
+  - name: agent
+    version: 26.04.2
+    repository: "file://../../services/agent"
+    condition: agent.enabled
+  - name: vss-agent-ui
+    version: 26.04.2
+    repository: "file://../../services/ui"
+    condition: vss-agent-ui.enabled
+  - name: nims
+    version: 26.04.2
+    repository: "file://../../services/nims"
+    condition: nims.enabled
+maintainers: []

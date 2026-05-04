@@ -99,6 +99,48 @@ class TestSearchInner:
         assert result.data[0].similarity == 0.95
 
     @pytest.mark.asyncio
+    async def test_non_agent_embed_search_passes_min_cosine_similarity(self, config, mock_builder):
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "camera1.mp4",
+                    "similarity_score": 0.95,
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:30:00Z",
+                }
+            ]
+        )
+        inner_fn = await self._get_inner_fn(config, mock_builder, embed_output)
+
+        inp = SearchInput(query="find cars", source_type="video_file", agent_mode=False, min_cosine_similarity=0.7)
+        result = await inner_fn(inp)
+
+        assert isinstance(result, SearchOutput)
+        embed_input = json.loads(mock_builder.get_function.return_value.ainvoke.call_args.args[0])
+        assert embed_input["params"]["min_cosine_similarity"] == "0.7"
+
+    @pytest.mark.asyncio
+    async def test_agent_mode_request_min_cosine_similarity_not_forwarded(self, config, mock_builder):
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "camera1.mp4",
+                    "similarity_score": 0.95,
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:30:00Z",
+                }
+            ]
+        )
+        inner_fn = await self._get_inner_fn(config, mock_builder, embed_output)
+
+        inp = SearchInput(query="find cars", source_type="video_file", agent_mode=True, min_cosine_similarity=0.7)
+        result = await inner_fn(inp)
+
+        assert isinstance(result, SearchOutput)
+        embed_input = json.loads(mock_builder.get_function.return_value.ainvoke.call_args.args[0])
+        assert "min_cosine_similarity" not in embed_input["params"]
+
+    @pytest.mark.asyncio
     async def test_search_with_video_sources(self, config, mock_builder):
         embed_output = _make_embed_output_with_results(
             [
@@ -245,6 +287,71 @@ class TestSearchInner:
         assert isinstance(result, SearchOutput)
 
     @pytest.mark.asyncio
+    async def test_search_agent_mode_rtsp_keeps_video_source_name_for_attribute_search(self, mock_builder, monkeypatch):
+        """RTSP agent-mode search must preserve camera names for attribute_search filters."""
+        from vss_agents.tools import search as search_module
+
+        config = SearchConfig(
+            embed_search_tool="embed_search",
+            attribute_search_tool="attribute_search",
+            agent_mode_llm="gpt-4o",
+            vst_internal_url="http://localhost:30888",
+        )
+
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = EmbedSearchOutput(query_embedding=[], results=[])
+
+        mock_attribute_search = AsyncMock()
+        mock_attribute_search.ainvoke.return_value = []
+
+        async def _get_function(tool_name):
+            if tool_name == "embed_search":
+                return mock_embed
+            if tool_name == "attribute_search":
+                return mock_attribute_search
+            raise AssertionError(f"Unexpected tool lookup: {tool_name}")
+
+        mock_builder.get_function.side_effect = _get_function
+
+        mock_llm = AsyncMock()
+        mock_llm_response = MagicMock()
+        mock_llm_response.content = json.dumps(
+            {
+                "query": "room with glass door",
+                "video_sources": ["video1"],
+                "attributes": ["room with glass door"],
+                "has_action": False,
+            }
+        )
+        mock_llm.ainvoke.return_value = mock_llm_response
+        mock_builder.get_llm.return_value = mock_llm
+
+        async def _fake_get_streams_info(_vst_url):
+            return {
+                "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c": {
+                    "name": "video1",
+                    "url": "rtsp://example.com/live/7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c",
+                }
+            }
+
+        monkeypatch.setattr(search_module, "get_streams_info", _fake_get_streams_info)
+
+        gen = search.__wrapped__(config, mock_builder)
+        function_info = await gen.__anext__()
+        inner_fn = function_info.single_fn
+
+        inp = SearchInput(
+            query="a room with glass door in video1",
+            source_type="rtsp",
+            agent_mode=True,
+        )
+        result = await inner_fn(inp)
+
+        assert isinstance(result, SearchOutput)
+        mock_attribute_search.ainvoke.assert_awaited_once()
+        assert mock_attribute_search.ainvoke.await_args.args[0]["video_sources"] == ["video1"]
+
+    @pytest.mark.asyncio
     async def test_search_agent_mode_json_code_block(self, config, mock_builder):
         embed_output = _make_embed_output_with_results(
             [
@@ -305,6 +412,8 @@ class TestSearchInner:
         inp = SearchInput(query="test", source_type="video_file", agent_mode=True)
         result = await inner_fn(inp)
         assert isinstance(result, SearchOutput)
+        embed_input = json.loads(mock_embed.ainvoke.call_args.args[0])
+        assert "min_cosine_similarity" not in embed_input["params"]
 
     @pytest.mark.asyncio
     async def test_search_agent_mode_invalid_json(self, config, mock_builder):
@@ -467,8 +576,8 @@ class TestSearchInner:
         assert len(result.data) == 1
 
     @pytest.mark.asyncio
-    async def test_search_agent_mode_with_min_cosine_similarity(self, config, mock_builder):
-        """Test agent mode extracting min_cosine_similarity."""
+    async def test_search_agent_mode_ignores_deprecated_min_cosine_similarity(self, config, mock_builder):
+        """Test agent mode ignores deprecated min_cosine_similarity."""
         embed_output = _make_embed_output_with_results(
             [
                 {
@@ -530,7 +639,6 @@ class TestSearchInner:
                 "query": "test",
                 "timestamp_start": "invalid-date",
                 "timestamp_end": "also-invalid",
-                "min_cosine_similarity": "not-a-number",
             }
         )
         mock_llm.ainvoke.return_value = mock_llm_response

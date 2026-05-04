@@ -1,0 +1,9 @@
+dependencies:
+- name: vss-behavior-analytics
+  repository: file://./charts/behavior-analytics
+  version: 26.04.2
+- name: vss-video-analytics-api
+  repository: file://./charts/video-analytics-api
+  version: 26.04.2
+digest: sha256:c19c3127bdf77fd70da9c6229b05af1d6092a9457fae815fa6b3623032a27dc9
+generated: "2026-04-20T18:59:24.395279+05:30"

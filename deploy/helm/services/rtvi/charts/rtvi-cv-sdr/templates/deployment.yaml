@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $redisH := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+{{- $kafkaH := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+{{- $vstIng := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss-rtvi-cv-sdr.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-rtvi-cv-sdr
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-rtvi-cv-sdr
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-rtvi-cv-sdr
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ .Values.serviceAccount.name | default (include "vss-rtvi-cv-sdr.fullname" .) }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if and .Values.initContainers (ne false .Values.initContainers.enabled) }}
+      initContainers:
+        - name: wait-redis
+          image: {{ .Values.initContainers.image | default "busybox:1.37.0" }}
+          command: ['sh', '-c', 'until nc -z -w 2 {{ .Values.redisHost | default $redisH }} {{ .Values.redisPort | default "6379" }}; do echo "Waiting for Redis..."; sleep 2; done']
+        - name: wait-vss-rtvi-cv
+          image: {{ .Values.initContainers.image | default "busybox:1.37.0" }}
+          command: ['sh', '-c', 'until nc -z -w 2 {{ .Values.perceptionAlertsService | default "vss-rtvi-cv" }} {{ .Values.k8sHeadlessPodPort | default "9010" }}; do echo "Waiting for vss-rtvi-cv..."; sleep 2; done']
+      {{- end }}
+      containers:
+        - name: vss-rtvi-cv-sdr
+          image: {{ include "vss-rtvi-cv-sdr.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c", "/wdm/dist/sdr"]
+          env:
+            - name: OTEL_SDK_DISABLED
+              value: "true"
+            - name: PORT
+              value: {{ .Values.service.port | quote }}
+            - name: VST_STATUS_ENDPOINT
+              value: {{ .Values.vstStatusEndpoint | default (printf "%s/vst/api/v1/sensor/status" $vstIng) | quote }}
+            - name: VST_STREAMS_ENDPOINT
+              value: {{ .Values.vstStreamsEndpoint | default (printf "%s/vst/api/v1/live/streams" $vstIng) | quote }}
+            {{- if not .Values.k8sHeadlessBaseDomain }}
+            # Only set when NOT using headless discovery (SDR uses StatefulSet API or cluster config file).
+            - name: WDM_CLUSTER_CONFIG_FILE
+              value: {{ if eq .Values.clusterType "kubernetes" }}/wdm-configs/kubernetes_cluster_config.json{{ else }}/wdm-configs/docker_cluster_config.json{{ end }}
+            {{- end }}
+            # WDM_CLUSTER_TYPE: "k8s-headless" = DNS via WDM_K8S_HEADLESS_BASE_DOMAIN; "k8s" = StatefulSet API; "docker" = Docker.
+            - name: WDM_CLUSTER_TYPE
+              value: {{ if and (eq .Values.clusterType "kubernetes") .Values.k8sHeadlessBaseDomain }}k8s-headless{{ else if eq .Values.clusterType "kubernetes" }}k8s{{ else }}docker{{ end }}
+            - name: WDM_CLUSTER_CONTAINER_NAMES
+              value: '["vss-rtvi-cv"]'
+            - name: WDM_CLEAR_DATA_WL
+              value: {{ .Values.wdmClearDataWl | quote }}
+            - name: WDM_CONSUMER_GRP_ID
+              value: {{ .Values.wdmConsumerGrpId | quote }}
+            - name: WDM_DISABLE_WERKZEUG_LOGGING
+              value: {{ .Values.wdmDisableWerkzeugLogging | quote }}
+            - name: WDM_DS_STATUS_CHECK
+              value: {{ .Values.wdmDsStatusCheck | quote }}
+            - name: WDM_DS_SWAP_ID_NAME
+              value: {{ .Values.wdmDsSwapIdName | quote }}
+            - name: WDM_INITIALIZE_FROM_VST
+              value: {{ .Values.wdmInitializeFromVst | quote }}
+            - name: WDM_KFK_ENABLE
+              value: {{ .Values.wdmKfkEnable | quote }}
+            {{- $kafkaBootstrap := .Values.kafkaBootstrapServers | default (printf "%s:9092" $kafkaH) }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ $kafkaBootstrap | quote }}
+            - name: WDM_MSG_KEY
+              value: {{ .Values.wdmMsgKey | quote }}
+            - name: WDM_PRELOAD_DELAY_FOR_DS_API
+              value: {{ .Values.wdmPreloadDelayForDsApi | quote }}
+            - name: WDM_PRELOAD_WORKLOAD
+              value: {{ .Values.wdmPreloadWorkload | quote }}
+            - name: WDM_RESTART_DS_ON_ADD_FAIL
+              value: {{ .Values.wdmRestartDsOnAddFail | quote }}
+            - name: WDM_VALIDATE_BEFORE_ADD
+              value: {{ .Values.wdmValidateBeforeAdd | quote }}
+            - name: WDM_WL_ADD_URL
+              value: {{ .Values.wdmWlAddUrl | quote }}
+            - name: WDM_WL_CHANGE_ID_ADD
+              value: {{ .Values.wdmWlChangeIdAdd | quote }}
+            - name: WDM_WL_DELETE_URL
+              value: {{ .Values.wdmWlDeleteUrl | quote }}
+            - name: WDM_WL_HEALTH_CHECK_URL
+              value: {{ .Values.wdmWlHealthCheckUrl | quote }}
+            - name: WDM_WL_OBJECT_NAME
+              value: {{ .Values.wdmWlObjectName | quote }}
+            # Port on the workload pod for /api/v1/stream/add. Without this the app defaults to 5000; vss-rtvi-cv listens on 9010.
+            - name: WDM_WL_CONFIG_PORT
+              value: {{ .Values.k8sHeadlessPodPort | default "9010" | quote }}
+            - name: WDM_WL_REDIS_MSG_FIELD
+              value: {{ .Values.wdmWlRedisMsgField | quote }}
+            - name: WDM_WL_SPEC
+              value: {{ .Values.wdmWlSpec | quote }}
+            - name: WDM_WL_THRESHOLD
+              value: {{ .Values.wdmWlThreshold | quote }}
+            {{- $redisHost := .Values.redisHost | default $redisH }}
+            - name: REDIS_HOST
+              value: {{ $redisHost | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.redisPort | quote }}
+            - name: REDIS_URL
+              value: {{ printf "redis://%s:%s" $redisHost .Values.redisPort | quote }}
+            - name: WDM_WL_REDIS_SERVER
+              value: {{ $redisHost | quote }}
+            - name: WDM_WL_REDIS_PORT
+              value: {{ .Values.redisPort | quote }}
+            {{- if and (eq .Values.clusterType "kubernetes") .Values.k8sHeadlessBaseDomain }}
+            # Headless discovery: SDR uses DNS (WDM_CLUSTER_TYPE=k8s-headless). Do not set NAMESPACE so app uses pod namespace (match vss-vios-sdr).
+            - name: WDM_K8S_HEADLESS_BASE_DOMAIN
+              value: {{ .Values.k8sHeadlessBaseDomain | quote }}
+            - name: WDM_K8S_HEADLESS_DEFAULT_POD_PORT
+              value: {{ .Values.k8sHeadlessPodPort | default "9010" | quote }}
+            - name: WDM_TARGET_PORT_MAPPING
+              value: {{ printf "{\"default\": %s}" (.Values.k8sHeadlessPodPort | default "9010") | quote }}
+            {{- else }}
+            # Non-headless: port for workload pod. SDR looks up by pod name (e.g. vss-rtvi-cv-0). Without this, app defaults to 5000 and vss-rtvi-cv listens on 9010 → connection refused.
+            - name: WDM_TARGET_PORT_MAPPING
+              value: {{ printf "{\"vss-rtvi-cv-0\": %s}" (.Values.k8sHeadlessPodPort | default "9010") | quote }}
+            {{- end }}
+            {{- if and (eq .Values.clusterType "kubernetes") (not .Values.k8sHeadlessBaseDomain) }}
+            # K8s API mode: API server at kubernetes.default.svc; NAMESPACE for list_namespaced_* (where vss-rtvi-cv runs).
+            - name: KUBERNETES_HOST
+              value: {{ .Values.kubernetesHost | default "kubernetes.default.svc" | quote }}
+            - name: KUBERNETES_PORT
+              value: {{ .Values.kubernetesPort | default "443" | quote }}
+            - name: NAMESPACE
+              value: {{ .Values.wdmNamespace | default .Release.Namespace | quote }}
+            {{- else if ne .Values.clusterType "kubernetes" }}
+            - name: NAMESPACE
+              value: {{ .Values.wdmNamespace | default .Release.Namespace | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /wdm-configs
+              {{- if .Values.k8sHeadlessBaseDomain }}
+              # Headless: no cluster config; emptyDir so path exists
+              {{- else }}
+              readOnly: true
+              {{- end }}
+            - name: wdm-data
+              mountPath: /wdm-data
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: config
+          {{- if .Values.k8sHeadlessBaseDomain }}
+          emptyDir: {}
+          {{- else }}
+          configMap:
+            name: {{ include "vss-rtvi-cv-sdr.fullname" . }}-config
+          {{- end }}
+        - name: wdm-data
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

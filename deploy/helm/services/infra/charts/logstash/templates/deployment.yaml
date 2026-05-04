@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "logstash.fullname" . }}
+  labels:
+    {{- include "logstash.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "logstash.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: logstash
+  template:
+    metadata:
+      labels:
+        {{- include "logstash.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: logstash
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              KAFKA="{{ include "logstash.kafkaBootstrap" . }}"
+              HOST="${KAFKA%%:*}"
+              PORT="${KAFKA##*:}"
+              echo "Waiting for Kafka at $KAFKA..."
+              until nc -z "$HOST" "$PORT" 2>/dev/null; do
+                echo "Kafka not ready, retrying in 10s..."
+                sleep 10
+              done
+              echo "Kafka is ready."
+        - name: wait-for-elasticsearch
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Elasticsearch..."
+              until wget -q -O- "{{ include "logstash.elasticsearchUrl" . }}/_cluster/health" > /dev/null 2>&1; do
+                echo "Elasticsearch not ready, retrying in 10s..."
+                sleep 10
+              done
+              echo "Elasticsearch is ready."
+      containers:
+        - name: logstash
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - bash
+            - -c
+            - |
+              echo "STREAM_TYPE=$STREAM_TYPE"
+              if [ "$STREAM_TYPE" = "kafka" ]; then
+                echo "Installing protobuf codec plugin..."
+                /usr/share/logstash/bin/logstash-plugin install logstash-codec-protobuf || true
+              fi
+              exec /usr/local/bin/docker-entrypoint
+          env:
+            - name: LS_JAVA_OPTS
+              value: {{ .Values.javaOpts | quote }}
+            - name: STREAM_TYPE
+              value: {{ .Values.streamType | quote }}
+          ports:
+            - name: beats
+              containerPort: 5044
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: logstash-config
+              mountPath: /usr/share/logstash/config/logstash.yml
+              subPath: logstash.yml
+              readOnly: true
+            - name: logstash-config
+              mountPath: /usr/share/logstash/pipeline/logstash.conf
+              subPath: mdx-kafka-logstash.conf
+              readOnly: true
+            - name: logstash-libs
+              mountPath: /opt/logstash-data-libs
+            - name: pb-definitions
+              mountPath: /opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
+              subPath: schema_pb.rb
+            - name: pb-definitions
+              mountPath: /opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
+              subPath: ext_pb.rb
+      volumes:
+        - name: logstash-config
+          configMap:
+            name: {{ include "logstash.fullname" . }}-logstash-config
+        - name: logstash-libs
+          persistentVolumeClaim:
+            claimName: {{ include "logstash.fullname" . }}-logstash-libs
+        - name: pb-definitions
+          configMap:
+            name: {{ include "logstash.fullname" . }}-pb-definitions
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "logstash.fullname" . }}-logstash-libs
+  labels:
+    {{- include "logstash.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.libs.size }}

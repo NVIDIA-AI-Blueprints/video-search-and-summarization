@@ -1,0 +1,136 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) on
+# every push to a pull-request/<N> mirror branch that touches anything
+# under skills/ or the eval harness. See .github/skill-eval/AGENTS.md
+# for the agent's system prompt and behaviour.
+
+name: Skills Eval
+
+on:
+  # No top-level `paths:` filter: GitHub evaluates `paths:` against the
+  # diff of the *pushed commits*, not the cumulative PR diff against
+  # base. That silently skipped the workflow when CPR-bot updated a
+  # mirror branch with a merge commit that didn't itself touch
+  # skills/** (observed: PR #188's mirror push was a develop-merge
+  # carrying only RTVI files, so skills-eval never fired even though
+  # the PR's full diff touches 16 skills/ files). The path gate is now
+  # done inside the job by `dorny/paths-filter`, which diffs the
+  # cumulative head...base range.
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+# Only one eval runs per PR at a time. A fresh push cancels the in-flight
+# run (lock on /tmp/brev/<id>.lock will be released by the agent's trap).
+concurrency:
+  group: skills-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  eval:
+    name: Eval changed skills against PR
+    runs-on: [self-hosted, vss-eval]
+
+    # 1 hour hard cap on the whole job. The agent targets ~40m plus a 5m
+    # post-eval wait before brev teardown; 60m gives a margin.
+    timeout-minutes: 60
+
+    # Extra safety: only run on the mirror branches, never on develop/main.
+    if: startsWith(github.ref, 'refs/heads/pull-request/')
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # agent needs full history to diff against base
+
+      - name: Extract PR number + base
+        id: pr
+        run: |
+          REF="${{ github.ref_name }}"         # "pull-request/100"
+          PR="${REF##pull-request/}"
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          # Query the source PR for its base branch (never hardcode develop).
+          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+        env:
+          # Repo-scoped token from the workflow context is fine for `gh pr view`.
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Detect relevant changes vs PR base
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          base: ${{ steps.pr.outputs.base }}
+          filters: |
+            relevant:
+              - 'skills/**'
+              - '.github/skill-eval/**'
+              - '.github/workflows/skills-eval.yml'
+
+      - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          # The runner lives on vss-skill-validator; the coordinator keeps
+          # its secrets in a single .env file there. Don't echo contents.
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
+          # Safety: Anthropic path for claude-agent-sdk in the trial + judge.
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+
+      - name: Run skills eval agent
+        id: agent
+        if: steps.changes.outputs.relevant == 'true'
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env   # re-source; GH step env is isolated
+          set +a
+          export PR_NUMBER="${{ steps.pr.outputs.number }}"
+          export PR_BASE="${{ steps.pr.outputs.base }}"
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          export GH_TOKEN="${GITHUB_TOKEN}"
+          # `.github` isn't a valid Python package prefix, so we expose the
+          # harness via PYTHONPATH. `envs.brev_env:BrevEnvironment` is what
+          # `uvx harbor run --environment-import-path` expects.
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          python3 .github/skill-eval/skills_eval_agent.py
+
+      - name: Collect results for workflow artifact
+        if: always() && steps.changes.outputs.relevant == 'true'
+        run: |
+          # Agent writes harbor output to /tmp/skill-eval/results/<run_id>/
+          # (runtime-only; not tracked under the repo). Blocker paths
+          # (missing_platforms_declaration, missing_probe, etc.) finish
+          # without producing a results dir — that's a success, not a failure.
+          if [ ! -d /tmp/skill-eval/results ]; then
+            echo "no results dir — agent blocked before running trials (expected for blocker outcomes)"
+            exit 0
+          fi
+          RESULTS=$(find /tmp/skill-eval/results -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          if [ -n "$RESULTS" ]; then
+            tar czf /tmp/skills-eval-results.tar.gz -C /tmp/skill-eval results
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files"
+          else
+            echo "results dir exists but empty — nothing to archive"
+          fi
+
+      - name: Upload results artifact
+        if: always() && steps.changes.outputs.relevant == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-results-pr-${{ steps.pr.outputs.number }}-${{ github.run_id }}
+          path: /tmp/skills-eval-results.tar.gz
+          if-no-files-found: ignore
+          retention-days: 7

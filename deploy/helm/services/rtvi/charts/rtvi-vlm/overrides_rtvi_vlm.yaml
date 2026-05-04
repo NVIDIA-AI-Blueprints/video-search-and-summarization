@@ -1,0 +1,127 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Standalone install example: VLM model loads in this pod (useSharedNim: false).
+# Prerequisites in the target namespace:
+#   - docker-registry secret for nvcr.io (e.g. nvcr-pull-secret)
+#   - generic secret for NGC_API_KEY (e.g. ngc-api, key NGC_API_KEY)
+#
+#   helm upgrade --install vss-rtvi-vlm . -n <ns> -f values-standalone.yaml
+#
+
+enabled: true
+
+useSharedNim: false
+# NGC NIM model artifact path inside the vss-rtvi-vlm container (see deployment template when useSharedNim is false)
+modelPath: "git:https://huggingface.co/nvidia/Cosmos3-Reasoner-8B-Private"
+
+waitForKafka:
+  enabled: false
+
+hfTokenSecret:
+  name: hf-token-secret
+  key: HF_TOKEN
+
+global:
+  useReleaseNamePrefix: false
+  imagePullSecrets:
+    - name: ngc-image-pull-secret
+  ngcApiSecret:
+    name: ngc-api
+    key: NGC_API_KEY
+
+# No external Kafka/Redis:
+# - KAFKA_ENABLED=false disables Kafka publishing in app config
+# - ENABLE_REDIS_ERROR_MESSAGES=false keeps Redis-backed error messages off
+# Note: chart still injects KAFKA_BOOTSTRAP_SERVERS/REDIS_* env vars, so set loopback placeholders.
+kafkaBootstrapServers: "127.0.0.1:9092"
+redisHost: "127.0.0.1"
+redisPort: "6379"
+
+# Keep this list minimal for standalone. Template still injects built-in env:
+# KAFKA_BOOTSTRAP_SERVERS, REDIS_*, MODEL_PATH, NGC_API_KEY, VIA_VLM_API_KEY.
+env:
+  - name: OPENAI_API_KEY
+    value: "NOAPIKEYSET"
+  - name: OPENAI_API_VERSION
+    value: ""
+  - name: NVIDIA_API_KEY
+    value: "NOAPIKEYSET"
+  - name: NVIDIA_VISIBLE_DEVICES
+    value: "all"
+  - name: VLM_MODEL_TO_USE
+    value: "cosmos-reason3"
+  - name: KAFKA_ENABLED
+    value: "false"
+  # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)
+  - name: KAFKA_TOPIC
+    value: "mdx-vlm"
+  - name: KAFKA_INCIDENT_TOPIC
+    value: "mdx-vlm-incidents"
+  - name: ERROR_MESSAGE_TOPIC
+    value: "vision-llm-errors"
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: ENABLE_OTEL_MONITORING
+    value: "false"
+  - name: ENABLE_REDIS_ERROR_MESSAGES
+    value: "false"
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://otel-collector:4318"
+  - name: OTEL_METRIC_EXPORT_INTERVAL
+    value: "60000"
+  - name: OTEL_RESOURCE_ATTRIBUTES
+    value: ""
+  - name: OTEL_TRACES_EXPORTER
+    value: "otlp"
+  - name: NUM_GPUS
+    value: "1"
+  - name: NUM_VLM_PROCS
+    value: ""
+  - name: MODEL_IMPLEMENTATION_PATH
+    value: ""
+  - name: HF_TOKEN
+    value: ""
+  - name: INSTALL_PROPRIETARY_CODECS
+    value: "false"
+  - name: FORCE_SW_AV1_DECODER
+    value: ""
+  - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
+    value: ""
+  - name: RTVI_EXTRA_ARGS
+    value: ""
+  - name: RTVI_RTSP_LATENCY
+    value: ""
+  - name: RTVI_RTSP_TIMEOUT
+    value: ""
+  - name: RTVI_RTSP_RECONNECTION_INTERVAL
+    value: "5"
+  - name: RTVI_RTSP_RECONNECTION_WINDOW
+    value: "60"
+  - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
+    value: "10"
+  - name: VLLM_GPU_MEMORY_UTILIZATION
+    value: ""
+  - name: VLM_BATCH_SIZE
+    value: ""
+  - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
+    value: "30"
+  - name: VLM_INPUT_WIDTH
+    value: ""
+  - name: VLM_INPUT_HEIGHT
+    value: ""
+  - name: VLM_SYSTEM_PROMPT
+    value: ""
+  - name: VSS_NUM_GPUS_PER_VLM_PROC
+    value: ""
+  - name: VSS_SKIP_INPUT_MEDIA_VERIFICATION
+    value: ""
+  # Enable native audio for Omni models
+  - name: VLM_MODEL_SUPPORTS_AUDIO
+    value: "false"
+  # Required for Nemotron Nano Omni models.
+  - name: VLM_TRUST_REMOTE_CODE
+    value: "false"
+  # EVS pruning rate 0.0-1.0.
+  - name: VLM_VIDEO_PRUNING_RATE
+    value: "0.0"

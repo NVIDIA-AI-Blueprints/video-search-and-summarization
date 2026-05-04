@@ -523,10 +523,16 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   }, []);
 
   const alertsControlsReadyCallback = React.useCallback((handlers: AlertsSidebarControlHandlers) => {
-    if (!alertsHandlersSetRef.current) {
-      alertsHandlersSetRef.current = true;
-      setAlertsControlHandlers(handlers);
-    }
+    alertsHandlersSetRef.current = true;
+    setAlertsControlHandlers((prev: AlertsSidebarControlHandlers | null) => {
+      // AlertsComponent's onControlsReady effect has 16 deps and refires often
+      // (auto-refresh toggle, time-window change, etc.). ModeControlsSection
+      // only reads `controlsComponent` from this object, and that field is
+      // useMemo'd downstream — so skip the state update unless the rendered
+      // JSX actually changed. Avoids cascading Home re-renders into every tab.
+      if (prev && prev.controlsComponent === handlers.controlsComponent) return prev;
+      return handlers;
+    });
   }, []);
 
   const searchControlsReadyCallback = React.useCallback((handlers: SearchSidebarControlHandlers) => {
@@ -682,6 +688,9 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.onControlsReady = isActive ? videoManagementControlsReadyCallback : undefined;
       componentProps.registerChatAnswerHandler = registerVideoManagementTabChatAnswer;
       componentProps.registerSidebarChatEventSubscriber = registerVideoManagementTabSidebarChatEvents;
+      componentProps.addChatQueryContext = (item: QueryDataContext) => {
+        appSidebarAddQueryContextRef.current?.(item);
+      };
     }
 
     return (

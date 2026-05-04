@@ -11,26 +11,79 @@
 import React, { useEffect } from 'react';
 import { VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
 
-// Types
-import { AlertsComponentProps, FilterType, VlmVerdict, VLM_VERDICT, isValidVlmVerdict } from './types';
-
-// Hooks
+import {
+  AlertsComponentProps,
+  FilterType,
+  VlmVerdict,
+  VLM_VERDICT,
+  isValidVlmVerdict,
+  AlertsView,
+} from './types';
 import { useAlerts } from './hooks/useAlerts';
 import { useFilters } from './hooks/useFilters';
 import { useTimeWindow } from './hooks/useTimeWindow';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
 import { useSessionState, parseIntRange } from './hooks/useSessionState';
 import { useSessionFilterState } from './hooks/useSessionFilterState';
-
-// Components
 import { FilterTag } from './components/FilterTag';
 import { AlertsTable } from './components/AlertsTable';
 import { FilterControls } from './components/FilterControls';
-import { AlertsSidebarControls } from './components/AlertsSidebarControls';
+import { Controls, ALERTS_VIEW_PANEL_ID } from './components/Controls';
+import { CreateAlertRulesView, triggerRealtimeAddDraft } from './components/CreateAlertRulesView';
+
+const readSessionState = <T,>(key: string, fallback: T): T => {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (raw == null) return fallback;
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    console.warn(`Failed to load ${key} from sessionStorage:`, error);
+    return fallback;
+  }
+};
 
 /**
- * Filter colors configuration - moved outside component to avoid recreation on every render
+ * SSR-safe sessionStorage-backed useState. The state is initialized to the
+ * provided default (so server and client first render match) and then hydrated
+ * from sessionStorage in a one-shot effect after mount. This avoids React's
+ * "Expected server HTML to contain a matching ..." hydration warnings when
+ * the persisted value differs from the default.
  */
+function useSessionPersistedState<T>(
+  key: string,
+  defaultValue: T,
+  transform: (raw: T) => T = (raw) => raw,
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [value, setValue] = React.useState<T>(defaultValue);
+  // `hydrated` must be state (not a ref) so flipping it triggers a re-render
+  // *after* the hydration effect's setValue has been applied. The persist
+  // effect then runs with the actual stored value rather than the still-stale
+  // default — otherwise it would write the default back to storage on mount.
+  const [hydrated, setHydrated] = React.useState(false);
+
+  React.useEffect(() => {
+    const stored = readSessionState<T | null>(key, null);
+    if (stored !== null) {
+      setValue(transform(stored));
+    }
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  React.useEffect(() => {
+    if (!hydrated) return;
+    if (typeof window === 'undefined') return;
+    try {
+      sessionStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.warn(`Failed to save ${key} to sessionStorage:`, error);
+    }
+  }, [key, value, hydrated]);
+
+  return [value, setValue];
+}
+
 const FILTER_COLORS = {
   sensors: {
     dark: { bg: 'bg-transparent', border: 'border border-green-500', text: 'text-green-400', hover: 'hover:text-green-300' },
@@ -59,11 +112,14 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   alertsData,
   serverRenderTime,
   renderControlsInLeftSidebar = false,
-  onControlsReady
+  onControlsReady,
+  submitChatMessage,
 }) => {
   const isDark = theme === 'dark';
-  
-  // Session-persisted UI states (reads from sessionStorage in useState initializer)
+
+  // Primitive session-persisted state. `useSessionState` reads sessionStorage
+  // synchronously in the useState initializer; React 18 patches the DOM if the
+  // stored value differs from the SSR default.
   const [vlmVerified, setVlmVerified] = useSessionState<boolean>(
     'alertsTabVlmVerified', alertsData?.defaultVlmVerified ?? true,
     (s) => s === 'true' ? true : s === 'false' ? false : null,
@@ -76,8 +132,41 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     'alertsTabTimeFormat', 'local',
     (s) => s === 'local' || s === 'utc' ? s : null,
   );
-  
-  // Time window management
+
+  // Alerts sub-view (View Alerts vs Manage Alerts). Uses deferred hydration
+  // because this drives a top-level branch in the JSX — reading sessionStorage
+  // synchronously would produce different SSR vs first-client trees and trip
+  // React's hydration mismatch warning.
+  const [alertsView, setAlertsView] = useSessionPersistedState<AlertsView>(
+    'alertsTabView',
+    'view',
+  );
+
+  // Switch into the create view and append a new draft row. The realtime tab
+  // owns its draft list, so we delegate via a module-level bridge. If the tab
+  // hasn't mounted yet (sidebar click from View mode), retry on subsequent
+  // animation frames until the bridge is wired up — bounded so we don't spin
+  // forever if CreateAlertRulesView fails to mount for some reason.
+  const handleAddNewAlertRule = React.useCallback(() => {
+    setAlertsView('create');
+    if (triggerRealtimeAddDraft()) return;
+
+    const MAX_ATTEMPTS = 10;
+    let attempts = 0;
+    let rafId = 0;
+    const tick = () => {
+      if (triggerRealtimeAddDraft()) return;
+      attempts += 1;
+      if (attempts >= MAX_ATTEMPTS) return;
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    // The retry chain self-terminates on success or after MAX_ATTEMPTS;
+    // `rafId` is captured here only so a future caller can cancel if needed.
+    void rafId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const {
     timeWindow,
     setTimeWindow,
@@ -94,9 +183,9 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     maxSearchTimeLimit: alertsData?.maxSearchTimeLimit
   });
 
-  // Extract API URLs and config from alertsData
   const apiUrl = alertsData?.apiUrl;
   const vstApiUrl = alertsData?.vstApiUrl;
+  const alertsApiUrl = alertsData?.alertsApiUrl;
   const defaultMaxResults = alertsData?.maxResults ?? 100;
   const defaultPageSize = alertsData?.pageSize ?? 20;
   const alertReportPromptTemplate = alertsData?.alertReportPromptTemplate;
@@ -105,14 +194,12 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   const [pageSize, setPageSize] = useSessionState('alertsTabPageSize', defaultPageSize, parseIntRange(1, 500));
   const [maxResults, setMaxResults] = useSessionState('alertsTabMaxResults', defaultMaxResults, parseIntRange(10, 5000));
 
-  // Active filters state - persisted to sessionStorage so filters survive refreshes.
   const [activeFilters, setActiveFilters] = useSessionFilterState(FILTERS_STORAGE_KEY);
 
   /** Incremented when "Show more" succeeds so AlertsTable resets column sort but keeps current page. */
   const [loadMoreCompletionCount, setLoadMoreCompletionCount] = React.useState(0);
 
-  // Custom hooks for data and functionality
-  // Pass activeFilters to useAlerts for server-side filtering via queryString
+  // `activeFilters` is forwarded to useAlerts for server-side queryString filtering.
   const {
     alerts,
     loading,
@@ -146,8 +233,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     }
   }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
   
-  // useFilters now uses external state management
-  // sensorList from API is used for sensors dropdown instead of accumulating from data
+  // `useFilters` is driven by external state; sensors dropdown reads from the
+  // API-provided sensorList rather than accumulating from data.
   const { addFilter, removeFilter, filteredAlerts, uniqueValues } = useFilters({
     alerts,
     externalFilters: activeFilters,
@@ -191,35 +278,20 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     isActive: true,
   });
 
-  // Memoize the controls component to prevent unnecessary re-renders
   const controlsComponent = React.useMemo(
     () => (
-      <AlertsSidebarControls
+      <Controls
         isDark={isDark}
-        vlmVerified={vlmVerified}
-        timeWindow={timeWindow}
-        autoRefreshEnabled={autoRefreshEnabled}
-        autoRefreshInterval={autoRefreshInterval}
-        onVlmVerifiedChange={setVlmVerified}
-        onTimeWindowChange={setTimeWindow}
-        onRefresh={refetch}
-        onAutoRefreshToggle={toggleAutoRefresh}
+        alertsView={alertsView}
+        onAlertsViewChange={setAlertsView}
+        onAddNewAlertRule={handleAddNewAlertRule}
       />
     ),
-    [
-      isDark,
-      vlmVerified,
-      timeWindow,
-      autoRefreshEnabled,
-      autoRefreshInterval,
-      setVlmVerified,
-      setTimeWindow,
-      refetch,
-      toggleAutoRefresh,
-    ]
+    [isDark, alertsView, setAlertsView, handleAddNewAlertRule],
   );
 
-  // Provide control handlers to parent if external rendering is enabled
+  // Push control handlers to the parent whenever relevant state changes so
+  // the externally-rendered sidebar stays in sync with this component.
   useEffect(() => {
     if (onControlsReady && renderControlsInLeftSidebar) {
       onControlsReady({
@@ -229,23 +301,60 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         autoRefreshEnabled,
         autoRefreshInterval,
         refreshControlsSuspended: false,
+        alertsView,
         onVlmVerifiedChange: setVlmVerified,
         onTimeWindowChange: setTimeWindow,
         onRefresh: refetch,
         onAutoRefreshToggle: toggleAutoRefresh,
+        onAlertsViewChange: setAlertsView,
+        onAddNewAlertRule: handleAddNewAlertRule,
         controlsComponent,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     onControlsReady,
     renderControlsInLeftSidebar,
+    isDark,
+    vlmVerified,
+    timeWindow,
+    autoRefreshEnabled,
+    autoRefreshInterval,
+    alertsView,
+    refetch,
+    toggleAutoRefresh,
+    handleAddNewAlertRule,
+    setVlmVerified,
+    setTimeWindow,
+    setAlertsView,
     controlsComponent,
   ]);
+
+  if (alertsView === 'create') {
+    return (
+      <div
+        data-testid="alerts-component"
+        id={ALERTS_VIEW_PANEL_ID.create}
+        role="tabpanel"
+        aria-labelledby="alerts-tab-create"
+        className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'}`}
+      >
+        <CreateAlertRulesView
+          isDark={isDark}
+          activeKind="real-time"
+          onAddNew={handleAddNewAlertRule}
+          alertsApiUrl={alertsApiUrl}
+          vstApiUrl={vstApiUrl}
+        />
+      </div>
+    );
+  }
 
   return (
     <div 
       data-testid="alerts-component"
+      id={ALERTS_VIEW_PANEL_ID.view}
+      role="tabpanel"
+      aria-labelledby="alerts-tab-view"
       className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'}`}
     >
       {/* Header with Filters */}
@@ -342,6 +451,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           onLoadMore={handleTableLoadMore}
           loadMoreCompletionCount={loadMoreCompletionCount}
           autoRefreshEnabled={autoRefreshEnabled}
+          submitChatMessage={submitChatMessage}
         />
       </div>
 

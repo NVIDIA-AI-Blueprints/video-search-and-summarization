@@ -1,0 +1,253 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: false
+  front_end:
+    _type: vss_fastapi
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      enable_videos_for_search: true
+      enable_rtsp_streams: true
+      enable_video_delete: true
+      # storage in place when an RTSP stream is removed.
+      delete_vst_storage_on_stream_remove: false
+      rtvi_embed_base_url: ${RTVI_EMBED_BASE_URL}
+      rtvi_embed_model: {{ .Values.rtviEmbedModel | default "cosmos-embed1-448p" }}
+      rtvi_embed_chunk_duration: 5
+      rtvi_cv_base_url: ${RTVI_CV_BASE_URL}
+      vlm_mode: ${VLM_MODE}
+      internal_ip: ${INTERNAL_IP}
+      external_ip: ${EXTERNAL_IP}
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
+      rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+    - path: /api/v1/search
+      method: POST
+      description: "Search for a video by query"
+      function_name: search
+    - path: /api/v1/attribute_search
+      method: POST
+      description: "Search for objects by visual attributes"
+      function_name: attribute_search
+    - path: /api/v1/embed_search
+      method: POST
+      description: "Direct embedding search (bypasses agent)"
+      function_name: embed_search
+    - path: /api/v1/critic
+      method: POST
+      description: "Score video clips with critic agent"
+      function_name: critic_agent
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: DEV-SEARCH-vss-agent-${VSS_AGENT_VERSION}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: "${AGENT_BASE_URL}"
+
+  search:
+    _type: search
+    embed_search_tool: embed_search
+    attribute_search_tool: attribute_search
+    agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
+    use_attribute_search: true
+    critic_agent: critic_agent
+    enable_critic: {{- if hasKey .Values.global "enableCritic" }} {{ .Values.global.enableCritic }}{{- else }} true{{- end }}
+    search_max_iterations: 1
+    default_max_results: 10
+    vst_internal_url: ${VST_INTERNAL_URL}
+    embed_confidence_threshold: 0.1
+    behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+
+  search_agent:
+    _type: search_agent
+    embed_search_tool: embed_search
+    attribute_search_tool: attribute_search
+    agent_mode_llm: ${LLM_MODEL_TYPE:-nim}_llm
+    use_attribute_search: true
+    vst_internal_url: ${VST_INTERNAL_URL}
+    embed_confidence_threshold: 0.1
+    critic_agent: critic_agent
+    enable_critic: {{- if hasKey .Values.global "enableCritic" }} {{ .Values.global.enableCritic }}{{- else }} true{{- end }}
+    search_max_iterations: 1
+    default_max_results: 10
+    behavior_es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    time_format: offset
+
+  embed_search:
+    _type: embed_search
+    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    es_index: ${ELASTIC_SEARCH_INDEX}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    default_max_results: 100
+
+  attribute_search:
+    _type: attribute_search
+    rtvi_cv_endpoint: ${RTVI_CV_BASE_URL}
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    behavior_index: mdx-behavior-2025-01-01
+    frames_index: mdx-raw-2025-01-01
+    enable_frame_lookup: false
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  critic_agent:
+    _type: critic_agent
+    max_concurrent_verifications: 5
+    num_videos_to_evaluate: 5
+    video_analysis_tool: video_understanding
+    time_format: offset
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 60
+    max_fps: 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_clip
+    time_format: offset
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${INTERNAL_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+llms:
+  # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
+  nim_llm:
+    _type: nim
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  openai_llm:
+    _type: openai
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
+  nim_vlm:
+    _type: nim
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  openai_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  vllm_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+workflow:
+  _type: top_agent
+  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  llm_reasoning: false
+  max_iterations: 20
+  max_history: 10
+  subagent_names:
+  - search_agent
+  prompt: |
+    You are a video search assistant. Use the search_agent to find videos matching user queries.
+    The search_agent can handle questions related to events, actions, objects and videos.
+    It supports both natural language video search and object ID based search.
+
+    The search_agent decomposes the user's query and automatically selects the best search strategy:
+    - Attribute-only search: when the query describes visual attributes without
+      an action (e.g., "red car", "person", "blue jacket")
+    - Embed-only search: when no specific visual attributes can be extracted
+      (e.g., "traffic scene")
+    - Fusion search: when the query contains both an action and visual
+      attributes (e.g., "person wearing red jacket running"), combining
+      embedding similarity with attribute matching
+    - Object ID search: when object IDs are mentioned in the query
+      (e.g., "find objects similar to ID 5" or "search for object ids 10, 20"),
+      this bypasses embed/attribute search and performs direct object embedding lookup.
+
+    When a user asks to search, call the search_agent with:
+    Required:
+    - query: The user's search query (pass it as-is, including any object IDs or video/stream names mentioned).
+      The search_agent's query decomposition automatically extracts video source names
+      and stream names from the query text — do not filter these out.
+    - agent_mode: always set to true (enables query decomposition)
+    - use_attribute_search: always set to true (enables fusion reranking)
+    - use_critic: always set to true (verify results with VLM critic agent)
+    Optional:
+    - max_results: Number of final results to return to the user (default: 5)
+    - top_k: Number of internal candidates to fetch before reranking (default: 10)
+    - start_time: Leave as None unless the user provides explicit timestamps or time references.
+      The search_agent's query decomposition handles time extraction from natural language
+      (e.g., "between 1pm and 2pm"), so include time references in the query text instead.
+      Uses absolute timestamps in ISO format with 2025-01-01 as the base date.
+    - end_time: Leave as None unless the user provides explicit timestamps or time references.
+
+    Directly return the entire search result to user, no filtering or summarization.
+
+    Conversation history guidelines:
+    - Always call search_agent for any search query, even if it looks similar
+      to a previous one. Do NOT answer search queries from conversation history.
+      This includes paraphrased queries, refined queries, queries mentioning
+      object IDs, and requests to adjust search parameters (e.g., more results,
+      different time range).
+    - For follow-up requests that adjust a previous search, re-trigger search_agent
+      using the original query from conversation history with the adjusted parameters.
+      Example:
+      - User: "find person in red shirt running"
+      - User: "narrow it down to between 1pm and 2pm"
+      - New call: query="person in red shirt running between 1pm and 2pm"
+    - Only use conversation history to answer follow-up questions about previous
+      results that do not require a new search (e.g., "what was the max similarity
+      score?", "which video had the highest match?", "show me the timestamps").

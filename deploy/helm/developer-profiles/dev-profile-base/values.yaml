@@ -1,0 +1,434 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VSS parent chart — default values. End users install with: helm install vss . -f values-base.yaml -n vss --create-namespace
+#
+# Deployments/Services use the subchart name by default (e.g. vss-agent), not <release>-<chart>.
+# To restore old naming for a subchart, set: <subchart>.useReleaseNamePrefix: true
+# You can still force a concrete name with: <subchart>.fullnameOverride or <subchart>.nameOverride.
+
+profile: base
+mode: ""
+llmNameSlug: ""
+vlmNameSlug: ""
+
+# NGC: when using nvcr.io images, set ngc.createSecrets and ngc.apiKey (or use -f values-ngc-secrets.yaml).
+# Chart creates ngc-api + ngc-secret when createSecrets is true; you must still set global.imagePullSecrets.
+ngc:
+  createSecrets: true
+  apiKey: ""
+  # apiKeySecretName: "ngc-api"
+  # dockerSecretName: "ngc-secret"
+
+# Set global.imagePullSecrets when using a private registry (e.g. nvcr.io). Set global.storageClass for PVCs.
+# When using NGC (or copy from values-ngc-secrets.example.yaml):
+global:
+  # When true, all subcharts default to <release>-<chart> naming again.
+  # Per-subchart <subchart>.useReleaseNamePrefix overrides this value.
+  useReleaseNamePrefix: false
+  # Optional: must match vss-vios-postgres Service / *-postgres-cm name when vss-vios-postgres.fullnameOverride is set (sensor & streamprocessing cannot read that subchart's values).
+  postgresServiceHost: ""
+  imagePullSecrets:
+    - name: ngc-secret
+  ngcApiSecret:
+    name: ngc-api
+    key: NGC_API_KEY
+  # When subchart URL/host fields are empty, vss-agent-ui / vss-agent / vss-vios-ingress use these to build URLs (scheme defaults to http if unset).
+  # For default http/https ports (80/443), keep externalPort "" so URLs omit :port; set a port only when not using the default.
+  externalScheme: ""
+  externalHost: ""
+  externalPort: ""
+  # Remote NIM: optional single place for vss-agent (and any chart that reads global). Umbrella coalesces agent.vss-agent.* first, then these keys.
+  llmBaseUrl: ""
+  vlmBaseUrl: ""
+  llmName: ""
+  vlmName: ""
+# global.storageClass set in values-base.yaml
+
+# External access: set global.externalScheme / externalHost / externalPort in values-base.yaml (no separate baseUrl key — templates build URLs from global).
+
+# Core VSS stack subcharts enabled by default (base profile). Disable selectively as needed.
+# Image repository/tag/pullPolicy and default replicas live in each subchart: charts/<name>/values.yaml (override from your values file only when needed).
+infra:
+  enabled: true
+  phoenix:
+    enabled: true
+    # Serve Phoenix behind ingress path prefix (http://<host>/phoenix).
+    env:
+      - name: PHOENIX_HOST_ROOT_PATH
+        value: "/phoenix"
+  redis:
+    enabled: true
+
+# VIOS / VST shared charts (helm/services/vios umbrella). Per-service values: vios.<chart-key>.*
+# Required: vios.enabled — parent Chart.yaml condition: vios.enabled. If this is missing/false, Helm installs no VIOS subcharts (no postgres, sensor, ingress, …).
+vios:
+  enabled: true
+  # Shared VST PVCs (rendered by helm/services/vios/templates/vst-storage-pvc.yaml). Optional: false → emptyDir unless subcharts create claims.
+  vstStorage:
+    createSharedPvcs: true
+    accessMode: ReadWriteOnce
+    vstData:
+      size: 10Gi
+      storageClass: ""
+    vstVideo:
+      size: 20Gi
+      storageClass: ""
+    streamerVideos:
+      size: 20Gi
+      storageClass: ""
+  vss-vios-postgres:
+    enabled: true
+    # storage.data.size / storageClass: see subchart or override
+
+  vss-vios-envoy-proxy:
+    enabled: true
+
+  vss-vios-sdr:
+    enabled: true
+    # clusterType: kubernetes (default) uses K8s API; no Docker socket. Set to "docker" only if mounting host docker.sock.
+
+  vss-vios-sensor:
+    enabled: true
+    # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+
+  vss-vios-streamprocessing:
+    enabled: true
+    # Video upload media info (duration/codec) needs libav/ffmpeg in the image. Subchart sets VST_INSTALL_ADDITIONAL_PACKAGES=true so user_additional_install.sh runs at startup if present in image; override env if needed.
+    # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video / -vst-streamer-videos (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+      streamerVideos: { enabled: true, create: false, existingClaim: "" }
+
+  vss-vios-ingress:
+    enabled: true
+    # Empty: uses global.externalHost, then 127.0.0.1
+    externallyAccessibleIp: ""
+
+  vss-vios-mcp:
+    enabled: true
+
+# Optional: HAProxy Kubernetes Ingress controller (upstream chart). Set haproxyingress.enabled true to deploy the controller.
+haproxyingress:
+  enabled: false
+  controller:
+    kind: DaemonSet
+    service:
+      enabled: false
+    daemonset:
+      useHostPort: true
+      hostPorts:
+        http: 80
+        https: 443
+
+# Optional: base-profile Ingress (ingressClassName: haproxy).
+vssIngress:
+  enabled: false
+  # Kubernetes Ingress metadata.name; empty = vss-ingress (not prefixed with release name).
+  resourceName: ""
+  # Ingress class on the cluster (e.g. haproxy, nginx).
+  ingressClassName: haproxy
+  # If empty, uses global.externalHost (set in values-base.yaml for external installs).
+  host: ""
+  vssUiPort: 3000
+  vssAgentPort: 8000
+  # Match vss-vios-ingress service port (30888).
+  vstIngressPort: 30888
+  # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
+  # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)
+  # only if you also want a separate dedicated Phoenix host rule.
+  phoenixHost: ""
+  phoenixPort: 6006
+
+agent:
+  enabled: true
+  vss-agent:
+    enabled: true
+    # Agent config files live at configs/vss-agent/config.yml (and optional config_edge.yml); see configs/vss-agent/README.md.
+    mountConfigEdge: true
+    mountEvalOutput: true
+    # Remote URLs / model ids: prefer global.* (values-base / LVS). Non-empty values here override global.
+    llmBaseUrl: ""
+    vlmBaseUrl: ""
+    llmName: ""
+    vlmName: ""
+    evalLlmJudgeName: ""   # default in subchart: same as llmName
+    evalLlmJudgeBaseUrl: "" # default in subchart: same as llmBaseUrl
+    # Empty: vss-agent deployment uses global.external* then in-cluster defaults (see global.externalScheme / externalHost / externalPort).
+    reportsBaseUrl: ""
+    vstExternalUrl: ""
+    externalIp: ""
+    # vss-agent: explicit container env (Option B). Same keys as services/agent/charts/agent defaults; override here per install if needed.
+
+    env:
+      - name: VSS_AGENT_CONFIG_FILE
+        value: '{{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}'
+      - name: VSS_AGENT_HOST
+        value: '0.0.0.0'
+      - name: VSS_AGENT_PORT
+        value: '8000'
+      - name: LLM_MODE
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
+      - name: VLM_MODE
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $vlm }}remote{{- else }}local{{- end }}'
+      - name: LLM_MODEL_TYPE
+        value: nim
+      - name: VLM_MODEL_TYPE
+        value: nim
+      - name: VSS_AGENT_OBJECT_STORE_TYPE
+        value: local_object_store
+      - name: EXTERNAL_IP
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{ coalesce .Values.externalIp $eh "127.0.0.1" }}'
+      - name: INTERNAL_IP
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $viosIng := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalIp $viosIng }}'
+      - name: HOST_IP
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $viosIng := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalIp $viosIng }}'
+      - name: LVS_BACKEND_URL
+        value: ''
+      - name: RTVI_EMBED_PORT
+        value: ''
+      - name: RTVI_CV_PORT
+        value: ''
+      - name: VSS_ES_PORT
+        value: ''
+      - name: VST_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstBaseUrl .Values.vstExternalUrl $globalBase $vstHttp }}'
+      - name: VIDEO_ANALYSIS_MCP_URL
+        value: '{{- if (trim (.Values.videoAnalysisMcpUrl | default "")) }}{{ trim .Values.videoAnalysisMcpUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-va-mcp" .Release.Name) "vss-va-mcp" $pfx }}{{- printf "http://%s:9901" $host -}}{{- end }}'
+      - name: RTVI_VLM_BASE_URL
+        value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
+      - name: NVIDIA_API_KEY
+        value: ''
+      - name: OPENAI_API_KEY
+        value: ''
+      - name: COSMOS_EMBED_ENDPOINT
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-embed:8000" .Release.Name) "http://vss-rtvi-embed:8000" $pfx }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
+      - name: ELASTIC_SEARCH_ENDPOINT
+        value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
+      - name: ELASTIC_SEARCH_INDEX
+        value: '{{ .Values.elasticsearchIndex | default "" }}'
+      - name: PHOENIX_ENDPOINT
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
+      - name: LLM_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+      - name: VLM_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := ((coalesce (.Values.vlmBaseUrl | default "") ((index $g "vlmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+      - name: VST_EXTERNAL_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+      - name: VST_INTERNAL_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalUrl $vstHttp }}'
+      - name: VST_MCP_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-vios-mcp:8001" .Release.Name) "http://vss-vios-mcp:8001" $pfx }}{{ coalesce .Values.vstMcpUrl $def }}'
+      - name: LLM_NAME
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
+      - name: VLM_NAME
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos-reason2-8b") }}'
+      - name: EVAL_LLM_JUDGE_NAME
+        value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
+      - name: EVAL_LLM_JUDGE_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+      - name: VSS_AGENT_REPORTS_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.reportsBaseUrl (ternary (printf "%s/static/" $globalBase) "" (ne $globalBase "")) (printf "%s/static/" $vssAgentHttp) }}'
+      - name: VSS_AGENT_EXTERNAL_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+      - name: AGENT_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+      - name: VSS_AGENT_VERSION
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9388d6486f30" }}'
+vss-agent-ui:
+  enabled: true
+  # Empty URL fields: deployment uses global.external* then in-cluster defaults.
+  # Base-profile NEXT_PUBLIC_* defaults (former configs/vss-agent-ui/static-env.yaml).
+  agentApiUrlBase: ""
+  vstApiUrl: ""
+  chatCompletionUrl: ""
+  websocketChatUrl: ""
+  envOverrides:
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERT_REPORT_PROMPT_TEMPLATE
+      value: 'Generate a report for incident {incidentId} with sensor id {sensorId}.'
+    - name: NEXT_PUBLIC_ALERTS_TAB_DEFAULT_AUTO_REFRESH_IN_MILLISECONDS
+      value: "1000"
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_DEFAULT_TIME_WINDOW_IN_MINUTES
+      value: "10"
+    - name: NEXT_PUBLIC_ALERTS_TAB_ALERTS_FETCH_MAX_RESULT_SIZE
+      value: "100"
+    - name: NEXT_PUBLIC_ALERTS_TAB_MAX_SEARCH_TIME_LIMIT
+      value: "0"
+    - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
+      value: "true"
+    - name: NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT
+      value: "false"
+    - name: NEXT_PUBLIC_APP_TITLE
+      value: "VSS BLUEPRINT"
+    - name: NEXT_PUBLIC_APP_SUBTITLE
+      value: "Vision (Base)"
+    - name: NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
+      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
+    - name: NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON
+      value: "true"
+    - name: NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON
+      value: "{}"
+    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE
+      value: "true"
+    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE
+      value: "Let's show the videos just uploaded {filenames}?"
+    - name: NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_DARK_THEME_DEFAULT
+      value: "true"
+    - name: NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL
+      value: ""
+    - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
+      value: "false"
+    - name: NEXT_PUBLIC_ENABLE_CHAT_TAB
+      value: "false"
+    - name: NEXT_PUBLIC_ENABLE_DASHBOARD_TAB
+      value: "false"
+    - name: NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS
+      value: "true"
+    - name: NEXT_PUBLIC_ENABLE_MAP_TAB
+      value: "false"
+    - name: NEXT_PUBLIC_ENABLE_SEARCH_TAB
+      value: "false"
+    - name: NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB
+      value: "true"
+    - name: NEXT_PUBLIC_INTERACTION_MODAL_CANCEL_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_MAP_URL
+      value: ""
+    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+      value: ""
+    - name: NEXT_PUBLIC_RIGHT_MENU_OPEN
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
+      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON
+      value: "true"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_COPY_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_EDIT_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_MESSAGE_SPEAKER_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE
+      value: "true"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_METADATA_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_DARK_THEME_DEFAULT
+      value: "true"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_INTERMEDIATE_STEPS
+      value: "true"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
+      value: "false"
+    - name: NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR
+      value: "true"
+    - name: NEXT_PUBLIC_CHAT_SIDEBAR_OPEN_DEFAULT
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_SIDE_CHATBAR_COLLAPSED
+      value: "true"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON
+      value: "true"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
+      value: "VSS Agent"
+    - name: NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX
+      value: "true"
+    - name: NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON
+      value: "false"
+    - name: NEXT_PUBLIC_SIDE_CHATBAR_COLLAPSED
+      value: "true"
+    - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE
+      value: "false"
+    - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE
+      value: "true"
+    - name: NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON
+      value: "true"
+    - name: NEXT_PUBLIC_WORKFLOW
+      value: "VSS Agent"
+
+# NIM models — shared umbrella helm/services/nims (Nemotron Nano 9B v2 + Cosmos Reason2 8B). Set nims.enabled false to skip all NIM CRDs.
+nims:
+  enabled: true
+  gpuType: H100
+  global:
+    pullSecretName: ngc-secret
+    authSecretName: ngc-api
+    storageClass: ""
+  nemotron:
+    enabled: true
+    image:
+      repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
+      tag: "1"
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+      requests:
+        nvidia.com/gpu: "1"
+    storage:
+      pvc:
+        storageClass: ""
+        size: 120Gi
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+  cosmos:
+    enabled: true
+    image:
+      repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
+      tag: "1.6.0"
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+      requests:
+        nvidia.com/gpu: "1"
+    storage:
+      pvc:
+        storageClass: ""
+        size: 120Gi
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    env:
+      CUDA_VISIBLE_DEVICES: "0"
+      NIM_KVCACHE_PERCENT: "0.75"
+      NIM_MAX_MODEL_LEN: "16384"
+      NIM_LOW_MEMORY_MODE: "true"

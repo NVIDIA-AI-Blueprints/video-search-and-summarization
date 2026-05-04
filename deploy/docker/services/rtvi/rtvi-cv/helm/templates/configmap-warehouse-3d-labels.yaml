@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if eq (include "rtvi-cv.warehouseMode" .) "3d" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rtvi-cv.fullname" . }}-warehouse-3d-labels
+  labels:
+    {{- include "rtvi-cv.labels" . | nindent 4 }}
+data:
+  labels.txt: |
+{{ .Files.Get "files/warehouse-3d/deepstream/label/labels.txt" | nindent 4 }}
+{{- end }}

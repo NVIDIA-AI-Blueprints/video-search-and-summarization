@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvidia/vss-core/vss-long-video-summarization:3.1.0}
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc1-d3e1a8f}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
@@ -81,7 +81,16 @@ services:
       - VLM_INPUT_WIDTH=${VLM_INPUT_WIDTH:-1312}
       - VLM_INPUT_HEIGHT=${VLM_INPUT_HEIGHT:-736}
 
+      # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
+      - USE_RTVI_VLM=${USE_RTVI_VLM:-false}
+      - RTVI_VLM_URL=${RTVI_VLM_URL:-}
+      - RTVI_VLM_URL_PASSTHROUGH=true
+
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+
+    # Alternative: Load all variables from .env file
+    env_file:
+      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/.env
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-38111}/v1/ready"]
