@@ -277,7 +277,7 @@ agent:
       - name: LLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $llm := (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $vlm := (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
       - name: VST_EXTERNAL_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VST_INTERNAL_URL
@@ -436,7 +436,7 @@ rtvi:
     vstStreamsEndpoint: ""
   vss-rtvi-vlm:
     enabled: false
-    useSharedNim: true
+    useSharedNim: false
     kafkaBootstrapServers: ""
     redisHost: ""
 
@@ -493,7 +493,7 @@ nims:
         operator: Exists
         effect: NoSchedule
   cosmos:
-    enabled: true
+    enabled: false
     image:
       repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
       tag: "1.6.0"
