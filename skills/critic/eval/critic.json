@@ -1,0 +1,43 @@
+{
+  "skills": ["critic"],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["remote-all"]
+      }
+    }
+  },
+  "env": "A **full-remote deployed VSS search profile** (deploy mode = `remote-all`; GPU host; LLM and VLM via remote launchpad; Cosmos Embed1 + Elasticsearch for any prior search). The **critic** skill requires the dedicated `POST /api/v1/critic` route in `config.yml` (e.g. `dev-profile-search`) — base / LVS / alerts profiles do not expose it by default. Required: VSS agent at `http://localhost:8000/docs` with `/api/v1/critic` in OpenAPI, VST at `http://localhost:30888/vst/api/v1`, Elasticsearch at `http://localhost:9200` when search is part of the flow, Brev secure-link env vars (BREV_ENV_ID, BREV_LINK_PREFIX) where URLs are externalized, AND all sample videos downloaded from `ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.1.0` then extracted with `tar -xzvf` then pre-ingested by curling the videos-for-search API for each video curl -X PUT http://localhost:8000/api/v1/videos-for-search/<filename.mp4> -H 'Content-Type: video/mp4' --data-binary @/path/to/video.mp4",
+  "expects": [
+    {
+      "query": "Verify with the critic the segment 00:01:48.5 → 00:01:58.3 in sample warehouse ladder video for the query 'Person wearing a white shirt'. Agent backend is on localhost.",
+      "checks": [
+        "The agent listed available video sources via a `GET http://localhost:30888/vst/api/v1/sensor/list` (or equivalent VST list) call",
+        "It derived the correct `sensor_id` for the critic from the available video sources",
+        "It converted the timestamps to ISO 8601 UTC format (e.g. `2025-08-25T03:05:55Z`) for the critic",
+        "The agent issued one `POST http://localhost:8000/api/v1/critic` for verification with this `sensor_id`, the correct timestamps and the correct query",
+        "The /api/v1/critic response returned HTTP 200 with a body containing a non-empty `video_results` array. The criteria met are all true. The criteria inferred by the VLM all correspond strictly to the user query",
+        "The agent's final reply is a structured report titled `Critic Verification` with clear section headers — not raw JSON, not a casual chat list. The report concludes this segment is corresponds to the user query, all critic criteria met are true",
+        "The agent did NOT call `PUT /api/v1/videos-for-search/...` during this step — the warehouse video was already ingested"
+      ]
+    },
+    {
+      "query": "First search the warehouse_sample video for forklifts using the video search skill, then run the VLM critic on the top 3 hits to verify them against the query 'forklifts in the warehouse'. Agent backend is on localhost.",
+      "checks": [
+        "The agent issued exactly one `POST http://localhost:8000/generate` for the search step and exactly one `POST http://localhost:8000/api/v1/critic` for verification — no parallel `POST /generate` hedging, no parallel or duplicate `POST /api/v1/critic` calls",
+        "The `POST /api/v1/critic` request body is `application/json` and includes a `query` field whose value paraphrases or contains the evaluation target (`forklifts` / warehouse forklift activity) and a `videos` array with at least one object whose `sensor_id` is a VST UUID and whose `start_timestamp` / `end_timestamp` are ISO 8601 UTC (e.g. `2025-08-25T03:05:55Z`)",
+        "The /api/v1/critic response returned HTTP 200 with a body containing a non-empty `video_results` array. The criteria inferred by the VLM all correspond strictly to the user query. One of the video results has some criteria met true and is confirmed.",
+        "The agent's final reply is a structured report titled `Critic Verification` with clear section headers — not raw JSON, not a casual chat list. The report concludes that a segment is confirmed.",
+        "The agent did NOT call `PUT /api/v1/videos-for-search/...` during this step — the warehouse video was already ingested"
+      ]
+    },
+    {
+      "query": "Verify with the critic the segment 00:01:48.5 → 00:01:58.3 of the sample-warehouse-ladder video for the query 'grey cat running'. Agent backend is on localhost.",
+      "checks": [
+        "The agent issued one `POST http://localhost:8000/api/v1/critic` for verification with this `sensor_id`, the correct timestamps and the correct query",
+        "The /api/v1/critic response returned HTTP 200 with a body containing a non-empty `video_results` array. The criteria met are all false. The criteria inferred by the VLM all correspond strictly to the user query.",
+        "The agent's final reply is a structured report titled `Critic Verification` with clear section headers — not raw JSON, not a casual chat list. The report concludes this segment does not correspond to the user query, all critic criteria met are false"
+      ]
+    }
+  ]
+}
