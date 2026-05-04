@@ -747,10 +747,16 @@ separate; don't conflate the two.
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
 - **Mandatory final marker.** Your last printed line MUST start with
-  either `DONE:` or `BLOCKED:`. The Python wrapper checks for this
-  and **fails the workflow with exit code 4** if neither appears —
-  so a workflow that "completed successfully" but didn't reach a
-  verdict is treated as a real failure (it isn't a green ✓ anymore).
+  either `DONE:` or `BLOCKED:`. The Python wrapper exit-codes are:
+    - `DONE:`     → exit 0 → green ✓ (eval ran end-to-end)
+    - `BLOCKED:`  → exit 5 → red ✗ (clean blocker; the PR check
+                   stays red until the operator/contributor resolves
+                   the blocker, e.g. provisions pool capacity)
+    - neither    → exit 4 → red ✗ (silent giveup — protocol failure)
+  Both BLOCKED and the silent-giveup case fail the workflow. The
+  difference is signal: BLOCKED carries a PR comment explaining what
+  was missing; exit 4 does not. A green ✓ now means the eval actually
+  ran the trials.
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
     - `DONE: 2/3 specs passed; 1 spec failed (rt-vlm/step-2 reward=0.83)`
@@ -759,6 +765,8 @@ separate; don't conflate the two.
   If you ran trials, you MUST also have called `gh pr comment
   $PR_NUMBER` with the per-batch results before printing
   `DONE:` — otherwise the contributor sees no signal on their PR.
+  When emitting `BLOCKED:`, post a PR comment first so the
+  contributor sees the blocker even though the workflow is red.
 - Don't tear down or `brev stop` / `brev delete` any instance. The
   `vss-eval-*` pool is operator-managed and stays warm across runs.
 

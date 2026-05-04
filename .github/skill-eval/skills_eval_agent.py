@@ -26,10 +26,14 @@ Env (set by the workflow step):
     BREV_ENV_ID      Set by Brev on the coordinator host; part of secure-link URLs
 
 Exit codes:
-    0 - agent completed (eval may still report failures in PR comment)
+    0 - DONE: agent completed (eval may still report failures in PR comment)
     1 - setup error (missing env, AGENTS.md not found, sdk install failed)
     2 - agent crashed
     3 - agent hit max_turns without finishing
+    4 - protocol failure: agent ended without DONE: or BLOCKED: marker
+    5 - BLOCKED: clean blocker reported (no pool member, csp_unavailable,
+        rate limit, etc.); workflow fails so the PR check gates merge
+        until the blocker is resolved
 """
 from __future__ import annotations
 
@@ -206,8 +210,15 @@ line starting with `BLOCKED:` followed by the reason.
     # green check. Treat that as a real failure with exit code 4.
     summary = "\n".join(final_text[-10:])
     if "BLOCKED:" in summary:
-        print("[agent] reported blocker", file=sys.stderr)
-        return 0   # blocker is a valid outcome, not a crash
+        # BLOCKED is a clean, intentional outcome — the agent posted a
+        # PR comment explaining what's missing — but we exit non-zero
+        # so the PR check stays red and gates merge until the operator
+        # (or contributor) resolves the blocker. A green ✓ on a run
+        # that didn't actually evaluate the changes was confusing
+        # contributors into thinking CI had blessed their PR.
+        print("[agent] reported blocker — failing workflow to gate merge",
+              file=sys.stderr)
+        return 5
     if "DONE:" in summary:
         return 0
     print(
