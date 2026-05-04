@@ -23,6 +23,9 @@ services:
     volumes:
       - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
     command: python3 apps/dev_example/main_dev_example_app.py --config /resources/vss-behavior-analytics-config.json
 
   nvstreamer-alerts:

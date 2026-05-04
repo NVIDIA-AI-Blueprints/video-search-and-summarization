@@ -27,6 +27,9 @@ services:
       - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
       - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
     container_name: vss-behavior-analytics
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
     command: python3 apps/spatial_analytics/main_spatial_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
 
   vss-behavior-analytics-playback-2d:
