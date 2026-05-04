@@ -93,6 +93,7 @@ services:
       WDM_CONSUMER_GRP_ID: sdr-perception-cg
       WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
       WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv"]'
+      WDM_REAPPLY_ON_WL_RESTART: true
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -107,7 +108,7 @@ services:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
-      SEND_CONFIG_TO_SDR: true
+      SEND_CONFIG_TO_SDR: false
       CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/$CONFIGURATOR_CONFIG_FILE
       HARDWARE_PROFILE: $HARDWARE_PROFILE
@@ -166,23 +167,6 @@ services:
       retries: 30
       start_period: 60s
 
-  ds-configurator-2d:
-    image: nvcr.io/nvstaging/vss-core/vss-rt-config-adaptor:3.2-2026.04.27
-    network_mode: "host"
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d"]
-    container_name: vss-rtvi-cv-config-adaptor
-    user: "0:0"
-    environment:
-      PORT: 9003
-      DS_CONFIG_PATH: /opt/data/ds-configurator/config.csv
-      EVENT_OBJECT_FIELD: event
-      METADATA_OBJECT_FIELD: metadata
-      DS_CONFIG_YAML_SOURCE_PATH: /opt/data/ds-configurator/config.yaml
-      DS_CONFIG_YAML_TARGET_PATH: /opt/data/ds-configurator/config.yaml
-      CALIB_FILE_PATH: /opt/data/ds-configurator/calibration.json
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs:/opt/data/ds-configurator
-
   perception-2d:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
@@ -209,8 +193,6 @@ services:
         condition: service_completed_successfully
       # bp-configurator-2d:
       #   condition: service_started
-      ds-configurator-2d:
-        condition: service_completed_successfully
 
   kibana-init-container-2d:
     build:
