@@ -35,6 +35,11 @@ class BackendAdapter(ABC):
     """Pluggable retrieval backend."""
 
     backend_name: ClassVar[str]
+    # Backend-specific guidance appended to the tool's description at
+    # registration time. Lets each adapter teach the LLM how to call
+    # the tool (accepted filter keys, default behaviour, etc.) without
+    # bloating the workflow's system prompt.
+    tool_description_hint: ClassVar[str] = ""
 
     def __init__(self, config: BaseModel) -> None:
         self.config = config

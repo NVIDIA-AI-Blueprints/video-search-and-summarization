@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import ClassVar
 
 import aiohttp
 from pydantic import BaseModel
@@ -55,6 +56,12 @@ class FragApiConfig(BaseModel):
 
 @register_adapter("frag_api", config_type=FragApiConfig)
 class FragApiAdapter(BackendAdapter):
+    tool_description_hint: ClassVar[str] = (
+        "Pass `filters` only when the user explicitly names a document; never "
+        "invent a filename. Shape:\n"
+        '  filters={"filter_expr": \'content_metadata["filename"] == "<name>"\'}'
+    )
+
     def __init__(self, config: FragApiConfig) -> None:
         super().__init__(config)
         # Local convenience accessors with stripped trailing slash on the URL.

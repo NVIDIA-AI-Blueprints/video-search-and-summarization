@@ -206,6 +206,26 @@ class TestKnowledgeRetrievalInner:
         assert kwargs["collection_name"] == "other_collection"
 
     @pytest.mark.asyncio
+    async def test_tool_description_carries_backend_specific_hint(self, config, mock_builder):
+        """Each adapter's `tool_description_hint` is appended to the tool description.
+
+        Lets each backend teach the LLM how to call the tool (filter shape,
+        defaults) without leaking backend specifics into workflow prompts.
+        """
+        mock_retriever = AsyncMock()
+        mock_retriever.__class__.tool_description_hint = "BACKEND_SPECIFIC_USAGE_HINT"
+        with patch(
+            "vss_agents.register_knowledge_layers.get_retriever",
+            new=AsyncMock(return_value=mock_retriever),
+        ):
+            gen = knowledge_retrieval.__wrapped__(config, mock_builder)
+            function_info = await gen.__anext__()
+
+        assert "BACKEND_SPECIFIC_USAGE_HINT" in function_info.description
+        # The base description (backend-agnostic) is still present.
+        assert "Returns excerpts with citation tags" in function_info.description
+
+    @pytest.mark.asyncio
     async def test_filters_passed_through_to_retriever(self, config, mock_builder):
         mock_retriever = AsyncMock()
         mock_retriever.retrieve.return_value = RetrievalResult(

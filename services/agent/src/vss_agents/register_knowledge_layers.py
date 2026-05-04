@@ -35,7 +35,7 @@ from lib.knowledge import get_retriever
 
 logger = logging.getLogger(__name__)
 
-BackendType = Literal["frag_api"]
+BackendType = Literal["frag_api", "es_caption"]
 
 SUMMARIZE_SYSTEM_PROMPT = (
     "You are an analyst summarising retrieved knowledge-base excerpts. "
@@ -52,7 +52,10 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
 
     backend: BackendType = Field(
         default="frag_api",
-        description="Knowledge backend: 'frag_api' = HTTP to a deployed FRAG rag-server.",
+        description=(
+            "Knowledge backend: 'frag_api' = HTTP to a deployed FRAG rag-server; "
+            "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
+        ),
     )
     collection_name: str = Field(
         default="default",
@@ -97,12 +100,10 @@ class KnowledgeRetrievalInput(BaseModel):
     filters: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "Optional metadata filter. OMIT unless the user EXPLICITLY names a "
-            "specific document or category in their message — never invent or "
-            "guess filenames; a wrong filter returns nothing. "
-            "When the user does name a document, use shape "
-            "{\"filter_expr\": 'content_metadata[\"filename\"] == \"<name>\"'} "
-            "with the user's exact filename. Default: omit and search the whole collection."
+            "Optional metadata filter dict. Accepted keys depend on the "
+            "configured backend — see this tool's description for the exact "
+            "shape and examples. Default: omit and let the backend search the "
+            "whole collection with its default behaviour."
         ),
     )
 
@@ -155,14 +156,18 @@ async def knowledge_retrieval(
 
         return _format_results(result, tool_input.query)
 
+    base_description = (
+        "Search indexed knowledge sources for passages relevant to the query. "
+        "Returns excerpts with citation tags. Use this to ground responses in "
+        f"cited source material rather than general knowledge. Returns up to "
+        f"{config.top_k} excerpts by default."
+    )
+    backend_hint = getattr(retriever.__class__, "tool_description_hint", "") or ""
+    description = f"{base_description}\n\n{backend_hint}".rstrip()
+
     yield FunctionInfo.create(
         single_fn=_search,
-        description=(
-            "Search indexed knowledge sources (SOPs, manuals, ingested documents) for "
-            "passages relevant to the query. Returns excerpts with citation tags. "
-            "Use this to ground responses in cited source material rather than general "
-            f"knowledge. Returns up to {config.top_k} excerpts by default."
-        ),
+        description=description,
         input_schema=KnowledgeRetrievalInput,
         single_output_schema=str,
     )
@@ -202,7 +207,9 @@ def _format_results(result: RetrievalResult, query: str) -> str:
         file_name = chunk.metadata.get("file_name", "unknown")
         page_number = chunk.metadata.get("page_number")
         content_type = chunk.metadata.get("content_type")
-        citation = (
+        # Prefer the backend-supplied citation; fall back to the legacy
+        # `<file_name>[, p.N]` shape so frag chunks render unchanged.
+        citation = chunk.metadata.get("display_citation") or (
             f"{file_name}, p.{page_number}"
             if page_number and page_number > 0
             else file_name
