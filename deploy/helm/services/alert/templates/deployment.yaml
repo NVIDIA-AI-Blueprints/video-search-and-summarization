@@ -98,6 +98,16 @@ spec:
               value: {{ ternary "remote" "local" (ne $vlmUrl "") | quote }}
             - name: VLM_NAME
               value: {{ $vlmNameStr | quote }}
+            {{- if .Values.rtviVlmModelToUse }}
+            - name: RTVI_VLM_MODEL_TO_USE
+              value: {{ .Values.rtviVlmModelToUse | quote }}
+            {{- end }}
+            - name: CONFIG_PATH
+              value: "/app/runtime/config.yml"
+            {{- if .Values.realtimeConfig }}
+            - name: ALWAYS_ON_RULES_CONFIG
+              value: "/app/configs/realtime-config.yml"
+            {{- end }}
           volumeMounts:
             - name: runtime-config
               mountPath: /app/runtime
@@ -106,6 +116,12 @@ spec:
               mountPath: /app/alert_type_config.json
               subPath: alert_type_config.json
               readOnly: true
+            {{- if .Values.realtimeConfig }}
+            - name: realtime-config
+              mountPath: /app/configs/realtime-config.yml
+              subPath: realtime-config.yml
+              readOnly: true
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -126,6 +142,14 @@ spec:
             items:
               - key: alert_type_config.json
                 path: alert_type_config.json
+        {{- if .Values.realtimeConfig }}
+        - name: realtime-config
+          configMap:
+            name: {{ include "vss-alert-bridge.fullname" . }}-config
+            items:
+              - key: realtime-config.yml
+                path: realtime-config.yml
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

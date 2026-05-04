@@ -30,4 +30,8 @@ data:
 {{- end }}
   alert_type_config.json: |
 {{ .Files.Get "configs/alert_type_config.json" | indent 4 }}
+{{- if .Values.realtimeConfig }}
+  realtime-config.yml: |
+{{ .Values.realtimeConfig | indent 4 }}
+{{- end }}
 {{- end }}

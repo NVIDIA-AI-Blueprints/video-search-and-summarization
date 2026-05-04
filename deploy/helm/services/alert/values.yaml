@@ -43,6 +43,13 @@ alertReviewMediaBaseDir: ""
 # When "edge-local-vlm", uses EDGE-LOCAL-VLM-config.yml content (adds request_timeout, use_vlm_media_defaults).
 configVariant: ""
 
+# Realtime / always-on alerts (restapi-realtime-alerts feature).
+# rtviVlmModelToUse: model string passed as RTVI_VLM_MODEL_TO_USE env var. Leave "" to omit.
+# realtimeConfig: inline YAML content for realtime-config.yml (ALWAYS_ON_RULES_CONFIG).
+#   Leave "" to skip the realtime-config volume entirely.
+rtviVlmModelToUse: ""
+realtimeConfig: ""
+
 # App listens on 9080 (see logs: "Uvicorn running on http://0.0.0.0:9080")
 service:
   port: 9080
