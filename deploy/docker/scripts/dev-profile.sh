@@ -1047,6 +1047,10 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    # Alerts VLM mode: switch COMPOSE_PROFILES to the VLM service list
+    if [[ "${mode_env}" == "2d_vlm" ]]; then
+      set_env_var "COMPOSE_PROFILES" "\${COMPOSE_PROFILES_VLM}"
+    fi
   fi
 
   # ===== LLM Configuration =====
@@ -1236,6 +1240,9 @@ function state_up() {
   # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi (alerts does not use rtvi)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
+    # Also append rtvi-vlm to the explicit service list (profile inversion model)
+    local _p; _p="$(get_env_value "${_generated_env}" "COMPOSE_PROFILES")"
+    set_env_var "COMPOSE_PROFILES" "${_p},rtvi-vlm"
   fi
 
   # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,
