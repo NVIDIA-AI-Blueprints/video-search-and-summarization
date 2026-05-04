@@ -92,7 +92,7 @@ class RankedChunk(BaseModel):
     key: ChunkKey
 
     # Raw score in space-native units (cosine, frame_score, …)
-    score: float
+    score: float = Field(allow_inf_nan=False)
 
     # 1-based position inside its source list
     # Note: Fusion does not compute initial ranks - it receives them
@@ -112,7 +112,7 @@ class RankedList(BaseModel):
 
     # Trust knob for this space (used in RRF / weighted_linear etc.)
     # Makes this space's votes count for more
-    weight: float = Field(default=1.0, ge=0)
+    weight: float = Field(default=1.0, ge=0, allow_inf_nan=False)
     chunks: list[RankedChunk] = Field(default_factory=list)
 
 
@@ -140,18 +140,18 @@ class FusionInput(BaseModel):
 
     # Filter knobs (Post-fuse)
     # Chunk must appear in >=N spaces to survive, e.g. =2 -> at least 2 spaces voted for it
-    min_contributing_spaces: int = 1
+    min_contributing_spaces: int = Field(default=1, ge=0)
     # Drop chunks below ratio x theoretical ceiling, e.g. 0.3 -> keep only >=30% of best-possible fused_score
-    min_fused_score_ratio: float | None = None
+    min_fused_score_ratio: float | None = Field(default=None, allow_inf_nan=False)
     # OR-exemption - top-N in any space bypasses post-fuse gates here
     # e.g. =3 -> rank <=3 anywhere survives
-    keep_if_top_n_in_any_space: int | None = None
+    keep_if_top_n_in_any_space: int | None = Field(default=None, gt=0)
 
     # Merge knobs (applied after filtering and fusion)
     # Collapse touching chunks into one segment, e.g. [0-5]+[5-10] -> [0-10]
     merge_adjacent: bool = True
     # Tolerate up to N missing chunks between merges, e.g. =1 keeps [0-5]+[10-15] as one
-    merge_gap_chunks: int = 0
+    merge_gap_chunks: int = Field(default=0, ge=0)
     # How per-chunk fused scores collapse/aggregate into one segment score
     # ``mean`` matches legacy behavior ``search.py``/``_merge_consecutive_results``
     # (sustained events outrank single-chunk spikes)
@@ -160,7 +160,7 @@ class FusionInput(BaseModel):
 
     # End of pipeline knobs
     # Cap the final segments by fused_score, e.g. =5 -> only top 5 returned
-    top_k_segments: int | None = 10
+    top_k_segments: int | None = Field(default=10, gt=0)
 
 
 class FusedSegment(BaseModel):
@@ -228,14 +228,24 @@ class FusedRow:
 # ---------------------------------------------------------------------------
 
 
-def snap(ts: datetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
+def _validate_chunk_seconds(chunk_seconds: int) -> None:
+    """Invariant for callers that bypass :class:`FusionInput`."""
+    if chunk_seconds <= 0:
+        raise ValueError(f"chunk_seconds must be > 0, got {chunk_seconds!r}")
+
+
+def _validate_rrf_k(rrf_k: int) -> None:
+    """Invariant for callers that bypass :class:`FusionInput`."""
+    if rrf_k <= 0:
+        raise ValueError(f"rrf_k must be > 0, got {rrf_k!r}")
+
+
+def snap(ts: AwareDatetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
     """Snap an arbitrary timestamp down to the chunk-grid floor.
 
     Different search tools may return chunks at slightly different timestamps
     even when describing the same moment of video. Snapping lines them up onto a deterministic grid
     so the outer-join in :func:`fuse` matches the same chunk across spaces.
-
-    Timezone-shape agnostic: Preserves ``ts.tzinfo`` (works for both naive and tz-aware inputs).
 
     Example:
     - `embed_search` (Cosmos clip embeddings) -> 00:01:25.300 (sliding window started)
@@ -244,6 +254,9 @@ def snap(ts: datetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
 
     TODO consumed by ``search.py`` adapters later, maybe make it a separate util?
     """
+    _validate_chunk_seconds(chunk_seconds)
+    if ts.tzinfo is None:
+        raise ValueError(f"snap requires a tz-aware datetime, got naive {ts!r}")
     epoch = datetime(1970, 1, 1, tzinfo=ts.tzinfo)
     seconds_since_epoch = (ts - epoch).total_seconds()
     snapped = (seconds_since_epoch // chunk_seconds) * chunk_seconds
@@ -359,6 +372,7 @@ def fuse(
     plus per-space rank witnesses (used by global filters like ``keep_if_top_n_in_any_space``).
     The dict is pre-sort; callers sort by ``score`` descending before merging.
     """
+    _validate_rrf_k(rrf_k)
     out: dict[ChunkKey, FusedRow] = {}
 
     if method == "rrf":
@@ -408,7 +422,12 @@ def _theoretical_ceiling(
     raise ValueError(f"Unknown fusion method: {method!r}")
 
 
-def score_threshold(fusion_input: FusionInput, fraction: float = 0.5) -> float:
+def compute_score_threshold(
+    method: FusionMethod,
+    rrf_k: int,
+    lists: list[RankedList],
+    fraction: float = 0.5,
+) -> float:
     """Returns meaningful score cutoff.
 
     Example: Setting fraction=0.6 applies a threshold at 60% of the theoretical maximum
@@ -416,8 +435,10 @@ def score_threshold(fusion_input: FusionInput, fraction: float = 0.5) -> float:
     weights, using a fraction ensures the threshold remains meaningful. This helps calibrate
     filtering based on "how close to the best possible score" a chunk came.
     """
-    weights = [rl.weight for rl in fusion_input.lists]
-    return _theoretical_ceiling(fusion_input.method, fusion_input.rrf_k, weights) * fraction
+    _validate_rrf_k(rrf_k)
+    # Skip empty lists. They contribute 0, so counting their weight inflates the ceiling.
+    contributing_weights = [rl.weight for rl in lists if rl.chunks]
+    return _theoretical_ceiling(method, rrf_k, contributing_weights) * fraction
 
 
 def apply_global_filters(
@@ -473,6 +494,7 @@ def rows_to_segments(rows: list[FusedRow], chunk_seconds: int = DEFAULT_CHUNK_SE
     Used by :func:`run_fusion` when ``merge_adjacent=False``. Preserves the
     incoming row order (callers sort by ``fused_score`` desc beforehand).
     """
+    _validate_chunk_seconds(chunk_seconds)
     return [_row_to_segment(r, chunk_seconds) for r in rows]
 
 
@@ -498,6 +520,10 @@ def merge_adjacent_rows(
     - [25-30] has a 10s gap (2 missing chunks) -> stays alone
     -> 2 segments
     """
+    _validate_chunk_seconds(chunk_seconds)
+    if merge_gap_chunks < 0:
+        raise ValueError(f"merge_gap_chunks must be >= 0, got {merge_gap_chunks!r}")
+
     by_sensor: dict[str, list[FusedRow]] = defaultdict(list)
     for row in rows:
         by_sensor[row.key.sensor_id].append(row)
@@ -618,10 +644,7 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
 
     threshold: float | None = None
     if inp.min_fused_score_ratio is not None:
-        # Skip empty lists. They contribute 0, so counting their weight inflates the ceiling
-        contributing_weights = [rl.weight for rl in bucketed if rl.chunks]
-        ceiling = _theoretical_ceiling(inp.method, inp.rrf_k, contributing_weights)
-        threshold = ceiling * inp.min_fused_score_ratio
+        threshold = compute_score_threshold(inp.method, inp.rrf_k, bucketed, fraction=inp.min_fused_score_ratio)
 
     fused = apply_global_filters(
         fused,
