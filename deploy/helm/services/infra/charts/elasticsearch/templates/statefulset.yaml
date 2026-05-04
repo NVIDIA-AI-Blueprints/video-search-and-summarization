@@ -83,7 +83,7 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 10
-            failureThreshold: 5
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /_cluster/health
@@ -91,7 +91,7 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 15
             timeoutSeconds: 10
-            failureThreshold: 5
+            failureThreshold: 60
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
