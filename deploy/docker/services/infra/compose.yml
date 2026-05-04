@@ -51,7 +51,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
       interval: 10s
       timeout: 10s
-      retries: 15
+      retries: 60
       start_period: 30s
 
   elasticsearch-init-container:
@@ -110,7 +110,7 @@ services:
       test: ["CMD", "sh", "-c", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 15s
       timeout: 15s
-      retries: 10
+      retries: 60
       start_period: 60s
 
   kafka-topic-init-container:
@@ -178,7 +178,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:5601/kibana/api/status"]
       interval: 10s
       timeout: 10s
-      retries: 30
+      retries: 60
       start_period: 60s
 
   logstash:
