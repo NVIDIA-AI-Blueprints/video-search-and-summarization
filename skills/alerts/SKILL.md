@@ -1,6 +1,6 @@
 ---
 name: alerts
-description: Manage and monitor VSS alerts after the alerts profile is deployed. The deployment's mode (CV vs VLM real-time) is fixed at deploy time and determines the workflow — start/stop real-time alerts via the VSS Agent on a VLM deployment, onboard CV alerts by adding RTSP streams to VIOS on a CV deployment, query incidents, customize verifier prompts. Use when asked to start/stop a real-time alert, check or list alerts, add a camera, customize alert prompts, or view verdicts.
+description: Manage and monitor VSS alerts after the alerts profile is deployed. The deployment's mode (CV vs VLM real-time) is fixed at deploy time and determines the workflow — start/stop real-time alerts via the VSS Agent on a VLM deployment, onboard CV alerts by adding RTSP streams to VIOS on a CV deployment, query incidents, customize verifier prompts. Use when asked to start/stop a real-time alert, check or list alerts, add a camera, use a sample video for alerts, customize alert prompts, or view verdicts.
 version: "3.1.0"
 license: "Apache License 2.0"
 ---
@@ -102,6 +102,8 @@ Both modes require the camera to be registered in VIOS first.
 
 - If the user hands you only an RTSP URL (or an IP camera) — **defer to the `vios` skill** to add it via `POST /sensor/add` (see `vios` skill Section 6). Record the returned `sensorId` / name.
 - If the user names an existing sensor — confirm it is listed by `GET /sensor/list` via the `vios` skill before proceeding.
+- If the user asks to use a local/sample MP4 for a **VLM real-time** alert, do **not** upload the MP4 directly to VIOS storage (`PUT /storage/file/...`). VIOS file uploads create `sensor_file` entries whose stream URL is a local file path; `rtvi-vlm` requires a live `rtsp://...` URL.
+- For a local/sample MP4 in VLM real-time mode, first add the video to **NVStreamer** (or another RTSP restreamer) and obtain its RTSP live URL, then add that RTSP URL to VIOS via `POST /sensor/add` with the desired sensor name. Only proceed once `GET /sensor/<sensorId>/streams` shows a stream URL starting with `rtsp://`.
 
 On a **CV deployment**, adding the RTSP is the *entire* onboarding step — the pipeline picks up the stream automatically once it is in VIOS. On a **VLM deployment**, adding the RTSP is a prerequisite to Workflow B.
 
@@ -147,6 +149,34 @@ If the user asks you to "start a real-time alert" on a CV deployment, that is a 
 ## Workflow B — VLM Mode (deployment is `-m real-time` / `MODE=2d_vlm`)
 
 On a VLM deployment, the user drives alert creation via natural-language requests to the VSS Agent. The agent calls `rtvi_prompt_gen` to turn the description into a Yes/No detection question, then `rtvi_vlm_alert` with `action="start"` to register the stream with `rtvi-vlm` and begin continuous monitoring.
+
+**Before calling the agent, verify the target sensor is RTSP-backed:**
+
+```bash
+curl -s "http://<VST_ENDPOINT>/vst/api/v1/sensor/<sensorId>/streams" | jq .
+```
+
+At least one stream for the sensor must have a URL beginning with `rtsp://`.
+If the stream URL is a local file path such as `/home/vst/.../video.mp4`,
+the sensor was uploaded as a VIOS file and real-time alert start will fail.
+For sample videos, add the video to NVStreamer first, register the returned
+RTSP URL in VIOS, then start the alert against that RTSP-backed VIOS sensor.
+
+**Sample-video onboarding for real-time alerts:**
+
+1. Add the MP4 to NVStreamer and get the RTSP live URL for the new stream.
+2. Register that RTSP URL in VIOS:
+
+   ```bash
+   curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/add" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "sensorUrl": "rtsp://<nvstreamer-host>:<port>/<path>",
+       "name": "warehouse_sample"
+     }' | jq .
+   ```
+
+3. Confirm `GET /sensor/warehouse_sample/streams` returns the RTSP URL, then call the VSS Agent as shown below.
 
 **Canonical sample request:**
 
