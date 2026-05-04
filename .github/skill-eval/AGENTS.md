@@ -257,34 +257,42 @@ template is in § Harbor invocation below.
       concurrent CI runs land on different boxes naturally; the per-box
       flock arbitrates within-fleet contention.
 
-      If no candidate exists for this platform, **don't `brev create`
-      one yourself** — the pool is operator-managed. **Wait** for a
-      candidate to appear: re-run `brev ls --json` every 5 min, up to
-      the same 28800s lock-hold budget. If the operator scales up or
+      Selection priority is **hardware-hard, software-soft**:
+      the candidate's `gpu_type` MUST match the platform (hard); the
+      `active-deploy.txt` marker matching `<profile>-<mode>` is
+      preferred but not required (soft — a marker miss just costs a
+      redeploy, which the trial absorbs).
+
+      If no hardware-matching candidate exists for this platform,
+      **wait** for one to appear — the pool is operator-managed and a
+      box may come online mid-run. Re-run `brev ls --json` every 5
+      min, up to the same 28800s budget. If the operator scales up or
       another run frees a box during that window, restart selection
       from the top with the fresh snapshot. Only after the full 28800s
-      budget elapses with zero candidates do you emit
-      `BLOCKED: pool exhausted for <platform>` and exit — that's a
-      genuine capacity shortfall the operator needs to action.
+      budget elapses with zero hardware-matching candidates do you
+      emit `BLOCKED: pool exhausted for <platform>` and exit — that's
+      a genuine capacity shortfall the operator needs to action.
 
       ```bash
       # Pseudocode for the wait-for-pool case:
       DEADLINE=$(( $(date +%s) + 28800 ))
       while [ "$(date +%s)" -lt "$DEADLINE" ]; do
           brev ls --json > /tmp/skill-eval/brev-snapshot.txt
-          # Re-evaluate candidates against the snapshot (same scoring as
-          # above). If any RUNNING+READY ^vss-eval-* matches the platform,
-          # break and proceed to flock acquisition.
-          [ <candidate found> ] && break
+          # Re-evaluate candidates against the snapshot (same scoring
+          # as above). If any RUNNING+READY ^vss-eval-* matches the
+          # platform's hardware (hard req), break and proceed to flock
+          # acquisition.
+          [ <hardware-matching candidate found> ] && break
           sleep 300
       done
       ```
 
-      Auto-create defeated the warm-pool design (every fresh box pays
-      the deploy-from-scratch tax), so we wait instead. Within the
-      same 8h budget, the busy-but-locked case (queue on `flock -w
-      28800`) and the empty-pool case (poll on `brev ls`) are
-      symmetric: both queue for the resource to become available.
+      This is distinct from the trial-supervision polling forbidden
+      in § Harbor invocation: pool-wait polls a resource that may not
+      yet exist, the busy-but-locked case (`flock -w 28800` on an
+      existing box) is symmetric, and both are bounded by the same
+      8h budget. Trial-supervision polling watches in-flight work the
+      synchronous Bash call already blocks on — that's the antipattern.
 
    b. **Acquire the per-box lock** before running anything on the
       chosen instance (filename keys off `$INSTANCE_NAME`):
@@ -357,6 +365,15 @@ template is in § Harbor invocation below.
   `HF_TOKEN`** in comments, logs you echo back, or commit messages.
 - **Never touch `vss-skill-validator`** (the CI runner host — killing
   it kills this job).
+- **Never touch pool-instance lifecycle.** No `brev create`,
+  `brev start`, `brev stop`, `brev reset`, or `brev delete` against
+  any `vss-eval-*` box. The pool is operator-managed; instances stay
+  running across runs. The agent only reads (`brev ls`, `brev exec
+  -- cat …`) and acquires the per-box flock. If no hardware-matching
+  pool member exists for the trial's platform, follow the wait-for-
+  pool path in § 5a (5-min `brev ls` poll, 28800s budget, then
+  `BLOCKED: pool exhausted for <platform>`) — provisioning is the
+  operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -408,11 +425,12 @@ the actual running containers.
 With fleet=1, selection collapses to a single candidate. With
 fleet>1, two concurrent workflow runs land on different boxes
 naturally — that's how parallelism happens. The pool is
-operator-managed: never `brev create` a new fleet member
-yourself. If no `^vss-eval-*` candidate matches the trial's
-platform, wait/poll within the 28800s budget per step 5a; only
-emit `BLOCKED: pool exhausted for <platform>` after the full
-window elapses with zero candidates.
+operator-managed: never `brev create`, `brev start`, `brev stop`,
+`brev reset`, or `brev delete` a fleet member from the agent. If
+no `^vss-eval-*` candidate matches the trial's platform hardware,
+wait/poll within the 28800s budget per § 5a; only emit
+`BLOCKED: pool exhausted for <platform>` after the full window
+elapses with zero hardware-matching candidates.
 
 **Name prefix is an anchored match, not a substring.** Only
 instances whose name starts with `vss-eval-` are eligible for
@@ -424,8 +442,8 @@ compatible. The `gpu_count == 0` rule below skips the GPU-type
 check, which makes non-anchored matching especially dangerous
 (e.g. a user's `l40s-48gb2x` with an L4 and a 40 GB disk passes
 the match but runs `/deploy` 2–3× slower and trips the agent-exec
-timeout). If no name matches `^vss-eval-`, fall through to
-`brev create`.
+timeout). If no name matches `^vss-eval-`, fall through to the
+wait-for-pool path in § 5a — never `brev create` one yourself.
 
 Match rules enforced by `envs/brev_env.py::_check_instance_matches`
 (applied **after** the name-prefix filter):
@@ -438,15 +456,9 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
   locally): **match `gpu_type` exactly.** The check is a
   token-subset — `L4` does NOT satisfy an `L40S` task, the trial
   errors out before the agent starts with `gpu_type: want tokens
-  of 'L40S' in 'L4'`. Create a fresh matching instance.
-
-**Fallback chain for `brev create` (if the default fails):**
-- H100: `dmz.h100x2.pcie,scaleway_H100x2,gpu-h100-sxm.1gpu-16vcpu-200gb`
-- L40S: `massedcompute_L40Sx2,scaleway_L40Sx2,gpu-l40s-d.2gpu-64vcpu-384gb`
-- RTX: `g7e.12xlarge` (single source; if unavailable, use L40S)
-
-`brev create` supports `--type type1,type2,type3` for automatic
-fallback. Always use `--timeout 600` and `-d` (detached).
+  of 'L40S' in 'L4'`. Treat the candidate as not eligible and wait
+  for a hardware-matching pool member per § 5a — the operator
+  provisions matching capacity, not the agent.
 
 ## Harbor invocation
 
@@ -713,10 +725,13 @@ separate; don't conflate the two.
 - **Harbor trial times out / crashes.** Record it as failed with
   `NonZeroAgentExitCodeError` in the comment. The verifier may still
   have run; include the reward if present.
-- **Brev capacity shortage** (`brev create` cycles between
-  `stopped↔starting` for >10 min). Kill the `brev start`, try the
-  next fallback type. If all exhausted, comment a `csp_unavailable`
-  blocker and exit.
+- **Pool exhausted for the trial's platform.** `brev ls` shows zero
+  RUNNING+READY `^vss-eval-*` boxes whose `gpu_type` matches. Wait
+  per § 5a (5-min `brev ls` poll, up to 28800s budget). If no
+  matching candidate appears within the window, emit
+  `BLOCKED: pool exhausted for <platform>` and exit. Do NOT
+  `brev create`, `brev start`, or `brev reset` — the operator
+  provisions capacity, not the agent.
 - **Brev auth expired mid-run.** Emit `BLOCKED: brev auth expired` —
   the `brev-keepalive.timer` systemd unit on the CI runner host will
   retry; a human needs to `brev login --auth nvidia`.
