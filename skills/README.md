@@ -6,16 +6,16 @@ Skills for working with NVIDIA Video Search & Summarization (VSS). Each subdirec
 
 | Skill | Description |
 |---|---|
-| [alerts](alerts/SKILL.md) | Manage and monitor VSS alerts after the alerts profile is deployed. |
-| [deploy](deploy/SKILL.md) | Deploy, debug, or tear down any VSS profile using a compose-centric workflow. |
-| [report](report/SKILL.md) | Produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
-| [rt-vlm](rt-vlm/SKILL.md) | Work with the RTVI VLM microservice — captions, alerts, streams, OpenAI-compatible completions. |
-| [video-analytics](video-analytics/SKILL.md) | Query video analytics data and metrics from Elasticsearch via the VA-MCP server. |
-| [video-search](video-search/SKILL.md) | Search video archives using natural language across recorded video. |
-| [video-summarization](video-summarization/SKILL.md) | Summarize a video by calling the VLM NIM directly or the Long Video Summarization (LVS) service. |
-| [video-understanding](video-understanding/SKILL.md) | Run video understanding to answer text questions about video content. |
-| [vios](vios/SKILL.md) | Query VIOS REST APIs — sensor list, recording timelines, clip extraction, snapshots. |
-| [vss-frag](vss-frag/SKILL.md) | Deploy/integrate the `video_search_frag` extension and generate video summary reports — Long Video Summarization, Enterprise RAG context, HITL parameter collection. |
+| [alerts](alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
+| [deploy](deploy/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
+| [report](report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
+| [rt-vlm](rt-vlm/SKILL.md) | Skill to use the real-time VLM microservice on stored or streamed video - captions, alerts, streams, or OpenAI-compatible completions. |
+| [video-analytics](video-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
+| [video-search](video-search/SKILL.md) | Skills for searching video archives using natural language, multi-embedding fusion, and VLM critique. |
+| [video-summarization](video-summarization/SKILL.md) | Skill for summarizing a video through chunking, dense captioning, and aggregation functions using the Long Video Summarization (LVS) microservice. |
+| [video-understanding](video-understanding/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
+| [vios](vios/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
+| [vss-frag](vss-frag/SKILL.md) | Skill for deploying and integrating the `video_search_frag` extension and generate video summary reports — Long Video Summarization, Enterprise RAG context, HITL parameter collection. |
 
 Skills with `eval/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**` — see [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
@@ -35,15 +35,19 @@ The agent will read the frontmatter of each `SKILL.md`, create the symlinks, and
 
 ### Single-skill install
 
+To install skills individually, paste the following prompt:
+
 > Install only `skills/<name>/` for this host the same way.
 
 ### Update
 
-After `git pull`, the symlinks already point at the updated content — nothing to do unless skills were added or renamed. To pick up new skills:
+After `git pull`, the symlinks already point at the updated content — nothing to do unless skills were added or renamed. To pick up new skills use the following prompt:
 
 > Re-read `skills/README.md` and add any new skills missing from this host's skills directory.
 
 ### Uninstall
+
+To uninstall skills, paste the following prompt:
 
 > Remove every VSS skill symlink you previously created under this host's skills directory.
 
