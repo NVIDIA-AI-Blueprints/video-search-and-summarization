@@ -21,7 +21,9 @@ the pure fusion pipeline on the worked-example fixture.
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
 import pytest
 
 from vss_agents.tools.fusion import ChunkKey
@@ -51,14 +53,9 @@ def _ts(seconds: int) -> datetime:
     return datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC) + timedelta(seconds=seconds)
 
 
-def _chunk(sensor: str, start_seconds: int, score: float, rank: int, *, chunk_seconds: int = 5) -> RankedChunk:
-    start = _ts(start_seconds)
+def _chunk(sensor: str, start_seconds: int, score: float, rank: int) -> RankedChunk:
     return RankedChunk(
-        key=ChunkKey(
-            sensor_id=sensor,
-            start=start,
-            end=start + timedelta(seconds=chunk_seconds),
-        ),
+        key=ChunkKey(sensor_id=sensor, start=_ts(start_seconds)),
         score=score,
         rank=rank,
     )
@@ -146,13 +143,11 @@ class TestBucketize:
             weight=1.0,
             chunks=[
                 _chunk("s", 0, 0.50, 1),
-                # Use timedelta to build a non-snapped start while still
-                # producing a valid 5s-window key.
+                # Build a non-snapped start to verify bucketize snaps it down.
                 RankedChunk(
                     key=ChunkKey(
                         sensor_id="s",
                         start=_ts(0) + timedelta(milliseconds=2400),
-                        end=_ts(0) + timedelta(milliseconds=2400, seconds=5),
                     ),
                     score=0.90,
                     rank=2,
@@ -161,7 +156,6 @@ class TestBucketize:
                     key=ChunkKey(
                         sensor_id="s",
                         start=_ts(0) + timedelta(milliseconds=4900),
-                        end=_ts(0) + timedelta(milliseconds=4900, seconds=5),
                     ),
                     score=0.30,
                     rank=3,
@@ -172,7 +166,6 @@ class TestBucketize:
         assert len(out.chunks) == 1
         survivor = out.chunks[0]
         assert survivor.key.start == _ts(0)
-        assert survivor.key.end == _ts(5)
         assert survivor.score == 0.90  # max wins
         assert survivor.rank == 1
 
@@ -200,7 +193,6 @@ class TestBucketize:
                     key=ChunkKey(
                         sensor_id="s",
                         start=_ts(0) + timedelta(milliseconds=3000),
-                        end=_ts(5) + timedelta(milliseconds=3000),
                     ),
                     score=0.50,
                     rank=3,
@@ -510,9 +502,8 @@ def _row(sensor: str, start_seconds: int, score: float, contributing=("embed",))
     """Construct a private _FusedRow for merge tests without going through fuse()."""
     from vss_agents.tools.fusion import _FusedRow
 
-    start = _ts(start_seconds)
     return _FusedRow(
-        key=ChunkKey(sensor_id=sensor, start=start, end=start + timedelta(seconds=5)),
+        key=ChunkKey(sensor_id=sensor, start=_ts(start_seconds)),
         score=score,
         contributing_spaces=list(contributing),
         per_space_ranks=dict.fromkeys(contributing, 1),
@@ -747,3 +738,66 @@ class TestRunFusion:
         )
         # No cap -> all 5 unique chunks survive default min_contributing_spaces=1.
         assert len(out.segments) == 5
+
+    def test_same_moment_two_timezones_fuse_into_one_segment(self):
+        """End-to-end regression: same wall moment from two spaces in
+        different tz shapes must produce ONE FusedSegment (not two)
+        contributed by both spaces. Pins the silent miss-merge fix.
+        """
+        ts_utc = datetime(2025, 1, 1, 0, 1, 25, tzinfo=UTC)
+        ts_paris = datetime(2025, 1, 1, 1, 1, 25, tzinfo=ZoneInfo("Europe/Paris"))
+
+        embed = RankedList(
+            space="embed",
+            chunks=[
+                RankedChunk(
+                    key=ChunkKey(sensor_id="cam-1", start=ts_utc),
+                    score=0.9,
+                    rank=1,
+                )
+            ],
+        )
+        attribute = RankedList(
+            space="attribute",
+            chunks=[
+                RankedChunk(
+                    key=ChunkKey(sensor_id="cam-1", start=ts_paris),
+                    score=0.8,
+                    rank=1,
+                )
+            ],
+        )
+
+        out = run_fusion(FusionInput(lists=[embed, attribute]))
+
+        assert len(out.segments) == 1
+        assert set(out.segments[0].contributing_spaces) == {"embed", "attribute"}
+
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+
+
+class TestChunkKeyTimezoneContract:
+    """Pin the tz-awareness contract on ChunkKey.start"""
+
+    def test_naive_datetime_rejected_at_construction(self):
+        """Loud failure: naive datetime in -> ValidationError out."""
+        naive = datetime(2025, 1, 1, 12, 0, 0)
+        assert naive.tzinfo is None  # sanity: this really is naive
+
+        with pytest.raises(ValidationError):
+            ChunkKey(sensor_id="cam-1", start=naive)
+
+    def test_same_moment_two_timezones_produce_identical_keys(self):
+        """Two ChunkKeys built from the same wall moment in different tz must
+        be ``==`` AND hash-equal (so they collide in fuse()'s dict join)."""
+        ts_utc = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+        ts_paris = datetime(2025, 1, 1, 13, 0, 0, tzinfo=ZoneInfo("Europe/Paris"))
+
+        key_utc = ChunkKey(sensor_id="cam-1", start=ts_utc)
+        key_paris = ChunkKey(sensor_id="cam-1", start=ts_paris)
+
+        assert key_utc == key_paris
+        assert hash(key_utc) == hash(key_paris)

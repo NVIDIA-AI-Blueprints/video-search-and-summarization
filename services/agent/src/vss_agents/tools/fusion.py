@@ -25,13 +25,22 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 from typing import Literal
 
+from pydantic import AwareDatetime
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
+
+FusionMethod = Literal["rrf", "weighted_linear"]
+Aggregation = Literal["max", "mean"]
+DEFAULT_CHUNK_SECONDS = 5
+DEFAULT_RRF_K = 60
+
 
 # ---------------------------------------------------------------------------
 # Public data contract
@@ -39,15 +48,31 @@ from pydantic import Field
 
 
 class ChunkKey(BaseModel):
-    """Unique identifier for a 5-second video chunk on the snapped grid."""
+    """Unique identifier for a 5-second video chunk on the snapped grid.
+
+    Note: End of the chunk is intentionally not a field of the key. End is fully derived
+    as ``start + chunk_seconds`` post-bucketize.
+    """
 
     # Makes model hashable so it can be used as a ``dict`` key during the outer-join
-    # in ``fuse`` and as a list element in ``FusedSegment.member_keys``
     model_config = ConfigDict(frozen=True)
 
     sensor_id: str
-    start: datetime  # raw upstream timestamp; bucketize snaps to chunk_seconds grid
-    end: datetime  # raw upstream end; after bucketize: start + chunk_seconds
+    start: AwareDatetime = Field(
+        description=(
+            "Raw upstream timestamp; bucketize snaps to chunk_seconds grid. "
+            "Must be tz-aware (naive rejected; non-UTC coerced to UTC)."
+        ),
+    )
+
+    @field_validator("start")
+    @classmethod
+    def _coerce_to_utc(cls, v: datetime) -> datetime:
+        """Normalize any tz-aware datetime to UTC.
+
+        Note: ``AwareDatetime`` has already rejected naive non-tz inputs at this point.
+        """
+        return v.astimezone(UTC)
 
 
 class RankedChunk(BaseModel):
@@ -57,6 +82,8 @@ class RankedChunk(BaseModel):
     Hence no VST URLs, screenshots, descriptions, object_ids, they live on the
     original search results in ``search.py``.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     key: ChunkKey
 
@@ -73,6 +100,8 @@ class RankedChunk(BaseModel):
 class RankedList(BaseModel):
     """A ranked list of chunks from one embedding space."""
 
+    model_config = ConfigDict(frozen=True)
+
     # Kept dynamic (not a literal) for ease of extensibility when consumers add new spaces
     # "embed", "attribute", "caption", "face", ...
     space: str
@@ -86,18 +115,20 @@ class RankedList(BaseModel):
 class FusionInput(BaseModel):
     """Request body for fusion. Carries only what the math needs."""
 
+    model_config = ConfigDict(frozen=True)
+
     # N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]
     lists: list[RankedList] = Field(default_factory=list)
 
     # Chunk grid in seconds - drives snap/dedup and merge gap math, e.g. =5 -> 00:03 and 00:04 collapse to one bucket
-    chunk_seconds: int = 5
+    chunk_seconds: int = DEFAULT_CHUNK_SECONDS
 
     # Fusion math
     # - rrf uses ranks (unit-free, robust)
     # - weighted_linear uses min-max normalized raw scores
-    method: Literal["rrf", "weighted_linear"] = "rrf"
+    method: FusionMethod = "rrf"
     # RRF damping (larger k flattens, smaller k amplifies top ranks), e.g. 60 is the TREC standard
-    rrf_k: int = 60
+    rrf_k: int = DEFAULT_RRF_K
 
     # Filter knobs (Pre-fuse)
     # Drop per-space chunks early below a raw-unit threshold, e.g. {"embed": 0.7} -> cosine < 0.7 chunks dropped
@@ -121,7 +152,7 @@ class FusionInput(BaseModel):
     # ``mean`` matches legacy behavior ``search.py``/``_merge_consecutive_results``
     # (sustained events outrank single-chunk spikes)
     # ``max`` opts in to surfacing peak moments instead
-    segment_score_aggregation: Literal["max", "mean"] = "mean"
+    segment_score_aggregation: Aggregation = "mean"
 
     # End of pipeline knobs
     # Cap the final segments by fused_score, e.g. =5 -> only top 5 returned
@@ -193,7 +224,7 @@ class _FusedRow:
 # ---------------------------------------------------------------------------
 
 
-def snap(ts: datetime, chunk_seconds: int = 5) -> datetime:
+def snap(ts: datetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
     """Snap an arbitrary timestamp down to the chunk-grid floor.
 
     Different search tools may return chunks at slightly different timestamps
@@ -215,7 +246,7 @@ def snap(ts: datetime, chunk_seconds: int = 5) -> datetime:
     return epoch + timedelta(seconds=snapped)
 
 
-def bucketize(rl: RankedList, chunk_seconds: int = 5) -> RankedList:
+def bucketize(rl: RankedList, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
     """Snap timestamps onto the ``chunk_seconds`` grid, dedupe, recompute ranks.
 
     Idempotent for already-snapped inputs (the case for trusted callers like
@@ -235,12 +266,9 @@ def bucketize(rl: RankedList, chunk_seconds: int = 5) -> RankedList:
     """
     best: dict[ChunkKey, RankedChunk] = {}
     for chunk in rl.chunks:
-        snapped_start = snap(chunk.key.start, chunk_seconds)
-        snapped_end = snapped_start + timedelta(seconds=chunk_seconds)
         snapped_key = ChunkKey(
             sensor_id=chunk.key.sensor_id,
-            start=snapped_start,
-            end=snapped_end,
+            start=snap(chunk.key.start, chunk_seconds),
         )
         existing = best.get(snapped_key)
         if existing is None or chunk.score > existing.score:
@@ -277,8 +305,8 @@ def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]
 
 def fuse(
     lists: list[RankedList],
-    method: Literal["rrf", "weighted_linear"] = "rrf",
-    rrf_k: int = 60,
+    method: FusionMethod = "rrf",
+    rrf_k: int = DEFAULT_RRF_K,
 ) -> dict[ChunkKey, _FusedRow]:
     """Outer-join ``lists`` on :class:`ChunkKey` and compute the fused score.
 
@@ -342,7 +370,7 @@ def fuse(
 
 
 def _theoretical_ceiling(
-    method: Literal["rrf", "weighted_linear"],
+    method: FusionMethod,
     rrf_k: int,
     weights: list[float],
 ) -> float:
@@ -365,7 +393,7 @@ def apply_global_filters(
     min_contributing_spaces: int,
     keep_if_top_n_in_any_space: int | None,
     min_fused_score_ratio: float | None,
-    method: Literal["rrf", "weighted_linear"],
+    method: FusionMethod,
     rrf_k: int,
     weights: list[float],
 ) -> dict[ChunkKey, _FusedRow]:
@@ -414,7 +442,7 @@ def _row_to_segment(row: _FusedRow, chunk_seconds: int) -> FusedSegment:
     )
 
 
-def rows_to_segments(rows: list[_FusedRow], chunk_seconds: int = 5) -> list[FusedSegment]:
+def rows_to_segments(rows: list[_FusedRow], chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> list[FusedSegment]:
     """Convert fused rows to length-1 segments without merging.
 
     Used by :func:`run_fusion` when ``merge_adjacent=False``. Preserves the
@@ -425,14 +453,14 @@ def rows_to_segments(rows: list[_FusedRow], chunk_seconds: int = 5) -> list[Fuse
 
 def merge_adjacent(
     rows: list[_FusedRow],
-    chunk_seconds: int = 5,
+    chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
     merge_gap_chunks: int = 0,
-    aggregation: Literal["max", "mean"] = "mean",
+    aggregation: Aggregation = "mean",
 ) -> list[FusedSegment]:
     """Coalesce contiguous (or near-contiguous) chunks per sensor.
 
     Group by ``sensor_id``, sort by ``start``, walk left -> right and merge when
-    ``next.start - prev.end <= merge_gap_chunks * chunk_seconds``. Aggregate
+    ``next.start - (prev.start + chunk_seconds) <= merge_gap_chunks * chunk_seconds``.
     per-segment ``fused_score`` via ``aggregation`` and union the
     ``contributing_spaces`` across members.
 
@@ -474,7 +502,7 @@ def merge_adjacent(
 def _finalize_group(
     group: list[_FusedRow],
     chunk_seconds: int,
-    aggregation: Literal["max", "mean"],
+    aggregation: Aggregation,
 ) -> FusedSegment:
     """Collapse a contiguous run of :class:`_FusedRow` items into one :class:`FusedSegment`.
 
