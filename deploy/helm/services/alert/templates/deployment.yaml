@@ -98,6 +98,10 @@ spec:
               value: {{ ternary "remote" "local" (ne $vlmUrl "") | quote }}
             - name: VLM_NAME
               value: {{ $vlmNameStr | quote }}
+            {{- if .Values.rtviVlmModelToUse }}
+            - name: RTVI_VLM_MODEL_TO_USE
+              value: {{ .Values.rtviVlmModelToUse | quote }}
+            {{- end }}
           volumeMounts:
             - name: runtime-config
               mountPath: /app/runtime

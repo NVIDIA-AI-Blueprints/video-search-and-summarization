@@ -53,6 +53,9 @@ vst_config:
   add_overlay: {{ .Values.addOverlay | default false }}
   segment_anchor: "end"
   segment_duration_seconds: 10
+  timeout: 60
+  retry_without_overlay: true
+  verify_time_existence: true
   storage:
     base_url: "{{ $vstBase }}"
     media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
@@ -75,12 +78,15 @@ vlm:
   base_url: "{{ $vlmUrl | default (printf "http://%s:8000" $cosmosHost) }}/v1"
   model: "{{ $vlmNameStr }}"
   max_tokens: 4096
+  request_timeout: 5
+  vlm_media_source_using_base64: false
+  response_format: "auto"
+  use_vlm_media_defaults: false
+  temperature: 0.6
   min_pixels: 1568
-  max_pixels: 8388608
+  max_pixels: 3960000
   enable_sampling: true
   sampling_fps: 4
-  request_timeout: 60
-  use_vlm_media_defaults: true
 
 event_bridge:
   sourceType: "kafka"
@@ -89,6 +95,7 @@ event_bridge:
     group_id: 'alert-bridge-vlm-group'
     topics:
       incident: 'mdx-incidents'
+      alert: 'mdx-alerts'
   redis_source:
     host: "{{ .Values.redisHost | default $redisHost }}"
     port: {{ .Values.redisPort }}
@@ -129,7 +136,39 @@ alert_agent:
   max_allowed_stream_size: 2
   default_stream_interval: 1
   vst_pass_through_mode: false
-  include_latency_info: false
+  chunk_size: 1
+  async_io:
+    enabled: true
+    vst_enabled: true
+    elastic_enabled: true
+    redis_enabled: true
+    external_timeout_seconds: 30
+    sink_warn_in_flight: 20
+  url_transform:
+    enabled: true
+  media_download:
+    enabled: false
+    max_media_count: 5
+    timeout_seconds: 30
+    max_size_mb: 50
+    allow_private_urls: true
+    use_verdict: false
+  enrichment:
+    enabled: false
+  always_on: false
+
+rtvi_vlm:
+  base_url: "{{ if .Values.rtviVlmBaseUrl }}{{ .Values.rtviVlmBaseUrl }}{{ else }}http://localhost:8018/v1{{ end }}"
+  timeout: 10
+  default_model: "{{ $vlmNameStr }}"
+
+websocket:
+  enabled: false
+  consumer_group_prefix: "websocket_instance"
+  redis_consumer:
+    block_time: 1000
+    count: 1
+    reconnect_delay: 5
 
 elastic:
   enabled: true
@@ -150,3 +189,4 @@ logging:
   level: "INFO"
   format: "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
   third_party_level: "WARNING"
+  truncate_base64: true

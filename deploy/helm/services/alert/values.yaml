@@ -40,8 +40,17 @@ internalIp: ""
 alertReviewMediaBaseDir: ""
 
 # Config variant: "" (default) or "edge-local-vlm" (DGX-SPARK, IGX-THOR, AGX-THOR with local VLM)
-# When "edge-local-vlm", uses EDGE-LOCAL-VLM-config.yml content (adds request_timeout, use_vlm_media_defaults).
+# When "edge-local-vlm", uses EDGE-LOCAL-VLM-config.yml content.
 configVariant: ""
+
+# RTVI VLM model to use for realtime alert rules (env: RTVI_VLM_MODEL_TO_USE).
+# Default "cosmos-reason2" matches the new restapi-realtime-alerts feature in vss-alert-verification 0.0.62.
+# Set to "" to leave the env var unset (container will use its built-in default).
+rtviVlmModelToUse: "cosmos-reason2"
+
+# Base URL for the RTVI VLM service used in realtime alert configs.
+# Defaults to in-cluster vss-rtvi-vlm:8000. Used in rtvi_vlm.base_url in the config files.
+rtviVlmBaseUrl: ""
 
 # App listens on 9080 (see logs: "Uvicorn running on http://0.0.0.0:9080")
 service:
