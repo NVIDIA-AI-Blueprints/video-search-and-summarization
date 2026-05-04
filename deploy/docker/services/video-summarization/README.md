@@ -23,7 +23,6 @@ GPU_DEVICES=2,3
 # Port Configuration
 BACKEND_PORT=38111
 LVS_MCP_PORT=38112
-FRONTEND_PORT=38113
 
 # Model Cache Directory (optional)
 MODEL_ROOT_DIR=/path/to/model/cache
@@ -85,7 +84,6 @@ The compose file uses the GPU devices specified in the `GPU_DEVICES` environment
 The following ports are exposed:
 - `BACKEND_PORT` (default: 38111) - Backend API
 - `LVS_MCP_PORT` (default: 38112) - LVS MCP service
-- `FRONTEND_PORT` (default: 38113) - Frontend UI
 
 ### Model Cache Directory
 
