@@ -57,9 +57,7 @@ functions:
     type: vlm_structured_summarization_online
     params:
       time_overlap_threshold: 0.1
-      time_adjacent_threshold: 5.0
       max_events_per_batch: 50
-      enable_llm_merging: true
       kafka_enabled: true
     tools:
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
@@ -69,9 +67,7 @@ functions:
     type: vlm_structured_summarization_online
     params:
       time_overlap_threshold: 0.1
-      time_adjacent_threshold: 5.0
       max_events_per_batch: 50
-      enable_llm_merging: true
       kafka_enabled: true
     tools:
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}

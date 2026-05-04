@@ -137,14 +137,26 @@ services:
       - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT}
       - ES_HOST=${ES_HOST}
       - ES_PORT=${ES_PORT}
+      - GRAPH_DB_HOST=graph-db
+      - GRAPH_DB_USERNAME=neo4j
+      - GRAPH_DB_PASSWORD=passneo4j
+      - GRAPH_DB_HTTP_PORT=${GRAPH_DB_HTTP_PORT:-7474}
+      - GRAPH_DB_BOLT_PORT=${GRAPH_DB_BOLT_PORT:-7687}
+      - ARANGO_DB_HOST=arango-db
+      - ARANGO_DB_USERNAME=root
+      - ARANGO_DB_PASSWORD=passroot
+      - ARANGO_DB_PORT=${ARANGO_DB_PORT:-8529}
       - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
+
+      # Object storage
+      - MINIO_USERNAME=minio
+      - MINIO_PASSWORD=minio123
 
       # LLM configuration
       - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
       - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
       - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
-      - VIA_VLM_API_KEY=${OPENAI_API_KEY:-${VIA_VLM_API_KEY:-not-used}}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration
@@ -155,7 +167,6 @@ services:
       # Port configuration
       - BACKEND_PORT=${BACKEND_PORT:-38111}
       - LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
-      - FRONTEND_PORT=${FRONTEND_PORT:-38113}
 
       # Model cache directory
       - MODEL_ROOT_DIR=${MODEL_ROOT_DIR:-/tmp/model_cache}
@@ -171,12 +182,15 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
       - KAFKA_STRUCTURED_SUMMARY_TOPIC=${KAFKA_STRUCTURED_SUMMARY_TOPIC:-structured-events-summary}
 
-      # VLM configuration
-      - VLM_INPUT_WIDTH=${VLM_INPUT_WIDTH:-1312}
-      - VLM_INPUT_HEIGHT=${VLM_INPUT_HEIGHT:-736}
+      # Feature flags
+      - DISABLE_CA_RAG=false
+      - ENABLE_AUDIO=false
+      - ENABLE_DENSE_CAPTION=false
+      - LVS_ENABLE_MCP=true
+      - VSS_LOG_LEVEL=INFO
+      - VLM_SYSTEM_PROMPT=""
 
       # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
-      - USE_RTVI_VLM=${USE_RTVI_VLM:-false}
       - RTVI_VLM_URL=${RTVI_VLM_URL:-}
       - RTVI_VLM_URL_PASSTHROUGH=true
 

@@ -136,11 +136,9 @@ vss-summarization:
   elasticsearchPort: "9200"
   llmService: ""
   vlmService: ""
-  # LVS backend routes VLM calls through vss-rtvi-vlm (docker parity: USE_RTVI_VLM=true, RTVI_VLM_URL=http://HOST:RTVI_VLM_PORT).
+  # LVS backend routes VLM calls through vss-rtvi-vlm (docker parity: RTVI_VLM_URL=http://HOST:RTVI_VLM_PORT).
   # Values are rendered with `tpl` so {{ .Release.Name }} works when global.useReleaseNamePrefix is enabled.
   extraEnv:
-    - name: USE_RTVI_VLM
-      value: "true"
     - name: RTVI_VLM_URL
       value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "vss-rtvi-vlm" }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
     - name: RTVI_VLM_URL_PASSTHROUGH
