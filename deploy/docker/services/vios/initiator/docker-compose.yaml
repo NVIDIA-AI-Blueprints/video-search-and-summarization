@@ -16,7 +16,7 @@
 services:
   sensor-bp-wait-bp-configurator:
     image: busybox:1.37.0
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["sensor-bp-wait-bp-configurator"]
     network_mode: host
     container_name: sensor-bp-wait-bp-configurator
     restart: "no"
@@ -29,12 +29,7 @@ services:
 
   sensor-ms:
     image: ${VST_SENSOR_IMAGE}
-    profiles:
-      - bp_developer_base_2d
-      - bp_developer_search_2d
-      - bp_developer_lvs_2d
-      - bp_developer_alerts_2d_cv
-      - bp_developer_alerts_2d_vlm
+    profiles: ["sensor-ms"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
@@ -74,10 +69,7 @@ services:
 
   sensor-ms-2d:
     image: ${VST_SENSOR_IMAGE}
-    profiles:
-      - bp_wh_kafka_2d
-      - bp_wh_redis_2d
-      - bp_wh_2d
+    profiles: ["sensor-ms-2d"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
@@ -118,9 +110,7 @@ services:
 
   sensor-ms-3d:
     image: ${VST_SENSOR_IMAGE}
-    profiles:
-      - bp_wh_kafka_3d
-      - bp_wh_redis_3d
+    profiles: ["sensor-ms-3d"]
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]

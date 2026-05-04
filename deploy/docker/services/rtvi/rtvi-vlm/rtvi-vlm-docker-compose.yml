@@ -23,7 +23,7 @@ services:
     user: "1001:1001"
     shm_size: '16gb'
     runtime: nvidia
-    profiles: ["bp_wh_2d", "bp_developer_alerts_2d_vlm", "bp_developer_alerts_2d_cv", "bp_developer_base_2d_IGX-THOR", "bp_developer_base_2d_AGX-THOR", "bp_developer_lvs_2d"]
+    profiles: ["rtvi-vlm"]
     deploy:
       resources:
         reservations:

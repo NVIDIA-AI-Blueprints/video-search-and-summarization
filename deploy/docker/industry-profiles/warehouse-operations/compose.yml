@@ -20,5 +20,5 @@ include:
   # Warehouse Configuration - includes both 2D and 3D apps
 
   # Services are differentiated by -2d and -3d suffixes
-  # Use profiles: bp_wh_2d, bp_wh_kafka_2d, bp_wh_redis_2d (2D)
-  # bp_wh_kafka_3d, bp_wh_redis_3d (3D) to activate services
+  # Each service carries profiles: ["<service-name>"]; active services are
+  # selected via COMPOSE_PROFILES in .env (COMPOSE_PROFILES_WH_2D, etc.)
