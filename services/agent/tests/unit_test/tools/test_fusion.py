@@ -27,11 +27,11 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.tools.fusion import ChunkKey
+from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import RankedList
 from vss_agents.tools.fusion import FusionConfig
 from vss_agents.tools.fusion import FusionInput
-from vss_agents.tools.fusion import RankedChunk
-from vss_agents.tools.fusion import RankedList
 from vss_agents.tools.fusion import apply_global_filters
 from vss_agents.tools.fusion import apply_per_space_filter
 from vss_agents.tools.fusion import bucketize
@@ -39,7 +39,6 @@ from vss_agents.tools.fusion import compute_score_threshold
 from vss_agents.tools.fusion import fuse
 from vss_agents.tools.fusion import merge_adjacent_rows
 from vss_agents.tools.fusion import run_fusion
-from vss_agents.tools.fusion import snap
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -112,42 +111,6 @@ def _warehouse_attribute_list() -> RankedList:
             _chunk(_D, _D_500, 0.41, 3),
         ],
     )
-
-
-# ---------------------------------------------------------------------------
-# snap()
-# ---------------------------------------------------------------------------
-
-
-class TestSnap:
-    """Snap an arbitrary timestamp down to the chunk-grid floor."""
-
-    def test_snaps_below_chunk_boundary(self):
-        # 00:01:27.500 with chunk=5 -> 00:01:25
-        ts = _ts(85) + timedelta(seconds=2.5)
-        assert snap(ts, 5) == _ts(85)
-
-    def test_already_snapped_is_noop(self):
-        assert snap(_ts(90), 5) == _ts(90)
-
-    def test_preserves_tzinfo_for_aware_input(self):
-        # Non-UTC tz-aware input -> tzinfo preserved on the snapped output.
-        paris = ZoneInfo("Europe/Paris")
-        ts = datetime(2025, 1, 1, 0, 1, 27, 500_000, tzinfo=paris)
-        snapped = snap(ts, 5)
-        assert snapped.tzinfo is paris
-        assert snapped == datetime(2025, 1, 1, 0, 1, 25, tzinfo=paris)
-
-    def test_naive_datetime_rejected(self):
-        # Tightened contract: naive datetime in -> ValueError out.
-        naive = datetime(2025, 1, 1, 0, 1, 27, 500_000)
-        with pytest.raises(ValueError):
-            snap(naive, 5)
-
-    def test_negative_offsets_floor_correctly(self):
-        # 1969 (pre-epoch) edge: start = -10s, chunk=5 -> -10s (already on grid).
-        ts = datetime(1969, 12, 31, 23, 59, 50, tzinfo=UTC)
-        assert snap(ts, 5) == ts
 
 
 # ---------------------------------------------------------------------------
@@ -1012,23 +975,6 @@ class TestRunFusion:
 # ---------------------------------------------------------------------------
 
 
-class TestRankedChunkContract:
-    """Lock in important contracts for :class:`RankedChunk`."""
-
-    @pytest.mark.parametrize("bad_score", [math.nan, math.inf, -math.inf])
-    def test_non_finite_score_rejected(self, bad_score):
-        """Loud failure: NaN/Inf score in -> ValidationError out.
-
-        Reject at the model boundary instead so every downstream call site can trust the input.
-        """
-        with pytest.raises(ValidationError):
-            RankedChunk(
-                key=ChunkKey(sensor_id="s", start=_ts(0)),
-                score=bad_score,
-                rank=1,
-            )
-
-
 class TestFusionInputContract:
     """Lock in important contracts for :class:`FusionInput`."""
 
@@ -1080,27 +1026,3 @@ class TestSpaceWeightsContract:
     def test_negative_value_in_per_space_min_score_accepted(self):
         """Negative thresholds are legitimate for cosine/dot-product scores."""
         FusionInput(space_weights={}, per_space_min_score={"embed": -0.5})  # must not raise
-
-
-class TestChunkKeyTimezoneContract:
-    """Pin the tz-awareness contract on ChunkKey.start"""
-
-    def test_naive_datetime_rejected_at_construction(self):
-        """Loud failure: naive datetime in -> ValidationError out."""
-        naive = datetime(2025, 1, 1, 12, 0, 0)
-        assert naive.tzinfo is None  # sanity: this really is naive
-
-        with pytest.raises(ValidationError):
-            ChunkKey(sensor_id="cam-1", start=naive)
-
-    def test_same_moment_two_timezones_produce_identical_keys(self):
-        """Two ChunkKeys built from the same wall moment in different tz must
-        be ``==`` AND hash-equal (so they collide in fuse()'s dict join)."""
-        ts_utc = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        ts_paris = datetime(2025, 1, 1, 13, 0, 0, tzinfo=ZoneInfo("Europe/Paris"))
-
-        key_utc = ChunkKey(sensor_id="cam-1", start=ts_utc)
-        key_paris = ChunkKey(sensor_id="cam-1", start=ts_paris)
-
-        assert key_utc == key_paris
-        assert hash(key_utc) == hash(key_paris)
