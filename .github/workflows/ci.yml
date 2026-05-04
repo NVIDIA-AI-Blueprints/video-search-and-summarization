@@ -292,15 +292,46 @@ jobs:
 
       - name: Check DCO sign-off
         run: |
-          MERGE_BASE=$(git merge-base HEAD origin/${GITHUB_BASE_REF:-develop} 2>/dev/null || echo HEAD~1)
+          # Only check commits that are authored on this branch — i.e. NOT already
+          # reachable from any long-lived upstream branch (main, develop, release/*,
+          # hotfix/*) or from the PR base (when running on a `pull_request` event).
+          # This avoids re-checking historical commits that were inherited via a sync
+          # or rebase from another branch and that pre-date the DCO requirement.
+          BASE="${GITHUB_BASE_REF:-develop}"
+
+          # `actions/checkout` only fetches the checked-out ref. Make sure the refs we
+          # use as exclusion bases exist locally. Failures are tolerated (e.g. a fresh
+          # repo with no release/* branches yet).
+          for ref in "$BASE" main develop; do
+            git rev-parse --verify "origin/$ref" >/dev/null 2>&1 || \
+              git fetch --no-tags --quiet origin \
+                "+refs/heads/$ref:refs/remotes/origin/$ref" 2>/dev/null || true
+          done
+          for pattern in 'release/*' 'hotfix/*'; do
+            git fetch --no-tags --quiet origin \
+              "+refs/heads/$pattern:refs/remotes/origin/$pattern" 2>/dev/null || true
+          done
+
+          # Build the exclusion set from every long-lived upstream branch we know
+          # about. A commit reachable from any of these is inherited history.
+          EXCLUDES=()
+          while IFS= read -r ref; do
+            [ -n "$ref" ] && EXCLUDES+=("^$ref")
+          done < <(git for-each-ref --format='%(refname:short)' \
+              refs/remotes/origin/main \
+              refs/remotes/origin/develop \
+              'refs/remotes/origin/release/*' \
+              'refs/remotes/origin/hotfix/*' 2>/dev/null)
+
           # --no-merges: skip auto-generated merge commits (e.g. from "Update branch" /
           # `git merge develop` into a feature branch). They have no Signed-off-by and
           # are bookkeeping, not authored content. Matches Probot DCO behavior.
-          COMMITS=$(git rev-list --no-merges "$MERGE_BASE"..HEAD 2>/dev/null || echo "")
+          COMMITS=$(git rev-list --no-merges HEAD "${EXCLUDES[@]}" 2>/dev/null || echo "")
           if [ -z "$COMMITS" ]; then
             echo "No new commits to check."
             exit 0
           fi
+          echo "Checking $(echo "$COMMITS" | wc -l) commit(s) authored on this branch..."
           FAILED=0
           for sha in $COMMITS; do
             MSG=$(git log -1 --format="%B" "$sha")
