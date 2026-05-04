@@ -30,13 +30,13 @@ from vss_agents.tools.fusion import ChunkKey
 from vss_agents.tools.fusion import FusionInput
 from vss_agents.tools.fusion import RankedChunk
 from vss_agents.tools.fusion import RankedList
-from vss_agents.tools.fusion import _theoretical_ceiling
 from vss_agents.tools.fusion import apply_global_filters
 from vss_agents.tools.fusion import apply_per_space_filter
 from vss_agents.tools.fusion import bucketize
 from vss_agents.tools.fusion import fuse
-from vss_agents.tools.fusion import merge_adjacent
+from vss_agents.tools.fusion import merge_adjacent_rows
 from vss_agents.tools.fusion import run_fusion
+from vss_agents.tools.fusion import score_threshold
 from vss_agents.tools.fusion import snap
 
 # ---------------------------------------------------------------------------
@@ -400,18 +400,15 @@ class TestGlobalFilters:
         # fixture, post-fusion (no merging). Convenient input for
         # global-filter tests.
         bucketed = [bucketize(_warehouse_embed_list(), 5), bucketize(_warehouse_attribute_list(), 5)]
-        return fuse(bucketed, method="rrf", rrf_k=60), [rl.weight for rl in bucketed]
+        return fuse(bucketed, method="rrf", rrf_k=60)
 
     def test_min_contributing_spaces_2_drops_single_space_hits(self):
-        fused, weights = self._two_space_fused()
+        fused = self._two_space_fused()
         out = apply_global_filters(
             fused,
             min_contributing_spaces=2,
             keep_if_top_n_in_any_space=None,
-            min_fused_score_ratio=None,
-            method="rrf",
-            rrf_k=60,
-            weights=weights,
+            score_threshold=None,
         )
         # Only the two warehouse_01 chunks have contributions from both spaces.
         kept_starts = {row.key.start for row in out.values()}
@@ -421,32 +418,30 @@ class TestGlobalFilters:
         # keep_if_top_n_in_any_space=5 keeps chunks ranked <=5 in at
         # least one space. Combined with min_contributing_spaces=2 (which
         # would otherwise drop them), this exemption rescues them.
-        fused, weights = self._two_space_fused()
+        fused = self._two_space_fused()
         out = apply_global_filters(
             fused,
             min_contributing_spaces=2,
             keep_if_top_n_in_any_space=5,
-            min_fused_score_ratio=None,
-            method="rrf",
-            rrf_k=60,
-            weights=weights,
+            score_threshold=None,
         )
         # All 5 chunks have rank <= 5 in at least one space (max rank is 4).
         assert len(out) == 5
 
-    def test_min_fused_score_ratio_uses_theoretical_ceiling(self):
+    def test_score_threshold_drops_below_floor(self):
         # With k=60, w=[1.0, 0.5], ratio=0.5 -> threshold = 0.5 * 0.02459 = 0.01230.
-        fused, weights = self._two_space_fused()
-        ceiling = _theoretical_ceiling("rrf", 60, weights)
-        threshold = 0.5 * ceiling
+        fused = self._two_space_fused()
+        inp = FusionInput(
+            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            method="rrf",
+            rrf_k=60,
+        )
+        threshold = score_threshold(inp, fraction=0.5)
         out = apply_global_filters(
             fused,
             min_contributing_spaces=1,
             keep_if_top_n_in_any_space=None,
-            min_fused_score_ratio=0.5,
-            method="rrf",
-            rrf_k=60,
-            weights=weights,
+            score_threshold=threshold,
         )
         # Cliff: warehouse_01 chunks (cross-validated, ~0.024) survive;
         # warehouse_01 @ 00:01:35 (~0.0159), dock @ 00:03:10 (~0.0156),
@@ -460,17 +455,19 @@ class TestGlobalFilters:
             assert fused[key].score < threshold
 
     def test_top_n_exemption_overrides_score_ratio(self):
-        # Strong single-space hits are kept even when min_fused_score_ratio
+        # Strong single-space hits are kept even when score_threshold
         # would drop them - "strong somewhere" override.
-        fused, weights = self._two_space_fused()
+        fused = self._two_space_fused()
+        inp = FusionInput(
+            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            method="rrf",
+            rrf_k=60,
+        )
         out = apply_global_filters(
             fused,
             min_contributing_spaces=2,
             keep_if_top_n_in_any_space=1,  # rank-1 anywhere -> keep
-            min_fused_score_ratio=0.99,  # would otherwise drop nearly everything
-            method="rrf",
-            rrf_k=60,
-            weights=weights,
+            score_threshold=score_threshold(inp, fraction=0.99),  # would otherwise drop nearly everything
         )
         # Each space's rank-1 chunk must survive; vote-count and ratio
         # filters are bypassed for top-N exempt rows.
@@ -479,30 +476,53 @@ class TestGlobalFilters:
         assert _ts(_W_130) in kept_starts  # rank 1 in attribute
 
 
-class TestTheoreticalCeiling:
+class TestScoreThreshold:
+    """``score_threshold`` is fraction * ceiling; ceiling math is method-specific."""
+
     def test_rrf_ceiling(self):
-        # Σ w_i / (k + 1)
-        assert _theoretical_ceiling("rrf", 60, [1.0, 0.5]) == pytest.approx(1.5 / 61)
+        # ceiling = Σ w_i / (k + 1); fraction=1.0 returns the full ceiling.
+        inp = FusionInput(
+            lists=[
+                RankedList(space="a", weight=1.0),
+                RankedList(space="b", weight=0.5),
+            ],
+            method="rrf",
+            rrf_k=60,
+        )
+        assert score_threshold(inp, fraction=1.0) == pytest.approx(1.5 / 61)
 
     def test_weighted_linear_ceiling(self):
-        # Σ w_i (max-normalized)
-        assert _theoretical_ceiling("weighted_linear", 60, [1.0, 0.5, 0.4]) == pytest.approx(1.9)
+        # ceiling = Σ w_i (max-normalized); fraction=1.0 returns the full ceiling.
+        inp = FusionInput(
+            lists=[
+                RankedList(space="a", weight=1.0),
+                RankedList(space="b", weight=0.5),
+                RankedList(space="c", weight=0.4),
+            ],
+            method="weighted_linear",
+        )
+        assert score_threshold(inp, fraction=1.0) == pytest.approx(1.9)
 
-    def test_unknown_method_raises(self):
-        with pytest.raises(ValueError, match="Unknown fusion method"):
-            _theoretical_ceiling("bogus", 60, [1.0])  # type: ignore[arg-type]
+    def test_fraction_scales_ceiling(self):
+        # fraction=0.5 -> threshold is half the ceiling.
+        inp = FusionInput(
+            lists=[RankedList(space="a", weight=1.0)],
+            method="rrf",
+            rrf_k=60,
+        )
+        assert score_threshold(inp, fraction=0.5) == pytest.approx(0.5 / 61)
 
 
 # ---------------------------------------------------------------------------
-# merge_adjacent()
+# merge_adjacent_rows()
 # ---------------------------------------------------------------------------
 
 
 def _row(sensor: str, start_seconds: int, score: float, contributing=("embed",)):
-    """Construct a private _FusedRow for merge tests without going through fuse()."""
-    from vss_agents.tools.fusion import _FusedRow
+    """Construct a FusedRow for merge tests without going through fuse()."""
+    from vss_agents.tools.fusion import FusedRow
 
-    return _FusedRow(
+    return FusedRow(
         key=ChunkKey(sensor_id=sensor, start=_ts(start_seconds)),
         score=score,
         contributing_spaces=list(contributing),
@@ -520,7 +540,7 @@ class TestMergeAdjacent:
             _row("s", 5, 0.20),
             _row("s", 10, 0.30),
         ]
-        segments = merge_adjacent(rows, chunk_seconds=5, merge_gap_chunks=0, aggregation="mean")
+        segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0, aggregation="mean")
         assert len(segments) == 1
         seg = segments[0]
         assert seg.start == _ts(0)
@@ -535,7 +555,7 @@ class TestMergeAdjacent:
             _row("s", 5, 0.20),
             _row("s", 10, 0.30),
         ]
-        segments = merge_adjacent(rows, chunk_seconds=5, merge_gap_chunks=0, aggregation="max")
+        segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0, aggregation="max")
         assert len(segments) == 1
         assert segments[0].fused_score == pytest.approx(0.30)
 
@@ -544,7 +564,7 @@ class TestMergeAdjacent:
         # vs single spike 0.024. Under default `mean`, sustained wins.
         sustained = [_row("a", i * 5, 0.025) for i in range(4)]
         spike = [_row("b", 0, 0.024)]
-        segments = merge_adjacent(sustained + spike, chunk_seconds=5, merge_gap_chunks=0, aggregation="mean")
+        segments = merge_adjacent_rows(sustained + spike, chunk_seconds=5, merge_gap_chunks=0, aggregation="mean")
         assert len(segments) == 2
         # Output is sorted desc by fused_score -> sustained first.
         assert segments[0].sensor_id == "a"
@@ -556,7 +576,7 @@ class TestMergeAdjacent:
         # Same fixture under aggregation="max": spike wins.
         sustained = [_row("a", i * 5, 0.020) for i in range(4)]  # max=0.020
         spike = [_row("b", 0, 0.030)]
-        segments = merge_adjacent(sustained + spike, chunk_seconds=5, merge_gap_chunks=0, aggregation="max")
+        segments = merge_adjacent_rows(sustained + spike, chunk_seconds=5, merge_gap_chunks=0, aggregation="max")
         assert len(segments) == 2
         assert segments[0].sensor_id == "b"
         assert segments[0].fused_score == pytest.approx(0.030)
@@ -564,7 +584,7 @@ class TestMergeAdjacent:
     def test_does_not_merge_across_sensors(self):
         # Two sensors with same timestamps must stay as two separate segments.
         rows = [_row("a", 0, 0.5), _row("b", 0, 0.4)]
-        segments = merge_adjacent(rows, chunk_seconds=5, merge_gap_chunks=0)
+        segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0)
         assert len(segments) == 2
         assert {s.sensor_id for s in segments} == {"a", "b"}
 
@@ -572,14 +592,14 @@ class TestMergeAdjacent:
         # Two chunks with a 5s gap (one empty chunk between them); with
         # merge_gap_chunks=0 they must stay separate.
         rows = [_row("s", 0, 0.5), _row("s", 10, 0.4)]
-        segments = merge_adjacent(rows, chunk_seconds=5, merge_gap_chunks=0)
+        segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0)
         assert len(segments) == 2
 
     def test_gap_within_merge_gap_chunks_merges(self):
         # Same gap as above but merge_gap_chunks=1 -> merge into one segment
         # of length 15s (start of first -> end of second).
         rows = [_row("s", 0, 0.5), _row("s", 10, 0.4)]
-        segments = merge_adjacent(rows, chunk_seconds=5, merge_gap_chunks=1)
+        segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=1)
         assert len(segments) == 1
         assert segments[0].start == _ts(0)
         assert segments[0].end == _ts(15)
@@ -591,13 +611,13 @@ class TestMergeAdjacent:
             _row("s", 5, 0.4, contributing=("attribute",)),
             _row("s", 10, 0.3, contributing=("embed", "caption")),
         ]
-        segments = merge_adjacent(rows, chunk_seconds=5, merge_gap_chunks=0)
+        segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0)
         assert len(segments) == 1
         assert sorted(segments[0].contributing_spaces) == ["attribute", "caption", "embed"]
 
     def test_member_keys_preserve_order(self):
         rows = [_row("s", 0, 0.1), _row("s", 5, 0.2), _row("s", 10, 0.3)]
-        segments = merge_adjacent(rows, chunk_seconds=5, merge_gap_chunks=0)
+        segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0)
         assert [k.start for k in segments[0].member_keys] == [_ts(0), _ts(5), _ts(10)]
 
 

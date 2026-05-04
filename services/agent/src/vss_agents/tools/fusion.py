@@ -28,6 +28,7 @@ from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from typing import Literal
 
 from pydantic import AwareDatetime
@@ -35,6 +36,9 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 FusionMethod = Literal["rrf", "weighted_linear"]
 Aggregation = Literal["max", "mean"]
@@ -108,7 +112,7 @@ class RankedList(BaseModel):
 
     # Trust knob for this space (used in RRF / weighted_linear etc.)
     # Makes this space's votes count for more
-    weight: float = 1.0
+    weight: float = Field(default=1.0, ge=0)
     chunks: list[RankedChunk] = Field(default_factory=list)
 
 
@@ -121,14 +125,14 @@ class FusionInput(BaseModel):
     lists: list[RankedList] = Field(default_factory=list)
 
     # Chunk grid in seconds - drives snap/dedup and merge gap math, e.g. =5 -> 00:03 and 00:04 collapse to one bucket
-    chunk_seconds: int = DEFAULT_CHUNK_SECONDS
+    chunk_seconds: int = Field(default=DEFAULT_CHUNK_SECONDS, gt=0)
 
     # Fusion math
     # - rrf uses ranks (unit-free, robust)
     # - weighted_linear uses min-max normalized raw scores
     method: FusionMethod = "rrf"
     # RRF damping (larger k flattens, smaller k amplifies top ranks), e.g. 60 is the TREC standard
-    rrf_k: int = DEFAULT_RRF_K
+    rrf_k: int = Field(default=DEFAULT_RRF_K, gt=0)
 
     # Filter knobs (Pre-fuse)
     # Drop per-space chunks early below a raw-unit threshold, e.g. {"embed": 0.7} -> cosine < 0.7 chunks dropped
@@ -210,7 +214,7 @@ class FusionOutput(BaseModel):
 
 
 @dataclass
-class _FusedRow:
+class FusedRow:
     """Outer-join accumulator used inside :func:`fuse` and the global filter pass."""
 
     key: ChunkKey
@@ -246,6 +250,13 @@ def snap(ts: datetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
     return epoch + timedelta(seconds=snapped)
 
 
+def _rerank_by_score(rl: RankedList, survivors: Iterable[RankedChunk]) -> RankedList:
+    """Reorders chunks by importance for fusion."""
+    sorted_chunks = sorted(survivors, key=lambda c: c.score, reverse=True)
+    reranked = [RankedChunk(key=c.key, score=c.score, rank=i + 1) for i, c in enumerate(sorted_chunks)]
+    return RankedList(space=rl.space, weight=rl.weight, chunks=reranked)
+
+
 def bucketize(rl: RankedList, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
     """Snap timestamps onto the ``chunk_seconds`` grid, dedupe, recompute ranks.
 
@@ -274,9 +285,7 @@ def bucketize(rl: RankedList, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> Ran
         if existing is None or chunk.score > existing.score:
             best[snapped_key] = RankedChunk(key=snapped_key, score=chunk.score, rank=0)
 
-    survivors = sorted(best.values(), key=lambda c: c.score, reverse=True)
-    reranked = [RankedChunk(key=c.key, score=c.score, rank=i + 1) for i, c in enumerate(survivors)]
-    return RankedList(space=rl.space, weight=rl.weight, chunks=reranked)
+    return _rerank_by_score(rl, best.values())
 
 
 def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]) -> RankedList:
@@ -297,17 +306,14 @@ def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]
     threshold = per_space_min_score.get(rl.space)
     if threshold is None:
         return rl
-    survivors = [c for c in rl.chunks if c.score >= threshold]
-    survivors.sort(key=lambda c: c.score, reverse=True)
-    reranked = [RankedChunk(key=c.key, score=c.score, rank=i + 1) for i, c in enumerate(survivors)]
-    return RankedList(space=rl.space, weight=rl.weight, chunks=reranked)
+    return _rerank_by_score(rl, (c for c in rl.chunks if c.score >= threshold))
 
 
 def fuse(
     lists: list[RankedList],
     method: FusionMethod = "rrf",
     rrf_k: int = DEFAULT_RRF_K,
-) -> dict[ChunkKey, _FusedRow]:
+) -> dict[ChunkKey, FusedRow]:
     """Outer-join ``lists`` on :class:`ChunkKey` and compute the fused score.
 
     1) ``rrf``: ``fused = Σ_i  w_i / (rrf_k + rank_i)``. Missing rank -> 0.
@@ -338,12 +344,12 @@ def fuse(
     plus per-space rank witnesses (used by global filters like ``keep_if_top_n_in_any_space``).
     The dict is pre-sort; callers sort by ``score`` descending before merging.
     """
-    out: dict[ChunkKey, _FusedRow] = {}
+    out: dict[ChunkKey, FusedRow] = {}
 
     if method == "rrf":
         for rl in lists:
             for chunk in rl.chunks:
-                row = out.setdefault(chunk.key, _FusedRow(key=chunk.key))
+                row = out.setdefault(chunk.key, FusedRow(key=chunk.key))
                 row.score += rl.weight / (rrf_k + chunk.rank)
                 if rl.space not in row.contributing_spaces:
                     row.contributing_spaces.append(rl.space)
@@ -359,7 +365,7 @@ def fuse(
             spread = hi - lo
             for chunk in rl.chunks:
                 norm = 1.0 if spread == 0 else (chunk.score - lo) / spread
-                row = out.setdefault(chunk.key, _FusedRow(key=chunk.key))
+                row = out.setdefault(chunk.key, FusedRow(key=chunk.key))
                 row.score += rl.weight * norm
                 if rl.space not in row.contributing_spaces:
                     row.contributing_spaces.append(rl.space)
@@ -387,16 +393,25 @@ def _theoretical_ceiling(
     raise ValueError(f"Unknown fusion method: {method!r}")
 
 
+def score_threshold(fusion_input: FusionInput, fraction: float = 0.5) -> float:
+    """Returns meaningful score cutoff.
+
+    Example: Setting fraction=0.6 applies a threshold at 60% of the theoretical maximum
+    score ("ceiling"). Since fused_score is unitless and depends on the fusion method and
+    weights, using a fraction ensures the threshold remains meaningful. This helps calibrate
+    filtering based on "how close to the best possible score" a chunk came.
+    """
+    weights = [rl.weight for rl in fusion_input.lists]
+    return _theoretical_ceiling(fusion_input.method, fusion_input.rrf_k, weights) * fraction
+
+
 def apply_global_filters(
-    fused: dict[ChunkKey, _FusedRow],
+    fused: dict[ChunkKey, FusedRow],
     *,
     min_contributing_spaces: int,
     keep_if_top_n_in_any_space: int | None,
-    min_fused_score_ratio: float | None,
-    method: FusionMethod,
-    rrf_k: int,
-    weights: list[float],
-) -> dict[ChunkKey, _FusedRow]:
+    score_threshold: float | None,
+) -> dict[ChunkKey, FusedRow]:
     """Apply the post-fusion filters.
 
     ``keep_if_top_n_in_any_space`` is an OR exemption: a chunk that ranks ``<= N``
@@ -408,12 +423,7 @@ def apply_global_filters(
     - C2 (1 space, rank=2)                 -> kept via exemption (top-3 somewhere)
     - C3 (1 space, rank=8)                 -> dropped (no agreement, no top-3 vote)
     """
-    threshold: float | None = None
-    if min_fused_score_ratio is not None:
-        ceiling = _theoretical_ceiling(method, rrf_k, weights)
-        threshold = min_fused_score_ratio * ceiling
-
-    out: dict[ChunkKey, _FusedRow] = {}
+    out: dict[ChunkKey, FusedRow] = {}
     for key, row in fused.items():
         is_strong_somewhere = keep_if_top_n_in_any_space is not None and any(
             rank <= keep_if_top_n_in_any_space for rank in row.per_space_ranks.values()
@@ -423,13 +433,13 @@ def apply_global_filters(
             continue
         if len(row.contributing_spaces) < min_contributing_spaces:
             continue
-        if threshold is not None and row.score < threshold:
+        if score_threshold is not None and row.score < score_threshold:
             continue
         out[key] = row
     return out
 
 
-def _row_to_segment(row: _FusedRow, chunk_seconds: int) -> FusedSegment:
+def _row_to_segment(row: FusedRow, chunk_seconds: int) -> FusedSegment:
     """Wrap a single fused row as a length-1 segment (no merging)."""
     return FusedSegment(
         sensor_id=row.key.sensor_id,
@@ -442,7 +452,7 @@ def _row_to_segment(row: _FusedRow, chunk_seconds: int) -> FusedSegment:
     )
 
 
-def rows_to_segments(rows: list[_FusedRow], chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> list[FusedSegment]:
+def rows_to_segments(rows: list[FusedRow], chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> list[FusedSegment]:
     """Convert fused rows to length-1 segments without merging.
 
     Used by :func:`run_fusion` when ``merge_adjacent=False``. Preserves the
@@ -451,8 +461,8 @@ def rows_to_segments(rows: list[_FusedRow], chunk_seconds: int = DEFAULT_CHUNK_S
     return [_row_to_segment(r, chunk_seconds) for r in rows]
 
 
-def merge_adjacent(
-    rows: list[_FusedRow],
+def merge_adjacent_rows(
+    rows: list[FusedRow],
     chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
     merge_gap_chunks: int = 0,
     aggregation: Aggregation = "mean",
@@ -473,7 +483,7 @@ def merge_adjacent(
     - [25-30] has a 10s gap (2 missing chunks) -> stays alone
     -> 2 segments
     """
-    by_sensor: dict[str, list[_FusedRow]] = defaultdict(list)
+    by_sensor: dict[str, list[FusedRow]] = defaultdict(list)
     for row in rows:
         by_sensor[row.key.sensor_id].append(row)
 
@@ -482,7 +492,7 @@ def merge_adjacent(
 
     for _sensor_id, sensor_rows in by_sensor.items():
         sensor_rows.sort(key=lambda r: r.key.start)
-        group: list[_FusedRow] = []
+        group: list[FusedRow] = []
         prev_end: datetime | None = None
         for row in sensor_rows:
             if prev_end is not None:
@@ -500,11 +510,11 @@ def merge_adjacent(
 
 
 def _finalize_group(
-    group: list[_FusedRow],
+    group: list[FusedRow],
     chunk_seconds: int,
     aggregation: Aggregation,
 ) -> FusedSegment:
-    """Collapse a contiguous run of :class:`_FusedRow` items into one :class:`FusedSegment`.
+    """Collapse a contiguous run of :class:`FusedRow` items into one :class:`FusedSegment`.
 
     Example: aggregation="mean"
     - 3 contiguous rows on cam-1: scores [0.045, 0.040, 0.038], spaces [embed,attr], [embed,caption], [embed]
@@ -563,7 +573,7 @@ def _finalize_group(
 #                  │   2. apply_per_space_filter                              │
 #                  │   3. fuse                 (RRF or weighted_linear)       │
 #                  │   4. apply_global_filters                                │
-#                  │   5. merge_adjacent       (or rows_to_segments)          │
+#                  │   5. merge_adjacent_rows  (or rows_to_segments)          │
 #                  │   6. sort desc by fused_score, top_k cut                 │
 #                  └────────────────────────────┬─────────────────────────────┘
 #                                               │
@@ -591,19 +601,17 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
 
     fused = fuse(bucketed, method=inp.method, rrf_k=inp.rrf_k)
 
+    threshold = score_threshold(inp, inp.min_fused_score_ratio) if inp.min_fused_score_ratio is not None else None
     fused = apply_global_filters(
         fused,
         min_contributing_spaces=inp.min_contributing_spaces,
         keep_if_top_n_in_any_space=inp.keep_if_top_n_in_any_space,
-        min_fused_score_ratio=inp.min_fused_score_ratio,
-        method=inp.method,
-        rrf_k=inp.rrf_k,
-        weights=[rl.weight for rl in bucketed],
+        score_threshold=threshold,
     )
 
     rows = sorted(fused.values(), key=lambda r: r.score, reverse=True)
     if inp.merge_adjacent:
-        segments = merge_adjacent(
+        segments = merge_adjacent_rows(
             rows,
             chunk_seconds=inp.chunk_seconds,
             merge_gap_chunks=inp.merge_gap_chunks,
