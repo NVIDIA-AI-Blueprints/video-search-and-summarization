@@ -73,12 +73,6 @@ docker compose down
 
 The `config.yaml` file is automatically mounted into the container at `/app/config.yaml`. The environment variable `CA_RAG_CONFIG_PATH=/app/config.yaml` is set to point to this location.
 
-### GPU Configuration
-
-The compose file uses the GPU devices specified in the `GPU_DEVICES` environment variable (default: `2,3`). Ensure you have:
-- NVIDIA Docker runtime installed
-- Docker Compose with GPU support
-
 ### Port Mappings
 
 The following ports are exposed:

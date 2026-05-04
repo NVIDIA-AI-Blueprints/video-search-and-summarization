@@ -109,15 +109,6 @@ services:
 
     profiles: ["bp_developer_lvs_2d"]
 
-    # GPU configuration
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['${GPU_DEVICES:-0}']
-              capabilities: [gpu]
-
     network_mode: host
 
     # Volume mounts
