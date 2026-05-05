@@ -125,6 +125,43 @@ class TestGetVideoUrl:
                     vst_internal_url="http://vst:30888",
                 )
                 assert result == "http://vst/clip.mp4"
+                actual_url = mock_session.get.call_args[0][0]
+                assert "disableAudio=true" in actual_url
+
+    @pytest.mark.asyncio
+    async def test_get_video_url_disable_audio_false(self):
+        """When disable_audio=False, VST URL must request audio passthrough."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.text = AsyncMock(return_value=json.dumps({"videoUrl": "http://vst/clip.mp4"}))
+        mock_response_cm = AsyncMock()
+        mock_response_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response_cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_response_cm
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+
+                async def fake_retry(*args, **kwargs):
+                    yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
+
+                mock_retry.return_value = fake_retry()
+
+                result = await get_video_url(
+                    "stream1",
+                    start_time="2025-01-01T00:00:00.000Z",
+                    end_time="2025-01-01T00:10:00.000Z",
+                    vst_internal_url="http://vst:30888",
+                    disable_audio=False,
+                )
+                assert result == "http://vst/clip.mp4"
+                actual_url = mock_session.get.call_args[0][0]
+                assert "disableAudio=false" in actual_url
 
     @pytest.mark.asyncio
     async def test_get_video_url_invalid_range(self):
@@ -264,4 +301,5 @@ class TestVSTVideoClipInner:
                         "http://10.0.0.1:30888",
                         overlay_enabled=True,
                         object_ids=["obj-1", "obj-2"],
+                        disable_audio=True,
                     )
