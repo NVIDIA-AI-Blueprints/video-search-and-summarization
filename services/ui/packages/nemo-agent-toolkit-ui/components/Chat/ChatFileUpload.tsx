@@ -6,7 +6,7 @@ import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react
 import {
   UploadFilesDialog,
   copyToClipboard,
-  uploadFile,
+  uploadFileChunkedViaAgent,
   type UploadFileConfigTemplate,
   type FileUploadResult,
 } from '@aiqtoolkit-ui/common';
@@ -559,8 +559,9 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       const abortController = new AbortController();
       abortControllerMapRef.current.set(fileId, abortController);
 
-      // Use shared upload utility (uploadFilename from dialog when user edited it)
-      const result = await uploadFile(
+      // Chunked upload via agent proxy (bypasses Cloudflare 100s timeout on
+      // large files by sending many small chunks instead of one monolithic PUT).
+      const result = await uploadFileChunkedViaAgent(
         file,
         agentApiUrlBase,
         formData,

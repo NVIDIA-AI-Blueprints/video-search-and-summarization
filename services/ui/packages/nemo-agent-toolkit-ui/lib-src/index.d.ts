@@ -186,7 +186,14 @@ export {
   formatTimestamp,
   getUploadUrl,
   uploadFile,
+  uploadFileChunked,
+  uploadFileChunkedViaAgent,
+  notifyGenericUploadComplete,
+  CHUNK_SIZE_BYTES,
+  MAX_CHUNK_RETRIES,
   type FileUploadResult,
+  type ChunkedUploadOptions,
+  type ChunkedUploadResponse,
 } from '@aiqtoolkit-ui/common';
 
 // Re-export next-i18next config

@@ -1,7 +1,21 @@
 /**
- * Shared video upload utilities
- * Agent API upload (for search profiles) - get upload URL first, then PUT
+ * Shared video upload utilities.
+ *
+ * Two entry points:
+ *
+ *  - uploadFile: legacy two-step (POST /videos → PUT presigned URL).
+ *    Single monolithic PUT — hits Cloudflare's 100s request timeout on
+ *    large files over slow connections.
+ *
+ *  - uploadFileChunkedViaAgent: posts the file in chunks to the agent's
+ *    /api/v1/videos/chunked/upload endpoint (the agent proxies each chunk
+ *    to VST's nvstreamer reassembler), then calls
+ *    /api/v1/videos/{filename}/complete for post-processing. Keeps the UI
+ *    talking to one backend (the agent) while avoiding the 100s cutoff.
  */
+
+import { uploadFileChunked } from './chunkedUpload';
+import type { ChunkedUploadResponse } from './chunkedUpload';
 
 /**
  * Response from agent API when getting upload URL
@@ -147,4 +161,107 @@ export async function uploadFile(
   } finally {
     abortSignal?.removeEventListener('abort', abortListener);
   }
+}
+
+/**
+ * Notify the agent that a chunked upload completed, so it can run
+ * post-upload processing (embeddings, RTVI registration, etc.). The
+ * UI forwards the receiver's upload response as the request body
+ * without interpretation — the agent picks out the fields it needs.
+ *
+ * Hits the generic route at /api/v1/videos/{filename}/complete so this
+ * works across profiles (search, alerts, lvs, base). Distinct from the
+ * search-specific /videos-for-search/{filename}/complete used by the
+ * Video Management tab — that one is guarded to require embedding config
+ * at startup; this one registers on any profile and gracefully no-ops
+ * post-processing steps whose backing services aren't configured.
+ *
+ * `formData` carries any per-upload custom parameters collected by the
+ * UI (e.g. from the chat upload dialog's env-configurable template). It
+ * is sent as a top-level `custom_params` field alongside the upload
+ * response, so the agent can read it via a dedicated model field when
+ * needed. Omitted entirely when empty so the body stays minimal.
+ */
+export async function notifyGenericUploadComplete(
+  agentApiUrl: string,
+  filename: string,
+  uploadResponse: ChunkedUploadResponse,
+  formData?: Record<string, any>,
+  signal?: AbortSignal,
+): Promise<void> {
+  const dotIndex = filename.lastIndexOf('.');
+  const filenameWithoutExt = dotIndex > 0 ? filename.substring(0, dotIndex) : filename;
+  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(filenameWithoutExt)}/complete`;
+
+  const body: Record<string, any> = { ...uploadResponse };
+  if (formData && Object.keys(formData).length > 0) {
+    body.custom_params = formData;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!response.ok) {
+    let message = `Post-processing failed with status ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData?.detail) {
+        message = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+      }
+    } catch { /* use default */ }
+    throw new Error(message);
+  }
+}
+
+/**
+ * Chunked upload via the agent proxy — drop-in replacement for
+ * `uploadFile` that bypasses Cloudflare's 100s request timeout.
+ *
+ * Posts chunks to `{agentApiUrl}/api/v1/videos/chunked/upload`, which
+ * forwards each chunk to VST's nvstreamer endpoint. After the final
+ * chunk lands, POSTs to `/videos/{filename}/complete` for post-processing.
+ *
+ * The signature mirrors `uploadFile` so callers can swap one for the
+ * other with minimal diff. `formData` is forwarded to `/complete` as a
+ * top-level `custom_params` field so per-upload custom parameters from
+ * the dialog template reach the agent (mirrors the search-profile
+ * Video Management path).
+ */
+export async function uploadFileChunkedViaAgent(
+  file: File,
+  agentApiUrl: string,
+  formData: Record<string, any>,
+  onProgress?: (progress: number) => void,
+  abortSignal?: AbortSignal,
+  requestFilename?: string
+): Promise<FileUploadResult> {
+  const filenameForRequest = requestFilename?.trim() || file.name;
+  const chunkUploadUrl = `${agentApiUrl.replace(/\/$/, '')}/videos/chunked/upload`;
+
+  const uploadResponse = await uploadFileChunked({
+    file,
+    uploadUrl: chunkUploadUrl,
+    onProgress,
+    abortSignal,
+  });
+
+  if (abortSignal?.aborted) {
+    throw new Error('Upload was cancelled');
+  }
+
+  await notifyGenericUploadComplete(agentApiUrl, filenameForRequest, uploadResponse, formData, abortSignal);
+
+  // Reshape into the same FileUploadResult contract uploadFile returns.
+  return {
+    filename: (uploadResponse.filename as string) ?? filenameForRequest,
+    bytes: (uploadResponse.bytes as number) ?? file.size,
+    sensorId: uploadResponse.sensorId as string,
+    streamId: (uploadResponse.streamId as string) ?? (uploadResponse.sensorId as string),
+    filePath: (uploadResponse.filePath as string) ?? '',
+    timestamp: '2025-01-01T00:00:00.000Z',
+  };
 }
