@@ -37,7 +37,6 @@ from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
 from vss_agents.data_models.ranking import ChunkKey
 from vss_agents.data_models.ranking import RankedChunk
 from vss_agents.data_models.ranking import RankedList
-from vss_agents.data_models.ranking import SpaceName
 from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.es_client import VSSESClient
@@ -107,12 +106,7 @@ class EmbedSearchOutput(BaseModel):
     query_embedding: list[float] = Field(default_factory=list, description="Query embedding vector")
     results: list[EmbedSearchResultItem] = Field(default_factory=list, description="Search results")
 
-    def to_ranked_list(
-        self,
-        *,
-        space: SpaceName = "embed",
-        chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
-    ) -> RankedList:
+    def to_ranked_list(self, *, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
         """Bucketize raw embed hits onto the chunk grid; max-score wins per :class:`ChunkKey`.
 
         Multiple raw hits inside the same ``chunk_seconds`` window collapse to one
@@ -136,7 +130,7 @@ class EmbedSearchOutput(BaseModel):
 
         sorted_keys = sorted(bucketed.keys(), key=lambda k: -bucketed[k])
         chunks = [RankedChunk(key=k, score=bucketed[k], rank=i + 1) for i, k in enumerate(sorted_keys)]
-        return RankedList(space=space, chunks=chunks)
+        return RankedList(space="embed", chunks=chunks)
 
     def to_payload_index(
         self,

@@ -37,7 +37,8 @@ from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
 from vss_agents.data_models.ranking import ChunkKey
 from vss_agents.data_models.ranking import RankedChunk
 from vss_agents.data_models.ranking import RankedList
-from vss_agents.data_models.ranking import SpaceName
+from vss_agents.data_models.search import DecomposedQuery
+from vss_agents.data_models.search import SearchInput
 from vss_agents.embed.embed import EmbedClient
 from vss_agents.embed.rtvi_cv_embed import RTVICVEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
@@ -153,12 +154,7 @@ class AttributeSearchOutput(BaseModel):
             return cls(results=results)
         return cls.model_validate(raw)
 
-    def to_ranked_list(
-        self,
-        *,
-        space: SpaceName = "attribute",
-        chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
-    ) -> RankedList:
+    def to_ranked_list(self, *, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
         """Bucketize attribute hits onto the chunk grid.
 
         Per-result score follows legacy ``fusion_search_rerank`` semantics:
@@ -185,7 +181,7 @@ class AttributeSearchOutput(BaseModel):
 
         sorted_keys = sorted(bucketed.keys(), key=lambda k: -bucketed[k])
         chunks = [RankedChunk(key=k, score=bucketed[k], rank=i + 1) for i, k in enumerate(sorted_keys)]
-        return RankedList(space=space, chunks=chunks)
+        return RankedList(space="attribute", chunks=chunks)
 
     def to_payload_index(
         self,
@@ -226,6 +222,27 @@ class AttributeSearchOutput(BaseModel):
                 if str(m.object_id) not in ids:
                     ids.append(str(m.object_id))
         return payloads
+
+
+def build_attribute_request(
+    decomposed: DecomposedQuery | None,
+    search_input: SearchInput,
+    top_k: int,
+) -> "AttributeSearchInput | None":
+    """Build the per-call :class:`AttributeSearchInput`, or return None to skip the space.
+
+    Returns None when there are no attributes to search on - that's the
+    "fusion path skipped when LLM returns no attributes" gate.
+    """
+    attrs = list(decomposed.attributes) if (decomposed and decomposed.attributes) else []
+    if not attrs:
+        return None
+    return AttributeSearchInput(
+        query=attrs,
+        source_type=search_input.source_type,
+        top_k=top_k,
+        fuse_multi_attribute=True,
+    )
 
 
 class AttributeSearchConfig(FunctionBaseConfig, name="attribute_search"):
@@ -579,7 +596,7 @@ async def search_by_object_embedding(
     timestamp_start: datetime | None = None,
     timestamp_end: datetime | None = None,
     source_type: str = "video_file",
-) -> list["AttributeSearchResult"]:
+) -> list[AttributeSearchResult]:
     """Search for similar objects using a known object's embedding from the behavior index.
 
     Fetches the object's embedding, then runs KNN on the behavior index to find
@@ -615,7 +632,7 @@ async def search_by_object_embedding(
 
 
 async def enrich_attribute_results(
-    results: list["AttributeSearchResult"],
+    results: list[AttributeSearchResult],
     vst_url: str | None,
 ) -> None:
     """Enrich attribute search results with screenshot URLs and resolved stream IDs.
