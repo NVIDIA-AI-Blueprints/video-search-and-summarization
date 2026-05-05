@@ -300,6 +300,7 @@ helm upgrade --install vss-alerts ./dev-profile-alerts \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" 
+  
 ```
 
 **Real-time mode:**
