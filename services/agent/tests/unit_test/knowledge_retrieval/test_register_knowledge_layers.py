@@ -47,14 +47,15 @@ class TestKnowledgeRetrievalConfig:
     def test_defaults_match_design(self):
         cfg = KnowledgeRetrievalConfig()
         assert cfg.backend == "frag_api"
-        assert cfg.collection_name == "default"
         assert cfg.top_k == 5
         assert cfg.backend_config == {}
         assert cfg.generate_summary is False
 
     def test_unknown_top_level_field_rejected(self):
-        # `extra="forbid"` — backend-specific knobs must live under
-        # `backend_config`, not at top level.
+        # `extra="forbid"` — backend-specific knobs (incl. collection_name)
+        # must live under `backend_config`, not at top level.
+        with pytest.raises(ValueError):
+            KnowledgeRetrievalConfig(collection_name="some_default")
         with pytest.raises(ValueError):
             KnowledgeRetrievalConfig(rag_url="http://rag:8081/v1")
 
@@ -162,7 +163,6 @@ class TestKnowledgeRetrievalInner:
     def config(self):
         return KnowledgeRetrievalConfig(
             backend="frag_api",
-            collection_name="vss_warehouse_rules",
             top_k=5,
             backend_config={"rag_url": "http://rag:8081/v1"},
         )
@@ -177,8 +177,10 @@ class TestKnowledgeRetrievalInner:
         return function_info.single_fn
 
     @pytest.mark.asyncio
-    async def test_uses_config_default_collection_when_input_omits_one(self, config, mock_builder):
-        """When tool_input.collection is None, the configured default applies."""
+    async def test_passes_empty_collection_when_input_omits_one(self, config, mock_builder):
+        """When tool_input.collection is None, _search passes an empty string;
+        the adapter is responsible for substituting its own backend-configured
+        default (`FragApiConfig.collection_name`, etc.)."""
         mock_retriever = AsyncMock()
         mock_retriever.retrieve.return_value = RetrievalResult(query="q", backend="frag_api", success=True, chunks=[])
         with patch(
@@ -189,7 +191,7 @@ class TestKnowledgeRetrievalInner:
             await inner_fn(KnowledgeRetrievalInput(query="hello"))
 
         kwargs = mock_retriever.retrieve.call_args.kwargs
-        assert kwargs["collection_name"] == "vss_warehouse_rules"
+        assert kwargs["collection_name"] == ""
 
     @pytest.mark.asyncio
     async def test_explicit_input_collection_overrides_default(self, config, mock_builder):

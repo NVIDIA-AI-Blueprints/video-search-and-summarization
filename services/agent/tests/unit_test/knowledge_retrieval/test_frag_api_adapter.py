@@ -163,6 +163,19 @@ class TestFragApiAdapter:
         assert result.chunks[0].content == "first"
 
     @pytest.mark.asyncio
+    async def test_empty_collection_name_falls_back_to_config_default(self):
+        """When the agent passes an empty collection_name, the adapter
+        substitutes its own configured default (`FragApiConfig.collection_name`)
+        — ie. the `KNOWLEDGE_COLLECTION` env var or the `default` literal."""
+        adapter = FragApiAdapter(FragApiConfig(rag_url="http://rag-server:8081/v1", collection_name="my_collection"))
+        resp = self._mock_response(json_body={"results": []})
+        session = self._mock_session(post_return=resp)
+        with patch("aiohttp.ClientSession", return_value=session):
+            await adapter.retrieve(query="q", collection_name="")
+        payload = session.post.call_args.kwargs["json"]
+        assert payload["collection_names"] == ["my_collection"]
+
+    @pytest.mark.asyncio
     async def test_dict_filter_pushed_down_as_filter_expr(self, adapter):
         resp = self._mock_response(json_body={"results": []})
         session = self._mock_session(post_return=resp)

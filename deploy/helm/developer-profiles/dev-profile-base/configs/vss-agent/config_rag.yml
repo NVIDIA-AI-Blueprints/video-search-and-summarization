@@ -166,9 +166,9 @@ functions:
   frag_retrieval:
     _type: knowledge_retrieval
     backend: frag_api
-    collection_name: ${KNOWLEDGE_COLLECTION:-default}
     top_k: 5
     backend_config:
+      collection_name: ${KNOWLEDGE_COLLECTION:-default}
       rag_url: ${RAG_SERVER_URL:-http://rag-server:8081/v1}
       api_key: ${RAG_API_KEY:-}
       verify_ssl: true

@@ -51,6 +51,12 @@ class FragApiConfig(BaseModel):
     api_key: str | None = Field(
         default_factory=lambda: os.environ.get("RAG_API_KEY"),
     )
+    collection_name: str = Field(
+        default_factory=lambda: os.environ.get("KNOWLEDGE_COLLECTION", "default"),
+        description=(
+            "Default Milvus collection name; used when the caller passes an empty `collection_name` to `retrieve()`."
+        ),
+    )
     timeout: int = 300
     verify_ssl: bool = True
 
@@ -68,9 +74,14 @@ class FragApiAdapter(BackendAdapter):
         # Local convenience accessors with stripped trailing slash on the URL.
         self.rag_url: str = config.rag_url.rstrip("/")
         self.api_key: str | None = config.api_key
+        self.collection_name: str = config.collection_name
         self.timeout: int = config.timeout
         self.verify_ssl: bool = config.verify_ssl
-        logger.info("frag_api initialised: rag_url=%s", self.rag_url)
+        logger.info(
+            "frag_api initialised: rag_url=%s collection_name=%s",
+            self.rag_url,
+            self.collection_name,
+        )
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -85,9 +96,11 @@ class FragApiAdapter(BackendAdapter):
         top_k: int = 5,
         filters: Callable[[Chunk], bool] | dict[str, Any] | None = None,
     ) -> RetrievalResult:
+        # Empty caller-supplied collection -> fall back to the configured default.
+        target_collection = collection_name or self.collection_name
         payload: dict[str, Any] = {
             "query": query,
-            "collection_names": [collection_name],
+            "collection_names": [target_collection],
             "reranker_top_k": top_k,
             "vdb_top_k": min(top_k * VDB_TOP_K_MULTIPLIER, MAX_VDB_TOP_K),
             "enable_reranker": True,

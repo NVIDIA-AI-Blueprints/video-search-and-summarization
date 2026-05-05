@@ -65,10 +65,6 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
         ),
     )
-    collection_name: str = Field(
-        default="default",
-        description="Default collection/index to search.",
-    )
     top_k: int = Field(
         default=5,
         ge=1,
@@ -138,15 +134,17 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, builder: Builder
         logger.info("knowledge_retrieval summary LLM resolved: %s", config.summary_model)
 
     logger.info(
-        "knowledge_retrieval ready: backend=%s, default_collection=%s, default_top_k=%d, summarize=%s",
+        "knowledge_retrieval ready: backend=%s, default_top_k=%d, summarize=%s",
         config.backend,
-        config.collection_name,
         config.top_k,
         config.generate_summary,
     )
 
     async def _search(tool_input: KnowledgeRetrievalInput) -> str:
-        target_collection = tool_input.collection or config.collection_name
+        # Per-query collection from the LLM, or empty -> the adapter
+        # substitutes its own backend-configured default (e.g. FragApi's
+        # `collection_name`) when the value is falsy.
+        target_collection = tool_input.collection or ""
         top_k = tool_input.top_k or config.top_k
 
         result = await retriever.retrieve(
