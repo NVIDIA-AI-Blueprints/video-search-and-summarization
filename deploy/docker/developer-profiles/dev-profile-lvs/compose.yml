@@ -23,3 +23,28 @@ services:
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     restart: on-failure
+
+  nvstreamer-lvs:
+    image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
+    user: "0:0"
+    profiles: ["bp_developer_lvs_2d"]
+    entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
+      - ADAPTOR=streamer
+      - HTTP_PORT=${NVSTREAMER_HTTP_PORT}
+    network_mode: "host"
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
+    container_name: vss-vios-nvstreamer-lvs
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-lvs/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - $MDX_DATA_DIR/videos/dev-profile-lvs:/home/vst/vst_release/streamer_videos
+      - $MDX_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
+      - $MDX_SAMPLE_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully

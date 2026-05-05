@@ -31,10 +31,12 @@ from vss_agents.api.rtsp_stream_api import DeleteStreamResponse
 from vss_agents.api.rtsp_stream_api import ServiceConfig
 from vss_agents.api.rtsp_stream_api import add_to_rtvi_cv
 from vss_agents.api.rtsp_stream_api import add_to_rtvi_embed
+from vss_agents.api.rtsp_stream_api import add_to_rtvi_vlm
 from vss_agents.api.rtsp_stream_api import add_to_vst
 from vss_agents.api.rtsp_stream_api import cleanup_rtvi_cv
 from vss_agents.api.rtsp_stream_api import cleanup_rtvi_embed_generation
 from vss_agents.api.rtsp_stream_api import cleanup_rtvi_embed_stream
+from vss_agents.api.rtsp_stream_api import cleanup_rtvi_vlm_stream
 from vss_agents.api.rtsp_stream_api import cleanup_vst_sensor
 from vss_agents.api.rtsp_stream_api import cleanup_vst_storage
 from vss_agents.api.rtsp_stream_api import create_rtsp_stream_api_router
@@ -66,6 +68,7 @@ class TestServiceConfig:
         assert config.vst_url == "http://vst:30888"
         assert config.rtvi_cv_url == ""
         assert config.rtvi_embed_url == ""
+        assert config.rtvi_vlm_url == ""
         assert config.rtvi_embed_model == "cosmos-embed1-448p"
         assert config.rtvi_embed_chunk_duration == 5
         # default: alerts/base/lvs-style behavior — VST owns storage, so delete it on remove
@@ -76,6 +79,7 @@ class TestServiceConfig:
             vst_internal_url="http://vst:30888/",
             rtvi_cv_base_url="http://rtvi-cv:9000/",
             rtvi_embed_base_url="http://rtvi-embed:8017/",
+            rtvi_vlm_base_url="http://rtvi-vlm:8018/",
             rtvi_embed_model="custom-model",
             rtvi_embed_chunk_duration=10,
             delete_vst_storage_on_stream_remove=False,
@@ -83,6 +87,7 @@ class TestServiceConfig:
         assert config.vst_url == "http://vst:30888"
         assert config.rtvi_cv_url == "http://rtvi-cv:9000"
         assert config.rtvi_embed_url == "http://rtvi-embed:8017"
+        assert config.rtvi_vlm_url == "http://rtvi-vlm:8018"
         assert config.rtvi_embed_model == "custom-model"
         assert config.rtvi_embed_chunk_duration == 10
         # search-style: RTVI owns storage lifecycle, leave VST storage alone
@@ -490,6 +495,73 @@ class TestAddToRtviEmbedRealRetry:
         mock_client.post.assert_called_once()
 
 
+class TestAddToRtviVlm:
+    """Test add_to_rtvi_vlm function."""
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_stream_api.create_retry_strategy")
+    async def test_successful_add(self, mock_retry):
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_vlm_base_url="http://rtvi-vlm:8018")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"results": [{"id": "sensor-123"}]}'
+        mock_response.json = MagicMock(return_value={"results": [{"id": "sensor-123"}]})
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        mock_retry.return_value = _single_attempt_retry()
+
+        success, _msg, stream_id = await add_to_rtvi_vlm(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is True
+        assert stream_id == "sensor-123"
+        mock_client.post.assert_called_once_with(
+            "http://rtvi-vlm:8018/v1/streams/add",
+            json={
+                "streams": [
+                    {
+                        "liveStreamUrl": "rtsp://vst:554/sensor-123",
+                        "description": "camera-1",
+                        "sensor_name": "sensor-123",
+                        "id": "sensor-123",
+                    }
+                ],
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_not_configured(self):
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_vlm_base_url="")
+
+        success, msg, stream_id = await add_to_rtvi_vlm(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+
+        assert success is True
+        assert "Skipped" in msg
+        assert stream_id == "sensor-123"
+        mock_client.post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stream_success(self):
+        mock_client = MagicMock()
+        config = ServiceConfig(vst_internal_url="http://vst:30888", rtvi_vlm_base_url="http://rtvi-vlm:8018")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client.delete = AsyncMock(return_value=mock_response)
+
+        success, msg = await cleanup_rtvi_vlm_stream(mock_client, config, "sensor-123")
+
+        assert success is True
+        assert msg == "OK"
+        mock_client.delete.assert_called_once_with("http://rtvi-vlm:8018/v1/streams/delete/sensor-123")
+
+
 class TestStartEmbeddingGeneration:
     """Test start_embedding_generation function."""
 
@@ -630,6 +702,7 @@ class TestCreateRtspStreamApiRouter:
             vst_internal_url="http://vst:30888",
             rtvi_cv_base_url="http://rtvi-cv:9000",
             rtvi_embed_base_url="http://rtvi-embed:8017",
+            rtvi_vlm_base_url="http://rtvi-vlm:8018",
             rtvi_embed_model="custom-model",
             rtvi_embed_chunk_duration=10,
             delete_vst_storage_on_stream_remove=True,
@@ -684,13 +757,13 @@ class TestAddStreamEndpoint:
     async def test_successful_add_vst_only(self, mock_add_vst):
         """Test successful stream addition with VST only (no RTVI URLs configured).
 
-        With no RTVI URLs, ``add_to_rtvi_cv``/``add_to_rtvi_embed``/
+        With no RTVI URLs, the LVS branch is skipped (``rtvi_vlm_base_url`` is
+        empty) and ``add_to_rtvi_cv``/``add_to_rtvi_embed``/
         ``start_embedding_generation`` self-skip — VST add is the only real
-        side effect. This is the alerts/base/lvs-style behavior.
+        side effect.
         """
         router = create_rtsp_stream_api_router(vst_internal_url="http://vst:30888")
 
-        # Mock VST add
         mock_add_vst.return_value = (True, "OK", "sensor-123", "rtsp://vst:554/sensor-123")
 
         endpoint = router.routes[0].endpoint
@@ -698,6 +771,44 @@ class TestAddStreamEndpoint:
         response = await endpoint(request)
 
         assert response.status == "success"
+        assert "camera-1" in response.message
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_stream_api.cleanup_vst_storage")
+    @patch("vss_agents.api.rtsp_stream_api.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_stream_api.add_to_rtvi_vlm")
+    @patch("vss_agents.api.rtsp_stream_api.add_to_vst")
+    @patch("vss_agents.api.rtsp_stream_api.httpx.AsyncClient")
+    async def test_rtvi_vlm_failure_triggers_rollback(
+        self, mock_client_class, mock_add_vst, mock_add_rtvi_vlm, mock_cleanup_sensor, mock_cleanup_storage
+    ):
+        """Test that RTVI-VLM failure triggers VST cleanup in LVS mode.
+
+        Configuring ``rtvi_vlm_base_url`` enables the LVS branch (the router
+        derives ``is_lvs_mode`` from a non-empty ``config.rtvi_vlm_url``).
+        """
+        router = create_rtsp_stream_api_router(
+            vst_internal_url="http://vst:30888",
+            rtvi_vlm_base_url="http://rtvi-vlm:8018",
+        )
+
+        mock_client = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_add_vst.return_value = (True, "OK", "sensor-123", "rtsp://vst:554/sensor-123")
+        mock_add_rtvi_vlm.return_value = (False, "RTVI-VLM error", None)
+        mock_cleanup_sensor.return_value = (True, "OK")
+        mock_cleanup_storage.return_value = (True, "OK")
+
+        endpoint = router.routes[0].endpoint
+        request = AddStreamRequest(sensor_url="rtsp://camera:554/stream", name="camera-1")
+        response = await endpoint(request)
+
+        assert response.status == "failure"
+        assert "RTVI-VLM" in response.message
+        mock_cleanup_sensor.assert_called_once()
+        mock_cleanup_storage.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_stream_api.add_to_vst")
@@ -801,9 +912,25 @@ class TestDeleteStreamEndpoint:
         assert response.name == "camera-1"
 
     @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_stream_api.cleanup_vst_storage")
+    @patch("vss_agents.api.rtsp_stream_api.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_stream_api.cleanup_rtvi_vlm_stream")
     @patch("vss_agents.api.rtsp_stream_api.get_stream_info_by_name")
-    async def test_delete_stream_not_found(self, mock_get_stream_info):
-        """Test deletion when stream is not found."""
+    async def test_delete_stream_not_found(
+        self,
+        mock_get_stream_info,
+        _mock_cleanup_rtvi_vlm_stream,
+        _mock_cleanup_vst_sensor,
+        _mock_cleanup_vst_storage,
+    ):
+        """Test deletion when stream is not found.
+
+        The cleanup_* helpers are patched out so that even if the endpoint
+        accidentally invokes them after the lookup failure they don't hit the
+        network; the only behavior under test is that the endpoint returns a
+        failure response when ``get_stream_info_by_name`` says the stream
+        doesn't exist.
+        """
         router = create_rtsp_stream_api_router(vst_internal_url="http://vst:30888")
 
         mock_get_stream_info.return_value = (False, "Stream not found", None, None)
@@ -868,6 +995,7 @@ class TestRegisterRtspStreamApiRoutes:
         mock_streaming_config.vst_internal_url = "http://vst:30888"
         mock_streaming_config.rtvi_cv_base_url = "http://rtvi-cv:9000"
         mock_streaming_config.rtvi_embed_base_url = "http://rtvi-embed:8017"
+        mock_streaming_config.rtvi_vlm_base_url = "http://rtvi-vlm:8018"
         mock_streaming_config.rtvi_embed_model = "test-model"
         mock_streaming_config.rtvi_embed_chunk_duration = 10
         mock_streaming_config.delete_vst_storage_on_stream_remove = False

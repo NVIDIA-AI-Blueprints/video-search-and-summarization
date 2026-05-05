@@ -97,8 +97,6 @@ spec:
               containerPort: {{ .Values.service.backendPort }}
             - name: mcp
               containerPort: {{ .Values.service.mcpPort }}
-            - name: frontend
-              containerPort: {{ .Values.service.frontendPort }}
           volumeMounts:
             - name: config
               mountPath: /app/config.yaml

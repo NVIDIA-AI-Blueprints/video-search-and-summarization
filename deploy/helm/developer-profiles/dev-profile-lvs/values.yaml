@@ -82,6 +82,35 @@ infra:
     enabled: true
     topicJob:
       enabled: true
+    # Compose parity: deploy/docker/services/video-summarization/compose.yml
+    # `lvs-kafka-topic-init` creates `raw-vlm-events-response` (rtvi-vlm →
+    # lvs-logstash) and `structured-events-summary` (vss-summarization
+    # publishes structured summaries). Kept the kafka subchart defaults so
+    # Kibana dashboards + rtvi-vlm incident topics continue to exist.
+    topics:
+      - name: mdx-raw
+      - name: mdx-bev
+      - name: mdx-space-utilization
+      - name: mdx-alerts
+      - name: mdx-behavior
+      - name: mdx-behavior-plus
+      - name: mdx-frames
+      - name: mdx-mtmc
+      - name: mdx-rtls
+      - name: mdx-rtls-region-1
+      - name: mdx-amr
+      - name: mdx-vlm-alerts
+      - name: mdx-notification
+        partitions: "1"
+      - name: mdx-events
+      - name: mdx-incidents
+      - name: mdx-vlm-incidents
+      - name: mdx-vlm
+      - name: mdx-embed
+      - name: mdx-embed-filtered
+      # LVS streams support (PR #196)
+      - name: raw-vlm-events-response
+      - name: structured-events-summary
     persistence:
       size: 10Gi
       storageClass: ''
@@ -130,21 +159,37 @@ vios:
   vss-vios-mcp:
     enabled: true
 
+  # Compose parity: dev-profile-lvs/compose.yml `nvstreamer-lvs` (profile
+  # `bp_developer_lvs_2d`). Subchart defaults already match the compose
+  # image, HTTP_PORT=31000, ADAPTOR=streamer, and
+  # NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=true.
+  vss-vios-nvstreamer:
+    enabled: true
+
 vss-summarization:
   enabled: true
   elasticsearchHost: ""
   elasticsearchPort: "9200"
   llmService: ""
   vlmService: ""
-  # LVS backend routes VLM calls through vss-rtvi-vlm (docker parity: USE_RTVI_VLM=true, RTVI_VLM_URL=http://HOST:RTVI_VLM_PORT).
+  # LVS backend routes VLM calls through vss-rtvi-vlm (docker parity: RTVI_VLM_URL=http://HOST:RTVI_VLM_PORT).
   # Values are rendered with `tpl` so {{ .Release.Name }} works when global.useReleaseNamePrefix is enabled.
   extraEnv:
-    - name: USE_RTVI_VLM
-      value: "true"
     - name: RTVI_VLM_URL
       value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "vss-rtvi-vlm" }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
     - name: RTVI_VLM_URL_PASSTHROUGH
       value: "true"
+    # LVS streams support (PR #196): enable Kafka integration in
+    # vss-summarization — consume RTVI captions and publish structured
+    # summaries to `structured-events-summary`. Compose parity:
+    # dev-profile-lvs/.env KAFKA_ENABLED=true, KAFKA_BOOTSTRAP_SERVERS,
+    # KAFKA_STRUCTURED_SUMMARY_TOPIC.
+    - name: KAFKA_ENABLED
+      value: "true"
+    - name: KAFKA_BOOTSTRAP_SERVERS
+      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "kafka" }}{{- printf "%s:9092" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
+    - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
+      value: "structured-events-summary"
 
 agent:
   enabled: true
@@ -360,7 +405,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_SIDE_CHATBAR_COLLAPSED
       value: "true"
     - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE
-      value: "false"
+      value: "true"
     - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE
       value: "true"
     - name: NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON
@@ -434,8 +479,11 @@ rtvi:
         value: "openai-compat"
       - name: KAFKA_ENABLED
         value: "true"
+      # Raw VLM event topic produced by rtvi-vlm; consumed by lvs-logstash.
+      # Compose parity: RTVI_VLM_KAFKA_TOPIC in dev-profile-lvs/.env. The
+      # previous value `mdx-vlm` had no consumer in the LVS profile.
       - name: KAFKA_TOPIC
-        value: "mdx-vlm"
+        value: "raw-vlm-events-response"
       - name: KAFKA_INCIDENT_TOPIC
         value: "mdx-vlm-incidents"
       - name: ERROR_MESSAGE_TOPIC
