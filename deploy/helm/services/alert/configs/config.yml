@@ -20,9 +20,14 @@
 {{- $esHost := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
 {{- $cosmosHost := ternary (printf "%s-nvidia-cosmos-reason2-8b" .Release.Name) "nvidia-cosmos-reason2-8b" $pfx }}
 {{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
-{{- $subVlm := trim (default "" .Values.vlmBaseUrl) }}
-{{- $globVlm := trim (default "" (index $g "vlmBaseUrl")) }}
-{{- $vlmUrl := $subVlm | default $globVlm }}
+{{- /* vlmBaseUrl: tpl() enables optional {{…}} templates; "" and static URLs behave as before (empty → defaults in vlm.base_url below). */}}
+{{- $rawSubVlm := .Values.vlmBaseUrl | default "" | toString }}
+{{- $rawGlobVlm := index $g "vlmBaseUrl" | default "" | toString }}
+{{- $rawVlmPick := $rawSubVlm }}
+{{- if eq (trim $rawSubVlm) "" }}
+{{- $rawVlmPick = $rawGlobVlm }}
+{{- end }}
+{{- $vlmUrl := trim (tpl $rawVlmPick .) }}
 {{- $subVn := trim (default "" .Values.vlmName) }}
 {{- $globVn := trim (default "" (index $g "vlmName")) }}
 {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
@@ -35,7 +40,9 @@
 {{- $globalVstCandidate = ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "") }}
 {{- end }}
 {{- $internalVst := printf "http://%s" $vstIngHost }}
-{{- $subVst := trim (default "" .Values.vstBaseUrl) }}
+{{- /* vstBaseUrl: optional {{…}} via tpl; "" and static URLs unchanged. */}}
+{{- $rawVst := .Values.vstBaseUrl | default "" | toString }}
+{{- $subVst := trim (tpl $rawVst .) }}
 {{- /* Remote VLM: URLs in Kafka incidents (streamprocessing) and vst_config must use a host the VLM can resolve — not only global.vlmBaseUrl; subchart vlmBaseUrl alone must also flip defaults. */}}
 {{- $remoteVlmConfigured := or (ne (trim (default "" (index $g "vlmBaseUrl"))) "") (ne (trim (default "" .Values.vlmBaseUrl)) "") }}
 {{- $vstBaseDefault := $internalVst }}
