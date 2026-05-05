@@ -30,6 +30,12 @@ defaults:
   run:
     shell: bash
 
+env:
+  # The source artifact intentionally excludes .git. The Python package
+  # derives its version from VCS metadata, so provide a deterministic
+  # CI-only version for artifact-based jobs.
+  SETUPTOOLS_SCM_PRETEND_VERSION: 0.0.0+${{ github.sha }}
+
 jobs:
   # ---------------------------------------------------------------------------
   # Job 0: Package source once for jobs that do not need git history
