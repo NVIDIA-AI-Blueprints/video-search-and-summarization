@@ -10,7 +10,8 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)/services/agent"
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "${GITHUB_WORKSPACE:-$PWD}")
+cd "$repo_root/services/agent"
 
 uv sync --frozen --no-default-groups --quiet
 uv pip install --quiet pip-licenses

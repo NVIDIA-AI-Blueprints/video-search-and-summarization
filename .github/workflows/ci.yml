@@ -30,19 +30,67 @@ defaults:
   run:
     shell: bash
 
+env:
+  # The source artifact intentionally excludes .git. The Python package
+  # derives its version from VCS metadata, so provide a deterministic
+  # CI-only version for artifact-based jobs.
+  SETUPTOOLS_SCM_PRETEND_VERSION: 0.0.0+${{ github.sha }}
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # Job 0: Package source once for jobs that do not need git history
+  # ---------------------------------------------------------------------------
+  prepare-source:
+    name: Prepare source artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Package tracked source
+        run: |
+          git archive --format=tar.gz --prefix=repo/ -o source.tar.gz HEAD
+          git ls-files > tracked-files.txt
+          ls -lh source.tar.gz
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: source-${{ github.sha }}
+          path: |
+            source.tar.gz
+            tracked-files.txt
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   # ---------------------------------------------------------------------------
   # Job 1: Python lint (ruff check + ruff format + yamllint)
   # ---------------------------------------------------------------------------
   lint:
     name: Lint (Python)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: services/agent
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
@@ -68,8 +116,8 @@ jobs:
       - name: ruff format
         run: uv run ruff format --check .
 
-      # Run from repo root so `git ls-files` sees YAML files outside
-      # services/agent (the job's default working-directory).
+      # Run from repo root so the tracked-file manifest sees YAML files
+      # outside services/agent (the job's default working-directory).
       # yamllint is GPL-3.0-or-later, so we run it ephemerally via `uvx`
       # rather than declaring it as a project dep — that way it never
       # appears in services/agent/uv.lock and never lands in any
@@ -77,22 +125,40 @@ jobs:
       - name: yamllint
         working-directory: ${{ github.workspace }}
         run: |
+          YAML_FILES=$(grep -E '^(\.github/.*\.ya?ml|\.pre-commit-config\.yaml|services/.*\.ya?ml)$' .ci/tracked-files.txt || true)
+          if [ -z "$YAML_FILES" ]; then
+            echo "No YAML files to lint."
+            exit 0
+          fi
           uvx yamllint \
             -d "{extends: default, rules: {line-length: {max: 200}, document-start: disable, indentation: {spaces: 2, indent-sequences: consistent}}}" \
-            $(git ls-files '.github/**/*.yml' '.github/**/*.yaml' '.pre-commit-config.yaml' 'services/**/*.yml' 'services/**/*.yaml')
+            $YAML_FILES
 
   # ---------------------------------------------------------------------------
   # Job 2: Python type checking (mypy)
   # ---------------------------------------------------------------------------
   typecheck:
     name: Type Check (mypy)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: services/agent
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
@@ -120,13 +186,26 @@ jobs:
   # ---------------------------------------------------------------------------
   test:
     name: Test (pytest)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: services/agent
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
@@ -167,15 +246,26 @@ jobs:
   # ---------------------------------------------------------------------------
   security:
     name: Security Scan (detect-secrets)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: services/agent
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          fetch-depth: 0
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
@@ -190,20 +280,33 @@ jobs:
           detect-secrets-hook --no-verify \
             --exclude-files '(gitleaks-baseline\.json|^deploy/docker/MANIFEST$)' \
             --exclude-files '(\.secrets\.baseline|gitleaks-baseline\.json|^deployments/MANIFEST$)' \
-            $(git ls-files)
+            $(cat "$GITHUB_WORKSPACE/.ci/tracked-files.txt")
 
   # ---------------------------------------------------------------------------
   # Job 5: Frontend lint + typecheck
   # ---------------------------------------------------------------------------
   frontend-lint:
     name: Lint & Typecheck (UI)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: services/ui
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -244,13 +347,26 @@ jobs:
   # ---------------------------------------------------------------------------
   frontend-build:
     name: Build (UI)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: services/ui
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -270,10 +386,22 @@ jobs:
   # ---------------------------------------------------------------------------
   copyright-headers:
     name: Copyright Headers
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Check SPDX headers
         run: python3 .github/scripts/check_copyright_headers.py
@@ -324,13 +452,26 @@ jobs:
   # ---------------------------------------------------------------------------
   license-check-python:
     name: License Check (Python)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: services/agent
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
@@ -361,13 +502,26 @@ jobs:
   # ---------------------------------------------------------------------------
   license-check-ui:
     name: License Check (UI)
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
       run:
         working-directory: services/ui
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
@@ -417,10 +571,22 @@ jobs:
   # ---------------------------------------------------------------------------
   folder-structure:
     name: Check folder structure
+    needs: prepare-source
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Validate folder structures
         run: python3 .github/scripts/check_folder_structure.py
@@ -436,6 +602,7 @@ jobs:
     # independent of what the downstream pipeline exercises. They still
     # gate the overall workflow conclusion via GitHub's required checks.
     needs:
+      - prepare-source
       - lint
       - typecheck
       - security
@@ -464,7 +631,18 @@ jobs:
       DOWNSTREAM_REF: main
       DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
 
       - name: Trigger pipeline
         id: trigger
