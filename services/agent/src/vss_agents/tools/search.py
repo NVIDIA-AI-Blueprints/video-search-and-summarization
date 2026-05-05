@@ -22,6 +22,7 @@ import logging
 from typing import Any
 from typing import Literal
 from typing import Union
+from typing import assert_never
 
 import aiohttp
 from fastapi import HTTPException
@@ -47,12 +48,12 @@ from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS as _CHUNK_SECONDS
 from vss_agents.data_models.ranking import ChunkKey
-from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import FusableSearchOutput
 from vss_agents.data_models.ranking import RankedList
-from vss_agents.data_models.ranking import snap
+from vss_agents.data_models.ranking import SpaceName
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.attribute_search import AttributeSearchInput
-from vss_agents.tools.attribute_search import AttributeSearchResult
+from vss_agents.tools.attribute_search import AttributeSearchOutput
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.fusion import FusedSegment
 from vss_agents.tools.fusion import FusionInput
@@ -826,110 +827,7 @@ def _merge_consecutive_results(results: list["SearchResult"]) -> list["SearchRes
     return merged
 
 
-# -- Generalized fusion path helpers --
-# TODO: In a future refactor, we make embedding spaces (embed, attribute, new ones)
-#       return ranked lists natively so we can move these adapters to their specialized files
-
-
-def _make_chunk_key(sensor_id: str, start_iso: str, chunk_seconds: int = _CHUNK_SECONDS) -> ChunkKey:
-    """Build a snapped :class:`ChunkKey` from a raw ISO start timestamp.
-
-    The raw ``end_time`` from upstream tools is intentionally discarded:
-    fusion's join contract is "key on the snapped start window, not on
-    the raw upstream end.
-    """
-    snapped_start = snap(iso8601_to_datetime(start_iso), chunk_seconds)
-    return ChunkKey(sensor_id=sensor_id, start=snapped_start)
-
-
-def _embed_to_ranked_list_and_payloads(
-    embed_output: EmbedSearchOutput,
-    space: str = "embed",
-    chunk_seconds: int = _CHUNK_SECONDS,
-) -> tuple[RankedList, dict[ChunkKey, dict]]:
-    """Adapter: ``EmbedSearchOutput`` -> (RankedList, payload index).
-
-    Bucketizes raw embed hits onto the chunk grid; when multiple raw hits
-    fall in the same 5s window we keep the max-score one for both the rank
-    input and the payload (so the screenshot URL points at the most
-    representative frame of the chunk).
-    """
-    bucketed: dict[ChunkKey, dict] = {}
-    payloads: dict[ChunkKey, dict] = {}
-
-    for hit in embed_output.results:
-        if not hit.video_name:
-            continue
-        try:
-            key = _make_chunk_key(hit.sensor_id, hit.start_time, chunk_seconds)
-        except Exception as e:
-            logger.warning(f"Skipping embed hit with unparseable timestamps: {e}")
-            continue
-        existing = bucketed.get(key)
-        if existing is None or hit.similarity_score > existing["score"]:
-            bucketed[key] = {"score": float(hit.similarity_score)}
-            payloads[key] = {
-                "video_name": hit.video_name,
-                "description": hit.description,
-                "screenshot_url": hit.screenshot_url,
-                "raw_embed_cosine": float(hit.similarity_score),
-                "_source_space": space,
-            }
-
-    sorted_keys = sorted(bucketed.keys(), key=lambda k: -bucketed[k]["score"])
-    chunks = [RankedChunk(key=k, score=bucketed[k]["score"], rank=i + 1) for i, k in enumerate(sorted_keys)]
-    return RankedList(space=space, chunks=chunks), payloads
-
-
-def _attribute_to_ranked_list_and_payloads(
-    attribute_results: list[AttributeSearchResult],
-    space: str = "attribute",
-    chunk_seconds: int = _CHUNK_SECONDS,
-) -> tuple[RankedList, dict[ChunkKey, dict]]:
-    """Adapter: ``list[AttributeSearchResult]`` -> (RankedList, payload index).
-
-    Per-result score follows legacy ``fusion_search_rerank`` semantics: prefer
-    ``frame_score`` when > 0, else fall back to ``behavior_score``. Object IDs
-    are propagated via the payload so they survive into ``SearchResult.object_ids``.
-    """
-    bucketed: dict[ChunkKey, dict] = {}
-    payloads: dict[ChunkKey, dict] = {}
-
-    for r in attribute_results:
-        m = r.metadata
-        # Prefer explicit start; fall back to the frame timestamp.
-        start_iso = m.start_time or m.frame_timestamp
-        try:
-            key = _make_chunk_key(m.sensor_id, start_iso, chunk_seconds)
-        except Exception as e:
-            logger.warning(f"Skipping attribute result with unparseable timestamps: {e}")
-            continue
-        score = float(m.frame_score) if (m.frame_score is not None and m.frame_score > 0.0) else float(m.behavior_score)
-
-        existing = bucketed.get(key)
-        if existing is None or score > existing["score"]:
-            bucketed[key] = {"score": score}
-            object_ids = [str(m.object_id)] if m.object_id else []
-            payloads[key] = {
-                "video_name": m.video_name or "",
-                "description": "",
-                "screenshot_url": r.screenshot_url or "",
-                "object_ids": object_ids,
-                "_source_space": space,
-            }
-        else:
-            # Same chunk hit by multiple object_ids - merge the IDs onto the existing payload.
-            if m.object_id:
-                ids = payloads[key].setdefault("object_ids", [])
-                if str(m.object_id) not in ids:
-                    ids.append(str(m.object_id))
-
-    sorted_keys = sorted(bucketed.keys(), key=lambda k: -bucketed[k]["score"])
-    chunks = [RankedChunk(key=k, score=bucketed[k]["score"], rank=i + 1) for i, k in enumerate(sorted_keys)]
-    return RankedList(space=space, chunks=chunks), payloads
-
-
-def _build_attribute_input(
+def _build_attribute_request(
     decomposed: DecomposedQuery | None,
     search_input: "SearchInput",
     top_k: int,
@@ -954,7 +852,7 @@ def _build_attribute_input(
     )
 
 
-async def _run_space_with_payloads(
+async def _invoke_space(
     space_cfg: "RankingSpaceConfig",
     decomposed: DecomposedQuery | None,
     search_input: "SearchInput",
@@ -962,38 +860,44 @@ async def _run_space_with_payloads(
     default_top_k: int,
     chunk_seconds: int = _CHUNK_SECONDS,
 ) -> tuple[RankedList, dict[ChunkKey, dict]] | None:
-    """Run one ranking space (input build + tool.ainvoke + adapter).
+    """Run one ranking space: build the request, call the tool, adapt the output.
 
-    Returns ``None`` when the space's input would be empty (e.g. attribute
-    space with zero attributes) so the caller can drop it from the fusion
-    inputs. Native (RankedList, payloads) tools (caption_search, future
-    spaces) will replace the per-space dispatch here once they ship".
+    Each space customizes only the request construction (with its specific input model),
+    while output handling is standardized using :class:`FusableSearchOutput`.
+
+    Returns ``None`` when the space opts out (e.g. attribute space with zero
+    attributes, or no results from the tool) so the caller can drop it.
     """
     per_space_top_k = space_cfg.top_k if space_cfg.top_k is not None else default_top_k
 
-    if space_cfg.space == "attribute":
-        attr_input = _build_attribute_input(decomposed, search_input, per_space_top_k)
-        if attr_input is None:
+    space = space_cfg.space
+    output: FusableSearchOutput
+    if space == "attribute":
+        request = _build_attribute_request(decomposed, search_input, per_space_top_k)
+        if request is None:
             return None
         tool = await builder.get_function(space_cfg.tool)
-        raw = await tool.ainvoke(attr_input)
-        # NAT tool may return list directly or a dict to be validated.
-        if raw is None:
+        raw = await tool.ainvoke(request)
+        attribute_output = AttributeSearchOutput.from_raw(raw)
+        if not attribute_output.results:
             return None
-        if isinstance(raw, list):
-            results = [
-                item if isinstance(item, AttributeSearchResult) else AttributeSearchResult.model_validate(item)
-                for item in raw
-            ]
-        else:
-            results = []
-        if not results:
-            return None
-        return _attribute_to_ranked_list_and_payloads(results, space=space_cfg.space, chunk_seconds=chunk_seconds)
+        output = attribute_output
+    # Add new embedding spaces handling here
+    # if space = ...:
 
-    raise ValueError(
-        f"Unknown ranking space '{space_cfg.space}'. Supported in this commit: 'embed', 'attribute'. "
-        f"Add a native (RankedList, payloads) tool or extend _run_space_with_payloads."
+    elif space == "embed":
+        # Anchor space always running in orchestrator
+        # So must be filtered out of the ranking_spaces list before calling this function
+        raise RuntimeError("'embed' is the anchor space and must not be dispatched via _invoke_space")
+    else:
+        # Exhaustiveness check
+        # i.e. extending :data:`SpaceName` with a new value without adding a handler branch above
+        # will cause mypy to fail here
+        assert_never(space)
+
+    return (
+        output.to_ranked_list(space=space, chunk_seconds=chunk_seconds),
+        output.to_payload_index(chunk_seconds=chunk_seconds),
     )
 
 
@@ -1117,20 +1021,15 @@ async def _run_generalized_fusion_path(
     # Embed always participates as the anchor space (regardless of whether it's
     # explicitly declared in ranking_spaces - keeps single-list-fusion working
     # when only embed has data)
-    embed_ranked, embed_payloads = _embed_to_ranked_list_and_payloads(
-        embed_output, space="embed", chunk_seconds=chunk_seconds
-    )
-    ranked_lists: list[RankedList] = [embed_ranked]
-    payload_index: dict[ChunkKey, dict] = dict(embed_payloads)
+    ranked_lists: list[RankedList] = [embed_output.to_ranked_list(space="embed", chunk_seconds=chunk_seconds)]
+    payload_index: dict[ChunkKey, dict] = embed_output.to_payload_index(chunk_seconds=chunk_seconds)
 
     # Run all non-embed declared spaces in parallel
     extra_spaces = [s for s in config.ranking_spaces if s.space != "embed"]
     if extra_spaces:
         results = await asyncio.gather(
             *[
-                _run_space_with_payloads(
-                    s, decomposed, search_input, builder, default_top_k, chunk_seconds=chunk_seconds
-                )
+                _invoke_space(s, decomposed, search_input, builder, default_top_k, chunk_seconds=chunk_seconds)
                 for s in extra_spaces
             ],
             return_exceptions=True,
@@ -1827,16 +1726,11 @@ class RankingSpaceConfig(BaseModel):
     Used only by the generalized fusion path (``enable_generalized_fusion=True``).
     """
 
-    # Flexible non-typed space name so users can easily add spaces in the config
-    # TODO: review validation because becomes a key in ``FusionInput.space_weights`` and must also match the keys used in fusion's ``per_space_min_score``
-    space: str = Field(
+    # Embedding spaces supported by the search tool
+    # To add a new space, refer to the ``SpaceName`` literal and extend it
+    space: SpaceName = Field(
         ...,
-        min_length=1,
-        description=(
-            "Logical space name, e.g. 'embed', 'attribute', 'caption', 'face'. "
-            "Becomes a key in ``FusionInput.space_weights`` and must also match "
-            "the keys used in fusion's ``per_space_min_score``."
-        ),
+        description="Logical space name. e.g. 'embed', 'attribute', 'caption', etc.",
     )
     tool: FunctionRef = Field(
         ...,
