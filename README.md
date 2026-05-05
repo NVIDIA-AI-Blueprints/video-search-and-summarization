@@ -1,4 +1,4 @@
-<h2>NVIDIA AI Blueprint: Video Search and Summarization</h2>
+<h2>NVIDIA AI Blueprint: Video Search and Summarization (VSS)</h2>
 
 ### Table of Contents
 - [Overview](#overview)
@@ -11,13 +11,15 @@
 - [Prerequisites](#prerequisites)
 - [Hardware Requirements](#hardware-requirements)
 - [Quickstart Guide](#quickstart-guide)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Overview
-This repository is what powers the [build experience](https://build.nvidia.com/nvidia/video-search-and-summarization), showcasing video search and summarization agent with NVIDIA NIM microservices.
 
-Insightful, accurate, and interactive video analytics AI agents enable a range of industries to make better decisions faster. These AI agents are given tasks through natural language and can perform complex operations like video summarization and visual question-answering, unlocking entirely new application possibilities. The NVIDIA AI Blueprint makes it easy to get started building and customizing video analytics AI agents for video search and summarization — all powered by generative AI, vision language models (VLMs) like Cosmos Nemotron VLMs, large language models (LLMs) like Llama Nemotron LLMs,d NVIDIA NIM.
+The [NVIDIA Blueprint for Video Search and Summarization (VSS)](https://docs.nvidia.com/vss/latest/index.html) provides a suite of reference architectures for building vision agents and AI-powered video analytics applications. Those architectures bring together accelerated vision microservices, vision language models (VLMs), and large language models (LLMs) so you can use them in existing applications, as standalone microservices, or as part of a larger vision agent.
+
+VSS is organized into three areas of processing and analysis: **real-time video intelligence** (feature extraction, embeddings, and stream understanding with results published to a message broker), **downstream analytics** (enrichment of metadata into trajectories, incidents, and verified alerts), and **agentic and offline processing** (orchestrated tools for search, Q&A, summarization, and clip retrieval, including via the Model Context Protocol).
+
+This repository implements the blueprint and powers the [NVIDIA build experience](https://build.nvidia.com/nvidia/video-search-and-summarization) for natural-language video agents—search, summarization, visual Q&A, and related workflows—backed by generative AI, VLMs and LLMs, and [NVIDIA NIM](https://build.nvidia.com/) microservices as configured in the stacks below.
 
 ## Use Case / Problem Description
 
@@ -64,6 +66,7 @@ This blueprint is designed for ease of setup with extensive configuration option
 | `agent/` | Video search and summarization agent (Python). Contains `src/vss_agents/` (tools, agents, APIs, embeddings, evaluators, video analytics), `tests/`, `stubs/`, `docker/`, and `3rdparty/`. See [agent/README.md](agent/README.md). |
 | `deployments/` | Deployment configs and Docker Compose: NIM model configs (`nim/`), developer workflows (`developer-workflow/` — dev-profile-base, dev-profile-search, dev-profile-alerts, dev-profile-lvs), foundational services, LVS, RTVI, VLM-as-verifier, VST, and root `compose.yml`. |
 | `scripts/` | Deployment and patch scripts, including the Brev launchable notebook (`deploy_vss_launchable.ipynb`) and dev-profile / patch scripts. |
+| `skills/` | [agentskills.io](https://agentskills.io/specification)-compatible agent skills for VSS: one self-contained subdirectory per skill with `SKILL.md` frontmatter. Covers deploy and usage of search, summarization, alerts, VIOS, RT-VLM, LVS, and other related workflows—see the catalog and install notes in [skills/README.md](skills/README.md). |
 | `ui/` | Frontend monorepo (Next.js, Turbo): `apps/` (nemo-agent-toolkit-ui, nv-metropolis-bp-vss-ui) and shared `packages/`. See [ui/README.md](ui/README.md). |
 
 ## Documentation
@@ -113,11 +116,6 @@ Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/clou
 - NGC CLI: 4.10.0+
 
 Please refer to [Prerequisites section here for installation details](https://docs.nvidia.com/vss/3.1.0/prerequisites.html).
-
-
-## Contributing
-
-This project is currently in early access and not accepting contributions. Once made generally available, this project will accept contributions.
 
 
 ## License
