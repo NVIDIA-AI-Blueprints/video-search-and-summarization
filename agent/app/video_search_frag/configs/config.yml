@@ -1,0 +1,279 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: fastapi
+    enable_interactive_extensions: true
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: FRAG-vss-agent-${VSS_AGENT_VERSION}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+functions:
+  enterprise_rag:
+    _type: enterprise_rag
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: http://${EXTERNAL_IP}:${VSS_AGENT_PORT}
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 60
+    max_fps: 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: false
+    video_url_tool: vst_video_clip
+    time_format: offset
+    vlm_mode: ${VLM_MODE}
+    internal_ip: "${INTERNAL_IP}"
+    external_ip: "${EXTERNAL_IP}"
+    system_prompt: |
+      You are a monitoring system analyzing video footage.
+      Your task is to describe the events in the video in detail or answer the user's question about the video.
+        IMPORTANT:
+        - You must respond only in English and in plain text.
+        - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.
+        - Timestamp must be in pts format, seconds since the start of the video.
+        - Always provide a direct answer to the question asked.
+        - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.
+
+  vst_video_duration:
+    _type: vst.duration
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_snapshot:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_video_list:
+    _type: vst.video_list
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  lvs_video_understanding:
+    _type: lvs_video_understanding_frag
+    llm_name: nim_llm
+    lvs_backend_url: ${LVS_BACKEND_URL}
+    model: ${VLM_NAME}
+    video_url_tool: vst_video_clip
+    vlm_mode: ${VLM_MODE}
+    internal_ip: "${INTERNAL_IP}"
+    external_ip: "${EXTERNAL_IP}"
+    conn_timeout_ms: 5000
+    read_timeout_ms: 600000
+    chunk_duration: 10
+    num_frames_per_chunk: 20
+    hitl_scenario_template: |
+      Scenario (REQUIRED):
+      Please provide a scenario description for the video analysis.
+
+      Example: "traffic monitoring", "warehouse monitoring"
+
+      Enter your scenario or press Submit to keep current value:
+    hitl_events_template: |
+      Events (REQUIRED):
+      Please provide a comma-separated list of events to detect.
+
+      Examples:
+      - accident, pedestrian crossing, vehicle crossing, traffic violation
+      - boxes falling, accident, forklift stuck, workers not wearing PPE, person entering restricted area
+
+      Enter events (comma-separated) or press Submit to keep current value:
+    hitl_objects_template: |
+      Objects of Interest (OPTIONAL):
+      Please provide a comma-separated list of objects to focus on, or write "skip" to skip.
+
+      Examples:
+      - cars, trucks, pedestrians
+      - forklifts, pallets, workers
+
+      Enter objects (comma-separated), "skip" to skip or press Submit to keep current value:
+    hitl_confirmation_template: |
+      Please review the above configuration that will be sent for video analysis.
+
+      **Options:**
+      - Press Submit (empty) → Confirm and proceed with video analysis
+      - Type `/redo` → Modify parameters
+      - Type `/cancel` → Cancel analysis
+
+      Enter your choice or press Submit to proceed:
+    default_scenario: "traffic monitoring"
+    default_events:
+    - accident
+    - pedestrian crossing
+    - vehicle crossing
+    - traffic violation
+
+  video_report_gen:
+    _type: video_report_gen_frag
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    video_understanding_tool: video_understanding
+    lvs_video_understanding_tool: lvs_video_understanding
+    video_url_tool: vst_video_clip
+    picture_url_tool: vst_snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vlm_prompt: |
+      Describe in detail what is happening in this video,
+      including all visible people, vehicles, equipments, objects,
+      actions, and environmental conditions.
+      OUTPUT REQUIREMENTS:
+      [timestamp-timestamp] Description of what is happening.
+      EXAMPLE:
+      [0.0s-4.0s] <description of the first event>
+      [4.0s-12.0s] <description of the second event>
+
+  report_agent:
+    _type: report_agent
+    log_level: INFO
+    video_report_tool: video_report_gen
+
+llms:
+  # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
+  nim_llm:
+    _type: nim
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  openai_llm:
+    _type: openai
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
+  nim_vlm:
+    _type: nim
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  openai_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    temperature: 0.0
+    max_tokens: 4096
+
+  vllm_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  # --- Others ---
+  eval_llm_judge:
+    _type: nim
+    model_name: ${EVAL_LLM_JUDGE_NAME}
+    base_url: ${EVAL_LLM_JUDGE_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+workflow:
+  _type: top_agent
+  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  log_level: INFO
+  max_iterations: 30
+  llm_reasoning: false
+  planning_enabled: true
+  tool_names:
+  - video_understanding
+  - vst_video_clip
+  - vst_snapshot
+  - vst_video_list
+  - vst_video_duration
+  subagent_names:
+  - report_agent
+  # yamllint disable rule:line-length
+  prompt: |
+    You are a routing agent for a video surveillance system. Your job is to route requests to the correct tool.
+    ## Routing Rules:
+      **vst_video_list** -
+      - Videos can be added/removed from the backend system. dont rely on previous conversations for questions about available videos.
+      - If user ask to show a video not in the list from previous interactions, call this tool to verify if the video is available then call the appropriate tool to show the video or snapshot.
+      - Examples: "What videos are available?", "List all available videos" "list sensors"
+      **report_agent**
+      - Only call report_agent when user mentions "report" in the question.
+      - Don't use the report from previous interactions.
+      - Examples: "Generate a report for, "Create an analysis report", "Generate a report using long video summarization", "Generate a report using lvs"
+      **video_understanding** - For any question about short videos or quick queries for a video clip.
+      - Use when video is less than 1 minute.
+      - Use when user asks "what happens in the video", "describe the video", "analyze this video", "what is happening in the video", or "what is wrong in the video"
+      - Do NOT use when user asks to "generate a report"
+      **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
+      - CRITICAL: If a video clip for the same video has already been generated from previous interactions, return the answer with the EXACT URLs from conversation history - DO NOT call vst_video_clip, DO NOT modify any parts of the URLs. However, if the query asks for video clip of a different video, you MUST call vst_video_clip tool to get the URL. You should NEVER generate the URL yourself.
+      **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp.
+      - CRITICAL: If a snapshot for the same video AND at the same timestamp has already been generated from previous interactions, return the answer with the EXACT URLs from conversation history - DO NOT call vst_snapshot, DO NOT modify any parts of the URLs. However, if the query asks for snapshot of a new video or a new timestamp for the same video, you MUST call vst_snapshot tool to get the URL. You should NEVER generate the URL yourself.
+    ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
+
+
+  tool_call_prompt: |
+    - ALWAYS include ALL required parameters when calling tools
+    - If a tool call fails with a validation error, RETRY IMMEDIATELY: Fix the error and call the tool again with correct parameters.
+    - Error Handling: if a tool fails more than 3 times, just return a summarized error message. Do not endlessly try again.
+
+  response_format_prompt: |
+    - Do not include phrases like "I should", "Let me", "The user".
+    - Convert json to markdown format.
+      - EXCEPTION: For queries about listing sensors, output sensors as plain text, NOT as code blocks or markdown code.
+    - Wrap urls in html tags. CRITICAL: ONLY do this when a url is EXACTLY the one returned from a tool call or the url is EXACTLY the same as one from the conversation history. NEVER generate urls yourself. NEVER modify an existing url to create a new url (e.g. changing timestamps, IDs, or any part of the url). If you need a url that wasn't returned by a tool call, you MUST call the appropriate tool to get it. Examples:
+      <video src="video_url" alt="Video Name">Video Name</video>
+      <image src="image_url" alt="Image Name">Image Name</image>
+  postprocessing:
+    enabled: true
+    validation_order:
+    - [url_validator]
+    validators:
+      url_validator:
+        internal_ip: ${HOST_IP}
+        timeout: 10.0
+        feedback_template: |
+          The following URLs are not accessible: {issues}
+          You have a hallucinated URL in the response, consider removing it or calling the appropriate tool to fetch the correct URL.
+        # yamllint enable rule:line-length
