@@ -193,8 +193,8 @@ def create_dry_run_recipe(
     return DryRunRecipe(
         profile=profile,  # type: ignore[arg-type]
         env_overrides=dict(env_overrides),
-        ngc_cli_api_key=(ngc_cli_api_key or "").strip() or None,
-        nvidia_api_key=(nvidia_api_key or "").strip() or None,
+        ngc_cli_api_key=(ngc_cli_api_key or os.environ.get("NGC_CLI_API_KEY", "")).strip() or None,
+        nvidia_api_key=(nvidia_api_key or os.environ.get("NVIDIA_API_KEY", "")).strip() or None,
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
         deployments_dir=deployments_path,
@@ -338,6 +338,10 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     merged = parse_env_file(config.source_env_file)
     merged.update(config.env_overrides)
+    if "HARDWARE_PROFILE" not in config.env_overrides:
+        env_hardware_profile = os.environ.get("HARDWARE_PROFILE", "").strip()
+        if env_hardware_profile:
+            merged["HARDWARE_PROFILE"] = env_hardware_profile
     if config.ngc_cli_api_key and not merged.get("NGC_CLI_API_KEY", "").strip():
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key and not merged.get("NVIDIA_API_KEY", "").strip():

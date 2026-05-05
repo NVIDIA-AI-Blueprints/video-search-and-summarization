@@ -54,7 +54,10 @@ from nat.cli.register_workflow import register_function_group
 from nat.data_models.function import FunctionGroupBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import ValidationInfo
 from pydantic import field_validator
+from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
 
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
@@ -240,14 +243,6 @@ class GenerateInput(BaseModel):
             "Keys must be uppercase with only letters, digits, and underscores."
         ),
     )
-    ngc_cli_api_key: str | None = Field(
-        default=None,
-        description="Optional NGC CLI API key to inject when NGC_CLI_API_KEY is absent from the profile .env.",
-    )
-    nvidia_api_key: str | None = Field(
-        default=None,
-        description="Optional NVIDIA API key to inject when NVIDIA_API_KEY is absent from the profile .env.",
-    )
     alerts_mode: str | None = Field(
         default=None,
         description=(
@@ -255,6 +250,31 @@ class GenerateInput(BaseModel):
             "When provided for profile='alerts', the orchestrator maps it to the corresponding MODE value."
         ),
     )
+
+
+class OrchestratorRuntimeSettings(BaseSettings):
+    """Runtime env required by the orchestrator MCP server."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", validate_default=True)
+
+    ngc_cli_api_key: str = Field(default="", validation_alias="NGC_CLI_API_KEY")
+    nvidia_api_key: str = Field(default="", validation_alias="NVIDIA_API_KEY")
+    hardware_profile: str = Field(default="", validation_alias="HARDWARE_PROFILE")
+
+    @field_validator("ngc_cli_api_key", "nvidia_api_key", "hardware_profile")
+    @classmethod
+    def _non_empty(cls, value: str, info: ValidationInfo) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError(f"{info.field_name} must not be empty")
+        return stripped
+
+    def apply_to_environment(self) -> None:
+        """Expose settings to helpers that read os.environ."""
+
+        os.environ["NGC_CLI_API_KEY"] = self.ngc_cli_api_key
+        os.environ["NVIDIA_API_KEY"] = self.nvidia_api_key
+        os.environ["HARDWARE_PROFILE"] = self.hardware_profile
 
 
 class ComposeStatusInput(BaseModel):
@@ -498,6 +518,12 @@ async def vss_orchestrator(
         raise RuntimeError(f"Startup directory bootstrap failed for mdx_data_dir '{mdx_data_dir}': {exc}") from exc
 
     print(f"[vss_orchestrator] startup directory bootstrap succeeded for mdx_data_dir: {mdx_data_dir}", flush=True)
+
+    try:
+        runtime_settings = OrchestratorRuntimeSettings()
+    except Exception as exc:
+        raise RuntimeError("Missing required MCP server settings") from exc
+    runtime_settings.apply_to_environment()
 
     def _resolve_output_paths(docker_compose_id: str) -> tuple[Path, Path]:
         """Return (env_path, compose_path) under the configured output directory."""
@@ -882,8 +908,6 @@ async def vss_orchestrator(
                 dry_run_recipe = create_dry_run_recipe(
                     profile=input.profile,
                     env_overrides=env_overrides,
-                    ngc_cli_api_key=input.ngc_cli_api_key,
-                    nvidia_api_key=input.nvidia_api_key,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),
