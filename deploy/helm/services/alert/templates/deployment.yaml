@@ -82,8 +82,14 @@ spec:
           env:
             {{- $g := .Values.global | default dict }}
             {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
-            {{- /* Same merge as vss-agent: subchart vlmBaseUrl overrides global.vlmBaseUrl; empty → in-cluster NIM default */}}
-            {{- $vlmUrl := trim (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) }}
+            {{- /* Same merge as vss-agent: subchart vlmBaseUrl overrides global.vlmBaseUrl. tpl() supports optional {{…}} templates; "" and plain URLs are unchanged (tpl("") is ""; tpl("http://host:8000") is identical). Empty after tpl → VLM_BASE_URL uses $vlmDef below. */}}
+            {{- $rawVlmSub := .Values.vlmBaseUrl | default "" | toString }}
+            {{- $rawVlmGlob := index $g "vlmBaseUrl" | default "" | toString }}
+            {{- $rawVlmMerged := $rawVlmSub }}
+            {{- if eq (trim $rawVlmSub) "" }}
+            {{- $rawVlmMerged = $rawVlmGlob }}
+            {{- end }}
+            {{- $vlmUrl := trim (tpl $rawVlmMerged .) }}
             {{- $subVn := trim (default "" .Values.vlmName) }}
             {{- $globVn := trim (default "" (index $g "vlmName")) }}
             {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
