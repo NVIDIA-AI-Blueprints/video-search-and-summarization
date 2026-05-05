@@ -167,7 +167,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         const videoUploadApiResponse = await uploadFileChunked({
           file,
           uploadUrl: uploadEndpoints.UPLOAD_FILE,
-          onProgress: (progress) => {
+          onProgress: (progress: number) => {
             if (!isSessionValid() || abortController.signal.aborted) return;
             setUploadProgress((prev) =>
               prev.map((p) => (p.id === id && p.status === 'uploading' ? { ...p, progress } : p))

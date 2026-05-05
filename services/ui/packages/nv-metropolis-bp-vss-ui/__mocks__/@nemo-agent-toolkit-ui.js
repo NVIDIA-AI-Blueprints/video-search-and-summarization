@@ -24,10 +24,18 @@ const useVideoModal = () => ({
   loadingAlertId: null,
 });
 
+// Pull the real chunked-upload helper from common's source so video-management
+// tests can exercise the actual chunking logic under test (@nemo-agent-toolkit/ui
+// re-exports it at runtime). ts-jest transpiles the .ts on the fly here.
+const chunkedUploadModule = require('../../common/lib-src/utils/chunkedUpload');
+
 module.exports = {
   VideoModal,
   UploadFilesDialog,
   useVideoModal,
   uploadFile: jest.fn(),
   copyToClipboard: jest.fn(),
+  uploadFileChunked: chunkedUploadModule.uploadFileChunked,
+  CHUNK_SIZE_BYTES: chunkedUploadModule.CHUNK_SIZE_BYTES,
+  MAX_CHUNK_RETRIES: chunkedUploadModule.MAX_CHUNK_RETRIES,
 };
