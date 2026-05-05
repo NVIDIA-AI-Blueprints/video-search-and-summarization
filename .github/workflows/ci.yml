@@ -265,8 +265,46 @@ jobs:
           fetch-depth: 0
 
       - name: Check DCO sign-off
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          MERGE_BASE=$(git merge-base HEAD origin/${GITHUB_BASE_REF:-main} 2>/dev/null || echo HEAD~1)
+          BASE_REF="${GITHUB_BASE_REF:-}"
+          if [ -z "$BASE_REF" ] && [[ "${GITHUB_REF_NAME:-}" =~ ^pull-request/([0-9]+)$ ]]; then
+            PR_NUMBER="${BASH_REMATCH[1]}"
+            BASE_REF=$(PR_NUMBER="$PR_NUMBER" python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          repo = os.environ.get("GITHUB_REPOSITORY")
+          token = os.environ.get("GITHUB_TOKEN")
+          pr_number = os.environ.get("PR_NUMBER")
+          if not repo or not token or not pr_number:
+              sys.exit(0)
+
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  payload = json.load(response)
+          except Exception:
+              sys.exit(0)
+
+          print(payload.get("base", {}).get("ref", ""))
+          PY
+          )
+          fi
+
+          BASE_REF="${BASE_REF:-main}"
+          echo "Checking DCO sign-off against origin/${BASE_REF}"
+          MERGE_BASE=$(git merge-base HEAD "origin/${BASE_REF}" 2>/dev/null || echo HEAD~1)
           COMMITS=$(git rev-list "$MERGE_BASE"..HEAD 2>/dev/null || echo "")
           if [ -z "$COMMITS" ]; then
             echo "No new commits to check."
