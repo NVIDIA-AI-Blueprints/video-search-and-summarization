@@ -313,7 +313,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   children,
 }) => {
   const {
-    state: { agentApiUrlBase, vstApiUrlBase, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
+    state: { agentApiUrlBase, vstApiUrl, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
   } = useContext(HomeContext);
 
   const fileInputId = useId();
@@ -551,9 +551,9 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       return { filename, error: errorMessage, cancelled: false };
     }
 
-    if (!vstApiUrlBase) {
+    if (!vstApiUrl) {
       const errorMessage =
-        'VST API URL is not configured (NEXT_PUBLIC_VST_API_URL_BASE)';
+        'VST API URL is not configured (NEXT_PUBLIC_VST_API_URL)';
       updateUploadingFileStatus(fileId, 'error', errorMessage);
       return { filename, error: errorMessage, cancelled: false };
     }
@@ -573,7 +573,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       // search profiles).
       const result = await uploadFileChunkedToVst(
         file,
-        vstApiUrlBase,
+        vstApiUrl,
         agentApiUrlBase,
         formData,
         (progress) => updateUploadingFileProgress(fileId, progress),
