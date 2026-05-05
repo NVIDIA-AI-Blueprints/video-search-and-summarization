@@ -7,10 +7,10 @@
       }
     }
   },
-  "env": "Bare GPU host matching `{{platform}}` with Docker + NVIDIA Container Toolkit, `NGC_CLI_API_KEY`, and remote LLM/VLM endpoint env vars (`LLM_REMOTE_URL`, `LLM_REMOTE_MODEL`, `VLM_REMOTE_URL`, `VLM_REMOTE_MODEL`). The eval runs the full sequence end-to-end: deploy the VSS **alerts** profile in **real-time** (VLM) mode with **remote-all** placement, add the `warehouse_sample.mp4` sample video through NVStreamer (`mdx-nvstreamer-alerts` on port `31000` HTTP / `31554` RTSP) so it becomes a simulated live camera, verify the sensor appears in VIOS (port `30888`), then poll VA-MCP (port `9901`) for incidents until one shows up. Sample data ships in NGC bundle `nvidia/vss-developer/dev-profile-sample-data:3.1.0`. Pre-authorized to deploy prerequisites and start any alerts needed to drive incident generation in real-time mode.",
+  "env": "Bare GPU host matching `{{platform}}` with Docker + NVIDIA Container Toolkit, `NGC_CLI_API_KEY`, and remote LLM/VLM endpoint env vars (`LLM_REMOTE_URL`, `LLM_REMOTE_MODEL`, `VLM_REMOTE_URL`, `VLM_REMOTE_MODEL`). Sample data ships in NGC bundle `nvidia/vss-developer/dev-profile-sample-data:3.1.0`. Pre-authorized to deploy prerequisites and start any alerts needed to drive incident generation in real-time mode.",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints. Run end-to-end and autonomously.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (VSS Agent REST API responsive).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
