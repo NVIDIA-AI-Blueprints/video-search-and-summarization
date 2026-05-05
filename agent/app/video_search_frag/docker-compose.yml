@@ -1,0 +1,115 @@
+# Docker Compose for VSS Agent with video_search_frag extension
+#
+# Two-step build:
+#   1. Build base image from repo root:
+#        docker build -f docker/Dockerfile -t vss-agent-base .
+#   2. Build frag image:
+#        docker compose -f app/video_search_frag/docker-compose.yml \
+#          --env-file deployments/developer-workflow/dev-profile-lvs/.env build
+#
+# Run:
+#   docker compose -f app/video_search_frag/docker-compose.yml \
+#     --env-file deployments/developer-workflow/dev-profile-lvs/.env \
+#     --profile bp_developer_lvs_2d up -d
+
+services:
+  vss-agent:
+    image: vss-agent-frag:latest
+    build:
+      context: ../../
+      dockerfile: app/video_search_frag/Dockerfile
+      args:
+        BASE_IMAGE: ${VSS_AGENT_BASE_IMAGE:-vss-agent-base}
+      network: host
+    container_name: vss-agent
+    network_mode: host
+    profiles:
+    - bp_developer_lvs_2d
+    environment:
+      # URL rewriting configuration
+      EXTERNAL_IP: ${EXTERNAL_IP}
+      INTERNAL_IP: ${HOST_IP}
+      LLM_MODE: ${LLM_MODE}
+      VLM_MODE: ${VLM_MODE}
+      LLM_MODEL_TYPE: ${LLM_MODEL_TYPE}
+      VLM_MODEL_TYPE: ${VLM_MODEL_TYPE}
+
+      # NAT Configuration
+      HOST_IP: ${HOST_IP}
+      VSS_AGENT_VERSION: ${VSS_AGENT_VERSION}
+      VSS_AGENT_CONFIG_FILE: ${VSS_AGENT_CONFIG_FILE}
+      VSS_AGENT_HOST: ${VSS_AGENT_HOST}
+      VSS_AGENT_PORT: ${VSS_AGENT_PORT}
+      LVS_BACKEND_URL: ${LVS_BACKEND_URL}
+      RTVI_EMBED_PORT: ${RTVI_EMBED_PORT}
+      RTVI_CV_PORT: ${RTVI_CV_PORT}
+      VSS_ES_PORT: ${VSS_ES_PORT}
+
+      # Phoenix Telemetry
+      PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT}
+
+      # VST (Video Storage Tool)
+      VST_BASE_URL: ${VST_BASE_URL}
+      VST_INTERNAL_URL: ${VST_INTERNAL_URL}
+      VST_EXTERNAL_URL: ${VST_EXTERNAL_URL}
+      VST_MCP_URL: ${VST_MCP_URL}
+
+      # MCP Server
+      VIDEO_ANALYSIS_MCP_URL: http://${VSS_AGENT_HOST}:${VSS_VA_MCP_PORT}
+
+      # LLM Endpoints
+      LLM_NAME: ${LLM_NAME}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}
+      VLM_NAME: ${VLM_NAME}
+      VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
+      EVAL_LLM_JUDGE_NAME: ${EVAL_LLM_JUDGE_NAME}
+      EVAL_LLM_JUDGE_BASE_URL: ${EVAL_LLM_JUDGE_BASE_URL}
+      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
+
+      # NVIDIA API Key (for remote NIM)
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      # OpenAI API Key (for remote openai LLM/VLM)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      # Object Store & Report Generation
+      VSS_AGENT_OBJECT_STORE_TYPE: ${VSS_AGENT_OBJECT_STORE_TYPE}
+      VSS_AGENT_REPORTS_BASE_URL: ${VSS_AGENT_REPORTS_BASE_URL}
+      VSS_AGENT_TEMPLATE_PATH: ${VSS_AGENT_TEMPLATE_PATH}
+      VSS_AGENT_TEMPLATE_NAME: ${VSS_AGENT_TEMPLATE_NAME}
+
+      # Enterprise RAG (Milvus)
+      ENTERPRISE_RAG_COLLECTION_NAMES: ${ENTERPRISE_RAG_COLLECTION_NAMES:-}
+      ENTERPRISE_RAG_VDB_ENDPOINT: ${ENTERPRISE_RAG_VDB_ENDPOINT:-}
+      ENTERPRISE_RAG_EMBEDDING_MODEL: ${ENTERPRISE_RAG_EMBEDDING_MODEL:-}
+      ENTERPRISE_RAG_EMBEDDING_BASE_URL: ${ENTERPRISE_RAG_EMBEDDING_BASE_URL:-}
+      ENTERPRISE_RAG_RERANKER_MODEL: ${ENTERPRISE_RAG_RERANKER_MODEL:-}
+      ENTERPRISE_RAG_RERANKER_ENDPOINT: ${ENTERPRISE_RAG_RERANKER_ENDPOINT:-}
+
+      # RTSP Stream Mode
+      STREAM_MODE: ${STREAM_MODE:-other}
+
+    volumes:
+    - ${MDX_SAMPLE_APPS_DIR}:/vss-agent/deployments:ro
+    command:
+    - serve
+    - --config_file
+    - ${VSS_AGENT_CONFIG_FILE}
+    - --host
+    - ${VSS_AGENT_HOST}
+    - --port
+    - ${VSS_AGENT_PORT}
+    healthcheck:
+      test:
+      - CMD
+      - /usr/local/bin/python3
+      - -c
+      - >-
+        import urllib.request; import sys;
+        sys.exit(0 if urllib.request.urlopen(
+        'http://${VSS_AGENT_HOST}:${VSS_AGENT_PORT}/health',
+        timeout=5).status == 200 else 1)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 240s
+    restart: unless-stopped
