@@ -28,7 +28,6 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 from vss_agents.api.rtsp_stream_api import register_rtsp_stream_api_routes
 from vss_agents.api.video_delete import register_video_delete_routes
 from vss_agents.api.video_search_ingest import register_video_search_ingest_routes
-from vss_agents.api.videos import register_video_upload
 from vss_agents.api.videos import register_video_upload_complete
 
 logger = logging.getLogger(__name__)
@@ -115,15 +114,15 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         if enable_videos_for_search:
             # Deprecated /api/v1/videos-for-search/* routes — kept for the
             # Video Management UI tab until it migrates to the universal
-            # upload flow below.
+            # /complete endpoint below.
             register_video_search_ingest_routes(app, self.config)
 
-        # Universal video upload routes (registered on every profile, no
-        # capability flag). The chunk proxy is profile-agnostic; the
-        # upload-complete handler self-skips RTVI-CV/embedding when those
-        # services aren't configured, so search/alerts/lvs/base all share the
-        # same endpoints and search profiles automatically get ingestion.
-        register_video_upload(app, self.config)
+        # Universal POST /api/v1/videos/{filename}/complete (registered on
+        # every profile, no capability flag). The UI uploads chunks directly
+        # to VST; this endpoint runs post-processing. The handler self-skips
+        # RTVI-CV/embedding when those services aren't configured, so
+        # search/alerts/lvs/base all share the same endpoint and search
+        # profiles automatically get ingestion.
         register_video_upload_complete(app, self.config)
 
         if enable_rtsp_streams:

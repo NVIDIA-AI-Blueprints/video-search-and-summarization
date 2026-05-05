@@ -7,11 +7,11 @@
  *    Single monolithic PUT — hits Cloudflare's 100s request timeout on
  *    large files over slow connections.
  *
- *  - uploadFileChunkedViaAgent: posts the file in chunks to the agent's
- *    /api/v1/videos/chunked/upload endpoint (the agent proxies each chunk
- *    to VST's nvstreamer reassembler), then calls
- *    /api/v1/videos/{filename}/complete for post-processing. Keeps the UI
- *    talking to one backend (the agent) while avoiding the 100s cutoff.
+ *  - uploadFileChunkedToVst: posts the file in chunks directly to VST's
+ *    /v1/storage/file (the same nvstreamer endpoint Video Management uses),
+ *    then calls the agent's /api/v1/videos/{filename}/complete for
+ *    post-processing. Each chunk is its own short request so the
+ *    Cloudflare 100s cutoff doesn't apply.
  */
 
 import { uploadFileChunked } from './chunkedUpload';
@@ -217,21 +217,25 @@ export async function notifyGenericUploadComplete(
 }
 
 /**
- * Chunked upload via the agent proxy — drop-in replacement for
- * `uploadFile` that bypasses Cloudflare's 100s request timeout.
+ * Chunked upload directly to VST — drop-in replacement for `uploadFile`
+ * that bypasses Cloudflare's 100s request timeout.
  *
- * Posts chunks to `{agentApiUrl}/api/v1/videos/chunked/upload`, which
- * forwards each chunk to VST's nvstreamer endpoint. After the final
- * chunk lands, POSTs to `/videos/{filename}/complete` for post-processing.
+ * Posts each chunk to `{vstApiUrl}/v1/storage/file` using the nvstreamer
+ * protocol (same path Video Management uses). After the final chunk lands,
+ * POSTs to `{agentApiUrl}/videos/{filename}/complete` for post-processing
+ * (timeline + storage URL + optional RTVI-CV register + optional embedding
+ * generation; the agent self-skips the steps whose backing services aren't
+ * configured).
  *
  * The signature mirrors `uploadFile` so callers can swap one for the
- * other with minimal diff. `formData` is forwarded to `/complete` as a
- * top-level `custom_params` field so per-upload custom parameters from
- * the dialog template reach the agent (mirrors the search-profile
- * Video Management path).
+ * other with minimal diff (the new `vstApiUrl` argument leads, then the
+ * agent URL). `formData` is forwarded to `/complete` as a top-level
+ * `custom_params` field so per-upload custom parameters from the dialog
+ * template reach the agent.
  */
-export async function uploadFileChunkedViaAgent(
+export async function uploadFileChunkedToVst(
   file: File,
+  vstApiUrl: string,
   agentApiUrl: string,
   formData: Record<string, any>,
   onProgress?: (progress: number) => void,
@@ -239,7 +243,7 @@ export async function uploadFileChunkedViaAgent(
   requestFilename?: string
 ): Promise<FileUploadResult> {
   const filenameForRequest = requestFilename?.trim() || file.name;
-  const chunkUploadUrl = `${agentApiUrl.replace(/\/$/, '')}/videos/chunked/upload`;
+  const chunkUploadUrl = `${vstApiUrl.replace(/\/$/, '')}/v1/storage/file`;
 
   const uploadResponse = await uploadFileChunked({
     file,

@@ -14,27 +14,20 @@
 # limitations under the License.
 
 """
-Profile-agnostic video upload endpoints.
+Profile-agnostic video upload completion.
 
-Two routes, registered separately so the naming makes the call boundary
-explicit:
-
-- ``POST /api/v1/videos/chunked/upload`` — proxies a single chunk to VST's
-  nvstreamer endpoint. The UI talks only to the agent so it stays
-  backend-agnostic; the agent forwards each chunk verbatim. Memory is bounded
-  by chunk size.
-
-- ``POST /api/v1/videos/{filename}/complete`` — universal completion hook
-  called by the UI after the last chunk lands. Runs timeline lookup, storage
-  URL resolution, optional RTVI-CV register, and optional embedding
-  generation. Each post-processing step skips gracefully if its backing
-  service isn't configured, so this single endpoint works on every profile;
-  search profiles get ingestion (RTVI-CV + embeddings) for free, base/lvs/
-  alerts profiles complete the upload without it.
+The UI uploads chunks directly to VST's nvstreamer endpoint (the same path
+Video Management already uses), then calls this module's universal
+``POST /api/v1/videos/{filename}/complete`` for post-processing: timeline
+lookup, storage URL resolution, optional RTVI-CV register, and optional
+embedding generation. Each post-processing step skips gracefully if its
+backing service isn't configured, so this single endpoint works on every
+profile — search profiles get ingestion (RTVI-CV + embeddings) for free,
+base/lvs/alerts profiles complete the upload without it.
 
 The legacy ``/api/v1/videos-for-search/*`` routes in ``video_search_ingest``
-remain registered (deprecated) so existing UI clients (Video Management) keep
-working until they migrate.
+remain registered (deprecated) so existing UI clients keep working until
+they migrate to this single ``/complete`` endpoint.
 """
 
 import json
@@ -46,7 +39,6 @@ import urllib.parse
 from fastapi import APIRouter
 from fastapi import FastAPI
 from fastapi import HTTPException
-from fastapi import Request
 import httpx
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -58,23 +50,6 @@ from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.url_translation import rewrite_url_host
 
 logger = logging.getLogger(__name__)
-
-
-# Forwarded to VST verbatim. Incoming request headers we don't want to pass
-# through (hop-by-hop, transport-level, or set by httpx itself).
-_CHUNK_PROXY_SKIP_HEADERS = {
-    "host",
-    "content-length",
-    "accept-encoding",
-    "connection",
-    "keep-alive",
-    "transfer-encoding",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailers",
-    "upgrade",
-}
 
 
 def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None:
@@ -369,55 +344,6 @@ async def _run_post_upload_processing(
     )
 
 
-def create_video_upload_router(vst_internal_url: str) -> APIRouter:
-    """Build the chunk-proxy router (POST /api/v1/videos/chunked/upload)."""
-    router = APIRouter()
-
-    @router.post(
-        "/api/v1/videos/chunked/upload",
-        summary="Proxy a chunked upload to VST (nvstreamer protocol)",
-        tags=["Video Ingest"],
-    )
-    async def proxy_chunk_to_vst(request: Request) -> dict[str, Any]:
-        """
-        Forward an incoming chunk (multipart body + nvstreamer-* headers) to VST's
-        /vst/api/v1/storage/file. Returns VST's response body and status to the
-        client unchanged.
-        """
-        vst_url = vst_internal_url.rstrip("/")
-        vst_chunk_url = f"{vst_url}/vst/api/v1/storage/file"
-
-        # Read-all keeps memory bounded by chunk size, not file size.
-        body = await request.body()
-
-        headers = {k: v for k, v in request.headers.items() if k.lower() not in _CHUNK_PROXY_SKIP_HEADERS}
-
-        try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
-                with TimeMeasure("video_ingest: proxy chunk to VST"):
-                    vst_response = await client.post(vst_chunk_url, content=body, headers=headers)
-        except httpx.ConnectError as e:
-            logger.error("VST not reachable at %s: %s", vst_chunk_url, e)
-            raise HTTPException(status_code=502, detail=f"VST not reachable: {e}") from e
-        except httpx.TimeoutException as e:
-            logger.error("VST timed out at %s: %s", vst_chunk_url, e)
-            raise HTTPException(status_code=504, detail=f"VST timed out: {e}") from e
-
-        try:
-            payload: dict[str, Any] = vst_response.json()
-        except ValueError:
-            raise HTTPException(
-                status_code=vst_response.status_code,
-                detail=f"VST returned non-JSON response: {vst_response.text[:500]}",
-            ) from None
-
-        if vst_response.status_code >= 400:
-            raise HTTPException(status_code=vst_response.status_code, detail=payload)
-        return payload
-
-    return router
-
-
 def create_video_upload_complete_router(
     vst_internal_url: str,
     rtvi_embed_base_url: str = "",
@@ -465,26 +391,6 @@ def create_video_upload_complete_router(
             raise HTTPException(status_code=500, detail=f"Post-processing failed: {exc}") from exc
 
     return router
-
-
-def register_video_upload(app: "FastAPI", config: "Any") -> None:
-    """Register ``POST /api/v1/videos/chunked/upload`` (the chunk proxy).
-
-    Only requires ``VST_INTERNAL_URL`` (from streaming_ingest YAML or env).
-    Skips registration with a warning when VST isn't configured so the agent
-    still boots.
-    """
-    try:
-        cfg = _resolve_video_upload_config(config)
-        if cfg is None:
-            logger.warning("VST_INTERNAL_URL not set — skipping POST /api/v1/videos/chunked/upload")
-            return
-
-        app.include_router(create_video_upload_router(vst_internal_url=cfg.vst_internal_url))
-        logger.info("Registered POST /api/v1/videos/chunked/upload")
-    except Exception as exc:
-        logger.error("Failed to register video upload route: %s", exc, exc_info=True)
-        raise
 
 
 def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:

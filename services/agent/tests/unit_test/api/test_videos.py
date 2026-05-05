@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the universal videos.py chunk-upload + /complete routes."""
+"""Unit tests for the universal videos.py /complete route."""
 
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -29,8 +29,6 @@ from vss_agents.api.videos import _parse_optional_http_url
 from vss_agents.api.videos import _resolve_video_upload_config
 from vss_agents.api.videos import _run_post_upload_processing
 from vss_agents.api.videos import create_video_upload_complete_router
-from vss_agents.api.videos import create_video_upload_router
-from vss_agents.api.videos import register_video_upload
 from vss_agents.api.videos import register_video_upload_complete
 
 
@@ -310,42 +308,6 @@ class TestUploadCompleteRoute:
         assert kwargs["sensor_id"] == "sensor-xyz"
 
 
-class TestChunkProxyRoute:
-    """Surface check for the chunk-proxy router."""
-
-    def test_route_registered(self):
-        router = create_video_upload_router(vst_internal_url="http://vst:30888")
-        paths = [r.path for r in router.routes]
-        assert "/api/v1/videos/chunked/upload" in paths
-
-    @pytest.mark.asyncio
-    async def test_proxies_chunk_to_vst_and_returns_payload(self):
-        router = create_video_upload_router(vst_internal_url="http://vst:30888")
-        endpoint = router.routes[0].endpoint
-
-        request = MagicMock()
-        request.headers = {"content-type": "multipart/form-data", "nvstreamer-chunk-id": "1"}
-        request.body = AsyncMock(return_value=b"chunk-bytes")
-
-        vst_response = MagicMock()
-        vst_response.status_code = 200
-        vst_response.json.return_value = {"sensorId": "sensor-abc", "chunkCount": "1"}
-
-        client = MagicMock()
-        client.__aenter__ = AsyncMock(return_value=client)
-        client.__aexit__ = AsyncMock(return_value=None)
-        client.post = AsyncMock(return_value=vst_response)
-
-        with patch("vss_agents.api.videos.httpx.AsyncClient", return_value=client):
-            payload = await endpoint(request)
-
-        assert payload == {"sensorId": "sensor-abc", "chunkCount": "1"}
-        # Hop-by-hop headers stripped; nvstreamer-* forwarded.
-        sent_headers = client.post.call_args.kwargs["headers"]
-        assert "host" not in {k.lower() for k in sent_headers}
-        assert sent_headers.get("nvstreamer-chunk-id") == "1"
-
-
 class TestResolveVideoUploadConfig:
     """Pin down config resolution: YAML wins, env-var fallback."""
 
@@ -393,37 +355,8 @@ class TestResolveVideoUploadConfig:
         assert resolved is None
 
 
-class TestRegisterVideoUpload:
-    """Registration paths for POST /api/v1/videos/chunked/upload."""
-
-    def test_registers_router_when_vst_configured(self):
-        app = MagicMock(spec=FastAPI)
-        config = MagicMock()
-        config.general.front_end.streaming_ingest = MagicMock(
-            vst_internal_url="http://vst:8080",
-            rtvi_embed_base_url="http://rtvi-embed:8017",
-            rtvi_cv_base_url="",
-            rtvi_embed_model="cosmos-embed1-448p",
-            rtvi_embed_chunk_duration=5,
-        )
-
-        register_video_upload(app, config)
-
-        assert app.include_router.called
-
-    def test_skips_with_warning_when_vst_unavailable(self):
-        app = MagicMock(spec=FastAPI)
-        config = MagicMock()
-        config.general.front_end.streaming_ingest = None
-
-        with patch.dict("os.environ", {"VST_INTERNAL_URL": "", "HOST_IP": ""}, clear=False):
-            register_video_upload(app, config)
-
-        assert not app.include_router.called
-
-
 class TestRegisterVideoUploadComplete:
-    """Registration paths for POST /api/v1/videos/{filename}/upload-complete."""
+    """Registration paths for POST /api/v1/videos/{filename}/complete."""
 
     def test_registers_router_when_vst_configured(self):
         app = MagicMock(spec=FastAPI)
