@@ -13,11 +13,16 @@ on:
   # diff of the *pushed commits*, not the cumulative PR diff against
   # base. That silently skipped the workflow when CPR-bot updated a
   # mirror branch with a merge commit that didn't itself touch
-  # skills/** (observed: PR #188's mirror push was a develop-merge
-  # carrying only RTVI files, so skills-eval never fired even though
-  # the PR's full diff touches 16 skills/ files). The path gate is now
-  # done inside the job by `dorny/paths-filter`, which diffs the
-  # cumulative head...base range.
+  # skills/** (observed on PR #188: 16 skills/ files in the PR, but
+  # the latest mirror push was a develop-merge carrying only 2 RTVI
+  # files). The path gate is now done inside the job by
+  # `dorny/paths-filter`, which diffs the cumulative head...base range.
+  #
+  # The `on: create:` trigger that previously worked around the
+  # initial-mirror all-zero-`before`-SHA case is no longer needed:
+  # `dorny/paths-filter` computes its diff from the PR base regardless
+  # of how the branch came to exist, so the very first push (whether
+  # branch-create or normal push) gets the same correct answer.
   push:
     branches:
       - "pull-request/[0-9]+"
@@ -37,9 +42,18 @@ jobs:
     name: Eval changed skills against PR
     runs-on: [self-hosted, vss-eval]
 
-    # 1 hour hard cap on the whole job. The agent targets ~40m plus a 5m
-    # post-eval wait before brev teardown; 60m gives a margin.
-    timeout-minutes: 60
+    # 8-hour hard cap on the whole job. A full PR touching every skill
+    # queues ~13 trials (5 deploy + 3 vios + 4 video-search + 1+
+    # video-summarization). Run 24980753743 hit the prior 180m cap with
+    # 3 video-search done and video-summarization not yet started —
+    # observed avg trial wall-clock is closer to ~30m once /deploy +
+    # ingest + judge per-check gather complete. 480m gives margin for
+    # cold-box transitions and redeploys at profile boundaries (handled
+    # by the active-deploy.txt marker but still ~20m each). No
+    # teardown cooldown — the vss-eval-* pool is operator-managed and
+    # stays warm across runs. The lock-hold timeout in AGENTS.md
+    # (flock -w) is set in lockstep below.
+    timeout-minutes: 480
 
     # Extra safety: only run on the mirror branches, never on develop/main.
     if: startsWith(github.ref, 'refs/heads/pull-request/')

@@ -48,6 +48,23 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 
 
+def _record_started_instance(name: str) -> None:
+    """Append an auto-provisioned instance name to the wrapper's
+    cleanup marker (`/tmp/brev/started-by-<run_id>.txt`) so
+    skills_eval_agent.cleanup_instances() tears it down even if the
+    agent never observes the name. No-op outside CI (no GITHUB_RUN_ID)."""
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if not run_id:
+        return
+    try:
+        marker = Path(f"/tmp/brev/started-by-{run_id}.txt")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        with marker.open("a") as fh:
+            fh.write(f"{name}\n")
+    except OSError as exc:
+        logger.warning("failed to record %s in started-by marker: %s", name, exc)
+
+
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
 
@@ -189,6 +206,11 @@ class BrevEnvironment(BaseEnvironment):
             )
             if create_result.return_code != 0:
                 raise RuntimeError(f"brev create failed: {create_result.stderr}")
+            # Record the harbor-* instance in the wrapper's cleanup marker
+            # so skills_eval_agent.cleanup_instances() tears it down even if
+            # the trial fails before the agent tracks it. Append before
+            # _wait_for_running so a timeout there doesn't leak an orphan.
+            _record_started_instance(self._instance_name)
             await _wait_for_running(self._instance_name)
 
         # Quick smoke test — ensure exec works
@@ -222,6 +244,39 @@ class BrevEnvironment(BaseEnvironment):
             "sudo chown -R $(whoami):$(id -gn) /logs /tests /solution /skills",
             timeout=30,
         )
+
+        # Archive any session JSONLs left by prior trials on this warm-pool
+        # box. Without this, harbor's claude-code mapper merges every
+        # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
+        # into one trajectory.json — producing thousand-step trajectories
+        # that conflate this trial with every preceding one (observed:
+        # trial 25083019759/.../step-1__XZNnjCX showed 7549 steps spanning
+        # 50h of prior runs).
+        #
+        # We *move* (not delete) the JSONLs into `$HOME/.claude-archive/<ts>/`
+        # so they remain visitable via SSH for forensic debugging. Each
+        # trial's own snapshot is preserved per-trial under
+        # `/tmp/skill-eval/results/<run>/<date>/<trial>/agent/sessions/`
+        # already (harbor's per-trial copy-back), so this archive is just
+        # box-side history.
+        #
+        # Why archive only, not also per-trial cwd: harbor's claude-code
+        # agent (vendor cache) invokes `claude --print` with no cwd
+        # override, so all trials share `cwd=/home/shadeform` and the
+        # project key is `-home-shadeform`. Forcing a per-trial cwd would
+        # require forking harbor — out of scope. Empty-on-start is
+        # sufficient for the harbor mapper's "exactly one session dir"
+        # heuristic to produce a clean per-trial trajectory.
+        archive_cmd = (
+            "ts=$(date +%Y%m%d-%H%M%S); "
+            "PROJ=/logs/agent/sessions/projects; "
+            'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '
+            '  ARCHIVE=$HOME/.claude-archive/$ts; '
+            '  mkdir -p "$ARCHIVE" && mv "$PROJ"/* "$ARCHIVE/" 2>/dev/null || true; '
+            '  echo "[trajectory-isolation] archived prior project dirs to $ARCHIVE"; '
+            "fi"
+        )
+        await _run_brev_exec(self._instance_name, archive_cmd, timeout=30)
 
         # Forward task-critical env vars from the local shell into the
         # instance's ~/.eval_env (sourced by ~/.profile, which every
@@ -273,8 +328,118 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
+        # Pre-deploy any prerequisite profile declared in task.toml [metadata].
+        # Idempotent via marker file on the box, so dependent trials reuse the
+        # deployment without re-running it.
+        await self._ensure_prerequisite_deployed(meta)
+
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
+        """If task.toml [metadata] declares both `profile` and
+        `prerequisite_deploy_mode`, ensure /deploy has run on the Brev
+        box for that profile-mode pair. Reads a single canonical
+        marker that records what is currently RUNNING on the box —
+        not a deploy log. See specs/stale-marker.spec.
+
+        Algorithm:
+          1. cat /tmp/skill-eval/active-deploy.txt on the box.
+          2. If contents == f"{profile}-{deploy_mode}" → no-op (hot).
+          3. Else → run /deploy via claude --print; the deploy skill's
+             own step-0 teardown handles any prior stack. On success
+             OVERWRITE the marker. On failure leave it alone — next
+             trial re-evaluates.
+
+        Trials with NO `profile` (skills that don't need a deployed
+        VSS) skip this entirely. Deploy/* trials set `profile` but NOT
+        `prerequisite_deploy_mode` (they ARE the deploy), so they also
+        early-return; their test.sh writes the marker on reward=1.0.
+
+        claude-code is expected on the box from a prior deploy/* trial's
+        harbor agent setup; persists across trials on the reused
+        vss-eval-* instance. Override the wall clock via
+        PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
+        profile = meta.get("profile")
+        deploy_mode = meta.get("prerequisite_deploy_mode")
+        if not profile or not deploy_mode:
+            return
+
+        desired = f"{profile}-{deploy_mode}"
+        marker_path = "/tmp/skill-eval/active-deploy.txt"
+        probe = await _run_brev_exec(
+            self._instance_name,
+            f"cat {shlex.quote(marker_path)} 2>/dev/null || true",
+            timeout=30,
+        )
+        current = (probe.stdout or "").strip()
+        if current == desired:
+            logger.info(
+                "prerequisite %s already running on %s; skipping pre-deploy",
+                desired, self._instance_name,
+            )
+            return
+        logger.info(
+            "prerequisite mismatch on %s (active=%r, desired=%r); pre-deploying",
+            self._instance_name, current or "<empty>", desired,
+        )
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+        model = (
+            os.environ.get("ANTHROPIC_MODEL")
+            or "claude-sonnet-4-6"
+        )
+        if not api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY must be set on the coordinator to "
+                "pre-deploy a prerequisite profile via claude --print."
+            )
+
+        env_prefix_parts = [
+            f"ANTHROPIC_API_KEY={shlex.quote(api_key)}",
+            f"ANTHROPIC_MODEL={shlex.quote(model)}",
+            "CLAUDE_CODE_DISABLE_THINKING=1",
+        ]
+        if base_url:
+            env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
+        env_prefix = " ".join(env_prefix_parts)
+
+        prompt = f"/deploy -p {profile} -m {deploy_mode}"
+        # Overwrite (>) the canonical marker on /deploy success — the
+        # marker reflects what is currently running, not a deploy log.
+        # PATH prepend: brev exec runs a non-interactive shell that does
+        # not source ~/.bashrc, where harbor writes
+        # `export PATH="$HOME/.local/bin:$PATH"`. claude-code installs
+        # to ~/.local/bin via its curl installer, so a bare `claude`
+        # invocation here resolves "command not found" without this.
+        cmd = (
+            f'export PATH="$HOME/.local/bin:$PATH" && '
+            f"mkdir -p /tmp/skill-eval && "
+            f"{env_prefix} claude --print --dangerously-skip-permissions "
+            f"{shlex.quote(prompt)} "
+            f"&& printf '%s\\n' {shlex.quote(desired)} > {shlex.quote(marker_path)}"
+        )
+
+        timeout_sec = int(os.environ.get("PRE_DEPLOY_TIMEOUT_SEC", "1800"))
+        logger.info(
+            "Pre-deploying %s on %s (timeout=%ds)",
+            desired, self._instance_name, timeout_sec,
+        )
+        result = await _run_brev_exec(
+            self._instance_name, cmd, timeout=timeout_sec,
+        )
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"pre-deploy /deploy -p {profile} -m {deploy_mode} failed "
+                f"on {self._instance_name}: exit {result.return_code}; "
+                f"output tail: {tail!r}"
+            )
+        logger.info(
+            "Pre-deploy %s succeeded on %s; active marker overwritten",
+            desired, self._instance_name,
+        )
 
     async def stop(self, delete: bool) -> None:
         """No-op — the instance stays running for reuse."""
@@ -769,7 +934,16 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
         )
         return
 
+    if int(req.get("gpu_count", 1) or 0) == 0:
+        logger.info(
+            "Instance '%s' gpu_count=0 (remote-all or GPU-independent task) — "
+            "skipping GPU-type match; any live instance is acceptable",
+            instance.get("name"),
+        )
+        return
+
     gpu = (instance.get("gpu") or "").upper()
+    instance_type = (instance.get("instance_type") or "").upper()
     required_type = (req.get("gpu_type") or "").upper()
 
     # Loose GPU name match: `RTX PRO 6000` ⊆ `RTX PRO SERVER 6000`
@@ -780,9 +954,33 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
         have_tokens = set(have.replace("-", " ").split())
         return want_tokens.issubset(have_tokens) or want in have
 
+    # Brev API transient-flake soft-fail: `brev ls --json` occasionally
+    # returns gpu="-" (or "") for a healthy instance for a few seconds while
+    # the catalog refreshes. If the catalog instance_type carries the GPU
+    # token (e.g. "massedcompute_L40Sx2" carries "L40S"), accept the
+    # instance and defer the strict check to live nvidia-smi in
+    # _check_live_resources. Without this we raise spuriously and the next
+    # trial wastes ~20 min running pre-deploy from scratch.
+    gpu_blank = gpu in ("", "-", "N/A", "NONE")
+    type_carries_token = (
+        required_type and instance_type
+        and _loose_match(required_type, instance_type)
+    )
+
     errors = []
     if required_type and not _loose_match(required_type, gpu):
-        errors.append(f"gpu_type: want tokens of {required_type!r} in {gpu!r}")
+        if gpu_blank and type_carries_token:
+            logger.warning(
+                "Instance '%s' brev ls returned gpu=%r (likely transient "
+                "API flake); instance_type=%r carries %r — accepting and "
+                "deferring to live nvidia-smi check",
+                instance.get("name"), instance.get("gpu"),
+                instance.get("instance_type"), required_type,
+            )
+        else:
+            errors.append(
+                f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
+            )
 
     if errors:
         raise RuntimeError(
