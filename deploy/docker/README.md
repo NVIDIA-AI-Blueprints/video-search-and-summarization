@@ -26,7 +26,17 @@ This deployment package contains the necessary components for deploying the appl
 3. Start the services using Docker Compose:
    ```bash
    export MODE=2d or 3d 
-   export BP_PROFILE=bp_wh or bp_wh_vlm or bp_wh_vlm_a
+   export BP_PROFILE=bp_wh or bp_wh_kafka or bp_wh_redis
+   
+   # Profile variants:
+   # 2d:
+   #   bp_wh
+   #   bp_wh_kafka
+   #   bp_wh_redis
+   # 3d:
+   #   bp_wh_kafka
+   #   bp_wh_redis
+
 	# Update .env file with the appropriate values
    docker compose -f compose.yml up -d
    ```
