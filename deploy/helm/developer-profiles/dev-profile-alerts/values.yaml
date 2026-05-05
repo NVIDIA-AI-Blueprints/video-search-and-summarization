@@ -345,8 +345,8 @@ vss-alert-bridge:
   redisHost: ""
   redisPort: "6379"
   elasticHosts: ""
-  vlmBaseUrl: ""
-  vlmName: "nvidia/cosmos-reason2-8b"
+  vlmBaseUrl: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
+  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
   vstBaseUrl: ""
   alertReviewMediaBaseDir: ""
   configVariant: ""
