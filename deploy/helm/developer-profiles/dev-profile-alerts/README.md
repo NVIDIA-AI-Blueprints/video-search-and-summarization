@@ -167,7 +167,7 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`agent.vss-agent.profile`** | **`alerts`** | Passed to the **vss-agent** subchart so it mounts **report-templates** and sets template env for the **alerts** UX. ConfigMap data is read from **`configs/vss-agent/config.yml`** (and **`incident_report_template.md`**) in this chart — flat paths, no profile subfolders. |
 | **`agent.vss-agent.mountEvalOutput`** | **`false`** | Shared **vss-agent** chart defaults **`mountEvalOutput: true`** (eval **emptyDir**); alerts sets **`false`** to match **met-blueprints** alerts (no eval mount). |
 | **`agent.vss-agent.llmName`** | NGC model id (e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`**) | NGC catalog id for the LLM; must match the model deployed under **`nims`**. |
-| **`agent.vss-agent.vlmName`** | NGC model id (e.g. **`nvidia/cosmos-reason2-8b`**) | NGC catalog id for the VLM; must match the model deployed under **`nims`**. |
+| **`agent.vss-agent.vlmName`** | NGC model id (e.g. **`nim_nvidia_cosmos-reason2-8b_hf-1208`**) | NGC catalog id for the RTVI-VLM; must match the model deployed with rtvi-vlm. |
 | **`agent.vss-agent.evalLlmJudgeName`** | **`""`** | Optional eval judge model id. When empty, the **vss-agent** subchart defaults to **`llmName`**. |
 | **`agent.vss-agent.evalLlmJudgeBaseUrl`** | **`""`** | Optional base URL for the eval judge endpoint. When empty, the subchart defaults alongside **`llmBaseUrl`**. |
 | **`agent.vss-agent.reportsBaseUrl`** | **`""`** | Base URL for report links. When empty, templates derive a value from **`global.external*`** and in-cluster defaults. |
@@ -192,8 +192,8 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vss-alert-bridge.redisHost`** | **`""`** | Redis host for **event_bridge** streams. When empty, defaults to **`<release>-redis`**. |
 | **`vss-alert-bridge.redisPort`** | **`6379`** | Redis port for source/sink streams in **`config.yml`**. |
 | **`vss-alert-bridge.elasticHosts`** | **`""`** | Elasticsearch HTTP URL for **`elastic.hosts`** in **`config.yml`**. When empty, defaults to **`http://<release>-elasticsearch:9200`**. |
-| **`vss-alert-bridge.vlmBaseUrl`** | **`""`** | Base URL of the **VLM** NIM HTTP service (no **`/v1`** suffix here; **`config.yml`** appends **`/v1`** for **`vlm.base_url`**). When empty, defaults to **`http://<release>-nvidia-cosmos-reason2-8b:8000`**; align with the **VLM** you deploy under **`nims`** and with **`vlmName`**. |
-| **`vss-alert-bridge.vlmName`** | **`nvidia/cosmos-reason2-8b`** | NGC model id passed to **`vlm.model`**; must match the **VLM** NIM you run (same idea as **`agent.vss-agent.vlmName`**). |
+| **`vss-alert-bridge.vlmBaseUrl`** | **`""`** | Base URL of the **rtviVLM** NIM HTTP service (no **`/v1`** suffix here; **`config.yml`** appends **`/v1`** for **`vlm.base_url`**). When empty, defaults to **`http://<release>-nvidia-cosmos-reason2-8b:8000`**; align with the **VLM** you deploy under **`nims`** and with **`vlmName`**. |
+| **`vss-alert-bridge.vlmName`** | **`nim_nvidia_cosmos-reason2-8b_hf-1208`** | NGC model id passed to **`vlm.model`**; must match the **RTVI-VLM** NIM you run (same idea as **`agent.vss-agent.vlmName`**). |
 | **`vss-alert-bridge.vstBaseUrl`** | **`""`** | **VST** ingress base URL for **`vst_config`** and storage paths in **`config.yml`**. When empty, defaults to **`http://<release>-vss-vios-ingress:30888`**. |
 | **`vss-alert-bridge.alertReviewMediaBaseDir`** | **`""`** | Optional **`ALERT_REVIEW_MEDIA_BASE_DIR`** in **`config.yml`** for alert-review media; leave empty if unused. |
 | **`vss-alert-bridge.configVariant`** | **`""`** | **`""`:** default **`config.yml`**. |
@@ -289,7 +289,6 @@ helm upgrade --install vss-alerts ./dev-profile-alerts \
 
 # OR — verification with remote LLM/VLM (no in-cluster NIMs); reuse exports above
 export LLM_BASE_URL='<REMOTE LLM ENDPOINT>'
-export VLM_BASE_URL='<REMOTE VLM ENDPOINT>'
 
 helm upgrade --install vss-alerts ./dev-profile-alerts \
   -f ./dev-profile-alerts/values-verification.yaml \
@@ -300,9 +299,7 @@ helm upgrade --install vss-alerts ./dev-profile-alerts \
   --set global.externalHost="vss-alerts.$EXTERNAL_HOST.nip.io" \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
-  --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
-  --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set-string global.vlmName="nvidia/cosmos-reason2-8b"
+  --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" 
 ```
 
 **Real-time mode:**
@@ -329,21 +326,17 @@ helm upgrade --install vss-alerts ./dev-profile-alerts \
 
 # OR — real-time with remote LLM/VLM (no in-cluster NIMs); reuse exports above
 export LLM_BASE_URL='<REMOTE LLM ENDPOINT>'
-export VLM_BASE_URL='<REMOTE VLM ENDPOINT>'
 
 helm upgrade --install vss-alerts ./dev-profile-alerts \
   -f ./dev-profile-alerts/values-realtime.yaml \
   -n vss-alerts \
   --create-namespace \
   --set nims.enabled=false \
-  --set vss-rtvi-vlm.nims.enabled=false \
   --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
   --set global.externalHost="vss-alerts.$EXTERNAL_HOST.nip.io" \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
-  --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
-  --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set-string global.vlmName="nvidia/cosmos-reason2-8b"
+  --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" 
 ```
 
 ## Exposing the stack
