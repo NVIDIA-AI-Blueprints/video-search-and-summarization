@@ -74,7 +74,7 @@ describe('notifyGenericUploadComplete', () => {
     global.fetch = fetchMock;
   });
 
-  it('POSTs to /videos/{basename}/complete (generic path, not /videos-for-search/)', async () => {
+  it('POSTs to /videos/{basename}/upload-complete (canonical path, not the deprecated alias)', async () => {
     await notifyGenericUploadComplete(
       'https://agent.example.com/api/v1',
       'my_video.mp4',
@@ -82,7 +82,9 @@ describe('notifyGenericUploadComplete', () => {
     );
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://agent.example.com/api/v1/videos/my_video/complete');
+    // Canonical universal path. The agent keeps /complete as a deprecated
+    // alias for older clients, but new builds always use /upload-complete.
+    expect(url).toBe('https://agent.example.com/api/v1/videos/my_video/upload-complete');
     expect(url).not.toContain('videos-for-search');
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
@@ -161,9 +163,9 @@ describe('uploadFileChunkedViaAgent', () => {
     expect(MockXHR.instances[0].headers['nvstreamer-chunk-number']).toBe('1');
     expect(MockXHR.instances[0].headers['nvstreamer-is-last-chunk']).toBe('true');
 
-    // Then /videos/{basename}/complete fired with the VST response as body.
+    // Then /videos/{basename}/upload-complete fired with the VST response as body.
     expect((global.fetch as jest.Mock)).toHaveBeenCalledWith(
-      'https://agent.example.com/api/v1/videos/chat_video/complete',
+      'https://agent.example.com/api/v1/videos/chat_video/upload-complete',
       expect.objectContaining({ method: 'POST' }),
     );
 
@@ -173,7 +175,7 @@ describe('uploadFileChunkedViaAgent', () => {
     expect(result.bytes).toBe(25);
   });
 
-  it('uses requestFilename override when provided for the /complete call path', async () => {
+  it('uses requestFilename override when provided for the /upload-complete call path', async () => {
     const file = new File(['y'.repeat(10)], 'original.mp4');
 
     const promise = uploadFileChunkedViaAgent(
@@ -189,10 +191,10 @@ describe('uploadFileChunkedViaAgent', () => {
     await promise;
 
     const completeUrl = (global.fetch as jest.Mock).mock.calls[0][0];
-    expect(completeUrl).toBe('https://agent.example.com/api/v1/videos/renamed/complete');
+    expect(completeUrl).toBe('https://agent.example.com/api/v1/videos/renamed/upload-complete');
   });
 
-  it('forwards non-empty formData to /complete as custom_params', async () => {
+  it('forwards non-empty formData to /upload-complete as custom_params', async () => {
     const file = new File(['z'.repeat(10)], 'chat_video.mp4');
     const promise = uploadFileChunkedViaAgent(
       file,
