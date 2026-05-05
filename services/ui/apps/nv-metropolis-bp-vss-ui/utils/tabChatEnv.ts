@@ -57,6 +57,7 @@ export type TabChatInitialStateOverride = {
   webSocketURL?: string;
   enableIntermediateSteps?: boolean;
   agentApiUrlBase?: string;
+  vstApiUrl?: string;
   customAgentParamsJson?: string;
   chatUploadFileEnabled?: boolean;
   chatUploadFileConfigTemplateJson?: string;
@@ -112,6 +113,9 @@ export function getTabChatInitialStateOverride(
     ),
     agentApiUrlBase:
       get(tabKey, 'AGENT_API_URL_BASE', 'NEXT_PUBLIC_AGENT_API_URL_BASE') ||
+      undefined,
+    vstApiUrl:
+      get(tabKey, 'VST_API_URL', 'NEXT_PUBLIC_VST_API_URL') ||
       undefined,
     customAgentParamsJson:
       get(tabKey, 'CHAT_API_CUSTOM_AGENT_PARAMS_JSON', 'NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON') ||
