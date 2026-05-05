@@ -40,6 +40,10 @@ COPY --chown=${USER_ID}:${GROUP_ID} agent/pyproject.toml /vss-agent
 COPY --chown=${USER_ID}:${GROUP_ID} agent/LICENSE-3rd-party.txt /vss-agent
 COPY --chown=${USER_ID}:${GROUP_ID} agent/uv.lock /vss-agent
 COPY --chown=${USER_ID}:${GROUP_ID} agent/src/vss_agents /vss-agent/src/vss_agents
+# `lib/` is a sibling top-level package shipped in the same wheel
+# (see pyproject.toml `packages = ["src/vss_agents", "src/lib"]`); without
+# this copy, lib.knowledge would be missing from the built image.
+COPY --chown=${USER_ID}:${GROUP_ID} agent/src/lib /vss-agent/src/lib
 COPY --chown=${USER_ID}:${GROUP_ID} agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
 COPY --chown=${USER_ID}:${GROUP_ID} agent/docker/verify_ffmpeg_tarball.py /vss-agent/verify_ffmpeg_tarball.py
 COPY --chown=${USER_ID}:${GROUP_ID} agent/3rdparty/ffmpeg /vss-agent/third_party/ffmpeg
