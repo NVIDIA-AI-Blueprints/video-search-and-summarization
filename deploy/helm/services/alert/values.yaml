@@ -36,6 +36,11 @@ vstBaseUrl: ""
 externalIp: ""
 internalIp: ""
 
+# RTVI_VLM_MODEL_TO_USE passed to the container (default: cosmos-reason2)
+rtviVlmModelToUse: "cosmos-reason2"
+# Inline YAML content for realtime-config.yml (always-on VLM alert rules). Leave "" for empty default.
+realtimeConfig: ""
+
 # Base directory for media used during alert review (optional). Leave "" if not set.
 alertReviewMediaBaseDir: ""
 
