@@ -232,30 +232,52 @@ def generate_platform_mode(
     platform_dir = output_root / spec_stem / f"{short}-{mode}"
     platform_dir.mkdir(parents=True, exist_ok=True)
 
+    n = len(expects)
     for idx, expect in enumerate(expects, 1):
-        step_dir = platform_dir / f"step-{idx}" if len(expects) > 1 else platform_dir
+        step_dir = platform_dir / f"step-{idx}" if n > 1 else platform_dir
         step_dir.mkdir(parents=True, exist_ok=True)
-        step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        step_suffix = f"-step-{idx}" if n > 1 else ""
 
         # ---- instruction.md ------------------------------------------------
+        # Per-step scoping: step 1 deploys (host is bare); steps 2+ run
+        # against the already-deployed stack. We deliberately do NOT include
+        # the spec's `env` field — it's a multi-step narrative ("deploy then
+        # add then verify then poll") that, when pasted into a single step's
+        # instruction, reads as a directive to run the whole chain in this
+        # trial. Each step's `query` already carries the step-specific intent;
+        # static host context lives in the leading paragraph below.
+        if idx == 1:
+            leading = [
+                f"Use the `/alerts` skill (and `/deploy` as needed) on this bare `{platform}` host.",
+                "Docker + NVIDIA Container Toolkit are available, `NGC_CLI_API_KEY` is set,",
+                "and the remote LLM/VLM endpoints are configured via "
+                "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`.",
+            ]
+        else:
+            leading = [
+                f"Use the `/alerts` skill on this `{platform}` host.",
+                "The VSS **alerts** profile is already deployed in **real-time (VLM)** mode "
+                "with `remote-all` placement (deployed by step 1).",
+            ]
+
         instruction_lines = [
             PREAMBLE,
             "",
-            f"Use the `/alerts` skill (and `/deploy` as needed) on this `{platform}` host.",
-            "The VSS **alerts** profile is deployed in **real-time (VLM)** mode",
-            "with remote LLM and remote VLM endpoints (`remote-all` placement).",
+            *leading,
             "",
-            f"## Query {idx} of {len(expects)}",
+            (f"## Query (step {idx} of {n})" if n > 1 else "## Query"),
             "",
             expect.get("query", ""),
             "",
-            "## Environment notes",
-            "",
-            rendered_spec.get("env", ""),
-            "",
-            "Run autonomously without prompting for confirmation.",
-            "",
         ]
+        if n > 1:
+            instruction_lines.append(
+                f"Complete only step {idx} and stop. The remaining steps run "
+                "as separate trials — do not pre-execute them in this one."
+            )
+            instruction_lines.append("")
+        instruction_lines.append("Run autonomously without prompting for confirmation.")
+        instruction_lines.append("")
         (step_dir / "instruction.md").write_text("\n".join(instruction_lines) + "\n")
 
         # ---- task.toml -----------------------------------------------------
