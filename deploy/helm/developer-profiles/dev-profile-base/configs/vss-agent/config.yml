@@ -22,6 +22,10 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       enable_video_delete: true
+      enable_videos_for_search: true
+      # `disabled` is a non-empty placeholder that satisfies the boot-time must be set guard.
+      rtvi_embed_base_url: disabled
+      rtvi_cv_base_url: disabled
     endpoints:
     - path: /api/v1/videos
       method: POST
