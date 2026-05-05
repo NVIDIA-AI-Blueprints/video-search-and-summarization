@@ -70,6 +70,11 @@ class VSTVideoClipConfig(FunctionBaseConfig, name="vst.video_clip"):
         "'offset' for seconds since stream start. "
         "Must match across video_understanding, vst.video_clip, vst.snapshot, and critic_agent configs.",
     )
+    disable_audio: bool = Field(
+        True,
+        description="When True, VST clip requests pass disableAudio=true (audio stripped; CR2-compatible). "
+        "Set False for VLMs that accept audio (e.g. Nemotron Omni NIM) to passthrough audio from VIOS/VST.",
+    )
 
 
 class VSTVideoClipOffsetInput(BaseModel):
@@ -169,6 +174,7 @@ async def get_video_url(
     vst_internal_url: str | None = None,
     overlay_enabled: bool = False,
     object_ids: list[str] | None = None,
+    disable_audio: bool = True,
 ) -> str:
     """Get the video URL for a given stream ID.
 
@@ -179,6 +185,8 @@ async def get_video_url(
         vst_internal_url: Internal VST URL.
         overlay_enabled: Whether to add bounding box overlay configuration.
         object_ids: Optional list of object IDs for overlay filtering.
+        disable_audio: When True (default), sets VST query disableAudio=true. When False, sets disableAudio=false
+            so audio can reach audio-capable VLMs (e.g. Nemotron Omni).
 
     Returns:
         The video URL from VST.
@@ -238,7 +246,7 @@ async def get_video_url(
             "startTime": start_time_iso,
             "endTime": end_time_iso,
             "blocking": "true",
-            "disableAudio": "false",
+            "disableAudio": "true" if disable_audio else "false",
         }
     )
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{stream_id}/url?{query_params}"
@@ -288,6 +296,7 @@ async def vst_video_clip(config: VSTVideoClipConfig, _: Builder) -> AsyncGenerat
             config.vst_internal_url,
             overlay_enabled=config.overlay_config,
             object_ids=vst_video_clip_input.object_ids,
+            disable_audio=config.disable_audio,
         )
         await validate_video_url(video_clip_url)
         # Replace internal URL with external URL for client access
