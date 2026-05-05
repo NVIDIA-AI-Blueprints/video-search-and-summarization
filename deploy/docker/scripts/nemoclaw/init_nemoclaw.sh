@@ -24,6 +24,7 @@ VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
 VSS_REMOTE_EXTENSIONS_ROOT="/sandbox/.openclaw-data/extensions"
 VSS_REMOTE_PLUGIN_DIR="${VSS_REMOTE_EXTENSIONS_ROOT}/${VSS_PLUGIN_ID}"
 VSS_REMOTE_CONFIG_PATH="/sandbox/.openclaw/openclaw.json"
+VSS_REMOTE_SKILLS_DIR="${VSS_REMOTE_SKILLS_DIR:-}"
 VSS_REMOTE_UPLOAD_DIR="/tmp/${VSS_PLUGIN_ID}-package"
 
 log() {
@@ -32,6 +33,10 @@ log() {
 
 have() {
   command -v "$1" >/dev/null 2>&1
+}
+
+node_major_version() {
+  node -e 'process.stdout.write(String(parseInt(process.versions.node, 10)))' 2>/dev/null || printf '0'
 }
 
 usage() {
@@ -59,6 +64,8 @@ Options:
 Environment (non-interactive Nemoclaw / OpenShell):
   NEMOCLAW_ONBOARD_PROVIDER   Nemoclaw onboard/install provider (default: build = NVIDIA Endpoints / integrate.api.nvidia.com)
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
+  VSS_REMOTE_SKILLS_DIR       Optional remote sandbox skills directory override.
+                              By default, the script discovers OpenClaw's workspaceDir and uses <workspaceDir>/skills.
 EOF
 }
 
@@ -131,7 +138,7 @@ parse_args() {
 }
 
 ensure_nvm_loaded() {
-  if have node; then
+  if have node && [ "$(node_major_version)" -ge 22 ]; then
     return 0
   fi
   if [ -z "${NVM_DIR:-}" ]; then
@@ -140,9 +147,13 @@ ensure_nvm_loaded() {
   if [ -s "$NVM_DIR/nvm.sh" ]; then
     # shellcheck disable=SC1090
     . "$NVM_DIR/nvm.sh"
-    # Sourcing nvm.sh alone often leaves no node on PATH; nemoclaw uses `#!/usr/bin/env node`.
-    if ! have node; then
-      nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+    # Sourcing nvm.sh alone can leave an older node first on PATH; nemoclaw requires Node 22+.
+    if ! have node || [ "$(node_major_version)" -lt 22 ]; then
+      nvm use 22 >/dev/null 2>&1 || nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1 || true
+    fi
+    if [ -n "${NVM_BIN:-}" ] && [ -d "${NVM_BIN}" ]; then
+      export PATH="${NVM_BIN}:${PATH}"
+      hash -r 2>/dev/null || true
     fi
   fi
 }
@@ -242,6 +253,28 @@ resolve_vss_gateway_container() {
   docker ps --format '{{.Names}}' | awk '/^openshell-cluster-/{print; exit}'
 }
 
+resolve_vss_remote_skills_dir() {
+  local container_name="$1"
+  local workspace_dir
+
+  if [ -n "${VSS_REMOTE_SKILLS_DIR:-}" ]; then
+    printf '%s\n' "${VSS_REMOTE_SKILLS_DIR}"
+    return 0
+  fi
+
+  workspace_dir="$(
+    sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
+      'su - sandbox -c "openclaw skills list --json"' 2>/dev/null |
+      python3 -c 'import json, sys; print(json.load(sys.stdin).get("workspaceDir", ""))' 2>/dev/null
+  )" || true
+
+  if [ -n "${workspace_dir}" ]; then
+    printf '%s/skills\n' "${workspace_dir%/}"
+  else
+    printf '%s\n' "/sandbox/.openclaw/workspace/skills"
+  fi
+}
+
 apply_vss_policy() {
   local policy_file="${NEMOCLAW_POLICY_FILE}"
 
@@ -262,7 +295,6 @@ apply_vss_policy() {
 install_vss_openclaw_plugin() {
   local skills_root remote_skills_dir remote_upload_dir container_name
   skills_root="${VSS_REPO_DIR}/skills"
-  remote_skills_dir="/sandbox/.openclaw-data/workspace/skills"
   remote_upload_dir="/tmp/${VSS_PLUGIN_ID}-skills"
 
   if [ ! -d "${skills_root}" ]; then
@@ -285,6 +317,9 @@ install_vss_openclaw_plugin() {
     log "Could not determine the OpenShell gateway container; skipping VSS skills install"
     return
   fi
+
+  remote_skills_dir="$(resolve_vss_remote_skills_dir "${container_name}")"
+  log "Using OpenClaw skills directory ${remote_skills_dir}"
 
   log "Preparing sandbox skills staging directory inside ${NEMOCLAW_SANDBOX_NAME}"
   sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
