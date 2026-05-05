@@ -33,6 +33,7 @@ from collections.abc import AsyncGenerator
 from enum import StrEnum
 import json
 import logging
+from typing import Any
 
 import aiohttp
 from nat.builder.builder import Builder
@@ -231,6 +232,24 @@ class LVSVideoUnderstandingInput(BaseModel):
         ...,
         description="The sensor ID(s) of the video(s) to understand. Can be a single sensor ID or a list for parallel processing.",
     )
+    start_time: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional start offset in seconds from the beginning of the video. "
+            "Omit (or 0) to summarize from the start. Combined with end_time to "
+            "summarize a sub-range. Ignored when sensor_id is a list."
+        ),
+    )
+    end_time: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional end offset in seconds from the beginning of the video. "
+            "Omit to summarize up to the end. Combined with start_time to "
+            "summarize a sub-range. Ignored when sensor_id is a list."
+        ),
+    )
     request_total_videos: int | None = Field(
         default=None,
         description=(
@@ -256,6 +275,79 @@ class LVSVideoUnderstandingInput(BaseModel):
                 if not sid or not sid.strip():
                     raise ValueError("sensor_id list cannot contain empty strings")
         return v
+
+    @field_validator("end_time")
+    @classmethod
+    def validate_time_range(cls, value: float | None, info: Any) -> float | None:
+        if value is None:
+            return value
+        start = info.data.get("start_time")
+        if start is not None and value != 0 and value <= start:
+            raise ValueError("end_time must be greater than start_time, or 0/None for no upper bound")
+        return value
+
+
+class LVSVideoUnderstandingOutput(BaseModel):
+    """Output from the LVS Video Understanding tool.
+
+    The ``summary`` property is consumed by the top agent as the final-answer
+    hint and renders a clean ``Stream Report``-style block driven by
+    ``video_summary``. Structured fields (``events``, ``hitl_prompts``,
+    ``lvs_backend_response``, ``results``) remain available on the model
+    so downstream tools (e.g. ``video_report_gen``) can read them.
+    """
+
+    status: LVSStatus = Field(..., description="Overall status of the LVS run.")
+    sensor_id: str | None = Field(
+        default=None,
+        description="Single-video sensor_id; None on multi-video aggregated results.",
+    )
+    video_summary: str | None = Field(default=None, description="LVS narrative summary (single-video only).")
+    events: list[Any] | None = Field(default=None, description="LVS detected events (single-video only).")
+    hitl_prompts: dict[str, Any] | None = Field(
+        default=None,
+        description="Scenario / events / objects_of_interest the user confirmed via HITL.",
+    )
+    lvs_backend_response: Any | None = Field(default=None, description="Raw LVS backend response (single-video only).")
+    note: str | None = Field(
+        default=None,
+        description="Optional warning, e.g. when LVS returned no events and no summary.",
+    )
+    # Multi-video aggregation fields
+    videos_processed: int | None = Field(
+        default=None, description="Number of videos that completed successfully (multi-video)."
+    )
+    videos_failed: int | None = Field(default=None, description="Number of videos that failed (multi-video).")
+    results: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Per-video result dicts when sensor_id was a list (multi-video).",
+    )
+    failed_videos: list[str] | None = Field(
+        default=None, description="sensor_ids whose processing failed (multi-video)."
+    )
+    message: str | None = Field(default=None, description="User-facing message (e.g. set on aborted runs).")
+
+    model_config = ConfigDict(extra="forbid")
+
+    @property
+    def summary(self) -> str | None:
+        """Final-answer hint consumed by the top agent for terminal video states."""
+        if self.status == LVSStatus.ABORTED:
+            return self.message or "Video analysis was cancelled by user."
+
+        # Multi-video: short overview; per-video bodies stay in `results`.
+        if self.results is not None:
+            lines = [f"Processed {self.videos_processed or 0} video(s) using LVS."]
+            if self.failed_videos:
+                lines.append(f"Failed videos: {', '.join(self.failed_videos)}")
+            return "\n".join(lines)
+
+        # Single-video: same shape as lvs_stream_understanding's report.
+        narrative = (self.video_summary or "").strip()
+        if not narrative:
+            return self.note or self.message
+        title = f"Video Report: {self.sensor_id}" if self.sensor_id else "Video Report"
+        return f"{title}\nSummary: {narrative}\n"
 
 
 @register_function(config_type=LVSVideoUnderstandingConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -533,6 +625,8 @@ async def lvs_video_understanding(
         scenario: str,
         events: list[str],
         objects_of_interest: list[str],
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> dict:
         """
         Process a single video using LVS service (internal function).
@@ -574,7 +668,7 @@ async def lvs_video_understanding(
         logger.info(f"[LVS Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
 
         # Build LVS request using new API contract
-        lvs_request = {
+        lvs_request: dict[str, Any] = {
             "url": video_url,
             "model": config.model,
             # HITL parameters
@@ -584,7 +678,13 @@ async def lvs_video_understanding(
             "chunk_duration": config.chunk_duration,
             "num_frames_per_chunk": config.num_frames_per_chunk,
         }
-        logger.info(f"LVS request: {lvs_request}")
+
+        if start_time is not None or end_time is not None:
+            lvs_request["media_info"] = {
+                "type": "offset",
+                "start_offset": int(start_time) if start_time is not None else 0,
+                "end_offset": int(end_time) if end_time is not None else 0,
+            }
 
         # Add seed if configured
         if config.seed is not None:
@@ -592,6 +692,8 @@ async def lvs_video_understanding(
 
         if objects_of_interest:
             lvs_request["objects_of_interest"] = objects_of_interest
+
+        logger.info(f"LVS request: {lvs_request}")
 
         logger.info(f"Calling LVS service: {config.lvs_backend_url}/summarize")
         logger.debug(f"LVS request: {lvs_request}")
@@ -650,7 +752,7 @@ async def lvs_video_understanding(
             logger.error(f"LVS video understanding failed: {e}")
             raise
 
-    async def _lvs_video_understanding(lvs_input: LVSVideoUnderstandingInput) -> str:
+    async def _lvs_video_understanding(lvs_input: LVSVideoUnderstandingInput) -> LVSVideoUnderstandingOutput:
         """
         Use LVS(Long Video Summarization) service to understand and summarize video(s).
 
@@ -661,7 +763,9 @@ async def lvs_video_understanding(
             lvs_input: LVSVideoUnderstandingInput with sensor_id(s) - can be a single string or list
 
         Returns:
-            str: JSON string with the analysis results
+            LVSVideoUnderstandingOutput: Pydantic model whose ``summary`` property
+            renders the user-facing report; structured fields remain available
+            for downstream tools (e.g. video_report_gen).
         """
         # Normalize sensor_id to list for unified handling
         sensor_ids = [lvs_input.sensor_id] if isinstance(lvs_input.sensor_id, str) else lvs_input.sensor_id
@@ -701,12 +805,9 @@ async def lvs_video_understanding(
             # Handle cancellation
             if params_result is None:
                 logger.info("LVS analysis cancelled by user during parameter collection")
-                return json.dumps(
-                    {
-                        "status": LVSStatus.ABORTED.value,
-                        "message": "Video analysis was cancelled by user.",
-                    },
-                    indent=2,
+                return LVSVideoUnderstandingOutput(
+                    status=LVSStatus.ABORTED,
+                    message="Video analysis was cancelled by user.",
                 )
 
             scenario, events_list, objects_of_interest = params_result
@@ -729,12 +830,9 @@ async def lvs_video_understanding(
             elif user_choice == "/cancel":
                 # User cancelled
                 logger.info("LVS analysis cancelled by user")
-                return json.dumps(
-                    {
-                        "status": LVSStatus.ABORTED.value,
-                        "message": "Video analysis was cancelled by user.",
-                    },
-                    indent=2,
+                return LVSVideoUnderstandingOutput(
+                    status=LVSStatus.ABORTED,
+                    message="Video analysis was cancelled by user.",
                 )
             else:
                 # Empty string or any other input - proceed with LVS request
@@ -744,6 +842,30 @@ async def lvs_video_understanding(
         # Update state for this thread
         lvs_params_state[thread_id] = (scenario, events_list, objects_of_interest)
         logger.info(f"Updated parameters state for thread {thread_id}")
+
+        # Time range only applies to single-video calls. For multi-video,
+        # batch dispatchers don't currently propagate per-video offsets, so
+        # a single start/end on the request would silently apply to all of
+        # them. Drop the range and log if a batch happens to set them.
+        start_time: float | None = None
+        end_time: float | None = None
+        if not is_multi_video:
+            start_time = lvs_input.start_time
+            end_time = lvs_input.end_time
+            if start_time is not None or end_time is not None:
+                logger.info(
+                    "LVS time range: start_time=%s end_time=%s (sensor_id=%s)",
+                    start_time,
+                    end_time,
+                    sensor_ids[0],
+                )
+        elif lvs_input.start_time is not None or lvs_input.end_time is not None:
+            logger.warning(
+                "Ignoring start_time/end_time on multi-video LVS request "
+                "(applies only to single-video calls): start=%s end=%s",
+                lvs_input.start_time,
+                lvs_input.end_time,
+            )
 
         # Process video(s) - single or parallel
         if is_multi_video:
@@ -765,29 +887,41 @@ async def lvs_video_understanding(
                 else:
                     all_results.append(result_or_exception)
 
-            # Return aggregated results
-            aggregated = {
-                "status": LVSStatus.SUCCESS.value,
-                "videos_processed": len(all_results),
-                "videos_failed": len(failed_videos),
-                "results": all_results,
-                "failed_videos": failed_videos,
-                "hitl_prompts": {
+            return LVSVideoUnderstandingOutput(
+                status=LVSStatus.SUCCESS,
+                videos_processed=len(all_results),
+                videos_failed=len(failed_videos),
+                results=all_results,
+                failed_videos=failed_videos,
+                hitl_prompts={
                     "scenario": scenario,
                     "events": events_list,
                     "objects_of_interest": objects_of_interest,
                 },
-            }
-
-            return json.dumps(aggregated, indent=2, ensure_ascii=False)
+            )
         else:
             # Single video - process directly
-            result = await _process_single_lvs_video(sensor_ids[0], scenario, events_list, objects_of_interest)
-            return json.dumps(result, indent=2, ensure_ascii=False)
+            result = await _process_single_lvs_video(
+                sensor_ids[0],
+                scenario,
+                events_list,
+                objects_of_interest,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            return LVSVideoUnderstandingOutput(
+                status=LVSStatus.SUCCESS,
+                sensor_id=result.get("sensor_id"),
+                video_summary=result.get("video_summary"),
+                events=result.get("events"),
+                hitl_prompts=result.get("hitl_prompts"),
+                lvs_backend_response=result.get("lvs_backend_response"),
+                note=result.get("note"),
+            )
 
     yield FunctionInfo.create(
         single_fn=_lvs_video_understanding,
         description=_lvs_video_understanding.__doc__,
         input_schema=LVSVideoUnderstandingInput,
-        single_output_schema=str,
+        single_output_schema=LVSVideoUnderstandingOutput,
     )

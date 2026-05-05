@@ -55,7 +55,7 @@ vios:
 # vss-agent / vss-summarization model ids: set global.llmName / global.vlmName above (override with agent.vss-agent.llmName or vss-summarization.llmName if needed).
 
 # In-cluster LVS → LLM/VLM: optional llmService / vlmService slugs under vss-summarization (defaults match nims). Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
-# LVS backend routes VLM calls through vss-rtvi-vlm by default (USE_RTVI_VLM / RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
+# LVS backend routes VLM calls through vss-rtvi-vlm by default (RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
 vss-summarization:
   llmService: ""
   vlmService: ""

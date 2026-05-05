@@ -17,14 +17,13 @@ enabled: false
 global: {}
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-video-summarization
-  tag: "3.2.0-rc1-d3e1a8f"
+  tag: "3.2.0-rc5-c45f19c"
   pullPolicy: IfNotPresent
 replicas: 1
-# Backend (API), MCP, frontend ports — match Compose
+# Backend (API), MCP ports — match Compose
 service:
   backendPort: 38111
   mcpPort: 38112
-  frontendPort: 38113
   type: ClusterIP
 # GPU required
 resources:
@@ -44,18 +43,49 @@ elasticsearchHost: ""
 elasticsearchPort: "9200"
 elasticsearchTransportPort: "9300"
 env:
+  - name: ARANGO_DB_HOST
+    value: arango-db
+  - name: ARANGO_DB_PASSWORD
+    value: passroot
+  - name: ARANGO_DB_PORT
+    value: "8529"
+  - name: ARANGO_DB_USERNAME
+    value: root
   - name: BACKEND_PORT
     value: "38111"
   - name: CA_RAG_CONFIG
     value: /app/config.yaml
+  - name: DISABLE_CA_RAG
+    value: "false"
   - name: DISABLE_GUARDRAILS
     value: "true"
+  - name: ENABLE_AUDIO
+    value: "false"
+  - name: ENABLE_DENSE_CAPTION
+    value: "false"
   - name: ENABLE_VIA_HEALTH_EVAL
     value: "false"
-  - name: FRONTEND_PORT
-    value: "38113"
   - name: GPU_DEVICES
     value: "0"
+  - name: GRAPH_DB_BOLT_PORT
+    value: "7687"
+  - name: GRAPH_DB_HOST
+    value: graph-db
+  - name: GRAPH_DB_HTTP_PORT
+    value: "7474"
+  - name: GRAPH_DB_PASSWORD
+    value: passneo4j
+  - name: GRAPH_DB_USERNAME
+    value: neo4j
+  # Kafka integration: consume RTVI captions / publish structured summaries.
+  # Compose parity: deploy/docker/services/video-summarization/compose.yml
+  # `lvs-server` environment block + dev-profile-lvs/.env.
+  - name: KAFKA_ENABLED
+    value: "false"
+  - name: KAFKA_BOOTSTRAP_SERVERS
+    value: "kafka:9092"
+  - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
+    value: structured-events-summary
   - name: LVS_DATABASE_BACKEND
     value: elasticsearch_db
   - name: LVS_DISABLE_DB_RESET_ON_REQUEST_DONE
@@ -74,6 +104,10 @@ env:
     value: ""
   - name: MILVUS_DB_HOST
     value: ""
+  - name: MINIO_PASSWORD
+    value: minio123
+  - name: MINIO_USERNAME
+    value: minio
   - name: MODEL_ROOT_DIR
     value: /tmp/model_cache
   - name: NGC_MODEL_CACHE
@@ -84,20 +118,16 @@ env:
     value: ""
   - name: NVIDIA_VISIBLE_DEVICES
     value: "0"
-  - name: VIA_VLM_API_KEY
-    value: not-used
-  - name: VLM_INPUT_HEIGHT
-    value: "736"
-  - name: VLM_INPUT_WIDTH
-    value: "1312"
   - name: VLM_MODEL_TO_USE
     value: openai-compat
+  - name: VLM_SYSTEM_PROMPT
+    value: ""
   - name: VSS_LOG_LEVEL
-    value: DEBUG
+    value: INFO
 
 # extraEnv: appended after the computed env block (duplicate names: last wins). Each value is rendered with `tpl`, so
 # expressions like `http://{{ .Release.Name }}-vss-rtvi-vlm:8000` are supported. Use this for LVS → RTVI-VLM wiring
-# (USE_RTVI_VLM, RTVI_VLM_URL, RTVI_VLM_URL_PASSTHROUGH) without duplicating the full `env` list.
+# (RTVI_VLM_URL, RTVI_VLM_URL_PASSTHROUGH) without duplicating the full `env` list.
 extraEnv: []
 
 # VST_INTERNAL_URL: used by LVS to rewrite video download URLs (e.g. from 127.0.0.1 or external host to in-cluster VST).

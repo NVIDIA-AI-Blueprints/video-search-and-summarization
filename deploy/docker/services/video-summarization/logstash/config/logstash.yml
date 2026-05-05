@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+#
+# Logstash node configuration for the RTVI-VLM Kafka -> Elasticsearch path.
+
+# Bind metrics endpoint on all interfaces inside the container so docker
+# healthcheck (curl http://localhost:9600) succeeds.
+api.http.host: 0.0.0.0
+api.http.port: 9600
+
+# Disable X-Pack monitoring; we don't ship metrics to Elastic Cloud.
+xpack.monitoring.enabled: false
+
+# Reload pipeline definitions when their files change. Useful in dev; the
+# release image rebuilds and re-deploys instead.
+config.reload.automatic: true
+config.reload.interval: 10s
+
+# Allow the Kafka input to use the embedded JRE for SASL/Kerberos libs even
+# when not currently configured (no-op when unused).
+log.level: info
+
+# Persistent queue keeps in-flight messages on disk; we use the default
+# memory queue here because the Kafka consumer offset commit handles
+# at-least-once delivery semantics for us.
+queue.type: memory

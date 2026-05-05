@@ -18,6 +18,8 @@ from . import embed_search
 from . import fov_counts_with_chart
 from . import geolocation
 from . import incidents
+from . import lvs_config_media
+from . import lvs_stream_understanding
 from . import lvs_video_understanding
 from . import multi_incident_formatter
 from . import prompt_gen
@@ -39,6 +41,8 @@ __all__ = [
     "fov_counts_with_chart",
     "geolocation",
     "incidents",
+    "lvs_config_media",
+    "lvs_stream_understanding",
     "lvs_video_understanding",
     "multi_incident_formatter",
     "prompt_gen",
