@@ -199,25 +199,25 @@ rtvi:
         pullPolicy: IfNotPresent
     ngcApiKeySecretName: ngc-api-key-secret
     ngcApiKeySecretKey: NGC_API_KEY
-    ngcOrg: nvidia
+    ngcOrg: nvstaging
     ngcModelsToDownload:
-      - model: nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1
+      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1
         sourcePath: rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.1.fp16.onnx
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
+      - model: nvstaging/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
         destPath: siglip2_v1.1.onnx
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
+      - model: nvstaging/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_tokenizer
         destPath: siglip2_v1.1_tokenizer
     models:
       authSecretName: ngc-api-key-secret
       authSecretKey: NGC_API_KEY
-      ngcOrg: nvidia
+      ngcOrg: nvstaging
       pgie:
         ngc:
           apiBaseUrl: https://api.ngc.nvidia.com
-          org: nvidia
+          org: nvstaging
           team: tao
           model: rtdetr_2d_warehouse
           version: deployable_efficientvit_l2_v1.0.1
@@ -226,7 +226,7 @@ rtvi:
       visionEncoder:
         ngc:
           apiBaseUrl: https://api.ngc.nvidia.com
-          org: nvidia
+          org: nvstaging
           team: tao
           model: siglip_v2
           version: deployable_v1.1
