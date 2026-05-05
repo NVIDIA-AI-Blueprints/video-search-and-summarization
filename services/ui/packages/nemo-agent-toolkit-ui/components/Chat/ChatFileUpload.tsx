@@ -6,7 +6,7 @@ import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react
 import {
   UploadFilesDialog,
   copyToClipboard,
-  uploadFileChunkedViaAgent,
+  uploadFileChunkedToVst,
   type UploadFileConfigTemplate,
   type FileUploadResult,
 } from '@aiqtoolkit-ui/common';
@@ -313,7 +313,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   children,
 }) => {
   const {
-    state: { agentApiUrlBase, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
+    state: { agentApiUrlBase, vstApiUrlBase, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
   } = useContext(HomeContext);
 
   const fileInputId = useId();
@@ -551,6 +551,13 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       return { filename, error: errorMessage, cancelled: false };
     }
 
+    if (!vstApiUrlBase) {
+      const errorMessage =
+        'VST API URL is not configured (NEXT_PUBLIC_VST_API_URL_BASE)';
+      updateUploadingFileStatus(fileId, 'error', errorMessage);
+      return { filename, error: errorMessage, cancelled: false };
+    }
+
     updateUploadingFileStatus(fileId, 'uploading');
     updateUploadingFileProgress(fileId, 0);
 
@@ -559,10 +566,14 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       const abortController = new AbortController();
       abortControllerMapRef.current.set(fileId, abortController);
 
-      // Chunked upload via agent proxy (bypasses Cloudflare 100s timeout on
-      // large files by sending many small chunks instead of one monolithic PUT).
-      const result = await uploadFileChunkedViaAgent(
+      // Chunked upload directly to VST (bypasses Cloudflare 100s timeout
+      // on large files by sending many short chunks instead of one
+      // monolithic PUT). The agent's /complete hook then runs
+      // post-processing (timelines + RTVI register + embeddings on
+      // search profiles).
+      const result = await uploadFileChunkedToVst(
         file,
+        vstApiUrlBase,
         agentApiUrlBase,
         formData,
         (progress) => updateUploadingFileProgress(fileId, progress),

@@ -67,7 +67,7 @@ export {
   getUploadUrl,
   uploadFile,
   uploadFileChunked,
-  uploadFileChunkedViaAgent,
+  uploadFileChunkedToVst,
   notifyGenericUploadComplete,
   CHUNK_SIZE_BYTES,
   MAX_CHUNK_RETRIES,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import {
-  uploadFileChunkedViaAgent,
+  uploadFileChunkedToVst,
   notifyGenericUploadComplete,
 } from '../../lib-src/utils/videoUpload';
 
@@ -132,20 +132,20 @@ describe('notifyGenericUploadComplete', () => {
   });
 });
 
-describe('uploadFileChunkedViaAgent', () => {
+describe('uploadFileChunkedToVst', () => {
   beforeEach(() => {
     MockXHR.instances = [];
     (globalThis as any).XMLHttpRequest = MockXHR;
     global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
   });
 
-  it('sends chunks to /videos/chunked/upload and finishes with notifyGenericUploadComplete', async () => {
+  it('sends chunks directly to VST and finishes with notifyGenericUploadComplete on the agent', async () => {
     const file = new File(['x'.repeat(25)], 'chat_video.mp4', { type: 'video/mp4' });
+    const vstUrl = 'https://vst.example.com/vst/api';
     const agentUrl = 'https://agent.example.com/api/v1';
 
-    const promise = uploadFileChunkedViaAgent(file, agentUrl, {}, undefined, undefined);
+    const promise = uploadFileChunkedToVst(file, vstUrl, agentUrl, {}, undefined, undefined);
 
-    // 25 bytes with chunkSize=10 would be 3 chunks, but we pass default (10MB) so one chunk.
     await flushAndFinish(200, JSON.stringify({
       sensorId: 'chat-sensor-1',
       filename: 'chat_video',
@@ -155,13 +155,14 @@ describe('uploadFileChunkedViaAgent', () => {
 
     const result = await promise;
 
-    // Chunk POSTed to the agent proxy URL, not directly to VST.
+    // Chunk POSTed directly to VST's storage endpoint — agent is no longer
+    // a proxy on the upload path.
     expect(MockXHR.instances).toHaveLength(1);
-    expect(MockXHR.instances[0].url).toBe('https://agent.example.com/api/v1/videos/chunked/upload');
+    expect(MockXHR.instances[0].url).toBe('https://vst.example.com/vst/api/v1/storage/file');
     expect(MockXHR.instances[0].headers['nvstreamer-chunk-number']).toBe('1');
     expect(MockXHR.instances[0].headers['nvstreamer-is-last-chunk']).toBe('true');
 
-    // Then /videos/{basename}/complete fired with the VST response as body.
+    // Then /videos/{basename}/complete fired against the agent with the VST response as body.
     expect((global.fetch as jest.Mock)).toHaveBeenCalledWith(
       'https://agent.example.com/api/v1/videos/chat_video/complete',
       expect.objectContaining({ method: 'POST' }),
@@ -176,8 +177,9 @@ describe('uploadFileChunkedViaAgent', () => {
   it('uses requestFilename override when provided for the /complete call path', async () => {
     const file = new File(['y'.repeat(10)], 'original.mp4');
 
-    const promise = uploadFileChunkedViaAgent(
+    const promise = uploadFileChunkedToVst(
       file,
+      'https://vst.example.com/vst/api',
       'https://agent.example.com/api/v1',
       {},
       undefined,
@@ -194,8 +196,9 @@ describe('uploadFileChunkedViaAgent', () => {
 
   it('forwards non-empty formData to /complete as custom_params', async () => {
     const file = new File(['z'.repeat(10)], 'chat_video.mp4');
-    const promise = uploadFileChunkedViaAgent(
+    const promise = uploadFileChunkedToVst(
       file,
+      'https://vst.example.com/vst/api',
       'https://agent.example.com/api/v1',
       { embedding: true, language: 'en' },
     );
