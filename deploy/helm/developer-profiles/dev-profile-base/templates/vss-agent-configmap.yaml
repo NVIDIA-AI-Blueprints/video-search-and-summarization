@@ -21,4 +21,8 @@ data:
   config_edge.yml: |
 {{ (.Files.Get "configs/vss-agent/config_edge.yml") | nindent 4 }}
 {{- end }}
+{{- if .Files.Glob "configs/vss-agent/config_rag.yml" }}
+  config_rag.yml: |
+{{ (.Files.Get "configs/vss-agent/config_rag.yml") | nindent 4 }}
+{{- end }}
 {{- end }}
