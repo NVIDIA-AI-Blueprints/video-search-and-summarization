@@ -73,22 +73,17 @@ RUN find /vss-agent/.venv -type f -path "*/torch/bin/test_*" -delete && \
 # Remove imageio_ffmpeg binary if present (~76 MB) - not needed since we use opencv
 RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/null || true
 
-# Security patch stage - download patched OpenSSL libraries
-# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to 3.0.19-1~deb12u1
+# Security patch stage - install patched OpenSSL libraries
+# CVE-2025-69419, CVE-2025-69420, CVE-2025-15467: Upgrade libssl3 to latest bookworm security release
 FROM debian:bookworm AS security-patches
-ARG TARGETARCH
 
-# Download the patched libssl3 package for the target architecture
+# Install the latest libssl3 via apt (avoids hardcoding a .deb URL that can go 404
+# when Debian publishes a newer point release).
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget ca-certificates && \
-    mkdir -p /patches && \
-    if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u1_amd64.deb; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u1_arm64.deb; \
-    fi && \
-    cd /patches && \
-    dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \
+    apt-get install -y --no-install-recommends libssl3 && \
+    mkdir -p /patches/libssl3-extracted && \
+    cp -a --parents /usr/lib/*-linux-gnu*/libssl.so.* /patches/libssl3-extracted/ && \
+    cp -a --parents /usr/lib/*-linux-gnu*/libcrypto.so.* /patches/libssl3-extracted/ && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime stage - using NVIDIA distroless production image (supports AMD64 and ARM64)
@@ -117,7 +112,7 @@ RUN ["/usr/local/bin/python3", "-c", "import os; os.remove('/tmp/cleanup_vulnera
 RUN ["/usr/local/bin/python3", "-c", "import os; os.path.exists('/usr/bin/openssl') and os.remove('/usr/bin/openssl')"]
 
 # Copy patched OpenSSL libraries to fix CVE-2025-69419, CVE-2025-69420, CVE-2025-15467
-# These replace the base image libssl3 with 3.0.19-1~deb12u1
+# These replace the base image libssl3 with the latest Debian bookworm security release
 # Copy directly to architecture-specific paths where the runtime image expects them
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/x86_64-linux-gnu/
 COPY --from=security-patches /patches/libssl3-extracted/usr/lib/*-linux-gnu*/libssl.so.* /usr/lib/aarch64-linux-gnu/
