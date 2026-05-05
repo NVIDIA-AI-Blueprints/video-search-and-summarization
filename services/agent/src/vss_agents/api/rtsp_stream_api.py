@@ -57,6 +57,7 @@ class ServiceConfig:
         vst_internal_url: str,
         rtvi_cv_base_url: str = "",
         rtvi_embed_base_url: str = "",
+        rtvi_vlm_base_url: str = "",
         rtvi_embed_model: str = "cosmos-embed1-448p",
         rtvi_embed_chunk_duration: int = 5,
         delete_vst_storage_on_stream_remove: bool = True,
@@ -64,6 +65,7 @@ class ServiceConfig:
         self.vst_url = vst_internal_url.rstrip("/")
         self.rtvi_cv_url = rtvi_cv_base_url.rstrip("/") if rtvi_cv_base_url else ""
         self.rtvi_embed_url = rtvi_embed_base_url.rstrip("/") if rtvi_embed_base_url else ""
+        self.rtvi_vlm_url = rtvi_vlm_base_url.rstrip("/") if rtvi_vlm_base_url else ""
         self.rtvi_embed_model = rtvi_embed_model
         self.rtvi_embed_chunk_duration = rtvi_embed_chunk_duration
         self.delete_vst_storage_on_stream_remove = delete_vst_storage_on_stream_remove
@@ -258,6 +260,77 @@ async def add_to_rtvi_embed(
     raise AssertionError("RTVI-embed: tenacity produced no retry attempt")
 
 
+async def add_to_rtvi_vlm(
+    client: httpx.AsyncClient, config: ServiceConfig, sensor_id: str, name: str, sensor_url: str
+) -> tuple[bool, str, str | None]:
+    """
+    Add stream to RTVI-VLM so LVS can use the VST sensor ID as a known resource.
+
+    Returns: (success, message, rtvi_vlm_stream_id)
+    """
+    if not config.rtvi_vlm_url:
+        logger.info("RTVI-VLM not configured, skipping")
+        return True, "Skipped (not configured)", sensor_id
+
+    url = f"{config.rtvi_vlm_url}/v1/streams/add"
+    payload = {
+        "streams": [
+            {
+                "liveStreamUrl": sensor_url,
+                "description": name,
+                # Pass sensor_id (not friendly name) so the protobuf streamId
+                # stamped on raw_events == VST sensor_id. Logstash indexes
+                # raw_events under `default_<streamId>`, the same key LVS
+                # queries during summarization aggregation.
+                "sensor_name": sensor_id,
+                "id": sensor_id,
+            }
+        ],
+    }
+
+    logger.info(f"Adding stream to RTVI-VLM (name={name!r}, sensor_id={sensor_id}): POST {url}")
+    logger.debug(f"Payload: {payload}")
+
+    try:
+        async for retry in create_retry_strategy(delay=2, retries=6, exceptions=(httpx.TransportError, RuntimeError)):
+            with retry:
+                response = await client.post(url, json=payload)
+                if response.status_code not in (200, 201):
+                    error = f"RTVI-VLM returned {response.status_code}: {response.text}"
+                    if response.status_code in (408, 429) or response.status_code >= 500:
+                        raise RuntimeError(error)
+                    logger.error(f"RTVI-VLM add failed (non-retryable): {error}")
+                    return False, error, None
+
+                result = response.json() if response.content else {}
+                errors = result.get("errors") if isinstance(result, dict) else None
+                results = result.get("results", []) if isinstance(result, dict) else []
+                if errors and not results:
+                    return False, f"RTVI-VLM returned errors: {errors}", None
+
+                rtvi_stream_id = (results[0].get("id") if results else None) or sensor_id
+                logger.info(
+                    "RTVI-VLM stream registered: rtvi_stream_id=%s (vst_sensor_id=%s)",
+                    rtvi_stream_id,
+                    sensor_id,
+                )
+                if rtvi_stream_id != sensor_id:
+                    logger.warning(
+                        "RTVI-VLM returned a different id than VST sensor_id; "
+                        "downstream LVS lookups will use sensor_id=%s and may fail. "
+                        "rtvi_stream_id=%s",
+                        sensor_id,
+                        rtvi_stream_id,
+                    )
+                return True, "OK", rtvi_stream_id
+    except Exception as e:
+        error = f"RTVI-VLM request failed: {e!s}"
+        logger.error(error, exc_info=True)
+        return False, error, None
+
+    raise AssertionError("RTVI-VLM: tenacity produced no retry attempt")
+
+
 async def start_embedding_generation(
     client: httpx.AsyncClient, config: ServiceConfig, stream_id: str
 ) -> tuple[bool, str]:
@@ -382,6 +455,26 @@ async def cleanup_rtvi_embed_generation(
         return False, str(e)
 
 
+async def cleanup_rtvi_vlm_stream(
+    client: httpx.AsyncClient, config: ServiceConfig, stream_id: str | None
+) -> tuple[bool, str]:
+    """Remove stream from RTVI-VLM."""
+    if not config.rtvi_vlm_url:
+        return True, "Skipped (not configured)"
+
+    url = f"{config.rtvi_vlm_url}/v1/streams/delete/{stream_id}"
+    logger.info(f"Removing from RTVI-VLM: DELETE {url}")
+
+    try:
+        response = await client.delete(url)
+        if response.status_code in (200, 204):
+            logger.info(f"RTVI-VLM stream removed: {stream_id}")
+            return True, "OK"
+        return False, f"RTVI-VLM returned {response.status_code}: {response.text}"
+    except Exception as e:
+        return False, str(e)
+
+
 # ============================================================================
 # Router Factory
 # ============================================================================
@@ -391,6 +484,7 @@ def create_rtsp_stream_api_router(
     vst_internal_url: str,
     rtvi_cv_base_url: str = "",
     rtvi_embed_base_url: str = "",
+    rtvi_vlm_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
     delete_vst_storage_on_stream_remove: bool = True,
@@ -402,6 +496,7 @@ def create_rtsp_stream_api_router(
         vst_internal_url=vst_internal_url,
         rtvi_cv_base_url=rtvi_cv_base_url,
         rtvi_embed_base_url=rtvi_embed_base_url,
+        rtvi_vlm_base_url=rtvi_vlm_base_url,
         rtvi_embed_model=rtvi_embed_model,
         rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
         delete_vst_storage_on_stream_remove=delete_vst_storage_on_stream_remove,
@@ -452,7 +547,32 @@ def create_rtsp_stream_api_router(
         assert sensor_id is not None, "sensor_id should be set after successful VST add"
         assert rtsp_url is not None, "rtsp_url should be set after successful VST add"
 
+        # LVS mode is determined by whether an RTVI-VLM URL is configured: when
+        # set, the stream is registered with RTVI-VLM only (LVS path); otherwise
+        # the search path (RTVI-CV + RTVI-embed) is used.
+        is_lvs_mode = bool(config.rtvi_vlm_url)
+
         async with httpx.AsyncClient(timeout=60.0) as client:
+            if is_lvs_mode:
+                with TimeMeasure("rtsp_stream: add to RTVI-VLM"):
+                    success, msg, _rtvi_vlm_stream_id = await add_to_rtvi_vlm(
+                        client, config, sensor_id, request.name, rtsp_url
+                    )
+                if not success:
+                    await cleanup_vst_sensor(config, sensor_id)
+                    await cleanup_vst_storage(config, sensor_id)
+                    return AddStreamResponse(
+                        status="failure",
+                        message=f"Failed at RTVI-VLM: {msg}",
+                        error=msg,
+                    )
+
+                return AddStreamResponse(
+                    status="success",
+                    message=f"Stream '{request.name}' added successfully",
+                    error=None,
+                )
+
             # Step 2: Add to RTVI-CV using RTSP URL from VST streams API
             with TimeMeasure("rtsp_stream: add to RTVI-CV"):
                 success, msg = await add_to_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
@@ -643,6 +763,7 @@ def register_rtsp_stream_api_routes(app: FastAPI, config: Any) -> None:
         vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
         rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
         rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", "") or ""
+        rtvi_vlm_base_url = getattr(streaming_config, "rtvi_vlm_base_url", "") or ""
         rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
         delete_vst_storage_on_stream_remove = bool(
@@ -656,6 +777,7 @@ def register_rtsp_stream_api_routes(app: FastAPI, config: Any) -> None:
             vst_internal_url=vst_internal_url,
             rtvi_cv_base_url=rtvi_cv_base_url,
             rtvi_embed_base_url=rtvi_embed_base_url,
+            rtvi_vlm_base_url=rtvi_vlm_base_url,
             rtvi_embed_model=rtvi_embed_model,
             rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
             delete_vst_storage_on_stream_remove=delete_vst_storage_on_stream_remove,
@@ -665,6 +787,7 @@ def register_rtsp_stream_api_routes(app: FastAPI, config: Any) -> None:
             "RTSP stream API routes registered "
             f"(rtvi_embed={'on' if rtvi_embed_base_url else 'off'}, "
             f"rtvi_cv={'on' if rtvi_cv_base_url else 'off'}, "
+            f"rtvi_vlm={'on' if rtvi_vlm_base_url else 'off'}, "
             f"delete_vst_storage_on_stream_remove={delete_vst_storage_on_stream_remove})"
         )
 

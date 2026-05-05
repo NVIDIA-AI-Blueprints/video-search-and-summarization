@@ -21,7 +21,13 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
+      enable_rtsp_streams: true
       enable_video_delete: true
+      enable_videos_for_search: true
+      # `disabled` is a non-empty placeholder that satisfies the boot-time must be set guard.
+      rtvi_embed_base_url: disabled
+      rtvi_cv_base_url: disabled
     endpoints:
     - path: /api/v1/videos
       method: POST
@@ -154,6 +160,53 @@ functions:
     - pedestrian crossing
     - vehicle crossing
     - traffic violation
+
+  lvs_config_media:
+    _type: lvs_config_media
+    lvs_backend_url: ${LVS_BACKEND_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
+    model: ${VLM_NAME}
+    conn_timeout_ms: 5000
+    read_timeout_ms: 600000
+    chunk_duration: 10
+    hitl_scenario_template: |
+      Scenario (REQUIRED):
+      Please provide a scenario description for the stream analysis.
+
+      Example: "traffic monitoring", "warehouse monitoring"
+
+      Enter your scenario or press Submit to keep current value:
+    hitl_events_template: |
+      Events (REQUIRED):
+      Please provide a comma-separated list of events to detect.
+
+      Examples:
+      - accident, pedestrian crossing, vehicle crossing, traffic violation
+      - boxes falling, accident, forklift stuck, workers not wearing PPE, person entering restricted area
+
+      Enter events (comma-separated) or press Submit to keep current value:
+    hitl_objects_template: |
+      Objects of Interest (OPTIONAL):
+      Please provide a comma-separated list of objects to focus on, or write "skip" to skip.
+
+      Examples:
+      - cars, trucks, pedestrians
+      - forklifts, pallets, workers
+
+      Enter objects (comma-separated), "skip" to skip or press Submit to keep current value:
+    default_scenario: "traffic monitoring"
+    default_events:
+    - accident
+    - pedestrian crossing
+    - vehicle crossing
+    - traffic violation
+
+  lvs_stream_understanding:
+    _type: lvs_stream_understanding
+    lvs_backend_url: ${LVS_BACKEND_URL}
+    model: ${VLM_NAME}
+    conn_timeout_ms: 5000
+    read_timeout_ms: 600000
 
   video_report_gen:
     _type: video_report_gen
@@ -290,6 +343,9 @@ workflow:
   planning_enabled: true
   tool_names:
   - video_understanding
+  - lvs_video_understanding
+  - lvs_config_media
+  - lvs_stream_understanding
   - vst_video_clip
   - vst_snapshot
   - vst_video_list
@@ -305,18 +361,37 @@ workflow:
       - If user ask to show a video not in the list from previous interactions, call this tool to verify if the video is available then call the appropriate tool to show the video or snapshot.
       - Examples: "What videos are available?", "List all available videos" "list sensors"
       **report_agent**
-      - Only call report_agent when user mentions "report" in the question.
+      - Only call report_agent when user mentions "report" in the question (works for both uploaded videos AND live streams).
+      - For "report" requests, call report_agent DIRECTLY as the first tool — do NOT call lvs_stream_understanding, lvs_config_media, or any other tool first to "check"/"verify" anything.
       - Don't use the report from previous interactions.
-      - CRITICAL: For multiple videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
-      - Examples: "Generate a report for video1", "Create an analysis report", "Generate a report using long video summarization", "Generate a report for video1 & video2 using lvs"
+      - CRITICAL: For multiple uploaded videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
+      - For uploaded videos: pass sensor_id (str or list[str]) and user_query.
+      - For live streams: pass media_type='stream', a single sensor_id (the stream name), start_time and end_time as floats in seconds (use end_time=0 for "until now"), and user_query.
+      - Examples: "Generate a report for video1" → ONE call report_agent(sensor_id='video1', user_query=...). "Generate a report for stream CAM_1 from 0 to 60 seconds" → ONE call report_agent(media_type='stream', sensor_id='CAM_1', start_time=0, end_time=60, user_query=...).
+      **lvs_video_understanding** - For SUMMARIZING uploaded videos (not streams, not reports).
+      - Use when user asks to "summarize" or "give a summary of" a video, optionally over a time range.
+      - Pass sensor_id (the video name from vst_video_list); start_time/end_time are floats in seconds (omit both for the whole video).
+      - Examples: "Summarize video warehouse_sample" (no times), "Summarize video warehouse_sample from start to second 45" (start_time=0, end_time=45)
+      **lvs_stream_understanding** - For SUMMARIZING live streams (not videos, not reports).
+      - Use when user asks to "summarize" or "describe" a stream over a time range.
+      - Do NOT use this tool to "check" whether a stream is configured before calling another tool — it is for showing summaries to the user.
+      - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
+      - Pass stream_name, numeric start_time, numeric end_time, response_type='summary'.
+      - Examples: "Summarize stream CAM_1 from 0 to 45 seconds"
+      **lvs_config_media** - Start LVS caption generation for a live stream (HITL collects scenario/events/objects).
+      - Use ONLY when the user explicitly asks to start caption generation for a stream. Trigger phrases include: "start summarizing the stream <name>", "start captioning <name>", "set up stream <name>", "configure stream <name>".
+      - Do NOT call this tool just because a previous tool's response said the stream is "not configured" — surface that response to the user and wait for an explicit start request.
+      - Do NOT call speculatively or as a pre-check.
+      - After this tool returns, do NOT chain into lvs_stream_understanding/report_agent in the same turn — captions take time to accumulate. Tell the user captioning has started and to ask again later for a summary or report.
       **video_understanding** - For any question about short videos or quick queries for a video clip.
       - Use when video is less than 1 minute.
       - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
-      - Do NOT use when user asks to "generate a report"
+      - Do NOT use when user asks to "generate a report" or "summarize" — use report_agent or lvs_video_understanding respectively.
       **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
       **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp.
       - CRITICAL: Always call vst_snapshot to get the URL even though the snapshot for the same video and at the same timestamp has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_snapshot.
+    ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, treat it as a stream if the name contains "stream"/"cam"/"rtsp" or you previously added a stream by that name, treat it as an uploaded video if you previously uploaded/listed a video by that name, otherwise ask the user once.
     ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
 
 
