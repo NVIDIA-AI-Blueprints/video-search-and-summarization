@@ -109,5 +109,6 @@ Compose profiles for warehouse slices are defined under **`warehouse-operations/
 - **NVIDIA Container Toolkit** (nvidia-docker) so containers can access the GPU; required alongside the driver for GPU-backed Compose services.
 - Valid **NGC** credentials where images or NIMs require **`NGC_CLI_API_KEY`**
 
+
 ---
 
