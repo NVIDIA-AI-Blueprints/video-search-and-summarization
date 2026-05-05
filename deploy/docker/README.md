@@ -93,7 +93,7 @@ docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/
    Pass **`-e`** / **`--env-file`** with the **same env file** you used for **`docker compose --env-file …`**.
 
 ```bash
-./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
+bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
 ```
 
 Compose profiles for warehouse slices are defined under **`warehouse-operations/compose.yml`** and related **`warehouse-2d-app`** / **`warehouse-3d-app`** includes; the **`.env`** file selects **MODE** / **BP_PROFILE** behavior as documented there.
