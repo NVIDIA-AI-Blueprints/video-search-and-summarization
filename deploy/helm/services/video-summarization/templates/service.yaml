@@ -32,10 +32,6 @@ spec:
       targetPort: mcp
       protocol: TCP
       name: mcp
-    - port: {{ .Values.service.frontendPort }}
-      targetPort: frontend
-      protocol: TCP
-      name: frontend
   selector:
     app.kubernetes.io/name: vss-summarization
     app.kubernetes.io/instance: {{ .Release.Name }}
