@@ -37,10 +37,9 @@ from vss_agents.utils.time_convert import iso8601_to_datetime
 # to this one value (fusion, search embedding space tools adapters, etc.)
 DEFAULT_CHUNK_SECONDS: int = 5
 
-# Closed enum of fusable space names. Single source of truth for embedding spaces
-# To add a new space: extend this Literal, then mypy will reject any
-# non-exhaustive consumer until every dispatcher branch is updated
-SpaceName = Literal["embed", "attribute"]
+# Closed enum of fusable embedding space names
+# To add a new space: extend this literal and refer/extend the ``EMBEDDING_SPACE_ADAPTERS`` registry
+EmbeddingSpaceName = Literal["embed", "attribute"]
 
 
 class ChunkKey(BaseModel):
@@ -157,7 +156,7 @@ class FusableSearchOutput(Protocol):
     final ``SearchResult``.
     """
 
-    def to_ranked_list(self, *, space: SpaceName, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
+    def to_ranked_list(self, *, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
         """Adapt the tool output -> a :class:`RankedList` for fusion."""
         ...
 
@@ -169,9 +168,9 @@ class FusableSearchOutput(Protocol):
 __all__ = [
     "DEFAULT_CHUNK_SECONDS",
     "ChunkKey",
+    "EmbeddingSpaceName",
     "FusableSearchOutput",
     "RankedChunk",
     "RankedList",
-    "SpaceName",
     "snap",
 ]
