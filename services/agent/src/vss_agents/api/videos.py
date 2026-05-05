@@ -24,16 +24,13 @@ explicit:
   backend-agnostic; the agent forwards each chunk verbatim. Memory is bounded
   by chunk size.
 
-- ``POST /api/v1/videos/{filename}/upload-complete`` — universal completion
-  hook called by the UI after the last chunk lands. Runs timeline lookup,
-  storage URL resolution, optional RTVI-CV register, and optional embedding
+- ``POST /api/v1/videos/{filename}/complete`` — universal completion hook
+  called by the UI after the last chunk lands. Runs timeline lookup, storage
+  URL resolution, optional RTVI-CV register, and optional embedding
   generation. Each post-processing step skips gracefully if its backing
   service isn't configured, so this single endpoint works on every profile;
   search profiles get ingestion (RTVI-CV + embeddings) for free, base/lvs/
   alerts profiles complete the upload without it.
-
-``POST /api/v1/videos/{filename}/complete`` is also registered as a
-backward-compatibility alias for the same upload-complete handler.
 
 The legacy ``/api/v1/videos-for-search/*`` routes in ``video_search_ingest``
 remain registered (deprecated) so existing UI clients (Video Management) keep
@@ -428,39 +425,11 @@ def create_video_upload_complete_router(
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
 ) -> APIRouter:
-    """Build the upload-complete router.
-
-    Registers the canonical ``POST /api/v1/videos/{filename}/upload-complete``
-    route plus the legacy ``POST /api/v1/videos/{filename}/complete`` alias
-    (kept for backward compatibility with shipped UI clients).
-    """
+    """Build the universal ``POST /api/v1/videos/{filename}/complete`` router."""
     router = APIRouter()
 
-    async def _handle_upload_complete(filename: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
-        sensor_id = body.sensor_id
-        # Strip the extension so RTVI-CV's camera_name matches what the
-        # search-profile streaming PUT produces for the same filename.
-        camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
-
-        try:
-            return await _run_post_upload_processing(
-                camera_name=camera_name,
-                sensor_id=sensor_id,
-                filename=filename,
-                vst_url=vst_internal_url,
-                rtvi_embed_base_url=rtvi_embed_base_url,
-                rtvi_cv_base_url=rtvi_cv_base_url,
-                rtvi_embed_model=rtvi_embed_model,
-                rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
-            )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.error("upload-complete failed for %s: %s", filename, exc, exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Post-processing failed: {exc}") from exc
-
     @router.post(
-        "/api/v1/videos/{filename}/upload-complete",
+        "/api/v1/videos/{filename}/complete",
         response_model=VideoIngestResponse,
         summary="Complete a chunked video upload",
         description=(
@@ -474,22 +443,26 @@ def create_video_upload_complete_router(
         tags=["Video Ingest"],
     )
     async def upload_complete(filename: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
-        return await _handle_upload_complete(filename, body)
+        # Strip the extension so RTVI-CV's camera_name matches what the
+        # search-profile streaming PUT produces for the same filename.
+        camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
-    @router.post(
-        "/api/v1/videos/{filename}/complete",
-        response_model=VideoIngestResponse,
-        summary="Complete a chunked video upload (deprecated alias)",
-        description=(
-            "Deprecated alias for /api/v1/videos/{filename}/upload-complete. "
-            "Kept for backward compatibility with shipped UI clients; prefer "
-            "the upload-complete path for new callers."
-        ),
-        tags=["Video Ingest"],
-        deprecated=True,
-    )
-    async def upload_complete_legacy(filename: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
-        return await _handle_upload_complete(filename, body)
+        try:
+            return await _run_post_upload_processing(
+                camera_name=camera_name,
+                sensor_id=body.sensor_id,
+                filename=filename,
+                vst_url=vst_internal_url,
+                rtvi_embed_base_url=rtvi_embed_base_url,
+                rtvi_cv_base_url=rtvi_cv_base_url,
+                rtvi_embed_model=rtvi_embed_model,
+                rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("/complete failed for %s: %s", filename, exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Post-processing failed: {exc}") from exc
 
     return router
 
@@ -515,9 +488,8 @@ def register_video_upload(app: "FastAPI", config: "Any") -> None:
 
 
 def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
-    """Register ``POST /api/v1/videos/{filename}/upload-complete``.
+    """Register ``POST /api/v1/videos/{filename}/complete``.
 
-    Also registers the legacy ``/complete`` alias for backward compatibility.
     Embedding and RTVI-CV URLs are passed through when configured and the
     handler self-skips downstream calls when they aren't — so base/alerts/lvs
     profiles get a working completion path that just doesn't register
@@ -526,7 +498,7 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
     try:
         cfg = _resolve_video_upload_config(config)
         if cfg is None:
-            logger.warning("VST_INTERNAL_URL not set — skipping POST /api/v1/videos/{filename}/upload-complete")
+            logger.warning("VST_INTERNAL_URL not set — skipping POST /api/v1/videos/{filename}/complete")
             return
 
         app.include_router(
@@ -538,7 +510,7 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
             )
         )
-        logger.info("Registered POST /api/v1/videos/{filename}/upload-complete (with /complete alias)")
+        logger.info("Registered POST /api/v1/videos/{filename}/complete")
     except Exception as exc:
         logger.error("Failed to register video upload-complete route: %s", exc, exc_info=True)
         raise

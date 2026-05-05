@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the universal videos.py upload + upload-complete routes."""
+"""Unit tests for the universal videos.py chunk-upload + /complete routes."""
 
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -88,7 +88,7 @@ class TestParseOptionalHttpUrl:
 
 
 class TestVideoUploadCompleteInput:
-    """Tests for the Pydantic model backing /complete and /upload-complete.
+    """Tests for the Pydantic model backing /complete.
 
     Pin down the three flags that define the contract:
       - alias="sensorId" so VST's camelCase field name is accepted
@@ -266,12 +266,8 @@ class TestRunPostUploadProcessing:
         assert exc_info.value.status_code == 500
 
 
-class TestUploadCompleteRoutes:
-    """The canonical /upload-complete route plus the /complete alias.
-
-    Both routes share one handler — locked in here so a future split can't
-    silently drift the two endpoints' behavior apart.
-    """
+class TestUploadCompleteRoute:
+    """The universal /complete route — single canonical completion path."""
 
     @staticmethod
     def _build_router():
@@ -281,50 +277,37 @@ class TestUploadCompleteRoutes:
             rtvi_cv_base_url="",
         )
 
-    def _route_paths(self):
-        return [r.path for r in self._build_router().routes]
+    def test_complete_route_registered(self):
+        paths = [r.path for r in self._build_router().routes]
+        assert paths == ["/api/v1/videos/{filename}/complete"]
 
-    def test_canonical_upload_complete_route_registered(self):
-        assert "/api/v1/videos/{filename}/upload-complete" in self._route_paths()
-
-    def test_legacy_complete_alias_registered(self):
-        # Backward-compatible alias for shipped UI clients that still call
-        # /complete. Both routes share the same handler.
-        assert "/api/v1/videos/{filename}/complete" in self._route_paths()
-
-    def test_legacy_complete_marked_deprecated(self):
-        router = self._build_router()
-        legacy = next(r for r in router.routes if r.path == "/api/v1/videos/{filename}/complete")
-        canonical = next(r for r in router.routes if r.path == "/api/v1/videos/{filename}/upload-complete")
-        assert legacy.deprecated is True
-        # Canonical route must NOT be deprecated.
-        assert canonical.deprecated is not True
+    def test_complete_route_not_deprecated(self):
+        # The /complete path is the canonical universal endpoint, not a
+        # backward-compat shim. Only the /videos-for-search/* twins are
+        # flagged deprecated.
+        route = self._build_router().routes[0]
+        assert route.deprecated is not True
 
     @pytest.mark.asyncio
     async def test_handler_invokes_post_processing(self):
-        """Both endpoints delegate to _run_post_upload_processing with the
-        same camera_name (filename without extension) and sensor_id."""
-        router = self._build_router()
-        canonical = next(r for r in router.routes if r.path == "/api/v1/videos/{filename}/upload-complete")
-        legacy = next(r for r in router.routes if r.path == "/api/v1/videos/{filename}/complete")
+        """Endpoint delegates to _run_post_upload_processing with the
+        filename-without-extension as camera_name and the body's sensor_id."""
+        route = self._build_router().routes[0]
 
         body = VideoUploadCompleteInput(**{"sensorId": "sensor-xyz"})
 
-        for endpoint in (canonical.endpoint, legacy.endpoint):
-            with patch(
-                "vss_agents.api.videos._run_post_upload_processing",
-                new=AsyncMock(
-                    return_value=VideoIngestResponse(message="ok", video_id="sensor-xyz", filename="clip.mp4")
-                ),
-            ) as mock_post:
-                response = await endpoint(filename="clip.mp4", body=body)
+        with patch(
+            "vss_agents.api.videos._run_post_upload_processing",
+            new=AsyncMock(return_value=VideoIngestResponse(message="ok", video_id="sensor-xyz", filename="clip.mp4")),
+        ) as mock_post:
+            response = await route.endpoint(filename="clip.mp4", body=body)
 
-            assert response.video_id == "sensor-xyz"
-            mock_post.assert_called_once()
-            kwargs = mock_post.call_args.kwargs
-            # Filename strips its extension on the way to RTVI-CV's camera_name.
-            assert kwargs["camera_name"] == "clip"
-            assert kwargs["sensor_id"] == "sensor-xyz"
+        assert response.video_id == "sensor-xyz"
+        mock_post.assert_called_once()
+        kwargs = mock_post.call_args.kwargs
+        # Filename strips its extension on the way to RTVI-CV's camera_name.
+        assert kwargs["camera_name"] == "clip"
+        assert kwargs["sensor_id"] == "sensor-xyz"
 
 
 class TestChunkProxyRoute:
