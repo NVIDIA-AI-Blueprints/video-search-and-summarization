@@ -83,14 +83,15 @@ class EsCaptionConfig(BaseModel):
 @register_adapter("es_caption", config_type=EsCaptionConfig)
 class EsCaptionAdapter(BackendAdapter):
     tool_description_hint: ClassVar[str] = (
-        "Resolve a named video to its uuid via `vst_video_list` and pass as "
-        "`collection`. Default returns the video's timestamped narrative — "
+        "Use for follow-up Q&A on summarized RTSP live streams. Resolve the "
+        "named stream's `stream_id` via `vst_video_list` and pass it as "
+        "`collection` (it's the VST sensor_id that LVS uses end-to-end as the "
+        "ES doc uuid). Default returns the stream's timestamped narrative — "
         "answers most general and time-windowed questions directly. For "
         "per-chunk JSON in a window:\n"
         '  filters={"doc_type": "raw_events", '
-        '"time_range": {"start": <s>, "end": <s>}}\n'
-        "`time_range` is seconds: clip-relative for uploaded videos, "
-        "Unix-epoch for RTSP."
+        '"time_range": {"start": <epoch_s>, "end": <epoch_s>}}\n'
+        "`time_range` is Unix-epoch seconds (RTSP wall-clock)."
     )
 
     def __init__(self, config: EsCaptionConfig) -> None:

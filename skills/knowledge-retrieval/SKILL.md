@@ -12,7 +12,7 @@ Opt-in tool that adds `knowledge_retrieval` to the VSS agent. Backend-pluggable 
 ## When to Use
 
 - "Ground the agent in indexed sources (documents or video captions)"
-- "Enable follow-up Q&A on a video we summarized with LVS without re-running the VLM"
+- "Enable follow-up Q&A on an RTSP stream we summarized with LVS without re-running the VLM"
 - "Plug `knowledge_retrieval` into the `<profile>` profile"
 
 ---
@@ -22,7 +22,7 @@ Opt-in tool that adds `knowledge_retrieval` to the VSS agent. Backend-pluggable 
 | `backend:` | Retrieves | Mainly for |
 |---|---|---|
 | `frag_api` | Cited excerpts from a deployed NVIDIA RAG Blueprint rag-server | SOPs, manuals, ingested PDFs — document grounding |
-| `es_caption` | LVS dense captions (per-stream summaries + per-chunk events) from Elasticsearch | LVS Q&A — answer questions about already-summarized videos |
+| `es_caption` | LVS dense captions (per-stream summaries + per-chunk events) from Elasticsearch | LVS Q&A — answer follow-up Q&A on summarized live streams |
 
 ---
 
@@ -100,14 +100,9 @@ For LVS Q&A. Reads the same Elasticsearch instance the LVS pipeline writes to (K
 | any other key | string / number | Term filter on `content_metadata.<key>` (generic equality) |
 | `es_query` | full ES query body | Escape hatch — replaces the constructed query |
 
-**`time_range` units:** values are passed straight to ES — no auto-conversion.
+**`time_range` units:** Unix-epoch seconds (RTSP wall-clock). Values are passed straight to ES — no auto-conversion. Example for *"first 1 minute"* of a stream that started at epoch `1777572638`: `{"start": 1777572638, "end": 1777572698}`.
 
-| Stream type | Format | "First 1 minute" example |
-|---|---|---|
-| Uploaded video | Clip-relative seconds | `{"start": 0, "end": 60}` |
-| RTSP stream | Unix-epoch seconds | `{"start": 1777572638, "end": 1777572698}` |
-
-**`collection_name`:** pass the per-query stream uuid (resolved upstream via `vst_video_list`); empty searches across all streams.
+**`collection_name`:** pass the per-query stream's `stream_id` (resolved via `vst_video_list`). The VST `sensor_id` flows end-to-end as `streamId` (RTVI-VLM) and `uuid` (ES doc), so the same value identifies the stream at every layer. Empty searches across all streams.
 
 ---
 
@@ -147,7 +142,7 @@ workflow:
 Add a routing rule inside the workflow's `prompt:` block (under `## Routing Rules:`, before `## Context:`). Phrasing depends on the chosen backend:
 
 - **`frag_api`** — for document grounding: *"Call FIRST for compliance/rule/procedure questions; pass `filters` only when the user names an exact filename."*
-- **`es_caption`** — for LVS follow-up Q&A: *"Resolve named videos to their uuid via `vst_video_list` and pass as `collection`. Default returns the timestamped narrative — answers most general and time-windowed questions directly. For per-chunk JSON in a window pass `filters={\"doc_type\": \"raw_events\", \"time_range\": {…}}`. If `chunks=[]`, fall back to `lvs_video_understanding` or `video_understanding`."*
+- **`es_caption`** — for follow-up Q&A on RTSP streams: *"Use ONLY for follow-up questions about a previously-summarized RTSP stream. Resolve the named stream's `stream_id` via `vst_video_list` and pass it as `collection` (this is the same VST sensor_id that LVS uses as the ES doc uuid). Default returns the stream's timestamped narrative — answers most general and time-windowed questions directly. For per-chunk JSON in a window pass `filters={\"doc_type\": \"raw_events\", \"time_range\": {…}}` in Unix-epoch seconds. If `chunks=[]`, fall back to `lvs_stream_understanding` (do NOT use this tool for uploaded videos — those go through `video_understanding` / `lvs_video_understanding` instead)."*
 
 Backend-specific filter shapes are baked into the tool description, so you don't have to repeat them all in the prompt.
 
