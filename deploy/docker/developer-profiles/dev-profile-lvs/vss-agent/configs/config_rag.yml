@@ -225,15 +225,16 @@ functions:
     video_report_tool: video_report_gen
 
   # >>> frag: knowledge retrieval tool registration
-  knowledge_retrieval:
+  frag_retrieval:
     _type: knowledge_retrieval
     backend: frag_api
     collection_name: ${KNOWLEDGE_COLLECTION:-default}
     top_k: 5
-    rag_url: ${RAG_SERVER_URL:-http://rag-server:8081/v1}
-    api_key: ${RAG_API_KEY:-}
-    verify_ssl: true
-    timeout: 300
+    backend_config:
+      rag_url: ${RAG_SERVER_URL:-http://rag-server:8081/v1}
+      api_key: ${RAG_API_KEY:-}
+      verify_ssl: true
+      timeout: 300
   # <<< frag
 
 llms:
@@ -306,7 +307,7 @@ workflow:
   - vst_snapshot
   - vst_video_list
   - vst_video_duration
-  - knowledge_retrieval  # >>> frag
+  - frag_retrieval  # >>> frag
   subagent_names:
   - report_agent
   # yamllint disable rule:line-length
@@ -333,7 +334,7 @@ workflow:
     ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
 
     # >>> frag: knowledge_retrieval routing
-      **knowledge_retrieval** - For questions about ingested documents (SOPs, manuals, policies, safety rules).
+      **frag_retrieval** - For questions about ingested documents (SOPs, manuals, policies, safety rules).
       - Call FIRST for compliance/rule/procedure questions, then chain into a video tool if needed.
       - Skip for operational queries (list/show videos, snapshots, reports).
       - Pass `filters` only when the user names an exact filename; never invent one.

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Backend registry and singleton factory."""
+
 from __future__ import annotations
 
 import asyncio
@@ -88,9 +89,7 @@ async def get_retriever(
     elif isinstance(config, dict):
         config = config_cls(**config)
     elif not isinstance(config, config_cls):
-        raise TypeError(
-            f"Backend '{backend}' expects {config_cls.__name__}, got {type(config).__name__}"
-        )
+        raise TypeError(f"Backend '{backend}' expects {config_cls.__name__}, got {type(config).__name__}")
 
     cache_key = (backend, _freeze(config.model_dump()))
     async with _lock:

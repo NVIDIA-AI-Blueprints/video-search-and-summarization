@@ -22,6 +22,7 @@ Covers:
   display_citation formatting, stream_name derivation,
 - retrieve() flow: dict vs callable filter handling, transport/HTTP errors.
 """
+
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -35,8 +36,7 @@ from lib.knowledge.adapters.es_caption import _derive_stream_name
 from lib.knowledge.adapters.es_caption import _normalise_hit
 
 
-def _hit(content_metadata: dict, text: str = "x", score: float = 1.0,
-         sensor: dict | None = None) -> dict:
+def _hit(content_metadata: dict, text: str = "x", score: float = 1.0, sensor: dict | None = None) -> dict:
     src = {"text": text, "metadata": {"content_metadata": content_metadata}}
     if sensor is not None:
         src["sensor"] = sensor
@@ -47,17 +47,13 @@ class TestNormaliseHit:
     """ES hit -> Chunk normalisation."""
 
     def test_chunkidx_used_for_chunk_id_seq(self):
-        chunk = _normalise_hit(
-            _hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 3})
-        )
+        chunk = _normalise_hit(_hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 3}))
         assert chunk.chunk_id == "u1_raw_events_3"
 
     def test_batch_i_falls_back_when_chunkidx_is_sentinel(self):
         # structured_events uses chunkIdx=-1 as a sentinel meaning "spans all chunks"
         # — fall through to batch_i for the chunk_id sequence.
-        chunk = _normalise_hit(
-            _hit({"uuid": "u1", "doc_type": "structured_events", "chunkIdx": -1, "batch_i": 2})
-        )
+        chunk = _normalise_hit(_hit({"uuid": "u1", "doc_type": "structured_events", "chunkIdx": -1, "batch_i": 2}))
         assert chunk.chunk_id == "u1_structured_events_2"
 
     def test_chunk_id_omits_seq_when_neither_present(self):
@@ -67,9 +63,15 @@ class TestNormaliseHit:
 
     def test_ntp_float_surfaced_as_seconds_in_metadata(self):
         chunk = _normalise_hit(
-            _hit({"uuid": "u1", "doc_type": "raw_events",
-                  "start_ntp_float": 45.0, "end_ntp_float": 60.0,
-                  "camera_id": "cam-A"})
+            _hit(
+                {
+                    "uuid": "u1",
+                    "doc_type": "raw_events",
+                    "start_ntp_float": 45.0,
+                    "end_ntp_float": 60.0,
+                    "camera_id": "cam-A",
+                }
+            )
         )
         assert chunk.metadata["start_seconds"] == 45.0
         assert chunk.metadata["end_seconds"] == 60.0
@@ -82,8 +84,9 @@ class TestNormaliseHit:
     def test_citation_keeps_time_bounds_when_camera_missing(self):
         # Real raw_events docs may carry NTP times but no camera_id.
         chunk = _normalise_hit(
-            _hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 6,
-                  "start_ntp_float": 60.0, "end_ntp_float": 69.5})
+            _hit(
+                {"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 6, "start_ntp_float": 60.0, "end_ntp_float": 69.5}
+            )
         )
         assert chunk.metadata["display_citation"] == "[u1, 60-69.5s]"
 
@@ -91,11 +94,12 @@ class TestNormaliseHit:
         assert _normalise_hit("not a dict") is None
 
     def test_stream_name_from_rtsp_description(self):
-        chunk = _normalise_hit(_hit(
-            {"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 0},
-            sensor={"description": "warehouse_stream_2",
-                    "info": {"path": "rtsp://host/live/u1"}},
-        ))
+        chunk = _normalise_hit(
+            _hit(
+                {"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 0},
+                sensor={"description": "warehouse_stream_2", "info": {"path": "rtsp://host/live/u1"}},
+            )
+        )
         assert chunk.metadata["stream_name"] == "warehouse_stream_2"
         # description-only path: no source_url surfaced.
         assert chunk.metadata["source_url"] is None
@@ -103,21 +107,18 @@ class TestNormaliseHit:
 
     def test_stream_name_from_uploaded_video_filename(self):
         # Filename stem is surfaced as-is (no decoration stripping).
-        chunk = _normalise_hit(_hit(
-            {"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 0,
-             "start_ntp_float": 0, "end_ntp_float": 10},
-            sensor={"description": "",
-                    "info": {"url": "http://h/temp_files/warehouse_video_20250101_000000_4591d.mp4"}},
-        ))
+        chunk = _normalise_hit(
+            _hit(
+                {"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 0, "start_ntp_float": 0, "end_ntp_float": 10},
+                sensor={
+                    "description": "",
+                    "info": {"url": "http://h/temp_files/warehouse_video_20250101_000000_4591d.mp4"},
+                },
+            )
+        )
         assert chunk.metadata["stream_name"] == "warehouse_video_20250101_000000_4591d"
-        assert (
-            chunk.metadata["source_url"]
-            == "http://h/temp_files/warehouse_video_20250101_000000_4591d.mp4"
-        )
-        assert (
-            chunk.metadata["display_citation"]
-            == "[warehouse_video_20250101_000000_4591d, 0-10s]"
-        )
+        assert chunk.metadata["source_url"] == "http://h/temp_files/warehouse_video_20250101_000000_4591d.mp4"
+        assert chunk.metadata["display_citation"] == "[warehouse_video_20250101_000000_4591d, 0-10s]"
 
     def test_stream_name_falls_through_to_uuid_when_no_sensor(self):
         chunk = _normalise_hit(_hit({"uuid": "u1", "doc_type": "aggregated_summary"}))
@@ -125,9 +126,7 @@ class TestNormaliseHit:
         assert chunk.metadata["display_citation"] == "[u1]"
 
     def test_derive_stream_name_uses_filename_stem(self):
-        assert _derive_stream_name(
-            {"description": "", "info": {"path": "/tmp/plain_name.mp4"}}
-        ) == "plain_name"
+        assert _derive_stream_name({"description": "", "info": {"path": "/tmp/plain_name.mp4"}}) == "plain_name"
 
     def test_derive_stream_name_handles_non_dict_input(self):
         # Defensive: ES hits with no `sensor` block (summary/structured docs).
@@ -177,9 +176,14 @@ class TestEsCaptionAdapter:
 
     def test_authorization_header_only_when_api_key_set(self):
         without = EsCaptionAdapter(EsCaptionConfig(elasticsearch_url="http://x"))
-        with_key = EsCaptionAdapter(EsCaptionConfig(elasticsearch_url="http://x", api_key="secret"))
+        with_key = EsCaptionAdapter(
+            EsCaptionConfig(
+                elasticsearch_url="http://x",
+                api_key="test-token",  # pragma: allowlist secret
+            )
+        )
         assert "Authorization" not in without._headers()
-        assert with_key._headers()["Authorization"] == "ApiKey secret"
+        assert with_key._headers()["Authorization"] == "ApiKey test-token"
 
     def test_query_body_basic_shape(self, adapter):
         body = adapter._build_query("graffiti on bridge", "stream-A", top_k=5, filters=None)
@@ -187,17 +191,12 @@ class TestEsCaptionAdapter:
         assert self._must(body) == [{"match": {"text": "graffiti on bridge"}}]
         # Default doc_type + collection->uuid lifted in automatically.
         assert {"term": {"metadata.content_metadata.uuid": "stream-A"}} in self._filters(body)
-        assert (
-            {"term": {"metadata.content_metadata.doc_type": "aggregated_summary"}}
-            in self._filters(body)
-        )
+        assert {"term": {"metadata.content_metadata.doc_type": "aggregated_summary"}} in self._filters(body)
 
     def test_doc_type_override_via_filters(self, adapter):
         body = adapter._build_query("q", "s", top_k=5, filters={"doc_type": "raw_events"})
         # Override wins, default is dropped.
-        doc_terms = [
-            f for f in self._filters(body) if "metadata.content_metadata.doc_type" in str(f)
-        ]
+        doc_terms = [f for f in self._filters(body) if "metadata.content_metadata.doc_type" in str(f)]
         assert doc_terms == [{"term": {"metadata.content_metadata.doc_type": "raw_events"}}]
 
     def test_camera_id_lifted_to_term_filter(self, adapter):
@@ -205,53 +204,50 @@ class TestEsCaptionAdapter:
         assert {"term": {"metadata.content_metadata.camera_id": "cam-A"}} in self._filters(body)
 
     def test_time_range_overlap_bounds_in_seconds(self, adapter):
-        body = adapter._build_query(
-            "q", "s", top_k=5, filters={"time_range": {"start": 5, "end": 30}}
-        )
+        body = adapter._build_query("q", "s", top_k=5, filters={"time_range": {"start": 5, "end": 30}})
         # Overlap semantics on raw_events NTP fields (seconds, float).
-        assert (
-            {"range": {"metadata.content_metadata.start_ntp_float": {"lte": 30}}}
-            in self._filters(body)
-        )
-        assert (
-            {"range": {"metadata.content_metadata.end_ntp_float": {"gte": 5}}}
-            in self._filters(body)
-        )
+        assert {"range": {"metadata.content_metadata.start_ntp_float": {"lte": 30}}} in self._filters(body)
+        assert {"range": {"metadata.content_metadata.end_ntp_float": {"gte": 5}}} in self._filters(body)
 
     def test_time_range_partial_bounds_emit_only_one_range(self, adapter):
         # Only `end` set -> upper bound only; only `start` set -> lower only.
         end_only = adapter._build_query("q", "s", top_k=5, filters={"time_range": {"end": 30}})
         ranges = [f for f in self._filters(end_only) if "range" in f]
-        assert ranges == [
-            {"range": {"metadata.content_metadata.start_ntp_float": {"lte": 30}}}
-        ]
+        assert ranges == [{"range": {"metadata.content_metadata.start_ntp_float": {"lte": 30}}}]
 
         start_only = adapter._build_query("q", "s", top_k=5, filters={"time_range": {"start": 5}})
         ranges = [f for f in self._filters(start_only) if "range" in f]
-        assert ranges == [
-            {"range": {"metadata.content_metadata.end_ntp_float": {"gte": 5}}}
-        ]
+        assert ranges == [{"range": {"metadata.content_metadata.end_ntp_float": {"gte": 5}}}]
 
     def test_time_range_iso_strings_filter_on_at_timestamp(self, adapter):
         # ISO strings flip the filter onto the `@timestamp` date field — ES
         # parses ISO natively, and @timestamp exists on every doc_type so this
         # also enables time-windowed retrieval for summary/structured docs.
         body = adapter._build_query(
-            "q", "s", top_k=5,
-            filters={"time_range": {"start": "2026-05-04T22:00:00Z",
-                                     "end":   "2026-05-04T22:10:00Z"}},
+            "q",
+            "s",
+            top_k=5,
+            filters={"time_range": {"start": "2026-05-04T22:00:00Z", "end": "2026-05-04T22:10:00Z"}},
         )
         ranges = [f for f in self._filters(body) if "range" in f]
-        assert ranges == [{"range": {"@timestamp": {
-            "gte": "2026-05-04T22:00:00Z",
-            "lte": "2026-05-04T22:10:00Z",
-        }}}]
+        assert ranges == [
+            {
+                "range": {
+                    "@timestamp": {
+                        "gte": "2026-05-04T22:00:00Z",
+                        "lte": "2026-05-04T22:10:00Z",
+                    }
+                }
+            }
+        ]
         # Numeric NTP-float filters must NOT be emitted on the ISO path.
         assert all("ntp_float" not in str(f) for f in self._filters(body))
 
     def test_time_range_iso_partial_bound(self, adapter):
         body = adapter._build_query(
-            "q", "s", top_k=5,
+            "q",
+            "s",
+            top_k=5,
             filters={"time_range": {"end": "2026-05-04T22:10:00Z"}},
         )
         ranges = [f for f in self._filters(body) if "range" in f]
@@ -274,14 +270,25 @@ class TestEsCaptionAdapter:
 
     @pytest.mark.asyncio
     async def test_retrieve_posts_to_index_search_endpoint(self, adapter):
-        resp = self._mock_response(json_body={
-            "hits": {"hits": [
-                _hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 0,
-                      "camera_id": "cam-A",
-                      "start_ntp_float": 0.0, "end_ntp_float": 30.0},
-                     text="some events"),
-            ]}
-        })
+        resp = self._mock_response(
+            json_body={
+                "hits": {
+                    "hits": [
+                        _hit(
+                            {
+                                "uuid": "u1",
+                                "doc_type": "raw_events",
+                                "chunkIdx": 0,
+                                "camera_id": "cam-A",
+                                "start_ntp_float": 0.0,
+                                "end_ntp_float": 30.0,
+                            },
+                            text="some events",
+                        ),
+                    ]
+                }
+            }
+        )
         session = self._mock_session(post_return=resp)
 
         with patch("aiohttp.ClientSession", return_value=session):
@@ -295,18 +302,21 @@ class TestEsCaptionAdapter:
 
     @pytest.mark.asyncio
     async def test_callable_filter_applied_client_side(self, adapter):
-        resp = self._mock_response(json_body={
-            "hits": {"hits": [
-                _hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 0, "camera_id": "A"},
-                     text="keep"),
-                _hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 1, "camera_id": "B"},
-                     text="drop"),
-            ]}
-        })
+        resp = self._mock_response(
+            json_body={
+                "hits": {
+                    "hits": [
+                        _hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 0, "camera_id": "A"}, text="keep"),
+                        _hit({"uuid": "u1", "doc_type": "raw_events", "chunkIdx": 1, "camera_id": "B"}, text="drop"),
+                    ]
+                }
+            }
+        )
         session = self._mock_session(post_return=resp)
         with patch("aiohttp.ClientSession", return_value=session):
             result = await adapter.retrieve(
-                query="q", collection_name="u1",
+                query="q",
+                collection_name="u1",
                 filters=lambda chunk: chunk.metadata.get("camera_id") == "A",
             )
         assert [c.content for c in result.chunks] == ["keep"]
@@ -320,9 +330,7 @@ class TestEsCaptionAdapter:
             (aiohttp.ClientError("misc"), "Request failed"),
         ],
     )
-    async def test_transport_errors_map_to_failure_result(
-        self, adapter, exc, expected_substring
-    ):
+    async def test_transport_errors_map_to_failure_result(self, adapter, exc, expected_substring):
         session = self._mock_session(post_side_effect=exc)
         with patch("aiohttp.ClientSession", return_value=session):
             result = await adapter.retrieve(query="q", collection_name="c")
@@ -341,4 +349,3 @@ class TestEsCaptionAdapter:
             result = await adapter.retrieve(query="q", collection_name="c")
         assert result.success is False
         assert "Server error" in (result.error_message or "")
-

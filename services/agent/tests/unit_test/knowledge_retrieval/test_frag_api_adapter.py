@@ -69,23 +69,17 @@ class TestNormaliseSearchResult:
 
     def test_strips_tmp_prefix_from_filename(self):
         # Ingestion-time tmp prefix shape: `tmp` + 8 chars + `_`.
-        chunk = _normalise_search_result(
-            {"document_name": "tmpABCDEF12_Forklift.pdf", "content": "x"}
-        )
+        chunk = _normalise_search_result({"document_name": "tmpABCDEF12_Forklift.pdf", "content": "x"})
         assert chunk.metadata["file_name"] == "Forklift.pdf"
 
     @pytest.mark.parametrize("bad_page", [-1, 0, None])
     def test_invalid_page_numbers_become_none(self, bad_page):
-        chunk = _normalise_search_result(
-            {"document_name": "F.pdf", "content": "x", "page_number": bad_page}
-        )
+        chunk = _normalise_search_result({"document_name": "F.pdf", "content": "x", "page_number": bad_page})
         assert chunk.metadata["page_number"] is None
         assert chunk.metadata["display_citation"] == "[F.pdf]"
 
     def test_valid_page_number_in_citation(self):
-        chunk = _normalise_search_result(
-            {"document_name": "Manual.pdf", "content": "x", "page_number": 3}
-        )
+        chunk = _normalise_search_result({"document_name": "Manual.pdf", "content": "x", "page_number": 3})
         assert chunk.metadata["page_number"] == 3
         assert chunk.metadata["display_citation"] == "[Manual.pdf, p.3]"
 
@@ -113,9 +107,7 @@ class TestFragApiAdapter:
 
     @pytest.fixture
     def adapter(self):
-        return FragApiAdapter(
-            FragApiConfig(rag_url="http://rag-server:8081/v1", timeout=30, verify_ssl=True)
-        )
+        return FragApiAdapter(FragApiConfig(rag_url="http://rag-server:8081/v1", timeout=30, verify_ssl=True))
 
     @staticmethod
     def _mock_response(json_body=None, raise_for_status_exc=None):
@@ -138,17 +130,24 @@ class TestFragApiAdapter:
 
     def test_authorization_header_only_when_api_key_set(self):
         without = FragApiAdapter(FragApiConfig(rag_url="http://x/v1"))
-        with_key = FragApiAdapter(FragApiConfig(rag_url="http://x/v1", api_key="secret"))
+        with_key = FragApiAdapter(
+            FragApiConfig(
+                rag_url="http://x/v1",
+                api_key="test-token",  # pragma: allowlist secret
+            )
+        )
         assert "Authorization" not in without._headers()
-        assert with_key._headers()["Authorization"] == "Bearer secret"
+        assert with_key._headers()["Authorization"] == "Bearer test-token"
 
     @pytest.mark.asyncio
     async def test_retrieve_posts_to_search_endpoint_with_expected_payload(self, adapter):
-        resp = self._mock_response(json_body={
-            "results": [
-                {"document_name": "Manual.pdf", "content": "first", "score": 0.9, "page_number": 1},
-            ]
-        })
+        resp = self._mock_response(
+            json_body={
+                "results": [
+                    {"document_name": "Manual.pdf", "content": "first", "score": 0.9, "page_number": 1},
+                ]
+            }
+        )
         session = self._mock_session(post_return=resp)
 
         with patch("aiohttp.ClientSession", return_value=session):
@@ -175,19 +174,18 @@ class TestFragApiAdapter:
                 filters={"filter_expr": 'content_metadata["filename"] == "F.pdf"'},
             )
 
-        assert (
-            session.post.call_args.kwargs["json"]["filter_expr"]
-            == 'content_metadata["filename"] == "F.pdf"'
-        )
+        assert session.post.call_args.kwargs["json"]["filter_expr"] == 'content_metadata["filename"] == "F.pdf"'
 
     @pytest.mark.asyncio
     async def test_callable_filter_applied_client_side_not_pushed(self, adapter):
-        resp = self._mock_response(json_body={
-            "results": [
-                {"document_name": "A.pdf", "content": "keep", "score": 0.9},
-                {"document_name": "B.pdf", "content": "drop", "score": 0.8},
-            ]
-        })
+        resp = self._mock_response(
+            json_body={
+                "results": [
+                    {"document_name": "A.pdf", "content": "keep", "score": 0.9},
+                    {"document_name": "B.pdf", "content": "drop", "score": 0.8},
+                ]
+            }
+        )
         session = self._mock_session(post_return=resp)
 
         with patch("aiohttp.ClientSession", return_value=session):
@@ -210,9 +208,7 @@ class TestFragApiAdapter:
             (aiohttp.ClientError("misc"), "Request failed"),
         ],
     )
-    async def test_transport_errors_map_to_failure_result(
-        self, adapter, exc, expected_substring
-    ):
+    async def test_transport_errors_map_to_failure_result(self, adapter, exc, expected_substring):
         session = self._mock_session(post_side_effect=exc)
         with patch("aiohttp.ClientSession", return_value=session):
             result = await adapter.retrieve(query="x", collection_name="c")

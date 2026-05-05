@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Knowledge retrieval tool registration."""
+
 from collections.abc import AsyncGenerator
 import logging
 from typing import Any
@@ -46,9 +47,16 @@ SUMMARIZE_SYSTEM_PROMPT = (
 
 
 class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
-    """Common fields plus backend-specific extras dispatched by `backend`."""
+    """Common fields + a `backend_config` block dispatched to the chosen backend.
 
-    model_config = ConfigDict(extra="allow")
+    Backend-specific knobs live under `backend_config:` so the YAML cleanly
+    separates routing-level fields (backend, collection, top_k) from the
+    transport/connection details consumed by the adapter (rag_url, api_key,
+    elasticsearch_url, …). Validation against the backend's own pydantic
+    config happens at adapter construction time.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     backend: BackendType = Field(
         default="frag_api",
@@ -67,13 +75,19 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         le=50,
         description="Default number of chunks to return.",
     )
+    backend_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Backend-specific config dict, validated against the chosen backend's "
+            "pydantic model at boot. Shape depends on `backend`."
+        ),
+    )
 
     # ----- Summarization (applies to all backends) ---------------------------
     generate_summary: bool = Field(
         default=False,
         description=(
-            "If true, run an LLM summarization pass over retrieved excerpts "
-            "before returning. Requires `summary_model`."
+            "If true, run an LLM summarization pass over retrieved excerpts before returning. Requires `summary_model`."
         ),
     )
     summary_model: LLMRef | None = Field(
@@ -108,25 +122,19 @@ class KnowledgeRetrievalInput(BaseModel):
     )
 
 
-def _setup_backend(
-    config: KnowledgeRetrievalConfig, _builder: Builder
-) -> tuple[str, dict[str, Any]]:
-    return config.backend, config.model_extra or {}
+def _setup_backend(config: KnowledgeRetrievalConfig, _builder: Builder) -> tuple[str, dict[str, Any]]:
+    return config.backend, config.backend_config or {}
 
 
 @register_function(config_type=KnowledgeRetrievalConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def knowledge_retrieval(
-    config: KnowledgeRetrievalConfig, builder: Builder
-) -> AsyncGenerator[FunctionInfo]:
+async def knowledge_retrieval(config: KnowledgeRetrievalConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
     """Retrieve excerpts with citations from indexed knowledge sources."""
     backend, backend_config = _setup_backend(config, builder)
     retriever = await get_retriever(backend, backend_config)
 
     summary_llm: Any | None = None
     if config.generate_summary and config.summary_model:
-        summary_llm = await builder.get_llm(
-            config.summary_model, wrapper_type=LLMFrameworkEnum.LANGCHAIN
-        )
+        summary_llm = await builder.get_llm(config.summary_model, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
         logger.info("knowledge_retrieval summary LLM resolved: %s", config.summary_model)
 
     logger.info(
@@ -210,9 +218,7 @@ def _format_results(result: RetrievalResult, query: str) -> str:
         # Prefer the backend-supplied citation; fall back to the legacy
         # `<file_name>[, p.N]` shape so frag chunks render unchanged.
         citation = chunk.metadata.get("display_citation") or (
-            f"{file_name}, p.{page_number}"
-            if page_number and page_number > 0
-            else file_name
+            f"{file_name}, p.{page_number}" if page_number and page_number > 0 else file_name
         )
         lines.append(f"--- Result {i} ---")
         lines.append(f"Source: {file_name}")

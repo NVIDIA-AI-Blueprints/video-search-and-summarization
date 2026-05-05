@@ -21,6 +21,7 @@ per video). Retrieval is BM25 over the `text` field with bool filters on
 `metadata.content_metadata.*`. Time-range filtering is only meaningful
 for `raw_events`. Vector search and reranking are out of scope for v1.
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,9 +55,7 @@ class EsCaptionConfig(BaseModel):
         # Reuse `ELASTIC_SEARCH_ENDPOINT` — the env var already used by
         # dev-profile-search's vss-agent config to point at ES. Default falls
         # back to the docker-network DNS that LVS itself writes to.
-        default_factory=lambda: os.environ.get(
-            "ELASTIC_SEARCH_ENDPOINT", "http://elasticsearch:9200"
-        ),
+        default_factory=lambda: os.environ.get("ELASTIC_SEARCH_ENDPOINT", "http://elasticsearch:9200"),
     )
     index: str = Field(
         default="default_*",
@@ -129,12 +128,15 @@ class EsCaptionAdapter(BackendAdapter):
         endpoint = f"{self.elasticsearch_url}/{self.index}/_search"
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
-                endpoint,
-                json=body,
-                headers=self._headers(),
-                ssl=self.verify_ssl,
-            ) as response:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.post(
+                    endpoint,
+                    json=body,
+                    headers=self._headers(),
+                    ssl=self.verify_ssl,
+                ) as response,
+            ):
                 response.raise_for_status()
                 data = (await response.json()) or {}
         except aiohttp.ClientConnectionError as e:
@@ -165,11 +167,14 @@ class EsCaptionAdapter(BackendAdapter):
         endpoint = f"{self.elasticsearch_url}/_cluster/health"
         timeout = aiohttp.ClientTimeout(total=10)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session, session.get(
-                endpoint,
-                headers=self._headers(),
-                ssl=self.verify_ssl,
-            ) as response:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(
+                    endpoint,
+                    headers=self._headers(),
+                    ssl=self.verify_ssl,
+                ) as response,
+            ):
                 return response.status == 200
         except Exception as e:
             logger.warning("es_caption health check failed: %s", e)
@@ -224,13 +229,9 @@ class EsCaptionAdapter(BackendAdapter):
                     bool_filters.append({"range": {"@timestamp": rng}})
             else:
                 if end is not None:
-                    bool_filters.append(
-                        {"range": {f"{META_PREFIX}.start_ntp_float": {"lte": end}}}
-                    )
+                    bool_filters.append({"range": {f"{META_PREFIX}.start_ntp_float": {"lte": end}}})
                 if start is not None:
-                    bool_filters.append(
-                        {"range": {f"{META_PREFIX}.end_ntp_float": {"gte": start}}}
-                    )
+                    bool_filters.append({"range": {f"{META_PREFIX}.end_ntp_float": {"gte": start}}})
 
         # Anything else: treat as term equality on content_metadata.<field>.
         reserved = {"doc_type", "camera_id", "time_range", "es_query"}
@@ -301,9 +302,7 @@ def _normalise_hit(hit: dict[str, Any]) -> Chunk | None:
     seq = cm.get("chunkIdx")
     if not isinstance(seq, int) or seq < 0:
         seq = cm.get("batch_i")
-    chunk_id = (
-        f"{uuid}_{doc_type}_{seq}" if isinstance(seq, int) else f"{uuid}_{doc_type}"
-    )
+    chunk_id = f"{uuid}_{doc_type}_{seq}" if isinstance(seq, int) else f"{uuid}_{doc_type}"
 
     # Prefer the human-readable stream name; fall back to camera_id, then uuid.
     label = stream_name or camera_id or uuid

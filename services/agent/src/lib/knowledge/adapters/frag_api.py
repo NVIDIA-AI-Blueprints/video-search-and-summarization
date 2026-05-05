@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """HTTP adapter for a deployed NVIDIA RAG Blueprint rag-server."""
+
 from __future__ import annotations
 
 import logging
@@ -98,12 +99,15 @@ class FragApiAdapter(BackendAdapter):
         endpoint = f"{self.rag_url}/search"
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
-                endpoint,
-                json=payload,
-                headers=self._headers(),
-                ssl=self.verify_ssl,
-            ) as response:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.post(
+                    endpoint,
+                    json=payload,
+                    headers=self._headers(),
+                    ssl=self.verify_ssl,
+                ) as response,
+            ):
                 response.raise_for_status()
                 data = (await response.json()) or {}
         except aiohttp.ClientConnectionError as e:
@@ -134,11 +138,14 @@ class FragApiAdapter(BackendAdapter):
         endpoint = f"{self.rag_url}/health"
         timeout = aiohttp.ClientTimeout(total=10)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session, session.get(
-                endpoint,
-                headers=self._headers(),
-                ssl=self.verify_ssl,
-            ) as response:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.get(
+                    endpoint,
+                    headers=self._headers(),
+                    ssl=self.verify_ssl,
+                ) as response,
+            ):
                 return response.status == 200
         except Exception as e:
             logger.warning("frag_api health check failed: %s", e)
@@ -186,18 +193,12 @@ def _normalise_search_result(result: dict[str, Any], idx: int = 0) -> Chunk | No
     # Strip ingestion-time tmp prefix (tmp + 8 chars + _) for display.
     display_name = re.sub(r"^tmp.{8}_", "", document_name_raw)
 
-    page_number = (
-        result.get("page_number")
-        or metadata.get("page_number")
-        or content_metadata.get("page_number")
-    )
+    page_number = result.get("page_number") or metadata.get("page_number") or content_metadata.get("page_number")
     if page_number in (-1, 0, None):
         page_number = None
 
     doc_base = Path(display_name).stem if display_name != "unknown" else "doc"
-    chunk_id = result.get("chunk_id") or (
-        f"{doc_base}_p{page_number}_{idx}" if page_number else f"{doc_base}_{idx}"
-    )
+    chunk_id = result.get("chunk_id") or (f"{doc_base}_p{page_number}_{idx}" if page_number else f"{doc_base}_{idx}")
 
     if "image" in document_type:
         content_type = ContentType.IMAGE
@@ -208,9 +209,7 @@ def _normalise_search_result(result: dict[str, Any], idx: int = 0) -> Chunk | No
     else:
         content_type = ContentType.TEXT
 
-    display_citation = (
-        f"[{display_name}, p.{page_number}]" if page_number and page_number > 0 else f"[{display_name}]"
-    )
+    display_citation = f"[{display_name}, p.{page_number}]" if page_number and page_number > 0 else f"[{display_name}]"
 
     return Chunk(
         chunk_id=chunk_id,
