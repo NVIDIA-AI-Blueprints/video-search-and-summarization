@@ -90,8 +90,11 @@ class EsCaptionAdapter(BackendAdapter):
         "answers most general and time-windowed questions directly. For "
         "per-chunk JSON in a window:\n"
         '  filters={"doc_type": "raw_events", '
-        '"time_range": {"start": <epoch_s>, "end": <epoch_s>}}\n'
-        "`time_range` is Unix-epoch seconds (RTSP wall-clock)."
+        '"time_range": {"start": "<ISO 8601>", "end": "<ISO 8601>"}}\n'
+        "`time_range` accepts either ISO 8601 strings (e.g. "
+        '"2026-05-04T22:00:00Z" — works for any doc_type, filters on the doc '
+        "ingest time) or Unix-epoch seconds (numeric — only meaningful for "
+        "`raw_events`, filters on event NTP)."
     )
 
     def __init__(self, config: EsCaptionConfig) -> None:
@@ -200,19 +203,34 @@ class EsCaptionAdapter(BackendAdapter):
         if "camera_id" in f:
             bool_filters.append({"term": {f"{META_PREFIX}.camera_id": f["camera_id"]}})
 
-        # time_range (seconds, overlap semantics) — only raw_events have these fields.
+        # time_range — two paths:
+        # - ISO 8601 strings → filter on `@timestamp` (Logstash-set date field,
+        #   present on every doc_type so summary/structured queries work too).
+        #   ES parses ISO natively. Note: `@timestamp` is ingest time (~secs
+        #   after the event), not event time, so this is "around" not "exact".
+        # - Numeric (epoch seconds) → filter on raw_events NTP-float metadata,
+        #   overlap semantics. Only meaningful for `raw_events` doc_type.
         time_range = f.get("time_range")
         if isinstance(time_range, dict):
-            start_s = time_range.get("start")
-            end_s = time_range.get("end")
-            if end_s is not None:
-                bool_filters.append(
-                    {"range": {f"{META_PREFIX}.start_ntp_float": {"lte": end_s}}}
-                )
-            if start_s is not None:
-                bool_filters.append(
-                    {"range": {f"{META_PREFIX}.end_ntp_float": {"gte": start_s}}}
-                )
+            start = time_range.get("start")
+            end = time_range.get("end")
+            if isinstance(start, str) or isinstance(end, str):
+                rng: dict[str, Any] = {}
+                if start is not None:
+                    rng["gte"] = start
+                if end is not None:
+                    rng["lte"] = end
+                if rng:
+                    bool_filters.append({"range": {"@timestamp": rng}})
+            else:
+                if end is not None:
+                    bool_filters.append(
+                        {"range": {f"{META_PREFIX}.start_ntp_float": {"lte": end}}}
+                    )
+                if start is not None:
+                    bool_filters.append(
+                        {"range": {f"{META_PREFIX}.end_ntp_float": {"gte": start}}}
+                    )
 
         # Anything else: treat as term equality on content_metadata.<field>.
         reserved = {"doc_type", "camera_id", "time_range", "es_query"}
@@ -291,7 +309,10 @@ def _normalise_hit(hit: dict[str, Any]) -> Chunk | None:
     label = stream_name or camera_id or uuid
     parts = [label]
     if start_s is not None and end_s is not None:
-        parts.append(f"{start_s:g}-{end_s:g}s")
+        # `.13g` keeps full precision for epoch seconds (e.g. 1777940315.057)
+        # without flipping to scientific notation, while still trimming
+        # trailing zeros on small clip-relative values (60.0 -> "60").
+        parts.append(f"{start_s:.13g}-{end_s:.13g}s")
     display_citation = "[" + ", ".join(parts) + "]"
 
     return Chunk(

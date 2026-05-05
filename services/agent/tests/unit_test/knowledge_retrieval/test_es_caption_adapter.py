@@ -232,6 +232,31 @@ class TestEsCaptionAdapter:
             {"range": {"metadata.content_metadata.end_ntp_float": {"gte": 5}}}
         ]
 
+    def test_time_range_iso_strings_filter_on_at_timestamp(self, adapter):
+        # ISO strings flip the filter onto the `@timestamp` date field — ES
+        # parses ISO natively, and @timestamp exists on every doc_type so this
+        # also enables time-windowed retrieval for summary/structured docs.
+        body = adapter._build_query(
+            "q", "s", top_k=5,
+            filters={"time_range": {"start": "2026-05-04T22:00:00Z",
+                                     "end":   "2026-05-04T22:10:00Z"}},
+        )
+        ranges = [f for f in self._filters(body) if "range" in f]
+        assert ranges == [{"range": {"@timestamp": {
+            "gte": "2026-05-04T22:00:00Z",
+            "lte": "2026-05-04T22:10:00Z",
+        }}}]
+        # Numeric NTP-float filters must NOT be emitted on the ISO path.
+        assert all("ntp_float" not in str(f) for f in self._filters(body))
+
+    def test_time_range_iso_partial_bound(self, adapter):
+        body = adapter._build_query(
+            "q", "s", top_k=5,
+            filters={"time_range": {"end": "2026-05-04T22:10:00Z"}},
+        )
+        ranges = [f for f in self._filters(body) if "range" in f]
+        assert ranges == [{"range": {"@timestamp": {"lte": "2026-05-04T22:10:00Z"}}}]
+
     def test_unknown_field_treated_as_term_equality(self, adapter):
         body = adapter._build_query("q", "s", top_k=5, filters={"streamId": "abc"})
         assert {"term": {"metadata.content_metadata.streamId": "abc"}} in self._filters(body)
