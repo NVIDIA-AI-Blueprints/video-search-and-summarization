@@ -169,12 +169,15 @@ export async function uploadFile(
  * UI forwards the receiver's upload response as the request body
  * without interpretation — the agent picks out the fields it needs.
  *
- * Hits the generic route at /api/v1/videos/{filename}/complete so this
- * works across profiles (search, alerts, lvs, base). Distinct from the
- * search-specific /videos-for-search/{filename}/complete used by the
- * Video Management tab — that one is guarded to require embedding config
- * at startup; this one registers on any profile and gracefully no-ops
- * post-processing steps whose backing services aren't configured.
+ * Hits the universal route at /api/v1/videos/{filename}/upload-complete
+ * so this works across profiles (search, alerts, lvs, base). For search
+ * profiles, the agent's hook on this endpoint drives ingestion (RTVI-CV
+ * register + embedding generation); on other profiles each post-processing
+ * step gracefully no-ops when its backing service isn't configured.
+ *
+ * The agent also keeps the legacy /videos/{filename}/complete path as a
+ * deprecated alias for backward compatibility with previously shipped UI
+ * builds — this client always uses the canonical /upload-complete path.
  *
  * `formData` carries any per-upload custom parameters collected by the
  * UI (e.g. from the chat upload dialog's env-configurable template). It
@@ -191,7 +194,7 @@ export async function notifyGenericUploadComplete(
 ): Promise<void> {
   const dotIndex = filename.lastIndexOf('.');
   const filenameWithoutExt = dotIndex > 0 ? filename.substring(0, dotIndex) : filename;
-  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(filenameWithoutExt)}/complete`;
+  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(filenameWithoutExt)}/upload-complete`;
 
   const body: Record<string, any> = { ...uploadResponse };
   if (formData && Object.keys(formData).length > 0) {
@@ -223,12 +226,13 @@ export async function notifyGenericUploadComplete(
  *
  * Posts chunks to `{agentApiUrl}/api/v1/videos/chunked/upload`, which
  * forwards each chunk to VST's nvstreamer endpoint. After the final
- * chunk lands, POSTs to `/videos/{filename}/complete` for post-processing.
+ * chunk lands, POSTs to `/videos/{filename}/upload-complete` for
+ * post-processing.
  *
  * The signature mirrors `uploadFile` so callers can swap one for the
- * other with minimal diff. `formData` is forwarded to `/complete` as a
- * top-level `custom_params` field so per-upload custom parameters from
- * the dialog template reach the agent (mirrors the search-profile
+ * other with minimal diff. `formData` is forwarded to `/upload-complete`
+ * as a top-level `custom_params` field so per-upload custom parameters
+ * from the dialog template reach the agent (mirrors the search-profile
  * Video Management path).
  */
 export async function uploadFileChunkedViaAgent(

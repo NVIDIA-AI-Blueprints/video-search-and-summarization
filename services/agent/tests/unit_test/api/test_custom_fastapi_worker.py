@@ -67,21 +67,28 @@ def _streaming_ingest(
 
 @pytest.fixture
 def patched_register_fns():
-    """Patch the three register fns the dispatcher delegates to so we can
-    inspect which ones were called for a given capability set."""
+    """Patch every register fn the dispatcher delegates to so we can inspect
+    which ones were called for a given capability set.
+
+    Returns a 5-tuple in the order:
+        (videos_for_search, video_upload, video_upload_complete,
+         rtsp_streams, video_delete)
+    """
     with (
         patch("vss_agents.api.custom_fastapi_worker.register_video_search_ingest_routes") as videos_for_search,
+        patch("vss_agents.api.custom_fastapi_worker.register_video_upload") as video_upload,
+        patch("vss_agents.api.custom_fastapi_worker.register_video_upload_complete") as video_upload_complete,
         patch("vss_agents.api.custom_fastapi_worker.register_rtsp_stream_api_routes") as rtsp_streams,
         patch("vss_agents.api.custom_fastapi_worker.register_video_delete_routes") as video_delete,
     ):
-        yield videos_for_search, rtsp_streams, video_delete
+        yield videos_for_search, video_upload, video_upload_complete, rtsp_streams, video_delete
 
 
 class TestRegisterStreamingRoutesDispatcher:
     """``CustomFastApiFrontEndWorker._register_streaming_routes``."""
 
-    def test_search_profile_registers_all_three(self, patched_register_fns):
-        videos_for_search, rtsp_streams, video_delete = patched_register_fns
+    def test_search_profile_registers_all_routes(self, patched_register_fns):
+        videos_for_search, video_upload, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
         worker = _make_worker(
             _streaming_ingest(
                 enable_videos_for_search=True,
@@ -93,11 +100,16 @@ class TestRegisterStreamingRoutesDispatcher:
         worker._register_streaming_routes(MagicMock())
 
         videos_for_search.assert_called_once()
+        video_upload.assert_called_once()
+        video_upload_complete.assert_called_once()
         rtsp_streams.assert_called_once()
         video_delete.assert_called_once()
 
-    def test_alerts_profile_registers_rtsp_and_delete_only(self, patched_register_fns):
-        videos_for_search, rtsp_streams, video_delete = patched_register_fns
+    def test_alerts_profile_registers_rtsp_delete_and_universal_upload(self, patched_register_fns):
+        """Alerts profile opts out of the deprecated /videos-for-search/* routes
+        but still gets the universal chunk-proxy + upload-complete pair so its
+        UI can upload videos via the agent."""
+        videos_for_search, video_upload, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
         worker = _make_worker(
             _streaming_ingest(
                 enable_videos_for_search=False,
@@ -109,11 +121,13 @@ class TestRegisterStreamingRoutesDispatcher:
         worker._register_streaming_routes(MagicMock())
 
         videos_for_search.assert_not_called()
+        video_upload.assert_called_once()
+        video_upload_complete.assert_called_once()
         rtsp_streams.assert_called_once()
         video_delete.assert_called_once()
 
-    def test_base_lvs_profile_registers_video_delete_only(self, patched_register_fns):
-        videos_for_search, rtsp_streams, video_delete = patched_register_fns
+    def test_base_lvs_profile_registers_video_delete_and_universal_upload(self, patched_register_fns):
+        videos_for_search, video_upload, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
         worker = _make_worker(
             _streaming_ingest(
                 enable_videos_for_search=False,
@@ -125,14 +139,18 @@ class TestRegisterStreamingRoutesDispatcher:
         worker._register_streaming_routes(MagicMock())
 
         videos_for_search.assert_not_called()
+        video_upload.assert_called_once()
+        video_upload_complete.assert_called_once()
         rtsp_streams.assert_not_called()
         video_delete.assert_called_once()
 
-    def test_no_capabilities_registers_nothing(self, patched_register_fns):
-        """A profile that explicitly opts out of every capability still has
-        a valid streaming_ingest block; the dispatcher just registers no
-        custom routes. Useful for boot-time smoke tests."""
-        videos_for_search, rtsp_streams, video_delete = patched_register_fns
+    def test_universal_upload_routes_register_unconditionally(self, patched_register_fns):
+        """A profile that explicitly opts out of every capability still gets
+        the universal video upload routes — they're profile-agnostic and
+        self-skip downstream calls when their backing services aren't
+        configured. Locks in that ALL profiles have a working chat upload
+        path without needing per-profile YAML changes."""
+        videos_for_search, video_upload, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
         worker = _make_worker(_streaming_ingest())
 
         worker._register_streaming_routes(MagicMock())
@@ -140,29 +158,28 @@ class TestRegisterStreamingRoutesDispatcher:
         videos_for_search.assert_not_called()
         rtsp_streams.assert_not_called()
         video_delete.assert_not_called()
+        video_upload.assert_called_once()
+        video_upload_complete.assert_called_once()
 
     def test_missing_streaming_ingest_raises(self, patched_register_fns):
-        """Q4 of the design — fail loudly. Every profile must declare
-        streaming_ingest so a misconfigured profile can't silently boot
-        with no custom routes."""
-        videos_for_search, rtsp_streams, video_delete = patched_register_fns
+        """Every profile must declare streaming_ingest so a misconfigured
+        profile can't silently boot with no custom routes."""
+        videos_for_search, video_upload, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
         worker = _make_worker(_MISSING)
 
         with pytest.raises(ValueError, match="streaming_ingest"):
             worker._register_streaming_routes(MagicMock())
 
         videos_for_search.assert_not_called()
+        video_upload.assert_not_called()
+        video_upload_complete.assert_not_called()
         rtsp_streams.assert_not_called()
         video_delete.assert_not_called()
 
     def test_legacy_stream_mode_in_yaml_raises(self, patched_register_fns):
-        """A profile YAML that still carries the legacy `stream_mode` knob
-        on streaming_ingest must fail loudly at startup. ``StreamingIngestConfig``
-        accepts extra fields (``extra="allow"``) so the value lands in
-        ``model_extra``; the dispatcher rejects it and points at the new
-        per-route capability flags.
-        """
-        videos_for_search, rtsp_streams, video_delete = patched_register_fns
+        """A profile YAML that still carries the legacy ``stream_mode`` knob
+        on streaming_ingest must fail loudly at startup."""
+        videos_for_search, video_upload, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
         cfg = StreamingIngestConfig(
             enable_videos_for_search=True,
             enable_rtsp_streams=True,
@@ -175,5 +192,7 @@ class TestRegisterStreamingRoutesDispatcher:
             worker._register_streaming_routes(MagicMock())
 
         videos_for_search.assert_not_called()
+        video_upload.assert_not_called()
+        video_upload_complete.assert_not_called()
         rtsp_streams.assert_not_called()
         video_delete.assert_not_called()
