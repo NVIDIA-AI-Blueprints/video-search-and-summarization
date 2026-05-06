@@ -7,8 +7,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
 
 ================================================================================
 
-1. alpine:3.23.2
-   Image: alpine:3.23.2
+1. alpine:3.23.4
+   Image: alpine:3.23.4
    License: BSD-2-Clause (Docker image packaging); image may contain
             components under other licenses (e.g. musl, BusyBox).
    Registry: https://hub.docker.com/_/alpine
@@ -20,8 +20,21 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    Alpine Linux: https://alpinelinux.org/
 
 
-2. arizephoenix/phoenix:version-8.12.1
-   Image: arizephoenix/phoenix:version-8.12.1
+2. alpine/curl:8.17.0
+   Image: alpine/curl:8.17.0
+   License: MIT (image packaging); image contains Alpine Linux (see alpine
+            above) and curl (curl license).
+   Registry: https://hub.docker.com/r/alpine/curl
+   Source: https://gitlab.alpinelinux.org/alpine/docker-abuild
+   License URL: https://curl.se/docs/copyright.html (curl)
+   Full License Text:
+
+   See: https://gitlab.alpinelinux.org/alpine/docker-abuild/-/blob/master/LICENSE.md
+   curl: https://curl.se/docs/copyright.html
+
+
+3. arizephoenix/phoenix:14.15.0
+   Image: arizephoenix/phoenix:14.15.0
    License: Elastic License 2.0 (ELv2)
    Registry: https://hub.docker.com/r/arizephoenix/phoenix
    Source: https://github.com/Arize-ai/phoenix
@@ -33,8 +46,21 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See also: https://arize.com/docs/phoenix/self-hosting/license
 
 
-3. confluentinc/cp-kafka:8.1.1
-   Image: confluentinc/cp-kafka:8.1.1
+4. busybox:1.37.0
+   Image: busybox:1.37.0
+   License: GNU General Public License v2.0 (GPL-2.0)
+   Registry: https://hub.docker.com/_/busybox
+   Source: https://git.busybox.net/busybox/
+   License URL: https://www.busybox.net/license.html
+   Description: Minimal Unix utilities image used as an init container.
+   Full License Text:
+
+   See: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+   BusyBox: https://www.busybox.net/license.html
+
+
+5. confluentinc/cp-kafka:8.2.0
+   Image: confluentinc/cp-kafka:8.2.0
    License: Apache License 2.0; some components under Confluent Community
             License. See Confluent Platform license documentation.
    Registry: https://hub.docker.com/r/confluentinc/cp-kafka
@@ -47,8 +73,33 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://docs.confluent.io/platform/current/installation/license.html
 
 
-4. docker.elastic.co/elasticsearch/elasticsearch:9.3.0
-   Image: docker.elastic.co/elasticsearch/elasticsearch:9.3.0
+6. danielqsj/kafka-exporter:latest
+   Image: danielqsj/kafka-exporter:latest
+   License: Apache License 2.0
+   Registry: https://hub.docker.com/r/danielqsj/kafka-exporter
+   Source: https://github.com/danielqsj/kafka_exporter
+   License URL: https://github.com/danielqsj/kafka_exporter/blob/master/LICENSE
+   Description: Kafka metrics exporter for Prometheus (Helm deployments only).
+   Full License Text:
+
+   See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+7. debian:12-slim
+   Image: debian:12-slim
+   License: Various free software licenses (see Debian license information).
+            The Debian distribution itself is not a single license; individual
+            packages are under their own licenses (GPL, LGPL, MIT, etc.).
+   Registry: https://hub.docker.com/_/debian
+   Source: https://github.com/docker-library/official-images/blob/master/library/debian
+   License URL: https://www.debian.org/legal/licenses/
+   Full License Text:
+
+   See: https://www.debian.org/legal/licenses/
+
+
+8. docker.elastic.co/elasticsearch/elasticsearch:9.3.3
+   Image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
    License: Elastic License 2.0 (ELv2)
    Registry: https://docker.elastic.co
    Source: https://github.com/elastic/elasticsearch
@@ -58,8 +109,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.elastic.co/licensing/elastic-license
 
 
-5. docker.elastic.co/kibana/kibana:9.3.0
-   Image: docker.elastic.co/kibana/kibana:9.3.0
+9. docker.elastic.co/kibana/kibana:9.3.3
+   Image: docker.elastic.co/kibana/kibana:9.3.3
    License: Elastic License 2.0 (ELv2)
    Registry: https://docker.elastic.co
    Source: https://github.com/elastic/kibana
@@ -69,56 +120,156 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
    See: https://www.elastic.co/licensing/elastic-license
 
 
-6. docker.elastic.co/logstash/logstash:9.3.0
-   Image: docker.elastic.co/logstash/logstash:9.3.0
-   License: Elastic License 2.0 (ELv2)
-   Registry: https://docker.elastic.co
-   Source: https://github.com/elastic/logstash
-   License URL: https://www.elastic.co/licensing/elastic-license
-   Full License Text:
+10. docker.elastic.co/logstash/logstash:9.3.3
+    Image: docker.elastic.co/logstash/logstash:9.3.3
+    License: Elastic License 2.0 (ELv2)
+    Registry: https://docker.elastic.co
+    Source: https://github.com/elastic/logstash
+    License URL: https://www.elastic.co/licensing/elastic-license
+    Full License Text:
 
-   See: https://www.elastic.co/licensing/elastic-license
-
-
-7. docker.io/alpine/curl:8.12.1
-   Image: docker.io/alpine/curl:8.12.1
-   License: MIT (image packaging); image contains Alpine Linux (see alpine
-            above) and curl (curl license).
-   Registry: https://hub.docker.com/r/alpine/curl
-   Source: https://gitlab.alpinelinux.org/alpine/docker-abuild
-   License URL: https://curl.se/docs/copyright.html (curl)
-   Full License Text:
-
-   See: https://gitlab.alpinelinux.org/alpine/docker-abuild/-/blob/master/LICENSE.md
-   curl: https://curl.se/docs/copyright.html
+    See: https://www.elastic.co/licensing/elastic-license
 
 
-8. postgres:17.6-alpine
-   Image: postgres:17.6-alpine
-   License: PostgreSQL License (BSD-style).
-   Registry: https://hub.docker.com/_/postgres
-   Source: https://github.com/docker-library/postgres
-   License URL: https://www.postgresql.org/about/licence/
-   Full License Text:
+11. docker.io/curlimages/curl:8.12.1
+    Image: docker.io/curlimages/curl:8.12.1
+    License: curl License (MIT-style / BSD-style).
+    Registry: https://hub.docker.com/r/curlimages/curl
+    Source: https://github.com/curl/curl-container
+    License URL: https://curl.se/docs/copyright.html
+    Description: Minimal curl image used as an init/wait container (Helm deployments only).
+    Full License Text:
 
-   See: https://www.postgresql.org/about/licence/
-
-
-9. redis:8.2.2-alpine
-   Image: redis:8.2.2-alpine
-   License: Redis 8 is available under a tri-license: Redis Source Available
-            License v2 (RSALv2), SSPL v1, or AGPL v3. See Redis licensing.
-   Registry: https://hub.docker.com/_/redis
-   Source: https://github.com/docker-library/redis
-   License URL: https://redis.io/legal/licenses
-   Full License Text:
-
-   See: https://redis.io/legal/licenses
+    See: https://curl.se/docs/copyright.html
 
 
-10. HAProxy Kubernetes Ingress Controller
+12. gcr.io/cadvisor/cadvisor:v0.52.0
+    Image: gcr.io/cadvisor/cadvisor:v0.52.0
+    License: Apache License 2.0
+    Registry: https://gcr.io/cadvisor/cadvisor
+    Source: https://github.com/google/cadvisor
+    License URL: https://github.com/google/cadvisor/blob/master/LICENSE
+    Description: Container resource usage and performance monitoring (cAdvisor).
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+13. ghcr.io/kuskoman/logstash-exporter:master
+    Image: ghcr.io/kuskoman/logstash-exporter:master
+    License: MIT License
+    Registry: https://ghcr.io/kuskoman/logstash-exporter
+    Source: https://github.com/kuskoman/logstash-exporter
+    License URL: https://github.com/kuskoman/logstash-exporter/blob/master/LICENSE
+    Description: Logstash metrics exporter for Prometheus (Helm deployments only).
+    Full License Text:
+
+    See: https://opensource.org/licenses/MIT
+
+
+14. grafana/grafana:13.0.1-ubuntu
+    Image: grafana/grafana:13.0.1-ubuntu
+    License: GNU Affero General Public License v3.0 (AGPL-3.0)
+    Registry: https://hub.docker.com/r/grafana/grafana
+    Source: https://github.com/grafana/grafana
+    License URL: https://github.com/grafana/grafana/blob/main/LICENSE
+    Description: Grafana observability and metrics visualization platform.
+    Full License Text:
+
+    See: https://www.gnu.org/licenses/agpl-3.0.html
+
+
+15. haproxy:3.0-alpine
+    Image: haproxy:3.0-alpine
+    License: GNU General Public License v2.0 or later (GPL-2.0+). Some
+             library components are LGPL-2.1+. See HAProxy licensing page.
+    Registry: https://hub.docker.com/_/haproxy
+    Source: https://github.com/docker-library/haproxy
+    License URL: https://www.haproxy.org/
+    Description: High-performance TCP/HTTP load balancer and proxy.
+    Full License Text:
+
+    See: https://github.com/haproxy/haproxy/blob/master/LICENSE
+
+
+16. nvidia/cuda:12.9.0-cudnn-runtime-ubuntu22.04
+    Image: nvidia/cuda:12.9.0-cudnn-runtime-ubuntu22.04
+    License: NVIDIA Software License Agreement and CUDA Supplement to the
+             Software License Agreement. cuDNN is under the NVIDIA cuDNN
+             Software License Agreement. See NVIDIA licensing page.
+    Registry: https://hub.docker.com/r/nvidia/cuda
+    Source: https://github.com/NVIDIA/nvidia-docker
+    License URL: https://docs.nvidia.com/cuda/eula/index.html
+    Description: NVIDIA CUDA runtime base image used in GPU-enabled
+                 Elasticsearch Dockerfile build stage.
+    Full License Text:
+
+    See: https://docs.nvidia.com/cuda/eula/index.html
+    See: https://docs.nvidia.com/deeplearning/cudnn/sla/index.html
+
+
+17. nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
+    Image: nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04
+    License: Apache License 2.0
+    Registry: https://hub.docker.com/r/nvidia/dcgm-exporter
+    Source: https://github.com/NVIDIA/dcgm-exporter
+    License URL: https://github.com/NVIDIA/dcgm-exporter/blob/main/LICENSE
+    Description: NVIDIA DCGM-based GPU metrics exporter for Prometheus.
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+18. postgres:17.6-alpine
+    Image: postgres:17.6-alpine
+    License: PostgreSQL License (BSD-style).
+    Registry: https://hub.docker.com/_/postgres
+    Source: https://github.com/docker-library/postgres
+    License URL: https://www.postgresql.org/about/licence/
+    Full License Text:
+
+    See: https://www.postgresql.org/about/licence/
+
+
+19. quay.io/prometheus/node-exporter:v1.11.1
+    Image: quay.io/prometheus/node-exporter:v1.11.1
+    License: Apache License 2.0
+    Registry: https://quay.io/prometheus/node-exporter
+    Source: https://github.com/prometheus/node_exporter
+    License URL: https://github.com/prometheus/node_exporter/blob/master/LICENSE
+    Description: Prometheus exporter for hardware and OS metrics.
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+20. quay.io/prometheus/prometheus:v3.11.3
+    Image: quay.io/prometheus/prometheus:v3.11.3
+    License: Apache License 2.0
+    Registry: https://quay.io/prometheus/prometheus
+    Source: https://github.com/prometheus/prometheus
+    License URL: https://github.com/prometheus/prometheus/blob/main/LICENSE
+    Description: Prometheus monitoring and alerting toolkit.
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+21. redis:8.6.2-alpine
+    Image: redis:8.6.2-alpine
+    License: Redis 8 is available under a tri-license: Redis Source Available
+             License v2 (RSALv2), SSPL v1, or AGPL v3. See Redis licensing.
+    Registry: https://hub.docker.com/_/redis
+    Source: https://github.com/docker-library/redis
+    License URL: https://redis.io/legal/licenses
+    Full License Text:
+
+    See: https://redis.io/legal/licenses
+
+
+22. HAProxy Kubernetes Ingress Controller
     Component: haproxytech/kubernetes-ingress (Helm chart)
-    Type: Helm Chart (deployment dependency)
+    Type: Helm Chart (optional deployment dependency)
     Chart Version: 1.49.0
     App Version: 3.2.6
     License: Apache License 2.0
@@ -126,13 +277,16 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     Chart Source: https://github.com/haproxytech/helm-charts/tree/main/kubernetes-ingress
     Controller Source: https://github.com/haproxytech/kubernetes-ingress
     License URL: https://github.com/haproxytech/helm-charts/blob/main/LICENSE
-    Notes: This Helm chart is used to deploy the HAProxy Kubernetes Ingress Controller
-           into the Kubernetes cluster.
+    Notes: This Helm chart is an optional dependency for deploying the HAProxy
+           Kubernetes Ingress Controller into the Kubernetes cluster.
 
 
 ================================================================================
 
 Full License Texts / References:
+
+AGPLv3 (GNU Affero General Public License v3.0):
+   See: https://www.gnu.org/licenses/agpl-3.0.html
 
 Apache License 2.0:
    See: https://www.apache.org/licenses/LICENSE-2.0
@@ -155,8 +309,14 @@ Elastic License 2.0:
 GNU General Public License v2.0:
    See: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 
+LGPL-2.1 (GNU Lesser General Public License v2.1):
+   See: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
 MIT License:
    See: https://opensource.org/licenses/MIT
+
+NVIDIA CUDA End User License Agreement:
+   See: https://docs.nvidia.com/cuda/eula/index.html
 
 PostgreSQL License:
    See: https://www.postgresql.org/about/licence/
