@@ -1,13 +1,14 @@
 ---
 name: video-search
 description: Search video archives using natural language — find events, objects, actions, and people across recorded video using fusion search (Cosmos Embed1 semantic search + CV attribute search). Use when asked to search for something in video, find actions and events, locate objects and people, or query video archives. For these types of questions, default to this top-level fusion search unless user specifies otherwise. Requires the search profile to be deployed.
-version: "3.1.0"
-license: "Apache License 2.0"
+license: Apache-2.0
+metadata:
+  version: "3.1.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint operational"
 ---
 
 # Video Search Workflows
-
-> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
 
 > **Alpha Feature** — not recommended for production use.
 

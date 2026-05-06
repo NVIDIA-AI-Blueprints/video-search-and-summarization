@@ -1,13 +1,14 @@
 ---
 name: video-understanding
 description: Call the vss agent to run video understanding on video to answer a text question. Use when the user asks about video content, or about visual details that cannot be answered from conversation history, search hits, or metadata alone.
-version: "3.1.0"
-license: "Apache License 2.0"
+license: Apache-2.0
+metadata:
+  version: "3.1.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint operational"
 ---
 
 # Video QnA using VLM through VSS Agent
-
-> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
 
 Use this skill when you need details about the video which requires VLM to look at the video frames — for example the agent has **no** usable prior answer and needs a **fresh look at the pixels** for a specific clip.
 
