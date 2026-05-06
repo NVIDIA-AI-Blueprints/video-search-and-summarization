@@ -19,7 +19,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-alert-verification
-  tag: "0.0.62"
+  tag: "0.0.63"
   pullPolicy: IfNotPresent
 replicas: 1
 
