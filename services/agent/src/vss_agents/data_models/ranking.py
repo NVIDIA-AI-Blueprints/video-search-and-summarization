@@ -38,12 +38,14 @@ from vss_agents.utils.time_convert import iso8601_to_datetime
 DEFAULT_CHUNK_SECONDS: int = 5
 
 # Closed enum of fusable embedding space names
-# To add a new space: extend this literal and refer/extend the ``EMBEDDING_SPACE_ADAPTERS`` registry
+# To add a new space: extend this literal and refer to / extend the ``EMBEDDING_SPACE_ADAPTERS`` registry
 EmbeddingSpaceName = Literal["embed", "attribute"]
 
 
 class ChunkKey(BaseModel):
     """Unique identifier for a video chunk on the snapped grid.
+
+    Only chunks from the same video source (sensor) are fused together
 
     Note: End of the chunk is intentionally not a field of the key. End is fully derived
     as ``start + chunk_seconds`` post-bucketize.
@@ -53,6 +55,7 @@ class ChunkKey(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     sensor_id: str
+
     start: AwareDatetime = Field(
         description=(
             "Raw upstream timestamp; bucketize snaps to chunk_seconds grid. "
@@ -150,7 +153,7 @@ class FusableSearchOutput(Protocol):
     own native Pydantic output model and structurally implements these two
     methods so the fusion orchestrator ``search`` can adapt any space uniformly.
 
-    Note: ``payload sidecar`` is the per-key dict that carries display or auxiliary
+    Note: ``payload sidecar`` carries display or auxiliary
     data (screenshot URL, description, object_ids, ...) which fusion ignores
     but ``search`` joins back onto each :class:`FusedSegment` to build the
     final ``SearchResult``.

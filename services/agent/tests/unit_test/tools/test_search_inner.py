@@ -867,6 +867,19 @@ class TestSearchInnerFusionPath:
         assert isinstance(result, SearchOutput)
         assert {r.video_name for r in result.data} >= {"warehouse_01.mp4", "dock_03.mp4"}
 
+        # Every surfaced result must report a meaningful, bounded match strength
+        assert all(0.0 < r.similarity <= 1.0 for r in result.data)
+
+        # Presentation order matches the agent's claim of quality (descending)
+        sims = [r.similarity for r in result.data]
+        assert sims == sorted(sims, reverse=True)
+
+        # similarity tracks fusion's ranking
+        if all(r.fused_score is not None for r in result.data):
+            by_sim = [r.video_name for r in sorted(result.data, key=lambda r: -r.similarity)]
+            by_fused = [r.video_name for r in sorted(result.data, key=lambda r: -r.fused_score)]
+            assert by_sim == by_fused
+
     @pytest.mark.asyncio
     async def test_fusion_path_respects_top_k(self, config, mock_builder, mock_attribute, mock_fusion):
         """Happy path: ``top_k`` caps the output after fusion, never before.
@@ -959,6 +972,121 @@ class TestSearchInnerFusionPath:
         assert isinstance(result, SearchOutput)
         assert result.data == []
         assert mock_attribute.ainvoke.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_attribute_dominant_segment_still_reports_meaningful_similarity(
+        self, config, mock_builder, mock_fusion
+    ):
+        """A fused segment whose member chunks come only from a non-embed space
+        (no ``raw_embed_cosine`` in payload) must still report a meaningful similarity.
+
+        Scenario: embed contributes one chunk at 10:00 (passes the embed-anchored
+        gate). Attribute hits a DIFFERENT chunk at 10:01 - so the new fusion path
+        produces two segments, the second of which has only attribute contribution.
+        Ensure the second segment does not leak ``similarity=0.0`` to end user's chat output
+        and report the normalized fused score.
+        """
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "warehouse_01.mp4",
+                    "similarity_score": 0.85,
+                    "sensor_id": "warehouse_01",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                },
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        # Attribute hit at a different chunk than embed -> attribute-only segment.
+        mock_attribute_local = AsyncMock()
+        mock_attribute_local.ainvoke.return_value = [
+            AttributeSearchResult(
+                screenshot_url="http://attr.example/overlay.jpg",
+                metadata=AttributeSearchMetadata(
+                    sensor_id="warehouse_01",
+                    object_id="42",
+                    object_type="person",
+                    frame_timestamp="2025-01-15T10:01:02Z",
+                    start_time="2025-01-15T10:01:00Z",
+                    end_time="2025-01-15T10:01:05Z",
+                    behavior_score=0.6,
+                    frame_score=0.95,
+                    video_name="warehouse_01.mp4",
+                ),
+            ),
+        ]
+
+        self._wire_builder(
+            mock_builder,
+            mock_embed,
+            mock_attribute_local,
+            _make_llm_mock(attributes=["red shirt"]),
+            mock_fusion,
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in red shirt", source_type="video_file", agent_mode=True),
+        )
+
+        # Every surfaced result reports a meaningful match strength,
+        # including any segment that came purely from the attribute space.
+        assert result.data
+        assert all(r.similarity > 0 for r in result.data)
+
+    @pytest.mark.asyncio
+    async def test_single_space_run_still_reports_meaningful_similarity(self, config, mock_builder, mock_fusion):
+        """Single-non-empty-space scenario: attribute returns nothing, embed has hits."""
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "warehouse_01.mp4",
+                    "similarity_score": 0.85,
+                    "sensor_id": "warehouse_01",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                },
+                {
+                    "video_name": "dock_03.mp4",
+                    "similarity_score": 0.55,
+                    "sensor_id": "dock_03",
+                    "start_time": "2025-01-15T11:00:00Z",
+                    "end_time": "2025-01-15T11:00:05Z",
+                },
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        # Attribute returns nothing - only embed contributes.
+        mock_attribute_empty = AsyncMock()
+        mock_attribute_empty.ainvoke.return_value = []
+
+        self._wire_builder(
+            mock_builder,
+            mock_embed,
+            mock_attribute_empty,
+            _make_llm_mock(attributes=["red shirt"]),
+            mock_fusion,
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in red shirt", source_type="video_file", agent_mode=True),
+        )
+
+        # Single-space run still produces meaningful, bounded similarities in
+        # descending order - the orchestrator must not degrade when one space
+        # has nothing to say
+        assert result.data
+        assert all(0.0 < r.similarity <= 1.0 for r in result.data)
+        sims = [r.similarity for r in result.data]
+        assert sims == sorted(sims, reverse=True)
 
 
 # ---------------------------------------------------------------------------

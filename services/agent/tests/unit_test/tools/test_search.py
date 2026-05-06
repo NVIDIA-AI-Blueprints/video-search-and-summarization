@@ -23,6 +23,9 @@ from unittest.mock import MagicMock
 from pydantic import ValidationError
 import pytest
 
+from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import RankedList
 from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import QueryInput
 from vss_agents.tools.embed_search import _str_input_converter
@@ -34,6 +37,7 @@ from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
 from vss_agents.tools.search import _resolve_video_sources_for_search
 from vss_agents.tools.search import decompose_query
+from vss_agents.tools.search import representative_member
 
 
 class TestResolveVideoSourcesForSearch:
@@ -80,6 +84,99 @@ class TestResolveVideoSourcesForSearch:
         )
 
         assert result == ["missing-camera"]
+
+
+class TestRepresentativeMember:
+    """Unit tests for ``representative_member`` using unit-less score agnostic to different embedding spaces
+    (payload picker for fused segments).
+    """
+
+    @staticmethod
+    def _key(second: int) -> ChunkKey:
+        return ChunkKey(sensor_id="cam-1", start=datetime(2025, 1, 1, 0, 0, second, tzinfo=UTC))
+
+    def test_tied_best_rank_resolves_by_member_keys_order(self):
+        """Both keys rank #1 in some space -> tie -> stable: first ``member_keys`` entry wins."""
+        k1, k2 = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.50),
+                RankedChunk(key=k2, rank=1, score=0.40),  # k2 ranks 1 in embed
+            ],
+        )
+        attr = RankedList(
+            space="attribute",
+            chunks=[
+                # k1 ranks 1 in attribute (top score is irrelevant - unit-incompatible with embed)
+                RankedChunk(key=k1, rank=1, score=0.99),
+                RankedChunk(key=k2, rank=3, score=0.30),
+            ],
+        )
+        # Both k1 and k2 have best_rank=1 (in different spaces) -> tied.
+        # Stable selection: first in member_keys wins.
+        assert representative_member([k1, k2], [embed, attr]) == k1
+        assert representative_member([k2, k1], [embed, attr]) == k2
+
+    def test_picks_lowest_rank_when_not_tied(self):
+        """Asymmetric case: k1 best_rank=1, k2 best_rank=3 -> k1 wins by rank."""
+        k1, k2 = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.50),
+                RankedChunk(key=k2, rank=5, score=0.40),  # k2 only ranks 5 in embed
+            ],
+        )
+        attr = RankedList(
+            space="attribute",
+            chunks=[
+                RankedChunk(key=k1, rank=1, score=0.99),
+                RankedChunk(key=k2, rank=3, score=0.30),
+            ],
+        )
+        # k1 best_rank = min(2, 1) = 1; k2 best_rank = min(5, 3) = 3 -> k1 wins.
+        assert representative_member([k1, k2], [embed, attr]) == k1
+        # Order independent: even when k2 is listed first, k1 still wins on rank.
+        assert representative_member([k2, k1], [embed, attr]) == k1
+
+    def test_uses_rank_not_raw_score_to_avoid_apples_to_oranges(self):
+        """Regression for the apples-to-oranges bug: rank, not raw score, decides.
+
+        k2 has the best rank (1 in embed) but a low raw score there.
+        k1 has rank 2 in both spaces but a high raw score in attribute.
+        Pre-fix raw-score picker would always pick k1 (top raw score 0.99).
+        Post-fix rank picker picks k2 (best_rank=1 < k1's best_rank=2).
+        """
+        k1, k2 = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.50),
+                RankedChunk(key=k2, rank=1, score=0.10),  # k2's top embed rank, low raw
+            ],
+        )
+        attr = RankedList(
+            space="attribute",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.99),  # k1's high raw, but rank 2
+                RankedChunk(key=k2, rank=3, score=0.30),
+            ],
+        )
+        # Rank picker: k2 wins (best_rank=1 < k1's best_rank=2).
+        # Raw-score picker would pick k1 (max raw 0.99) -> different answer.
+        assert representative_member([k1, k2], [embed, attr]) == k2
+
+    def test_keys_absent_from_lists_lose_via_inf_sentinel(self):
+        """Defensive fallback: keys never appearing in any list (sentinel = inf) lose to anything seen."""
+        k_seen, k_unseen = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[RankedChunk(key=k_seen, rank=4, score=0.10)],
+        )
+        # k_unseen has no rank anywhere -> sentinel inf -> loses to k_seen even at rank 4.
+        assert representative_member([k_unseen, k_seen], [embed]) == k_seen
+        assert representative_member([k_seen, k_unseen], [embed]) == k_seen
 
 
 class TestSearchConfig:

@@ -130,7 +130,7 @@ class SearchResult(BaseModel):
 
     # Generalized fusion path additive fields
     # Note: Downstream consumers can branch on `fused_score is not None` to detect the new path
-    # TODO: maybe revisit model to replace this with a more meaningful ratio for easy interpretation
+    # TODO: in the future, revisit model to replace this with a more meaningful ratio for easy interpretation
     fused_score: float | None = Field(
         default=None,
         description=(

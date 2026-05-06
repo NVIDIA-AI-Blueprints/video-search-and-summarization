@@ -17,6 +17,9 @@
 Fusion is a ranker only (pure math, no side effects). It does not call ``embed_search``, ``attribute_search``, etc.
 These are still left to the coordinator ``search.py`` to orchestrate.
 
+Fusion never crosses sensors, ChunkKey = (sensor_id, snapped_start), so chunks from different video sources
+are independent rows in every stage of the pipeline
+
 A clip can appear in some lists and not others. "Missing" is equivalent to rank = ∞ in that space -> contributes 0.
 """
 
@@ -117,9 +120,11 @@ class _SharedFusionParams(BaseModel):
         default=None,
         allow_inf_nan=False,
         description=(
-            "Drop chunks below ratio x theoretical ceiling. E.g. 0.3 -> keep only >=30% of best-possible fused_score."
+            "Drop chunks below ratio x theoretical ceiling. E.g. 0.3 -> keep only >=30% of the best possible fused_score. "
+            "Absolute comparison, independent of what is returned. Therefore, weak queries may return zero segments."
         ),
     )
+    # TODO: add a relative min filter similar to "top_percent_filter" where the filter is relative to what is returned, so weak queries can still return some segments
 
     # Merge knobs (applied after filtering and fusion)
     merge_adjacent: bool = Field(
@@ -213,6 +218,10 @@ class FusionOutput(BaseModel):
     """Response body. Already filtered, merged, sorted desc by ``fused_score``."""
 
     segments: list[FusedSegment] = Field(default_factory=list)
+
+    # Theoretical maximum fused_score possible for this query
+    # Used for normalizing the fused score to 0-1
+    theoretical_max_score: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -630,11 +639,11 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
         rrf_k=inp.rrf_k,
     )
 
+    theoretical_max_score = compute_score_threshold(inp.method, inp.rrf_k, bucketed, weights, fraction=1.0)
+
     threshold: float | None = None
     if inp.min_fused_score_ratio is not None:
-        threshold = compute_score_threshold(
-            inp.method, inp.rrf_k, bucketed, weights, fraction=inp.min_fused_score_ratio
-        )
+        threshold = theoretical_max_score * inp.min_fused_score_ratio
 
     fused = apply_global_filters(
         fused,
@@ -660,7 +669,7 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
     if inp.top_k_segments is not None:
         segments = segments[: inp.top_k_segments]
 
-    return FusionOutput(segments=segments)
+    return FusionOutput(segments=segments, theoretical_max_score=theoretical_max_score)
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +693,9 @@ class FusionConfig(FunctionBaseConfig, _SharedFusionParams, name="fusion"):
             "Default 1.0 (neutral)."
         ),
     )
+
+    # -- Fields overridable per request --
+    # Included from ``_SharedFusionParams``
 
 
 def _merge_config_defaults(inp: FusionInput, config: FusionConfig) -> FusionInput:
