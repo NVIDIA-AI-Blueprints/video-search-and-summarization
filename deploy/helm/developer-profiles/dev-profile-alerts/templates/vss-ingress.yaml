@@ -42,9 +42,10 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-ingress
     app.kubernetes.io/instance: {{ .Release.Name }}
-{{- if $hasRewrite }}
   annotations:
     haproxy.org/path-rewrite: |
+      /storage/(.*) /vst/storage/\1
+      /storage /vst/storage
 {{- if $analyticsEnabled }}
       /video-analytics-api/(.*) /\1
 {{- end }}
@@ -54,7 +55,6 @@ metadata:
 {{- if $phoenixEnabled }}
       /phoenix/(.*) /\1
       /phoenix /
-{{- end }}
 {{- end }}
 spec:
   ingressClassName: {{ index $vssIngress "ingressClassName" | default "haproxy" }}
@@ -98,6 +98,13 @@ spec:
                 port:
                   number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
           - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
+                port:
+                  number: {{ index $vssIngress "vstIngressPort" | default 30888 }}
+          - path: /storage
             pathType: Prefix
             backend:
               service:
