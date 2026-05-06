@@ -2,8 +2,9 @@
 //
 // Chunked upload helpers for the Video Management tab. The core chunking
 // logic lives in the shared `@nemo-agent-toolkit/ui` package so the Chat
-// upload path can reuse it; this file wraps it with the search-specific
-// notifyUploadComplete() that hits /videos-for-search/.../complete.
+// upload path can reuse it; this file wraps it with notifyUploadComplete(),
+// which posts to the universal /api/v1/videos/{filename}/complete endpoint
+// so VM upload works on every profile (search/lvs/base/alerts).
 
 import type { FileUploadResponse } from './types';
 import { uploadFileChunked as sharedUploadFileChunked } from '@nemo-agent-toolkit/ui';
@@ -49,8 +50,10 @@ export async function notifyUploadComplete(
 ): Promise<void> {
   const dotIndex = filename.lastIndexOf('.');
   const filenameWithoutExt = dotIndex > 0 ? filename.substring(0, dotIndex) : filename;
-  // agentApiUrl already includes /api/v1, so just append the resource path
-  const url = `${agentApiUrl.replace(/\/$/, '')}/videos-for-search/${encodeURIComponent(filenameWithoutExt)}/complete`;
+  // Universal /complete endpoint — works on every profile, no
+  // enable_videos_for_search flag required. agentApiUrl already includes
+  // /api/v1, so just append the resource path.
+  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(filenameWithoutExt)}/complete`;
 
   // Body = full upload response + custom_params (if any). custom_params is
   // omitted entirely when formData is undefined/empty so the body stays

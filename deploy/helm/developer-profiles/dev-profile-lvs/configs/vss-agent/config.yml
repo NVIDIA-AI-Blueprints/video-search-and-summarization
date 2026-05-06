@@ -22,12 +22,9 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
-      enable_rtsp_streams: true
-      enable_video_delete: true
-      enable_videos_for_search: true
-      # No RTVI-CV/Embed: lvs ingests RTSP streams to RTVI-VLM only.
-      # The /videos-for-search/*/complete and /api/v1/videos/{filename}/complete
-      # handlers self-skip the embedding/CV steps when their URLs are unset.
+      # No RTVI-CV/Embed: lvs ingests RTSP streams to RTVI-VLM only. The
+      # universal /api/v1/videos/{filename}/complete handler self-skips the
+      # embedding/CV steps when their URLs are unset.
     cors:
       allow_origins: ['*']
       allow_methods: ['*']

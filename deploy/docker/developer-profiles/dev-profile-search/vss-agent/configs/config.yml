@@ -21,9 +21,10 @@ general:
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      # Search profile keeps the deprecated /api/v1/videos-for-search/*
+      # routes registered for backward compat with older UI builds. New
+      # callers use the universal /api/v1/videos/{filename}/complete.
       enable_videos_for_search: true
-      enable_rtsp_streams: true
-      enable_video_delete: true
       # storage in place when an RTSP stream is removed.
       delete_vst_storage_on_stream_remove: false
       rtvi_embed_base_url: http://${HOST_IP}:${RTVI_EMBED_PORT}
