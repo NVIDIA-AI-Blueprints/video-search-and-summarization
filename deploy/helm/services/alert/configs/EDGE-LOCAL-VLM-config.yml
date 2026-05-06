@@ -135,11 +135,36 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   include_latency_info: false
+  metrics:
+    # Requires PROMETHEUS_METRICS_ENABLED=true (env var) to have any effect.
+    # When false (default), the *_BY_SENSOR metric variants are never observed
+    # (zero cardinality cost). When true, each distinct sensor ID mints ~12
+    # additional Prometheus series per histogram — only enable for deployments
+    # with a bounded sensor fleet and a known series budget (~10k per target).
+    per_sensor_labels: false
+
+rtvi_vlm:
+  rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
+  pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
+  health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
+
+cors:
+  enabled: true
+  allow_origins: ['*']
+  allow_methods: ['*']
+  allow_headers: ['*']
+  allow_credentials: false
 
 elastic:
   enabled: true
   hosts:
     - {{ .Values.elasticHosts | default (printf "http://%s:9200" $esHost) | quote }}
+
+# Persistence layer — durable storage for configs and prompts
+persistence:
+  enabled: true
+  backend: "elasticsearch"               # Only "elasticsearch" supported for now
+  index_prefix: "ab-"                    # Indices created as ab-{collection}
 
 vlm_enhanced_sink:
   incident:
