@@ -105,7 +105,7 @@ spec:
             - name: VLM_NAME
               value: {{ $vlmNameStr | quote }}
             - name: RTVI_VLM_MODEL_TO_USE
-              value: {{ .Values.rtviVlmModelToUse | default "cosmos-reason2" | quote }}
+              value: {{ .Values.rtviVlmModelToUse | default $vlmNameStr | quote }}
             - name: ALWAYS_ON_RULES_CONFIG
               value: "/app/configs/realtime-config.yml"
           volumeMounts:

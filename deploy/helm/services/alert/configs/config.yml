@@ -147,6 +147,8 @@ alert_agent:
   default_stream_interval: 1
   vst_pass_through_mode: false
   chunk_size: 1
+  metrics:
+    per_sensor_labels: false
   async_io:
     enabled: true
     vst_enabled: true
@@ -171,6 +173,9 @@ rtvi_vlm:
   base_url: "{{ $rtviVlmBase }}/v1"
   timeout: 10
   default_model: "{{ $vlmNameStr }}"
+  rules_collection: "alert-realtime-rules"
+  pending_ttl_seconds: 300
+  health_check_interval_seconds: 30
 
 websocket:
   enabled: false
@@ -180,10 +185,22 @@ websocket:
     count: 1
     reconnect_delay: 5
 
+cors:
+  enabled: true
+  allow_origins: ['*']
+  allow_methods: ['*']
+  allow_headers: ['*']
+  allow_credentials: false
+
 elastic:
   enabled: true
   hosts:
     - {{ .Values.elasticHosts | default (printf "http://%s:9200" $esHost) | quote }}
+
+persistence:
+  enabled: true
+  backend: "elasticsearch"
+  index_prefix: "ab-"
 
 vlm_enhanced_sink:
   incident:
