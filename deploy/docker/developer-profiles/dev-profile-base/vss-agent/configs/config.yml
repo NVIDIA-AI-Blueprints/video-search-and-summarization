@@ -22,6 +22,10 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       enable_video_delete: true
+      enable_videos_for_search: true
+      # `disabled` is a non-empty placeholder that satisfies the boot-time must be set guard.
+      rtvi_embed_base_url: disabled
+      rtvi_cv_base_url: disabled
     endpoints:
     - path: /api/v1/videos
       method: POST
@@ -178,6 +182,17 @@ llms:
     max_tokens: 4096
     temperature: 0.0
 
+  vllm_llm:
+    _type: openai
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+    model_kwargs:
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+
   # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
   nim_vlm:
     _type: nim
@@ -245,8 +260,10 @@ workflow:
       **report_agent**
       - Only call report_agent when user mentions "report" in the question.
       - Don't use the report from previous interactions.
-      - Examples: "Generate a report for, "Create an analysis report", I need a safety report for this video"
+      - CRITICAL: For multiple videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
+      - Examples: "Generate a report for, "Create an analysis report", I need a safety report for this video", "Generate a report for video1 & video2"
       **video_understanding** - For any question about video content.
+      - CRITICAL: ALWAYS call video_understanding for question about video content of a video. You MUST NOT use conversation history to answer question about a video.
       - Examples: "what happens in the video?", "Was there any breach of safety protocol?", "Were there any vehicle collisions?", "Is the bridge in good condition?"
       **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
@@ -346,8 +363,12 @@ eval:
              steps (i.e., sequentially), penalize for inefficiency.
 
         NOTE: If the ground truth contains a single call to video_understanding, and the agent calls an additional
-        vst_video_list or vst_video_clip before the video_understanding call and the video_understanding call is
-        correct, it should be considered as a success (1.0).
+        vst_video_list or vst_video_clip before the video_understanding or report_agent call and the
+        video_understanding or report_agent call is correct, it should be considered as a success (1.0).
+
+        NOTE: If step numbers in the actual tool calls have gaps (e.g., step 1 then step 3, skipping step 2),
+        it means a tool call at the skipped step failed and the agent retried automatically (auto-recovery).
+        Penalize only slightly for this (e.g., -0.1) since the agent did eventually recover and complete the task.
 
         SCORING GUIDELINES:
         - 1.0: All expected tools called with correct parameters

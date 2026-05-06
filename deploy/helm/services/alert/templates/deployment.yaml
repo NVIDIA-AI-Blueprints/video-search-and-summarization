@@ -82,8 +82,14 @@ spec:
           env:
             {{- $g := .Values.global | default dict }}
             {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
-            {{- /* Same merge as vss-agent: subchart vlmBaseUrl overrides global.vlmBaseUrl; empty → in-cluster NIM default */}}
-            {{- $vlmUrl := trim (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) }}
+            {{- /* Same merge as vss-agent: subchart vlmBaseUrl overrides global.vlmBaseUrl. tpl() supports optional {{…}} templates; "" and plain URLs are unchanged (tpl("") is ""; tpl("http://host:8000") is identical). Empty after tpl → VLM_BASE_URL uses $vlmDef below. */}}
+            {{- $rawVlmSub := .Values.vlmBaseUrl | default "" | toString }}
+            {{- $rawVlmGlob := index $g "vlmBaseUrl" | default "" | toString }}
+            {{- $rawVlmMerged := $rawVlmSub }}
+            {{- if eq (trim $rawVlmSub) "" }}
+            {{- $rawVlmMerged = $rawVlmGlob }}
+            {{- end }}
+            {{- $vlmUrl := trim (tpl $rawVlmMerged .) }}
             {{- $subVn := trim (default "" .Values.vlmName) }}
             {{- $globVn := trim (default "" (index $g "vlmName")) }}
             {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos-reason2-8b" }}
@@ -98,6 +104,10 @@ spec:
               value: {{ ternary "remote" "local" (ne $vlmUrl "") | quote }}
             - name: VLM_NAME
               value: {{ $vlmNameStr | quote }}
+            - name: RTVI_VLM_MODEL_TO_USE
+              value: {{ .Values.rtviVlmModelToUse | default $vlmNameStr | quote }}
+            - name: ALWAYS_ON_RULES_CONFIG
+              value: "/app/configs/realtime-config.yml"
           volumeMounts:
             - name: runtime-config
               mountPath: /app/runtime
@@ -105,6 +115,10 @@ spec:
             - name: alert-type-config
               mountPath: /app/alert_type_config.json
               subPath: alert_type_config.json
+              readOnly: true
+            - name: realtime-config
+              mountPath: /app/configs/realtime-config.yml
+              subPath: realtime-config.yml
               readOnly: true
           ports:
             - name: http
@@ -126,6 +140,12 @@ spec:
             items:
               - key: alert_type_config.json
                 path: alert_type_config.json
+        - name: realtime-config
+          configMap:
+            name: {{ include "vss-alert-bridge.fullname" . }}-config
+            items:
+              - key: realtime-config.yml
+                path: realtime-config.yml
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
