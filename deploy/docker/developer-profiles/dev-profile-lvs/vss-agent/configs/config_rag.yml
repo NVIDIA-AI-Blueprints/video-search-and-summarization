@@ -22,11 +22,6 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       enable_video_delete: true
-    endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -48,11 +43,6 @@ object_stores:
     _type: in_memory
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
-
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
