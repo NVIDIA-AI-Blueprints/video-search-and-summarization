@@ -786,9 +786,6 @@ class TestSearchInnerFusionPath:
                     RankingSpaceConfig(space="attribute", tool="attribute_search", weight=0.5),
                 ],
             )
-        else:
-            # legacy path ignores it but the field is required at construction time
-            kwargs["embed_weight"] = 1.0
         return SearchConfig(**kwargs)
 
     @pytest.fixture

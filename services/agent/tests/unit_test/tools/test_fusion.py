@@ -327,8 +327,16 @@ class TestFuseWeightedLinear:
             assert row.score == pytest.approx(1.0)
 
     def test_unknown_method_raises(self):
-        with pytest.raises(ValueError):
+        # Bogus values fall through every literal branch and trip ``assert_never``,
+        # which raises ``AssertionError`` at runtime. Either is acceptable for the
+        # "garbage method must be rejected" contract this test pins.
+        with pytest.raises((ValueError, AssertionError)):
             fuse([], method="bogus", rrf_k=60, weights={})  # type: ignore[arg-type]
+
+    def test_legacy_only_method_raises_with_clear_message(self):
+        """``rrf_with_attribute_rank`` is legacy-only - the generalized engine must reject it loudly."""
+        with pytest.raises(ValueError, match="legacy-only"):
+            fuse([], method="rrf_with_attribute_rank", rrf_k=60, weights={})
 
     def test_partial_weights_dict_raises_key_error(self):
         """Fail-loud invariant at the pure-algorithm layer."""
