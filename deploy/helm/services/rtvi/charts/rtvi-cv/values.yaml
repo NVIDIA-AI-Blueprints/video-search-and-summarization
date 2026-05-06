@@ -39,6 +39,28 @@ service:
   type: ClusterIP
 httpPort: 9000
 
+# Optional HAProxy Ingress with consistent-hash routing on x-stream-id.
+# When enabled, every request carrying the same x-stream-id header value
+# is routed to the same vss-rtvi-cv pod, which is required for the
+# DeepStream pipeline state to stay coherent across the stream lifecycle.
+# Requires the HAProxy Technologies kubernetes-ingress controller (the
+# same controller the dev-profile-* umbrellas already assume).
+ingress:
+  enabled: false
+  className: haproxy
+  hashHeader: x-stream-id
+  # hosts: optional list of host/path rules. Defaults to a single
+  # path-based rule on / with no host (matches any host).
+  # Example:
+  #   hosts:
+  #     - host: rtvi-cv.example.com
+  #       paths:
+  #         - path: /
+  #           pathType: Prefix
+  hosts: []
+  # Extra annotations merged into the Ingress (e.g. timeouts, TLS).
+  annotations: {}
+
 streamType: "kafka"
 modelType: "cnn"
 otelSdkDisabled: "true"

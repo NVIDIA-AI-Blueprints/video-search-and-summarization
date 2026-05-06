@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Optional Ingress that fronts vss-rtvi-vlm with HAProxy consistent-hash
+# routing on the x-stream-id header. Pins each stream to a single VLM
+# replica so the model session, prompt history, and any in-process state
+# stay coherent for the duration of the stream.
+#
+# Annotations are for the HAProxy Technologies kubernetes-ingress
+# controller (haproxy.org/* — same as the umbrella ingresses).
+{{- if and .Values.enabled .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "vss-rtvi-vlm.fullname" . }}
+  labels:
+    app.kubernetes.io/name: vss-rtvi-vlm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    # Same value of x-stream-id deterministically routes to the same
+    # vss-rtvi-vlm replica.
+    haproxy.org/load-balance: "hdr({{ .Values.ingress.hashHeader }})"
+    haproxy.org/hash-type: "consistent"
+    # UUID fallback for missing-header requests (health probes,
+    # cross-stream admin) so they scatter across the pool.
+    haproxy.org/backend-config-snippet: |
+      http-request set-header {{ .Values.ingress.hashHeader }} %[uuid()] if !{ req.hdr({{ .Values.ingress.hashHeader }}) -m found }
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ default "haproxy" .Values.ingress.className | quote }}
+  rules:
+    {{- $hosts := .Values.ingress.hosts | default (list (dict "host" "" "paths" (list (dict "path" "/" "pathType" "Prefix")))) }}
+    {{- range $hosts }}
+    - {{- with .host }}
+      host: {{ . | quote }}
+      {{- end }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path | default "/" }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "vss-rtvi-vlm.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}
