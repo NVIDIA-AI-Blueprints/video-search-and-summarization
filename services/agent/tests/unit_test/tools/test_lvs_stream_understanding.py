@@ -393,7 +393,7 @@ class TestLVSStreamUnderstandingInner:
             result = await inner_fn(
                 LVSStreamUnderstandingInput(
                     stream_name="CAM_1",
-                    start_time=0,
+                    start_time=10,
                     end_time=45,
                 )
             )
@@ -401,15 +401,67 @@ class TestLVSStreamUnderstandingInner:
         assert result.status == LVSMediaStatus.SUCCESS
         mock_get_timeline.assert_awaited_once_with("stream-uuid", config.vst_internal_url)
         sent_payload = mock_session.post.call_args.kwargs["json"]
-        # iso_start = startTime + 0s; iso_end = startTime + 45s
+        # iso_start = startTime + 10s; iso_end = startTime + 45s
         # datetime_to_iso8601 emits microsecond precision (".623000Z")
-        assert sent_payload["start_time"] == "2026-05-06T01:01:13.623000Z"
+        assert sent_payload["start_time"] == "2026-05-06T01:01:23.623000Z"
         assert sent_payload["end_time"] == "2026-05-06T01:01:58.623000Z"
 
     @pytest.mark.asyncio
-    async def test_iso_conversion_with_end_time_zero_emits_empty_iso_end(self):
+    async def test_iso_conversion_with_start_time_zero_passes_zero_through(self):
+        """When start_time is 0 with a non-zero end_time, iso_start should be
+        passed through as 0."""
+        remember_configured_media(
+            LVSConfiguredMedia(
+                media_type="stream",
+                media_name="CAM_1",
+                media_id="stream-uuid",
+                media_url="rtsp://example/stream",
+                scenario="test scenario",
+                events=("test event",),
+                objects_of_interest=("test object",),
+            )
+        )
+
+        response_payload = {"choices": [{"message": {"content": json.dumps({"summary": "ok"})}}]}
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.text = AsyncMock(return_value=json.dumps(response_payload))
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.return_value = mock_resp
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        config = LVSStreamUnderstandingConfig(
+            lvs_backend_url="http://localhost:38111",
+            vst_internal_url="http://localhost:30888",
+        )
+        timeline_mock = AsyncMock(return_value=("2026-05-06T01:01:13.623Z", "2026-05-06T01:42:56.504Z"))
+
+        with (
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientSession", return_value=mock_session),
+            patch("vss_agents.tools.lvs_stream_understanding.aiohttp.ClientTimeout"),
+            patch("vss_agents.tools.lvs_stream_understanding.get_timeline", new=timeline_mock),
+        ):
+            inner_fn = await self._get_inner_fn(config)
+            await inner_fn(
+                LVSStreamUnderstandingInput(
+                    stream_name="CAM_1",
+                    start_time=0,
+                    end_time=45,
+                )
+            )
+
+        sent_payload = mock_session.post.call_args.kwargs["json"]
+        assert sent_payload["start_time"] == 0
+        assert sent_payload["end_time"] == "2026-05-06T01:01:58.623000Z"
+
+    @pytest.mark.asyncio
+    async def test_iso_conversion_with_end_time_zero_passes_zero_through(self):
         """When end_time is 0 with a non-zero start_time, iso_end should be
-        the empty string (LVS treats this as 'until now')."""
+        passed through as 0."""
         remember_configured_media(
             LVSConfiguredMedia(
                 media_type="stream",
@@ -456,7 +508,7 @@ class TestLVSStreamUnderstandingInner:
 
         sent_payload = mock_session.post.call_args.kwargs["json"]
         assert sent_payload["start_time"] == "2026-05-06T01:01:43.623000Z"
-        assert sent_payload["end_time"] == ""
+        assert sent_payload["end_time"] == 0
 
     @pytest.mark.asyncio
     async def test_vst_timeline_failure_returns_failed_status(self):
