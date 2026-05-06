@@ -104,7 +104,7 @@ services:
     restart: unless-stopped
 
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc5-c45f19c}
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc6-eec0a57}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
