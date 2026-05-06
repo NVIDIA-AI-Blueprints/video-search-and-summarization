@@ -324,7 +324,11 @@ class TestRegisterVideoSearchIngestRoutes:
         with pytest.raises(ValueError, match="vst_internal_url"):
             register_video_search_ingest_routes(mock_app, mock_config)
 
-    def test_register_missing_rtvi_embed_url_raises(self):
+    def test_register_without_rtvi_embed_url_succeeds(self):
+        """rtvi_embed_base_url is optional now: profiles that don't ingest to
+        RTVI (base/lvs/alerts) leave it unset and the route registers anyway.
+        The /complete handler self-skips the embedding step at request time —
+        same shape as the universal /complete in vss_agents.api.videos."""
         mock_app = MagicMock()
         mock_config = MagicMock()
 
@@ -337,5 +341,6 @@ class TestRegisterVideoSearchIngestRoutes:
 
         mock_config.general.front_end.streaming_ingest = mock_streaming_config
 
-        with pytest.raises(ValueError, match="rtvi_embed_base_url"):
-            register_video_search_ingest_routes(mock_app, mock_config)
+        register_video_search_ingest_routes(mock_app, mock_config)
+
+        assert mock_app.include_router.called

@@ -24,12 +24,6 @@ general:
       vst_internal_url: ${VST_INTERNAL_URL}
       enable_rtsp_streams: true
       enable_video_delete: true
-    endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
-
     cors:
       allow_origins: ['*']
       allow_methods: ['*']

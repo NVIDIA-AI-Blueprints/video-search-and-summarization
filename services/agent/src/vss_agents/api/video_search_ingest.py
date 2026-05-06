@@ -290,19 +290,14 @@ def register_video_search_ingest_routes(app: "FastAPI", config: "Any") -> None:
             raise ValueError("streaming_ingest.vst_internal_url must be set for videos-for-search routes")
 
         if not rtvi_embed_base_url:
-            # When the YAML explicitly configures streaming_ingest, a missing
-            # rtvi_embed_base_url is a config bug — fail loud.
-            if streaming_config is not None:
-                logger.error("streaming_ingest configured but rtvi_embed_base_url is missing")
-                raise ValueError("rtvi_embed_base_url must be set when streaming_ingest is configured")
-            # Env-var fallback path with RTVI ports unset (e.g. base profile).
-            # Register the routes anyway so the UI gets 200 instead of 404;
-            # the /complete handler skips the embedding step at request time.
+            # RTVI is optional on this deprecated path now. Profiles that don't
+            # ingest to RTVI (base/lvs/alerts) just leave rtvi_embed_base_url
+            # unset; the /complete handler skips the embedding step at request
+            # time. Search profiles still set it. This matches the universal
+            # /complete endpoint's behavior in vss_agents.api.videos.
             logger.warning(
-                "RTVI not configured (HOST_IP=%r RTVI_EMBED_PORT=%r); "
-                "/complete routes will register but skip embedding generation",
-                os.getenv("HOST_IP", ""),
-                os.getenv("RTVI_EMBED_PORT", ""),
+                "rtvi_embed_base_url not set on streaming_ingest — "
+                "/videos-for-search/*/complete will register but skip embedding generation"
             )
 
         router = create_video_search_ingest_router(
