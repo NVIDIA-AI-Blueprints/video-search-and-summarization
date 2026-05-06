@@ -36,10 +36,6 @@ general:
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
     endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
     - path: /api/v1/search
       method: POST
       description: "Search for a video by query"
