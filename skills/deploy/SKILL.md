@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy, debug, or tear down any VSS profile using a compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken".
+description: Deploy, debug, or tear down any VSS profile using a compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Also handles MCP-orchestrated deployments. Use this skill when the user says "deploy vss", "deploy <profile>", "deploy <profile> with mcp", "debug deploy", "verify deployment", or "why is my vss deploy broken".
 version: "3.2.0"
 license: "Apache License 2.0"
 ---
@@ -18,6 +18,9 @@ Deploy any VSS profile using a compose-centric workflow: build env overrides, ge
 | "deploy for incident report" | `alerts` | `references/alerts.md` |
 | "deploy lvs" / "video summarization" | `lvs` | `references/lvs.md` |
 | "deploy search" / "video search" | `search` | `references/search.md` |
+| "deploy [profile] with mcp" | any | `references/mcp.md` |
+
+> **When routed to a reference file above: read that file and follow it exclusively. Do not read or execute anything else in this SKILL.md.**
 
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md)
 for the 4B-LLM recipe (`config_edge.yml` + standalone vLLM on port 30081). Edge
