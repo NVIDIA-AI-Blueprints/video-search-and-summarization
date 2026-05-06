@@ -1026,10 +1026,26 @@ class TopAgent(AsyncMixin):
                         and hasattr(tool_response, "summary")
                         and tool_response.summary
                     ):
-                        # Extract summary but defer FINAL chunk until postprocessing validates it
+                        current_user_text = (
+                            str(state.current_message.content)
+                            if state.current_message and state.current_message.content
+                            else ""
+                        )
+                        user_requested_report = "report" in current_user_text.lower()
                         final_content = tool_response.summary
-                        state.final_answer = final_content
-                        logger.info(f"Extracted summary from {tool_call['name']} (pending postprocessing validation)")
+                        # A report request must continue to report_agent/video_report_gen so
+                        # artifact links are produced, even if a summary tool succeeds first.
+                        if not user_requested_report or tool_call["name"] == "video_report_gen":
+                            # Extract summary but defer FINAL chunk until postprocessing validates it
+                            state.final_answer = final_content
+                            logger.info(
+                                f"Extracted summary from {tool_call['name']} (pending postprocessing validation)"
+                            )
+                        else:
+                            logger.info(
+                                "Tool %s returned a summary, but the user requested a report; continuing graph traversal",
+                                tool_call["name"],
+                            )
                         # Use a shorter message for scratchpad and reasoning trace
                         tool_response_str = f"Returned summary with {len(final_content)} characters"
 

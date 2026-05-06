@@ -61,7 +61,7 @@ services:
 
   vss-agent:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}
+    image: ${VSS_AGENT_IMAGE:-nvcr.io/nvstaging/vss-core/vss-agent:${VSS_AGENT_VERSION}}
     container_name: vss-agent
     network_mode: host
     profiles:
