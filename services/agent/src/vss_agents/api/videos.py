@@ -24,10 +24,6 @@ embedding generation. Each post-processing step skips gracefully if its
 backing service isn't configured, so this single endpoint works on every
 profile — search profiles get ingestion (RTVI-CV + embeddings) for free,
 base/lvs/alerts profiles complete the upload without it.
-
-The legacy ``/api/v1/videos-for-search/*`` routes in ``video_search_ingest``
-remain registered (deprecated) so existing UI clients keep working until
-they migrate to this single ``/complete`` endpoint.
 """
 
 import json
@@ -180,9 +176,8 @@ async def _run_post_upload_processing(
     """
     Run post-upload processing: get timeline, get video URL, add to RTVI-CV, generate embeddings.
 
-    Shared between the deprecated streaming PUT endpoint
-    (``/api/v1/videos-for-search/{filename}``) and the universal
-    ``/api/v1/videos/{filename}/upload-complete`` endpoint.
+    Called from the universal ``POST /api/v1/videos/{filename}/complete``
+    handler after the UI has uploaded chunks directly to VST.
 
     Args:
         camera_name: Identifier sent as RTVI-CV ``camera_name``. Callers should pass

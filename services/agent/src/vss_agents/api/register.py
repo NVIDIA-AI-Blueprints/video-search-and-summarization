@@ -16,6 +16,5 @@
 from . import front_end_config
 from . import health_endpoint
 from . import rtsp_stream_api
-from . import video_upload_url
 
-__all__ = ["front_end_config", "health_endpoint", "rtsp_stream_api", "video_upload_url"]
+__all__ = ["front_end_config", "health_endpoint", "rtsp_stream_api"]

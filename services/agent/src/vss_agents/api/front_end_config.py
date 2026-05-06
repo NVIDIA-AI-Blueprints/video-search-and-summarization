@@ -45,15 +45,6 @@ class StreamingIngestConfig(BaseModel):
 
     vst_internal_url: str = Field(default="", description="Internal URL for VST service")
 
-    enable_videos_for_search: bool = Field(
-        default=False,
-        description=(
-            "Register the deprecated /api/v1/videos-for-search/* routes "
-            "(search profile only). New callers should use the universal "
-            "POST /api/v1/videos/{filename}/complete instead."
-        ),
-    )
-
     delete_vst_storage_on_stream_remove: bool = Field(
         default=True,
         description=(
