@@ -13,10 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tool to configure real-time VLM stream monitoring via RTVI-VLM API."""
+"""Tool to manage real-time VLM alert rules via the Alert Bridge realtime API."""
 
 from collections.abc import AsyncGenerator
-import contextlib
 import json
 import logging
 from typing import Literal
@@ -35,11 +34,11 @@ logger = logging.getLogger(__name__)
 
 
 class RTVIVLMAlertConfig(FunctionBaseConfig, name="rtvi_vlm_alert"):
-    """Configuration for the RTVI-VLM alert tool."""
+    """Configuration for the real-time VLM alert tool."""
 
-    rtvi_vlm_base_url: str = Field(
+    alert_bridge_url: str = Field(
         ...,
-        description="Base URL for RTVI-VLM service (e.g., http://localhost:8000)",
+        description="Base URL for the Alert Bridge service (e.g., http://${INTERNAL_IP}:9080)",
     )
     vst_internal_url: str = Field(
         ...,
@@ -53,13 +52,33 @@ class RTVIVLMAlertConfig(FunctionBaseConfig, name="rtvi_vlm_alert"):
         "nvidia/cosmos-reason1-7b",
         description="Default VLM model for caption/alert generation",
     )
+    default_alert_type: str = Field(
+        "alert",
+        description="Default alert_type label assigned to created rules when not provided",
+    )
     default_chunk_duration: int = Field(
         20,
         description="Default chunk duration in seconds",
     )
+    default_chunk_overlap_duration: int = Field(
+        0,
+        description="Default chunk overlap duration in seconds",
+    )
     default_fps: int = Field(
         1,
         description="Default frames per second to analyze",
+    )
+    default_vlm_input_width: int = Field(
+        256,
+        description="Default VLM input width",
+    )
+    default_vlm_input_height: int = Field(
+        256,
+        description="Default VLM input height",
+    )
+    default_enable_reasoning: bool = Field(
+        False,
+        description="Whether to enable VLM reasoning by default",
     )
     default_prompt: str | None = Field(
         None,
@@ -69,19 +88,26 @@ class RTVIVLMAlertConfig(FunctionBaseConfig, name="rtvi_vlm_alert"):
         None,
         description="Default system prompt (if not provided via tool call)",
     )
-    timeout: int = Field(60, description="Request timeout in seconds")
+    timeout: int = Field(
+        180,
+        description="Request timeout in seconds. POST /api/v1/realtime waits for two RTVI round-trips, so allow 2x rtvi_vlm.timeout.",
+    )
 
 
 class RTVIVLMAlertInput(BaseModel):
-    """Input for RTVI-VLM stream alert operations."""
+    """Input for real-time VLM alert operations."""
 
     action: Literal["start", "stop", "get_incidents"] = Field(
         ...,
-        description="Action: 'start' (begin monitoring), 'stop' (end monitoring), 'get_incidents' (query detected incidents)",
+        description="Action: 'start' (create alert rule), 'stop' (delete alert rule), 'get_incidents' (query detected incidents)",
     )
     sensor_name: str | None = Field(
         None,
         description="Sensor name (e.g., HWY_20_AND_DEVON__WB). Required for all actions.",
+    )
+    alert_type: str | None = Field(
+        None,
+        description="Alert type label for the rule (e.g., 'collision', 'ppe_violation'). Only for 'start' action.",
     )
     prompt: str | None = Field(
         None,
@@ -111,11 +137,13 @@ class RTVIVLMAlertInput(BaseModel):
 
 
 class RTVIVLMAlertOutput(BaseModel):
-    """Output from RTVI-VLM alert operations."""
+    """Output from real-time VLM alert operations."""
 
     success: bool = Field(..., description="Whether the operation succeeded")
     sensor_name: str | None = Field(default=None, description="Sensor name")
-    stream_id: str | None = Field(default=None, description="RTVI-VLM stream ID (UUID)")
+    alert_rule_id: str | None = Field(
+        default=None, description="Alert Bridge alert rule ID (UUID) returned by POST /api/v1/realtime"
+    )
     message: str = Field(..., description="Status message")
     incidents: list[dict] | None = Field(default=None, description="List of incidents (for get_incidents action)")
     total_count: int | None = Field(
@@ -123,18 +151,21 @@ class RTVIVLMAlertOutput(BaseModel):
     )
 
 
-# In-memory mapping of sensor_name -> rtvi_stream_id (for stop action)
-_sensor_to_rtvi_stream_id: dict[str, str] = {}
+# In-memory mapping of sensor_name -> alert_rule_id (for stop action)
+_sensor_to_alert_rule_id: dict[str, str] = {}
 
 
 @register_function(config_type=RTVIVLMAlertConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
     """
-    Start or stop real-time VLM alert monitoring for a sensor.
+    Start or stop a real-time VLM alert rule for a sensor.
 
     Actions:
-    - start: Add stream to RTVI-VLM + start caption/alert generation
-    - stop: Stop caption generation + delete stream
+    - start: POST /api/v1/realtime on Alert Bridge to create a rule. Alert Bridge
+      registers the stream with RTVI VLM and starts caption/alert generation
+      transactionally; on any failure it rolls back.
+    - stop: DELETE /api/v1/realtime/{alert_rule_id} on Alert Bridge to stop
+      caption generation and remove the underlying RTVI VLM stream.
 
     Both actions use sensor_name only. The RTSP URL is fetched from VST live streams API.
     """
@@ -162,9 +193,9 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
             return result
 
     async def _rtvi_vlm_alert(input_data: RTVIVLMAlertInput) -> RTVIVLMAlertOutput:
-        """Execute RTVI-VLM stream alert operation."""
-        base_url = config.rtvi_vlm_base_url.rstrip("/")
-        logger.info(f"RTVI-VLM base URL: {base_url}")
+        """Execute real-time VLM alert operation against Alert Bridge."""
+        base_url = config.alert_bridge_url.rstrip("/")
+        logger.info(f"Alert Bridge base URL: {base_url}")
         timeout = aiohttp.ClientTimeout(total=config.timeout)
 
         sensor_name = input_data.sensor_name
@@ -250,44 +281,8 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                         )
 
                     rtsp_url = live_streams[sensor_name]["url"]
-                    logger.info(f"Starting RTVI-VLM alert for sensor: {sensor_name}, RTSP: {rtsp_url}")
+                    logger.info(f"Creating realtime alert rule for sensor: {sensor_name}, RTSP: {rtsp_url}")
 
-                    # Step 1: Add stream
-                    add_payload = {
-                        "streams": [
-                            {
-                                "liveStreamUrl": rtsp_url,
-                                "description": sensor_name,
-                                "sensor_name": sensor_name,
-                            }
-                        ]
-                    }
-
-                    async with session.post(f"{base_url}/v1/streams/add", json=add_payload) as response:
-                        if response.status != 200:
-                            error = await response.text()
-                            return RTVIVLMAlertOutput(
-                                success=False,
-                                sensor_name=sensor_name,
-                                message=f"Failed to add stream: {error}",
-                            )
-
-                        result = await response.json()
-                        rtvi_stream_id = result.get("results", [{}])[0].get("id")
-                        if not rtvi_stream_id:
-                            return RTVIVLMAlertOutput(
-                                success=False,
-                                sensor_name=sensor_name,
-                                message=f"Failed to get rtvi_stream_id from response: {result}",
-                            )
-
-                    logger.info(f"Stream added with RTVI ID: {rtvi_stream_id}")
-
-                    # Save mapping for stop action (in-memory only)
-                    _sensor_to_rtvi_stream_id[sensor_name] = rtvi_stream_id
-
-                    # Step 2: Start caption/alert generation
-                    # Use prompt from: tool input > config default > generic fallback
                     prompt = (
                         input_data.prompt
                         or config.default_prompt
@@ -298,100 +293,111 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                         or config.default_system_prompt
                         or "You are a video monitoring assistant. Provide detailed observations about relevant events."
                     )
+                    alert_type = input_data.alert_type or config.default_alert_type
 
-                    caption_payload = {
-                        "id": rtvi_stream_id,
-                        "model": config.default_model,
-                        "stream": True,
-                        "chunk_duration": config.default_chunk_duration,
-                        "num_frames_per_second_or_fixed_frames_chunk": config.default_fps,
-                        "use_fps_for_chunking": True,
+                    payload = {
+                        "live_stream_url": rtsp_url,
+                        "alert_type": alert_type,
+                        "sensor_name": sensor_name,
                         "prompt": prompt,
                         "system_prompt": system_prompt,
+                        "model": config.default_model,
+                        "chunk_duration": config.default_chunk_duration,
+                        "chunk_overlap_duration": config.default_chunk_overlap_duration,
+                        "num_frames_per_second_or_fixed_frames_chunk": config.default_fps,
+                        "use_fps_for_chunking": True,
+                        "vlm_input_width": config.default_vlm_input_width,
+                        "vlm_input_height": config.default_vlm_input_height,
+                        "enable_reasoning": config.default_enable_reasoning,
                     }
 
-                    async with session.post(f"{base_url}/v1/generate_captions", json=caption_payload) as response:
-                        if response.status != 200:
-                            error = await response.text()
-                            # Try to clean up the added stream
-                            with contextlib.suppress(Exception):
-                                await session.delete(f"{base_url}/v1/streams/delete/{rtvi_stream_id}")
+                    async with session.post(f"{base_url}/api/v1/realtime", json=payload) as response:
+                        body = await response.text()
+                        if response.status not in (200, 201):
                             return RTVIVLMAlertOutput(
                                 success=False,
                                 sensor_name=sensor_name,
-                                stream_id=rtvi_stream_id,
-                                message=f"Stream added but failed to start monitoring: {error}",
+                                message=f"Failed to create alert rule (HTTP {response.status}): {body}",
                             )
+
+                        try:
+                            result = json.loads(body)
+                        except json.JSONDecodeError:
+                            return RTVIVLMAlertOutput(
+                                success=False,
+                                sensor_name=sensor_name,
+                                message=f"Invalid JSON response from Alert Bridge: {body}",
+                            )
+
+                        alert_rule_id = result.get("id")
+                        if not alert_rule_id:
+                            return RTVIVLMAlertOutput(
+                                success=False,
+                                sensor_name=sensor_name,
+                                message=f"Alert Bridge response missing 'id': {result}",
+                            )
+
+                    _sensor_to_alert_rule_id[sensor_name] = alert_rule_id
+                    logger.info(f"Realtime alert rule {alert_rule_id} created for sensor {sensor_name}")
 
                     return RTVIVLMAlertOutput(
                         success=True,
                         sensor_name=sensor_name,
-                        stream_id=rtvi_stream_id,
+                        alert_rule_id=alert_rule_id,
                         message=f"Real-time VLM alert started for sensor {sensor_name}.",
                     )
 
                 # === STOP ===
                 elif input_data.action == "stop":
                     assert sensor_name is not None  # validated above for stop action
-                    # Get rtvi_stream_id from mapping
-                    rtvi_stream_id = _sensor_to_rtvi_stream_id.get(sensor_name)
+                    alert_rule_id = _sensor_to_alert_rule_id.get(sensor_name)
 
-                    if not rtvi_stream_id:
+                    if not alert_rule_id:
                         return RTVIVLMAlertOutput(
                             success=False,
                             sensor_name=sensor_name,
                             message=f"No active alert found for sensor '{sensor_name}'. "
-                            f"Active sensors: {list(_sensor_to_rtvi_stream_id.keys())}",
+                            f"Active sensors: {list(_sensor_to_alert_rule_id.keys())}",
                         )
 
-                    logger.info(f"Stopping RTVI-VLM alert for sensor: {sensor_name}, rtvi_stream_id: {rtvi_stream_id}")
+                    logger.info(f"Deleting realtime alert rule {alert_rule_id} for sensor {sensor_name}")
 
-                    # Step 1: Stop caption generation
-                    try:
-                        async with session.delete(f"{base_url}/v1/generate_captions/{rtvi_stream_id}") as response:
-                            if response.status not in (200, 204, 404):
-                                error = await response.text()
-                                logger.warning(f"Failed to stop captions: {error}")
-                    except Exception as e:
-                        logger.warning(f"Error stopping captions: {e}")
-
-                    # Step 2: Delete stream
-                    async with session.delete(f"{base_url}/v1/streams/delete/{rtvi_stream_id}") as response:
-                        # Remove from mapping regardless of result
-                        _sensor_to_rtvi_stream_id.pop(sensor_name, None)
+                    async with session.delete(f"{base_url}/api/v1/realtime/{alert_rule_id}") as response:
+                        body = await response.text()
 
                         if response.status in (200, 204):
+                            _sensor_to_alert_rule_id.pop(sensor_name, None)
                             return RTVIVLMAlertOutput(
                                 success=True,
                                 sensor_name=sensor_name,
-                                stream_id=rtvi_stream_id,
+                                alert_rule_id=alert_rule_id,
                                 message=f"Real-time VLM alert stopped for sensor {sensor_name}.",
                             )
                         elif response.status == 404:
+                            _sensor_to_alert_rule_id.pop(sensor_name, None)
                             return RTVIVLMAlertOutput(
                                 success=True,
                                 sensor_name=sensor_name,
-                                stream_id=rtvi_stream_id,
+                                alert_rule_id=alert_rule_id,
                                 message=f"Alert for sensor {sensor_name} was already stopped.",
                             )
                         else:
-                            error = await response.text()
                             return RTVIVLMAlertOutput(
                                 success=False,
                                 sensor_name=sensor_name,
-                                stream_id=rtvi_stream_id,
-                                message=f"Failed to delete stream: {error}",
+                                alert_rule_id=alert_rule_id,
+                                message=f"Failed to delete alert rule (HTTP {response.status}): {body}",
                             )
 
         except aiohttp.ClientError as e:
-            logger.error(f"RTVI-VLM connection error: {e}")
+            logger.error(f"Alert Bridge connection error: {e}")
             return RTVIVLMAlertOutput(
                 success=False,
                 sensor_name=sensor_name,
                 message=f"Connection error: {e}",
             )
         except Exception as e:
-            logger.error(f"RTVI-VLM operation failed: {e}")
+            logger.error(f"Realtime alert operation failed: {e}")
             return RTVIVLMAlertOutput(
                 success=False,
                 sensor_name=sensor_name,
