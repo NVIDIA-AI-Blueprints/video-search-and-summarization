@@ -15,7 +15,7 @@
 
 services:
   alert-bridge:
-    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.62
+    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.63
     container_name: vss-alert-bridge
     profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     network_mode: host

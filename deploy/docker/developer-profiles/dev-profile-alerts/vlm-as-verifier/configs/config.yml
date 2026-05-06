@@ -143,6 +143,13 @@ alert_agent:
   default_stream_interval: 1                    # Default stream interval in minutes
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup
   chunk_size: 1
+  metrics:
+    # Requires PROMETHEUS_METRICS_ENABLED=true (env var) to have any effect.
+    # When false (default), the *_BY_SENSOR metric variants are never observed
+    # (zero cardinality cost). When true, each distinct sensor ID mints ~12
+    # additional Prometheus series per histogram — only enable for deployments
+    # with a bounded sensor fleet and a known series budget (~10k per target).
+    per_sensor_labels: false
   async_io:
     enabled: true                               # Guardrail: keep sync behavior by default
     vst_enabled: true                           # Guardrail: async-submit VST lookup path
@@ -175,6 +182,9 @@ rtvi_vlm:
   base_url: "http://localhost:8018/v1"          # RTVI VLM microservice URL (env: RTVI_VLM_BASE_URL)
   timeout: 10                                # HTTP request timeout (seconds)
   default_model: "${VLM_NAME}"  # Default VLM model for caption/alert generation
+  rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
+  pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
+  health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
 
 # WebSocket Configuration - Real-time alert broadcasting
 websocket:
@@ -185,10 +195,26 @@ websocket:
     count: 1                                   # Number of messages to read per batch
     reconnect_delay: 5                         # Seconds to wait before reconnecting on failure
 
+cors:
+  enabled: true
+  allow_origins: ['*']
+  allow_methods: ['*']
+  allow_headers: ['*']
+  allow_credentials: false
+
 elastic:
   enabled: true
   hosts:
     - http://localhost:9200
+
+# Persistence layer — durable storage for configs and prompts
+persistence:
+  enabled: true
+  backend: "elasticsearch"               # Only "elasticsearch" supported for now
+  index_prefix: "ab-"                    # Indices created as ab-{collection}
+  # elasticsearch:                       # Optional: override hosts (defaults to elastic.hosts above)
+  #   hosts:
+  #     - http://localhost:9200
 
 vlm_enhanced_sink:
   incident:
