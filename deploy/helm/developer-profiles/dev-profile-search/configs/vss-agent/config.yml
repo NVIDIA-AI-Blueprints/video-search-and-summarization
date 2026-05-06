@@ -21,9 +21,6 @@ general:
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      enable_videos_for_search: true
-      enable_rtsp_streams: true
-      enable_video_delete: true
       # storage in place when an RTSP stream is removed.
       delete_vst_storage_on_stream_remove: false
       rtvi_embed_base_url: ${RTVI_EMBED_BASE_URL}
@@ -36,10 +33,6 @@ general:
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
     endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
     - path: /api/v1/search
       method: POST
       description: "Search for a video by query"
@@ -74,11 +67,6 @@ object_stores:
     _type: in_memory
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: "${AGENT_BASE_URL}"
-
   search:
     _type: search
     embed_search_tool: embed_search

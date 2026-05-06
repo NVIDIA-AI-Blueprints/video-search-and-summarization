@@ -6,7 +6,7 @@ import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react
 import {
   UploadFilesDialog,
   copyToClipboard,
-  uploadFile,
+  uploadFileChunkedToVst,
   type UploadFileConfigTemplate,
   type FileUploadResult,
 } from '@aiqtoolkit-ui/common';
@@ -313,7 +313,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   children,
 }) => {
   const {
-    state: { agentApiUrlBase, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
+    state: { agentApiUrlBase, vstApiUrl, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
   } = useContext(HomeContext);
 
   const fileInputId = useId();
@@ -551,6 +551,13 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       return { filename, error: errorMessage, cancelled: false };
     }
 
+    if (!vstApiUrl) {
+      const errorMessage =
+        'VST API URL is not configured (NEXT_PUBLIC_VST_API_URL)';
+      updateUploadingFileStatus(fileId, 'error', errorMessage);
+      return { filename, error: errorMessage, cancelled: false };
+    }
+
     updateUploadingFileStatus(fileId, 'uploading');
     updateUploadingFileProgress(fileId, 0);
 
@@ -559,9 +566,14 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       const abortController = new AbortController();
       abortControllerMapRef.current.set(fileId, abortController);
 
-      // Use shared upload utility (uploadFilename from dialog when user edited it)
-      const result = await uploadFile(
+      // Chunked upload directly to VST (bypasses Cloudflare 100s timeout
+      // on large files by sending many short chunks instead of one
+      // monolithic PUT). The agent's /complete hook then runs
+      // post-processing (timelines + RTVI register + embeddings on
+      // search profiles).
+      const result = await uploadFileChunkedToVst(
         file,
+        vstApiUrl,
         agentApiUrlBase,
         formData,
         (progress) => updateUploadingFileProgress(fileId, progress),

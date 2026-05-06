@@ -14,7 +14,16 @@
 # limitations under the License.
 
 """
-RTSP Stream API Ingestion
+RTSP stream ingestion: ``POST /api/v1/rtsp-streams/add``.
+
+Adds a stream to VST and (when configured) registers it with RTVI-CV /
+RTVI-Embed (search path) or RTVI-VLM (LVS path). On any failure, the
+previously completed steps are rolled back in reverse.
+
+Also defines the shared ``ServiceConfig`` and the VST / RTVI helper
+functions used by both this module and ``rtsp_delete``. Keeping the helpers
+here lets the ingest path use them directly for rollback while the delete
+module just imports what it needs.
 """
 
 import logging
@@ -71,6 +80,33 @@ class ServiceConfig:
         self.delete_vst_storage_on_stream_remove = delete_vst_storage_on_stream_remove
 
 
+def _resolve_service_config(config: Any) -> ServiceConfig:
+    """Build a ``ServiceConfig`` from ``general.front_end.streaming_ingest``.
+
+    Shared between ``register_rtsp_ingest_routes`` and
+    ``register_rtsp_delete_routes`` so both paths read the same YAML keys.
+    """
+    streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
+    if streaming_config is None:
+        raise ValueError("streaming_ingest must be configured under general.front_end to register RTSP routes")
+
+    vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
+    if not vst_internal_url:
+        raise ValueError("streaming_ingest.vst_internal_url must be set for RTSP routes")
+
+    return ServiceConfig(
+        vst_internal_url=vst_internal_url,
+        rtvi_cv_base_url=getattr(streaming_config, "rtvi_cv_base_url", "") or "",
+        rtvi_embed_base_url=getattr(streaming_config, "rtvi_embed_base_url", "") or "",
+        rtvi_vlm_base_url=getattr(streaming_config, "rtvi_vlm_base_url", "") or "",
+        rtvi_embed_model=getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p"),
+        rtvi_embed_chunk_duration=getattr(streaming_config, "rtvi_embed_chunk_duration", 5),
+        delete_vst_storage_on_stream_remove=bool(
+            getattr(streaming_config, "delete_vst_storage_on_stream_remove", True)
+        ),
+    )
+
+
 # ============================================================================
 # Request/Response Models
 # ============================================================================
@@ -97,14 +133,6 @@ class AddStreamResponse(BaseModel):
     error: str | None = Field(None, description="Error details if failed")
 
 
-class DeleteStreamResponse(BaseModel):
-    """Response model for delete stream operation."""
-
-    status: str = Field(..., description="'success', 'partial', or 'failure'")
-    message: str = Field(..., description="Human-readable status message")
-    name: str = Field(..., description="The sensor name that was deleted")
-
-
 # ============================================================================
 # VST API Wrappers
 # ============================================================================
@@ -115,7 +143,6 @@ async def add_to_vst(config: ServiceConfig, request: AddStreamRequest) -> tuple[
     Add stream to VST and fetch the RTSP URL from streams API.
     Returns: (success, message, sensor_id, rtsp_url)
     """
-    # Add sensor using shared util
     success, msg, sensor_id = await vst_add_sensor(
         sensor_url=request.sensor_url,
         name=request.name,
@@ -128,10 +155,8 @@ async def add_to_vst(config: ServiceConfig, request: AddStreamRequest) -> tuple[
     if not success:
         return False, msg, None, None
 
-    # After successful add, sensor_id is guaranteed to be set
     assert sensor_id is not None, "sensor_id should be set after successful VST add"
 
-    # Fetch RTSP URL using shared util
     success, msg, rtsp_url = await vst_get_rtsp_url(sensor_id, config.vst_url)
     if not success:
         return False, msg, sensor_id, None
@@ -161,7 +186,7 @@ async def get_stream_info_by_name(config: ServiceConfig, name: str) -> tuple[boo
 
 
 # ============================================================================
-# RTVI API Functions
+# RTVI API Functions (add)
 # ============================================================================
 
 
@@ -354,7 +379,6 @@ async def start_embedding_generation(
     logger.debug(f"Payload: {payload}")
 
     try:
-        # Fire-and-verify: Open SSE connection, verify HTTP 200, then close
         async with client.stream(
             "POST",
             url,
@@ -367,8 +391,6 @@ async def start_embedding_generation(
                 logger.error(error)
                 return False, error
 
-            # HTTP 200 received - embedding generation has started
-            # RTVI-embed continues processing internally after we close
             logger.info(f"Embedding generation started for stream {stream_id}")
             return True, "OK"
 
@@ -379,7 +401,7 @@ async def start_embedding_generation(
 
 
 # ============================================================================
-# RTVI Cleanup Functions
+# RTVI Cleanup Functions (used by ingest rollback + delete path)
 # ============================================================================
 
 
@@ -480,27 +502,10 @@ async def cleanup_rtvi_vlm_stream(
 # ============================================================================
 
 
-def create_rtsp_stream_api_router(
-    vst_internal_url: str,
-    rtvi_cv_base_url: str = "",
-    rtvi_embed_base_url: str = "",
-    rtvi_vlm_base_url: str = "",
-    rtvi_embed_model: str = "cosmos-embed1-448p",
-    rtvi_embed_chunk_duration: int = 5,
-    delete_vst_storage_on_stream_remove: bool = True,
-) -> APIRouter:
-    """Create the RTSP stream API router with fire-and-forget implementation."""
+def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
+    """Create the router that handles ``POST /api/v1/rtsp-streams/add``."""
 
     router = APIRouter()
-    config = ServiceConfig(
-        vst_internal_url=vst_internal_url,
-        rtvi_cv_base_url=rtvi_cv_base_url,
-        rtvi_embed_base_url=rtvi_embed_base_url,
-        rtvi_vlm_base_url=rtvi_vlm_base_url,
-        rtvi_embed_model=rtvi_embed_model,
-        rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
-        delete_vst_storage_on_stream_remove=delete_vst_storage_on_stream_remove,
-    )
 
     @router.post(
         "/api/v1/rtsp-streams/add",
@@ -631,101 +636,6 @@ def create_rtsp_stream_api_router(
             error=None,
         )
 
-    @router.delete(
-        "/api/v1/rtsp-streams/delete/{name}",
-        response_model=DeleteStreamResponse,
-        response_model_exclude_none=True,
-        summary="Delete an RTSP stream by name",
-        description=(
-            "Removes the stream from VST. RTVI cleanup steps run when their URLs are "
-            "configured. VST storage is also removed when "
-            "``delete_vst_storage_on_stream_remove`` is True (default)."
-        ),
-        tags=["RTSP Streams"],
-    )
-    async def delete_stream(name: str) -> DeleteStreamResponse:
-        """
-        Delete an RTSP stream from services by camera/sensor name.
-
-        Best-effort: continues even if individual steps fail.
-
-        1. Find stream_id and RTSP URL from VST by name
-        2. Stop embedding generation (skipped when ``rtvi_embed_base_url`` empty)
-        3. Delete from RTVI-embed (skipped when ``rtvi_embed_base_url`` empty)
-        4. Delete from RTVI-CV (skipped when ``rtvi_cv_base_url`` empty)
-        5. Delete sensor from VST
-        6. Delete storage from VST (only when ``delete_vst_storage_on_stream_remove`` True)
-        """
-        results = []  # Track success/failure for overall status
-
-        logger.info(f"Deleting stream by name '{name}'")
-
-        # First, find stream_id and RTSP URL from VST by name (uses shared utils)
-        success, msg, stream_id, rtsp_url = await get_stream_info_by_name(config, name)
-        if not success:
-            logger.error(f"Failed to find stream '{name}': {msg}")
-            return DeleteStreamResponse(
-                status="failure",
-                message=f"Failed to find stream with name '{name}': {msg}",
-                name=name,
-            )
-
-        logger.info(f"Found stream_id '{stream_id}' for name '{name}'")
-        if stream_id is None:
-            return DeleteStreamResponse(
-                status="failure",
-                message=f"Found stream '{name}' but stream ID is missing",
-                name=name,
-            )
-
-        # RTVI cleanup runs only when at least one RTVI URL is configured.
-        # The individual cleanup helpers self-skip when their URL is empty,
-        # but we avoid opening an httpx client when nothing's configured.
-        if config.rtvi_embed_url or config.rtvi_cv_url:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                success, msg = await cleanup_rtvi_embed_generation(client, config, stream_id)
-                results.append(success)
-                logger.info(f"Stop embedding generation: {'OK' if success else msg}")
-
-                success, msg = await cleanup_rtvi_embed_stream(client, config, stream_id)
-                results.append(success)
-                logger.info(f"Delete from RTVI-embed: {'OK' if success else msg}")
-
-                success, msg = await cleanup_rtvi_cv(client, config, stream_id, name=name, sensor_url=rtsp_url or "")
-                results.append(success)
-                logger.info(f"Delete from RTVI-CV: {'OK' if success else msg}")
-
-        success, msg = await cleanup_vst_sensor(config, stream_id)
-        results.append(success)
-        logger.info(f"Delete VST sensor: {'OK' if success else msg}")
-
-        if config.delete_vst_storage_on_stream_remove:
-            success, msg = await cleanup_vst_storage(config, stream_id)
-            results.append(success)
-            logger.info(f"Delete VST storage: {'OK' if success else msg}")
-
-        # Determine overall status
-        all_success = all(results)
-        any_success = any(results)
-
-        if all_success:
-            status = "success"
-            message = f"Stream '{name}' deleted successfully"
-        elif any_success:
-            status = "partial"
-            message = f"Stream '{name}' partially deleted - some services failed"
-        else:
-            status = "failure"
-            message = f"Failed to delete stream '{name}'"
-
-        logger.info(f"Delete stream '{name}' completed with status: {status}")
-
-        return DeleteStreamResponse(
-            status=status,
-            message=message,
-            name=name,
-        )
-
     return router
 
 
@@ -734,63 +644,23 @@ def create_rtsp_stream_api_router(
 # ============================================================================
 
 
-def register_rtsp_stream_api_routes(app: FastAPI, config: Any) -> None:
-    """
-    Register RTSP stream API routes to the FastAPI app.
+def register_rtsp_ingest_routes(app: FastAPI, config: Any) -> None:
+    """Register ``POST /api/v1/rtsp-streams/add``.
 
-    Reads configuration from ``general.front_end.streaming_ingest`` in the YAML.
-    The caller (``CustomFastApiFrontEndWorker``) gates this on the
-    ``enable_rtsp_streams`` capability flag, so reaching this function with a
-    missing ``streaming_ingest`` is a programming error.
-
-    Args:
-        app: FastAPI application instance
-        config: NAT Config object containing application configuration
-
-    Raises:
-        ValueError: when ``streaming_ingest`` is missing or ``vst_internal_url``
-            is not set. ``rtvi_embed_base_url``/``rtvi_cv_base_url`` are
-            optional — empty values cause the corresponding RTVI steps to
-            self-skip at request time.
+    Reads configuration from ``general.front_end.streaming_ingest``. Only
+    ``vst_internal_url`` is required; ``rtvi_*_base_url`` values are optional
+    and unset URLs cause the corresponding RTVI step to self-skip at request
+    time (each profile gets the same shape).
     """
     try:
-        streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
-        if streaming_config is None:
-            raise ValueError(
-                "streaming_ingest must be configured under general.front_end to register RTSP stream API routes"
-            )
-
-        vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
-        rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
-        rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", "") or ""
-        rtvi_vlm_base_url = getattr(streaming_config, "rtvi_vlm_base_url", "") or ""
-        rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
-        rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
-        delete_vst_storage_on_stream_remove = bool(
-            getattr(streaming_config, "delete_vst_storage_on_stream_remove", True)
-        )
-
-        if not vst_internal_url:
-            raise ValueError("streaming_ingest.vst_internal_url must be set for RTSP stream routes")
-
-        router = create_rtsp_stream_api_router(
-            vst_internal_url=vst_internal_url,
-            rtvi_cv_base_url=rtvi_cv_base_url,
-            rtvi_embed_base_url=rtvi_embed_base_url,
-            rtvi_vlm_base_url=rtvi_vlm_base_url,
-            rtvi_embed_model=rtvi_embed_model,
-            rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
-            delete_vst_storage_on_stream_remove=delete_vst_storage_on_stream_remove,
-        )
-        app.include_router(router)
+        service_config = _resolve_service_config(config)
+        app.include_router(create_rtsp_ingest_router(service_config))
         logger.info(
-            "RTSP stream API routes registered "
-            f"(rtvi_embed={'on' if rtvi_embed_base_url else 'off'}, "
-            f"rtvi_cv={'on' if rtvi_cv_base_url else 'off'}, "
-            f"rtvi_vlm={'on' if rtvi_vlm_base_url else 'off'}, "
-            f"delete_vst_storage_on_stream_remove={delete_vst_storage_on_stream_remove})"
+            "RTSP ingest route registered "
+            f"(rtvi_embed={'on' if service_config.rtvi_embed_url else 'off'}, "
+            f"rtvi_cv={'on' if service_config.rtvi_cv_url else 'off'}, "
+            f"rtvi_vlm={'on' if service_config.rtvi_vlm_url else 'off'})"
         )
-
     except Exception as e:
-        logger.error(f"Failed to register RTSP stream API routes: {e}", exc_info=True)
+        logger.error(f"Failed to register RTSP ingest route: {e}", exc_info=True)
         raise

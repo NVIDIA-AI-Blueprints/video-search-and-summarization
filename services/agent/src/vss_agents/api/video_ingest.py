@@ -14,21 +14,30 @@
 # limitations under the License.
 
 """
-Custom streaming video ingest endpoint for VSS Search.
-This bypasses NAT's standard endpoint pattern to support file streaming.
+Profile-agnostic video upload completion.
+
+The UI uploads chunks directly to VST's nvstreamer endpoint (the same path
+Video Management already uses), then calls this module's universal
+``POST /api/v1/videos/{filename}/complete`` for post-processing: timeline
+lookup, storage URL resolution, optional RTVI-CV register, and optional
+embedding generation. Each post-processing step skips gracefully if its
+backing service isn't configured, so this single endpoint works on every
+profile — search profiles get ingestion (RTVI-CV + embeddings) for free,
+base/lvs/alerts profiles complete the upload without it.
 """
 
 import json
 import logging
+import os
 from typing import Any
 import urllib.parse
 
 from fastapi import APIRouter
 from fastapi import FastAPI
 from fastapi import HTTPException
-from fastapi import Request
 import httpx
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 
 from vss_agents.tools.vst.timeline import get_timeline
@@ -37,12 +46,6 @@ from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.url_translation import rewrite_url_host
 
 logger = logging.getLogger(__name__)
-
-# Allowed video MIME types - Only MP4 and MKV as supported
-ALLOWED_VIDEO_TYPES = {
-    "video/mp4",  # .mp4
-    "video/x-matroska",  # .mkv
-}
 
 
 def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None:
@@ -94,13 +97,69 @@ class VideoUploadCompleteInput(BaseModel):
     snake_case ``sensor_id`` for backward compatibility.
     """
 
-    model_config = {"populate_by_name": True, "extra": "ignore"}
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     sensor_id: str = Field(
         ...,
         alias="sensorId",
         min_length=1,
         description="Video stream identifier from the upload response",
+    )
+
+
+class _VideoUploadConfig(BaseModel):
+    """Resolved settings for the video upload + upload-complete routes.
+
+    Built once at registration time from ``streaming_ingest`` (preferred) or
+    environment variables (fallback for profiles where NAT strips the
+    section). ``vst_internal_url`` is the only required field — the RTVI URLs
+    are optional and downstream calls self-skip when their URL is empty.
+    """
+
+    vst_internal_url: str
+    rtvi_embed_base_url: str = ""
+    rtvi_cv_base_url: str = ""
+    rtvi_embed_model: str = "cosmos-embed1-448p"
+    rtvi_embed_chunk_duration: int = 5
+
+
+def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
+    """Read upload settings from YAML ``streaming_ingest`` with env-var fallback.
+
+    Returns None when ``VST_INTERNAL_URL`` can't be resolved — the caller logs
+    and skips registration so the agent boots without these routes.
+    """
+    streaming_config = getattr(getattr(config.general, "front_end", None), "streaming_ingest", None)
+
+    if streaming_config:
+        vst_internal_url = getattr(streaming_config, "vst_internal_url", None) or os.getenv("VST_INTERNAL_URL", "")
+        rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", None) or ""
+        rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
+        rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
+        rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+    else:
+        # NAT may strip unknown config sections — fall back to env vars set by
+        # the deploy template. Empty RTVI_*_PORT (base profile, where RTVI
+        # isn't deployed) keeps the URL empty so the post-processing step
+        # skips at request time instead of hanging on `http://host:`.
+        vst_internal_url = os.getenv("VST_INTERNAL_URL", "")
+        host_ip = os.getenv("HOST_IP", "")
+        rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "")
+        rtvi_cv_port = os.getenv("RTVI_CV_PORT", "")
+        rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip and rtvi_embed_port else ""
+        rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
+        rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
+        rtvi_embed_chunk_duration = 5
+
+    if not vst_internal_url:
+        return None
+
+    return _VideoUploadConfig(
+        vst_internal_url=vst_internal_url,
+        rtvi_embed_base_url=rtvi_embed_base_url,
+        rtvi_cv_base_url=rtvi_cv_base_url,
+        rtvi_embed_model=rtvi_embed_model,
+        rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
     )
 
 
@@ -117,8 +176,8 @@ async def _run_post_upload_processing(
     """
     Run post-upload processing: get timeline, get video URL, add to RTVI-CV, generate embeddings.
 
-    Shared between the streaming PUT endpoint (small files, streamed through agent) and
-    the chunked-upload /complete endpoint (large files, uploaded directly to VST in chunks).
+    Called from the universal ``POST /api/v1/videos/{filename}/complete``
+    handler after the UI has uploaded chunks directly to VST.
 
     Args:
         camera_name: Identifier sent as RTVI-CV ``camera_name``. Callers should pass
@@ -280,193 +339,33 @@ async def _run_post_upload_processing(
     )
 
 
-def create_streaming_video_ingest_router(
+def create_video_upload_complete_router(
     vst_internal_url: str,
-    rtvi_embed_base_url: str,
+    rtvi_embed_base_url: str = "",
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
 ) -> APIRouter:
-    """
-    Create a FastAPI router for streaming video ingest.
-
-    This router handles raw binary data uploads and streams them directly
-    to VST without buffering the entire file in memory/disk.
-
-    Args:
-        vst_internal_url: Internal VST URL for API calls (required)
-        rtvi_embed_base_url: Base URL for RTVI Embed service (required)
-        rtvi_cv_base_url: Base URL for RTVI-CV service (optional, skipped if empty)
-        rtvi_embed_model: Model name for RTVI embedding generation (default: cosmos-embed1-448p)
-        rtvi_embed_chunk_duration: Chunk duration in seconds for embedding generation (default: 5)
-
-    Returns:
-        APIRouter with the streaming video ingest route
-    """
+    """Build the universal ``POST /api/v1/videos/{filename}/complete`` router."""
     router = APIRouter()
 
-    @router.put(
-        "/api/v1/videos-for-search/{filename}",
-        response_model=VideoIngestResponse,
-        summary="Upload video with streaming (no buffering) to VST",
-        description="Streams video file directly from client to VST without ANY intermediate storage",
-        tags=["Video Ingest"],
-    )
-    async def stream_video_to_vst(
-        filename: str,
-        request: Request,
-    ) -> VideoIngestResponse:
-        """
-        This endpoint:
-        1. Receives raw binary data from request body
-        2. Streams directly to VST without ANY intermediate storage
-        3. Call VST to get the timelines of uploaded video
-        4. Call VST to get the video url
-        5. Call RTVI Embed to generate embeddings for the video
-        6. Return the video id and the number of chunks processed
-
-        Client must send:
-        - Content-Type: allowed video MIME types (mp4, mkv)
-        - Content-Length: <file_size>
-        - Body: Raw binary video data
-
-        Args:
-            filename: Name of the video file (from URL path parameter)
-            request: FastAPI Request object for accessing raw stream
-
-        Returns:
-            VideoIngestResponse with upload status
-
-        Raises:
-            HTTPException: If upload fails
-        """
-        # Fixed timestamp as per requirements
-        start_timestamp = "2025-01-01T00:00:00.000Z"
-
-        # Remove file extension if present to get video ID
-        video_id = filename.rsplit(".", 1)[0] if "." in filename else filename
-
-        # Construct VST upload URL
-        vst_url = vst_internal_url.rstrip("/")
-        vst_upload_url = f"{vst_url}/vst/api/v1/storage/file/{video_id}/{start_timestamp}"
-
-        # Get headers from request
-        content_type = request.headers.get("content-type")
-        content_length = request.headers.get("content-length")
-
-        # Validate Content-Type is present and valid
-        if not content_type:
-            logger.error("Content-Type header is missing")
-            raise HTTPException(
-                status_code=400,
-                detail="Content-Type header is required. Must be a video format (e.g., video/mp4, video/x-matroska)",
-            )
-
-        if content_type not in ALLOWED_VIDEO_TYPES:
-            logger.error(f"Unsupported video format: {content_type}")
-            raise HTTPException(
-                status_code=415,
-                detail=f"Unsupported video format: {content_type}. Supported formats: {', '.join(sorted(ALLOWED_VIDEO_TYPES))}",
-            )
-
-        logger.debug(f"Content-Type validated: {content_type}")
-
-        # Validate Content-Length is present
-        if not content_length:
-            logger.error("Content-Length header is required")
-            raise HTTPException(status_code=400, detail="Content-Length header is required")
-
-        try:
-            content_length_int = int(content_length)
-            if content_length_int == 0:
-                logger.error("Content-Length is 0")
-                raise HTTPException(status_code=400, detail="File is empty")
-        except ValueError as e:
-            logger.error(f"Invalid Content-Length: {content_length}")
-            raise HTTPException(status_code=400, detail="Invalid Content-Length header") from e
-
-        try:
-            # Stream directly from request to VST
-            # No intermediate storage, only 8KB in memory at a time
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                logger.info(f"Streaming directly from client to VST at {vst_upload_url}")
-
-                with TimeMeasure("video_ingest: stream upload to VST"):
-                    vst_response = await client.put(
-                        vst_upload_url,
-                        content=request.stream(),
-                        headers={"Content-Type": content_type, "Content-Length": content_length},
-                    )
-
-                # Check VST response
-                logger.info(f"VST upload response status: {vst_response.status_code}")
-                if vst_response.status_code not in (200, 201):
-                    error_msg = f"VST upload failed with status {vst_response.status_code}: {vst_response.text}"
-                    logger.error(error_msg)
-                    raise HTTPException(status_code=502, detail=f"VST upload failed: {error_msg}")
-
-                # Parse VST response
-                vst_result = vst_response.json()
-                logger.info(f"VST upload successful - Streamed {content_length_int} bytes")
-                logger.debug(f"VST response body: {vst_result}")
-
-                # Extract streamId and sensorId from VST response
-                vst_sensor_id = vst_result.get("sensorId")
-                if not vst_sensor_id:
-                    error_msg = f"VST response missing 'sensorId' field: {vst_result}"
-                    logger.error(error_msg)
-                    raise HTTPException(status_code=502, detail=f"VST response invalid: {error_msg}")
-
-                logger.info(f"VST sensor ID: {vst_sensor_id}")
-
-                # Extract filename from VST response
-                vst_filename = vst_result.get("filename", filename)
-                logger.info(f"VST filename: {vst_filename}")
-
-                # Run post-upload processing (timeline, storage URL, RTVI-CV, embeddings)
-                return await _run_post_upload_processing(
-                    camera_name=video_id,
-                    sensor_id=vst_sensor_id,
-                    filename=vst_filename,
-                    vst_url=vst_url,
-                    rtvi_embed_base_url=rtvi_embed_base_url,
-                    rtvi_cv_base_url=rtvi_cv_base_url,
-                    rtvi_embed_model=rtvi_embed_model,
-                    rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
-                )
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error in streaming video ingest: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Internal server error: {e!s}") from e
-
     @router.post(
-        "/api/v1/videos-for-search/{filename}/complete",
+        "/api/v1/videos/{filename}/complete",
         response_model=VideoIngestResponse,
-        summary="Complete a chunked video upload and trigger post-processing",
+        summary="Complete a chunked video upload",
         description=(
-            "Called after a chunked upload directly to VST is finished. "
-            "Triggers timeline lookup, RTVI-CV registration, and embedding generation. "
-            "This bypasses the streaming PUT endpoint to avoid Cloudflare's 100s timeout "
-            "for large files (the UI uploads chunks directly to VST, then calls this)."
+            "Universal completion endpoint. Called by the UI after the last chunk "
+            "lands. Runs timeline lookup → storage URL resolution → optional "
+            "RTVI-CV register → optional embedding generation. Each step skips "
+            "gracefully if its backing service isn't configured, so this works "
+            "across profiles; for search profiles the RTVI-CV/embedding hooks "
+            "drive ingestion."
         ),
         tags=["Video Ingest"],
     )
-    async def complete_video_upload(
-        filename: str,
-        body: VideoUploadCompleteInput,
-    ) -> VideoIngestResponse:
-        """
-        Complete a chunked video upload by running post-upload processing.
-
-        The client uploads the file directly to VST in chunks via the nvstreamer protocol,
-        then calls this endpoint with the sensorId from the last chunk's response so the
-        agent can trigger embedding generation and other post-processing.
-        """
-        vst_url = vst_internal_url.rstrip("/")
-        # Strip the file extension so RTVI-CV's camera_name matches the value
-        # the streaming PUT path produces for the same filename (line ~322).
+    async def upload_complete(filename: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
+        # Strip the extension so RTVI-CV's camera_name matches what the
+        # search-profile streaming PUT produces for the same filename.
         camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
         try:
@@ -474,7 +373,7 @@ def create_streaming_video_ingest_router(
                 camera_name=camera_name,
                 sensor_id=body.sensor_id,
                 filename=filename,
-                vst_url=vst_url,
+                vst_url=vst_internal_url,
                 rtvi_embed_base_url=rtvi_embed_base_url,
                 rtvi_cv_base_url=rtvi_cv_base_url,
                 rtvi_embed_model=rtvi_embed_model,
@@ -482,61 +381,37 @@ def create_streaming_video_ingest_router(
             )
         except HTTPException:
             raise
-        except Exception as e:
-            logger.error(f"Error in complete_video_upload: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Internal server error: {e!s}") from e
+        except Exception as exc:
+            logger.error("/complete failed for %s: %s", filename, exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Post-processing failed: {exc}") from exc
 
     return router
 
 
-# This function will be called by custom FastAPI worker to register the router
-def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
-    """
-    Register streaming video ingest (videos-for-search) routes to the FastAPI app.
+def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
+    """Register ``POST /api/v1/videos/{filename}/complete``.
 
-    Reads configuration from ``general.front_end.streaming_ingest`` in the YAML.
-    The caller (``CustomFastApiFrontEndWorker``) gates this on the
-    ``enable_videos_for_search`` capability flag, so reaching this function
-    with a missing ``streaming_ingest`` is a programming error.
-
-    These routes are search-only: both ``vst_internal_url`` and
-    ``rtvi_embed_base_url`` are required.
-
-    Args:
-        app: FastAPI application instance
-        config: NAT Config object containing application configuration
+    Embedding and RTVI-CV URLs are passed through when configured and the
+    handler self-skips downstream calls when they aren't — so base/alerts/lvs
+    profiles get a working completion path that just doesn't register
+    embeddings.
     """
     try:
-        streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
-        if streaming_config is None:
-            raise ValueError(
-                "streaming_ingest must be configured under general.front_end to register videos-for-search routes"
+        cfg = _resolve_video_upload_config(config)
+        if cfg is None:
+            logger.warning("VST_INTERNAL_URL not set — skipping POST /api/v1/videos/{filename}/complete")
+            return
+
+        app.include_router(
+            create_video_upload_complete_router(
+                vst_internal_url=cfg.vst_internal_url,
+                rtvi_embed_base_url=cfg.rtvi_embed_base_url,
+                rtvi_cv_base_url=cfg.rtvi_cv_base_url,
+                rtvi_embed_model=cfg.rtvi_embed_model,
+                rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
             )
-
-        vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
-        rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", "") or ""
-        rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
-        rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
-        rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
-
-        if not vst_internal_url:
-            raise ValueError("streaming_ingest.vst_internal_url must be set for videos-for-search routes")
-
-        if not rtvi_embed_base_url:
-            raise ValueError(
-                "streaming_ingest.rtvi_embed_base_url must be set for videos-for-search routes "
-                "(this endpoint is search-only and requires the embedding service)"
-            )
-
-        router = create_streaming_video_ingest_router(
-            vst_internal_url=vst_internal_url,
-            rtvi_embed_base_url=rtvi_embed_base_url,
-            rtvi_cv_base_url=rtvi_cv_base_url,
-            rtvi_embed_model=rtvi_embed_model,
-            rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
         )
-        app.include_router(router)
-        logger.info("Registered videos-for-search routes")
-    except Exception as e:
-        logger.error(f"Failed to register videos-for-search routes: {e}", exc_info=True)
+        logger.info("Registered POST /api/v1/videos/{filename}/complete")
+    except Exception as exc:
+        logger.error("Failed to register video upload-complete route: %s", exc, exc_info=True)
         raise

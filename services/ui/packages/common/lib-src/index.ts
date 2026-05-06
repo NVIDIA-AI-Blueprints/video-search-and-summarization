@@ -37,7 +37,9 @@ export type {
 // Utils
 export { copyToClipboard } from './utils/clipboard';
 export { formatTimestamp } from './utils/formatters';
-export { getUploadUrl, uploadFile } from './utils/videoUpload';
+export { getUploadUrl, uploadFile, uploadFileChunkedToVst, notifyGenericUploadComplete } from './utils/videoUpload';
 export type { FileUploadResult } from './utils/videoUpload';
+export { uploadFileChunked, CHUNK_SIZE_BYTES, MAX_CHUNK_RETRIES } from './utils/chunkedUpload';
+export type { ChunkedUploadOptions, ChunkedUploadResponse } from './utils/chunkedUpload';
 export { checkVideoUrl, fetchVideoUrlFromVst, replaceVideoUrlBase } from './utils/videoModal';
 export type { FetchVideoUrlParams } from './utils/videoModal';

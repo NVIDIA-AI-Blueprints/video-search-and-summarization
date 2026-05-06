@@ -337,22 +337,21 @@ def create_video_delete_router(
 
 def register_video_delete_routes(app: "FastAPI", config: "Any") -> None:
     """
-    Register video delete routes to the FastAPI app.
+    Register ``DELETE /api/v1/videos/{video_id}``.
 
-    Reads configuration from ``general.front_end.streaming_ingest`` in the YAML.
-    The caller (``CustomFastApiFrontEndWorker``) gates this on the
-    ``enable_video_delete`` capability flag, so reaching this function with a
-    missing ``streaming_ingest`` is a programming error.
+    Registered unconditionally on every profile by
+    ``CustomFastApiFrontEndWorker._register_streaming_routes`` — there's no
+    capability flag. Every profile is expected to expose this endpoint so
+    the UI's "delete uploaded video" action works the same way everywhere.
 
-    Args:
-        app: FastAPI application instance
-        config: NAT Config object containing application configuration
+    Reads configuration from ``general.front_end.streaming_ingest``. Only
+    ``vst_internal_url`` is required; ``elasticsearch_url`` and
+    ``rtvi_cv_base_url`` are optional — empty values cause the corresponding
+    cleanup steps to self-skip at request time.
 
     Raises:
-        ValueError: when ``streaming_ingest`` is missing or ``vst_internal_url``
-            is empty. ``elasticsearch_url`` and ``rtvi_cv_base_url`` are
-            optional — empty values cause the corresponding cleanup steps to
-            self-skip at request time.
+        ValueError: when ``streaming_ingest`` is missing or
+            ``vst_internal_url`` is empty.
     """
     try:
         streaming_config = getattr(config.general.front_end, "streaming_ingest", None)

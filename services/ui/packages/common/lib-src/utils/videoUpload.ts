@@ -1,7 +1,21 @@
 /**
- * Shared video upload utilities
- * Agent API upload (for search profiles) - get upload URL first, then PUT
+ * Shared video upload utilities.
+ *
+ * Two entry points:
+ *
+ *  - uploadFile: legacy two-step (POST /videos → PUT presigned URL).
+ *    Single monolithic PUT — hits Cloudflare's 100s request timeout on
+ *    large files over slow connections.
+ *
+ *  - uploadFileChunkedToVst: posts the file in chunks directly to VST's
+ *    /v1/storage/file (the same nvstreamer endpoint Video Management uses),
+ *    then calls the agent's /api/v1/videos/{filename}/complete for
+ *    post-processing. Each chunk is its own short request so the
+ *    Cloudflare 100s cutoff doesn't apply.
  */
+
+import { uploadFileChunked } from './chunkedUpload';
+import type { ChunkedUploadResponse } from './chunkedUpload';
 
 /**
  * Response from agent API when getting upload URL
@@ -147,4 +161,110 @@ export async function uploadFile(
   } finally {
     abortSignal?.removeEventListener('abort', abortListener);
   }
+}
+
+/**
+ * Notify the agent that a chunked upload completed, so it can run
+ * post-upload processing (embeddings, RTVI registration, etc.). The
+ * UI forwards the receiver's upload response as the request body
+ * without interpretation — the agent picks out the fields it needs.
+ *
+ * Hits the universal route at /api/v1/videos/{filename}/complete so this
+ * works across profiles (search, alerts, lvs, base). For search profiles,
+ * the agent's hook on this endpoint drives ingestion (RTVI-CV register +
+ * embedding generation); on other profiles each post-processing step
+ * gracefully no-ops when its backing service isn't configured.
+ *
+ * `formData` carries any per-upload custom parameters collected by the
+ * UI (e.g. from the chat upload dialog's env-configurable template). It
+ * is sent as a top-level `custom_params` field alongside the upload
+ * response, so the agent can read it via a dedicated model field when
+ * needed. Omitted entirely when empty so the body stays minimal.
+ */
+export async function notifyGenericUploadComplete(
+  agentApiUrl: string,
+  filename: string,
+  uploadResponse: ChunkedUploadResponse,
+  formData?: Record<string, any>,
+  signal?: AbortSignal,
+): Promise<void> {
+  const dotIndex = filename.lastIndexOf('.');
+  const filenameWithoutExt = dotIndex > 0 ? filename.substring(0, dotIndex) : filename;
+  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(filenameWithoutExt)}/complete`;
+
+  const body: Record<string, any> = { ...uploadResponse };
+  if (formData && Object.keys(formData).length > 0) {
+    body.custom_params = formData;
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!response.ok) {
+    let message = `Post-processing failed with status ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData?.detail) {
+        message = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+      }
+    } catch { /* use default */ }
+    throw new Error(message);
+  }
+}
+
+/**
+ * Chunked upload directly to VST — drop-in replacement for `uploadFile`
+ * that bypasses Cloudflare's 100s request timeout.
+ *
+ * Posts each chunk to `{vstApiUrl}/v1/storage/file` using the nvstreamer
+ * protocol (same path Video Management uses). After the final chunk lands,
+ * POSTs to `{agentApiUrl}/videos/{filename}/complete` for post-processing
+ * (timeline + storage URL + optional RTVI-CV register + optional embedding
+ * generation; the agent self-skips the steps whose backing services aren't
+ * configured).
+ *
+ * The signature mirrors `uploadFile` so callers can swap one for the
+ * other with minimal diff (the new `vstApiUrl` argument leads, then the
+ * agent URL). `formData` is forwarded to `/complete` as a top-level
+ * `custom_params` field so per-upload custom parameters from the dialog
+ * template reach the agent.
+ */
+export async function uploadFileChunkedToVst(
+  file: File,
+  vstApiUrl: string,
+  agentApiUrl: string,
+  formData: Record<string, any>,
+  onProgress?: (progress: number) => void,
+  abortSignal?: AbortSignal,
+  requestFilename?: string
+): Promise<FileUploadResult> {
+  const filenameForRequest = requestFilename?.trim() || file.name;
+  const chunkUploadUrl = `${vstApiUrl.replace(/\/$/, '')}/v1/storage/file`;
+
+  const uploadResponse = await uploadFileChunked({
+    file,
+    uploadUrl: chunkUploadUrl,
+    onProgress,
+    abortSignal,
+  });
+
+  if (abortSignal?.aborted) {
+    throw new Error('Upload was cancelled');
+  }
+
+  await notifyGenericUploadComplete(agentApiUrl, filenameForRequest, uploadResponse, formData, abortSignal);
+
+  // Reshape into the same FileUploadResult contract uploadFile returns.
+  return {
+    filename: (uploadResponse.filename as string) ?? filenameForRequest,
+    bytes: (uploadResponse.bytes as number) ?? file.size,
+    sensorId: uploadResponse.sensorId as string,
+    streamId: (uploadResponse.streamId as string) ?? (uploadResponse.sensorId as string),
+    filePath: (uploadResponse.filePath as string) ?? '',
+    timestamp: '2025-01-01T00:00:00.000Z',
+  };
 }
