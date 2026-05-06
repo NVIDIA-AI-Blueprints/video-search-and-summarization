@@ -23,10 +23,13 @@ Env (set by the workflow step):
     GH_TOKEN         PAT for bot PR creation + comment posting
 
 Exit codes:
-    0 - agent completed (drift may still have been reported via bot PR)
-    1 - setup error (missing env, AGENTS.md not found, sdk install failed)
+    0 - DONE: in sync (no drift)
+    1 - BLOCKED: ... (drift detected, bot branch pushed + source PR
+        commented; OR setup error / no helm counterpart / fork PR /
+        any other agent-emitted blocker). The workflow check fails
+        either way, blocking the source PR until parity returns.
     2 - agent crashed
-    3 - agent hit max_turns without finishing
+    3 - agent hit max_turns without finishing (treated as blocked)
 """
 from __future__ import annotations
 
@@ -177,7 +180,36 @@ async def run_agent() -> int:
         print("[agent] hit max_turns — agent may not have completed",
               file=sys.stderr)
         return 3
-    return 0
+
+    # Decide the workflow exit code from the agent's final marker line.
+    # AGENTS.md mandates the last meaningful line is one of:
+    #   DONE: in sync                                            → exit 0
+    #   BLOCKED: helm drift for PR #N; branch=...; confidence=N/5 → exit 1
+    #   BLOCKED: <other reason>                                   → exit 1
+    # Anything else (the agent didn't emit a marker) is treated as a
+    # blocker — silence is not success.
+    marker = ""
+    for line in reversed(final_text):
+        for raw in reversed(line.splitlines()):
+            stripped = raw.strip()
+            if stripped.startswith(("DONE:", "BLOCKED:")):
+                marker = stripped
+                break
+        if marker:
+            break
+
+    if marker.startswith("DONE: in sync"):
+        print(f"[agent] verdict: {marker}", flush=True)
+        return 0
+    if marker.startswith("BLOCKED:"):
+        # Surface the marker as the very last log line so the GH Actions
+        # check summary is self-explanatory at a glance.
+        print(f"[agent] verdict: {marker}", flush=True)
+        return 1
+    print("[agent] no DONE/BLOCKED marker found in final output — "
+          "treating as blocked",
+          file=sys.stderr)
+    return 1
 
 
 # ---------------------------------------------------------------------------
