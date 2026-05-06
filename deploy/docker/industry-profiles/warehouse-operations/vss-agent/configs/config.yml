@@ -16,9 +16,11 @@
 general:
   use_uvloop: true
   front_end:
-    _type: fastapi
+    _type: vss_fastapi
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
