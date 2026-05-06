@@ -458,6 +458,95 @@ class TestGlobalFilters:
         assert _ts(_W_125) in kept_starts  # rank 1 in embed
         assert _ts(_W_130) in kept_starts  # rank 1 in attribute
 
+    def test_required_spaces_drops_rows_missing_anchor(self):
+        # required_spaces=["embed"] is a hard gate: any row whose
+        # contributing_spaces does not include 'embed' is dropped, regardless
+        # of how strong attribute (or any other space) voted.
+        fused = self._two_space_fused()
+        out = apply_global_filters(
+            fused,
+            min_contributing_spaces=1,
+            keep_if_top_n_in_any_space=None,
+            score_threshold=None,
+            required_spaces=["embed"],
+        )
+        # warehouse_01 @ 00:01:25 / 00:01:30 (both spaces) and warehouse_01 @
+        # 00:01:35, dock @ 00:03:10 (embed only) all have embed in contributing_spaces.
+        # dock @ 00:05:00 is attribute-only -> dropped.
+        kept_starts = {row.key.start for row in out.values()}
+        assert _ts(_D_500) not in kept_starts
+        # All survivors must include embed.
+        for row in out.values():
+            assert "embed" in row.contributing_spaces
+
+    def test_required_spaces_no_exemption_via_top_n(self):
+        # Hard gate semantics: keep_if_top_n_in_any_space cannot rescue
+        # an anchor-violating row. Required means required.
+        # dock @ 00:05:00 is rank 3 in attribute -> would normally be exempt
+        # at keep_if_top_n_in_any_space=3, but required_spaces=["embed"] wins.
+        fused = self._two_space_fused()
+        out = apply_global_filters(
+            fused,
+            min_contributing_spaces=1,
+            keep_if_top_n_in_any_space=3,
+            score_threshold=None,
+            required_spaces=["embed"],
+        )
+        kept_starts = {row.key.start for row in out.values()}
+        assert _ts(_D_500) not in kept_starts
+
+    def test_required_spaces_empty_list_disables_gate(self):
+        # Empty list (default) is a no-op. attribute-only rows survive.
+        fused = self._two_space_fused()
+        baseline = apply_global_filters(
+            fused,
+            min_contributing_spaces=1,
+            keep_if_top_n_in_any_space=None,
+            score_threshold=None,
+        )
+        with_empty = apply_global_filters(
+            fused,
+            min_contributing_spaces=1,
+            keep_if_top_n_in_any_space=None,
+            score_threshold=None,
+            required_spaces=[],
+        )
+        assert {r.key for r in baseline.values()} == {r.key for r in with_empty.values()}
+
+    def test_required_spaces_all_dropped_when_anchor_missing(self):
+        # Pathological case: required space did not contribute to ANY row.
+        # Output must be empty - the contract is "no anchor, no answer".
+        # Build a fused dict from a single attribute-only list (no embed).
+        fused = fuse(
+            [bucketize(_warehouse_attribute_list(), 5)],
+            method="rrf",
+            rrf_k=60,
+            weights={"attribute": 1.0},
+        )
+        assert fused  # sanity: attribute-only fusion produces rows
+        out = apply_global_filters(
+            fused,
+            min_contributing_spaces=1,
+            keep_if_top_n_in_any_space=10,  # would otherwise rescue everything
+            score_threshold=None,
+            required_spaces=["embed"],
+        )
+        assert out == {}
+
+    def test_required_spaces_multiple_all_must_be_present(self):
+        # Multi-space requirement is conjunctive (set subset semantics):
+        # a row must include EVERY listed space, not just any one.
+        fused = self._two_space_fused()
+        # Require both 'embed' AND a non-existent 'caption' space -> nothing survives.
+        out = apply_global_filters(
+            fused,
+            min_contributing_spaces=1,
+            keep_if_top_n_in_any_space=None,
+            score_threshold=None,
+            required_spaces=["embed", "caption"],
+        )
+        assert out == {}
+
 
 class TestComputeScoreThreshold:
     """compute_score_threshold returns a fraction of the maximum possible fused score (ceiling)."""
@@ -709,6 +798,78 @@ class TestRunFusion:
         # dock @ 00:05:00 was attribute-only at 0.41 -> filtered out.
         sensor_starts = {(s.sensor_id, s.start) for s in out.segments}
         assert (_D, _ts(_D_500)) not in sensor_starts
+
+    def test_required_spaces_drops_attribute_only_dock_segment(self):
+        # End-to-end: required_spaces=["embed"] enforces the anchor invariant
+        # post-fuse. dock @ 00:05:00 (attribute-only at score 0.41) survives
+        # the pre-fuse filter but gets dropped at the global filter stage.
+        inp = FusionInput(
+            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            space_weights=_WAREHOUSE_WEIGHTS,
+            chunk_seconds=5,
+            method="rrf",
+            rrf_k=60,
+            required_spaces=["embed"],
+            top_k_segments=10,
+        )
+        out = run_fusion(inp)
+        # Every surviving segment must include embed in contributing_spaces.
+        for seg in out.segments:
+            assert "embed" in seg.contributing_spaces
+        # Specifically, the attribute-only dock segment is gone.
+        sensor_starts = {(s.sensor_id, s.start) for s in out.segments}
+        assert (_D, _ts(_D_500)) not in sensor_starts
+
+    def test_per_space_min_score_plus_required_spaces_yields_empty_when_anchor_weak(self):
+        # The combination ported from search.py:
+        #   per_space_min_score = {"embed": <threshold>}
+        #   required_spaces     = ["embed"]
+        # When every embed chunk is below the threshold, the embed list is
+        # emptied pre-fuse, no row gets an embed contribution, and the hard
+        # gate rejects everything. Replaces legacy embed_confidence_threshold
+        # fallback semantics on the new path - "weak embed -> no answer".
+        inp = FusionInput(
+            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            space_weights=_WAREHOUSE_WEIGHTS,
+            chunk_seconds=5,
+            method="rrf",
+            rrf_k=60,
+            # 0.99 is above every embed score in the fixture (max 0.84).
+            per_space_min_score={"embed": 0.99},
+            required_spaces=["embed"],
+            top_k_segments=10,
+        )
+        out = run_fusion(inp)
+        assert out.segments == []
+
+    def test_per_space_min_score_plus_required_spaces_keeps_strong_embed(self):
+        # Inverse of the test above: when at least some embed chunks survive
+        # the threshold, those rows are kept, and rows whose only contributor
+        # was the dropped embed signal become attribute-only -> rejected by
+        # required_spaces. Net effect: only chunks with surviving embed evidence
+        # pass through.
+        inp = FusionInput(
+            lists=[_warehouse_embed_list(), _warehouse_attribute_list()],
+            space_weights=_WAREHOUSE_WEIGHTS,
+            chunk_seconds=5,
+            method="rrf",
+            rrf_k=60,
+            # 0.80 keeps warehouse_01 @ 00:01:25 (0.84) and 00:01:30 (0.81),
+            # drops warehouse_01 @ 00:01:35 (0.78) and dock @ 00:03:10 (0.62).
+            per_space_min_score={"embed": 0.80},
+            required_spaces=["embed"],
+            top_k_segments=10,
+            merge_adjacent=False,
+        )
+        out = run_fusion(inp)
+        kept = {(s.sensor_id, s.start) for s in out.segments}
+        assert (_W, _ts(_W_125)) in kept
+        assert (_W, _ts(_W_130)) in kept
+        # Embed-only chunks dropped by the threshold leave no anchor for these rows.
+        assert (_W, _ts(_W_135)) not in kept
+        assert (_D, _ts(_D_310)) not in kept
+        # dock @ 00:05:00 was attribute-only -> dropped by required_spaces.
+        assert (_D, _ts(_D_500)) not in kept
 
     def test_min_fused_score_ratio_ignores_emptied_lists_in_ceiling(self):
         # Regression: a list emptied by per_space_min_score (or bucketize dedupe)
@@ -1022,6 +1183,16 @@ class TestFusionInputContract:
     def test_keep_if_top_n_in_any_space_none_accepted(self):
         """``keep_if_top_n_in_any_space=None`` disables the exemption and must remain valid."""
         FusionInput(space_weights={}, keep_if_top_n_in_any_space=None)
+
+    def test_required_spaces_default_is_empty_list(self):
+        """Default ``required_spaces=[]`` disables the anchor gate (back-compat)."""
+        inp = FusionInput(space_weights={})
+        assert inp.required_spaces == []
+
+    def test_required_spaces_accepts_list_of_strings(self):
+        """``required_spaces=["embed"]`` is the canonical anchor configuration."""
+        inp = FusionInput(space_weights={}, required_spaces=["embed"])
+        assert inp.required_spaces == ["embed"]
 
 
 class TestSpaceWeightsContract:
