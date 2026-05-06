@@ -232,10 +232,13 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-video-analytics-api
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
-
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
+      elasticsearch-init-container:
+        condition: service_completed_successfully
+        required: false
   perception-sdr-alerts-2d:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
