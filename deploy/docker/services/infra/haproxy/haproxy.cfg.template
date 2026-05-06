@@ -43,6 +43,11 @@ backend bk_vss_agent
 backend bk_vst_ingress
     server s1 "${HOST_IP}:${VST_PORT}" check
 
+backend bk_vst_storage_compat
+    http-request replace-path ^/storage/(.*) /vst/storage/\1
+    http-request replace-path ^/storage$ /vst/storage
+    server s1 "${HOST_IP}:${VST_PORT}" check
+
 backend bk_behavior_analytics
     server s1 "${HOST_IP}:${BEHAVIOR_ANALYTICS_PORT}" check
 
@@ -99,6 +104,18 @@ frontend fe_http
     acl h_main hdr(host) -i "localhost:${HAPROXY_PORT}"
     acl h_main hdr(host) -i 127.0.0.1
     acl h_main hdr(host) -i "127.0.0.1:${HAPROXY_PORT}"
+
+    acl p_vst_storage path /vst/storage
+    acl p_vst_storage path_beg /vst/storage/
+    acl p_storage path /storage
+    acl p_storage path_beg /storage/
+    acl m_head method HEAD
+    acl m_options method OPTIONS
+    http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_storage
+    http-request return status 200 hdr Accept-Ranges bytes if h_main m_head p_vst_storage
+    http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
+    http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
+    use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api
     acl p_video_analytics path_beg /video-analytics-api/
