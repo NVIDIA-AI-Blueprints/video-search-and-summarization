@@ -23,13 +23,13 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.api.videos import VideoIngestResponse
-from vss_agents.api.videos import VideoUploadCompleteInput
-from vss_agents.api.videos import _parse_optional_http_url
-from vss_agents.api.videos import _resolve_video_upload_config
-from vss_agents.api.videos import _run_post_upload_processing
-from vss_agents.api.videos import create_video_upload_complete_router
-from vss_agents.api.videos import register_video_upload_complete
+from vss_agents.api.video_ingest import VideoIngestResponse
+from vss_agents.api.video_ingest import VideoUploadCompleteInput
+from vss_agents.api.video_ingest import _parse_optional_http_url
+from vss_agents.api.video_ingest import _resolve_video_upload_config
+from vss_agents.api.video_ingest import _run_post_upload_processing
+from vss_agents.api.video_ingest import create_video_upload_complete_router
+from vss_agents.api.video_ingest import register_video_upload_complete
 
 
 class TestVideoIngestResponse:
@@ -132,7 +132,7 @@ class TestRunPostUploadProcessing:
     @staticmethod
     def _timeline_patch(start="2025-01-01T00:00:00.000Z", end="2025-01-01T00:00:10.000Z"):
         return patch(
-            "vss_agents.api.videos.get_timeline",
+            "vss_agents.api.video_ingest.get_timeline",
             new=AsyncMock(return_value=(start, end)),
         )
 
@@ -156,7 +156,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock(side_effect=[cv_resp, embed_resp])
 
-        with self._timeline_patch(), patch("vss_agents.api.videos.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -184,7 +184,7 @@ class TestRunPostUploadProcessing:
         # First POST (CV) raises ConnectError; second POST (embed) succeeds.
         client.post = AsyncMock(side_effect=[httpx.ConnectError("connection refused"), embed_resp])
 
-        with self._timeline_patch(), patch("vss_agents.api.videos.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -206,7 +206,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock()  # No CV or embed POSTs expected.
 
-        with self._timeline_patch(), patch("vss_agents.api.videos.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
                 camera_name="clip",
                 sensor_id="sensor-abc",
@@ -230,7 +230,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock()
 
-        with self._timeline_patch(), patch("vss_agents.api.videos.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             with pytest.raises(HTTPException) as exc_info:
                 await _run_post_upload_processing(
                     camera_name="clip",
@@ -252,7 +252,7 @@ class TestRunPostUploadProcessing:
         client.get = AsyncMock(return_value=storage_resp)
         client.post = AsyncMock(return_value=cv_resp)
 
-        with self._timeline_patch(), patch("vss_agents.api.videos.httpx.AsyncClient", return_value=client):
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             with pytest.raises(HTTPException) as exc_info:
                 await _run_post_upload_processing(
                     camera_name="clip",
@@ -293,7 +293,7 @@ class TestUploadCompleteRoute:
         body = VideoUploadCompleteInput(**{"sensorId": "sensor-xyz"})
 
         with patch(
-            "vss_agents.api.videos._run_post_upload_processing",
+            "vss_agents.api.video_ingest._run_post_upload_processing",
             new=AsyncMock(return_value=VideoIngestResponse(message="ok", video_id="sensor-xyz", filename="clip.mp4")),
         ) as mock_post:
             response = await route.endpoint(filename="clip.mp4", body=body)

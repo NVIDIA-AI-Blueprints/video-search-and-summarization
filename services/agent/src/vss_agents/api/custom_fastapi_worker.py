@@ -25,9 +25,10 @@ from nat.builder.workflow_builder import WorkflowBuilder
 from nat.data_models.config import Config
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 
-from vss_agents.api.rtsp_stream_api import register_rtsp_stream_api_routes
+from vss_agents.api.rtsp_delete import register_rtsp_delete_routes
+from vss_agents.api.rtsp_ingest import register_rtsp_ingest_routes
 from vss_agents.api.video_delete import register_video_delete_routes
-from vss_agents.api.videos import register_video_upload_complete
+from vss_agents.api.video_ingest import register_video_upload_complete
 
 logger = logging.getLogger(__name__)
 
@@ -105,5 +106,6 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         logger.info("Registering streaming_ingest routes")
 
         register_video_upload_complete(app, self.config)
-        register_rtsp_stream_api_routes(app, self.config)
+        register_rtsp_ingest_routes(app, self.config)
+        register_rtsp_delete_routes(app, self.config)
         register_video_delete_routes(app, self.config)
