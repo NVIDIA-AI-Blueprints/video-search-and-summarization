@@ -184,12 +184,12 @@ vss-summarization:
     # summaries to `structured-events-summary`. Compose parity:
     # dev-profile-lvs/.env KAFKA_ENABLED=true, KAFKA_BOOTSTRAP_SERVERS,
     # KAFKA_STRUCTURED_SUMMARY_TOPIC.
-    - name: KAFKA_ENABLED
-      value: "true"
-    - name: KAFKA_BOOTSTRAP_SERVERS
-      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "kafka" }}{{- printf "%s:9092" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
-    - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
-      value: "structured-events-summary"
+    # - name: KAFKA_ENABLED
+    #   value: "true"
+    # - name: KAFKA_BOOTSTRAP_SERVERS
+    #   value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "kafka" }}{{- printf "%s:9092" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
+    # - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
+    #   value: "structured-events-summary"
 
 agent:
   enabled: true
