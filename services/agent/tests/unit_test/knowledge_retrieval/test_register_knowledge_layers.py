@@ -32,6 +32,7 @@ from vss_agents.register_knowledge_layers import KnowledgeRetrievalInput
 from vss_agents.register_knowledge_layers import _format_results
 from vss_agents.register_knowledge_layers import _setup_backend
 from vss_agents.register_knowledge_layers import knowledge_retrieval
+from vss_agents.tools.lvs_media_state import LVSConfiguredMedia
 
 
 class TestKnowledgeRetrievalConfig:
@@ -245,3 +246,40 @@ class TestKnowledgeRetrievalInner:
 
         kwargs = mock_retriever.retrieve.call_args.kwargs
         assert kwargs["filters"] == {"filter_expr": 'content_metadata["filename"] == "F.pdf"'}
+
+
+class TestStreamNameResolution:
+    """Cache-hit path: friendly name swapped for the cached `media_id` before
+    the adapter sees it. Miss/empty paths are exercised by the existing
+    `TestKnowledgeRetrievalInner` tests, which run with an empty cache and
+    assert the input passes through verbatim."""
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_resolves_friendly_name_to_media_id(self):
+        config = KnowledgeRetrievalConfig(
+            backend="es_caption", top_k=5, backend_config={"elasticsearch_url": "http://es:9200"}
+        )
+        mock_retriever = AsyncMock()
+        mock_retriever.retrieve.return_value = RetrievalResult(query="q", backend="es_caption", success=True, chunks=[])
+        resolved_uuid = "90465930-cab4-4ede-b106-aae5c54ab814"
+        cached = LVSConfiguredMedia(
+            media_type="stream",
+            media_name="warehouse_sample_test",
+            media_id=resolved_uuid,
+            media_url="rtsp://x",
+            scenario="warehouse",
+            events=(),
+            objects_of_interest=(),
+        )
+        with (
+            patch(
+                "vss_agents.register_knowledge_layers.get_retriever",
+                new=AsyncMock(return_value=mock_retriever),
+            ),
+            patch("vss_agents.register_knowledge_layers.configured_media", return_value=cached),
+        ):
+            gen = knowledge_retrieval.__wrapped__(config, AsyncMock())
+            inner_fn = (await gen.__anext__()).single_fn
+            await inner_fn(KnowledgeRetrievalInput(query="q", collection="warehouse_sample_test"))
+
+        assert mock_retriever.retrieve.call_args.kwargs["collection_name"] == resolved_uuid

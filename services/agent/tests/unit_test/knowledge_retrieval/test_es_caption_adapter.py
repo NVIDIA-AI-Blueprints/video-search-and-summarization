@@ -139,7 +139,7 @@ class TestEsCaptionAdapter:
 
     @pytest.fixture
     def adapter(self):
-        # Exercises the production default (`aggregated_summary`).
+        # Exercises the production default (`raw_events`).
         return EsCaptionAdapter(
             EsCaptionConfig(
                 elasticsearch_url="http://es:9200",
@@ -191,13 +191,13 @@ class TestEsCaptionAdapter:
         assert self._must(body) == [{"match": {"text": "graffiti on bridge"}}]
         # Default doc_type + collection->uuid lifted in automatically.
         assert {"term": {"metadata.content_metadata.uuid": "stream-A"}} in self._filters(body)
-        assert {"term": {"metadata.content_metadata.doc_type": "aggregated_summary"}} in self._filters(body)
+        assert {"term": {"metadata.content_metadata.doc_type": "raw_events"}} in self._filters(body)
 
     def test_doc_type_override_via_filters(self, adapter):
-        body = adapter._build_query("q", "s", top_k=5, filters={"doc_type": "raw_events"})
+        body = adapter._build_query("q", "s", top_k=5, filters={"doc_type": "aggregated_summary"})
         # Override wins, default is dropped.
         doc_terms = [f for f in self._filters(body) if "metadata.content_metadata.doc_type" in str(f)]
-        assert doc_terms == [{"term": {"metadata.content_metadata.doc_type": "raw_events"}}]
+        assert doc_terms == [{"term": {"metadata.content_metadata.doc_type": "aggregated_summary"}}]
 
     def test_camera_id_lifted_to_term_filter(self, adapter):
         body = adapter._build_query("q", "s", top_k=5, filters={"camera_id": "cam-A"})
