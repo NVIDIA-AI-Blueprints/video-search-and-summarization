@@ -14,20 +14,100 @@
 # limitations under the License.
 
 services:
+  lvs-kafka-topic-init:
+    image: confluentinc/cp-kafka:8.1.1
+    container_name: vss-lvs-kafka-topics
+    network_mode: "host"
+    profiles: ["bp_developer_lvs_2d"]
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/services/infra/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
+    environment:
+      DEFAULT_PARTITIONS: "8"
+      DEFAULT_RETENTION_MS: "14400000"
+      DEFAULT_SEGMENT_MS: "3600000"
+      DEFAULT_REPLICATION_FACTOR: "1"
+      BOOTSTRAP_HOST: localhost
+      KAFKA_PORT: 9092
+      KAFKA_TOPICS: '[{"name": "${KAFKA_RAW_VLM_TOPIC:-raw-vlm-events-response}"},
+        {"name": "${KAFKA_STRUCTURED_SUMMARY_TOPIC:-structured-events-summary}"}]'
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: "bash /usr/bin/create-kafka-topics.sh"
+    restart: "no"
+
+  lvs-logstash:
+    image: docker.elastic.co/logstash/logstash:${LOGSTASH_VERSION:-8.15.3}
+    container_name: lvs-logstash
+    network_mode: "host"
+    profiles: ["bp_developer_lvs_2d"]
+    # The stock image's ENTRYPOINT is /usr/local/bin/docker-entrypoint. We
+    # override it so the conditional plugin install can run first, then
+    # exec the original entrypoint so normal boot continues.
+    #
+    # NOTE: the script MUST live inside `entrypoint` as a 3-element list
+    # (not `command:` as a pipe-block string). When `command:` is a
+    # multi-line string, Compose shell-splits it into separate CMD args,
+    # which turns `set -e\nif ! ...` into ["set","-e","if","!",...] — see
+    # https://github.com/docker/compose/issues/8506. Putting the script
+    # as the third element of the entrypoint list preserves it as a
+    # single arg to `bash -c`.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        if ! bin/logstash-plugin list logstash-codec-protobuf >/dev/null 2>&1; then
+          echo "[init] Installing logstash-codec-protobuf ${LOGSTASH_CODEC_PROTOBUF_VERSION:-1.3.0} (first boot)..."
+          # The plugin installer's JRuby invocation needs more heap than
+          # logstash itself; override LS_JAVA_OPTS for this one command so
+          # the install doesn't OOM under the 512m runtime cap.
+          LS_JAVA_OPTS="-Xms512m -Xmx2g" \
+            bin/logstash-plugin install --version ${LOGSTASH_CODEC_PROTOBUF_VERSION:-1.3.0} logstash-codec-protobuf
+        else
+          echo "[init] logstash-codec-protobuf already present, skipping install"
+        fi
+        exec /usr/local/bin/docker-entrypoint
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-${HOST_IP}:9092}
+      KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-logstash-vlm-es-writer}
+      ES_HOST: ${ES_HOST:-${HOST_IP}}
+      ES_PORT: ${ES_PORT:-9200}
+      LVS_EMB_DIMENSIONS: ${LVS_EMB_DIMENSIONS:-1024}
+      LVS_EMB_SEED: ${LVS_EMB_SEED:-42}
+      LS_JAVA_OPTS: -Xms${LOGSTASH_HEAP:-512m} -Xmx${LOGSTASH_HEAP:-512m}
+      LOGSTASH_CODEC_PROTOBUF_VERSION: ${LOGSTASH_CODEC_PROTOBUF_VERSION:-1.3.0}
+    volumes:
+      # Plugin gem tree persists across container recreates. When bumping
+      # LOGSTASH_VERSION, `docker volume rm` this volume so the plugin is
+      # re-installed against the new JRuby runtime.
+      - lvs-logstash-plugins:/usr/share/logstash/vendor/bundle
+      # Bind mounts: editing any of these files on the host takes effect
+      # without an image rebuild. `config.reload.automatic: true` in
+      # logstash.yml hot-reloads pipeline changes within 10s.
+      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/logstash/pb_definitions:/etc/logstash/pb_definitions:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9600 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      lvs-server:
+        condition: service_healthy
+      lvs-kafka-topic-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc1-d3e1a8f}
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc6-eec0a57}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
-
-    # GPU configuration
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['${GPU_DEVICES:-0}']
-              capabilities: [gpu]
 
     network_mode: host
 
@@ -48,14 +128,26 @@ services:
       - MILVUS_DB_GRPC_PORT=${MILVUS_DB_GRPC_PORT}
       - ES_HOST=${ES_HOST}
       - ES_PORT=${ES_PORT}
+      - GRAPH_DB_HOST=graph-db
+      - GRAPH_DB_USERNAME=neo4j
+      - GRAPH_DB_PASSWORD=passneo4j
+      - GRAPH_DB_HTTP_PORT=${GRAPH_DB_HTTP_PORT:-7474}
+      - GRAPH_DB_BOLT_PORT=${GRAPH_DB_BOLT_PORT:-7687}
+      - ARANGO_DB_HOST=arango-db
+      - ARANGO_DB_USERNAME=root
+      - ARANGO_DB_PASSWORD=passroot
+      - ARANGO_DB_PORT=${ARANGO_DB_PORT:-8529}
       - LVS_DATABASE_BACKEND=${LVS_DATABASE_BACKEND:-elasticsearch_db}
+
+      # Object storage
+      - MINIO_USERNAME=minio
+      - MINIO_PASSWORD=minio123
 
       # LLM configuration
       - LVS_LLM_MODEL_NAME=${LVS_LLM_MODEL_NAME}
       - LVS_LLM_BASE_URL=${LLM_BASE_URL:-http://${HOST_IP}:${LLM_PORT}}/v1
       - LVS_LLM_API_KEY=${OPENAI_API_KEY:-${NVIDIA_API_KEY}}
       - VIA_VLM_ENDPOINT=${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}/v1/
-      - VIA_VLM_API_KEY=${OPENAI_API_KEY:-${VIA_VLM_API_KEY:-not-used}}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
 
       # Embedding configuration
@@ -66,7 +158,6 @@ services:
       # Port configuration
       - BACKEND_PORT=${BACKEND_PORT:-38111}
       - LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
-      - FRONTEND_PORT=${FRONTEND_PORT:-38113}
 
       # Model cache directory
       - MODEL_ROOT_DIR=${MODEL_ROOT_DIR:-/tmp/model_cache}
@@ -77,12 +168,20 @@ services:
       # Default Save Events to Elasticsearch
       - LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=${LVS_DISABLE_DB_RESET_ON_REQUEST_DONE:-true}
 
-      # VLM configuration
-      - VLM_INPUT_WIDTH=${VLM_INPUT_WIDTH:-1312}
-      - VLM_INPUT_HEIGHT=${VLM_INPUT_HEIGHT:-736}
+      # Kafka integration (consume captions / publish structured summaries)
+      - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - KAFKA_STRUCTURED_SUMMARY_TOPIC=${KAFKA_STRUCTURED_SUMMARY_TOPIC:-structured-events-summary}
+
+      # Feature flags
+      - DISABLE_CA_RAG=false
+      - ENABLE_AUDIO=false
+      - ENABLE_DENSE_CAPTION=false
+      - LVS_ENABLE_MCP=true
+      - VSS_LOG_LEVEL=INFO
+      - VLM_SYSTEM_PROMPT=""
 
       # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
-      - USE_RTVI_VLM=${USE_RTVI_VLM:-false}
       - RTVI_VLM_URL=${RTVI_VLM_URL:-}
       - RTVI_VLM_URL_PASSTHROUGH=true
 
@@ -100,6 +199,9 @@ services:
       start_period: 120s
     restart: always
     depends_on:
+      lvs-kafka-topic-init:
+        condition: service_completed_successfully
+        required: false
       nvidia-nemotron-nano-9b-v2:
         condition: service_healthy
         required: false
@@ -153,3 +255,7 @@ services:
     # To use host network instead (ignores port mapping), uncomment:
     # network_mode: host
 
+volumes:
+  lvs-logstash-plugins:
+    driver: local
+    external: false
