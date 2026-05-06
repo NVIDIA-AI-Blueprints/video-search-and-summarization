@@ -265,16 +265,6 @@ class OrchestratorRuntimeSettings(BaseSettings):
     def _strip_value(cls, value: str) -> str:
         return value.strip()
 
-    def apply_to_environment(self) -> None:
-        """Expose settings to helpers that read os.environ."""
-
-        if self.ngc_cli_api_key:
-            os.environ["NGC_CLI_API_KEY"] = self.ngc_cli_api_key
-        if self.nvidia_api_key:
-            os.environ["NVIDIA_API_KEY"] = self.nvidia_api_key
-        if self.hardware_profile:
-            os.environ["HARDWARE_PROFILE"] = self.hardware_profile
-
 
 class ComposeStatusInput(BaseModel):
     """Input for docker_status polling."""
@@ -522,7 +512,6 @@ async def vss_orchestrator(
         runtime_settings = OrchestratorRuntimeSettings()
     except Exception as exc:
         raise RuntimeError("Missing required MCP server settings") from exc
-    runtime_settings.apply_to_environment()
 
     def _resolve_output_paths(docker_compose_id: str) -> tuple[Path, Path]:
         """Return (env_path, compose_path) under the configured output directory."""
@@ -907,6 +896,9 @@ async def vss_orchestrator(
                 dry_run_recipe = create_dry_run_recipe(
                     profile=input.profile,
                     env_overrides=env_overrides,
+                    ngc_cli_api_key=runtime_settings.ngc_cli_api_key,
+                    nvidia_api_key=runtime_settings.nvidia_api_key,
+                    hardware_profile=runtime_settings.hardware_profile,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),

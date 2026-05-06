@@ -26,11 +26,11 @@ export NVIDIA_API_KEY="<your-nvidia-key>"  # required only for NVIDIA-hosted rem
 uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_mcp_config.yml --port 9902
 ```
 
-`docker_generate` resolves values in this order, with later entries overriding earlier ones:
+For profile `.env` values and MCP startup values, `docker_generate` resolves in this order, with later entries overriding earlier ones:
 
 1. Selected profile `.env`
-2. MCP server environment, for deployment-wide defaults such as `HARDWARE_PROFILE`
-3. Per-call `env_overrides`, for one-off changes
+2. MCP server environment, for deployment-wide values such as `HARDWARE_PROFILE`, `NGC_CLI_API_KEY`, and `NVIDIA_API_KEY`
+3. Per-call `env_overrides` from the `docker_generate` tool input, for one-off changes
 
 ## Call tools manually
 
@@ -47,7 +47,6 @@ uv run nat mcp client tool call \
     "env_overrides": [
       "VLM_MODE=local_shared"
     ],
-    "ngc_cli_api_key": "<NGC-CLI-API-KEY>",
     "profile": "search"
   }'
 ```
@@ -121,9 +120,7 @@ uv run nat mcp client tool call \
       "profile": "search",
       "env_overrides": [
         "HOST_IP=10.0.0.10"
-      ],
-      "ngc_cli_api_key": null,
-      "nvidia_api_key": null
+      ]
     }
     ```
   - Example response:

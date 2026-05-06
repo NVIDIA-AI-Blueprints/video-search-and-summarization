@@ -14,8 +14,6 @@
 # limitations under the License.
 """Tests for vss_agents/orchestrator/tools.py."""
 
-import os
-
 import pytest
 
 from vss_agents.orchestrator.tools import GenerateInput
@@ -76,39 +74,3 @@ def test_runtime_settings_allows_missing_runtime_env(tmp_path, monkeypatch: pyte
     assert settings.ngc_cli_api_key == ""
     assert settings.nvidia_api_key == ""
     assert settings.hardware_profile == ""
-
-
-def test_runtime_settings_apply_to_environment(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("NGC_CLI_API_KEY", "previous-ngc")  # pragma: allowlist secret
-    monkeypatch.setenv("NVIDIA_API_KEY", "previous-nvidia")  # pragma: allowlist secret
-    monkeypatch.setenv("HARDWARE_PROFILE", "previous-hardware")
-
-    settings = OrchestratorRuntimeSettings(
-        NGC_CLI_API_KEY="ngc-from-settings",  # pragma: allowlist secret
-        NVIDIA_API_KEY="nvidia-from-settings",  # pragma: allowlist secret
-        HARDWARE_PROFILE="L40S",
-    )
-
-    settings.apply_to_environment()
-
-    assert os.environ["NGC_CLI_API_KEY"] == "ngc-from-settings"  # pragma: allowlist secret
-    assert os.environ["NVIDIA_API_KEY"] == "nvidia-from-settings"  # pragma: allowlist secret
-    assert os.environ["HARDWARE_PROFILE"] == "L40S"
-
-
-def test_runtime_settings_apply_to_environment_preserves_existing_values_when_empty(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("NGC_CLI_API_KEY", "previous-ngc")  # pragma: allowlist secret
-    monkeypatch.setenv("NVIDIA_API_KEY", "previous-nvidia")  # pragma: allowlist secret
-    monkeypatch.setenv("HARDWARE_PROFILE", "previous-hardware")
-
-    settings = OrchestratorRuntimeSettings(
-        NGC_CLI_API_KEY="",  # pragma: allowlist secret
-        NVIDIA_API_KEY="",  # pragma: allowlist secret
-        HARDWARE_PROFILE="",
-    )
-
-    settings.apply_to_environment()
-
-    assert os.environ["NGC_CLI_API_KEY"] == "previous-ngc"  # pragma: allowlist secret
-    assert os.environ["NVIDIA_API_KEY"] == "previous-nvidia"  # pragma: allowlist secret
-    assert os.environ["HARDWARE_PROFILE"] == "previous-hardware"
