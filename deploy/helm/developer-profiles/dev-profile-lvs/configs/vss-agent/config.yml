@@ -204,6 +204,7 @@ functions:
   lvs_stream_understanding:
     _type: lvs_stream_understanding
     lvs_backend_url: ${LVS_BACKEND_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
     model: ${VLM_NAME}
     conn_timeout_ms: 5000
     read_timeout_ms: 600000
@@ -214,6 +215,7 @@ functions:
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     video_understanding_tool: video_understanding
     lvs_video_understanding_tool: lvs_video_understanding
+    lvs_stream_understanding_tool: lvs_stream_understanding
     video_url_tool: vst_video_clip
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
@@ -276,6 +278,18 @@ functions:
     log_level: INFO
     # No Video Analytics MCP tools configured = Video(uploaded) Report mode
     video_report_tool: video_report_gen
+
+  lvs_caption_retrieval:
+    _type: knowledge_retrieval
+    backend: es_caption
+    top_k: 5
+    backend_config:
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://${HOST_IP}:9200}
+      index: default_*                                  # per-stream `default_<stream_id>` indices
+      default_doc_type: raw_events
+      api_key: ""
+      verify_ssl: false
+      timeout: 30
 
 llms:
   # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
@@ -346,6 +360,7 @@ workflow:
   - lvs_video_understanding
   - lvs_config_media
   - lvs_stream_understanding
+  - lvs_caption_retrieval
   - vst_video_clip
   - vst_snapshot
   - vst_video_list
@@ -368,15 +383,21 @@ workflow:
       - For uploaded videos: pass sensor_id (str or list[str]) and user_query.
       - For live streams: pass media_type='stream', a single sensor_id (the stream name), start_time and end_time as floats in seconds (use end_time=0 for "until now"), and user_query.
       - Examples: "Generate a report for video1" → ONE call report_agent(sensor_id='video1', user_query=...). "Generate a report for stream CAM_1 from 0 to 60 seconds" → ONE call report_agent(media_type='stream', sensor_id='CAM_1', start_time=0, end_time=60, user_query=...).
+      **lvs_caption_retrieval** - DEFAULT path for content questions about a captioned live stream.
+      - REQUIRED args: `query` (keyword string, e.g. "PPE violations") AND `collection` (stream's friendly name, e.g. "warehouse_sample_test"). Missing `query` will fail validation.
+      - Add `filters={"time_range": {"start": "<ISO 8601 UTC>", "end": "<ISO 8601 UTC>"}}` only when the user gives a time window. Use today's date from the system prompt.
+      - Never pass numeric/stream-relative times ("first 2 minutes") — captions use absolute timestamps. Route those to `lvs_stream_understanding` instead.
+      - If the result has `chunks=[]`, fall back to `lvs_stream_understanding`.
+      - Example: "PPE violations in CAM_1 in the last 5 minutes" at 22:32 UTC → `query="PPE violations", collection="CAM_1", filters={"time_range": {"start": "2026-05-05T22:27:00Z", "end": "2026-05-05T22:32:00Z"}}`.
       **lvs_video_understanding** - For SUMMARIZING uploaded videos (not streams, not reports).
       - Use when user asks to "summarize" or "give a summary of" a video, optionally over a time range.
       - Pass sensor_id (the video name from vst_video_list); start_time/end_time are floats in seconds (omit both for the whole video).
       - Examples: "Summarize video warehouse_sample" (no times), "Summarize video warehouse_sample from start to second 45" (start_time=0, end_time=45)
-      **lvs_stream_understanding** - For SUMMARIZING live streams (not videos, not reports).
-      - Use when user asks to "summarize" or "describe" a stream over a time range.
+      **lvs_stream_understanding** - For SUMMARIZING live streams (not videos, not reports), AND as the VLM fallback when `lvs_caption_retrieval` returns `chunks=[]`.
+      - Use when user asks to "summarize" or "describe" a stream over a time range, OR when a prior `lvs_caption_retrieval` call returned no chunks.
       - Do NOT use this tool to "check" whether a stream is configured before calling another tool — it is for showing summaries to the user.
-      - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Pass stream_name, numeric start_time, numeric end_time, response_type='summary'.
+      - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Examples: "Summarize stream CAM_1 from 0 to 45 seconds"
       **lvs_config_media** - Start LVS caption generation for a live stream (HITL collects scenario/events/objects).
       - Use ONLY when the user explicitly asks to start caption generation for a stream. Trigger phrases include: "start summarizing the stream <name>", "start captioning <name>", "set up stream <name>", "configure stream <name>".
@@ -407,6 +428,12 @@ workflow:
     - Wrap urls in html tags. CRITICAL: ONLY do this when a url is EXACTLY the one returned from a tool call or the url is EXACTLY the same as one from the conversation history. NEVER generate urls yourself. NEVER modify an existing url to create a new url (e.g. changing timestamps, IDs, or any part of the url). If you need a url that wasn't returned by a tool call, you MUST call the appropriate tool to get it. Examples:
       <video src="video_url" alt="Video Name">Video Name</video>
       <image src="image_url" alt="Image Name">Image Name</image>
+    - When answering from `lvs_caption_retrieval` results:
+      - Cite each event by its ISO 8601 timestamp from the events JSON (e.g. "At 2026-05-05T21:03:30Z, ...") and the stream name from the Citation line (e.g. "in `warehouse_sample_test.mp4`").
+      - Quote the event's `description` verbatim when it directly answers the question.
+      - Do NOT refer to results as "Result 1", "Result 2", etc. — that's tool-internal numbering. Refer to events by stream name + timestamp.
+      - If excerpts conflict (e.g. some show compliance, some don't), call that out explicitly with both timestamps rather than collapsing.
+      - Refer to the stream by its friendly name (Citation line), not its UUID, even if the user typed the UUID.
   postprocessing:
     enabled: false
     validation_order:
