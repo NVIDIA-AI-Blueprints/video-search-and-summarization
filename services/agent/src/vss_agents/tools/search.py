@@ -18,6 +18,7 @@ from collections.abc import AsyncGenerator
 from datetime import timedelta
 import json
 import logging
+import math
 from typing import Any
 from typing import Literal
 from typing import Union
@@ -841,12 +842,12 @@ async def _invoke_space(
     # This is the entry point for all extra embedding spaces to process the request and output
     # Registry lookup to get its handler
     adapter = EMBEDDING_SPACE_ADAPTERS[space]
-    request = adapter.request_builder(decomposed, search_input, per_space_top_k)
+    request = adapter.build_request(decomposed, search_input, per_space_top_k)
     if request is None:
         return None
     tool = await builder.get_function(space_cfg.tool)
     raw = await tool.ainvoke(request)
-    output: FusableSearchOutput = adapter.output_factory(raw)
+    output: FusableSearchOutput = adapter.coerce_output(raw)
     ranked = output.to_ranked_list(chunk_seconds=chunk_seconds)
     if not ranked.chunks:
         return None
@@ -896,30 +897,43 @@ def _merge_payload(
     return existing
 
 
-def _highest_scoring_member(member_keys: list[ChunkKey], ranked_lists: list[RankedList]) -> ChunkKey:
+def representative_member(member_keys: list[ChunkKey], ranked_lists: list[RankedList]) -> ChunkKey:
     """Pick the most representative chunk in a fused segment.
 
-    For each member key, find its max raw score across every ranked list it
-    appears in; return the key with the largest such max. Used by
-    ``_segment_to_search_result`` to choose whose payload (screenshot,
-    description) best represents the merged segment.
+    For each candidate member key, find its best (lowest) rank across every
+    ranked list it appears in and return the key whose best rank is smallest.
+    Used to choose whose payload (screenshot, description, ...) best represents
+    the merged segment.
     """
-    score_index: dict[ChunkKey, float] = {}
+    best_rank: dict[ChunkKey, int] = {}
     for rl in ranked_lists:
         for ch in rl.chunks:
-            existing = score_index.get(ch.key)
-            if existing is None or ch.score > existing:
-                score_index[ch.key] = ch.score
-    return max(member_keys, key=lambda k: score_index.get(k, 0.0))
+            existing = best_rank.get(ch.key)
+            if existing is None or ch.rank < existing:
+                best_rank[ch.key] = ch.rank
+    # Fall back to a large sentinel for keys absent from every list
+    # (defensive only, segment members originate from these lists in practice)
+    return min(member_keys, key=lambda k: best_rank.get(k, math.inf))
 
 
 def _segment_to_search_result(
     seg: FusedSegment,
     payload_index: dict[ChunkKey, dict],
     ranked_lists: list[RankedList],
+    theoretical_max_score: float,
 ) -> SearchResult:
-    """Join payload index back onto a fused segment to produce a ``SearchResult``."""
-    best_key = _highest_scoring_member(seg.member_keys, ranked_lists)
+    """Join payload index back onto a fused segment to produce a ``SearchResult``.
+
+    Notably chooses the most representative member chunk for the segment i.e.
+    selects that chunk's screenshot, description, and related attributes to
+    represent the fused segment.
+
+    ``similarity`` is derived from the segment's ``fused_score`` normalized by
+    the per-run ceiling, so it stays in [0, 1] and remains a meaningful match-
+    quality ratio even when no embed-anchored member exists. Sort order is
+    preserved (constant denominator across the run).
+    """
+    best_key = representative_member(seg.member_keys, ranked_lists)
     p = payload_index.get(best_key, {})
 
     # Union object_ids across every member chunk - attribute payloads carry these
@@ -930,9 +944,7 @@ def _segment_to_search_result(
             if oid not in object_ids:
                 object_ids.append(oid)
 
-    # ``similarity`` stays embed-cosine for backward-compatibility with downstream consumers
-    raw_cosine = p.get("raw_embed_cosine")
-    similarity = float(raw_cosine) if raw_cosine is not None else 0.0
+    similarity = seg.fused_score / theoretical_max_score if theoretical_max_score > 0 else 0.0
 
     return SearchResult(
         video_name=p.get("video_name", ""),
@@ -1019,7 +1031,10 @@ async def _run_generalized_fusion_path(
     else:
         fused = FusionOutput.model_validate(fused_raw)
 
-    return [_segment_to_search_result(seg, payload_index, ranked_lists) for seg in fused.segments]
+    return [
+        _segment_to_search_result(seg, payload_index, ranked_lists, fused.theoretical_max_score)
+        for seg in fused.segments
+    ]
 
 
 # ===== SHARED CORE SEARCH LOGIC =====
@@ -1300,10 +1315,13 @@ async def execute_core_search(
     search_messages: list[str] = []
     # Persist critic verdicts across search iterations so re-appearing results keep their annotations
     persistent_critic_results: dict = {}
+    # Tracks whether the generalized fusion path produced the current results
+    used_generalized_fusion = False
 
     while do_search and iteration_num < config.search_max_iterations:
         iteration_num += 1
         do_search = False
+        used_generalized_fusion = False  # New run, to be determined again
         logger.info(f"[Search] Running embed search iteration {iteration_num}")
 
         # Use computed top_k (already defaults to config.default_max_results if None)
@@ -1417,6 +1435,7 @@ async def execute_core_search(
                         fusion_fn=fusion_fn,
                         default_top_k=top_k,
                     )
+                used_generalized_fusion = True
                 yield AgentMessageChunk(
                     type=AgentMessageChunkType.THOUGHT,
                     content=f"Generalized fusion complete: {len(search_results)} segment(s)",
@@ -1522,7 +1541,13 @@ async def execute_core_search(
             )
 
         # Merge consecutive chunks from the same sensor into single results
-        search_results = _merge_consecutive_results(search_results)
+        # Skip on the generalized fusion path, because already merged
+        # adjacent rows into FusedSegments
+        # TODO: when the generalized fusion path becomes the default, remove this and rely on fusion merging
+        if not used_generalized_fusion:
+            search_results = _merge_consecutive_results(search_results)
+        else:
+            logger.debug("Skipping _merge_consecutive_results: generalized fusion path already merged segments")
 
         # Step 3: If critic enabled and configured, verify results with VLM
         if (
@@ -1702,8 +1727,7 @@ class RankingSpaceConfig(BaseModel):
         gt=0,
         description=(
             "Per-space cap on candidates fetched from this tool. None inherits the "
-            "search-level ``top_k`` (with embed's 2x critic-loop slack) per the "
-            "composition rule in MOEAGENT-708 §8."
+            "search-level ``top_k`` (with embed's 2x critic-loop slack)."
         ),
     )
 
@@ -1794,6 +1818,9 @@ class SearchConfig(FunctionBaseConfig, name="search"):
         description="RRF weight w for attribute cosine similarity in Reciprocal Rank Fusion (default: 0.5, only used for RRF)",
     )
 
+    # TODO: when the generalized fusion path becomes the default, migrate this
+    # knob to ``FusionInput`` (e.g. ``min_fused_score_ratio_relative``) so fusion
+    # owns relative filtering end-to-end and search no longer post-filters
     top_percent_filter: float | None = Field(
         default=None,
         ge=0.0,

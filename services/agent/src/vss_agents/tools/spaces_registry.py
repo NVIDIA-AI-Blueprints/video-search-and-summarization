@@ -16,10 +16,10 @@
 
 Each entry maps an embedding space name to two functions used for search:
 
-- `request_builder`: prepares the request for that space.
-- `output_factory`: converts the raw search response to a standard output.
+- `build_request`: prepares the request for that space.
+- `coerce_output`: converts the raw search response to a standard output.
 
-To add a new space, simply add one line to `EMBEDDING_SPACE_ADAPTERS`.
+To add a new space, simply add its wiring to `EMBEDDING_SPACE_ADAPTERS`.
 """
 
 from collections.abc import Callable
@@ -36,9 +36,6 @@ from vss_agents.data_models.search import SearchInput
 from vss_agents.tools.attribute_search import AttributeSearchOutput
 from vss_agents.tools.attribute_search import build_attribute_request
 
-# ---------------------------------------------------------------------------
-# Anchor embedding space
-# ---------------------------------------------------------------------------
 # Note: "embed" is not in the registry. It serves as the anchor and is handled
 # separately before dispatcher logic, so no request builder is needed here.
 ANCHOR_EMBEDDING_SPACE: EmbeddingSpaceName = "embed"
@@ -47,20 +44,20 @@ ANCHOR_EMBEDDING_SPACE: EmbeddingSpaceName = "embed"
 class EmbeddingSpaceAdapter(NamedTuple):
     """Embedding space wiring required to invoke a space in a generic way (input and output)."""
 
-    request_builder: Callable[[DecomposedQuery | None, SearchInput, int], BaseModel | None]
-    output_factory: Callable[[Any], FusableSearchOutput]
+    build_request: Callable[[DecomposedQuery | None, SearchInput, int], BaseModel | None]
+    coerce_output: Callable[[Any], FusableSearchOutput]
 
 
 EMBEDDING_SPACE_ADAPTERS: dict[EmbeddingSpaceName, EmbeddingSpaceAdapter] = {
     "attribute": EmbeddingSpaceAdapter(
-        request_builder=build_attribute_request,
-        output_factory=AttributeSearchOutput.from_raw,
+        build_request=build_attribute_request,
+        coerce_output=AttributeSearchOutput.from_raw,
     ),
     # Add new embedding spaces here with all the necessary wiring
     # e.g.
     # "caption": EmbeddingSpaceAdapter(
-    #     request_builder=build_caption_request,
-    #     output_factory=CaptionSearchOutput.from_raw,
+    #     build_request=build_caption_request,
+    #     coerce_output=CaptionSearchOutput.from_raw,
     # ),
 }
 

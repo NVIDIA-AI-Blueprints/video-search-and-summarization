@@ -45,15 +45,18 @@ from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import model_validator
 
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
+from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
 from vss_agents.tools.search import execute_core_search
+from vss_agents.tools.spaces_registry import ANCHOR_EMBEDDING_SPACE
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.utils.time_convert import iso8601_to_datetime
 
@@ -187,6 +190,9 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         Note, high max iterations can run for a long time. Default is 1.""",
     )
 
+    # TODO: when the generalized fusion path becomes the default, migrate this
+    # knob to ``FusionInput`` (e.g. ``min_fused_score_ratio_relative``) so fusion
+    # owns relative filtering end-to-end and search no longer post-filters
     top_percent_filter: float | None = Field(
         default=None,
         description="Score-based filter applied before merging consecutive segments. "
@@ -203,6 +209,56 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         default=DEFAULT_BEHAVIOR_INDEX,
         description="Behavior index name for object embedding lookup.",
     )
+
+    # -- Generalized fusion (feature-flagged for staged rollout) --
+    enable_generalized_fusion: bool = Field(
+        default=False,
+        description=(
+            "If true, search delegates fusion/filter/merge to the `fusion` NAT tool and "
+            "reads `ranking_spaces`. If false, falls back to the legacy inline fusion "
+            "path (embed + attribute, hard-coded). Used for staged rollout."
+        ),
+    )
+    fusion_tool: FunctionRef | None = Field(
+        default=None,
+        description=(
+            "NAT tool name of the registered fusion function. Required when "
+            "`enable_generalized_fusion=True`. Resolved once at startup."
+        ),
+    )
+    ranking_spaces: list[RankingSpaceConfig] = Field(
+        default_factory=list,
+        description=(
+            "List of ranking spaces to fuse, each declaring its tool and per-search weight. "
+            "Empty by default; required non-empty when `enable_generalized_fusion=True`."
+        ),
+    )
+    payload_merge_priority: dict[str, int] = Field(
+        default_factory=lambda: {"attribute": 0, "embed": 1},
+        description=(
+            "Cross-space payload-merge priority used when joining payloads back onto "
+            "FusedSegment.member_keys after the fusion call. Lower value = higher priority. "
+            "Spaces missing from this dict fall back to the lowest priority. "
+            "Used only by the generalized fusion path."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_generalized_fusion(self) -> "SearchAgentConfig":
+        spaces = [s.space for s in self.ranking_spaces]
+        if len(spaces) != len(set(spaces)):
+            dups = sorted({s for s in spaces if spaces.count(s) > 1})
+            raise ValueError(f"Duplicate space(s) in ranking_spaces: {dups}")
+        if self.enable_generalized_fusion:
+            if self.fusion_tool is None:
+                raise ValueError("enable_generalized_fusion=true requires fusion_tool to be set.")
+            if not self.ranking_spaces:
+                raise ValueError("enable_generalized_fusion=true requires non-empty ranking_spaces.")
+            if ANCHOR_EMBEDDING_SPACE not in spaces:
+                raise ValueError(
+                    f"enable_generalized_fusion=true requires '{ANCHOR_EMBEDDING_SPACE}' in ranking_spaces."
+                )
+        return self
 
 
 # ===== Presentation converters (moved from embed_search.py) =====
@@ -373,6 +429,11 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
     if config.critic_agent:
         critic_agent = await builder.get_function(config.critic_agent)
 
+    # Resolve fusion NAT tool when the generalized fusion path is enabled
+    fusion_fn = None
+    if config.enable_generalized_fusion and config.fusion_tool:
+        fusion_fn = await builder.get_function(config.fusion_tool)
+
     logger.info("Search agent initialized with direct tool references")
 
     async def _execute_search(search_agent_input: SearchAgentInput) -> SearchOutput:
@@ -417,6 +478,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             builder=builder,
             attribute_search_fn=attribute_search_fn,
             critic_agent=critic_agent,
+            fusion_fn=fusion_fn,
         ):
             if isinstance(update, SearchOutput):
                 search_output = update
@@ -493,6 +555,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                 builder=builder,
                 attribute_search_fn=attribute_search_fn,
                 critic_agent=critic_agent,
+                fusion_fn=fusion_fn,
             ):
                 if isinstance(update, AgentMessageChunk):
                     # Forward progress updates directly

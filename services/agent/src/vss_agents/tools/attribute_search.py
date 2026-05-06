@@ -93,7 +93,7 @@ class AttributeSearchInput(BaseModel):
     )
 
     min_similarity: float = Field(
-        default=0.3,
+        default=0.4,
         description="Minimum cosine similarity threshold",
     )
 
@@ -240,6 +240,9 @@ def build_attribute_request(
     return AttributeSearchInput(
         query=attrs,
         source_type=search_input.source_type,
+        timestamp_start=search_input.timestamp_start,
+        timestamp_end=search_input.timestamp_end,
+        video_sources=search_input.video_sources,
         top_k=top_k,
         fuse_multi_attribute=True,
     )

@@ -935,6 +935,33 @@ class TestRunFusion:
         # Sanity: the two chunks really did tie on fused_score.
         assert fwd.segments[0].fused_score == pytest.approx(1 / 61 + 1 / 62)
 
+    def test_theoretical_max_score_bounds_segment_scores(self):
+        """Pin the contract that motivates ``similarity = fused_score / theoretical_max_score``:
+        the per-run ceiling is an upper bound for every emitted segment's score, so the
+        ratio is always in [0, 1].
+        """
+        lists = [_warehouse_embed_list(), _warehouse_attribute_list()]
+        inp = FusionInput(
+            lists=lists,
+            space_weights=_neutral_weights(lists),
+            merge_adjacent=False,
+            top_k_segments=None,
+        )
+        out = run_fusion(inp)
+
+        assert out.theoretical_max_score > 0
+        assert out.segments
+        ceiling = out.theoretical_max_score
+        for seg in out.segments:
+            # Strictly below the ceiling, or equal up to FP tolerance at the boundary.
+            assert seg.fused_score < ceiling or seg.fused_score == pytest.approx(ceiling)
+
+    def test_theoretical_max_score_zero_only_when_no_segments(self):
+        """Empty fusion run -> ceiling = 0 -> downstream ``similarity`` falls back to 0.0 safely."""
+        out = run_fusion(FusionInput(lists=[], space_weights={}))
+        assert out.segments == []
+        assert out.theoretical_max_score == 0.0
+
     def test_same_moment_two_timezones_fuse_into_one_segment(self):
         """End-to-end regression: same wall moment from two spaces in
         different tz shapes must produce ONE FusedSegment (not two)
