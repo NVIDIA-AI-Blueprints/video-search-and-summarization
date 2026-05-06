@@ -33,6 +33,7 @@ from pydantic import Field
 
 from lib.knowledge import RetrievalResult
 from lib.knowledge import get_retriever
+from vss_agents.tools.lvs_media_state import configured_media
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,16 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, builder: Builder
         # substitutes its own backend-configured default (e.g. FragApi's
         # `collection_name`) when the value is falsy.
         target_collection = tool_input.collection or ""
+
+        # es_caption only: resolve LVS sensor names into the stream_id the adapter
+        # filters on using `lvs_config_media`'s per-conversation cache;
+        # lvs_stream_understanding fallback still runs. Skipped for other
+        # backends (e.g. frag_api Milvus collections aren't LVS streams).
+        if target_collection and config.backend == "es_caption":
+            cached = configured_media("stream", target_collection)
+            if cached is not None:
+                target_collection = cached.media_id
+
         top_k = tool_input.top_k or config.top_k
 
         result = await retriever.retrieve(
