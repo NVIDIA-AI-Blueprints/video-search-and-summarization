@@ -33,6 +33,7 @@ from datetime import timedelta
 import logging
 from typing import Annotated
 from typing import Literal
+from typing import assert_never
 
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -42,6 +43,7 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 
 from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
 from vss_agents.data_models.ranking import ChunkKey
@@ -51,7 +53,8 @@ from vss_agents.data_models.ranking import RankedList
 from vss_agents.data_models.ranking import _validate_chunk_seconds
 from vss_agents.data_models.ranking import snap
 
-FusionMethod = Literal["rrf", "weighted_linear"]
+# TODO: remove "rrf_with_attribute_rank" (only for backward compatibility) when generalized fusion is fully adopted
+FusionMethod = Literal["rrf", "weighted_linear", "rrf_with_attribute_rank"]
 Aggregation = Literal["max", "mean"]
 DEFAULT_RRF_K = 60
 
@@ -73,8 +76,6 @@ class _SharedFusionParams(BaseModel):
     Overridable fields via user request, they get overlayed on top of the deployment config.
     """
 
-    model_config = ConfigDict(frozen=True)
-
     chunk_seconds: int = Field(
         default=DEFAULT_CHUNK_SECONDS,
         gt=0,
@@ -86,7 +87,7 @@ class _SharedFusionParams(BaseModel):
     method: FusionMethod = Field(
         default="rrf",
         description=(
-            "Fusion math. `rrf` uses ranks (unit-free, robust). `weighted_linear` uses min-max normalized raw scores."
+            "Fusion math. 'rrf' uses ranks (unit-free, robust). 'weighted_linear' uses min-max normalized raw scores."
         ),
     )
     rrf_k: int = Field(
@@ -120,9 +121,9 @@ class _SharedFusionParams(BaseModel):
     required_spaces: list[EmbeddingSpaceName] = Field(
         default_factory=list,
         description=(
-            "Hard gate: every listed space must appear in a chunk's ``contributing_spaces`` for it to survive. "
+            "Hard gate: every listed space must appear in a chunk's contributing_spaces for it to survive. "
             'e.g. =["embed"] enforces an embed-anchor invariant - any chunk with no embed contribution is dropped, '
-            "even if it would qualify via ``keep_if_top_n_in_any_space`` (no exemption - required means required). "
+            "even if it would qualify via keep_if_top_n_in_any_space (no exemption - required means required). "
             "Empty list (default) disables this gate."
         ),
     )
@@ -150,17 +151,16 @@ class _SharedFusionParams(BaseModel):
         default="mean",
         description=(
             "How per-chunk fused scores collapse into one segment score. "
-            "`mean` matches legacy search.py / _merge_consecutive_results behavior - "
-            "sustained events outrank single-chunk spikes. "
-            "`max` opts in to surfacing peak moments instead."
+            "'mean' matches legacy search and merge behavior - sustained events outrank single-chunk spikes. "
+            "'max' opts in to surfacing peak moments instead."
         ),
     )
 
     # End of pipeline knobs
     top_k_segments: int | None = Field(
-        default=10,
+        default=None,
         gt=0,
-        description="Cap the final segments by fused_score. E.g. =10 -> only top 10 returned.",
+        description=("Cap the final segments by fused_score. None -> no cap (return every survivor)."),
     )
 
 
@@ -170,19 +170,27 @@ class FusionInput(_SharedFusionParams):
     Inherits all shared knobs that can be overridden by the user in the request.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     lists: list[RankedList] = Field(
         default_factory=list,
         description="N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]",
     )
 
     space_weights: dict[EmbeddingSpaceName, FiniteNonNegFloat] = Field(
-        ...,
+        default_factory=dict,
         description=(
             "Per-space trust weight used when fusing results. Higher values give "
-            "more influence to that space. Required field but missing keys will be "
-            "filled in by ``FusionConfig.space_weights_default``"
+            "more influence to that space. Optional - omit, pass None, or pass "
+            "{} to defer entirely to the config space_weights_default. "
+            "Missing per-space keys are also filled from that default."
         ),
     )
+
+    @field_validator("space_weights", mode="before")
+    @classmethod
+    def _none_to_empty(cls, v: dict | None) -> dict:
+        return {} if v is None else v
 
 
 class FusedSegment(BaseModel):
@@ -209,7 +217,7 @@ class FusedSegment(BaseModel):
     # Rank-derived voting score (not a similarity)
     # Gotcha: Unitless and varies by method (e.g. RRF, rrf_k=60, 3 spaces, weights=1, ceiling ≈ 0.0492)
     # Always interpret and compare fused_score as a *ratio* of this ceiling (see ``_theoretical_ceiling``), not as an absolute value.
-    # TODO: maybe revisit model to have this more meaningful ratio for easy interpretation
+    # TODO: maybe revisit model to also have a more meaningful ratio in the ranked lists for easy interpretation
     fused_score: float
 
     # Union across member chunks
@@ -334,6 +342,14 @@ def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[EmbeddingSp
     return _rerank_by_score(rl, (c for c in rl.chunks if c.score >= threshold))
 
 
+def _ranked_list_summary(rl: RankedList) -> str:
+    """Compact count/range summary for fusion diagnostics."""
+    if not rl.chunks:
+        return "count=0"
+    scores = [c.score for c in rl.chunks]
+    return f"count={len(rl.chunks)}, min_score={min(scores):.4f}, max_score={max(scores):.4f}"
+
+
 def fuse(
     lists: list[RankedList],
     weights: dict[EmbeddingSpaceName, float],
@@ -401,7 +417,17 @@ def fuse(
                 row.per_space_ranks[rl.space] = chunk.rank
         return out
 
-    raise ValueError(f"Unknown fusion method: {method!r}")
+    if method == "rrf_with_attribute_rank":
+        # Temporary branch to support the integration with legacy path
+        # TODO: drop this conditional and the ``rrf_with_attribute_rank`` literal from
+        # ``FusionMethod`` once the legacy path is retired.
+        raise ValueError(
+            "fusion method 'rrf_with_attribute_rank' is legacy-only and is not supported "
+            "by generalized fusion search. Use 'rrf' instead, it already operates "
+            "over both embed and attribute ranked lists."
+        )
+
+    assert_never(method)
 
 
 def _theoretical_ceiling(
@@ -418,8 +444,15 @@ def _theoretical_ceiling(
         return sum(w / (rrf_k + 1) for w in weights)
     if method == "weighted_linear":
         return sum(weights)
+    if method == "rrf_with_attribute_rank":
+        # Temporary branch to support the integration with legacy path
+        # TODO: drop alongside the ``fuse`` carve-out when the legacy path is retired.
+        raise ValueError(
+            "fusion method 'rrf_with_attribute_rank' is legacy-only and is not supported "
+            "by the generalized fusion engine, use 'rrf' instead."
+        )
 
-    raise ValueError(f"Unknown fusion method: {method!r}")
+    assert_never(method)
 
 
 def compute_score_threshold(
@@ -654,8 +687,31 @@ def _finalize_group(
 def run_fusion(inp: FusionInput) -> FusionOutput:
     """Run the full pipeline declaratively: bucketize -> filter raw -> fuse -> filter fused -> sort -> merge -> cap etc."""
     weights = inp.space_weights
+    raw_counts = {rl.space: len(rl.chunks) for rl in inp.lists}
     bucketed = [bucketize(rl, inp.chunk_seconds) for rl in inp.lists]
-    bucketed = [apply_per_space_filter(rl, inp.per_space_min_score) for rl in bucketed]
+    logger.info(
+        "fusion: bucketized lists=%s raw_counts=%s bucketed_counts=%s per_space_min_score=%s",
+        [rl.space for rl in bucketed],
+        raw_counts,
+        {rl.space: len(rl.chunks) for rl in bucketed},
+        inp.per_space_min_score,
+    )
+
+    filtered: list[RankedList] = []
+    for rl in bucketed:
+        filtered_rl = apply_per_space_filter(rl, inp.per_space_min_score)
+        threshold = inp.per_space_min_score.get(rl.space)
+        if threshold is not None:
+            logger.info(
+                "fusion: per-space filter space=%s threshold=%.4f before=(%s) after=(%s) dropped=%d",
+                rl.space,
+                threshold,
+                _ranked_list_summary(rl),
+                _ranked_list_summary(filtered_rl),
+                len(rl.chunks) - len(filtered_rl.chunks),
+            )
+        filtered.append(filtered_rl)
+    bucketed = filtered
 
     fused = fuse(
         bucketed,
@@ -666,17 +722,19 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
 
     theoretical_max_score = compute_score_threshold(inp.method, inp.rrf_k, bucketed, weights, fraction=1.0)
 
-    threshold: float | None = None
+    score_threshold: float | None = None
     if inp.min_fused_score_ratio is not None:
-        threshold = theoretical_max_score * inp.min_fused_score_ratio
+        score_threshold = theoretical_max_score * inp.min_fused_score_ratio
 
+    pre_global_filter_rows = len(fused)
     fused = apply_global_filters(
         fused,
         min_contributing_spaces=inp.min_contributing_spaces,
         keep_if_top_n_in_any_space=inp.keep_if_top_n_in_any_space,
-        score_threshold=threshold,
+        score_threshold=score_threshold,
         required_spaces=inp.required_spaces,
     )
+    post_global_filter_rows = len(fused)
 
     rows = sorted(
         fused.values(),
@@ -694,6 +752,21 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
 
     if inp.top_k_segments is not None:
         segments = segments[: inp.top_k_segments]
+
+    logger.info(
+        "fusion: output pre_global_filter_rows=%d post_global_filter_rows=%d segments=%d "
+        "top_k_segments=%s theoretical_max_score=%.6f global_filters="
+        "{min_contributing_spaces=%s, keep_if_top_n_in_any_space=%s, required_spaces=%s, min_fused_score_ratio=%s}",
+        pre_global_filter_rows,
+        post_global_filter_rows,
+        len(segments),
+        inp.top_k_segments,
+        theoretical_max_score,
+        inp.min_contributing_spaces,
+        inp.keep_if_top_n_in_any_space,
+        inp.required_spaces,
+        inp.min_fused_score_ratio,
+    )
 
     return FusionOutput(segments=segments, theoretical_max_score=theoretical_max_score)
 
@@ -714,8 +787,8 @@ class FusionConfig(FunctionBaseConfig, _SharedFusionParams, name="fusion"):
     space_weights_default: FiniteNonNegFloat = Field(
         default=1.0,
         description=(
-            "Safety-net fallback weight used by the fusion NAT wrapper to fill in"
-            "``FusionInput.space_weights`` for any missing space."
+            "Safety-net fallback weight used by the fusion NAT wrapper to fill in "
+            "the input space_weights for any missing space."
             "Default 1.0 (neutral)."
         ),
     )

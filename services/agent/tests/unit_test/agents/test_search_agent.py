@@ -48,19 +48,6 @@ class TestSearchAgentConfig:
         assert config.vst_internal_url == "http://localhost:30888"
         assert config.embed_weight == 1.0
 
-    def test_embed_weight_is_mandatory(self):
-        """``embed_weight`` is required at construction, no implicit default.
-
-        Mirrors the contract on ``SearchConfig`` so the two configs stay in
-        lockstep.
-        """
-        with pytest.raises(ValidationError) as exc_info:
-            SearchAgentConfig(
-                embed_search_tool="embed_search",
-                vst_internal_url="http://localhost:30888",
-            )
-        assert "embed_weight" in str(exc_info.value)
-
     def test_all_fields(self):
         """Test configuration with all fields."""
         config = SearchAgentConfig(

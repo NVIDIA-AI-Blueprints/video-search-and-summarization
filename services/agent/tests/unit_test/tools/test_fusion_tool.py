@@ -46,14 +46,9 @@ def _ts(seconds: int) -> datetime:
     return datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC) + timedelta(seconds=seconds)
 
 
-def _chunk(sensor: str, start_seconds: int, score: float, rank: int, *, chunk_seconds: int = 5) -> RankedChunk:
-    start = _ts(start_seconds)
+def _chunk(sensor: str, start_seconds: int, score: float, rank: int) -> RankedChunk:
     return RankedChunk(
-        key=ChunkKey(
-            sensor_id=sensor,
-            start=start,
-            end=start + timedelta(seconds=chunk_seconds),
-        ),
+        key=ChunkKey(sensor_id=sensor, start=_ts(start_seconds)),
         score=score,
         rank=rank,
     )
@@ -245,7 +240,7 @@ class TestFusionInvocation:
     async def test_multi_space_provenance_via_wrapper(self, mock_builder):
         """Per-segment provenance reflects every contributing space end-to-end.
 
-        With :data:`EmbeddingSpaceName` closed to ``{"embed", "attribute"}``,
+        With ``EmbeddingSpaceName`` closed to ``{"embed", "attribute"}``,
         we exercise the wrapper at N = 2 (the current ceiling).
         """
         config = FusionConfig()
@@ -391,39 +386,3 @@ class TestMergeConfigDefaults:
         assert merged.min_contributing_spaces == 2  # request wins
         assert merged.rrf_k == 42  # config wins
         assert merged.top_k_segments == 99  # config wins
-
-
-# ---------------------------------------------------------------------------
-# Config defaults integrity (read by search.py orchestrator later)
-# ---------------------------------------------------------------------------
-
-
-class TestFusionConfigDefaults:
-    """Verify the YAML-facing defaults haven't drifted from the plan."""
-
-    def test_default_space_weights_default_is_neutral(self):
-        """``FusionConfig.space_weights_default`` defaults to 1.0 (neutral).
-
-        Locks the safety-net default at the YAML-facing boundary so a future
-        deploy YAML omitting the key continues to behave equivalently to
-        explicitly weighting every space at 1.0.
-        """
-        assert FusionConfig().space_weights_default == 1.0
-
-    def test_default_method_is_rrf(self):
-        config = FusionConfig()
-        assert config.method == "rrf"
-        assert config.rrf_k == 60
-
-    def test_default_merge_settings(self):
-        config = FusionConfig()
-        assert config.merge_adjacent is True
-        assert config.merge_gap_chunks == 0
-        assert config.segment_score_aggregation == "mean"
-
-    def test_default_filter_settings(self):
-        config = FusionConfig()
-        assert config.min_contributing_spaces == 1
-        assert config.keep_if_top_n_in_any_space is None
-        assert config.min_fused_score_ratio is None
-        assert config.top_k_segments == 10

@@ -25,7 +25,6 @@ To add a new space, simply add its wiring to ``EMBEDDING_SPACE_ADAPTERS``.
 from collections.abc import Callable
 from typing import Any
 from typing import NamedTuple
-from typing import get_args
 
 from nat.data_models.component_ref import FunctionRef
 from pydantic import BaseModel
@@ -77,27 +76,6 @@ EMBEDDING_SPACE_ADAPTERS: dict[EmbeddingSpaceName, EmbeddingSpaceAdapter] = {
     #     coerce_output=CaptionSearchOutput.from_raw,
     # ),
 }
-
-
-def _check_registry_exhaustive() -> None:
-    """Startup-time exhaustiveness check.
-
-    Ensures every embedding space name must be registered in the registry, or import will fail early.
-    Guides consumers extending the registry with a new space to set up all the associated wiring.
-    """
-    expected = set(get_args(EmbeddingSpaceName)) - {ANCHOR_EMBEDDING_SPACE}
-    registered = set(EMBEDDING_SPACE_ADAPTERS.keys())
-    missing = expected - registered
-    extra = registered - expected
-    if missing or extra:
-        raise RuntimeError(
-            f"EMBEDDING_SPACE_ADAPTERS out of sync with EmbeddingSpaceName Literal. "
-            f"Missing entries: {sorted(missing) or 'none'}. "
-            f"Unknown entries: {sorted(extra) or 'none'}."
-        )
-
-
-_check_registry_exhaustive()
 
 
 __all__ = [

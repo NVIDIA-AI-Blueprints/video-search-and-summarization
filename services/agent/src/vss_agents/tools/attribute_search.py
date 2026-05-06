@@ -210,7 +210,7 @@ class AttributeSearchOutput(BaseModel):
             if existing_score is None or score > existing_score:
                 seen_score[key] = score
                 payloads[key] = {
-                    "video_name": m.video_name or "",
+                    "video_name": m.video_name or m.sensor_id or "",
                     "description": "",
                     "screenshot_url": r.screenshot_url or "",
                     "object_ids": [str(m.object_id)] if m.object_id else [],

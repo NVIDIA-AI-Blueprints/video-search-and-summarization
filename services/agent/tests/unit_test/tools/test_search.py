@@ -196,20 +196,6 @@ class TestSearchConfig:
         assert config.embed_weight == 1.0
         assert "query" in config.agent_mode_prompt
 
-    def test_embed_weight_is_mandatory(self):
-        """``embed_weight`` has no default - SearchConfig refuses to construct without it.
-
-        Pinning this prevents silent regressions and explicit config for an important
-        space that is the anchor.
-        """
-        with pytest.raises(ValidationError) as exc_info:
-            SearchConfig(
-                embed_search_tool="embed_search",
-                agent_mode_llm="gpt-4o",
-                vst_internal_url="http://localhost:30888",
-            )
-        assert "embed_weight" in str(exc_info.value)
-
     def test_custom_prompt(self):
         config = SearchConfig(
             embed_search_tool="embed_search",

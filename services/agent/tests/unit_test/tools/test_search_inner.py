@@ -786,9 +786,6 @@ class TestSearchInnerFusionPath:
                     RankingSpaceConfig(space="attribute", tool="attribute_search", weight=0.5),
                 ],
             )
-        else:
-            # legacy path ignores it but the field is required at construction time
-            kwargs["embed_weight"] = 1.0
         return SearchConfig(**kwargs)
 
     @pytest.fixture
@@ -1091,6 +1088,94 @@ class TestSearchInnerFusionPath:
         assert all(0.0 < r.similarity <= 1.0 for r in result.data)
         sims = [r.similarity for r in result.data]
         assert sims == sorted(sims, reverse=True)
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_embed_with_attributes_uses_attribute_only_fallback(
+        self, config, mock_builder, mock_fusion
+    ):
+        """Weak embed plus extracted attributes should preserve fallback. Match legacy behavior for now."""
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "weak_embed.mp4",
+                    "similarity_score": 0.05,
+                    "sensor_id": "weak_embed",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                }
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        mock_attribute = AsyncMock()
+        mock_attribute.ainvoke.return_value = _make_attribute_results(video_name="phone_hit.mp4", frame_score=0.7)
+
+        self._wire_builder(
+            mock_builder,
+            mock_embed,
+            mock_attribute,
+            _make_llm_mock(attributes=["person holding a phone"], query="person holding a phone"),
+            mock_fusion,
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person holding a phone", source_type="video_file", agent_mode=True, top_k=10),
+        )
+
+        assert len(result.data) == 1
+        assert result.data[0].video_name == "phone_hit.mp4"
+        assert result.data[0].similarity == 0.7
+        assert result.data[0].fused_score is None
+        assert result.data[0].contributing_spaces == []
+        attr_params = mock_attribute.ainvoke.call_args.args[0]
+        assert attr_params["query"] == ["person holding a phone"]
+        assert attr_params["fuse_multi_attribute"] is False
+        assert attr_params["min_similarity"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_embed_only_low_confidence_results_survive_when_no_extra_space_is_active(
+        self, config, mock_builder, mock_fusion
+    ):
+        """Low-score embed-only fallback should perserve broad embed candidate set. Match legacy behavior for now."""
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "warehouse_weak.mp4",
+                    "similarity_score": 0.05,
+                    "sensor_id": "warehouse_weak",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                }
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        mock_attribute = AsyncMock()
+        mock_attribute.ainvoke.return_value = []
+
+        self._wire_builder(
+            mock_builder,
+            mock_embed,
+            mock_attribute,
+            _make_llm_mock(attributes=[]),
+            mock_fusion,
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in white shirt", source_type="video_file", agent_mode=True),
+        )
+
+        assert len(result.data) == 1
+        assert result.data[0].video_name == "warehouse_weak.mp4"
+        assert result.data[0].similarity == 0.05
+        assert result.data[0].fused_score is None
+        assert result.data[0].contributing_spaces == []
 
 
 # ---------------------------------------------------------------------------
