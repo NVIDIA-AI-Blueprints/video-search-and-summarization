@@ -65,13 +65,11 @@ class EsCaptionConfig(BaseModel):
         ),
     )
     default_doc_type: DocType = Field(
-        default="aggregated_summary",
+        default="raw_events",
         description=(
             "doc_type used when callers don't override via filters. "
-            "`aggregated_summary` is the chronological narrative per video — "
-            "timestamps are embedded in the prose, so it covers both general "
-            "and time-windowed Q&A. `raw_events` / `structured_events` are "
-            "escape hatches for JSON-grained retrieval."
+            "`raw_events` is the per-chunk JSON event stream — reliable across "
+            "LVS versions and the safe default. other choices - structured_events or aggregated_summary"
         ),
     )
     api_key: str | None = None
