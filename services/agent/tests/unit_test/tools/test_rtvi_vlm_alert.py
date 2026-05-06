@@ -20,7 +20,7 @@ import pytest
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertInput
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertOutput
-from vss_agents.tools.rtvi_vlm_alert import _sensor_to_rtvi_stream_id
+from vss_agents.tools.rtvi_vlm_alert import _sensor_to_alert_rule_id
 
 
 class TestRTVIVLMAlertConfig:
@@ -28,21 +28,23 @@ class TestRTVIVLMAlertConfig:
 
     def test_required_fields(self):
         config = RTVIVLMAlertConfig(
-            rtvi_vlm_base_url="http://localhost:8000",
+            alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
         )
-        assert config.rtvi_vlm_base_url == "http://localhost:8000"
+        assert config.alert_bridge_url == "http://localhost:9080"
         assert config.vst_internal_url == "http://10.0.0.1:30888"
         assert config.default_model == "nvidia/cosmos-reason1-7b"
+        assert config.default_alert_type == "alert"
         assert config.default_chunk_duration == 20
         assert config.default_fps == 1
-        assert config.timeout == 60
+        assert config.timeout == 180
 
     def test_custom_defaults(self):
         config = RTVIVLMAlertConfig(
-            rtvi_vlm_base_url="http://localhost:8000",
+            alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
             default_model="custom-model",
+            default_alert_type="collision",
             default_chunk_duration=10,
             default_fps=2,
             default_prompt="Detect collisions",
@@ -50,6 +52,7 @@ class TestRTVIVLMAlertConfig:
             timeout=30,
         )
         assert config.default_model == "custom-model"
+        assert config.default_alert_type == "collision"
         assert config.default_chunk_duration == 10
         assert config.default_fps == 2
         assert config.default_prompt == "Detect collisions"
@@ -58,7 +61,7 @@ class TestRTVIVLMAlertConfig:
 
     def test_optional_va_tool(self):
         config = RTVIVLMAlertConfig(
-            rtvi_vlm_base_url="http://localhost:8000",
+            alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
             va_get_incidents_tool="va_get_incidents",
         )
@@ -67,7 +70,7 @@ class TestRTVIVLMAlertConfig:
     def test_missing_required_raises(self):
         with pytest.raises(ValidationError):
             RTVIVLMAlertConfig(
-                rtvi_vlm_base_url="http://localhost:8000",
+                alert_bridge_url="http://localhost:9080",
             )
 
 
@@ -79,9 +82,11 @@ class TestRTVIVLMAlertInput:
             action="start",
             sensor_name="HWY_20",
             prompt="Detect collisions",
+            alert_type="collision",
         )
         assert inp.action == "start"
         assert inp.sensor_name == "HWY_20"
+        assert inp.alert_type == "collision"
 
     def test_stop_action(self):
         inp = RTVIVLMAlertInput(action="stop", sensor_name="HWY_20")
@@ -103,6 +108,7 @@ class TestRTVIVLMAlertInput:
     def test_defaults(self):
         inp = RTVIVLMAlertInput(action="start")
         assert inp.sensor_name is None
+        assert inp.alert_type is None
         assert inp.prompt is None
         assert inp.system_prompt is None
         assert inp.start_time is None
@@ -122,11 +128,11 @@ class TestRTVIVLMAlertOutput:
         output = RTVIVLMAlertOutput(
             success=True,
             sensor_name="HWY_20",
-            stream_id="uuid-123",
+            alert_rule_id="uuid-123",
             message="Started monitoring",
         )
         assert output.success is True
-        assert output.stream_id == "uuid-123"
+        assert output.alert_rule_id == "uuid-123"
 
     def test_failure_output(self):
         output = RTVIVLMAlertOutput(
@@ -149,13 +155,13 @@ class TestRTVIVLMAlertOutput:
     def test_defaults(self):
         output = RTVIVLMAlertOutput(success=True, message="ok")
         assert output.sensor_name is None
-        assert output.stream_id is None
+        assert output.alert_rule_id is None
         assert output.incidents is None
         assert output.total_count is None
 
 
-class TestSensorToRtviStreamIdMapping:
+class TestSensorToAlertRuleIdMapping:
     """Test the in-memory sensor mapping."""
 
     def test_mapping_is_dict(self):
-        assert isinstance(_sensor_to_rtvi_stream_id, dict)
+        assert isinstance(_sensor_to_alert_rule_id, dict)
