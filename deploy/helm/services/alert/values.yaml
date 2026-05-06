@@ -19,7 +19,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-alert-verification
-  tag: "0.0.62"
+  tag: "0.0.63"
   pullPolicy: IfNotPresent
 replicas: 1
 
@@ -35,6 +35,11 @@ vstBaseUrl: ""
 
 externalIp: ""
 internalIp: ""
+
+# RTVI_VLM_MODEL_TO_USE passed to the container (default: vlmName)
+rtviVlmModelToUse: ""
+# Inline YAML content for realtime-config.yml (always-on VLM alert rules). Leave "" for empty default.
+realtimeConfig: ""
 
 # Base directory for media used during alert review (optional). Leave "" if not set.
 alertReviewMediaBaseDir: ""
