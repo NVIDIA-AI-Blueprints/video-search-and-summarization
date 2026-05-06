@@ -24,6 +24,9 @@ services:
       - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
     command: python3 apps/dev_example/main_dev_example_app.py --config /resources/vss-behavior-analytics-config.json
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
 
   nvstreamer-alerts:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
