@@ -71,6 +71,13 @@ class StreamingIngestConfig(BaseModel):
     rtvi_embed_model: str = Field(default="cosmos-embed1-448p", description="Embedding model name")
     rtvi_embed_chunk_duration: int = Field(default=5, description="Chunk duration in seconds for embedding")
     rtvi_cv_base_url: str = Field(default="", description="Base URL for RTVI CV service")
+    rtvi_vlm_base_url: str = Field(
+        default="",
+        description=(
+            "Base URL for RTVI-VLM service. When set, the RTSP stream add endpoint "
+            "registers streams with RTVI-VLM (LVS path) instead of the RTVI-CV/embed search path."
+        ),
+    )
     elasticsearch_url: str = Field(default="", description="Elasticsearch endpoint URL")
     rtvi_embed_es_index: str = Field(default="", description="Elasticsearch index for embeddings")
 

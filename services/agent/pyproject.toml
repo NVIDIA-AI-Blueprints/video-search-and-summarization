@@ -10,7 +10,11 @@ raw-options.root = "../.."
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vss_agents"]
+# Two top-level packages ship in the same wheel:
+#   - vss_agents: agent code, tools, NAT plugins (incl. register_knowledge_layers)
+#   - lib:        NAT-independent libraries. lib.knowledge holds the BackendAdapter
+#                 ABC, schema, factory, and adapter implementations.
+packages = ["src/vss_agents", "src/lib"]
 
 
 [tool.uv]
@@ -98,8 +102,6 @@ classifiers = [
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 
-
-
 [dependency-groups]
 dev = [
     "ipdb>=0.13.13",
@@ -132,6 +134,7 @@ vss_va_mcp = "vss_agents.video_analytics.tools"
 vss_orchestrator_mcp = "vss_agents.orchestrator.tools"
 vss_evaluators = "vss_agents.evaluators.register"
 vst_tools = "vss_agents.tools.vst.register"
+vss_knowledge_layer = "vss_agents.register_knowledge_layers"
 
 
 
