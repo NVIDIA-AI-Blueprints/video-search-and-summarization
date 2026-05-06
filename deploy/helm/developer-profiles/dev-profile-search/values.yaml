@@ -437,7 +437,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.1-4648c6ac8160
+    vssAgentVersion: 3.2.0-26.05.1-dba533103a50
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -534,7 +534,7 @@ agent:
       - name: ENABLE_CRITIC
         value: '{{- if and .Values.global (hasKey .Values.global "enableCritic") }}{{ (index .Values.global "enableCritic") | toString }}{{- else }}true{{- end }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.1-4648c6ac8160" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.1-dba533103a50" }}'
 
 vss-agent-ui:
   enabled: true
