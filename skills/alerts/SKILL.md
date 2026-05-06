@@ -1,13 +1,14 @@
 ---
 name: alerts
 description: Manage and monitor VSS alerts after the alerts profile is deployed. The deployment's mode (CV vs VLM real-time) is fixed at deploy time and determines the workflow — start/stop real-time alerts via the VSS Agent on a VLM deployment, onboard CV alerts by adding RTSP streams to VIOS on a CV deployment, query incidents, customize verifier prompts. Use when asked to start/stop a real-time alert, check or list alerts, add a camera, use a sample video for alerts, customize alert prompts, or view verdicts.
-version: "3.1.0"
-license: "Apache License 2.0"
+license: Apache-2.0
+metadata:
+  version: "3.1.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint operational"
 ---
 
 # VSS Alert Management
-
-> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
 
 The alerts profile is deployed in **one** of two modes at a time. The mode is chosen at `deploy -p alerts -m {verification,real-time}` and is static until you tear down and redeploy. Which mode is running determines which flow to use — this skill does not route per-request.
 

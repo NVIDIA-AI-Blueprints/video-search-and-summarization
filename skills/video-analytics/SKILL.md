@@ -1,13 +1,14 @@
 ---
 name: video-analytics
 description: Query video analytics data and metrics from Elastic search via the VA-MCP server (port 9901). This includes incidents, alerts, sensor data, and metrics. Use for any question about violations, alerts, incidents, object counts, speeds, occupancy, or anything that requires looking up recorded events. This is the primary way to answer a question that requires incidents, alerts and other metrics such as people counts and violations.
-version: "3.1.0"
-license: "Apache License 2.0"
+license: Apache-2.0
+metadata:
+  version: "3.1.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint operational"
 ---
 
 # Video Analytics (VA-MCP)
-
-> Source: [NVIDIA-AI-Blueprints/video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization)
 
 Queries incidents, alerts, and metrics stored in Elasticsearch via MCP JSON-RPC at **port 9901**.
 
