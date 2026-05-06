@@ -27,7 +27,6 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 
 from vss_agents.api.rtsp_stream_api import register_rtsp_stream_api_routes
 from vss_agents.api.video_delete import register_video_delete_routes
-from vss_agents.api.video_search_ingest import register_video_search_ingest_routes
 from vss_agents.api.videos import register_video_upload_complete
 
 logger = logging.getLogger(__name__)
@@ -70,18 +69,15 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
     def _register_streaming_routes(self, app: FastAPI) -> None:
         """Register the custom video / RTSP / delete routes.
 
-        The chunk-proxy ``/api/v1/videos/chunked/upload`` is gone — the UI
-        uploads chunks directly to VST. The agent only registers:
+        Every route is registered unconditionally on every profile — each
+        handler self-skips downstream calls (RTVI, storage delete, etc.)
+        when its backing service isn't configured, so the same shape works
+        on search/lvs/alerts/base:
 
         - ``POST /api/v1/videos/{filename}/complete`` — universal upload
-          completion hook. Self-skips RTVI-CV / embedding when their URLs
-          aren't configured, so every profile gets one shape.
+          completion hook (self-skips RTVI-CV / embedding when unset).
         - ``POST /api/v1/rtsp-streams/add`` and ``DELETE /.../delete/{name}``.
         - ``DELETE /api/v1/videos/{video_id}``.
-
-        ``enable_videos_for_search`` (search profile only) additionally
-        registers the deprecated ``/api/v1/videos-for-search/*`` routes for
-        backward compatibility.
 
         Raises:
             ValueError: when ``streaming_ingest`` is missing from the config.
@@ -96,31 +92,18 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
                 "to register custom video / RTSP routes"
             )
 
-        # `stream_mode` is no longer supported. Set the per-route capability
-        # flags below on `streaming_ingest` as required.
+        # `stream_mode` and the old `enable_*` capability flags are no longer
+        # supported. Routes register unconditionally now.
         legacy_extra = getattr(streaming_config, "model_extra", None)
         if isinstance(legacy_extra, dict) and "stream_mode" in legacy_extra:
             raise ValueError(
                 "general.front_end.streaming_ingest.stream_mode is no longer supported. "
-                "Drop it from the YAML; the universal upload-complete + RTSP + delete "
-                "routes register unconditionally now. Set enable_videos_for_search: true "
-                "only when you need the deprecated /api/v1/videos-for-search/* routes "
-                "(search profile only)."
+                "Drop it from the YAML; the upload-complete + RTSP + delete routes "
+                "register unconditionally on every profile."
             )
 
-        enable_videos_for_search = bool(getattr(streaming_config, "enable_videos_for_search", False))
+        logger.info("Registering streaming_ingest routes")
 
-        logger.info(f"Registering streaming_ingest routes (videos_for_search={enable_videos_for_search})")
-
-        if enable_videos_for_search:
-            # Deprecated /api/v1/videos-for-search/* routes — search profile
-            # only. New callers use the universal /complete below.
-            register_video_search_ingest_routes(app, self.config)
-
-        # Universal video / RTSP / delete routes. Registered on every profile,
-        # no capability flag — each handler self-skips downstream calls (RTVI,
-        # storage delete, etc.) when its backing service isn't configured, so
-        # the same shape works on search/lvs/alerts/base.
         register_video_upload_complete(app, self.config)
         register_rtsp_stream_api_routes(app, self.config)
         register_video_delete_routes(app, self.config)

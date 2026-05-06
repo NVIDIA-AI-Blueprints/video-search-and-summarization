@@ -50,9 +50,8 @@ export async function notifyUploadComplete(
 ): Promise<void> {
   const dotIndex = filename.lastIndexOf('.');
   const filenameWithoutExt = dotIndex > 0 ? filename.substring(0, dotIndex) : filename;
-  // Universal /complete endpoint — works on every profile, no
-  // enable_videos_for_search flag required. agentApiUrl already includes
-  // /api/v1, so just append the resource path.
+  // Universal /complete endpoint — works on every profile.
+  // agentApiUrl already includes /api/v1, so just append the resource path.
   const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(filenameWithoutExt)}/complete`;
 
   // Body = full upload response + custom_params (if any). custom_params is

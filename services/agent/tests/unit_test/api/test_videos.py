@@ -280,9 +280,7 @@ class TestUploadCompleteRoute:
         assert paths == ["/api/v1/videos/{filename}/complete"]
 
     def test_complete_route_not_deprecated(self):
-        # The /complete path is the canonical universal endpoint, not a
-        # backward-compat shim. Only the /videos-for-search/* twins are
-        # flagged deprecated.
+        # The /complete path is the canonical universal endpoint.
         route = self._build_router().routes[0]
         assert route.deprecated is not True
 
@@ -384,9 +382,8 @@ class TestRegisterVideoUploadComplete:
         assert not app.include_router.called
 
     def test_register_path_does_not_require_rtvi_to_be_configured(self):
-        """Unlike the deprecated videos-for-search route, the universal
-        upload-complete handler registers even when RTVI isn't available —
-        the handler self-skips downstream calls. Locks in that
+        """The upload-complete handler registers even when RTVI isn't
+        available — the handler self-skips downstream calls. Locks in that
         base/alerts/lvs profiles get a working completion path."""
         app = MagicMock(spec=FastAPI)
         config = MagicMock()
