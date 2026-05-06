@@ -21,6 +21,20 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-rtvi-cv
     app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- if .Values.ingress.enabled }}
+  # Per-Service haproxy.org annotations override the umbrella Ingress's
+  # default load-balancing for THIS backend only — every other backend in
+  # the same Ingress (vss-agent, vst, kibana, …) keeps its default
+  # round-robin. Pin each x-stream-id to one vss-rtvi-cv pod via Karger's
+  # consistent hash; for callers that don't set the header (probes,
+  # admin endpoints), inject a per-request UUID so they scatter across
+  # the pool instead of all collapsing onto one pod.
+  annotations:
+    haproxy.org/load-balance: {{ printf "hdr(%s)" .Values.ingress.hashHeader | quote }}
+    haproxy.org/hash-type: "consistent"
+    haproxy.org/backend-config-snippet: |
+      http-request set-header {{ .Values.ingress.hashHeader }} %[uuid()] if !{ req.hdr({{ .Values.ingress.hashHeader }}) -m found }
+  {{- end }}
 spec:
   type: {{ .Values.service.type | default "ClusterIP" }}
   ports:

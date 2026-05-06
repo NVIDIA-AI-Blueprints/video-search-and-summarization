@@ -20,6 +20,16 @@ metadata:
   labels:
     {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
     app.kubernetes.io/component: vss-rtvi-embed
+  {{- if .Values.ingress.enabled }}
+  # Per-Service haproxy.org annotations apply only to this backend. Pin
+  # each x-stream-id to a single vss-rtvi-embed replica so the
+  # Cosmos-Embed1 model session stays coherent for the stream.
+  annotations:
+    haproxy.org/load-balance: {{ printf "hdr(%s)" .Values.ingress.hashHeader | quote }}
+    haproxy.org/hash-type: "consistent"
+    haproxy.org/backend-config-snippet: |
+      http-request set-header {{ .Values.ingress.hashHeader }} %[uuid()] if !{ req.hdr({{ .Values.ingress.hashHeader }}) -m found }
+  {{- end }}
 spec:
   type: {{ .Values.service.type | default "ClusterIP" }}
   ports:

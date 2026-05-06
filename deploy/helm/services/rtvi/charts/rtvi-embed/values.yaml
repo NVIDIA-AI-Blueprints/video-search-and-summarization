@@ -25,18 +25,13 @@ port: 8000
 service:
   type: ClusterIP
 
-# Optional HAProxy Ingress with consistent-hash routing on x-stream-id.
-# Pins each stream's Cosmos-Embed1 model session to a single replica.
-# Requires the HAProxy Technologies kubernetes-ingress controller (the
-# same controller the dev-profile-* umbrellas already assume).
+# Opt-in stream-affinity routing for vss-rtvi-embed. When enabled, the
+# developer-profile umbrella ingress renders a /rtvi-embed path rule and
+# this Service carries the haproxy.org consistent-hash annotations,
+# pinning each stream's Cosmos-Embed1 model session to a single replica.
 ingress:
   enabled: false
-  className: haproxy
   hashHeader: x-stream-id
-  # hosts: optional list of host/path rules; defaults to a single path
-  # rule on / with no host filter.
-  hosts: []
-  annotations: {}
 gpuDeviceId: "2"
 dshm:
   enabled: true

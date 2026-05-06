@@ -43,6 +43,20 @@
 {{- $analytics := index .Values "analytics" | default dict }}
 {{- $videoAnalyticsVals := index $analytics "vss-video-analytics-api" | default dict }}
 {{- $videoAnalyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
+{{- /* RTVI sub-charts: opt-in stream-affinity ingress per service. The
+       hash policy (load-balance, hash-type, UUID fallback) is set on
+       each Service so it's scoped to that backend only and doesn't
+       affect the other paths in this Ingress. */}}
+{{- $rtvi := index .Values "rtvi" | default dict }}
+{{- $rtviCv := index $rtvi "vss-rtvi-cv" | default dict }}
+{{- $rtviVlm := index $rtvi "vss-rtvi-vlm" | default dict }}
+{{- $rtviEmbed := index $rtvi "vss-rtvi-embed" | default dict }}
+{{- $rtviCvIng := and (default false (index $rtviCv "enabled")) (default false (index ($rtviCv.ingress | default dict) "enabled")) }}
+{{- $rtviVlmIng := and (default false (index $rtviVlm "enabled")) (default false (index ($rtviVlm.ingress | default dict) "enabled")) }}
+{{- $rtviEmbedIng := and (default false (index $rtviEmbed "enabled")) (default false (index ($rtviEmbed.ingress | default dict) "enabled")) }}
+{{- $rtviCvPort := default 9010 (index ($rtviCv.service | default dict) "port") }}
+{{- $rtviVlmPort := default 8000 (index ($rtviVlm.service | default dict) "port") }}
+{{- $rtviEmbedPort := default 8000 (index $rtviEmbed "port") }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -57,6 +71,18 @@ metadata:
 {{- end }}
       /phoenix/(.*) /\1
       /phoenix /
+{{- if $rtviCvIng }}
+      /rtvi-cv/(.*) /\1
+      /rtvi-cv /
+{{- end }}
+{{- if $rtviVlmIng }}
+      /rtvi-vlm/(.*) /\1
+      /rtvi-vlm /
+{{- end }}
+{{- if $rtviEmbedIng }}
+      /rtvi-embed/(.*) /\1
+      /rtvi-embed /
+{{- end }}
     haproxy.org/timeout-server: "3600s"
     haproxy.org/timeout-client: "3600s"
     haproxy.org/timeout-tunnel: "3600s"
@@ -145,6 +171,33 @@ spec:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }}
                 port:
                   number: {{ $ing.videoAnalyticsApiPort | default 8081 }}
+          {{- end }}
+          {{- if $rtviCvIng }}
+          - path: /rtvi-cv
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-rtvi-cv") }}
+                port:
+                  number: {{ $rtviCvPort }}
+          {{- end }}
+          {{- if $rtviVlmIng }}
+          - path: /rtvi-vlm
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }}
+                port:
+                  number: {{ $rtviVlmPort }}
+          {{- end }}
+          {{- if $rtviEmbedIng }}
+          - path: /rtvi-embed
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-rtvi-embed") }}
+                port:
+                  number: {{ $rtviEmbedPort }}
           {{- end }}
           {{- if (index .Values "vss-agent-ui").enabled }}
           - path: /

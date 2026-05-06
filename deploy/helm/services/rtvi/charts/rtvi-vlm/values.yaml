@@ -71,19 +71,14 @@ service:
   port: 8000
   type: ClusterIP
 
-# Optional HAProxy Ingress with consistent-hash routing on x-stream-id.
-# Same value of x-stream-id deterministically routes to the same
-# vss-rtvi-vlm replica, keeping per-stream model session state coherent.
-# Requires the HAProxy Technologies kubernetes-ingress controller (the
-# same controller the dev-profile-* umbrellas already assume).
+# Opt-in stream-affinity routing for vss-rtvi-vlm. When enabled, the
+# developer-profile umbrella ingress renders a /rtvi-vlm path rule and
+# this Service carries the haproxy.org consistent-hash annotations.
+# Same x-stream-id always routes to the same VLM replica so the model
+# session stays coherent. See the rtvi-cv comment for full details.
 ingress:
   enabled: false
-  className: haproxy
   hashHeader: x-stream-id
-  # hosts: optional list of host/path rules; defaults to a single path
-  # rule on / with no host filter.
-  hosts: []
-  annotations: {}
 
 # Compose: user 1001:1001, shm 16gb, GPU
 securityContext:
