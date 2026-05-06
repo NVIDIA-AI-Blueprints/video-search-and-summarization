@@ -12,15 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the capability-flag dispatcher in CustomFastApiFrontEndWorker.
+"""Unit tests for the route dispatcher in CustomFastApiFrontEndWorker.
 
-These tests pin down the contract that drives every dev profile:
+The dispatcher registers four sets of routes on every profile:
+  * ``register_video_upload_complete`` — universal /complete endpoint
+  * ``register_rtsp_stream_api_routes`` — RTSP add/delete
+  * ``register_video_delete_routes`` — DELETE /videos/{video_id}
 
-    * ``streaming_ingest`` MUST be present in each profile YAML — missing
-      config raises so a misconfigured profile can't silently boot with no
-      custom routes.
-    * Each ``register_*`` function is called iff its corresponding
-      ``enable_*`` flag is True. Adding a new profile is a YAML-only change.
+… plus, only on profiles that opt in with ``enable_videos_for_search: true``,
+the deprecated ``/api/v1/videos-for-search/*`` routes (search profile).
 """
 
 from unittest.mock import MagicMock
@@ -30,6 +30,8 @@ import pytest
 
 from vss_agents.api.custom_fastapi_worker import CustomFastApiFrontEndWorker
 from vss_agents.api.front_end_config import StreamingIngestConfig
+
+_MISSING = object()
 
 
 def _make_worker(streaming_ingest):
@@ -44,31 +46,19 @@ def _make_worker(streaming_ingest):
         config.general.front_end = MagicMock(spec=[])  # no streaming_ingest attr at all
     else:
         config.general.front_end.streaming_ingest = streaming_ingest
-    # Base class exposes ``config`` as a read-only property backed by ``_config``.
     worker._config = config
     return worker
 
 
-_MISSING = object()
-
-
-def _streaming_ingest(
-    *,
-    enable_videos_for_search: bool = False,
-    enable_rtsp_streams: bool = False,
-    enable_video_delete: bool = False,
-):
+def _streaming_ingest(*, enable_videos_for_search: bool = False):
     cfg = MagicMock()
     cfg.enable_videos_for_search = enable_videos_for_search
-    cfg.enable_rtsp_streams = enable_rtsp_streams
-    cfg.enable_video_delete = enable_video_delete
     return cfg
 
 
 @pytest.fixture
 def patched_register_fns():
-    """Patch every register fn the dispatcher delegates to so we can inspect
-    which ones were called for a given capability set.
+    """Patch every register fn the dispatcher delegates to.
 
     Returns a 4-tuple in the order:
         (videos_for_search, video_upload_complete, rtsp_streams, video_delete)
@@ -85,15 +75,27 @@ def patched_register_fns():
 class TestRegisterStreamingRoutesDispatcher:
     """``CustomFastApiFrontEndWorker._register_streaming_routes``."""
 
-    def test_search_profile_registers_all_routes(self, patched_register_fns):
+    def test_universal_routes_register_unconditionally(self, patched_register_fns):
+        """upload-complete + RTSP + video-delete fire on every profile, with
+        no per-profile flag. Each handler self-skips downstream calls when its
+        backing service isn't configured."""
         videos_for_search, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
-        worker = _make_worker(
-            _streaming_ingest(
-                enable_videos_for_search=True,
-                enable_rtsp_streams=True,
-                enable_video_delete=True,
-            )
-        )
+        worker = _make_worker(_streaming_ingest())
+
+        worker._register_streaming_routes(MagicMock())
+
+        video_upload_complete.assert_called_once()
+        rtsp_streams.assert_called_once()
+        video_delete.assert_called_once()
+        # Search-only deprecated route stays gated.
+        videos_for_search.assert_not_called()
+
+    def test_search_profile_also_registers_videos_for_search(self, patched_register_fns):
+        """enable_videos_for_search: true (search profile) additionally
+        registers the deprecated /api/v1/videos-for-search/* routes on top of
+        the universal set."""
+        videos_for_search, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
+        worker = _make_worker(_streaming_ingest(enable_videos_for_search=True))
 
         worker._register_streaming_routes(MagicMock())
 
@@ -101,59 +103,6 @@ class TestRegisterStreamingRoutesDispatcher:
         video_upload_complete.assert_called_once()
         rtsp_streams.assert_called_once()
         video_delete.assert_called_once()
-
-    def test_alerts_profile_registers_rtsp_delete_and_universal_complete(self, patched_register_fns):
-        """Alerts profile opts out of the deprecated /videos-for-search/* routes
-        but still gets the universal /videos/{filename}/complete endpoint so its
-        UI can complete uploads via the agent."""
-        videos_for_search, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
-        worker = _make_worker(
-            _streaming_ingest(
-                enable_videos_for_search=False,
-                enable_rtsp_streams=True,
-                enable_video_delete=True,
-            )
-        )
-
-        worker._register_streaming_routes(MagicMock())
-
-        videos_for_search.assert_not_called()
-        video_upload_complete.assert_called_once()
-        rtsp_streams.assert_called_once()
-        video_delete.assert_called_once()
-
-    def test_base_lvs_profile_registers_video_delete_and_universal_complete(self, patched_register_fns):
-        videos_for_search, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
-        worker = _make_worker(
-            _streaming_ingest(
-                enable_videos_for_search=False,
-                enable_rtsp_streams=False,
-                enable_video_delete=True,
-            )
-        )
-
-        worker._register_streaming_routes(MagicMock())
-
-        videos_for_search.assert_not_called()
-        video_upload_complete.assert_called_once()
-        rtsp_streams.assert_not_called()
-        video_delete.assert_called_once()
-
-    def test_universal_complete_route_registers_unconditionally(self, patched_register_fns):
-        """A profile that explicitly opts out of every capability still gets
-        the universal /videos/{filename}/complete endpoint — it's profile-
-        agnostic and self-skips downstream calls when the backing services
-        aren't configured. Locks in that ALL profiles have a working chat
-        upload path without needing per-profile YAML changes."""
-        videos_for_search, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
-        worker = _make_worker(_streaming_ingest())
-
-        worker._register_streaming_routes(MagicMock())
-
-        videos_for_search.assert_not_called()
-        rtsp_streams.assert_not_called()
-        video_delete.assert_not_called()
-        video_upload_complete.assert_called_once()
 
     def test_missing_streaming_ingest_raises(self, patched_register_fns):
         """Every profile must declare streaming_ingest so a misconfigured
@@ -173,12 +122,7 @@ class TestRegisterStreamingRoutesDispatcher:
         """A profile YAML that still carries the legacy ``stream_mode`` knob
         on streaming_ingest must fail loudly at startup."""
         videos_for_search, video_upload_complete, rtsp_streams, video_delete = patched_register_fns
-        cfg = StreamingIngestConfig(
-            enable_videos_for_search=True,
-            enable_rtsp_streams=True,
-            enable_video_delete=True,
-            stream_mode="search",
-        )
+        cfg = StreamingIngestConfig(enable_videos_for_search=True, stream_mode="search")
         worker = _make_worker(cfg)
 
         with pytest.raises(ValueError, match="stream_mode is no longer supported"):

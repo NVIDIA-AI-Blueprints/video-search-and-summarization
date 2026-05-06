@@ -47,15 +47,11 @@ class StreamingIngestConfig(BaseModel):
 
     enable_videos_for_search: bool = Field(
         default=False,
-        description="Register PUT/POST /api/v1/videos-for-search/* (search-only chunked upload)",
-    )
-    enable_rtsp_streams: bool = Field(
-        default=False,
-        description="Register POST /api/v1/rtsp-streams/add and DELETE /api/v1/rtsp-streams/delete/{name}",
-    )
-    enable_video_delete: bool = Field(
-        default=False,
-        description="Register DELETE /api/v1/videos/{video_id}",
+        description=(
+            "Register the deprecated /api/v1/videos-for-search/* routes "
+            "(search profile only). New callers should use the universal "
+            "POST /api/v1/videos/{filename}/complete instead."
+        ),
     )
 
     delete_vst_storage_on_stream_remove: bool = Field(

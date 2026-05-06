@@ -21,12 +21,9 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      enable_video_delete: true
-      enable_videos_for_search: true
-      # No RTVI: base profile doesn't ingest to RTVI-CV/Embed. The
-      # /videos-for-search/*/complete handler self-skips those steps when
-      # the URLs are unset; the universal /api/v1/videos/{filename}/complete
-      # in vss_agents.api.videos behaves the same way.
+      # No RTVI: base profile doesn't ingest to RTVI-CV/Embed. The universal
+      # /api/v1/videos/{filename}/complete handler self-skips those steps
+      # when the URLs are unset.
     cors:
       allow_origins: ['*']
       allow_methods: ['*']

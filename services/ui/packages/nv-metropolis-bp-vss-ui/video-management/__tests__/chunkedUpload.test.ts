@@ -181,14 +181,14 @@ describe('notifyUploadComplete', () => {
   // Minimal valid upload response shape for tests that don't care about the body content
   const uploadResponse = { sensorId: 's1' } as any;
 
-  it('POSTs to videos-for-search/{basename}/complete forwarding the full upload response', async () => {
+  it('POSTs to videos/{basename}/complete forwarding the full upload response', async () => {
     const response = { sensorId: 'sensor-123', filename: 'my clip', bytes: 100 } as any;
     await notifyUploadComplete('https://agent.example.com/api/v1', 'my clip.mp4', response);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      'https://agent.example.com/api/v1/videos-for-search/my%20clip/complete',
+      'https://agent.example.com/api/v1/videos/my%20clip/complete',
     );
     expect(init?.method).toBe('POST');
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
@@ -199,7 +199,7 @@ describe('notifyUploadComplete', () => {
     await notifyUploadComplete('https://agent.example.com/api/v1/', 'video.mp4', uploadResponse);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/api/v1/videos-for-search/video/complete',
+      'https://agent.example.com/api/v1/videos/video/complete',
     );
   });
 
@@ -207,7 +207,7 @@ describe('notifyUploadComplete', () => {
     await notifyUploadComplete('https://agent.example.com', 'README', uploadResponse);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/videos-for-search/README/complete',
+      'https://agent.example.com/videos/README/complete',
     );
   });
 
@@ -215,7 +215,7 @@ describe('notifyUploadComplete', () => {
     await notifyUploadComplete('https://agent.example.com', 'a.b.c.mp4', uploadResponse);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/videos-for-search/a.b.c/complete',
+      'https://agent.example.com/videos/a.b.c/complete',
     );
   });
 

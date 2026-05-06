@@ -68,12 +68,20 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         self._register_streaming_routes(app)
 
     def _register_streaming_routes(self, app: FastAPI) -> None:
-        """Register custom routes based on the capability flags in ``streaming_ingest``.
+        """Register the custom video / RTSP / delete routes.
 
-        Each profile YAML declares which custom routes it wants via the
-        ``enable_videos_for_search``, ``enable_rtsp_streams``, and
-        ``enable_video_delete`` boolean flags on ``streaming_ingest``. Adding a
-        new profile is a YAML-only change.
+        The chunk-proxy ``/api/v1/videos/chunked/upload`` is gone — the UI
+        uploads chunks directly to VST. The agent only registers:
+
+        - ``POST /api/v1/videos/{filename}/complete`` — universal upload
+          completion hook. Self-skips RTVI-CV / embedding when their URLs
+          aren't configured, so every profile gets one shape.
+        - ``POST /api/v1/rtsp-streams/add`` and ``DELETE /.../delete/{name}``.
+        - ``DELETE /api/v1/videos/{video_id}``.
+
+        ``enable_videos_for_search`` (search profile only) additionally
+        registers the deprecated ``/api/v1/videos-for-search/*`` routes for
+        backward compatibility.
 
         Raises:
             ValueError: when ``streaming_ingest`` is missing from the config.
@@ -85,7 +93,7 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         if streaming_config is None:
             raise ValueError(
                 "general.front_end.streaming_ingest must be set in the profile YAML "
-                "to register custom streaming/RTSP/video-delete routes"
+                "to register custom video / RTSP routes"
             )
 
         # `stream_mode` is no longer supported. Set the per-route capability
@@ -94,39 +102,25 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         if isinstance(legacy_extra, dict) and "stream_mode" in legacy_extra:
             raise ValueError(
                 "general.front_end.streaming_ingest.stream_mode is no longer supported. "
-                "Replace it with the explicit capability flags on streaming_ingest: "
-                "enable_videos_for_search, enable_rtsp_streams, enable_video_delete, "
-                "and (for search-style profiles where RTVI manages storage) "
-                "delete_vst_storage_on_stream_remove: false. "
+                "Drop it from the YAML; the universal upload-complete + RTSP + delete "
+                "routes register unconditionally now. Set enable_videos_for_search: true "
+                "only when you need the deprecated /api/v1/videos-for-search/* routes "
+                "(search profile only)."
             )
 
         enable_videos_for_search = bool(getattr(streaming_config, "enable_videos_for_search", False))
-        enable_rtsp_streams = bool(getattr(streaming_config, "enable_rtsp_streams", False))
-        enable_video_delete = bool(getattr(streaming_config, "enable_video_delete", False))
 
-        logger.info(
-            "Registering streaming_ingest routes "
-            f"(videos_for_search={enable_videos_for_search}, "
-            f"rtsp_streams={enable_rtsp_streams}, "
-            f"video_delete={enable_video_delete})"
-        )
+        logger.info(f"Registering streaming_ingest routes (videos_for_search={enable_videos_for_search})")
 
         if enable_videos_for_search:
-            # Deprecated /api/v1/videos-for-search/* routes — kept for the
-            # Video Management UI tab until it migrates to the universal
-            # /complete endpoint below.
+            # Deprecated /api/v1/videos-for-search/* routes — search profile
+            # only. New callers use the universal /complete below.
             register_video_search_ingest_routes(app, self.config)
 
-        # Universal POST /api/v1/videos/{filename}/complete (registered on
-        # every profile, no capability flag). The UI uploads chunks directly
-        # to VST; this endpoint runs post-processing. The handler self-skips
-        # RTVI-CV/embedding when those services aren't configured, so
-        # search/alerts/lvs/base all share the same endpoint and search
-        # profiles automatically get ingestion.
+        # Universal video / RTSP / delete routes. Registered on every profile,
+        # no capability flag — each handler self-skips downstream calls (RTVI,
+        # storage delete, etc.) when its backing service isn't configured, so
+        # the same shape works on search/lvs/alerts/base.
         register_video_upload_complete(app, self.config)
-
-        if enable_rtsp_streams:
-            register_rtsp_stream_api_routes(app, self.config)
-
-        if enable_video_delete:
-            register_video_delete_routes(app, self.config)
+        register_rtsp_stream_api_routes(app, self.config)
+        register_video_delete_routes(app, self.config)

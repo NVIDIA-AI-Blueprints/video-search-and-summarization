@@ -22,8 +22,6 @@ general:
     # Configuration for streaming video ingest endpoint
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      enable_rtsp_streams: true
-      enable_video_delete: true
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
