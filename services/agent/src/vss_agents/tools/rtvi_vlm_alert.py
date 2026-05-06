@@ -310,9 +310,7 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                         "system_prompt": system_prompt,
                     }
 
-                    async with session.post(
-                        f"{base_url}/v1/generate_captions_alerts", json=caption_payload
-                    ) as response:
+                    async with session.post(f"{base_url}/v1/generate_captions", json=caption_payload) as response:
                         if response.status != 200:
                             error = await response.text()
                             # Try to clean up the added stream
@@ -350,9 +348,7 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
 
                     # Step 1: Stop caption generation
                     try:
-                        async with session.delete(
-                            f"{base_url}/v1/generate_captions_alerts/{rtvi_stream_id}"
-                        ) as response:
+                        async with session.delete(f"{base_url}/v1/generate_captions/{rtvi_stream_id}") as response:
                             if response.status not in (200, 204, 404):
                                 error = await response.text()
                                 logger.warning(f"Failed to stop captions: {error}")
