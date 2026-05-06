@@ -31,6 +31,7 @@ import os
 import re
 import tempfile
 from typing import Any
+from typing import Literal
 from typing import NamedTuple
 import urllib.parse
 
@@ -57,7 +58,11 @@ from nat.data_models.interactive import InteractionResponse
 from nat.object_store.models import ObjectStoreItem
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import field_validator
+from pydantic import model_validator
 
+from vss_agents.tools.lvs_config_media import LVSMediaStatus
+from vss_agents.tools.lvs_media_state import configured_media
 from vss_agents.tools.lvs_video_understanding import LVSStatus
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
@@ -379,6 +384,14 @@ class VideoReportGenConfig(FunctionBaseConfig, name="video_report_gen"):
         description="Name of the LVS video understanding tool to use for long videos. If None, LVS is disabled.",
     )
 
+    lvs_stream_understanding_tool: str | None = Field(
+        default=None,
+        description=(
+            "Name of the LVS stream understanding tool used to fetch summaries/events for "
+            "live-stream reports (media_type='stream'). When None, stream reports are disabled."
+        ),
+    )
+
     lvs_video_length: int = Field(
         default=60,
         description="Minimum length of a video in seconds to use LVS for analysis. If the video duration is longer than this value, LVS will be used for analysis.",
@@ -469,12 +482,16 @@ User's modification request:""",
 
 
 class VideoReportGenInput(BaseModel):
-    """Input for Video(uploaded) Report generation. Supports parallel processing for multiple videos."""
+    """Input for Video/Stream Report generation. Supports parallel processing for multiple videos."""
 
     sensor_id: str | list[str] = Field(
         ...,
-        description="VST sensor ID(s) (filename of uploaded video, e.g., 'warehouse_01.mp4' or ['video1.mp4', 'video2.mp4']). "
-        "Multiple videos are processed in parallel with per-video routing (LVS for long videos, standard VLM for short).",
+        description=(
+            "VST sensor ID(s) for media_type='video' (filename of uploaded video, e.g., 'warehouse_01.mp4' "
+            "or ['video1.mp4', 'video2.mp4']) OR VST stream/camera name for media_type='stream' "
+            "(must be a single string). Multiple videos are processed in parallel with per-video routing "
+            "(LVS for long videos, standard VLM for short). Streams must be configured first via lvs_config_media."
+        ),
     )
     user_query: str = Field(
         ...,
@@ -482,11 +499,54 @@ class VideoReportGenInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis",
+        description="Enable VLM reasoning mode for video analysis (uploaded videos only; ignored for streams).",
     )
+    media_type: Literal["video", "stream"] = Field(
+        default="video",
+        description=(
+            "Type of source: 'video' (default; uploaded VST file, supports multi-video batch) or "
+            "'stream' (configured live stream; requires start_time/end_time and a single sensor_id)."
+        ),
+    )
+    start_time: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Start time in seconds (offset from stream start). Required when media_type='stream'. "
+            "Ignored when media_type='video'."
+        ),
+    )
+    end_time: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "End time in seconds (offset from stream start). Required when media_type='stream'; "
+            "use 0 for 'no upper bound (until now)'. Ignored when media_type='video'."
+        ),
+    )
+
     model_config = {
         "extra": "forbid",
     }
+
+    @field_validator("end_time")
+    @classmethod
+    def _validate_time_range(cls, value: float | None, info: Any) -> float | None:
+        if value is None:
+            return value
+        start = info.data.get("start_time")
+        if start is not None and value != 0 and value <= start:
+            raise ValueError("end_time must be greater than start_time, or 0 for no upper bound")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_media_type_constraints(self) -> "VideoReportGenInput":
+        if self.media_type == "stream":
+            if isinstance(self.sensor_id, list):
+                raise ValueError("media_type='stream' requires a single sensor_id (stream name), not a list")
+            if self.start_time is None or self.end_time is None:
+                raise ValueError("media_type='stream' requires both start_time and end_time")
+        return self
 
 
 class VideoReportGenOutput(BaseModel):
@@ -1033,31 +1093,58 @@ def _filter_short_events(events: list[dict | Any], min_duration_seconds: float =
     return filtered_events
 
 
-def _format_lvs_response(lvs_response: str) -> str:
+def _lvs_result_to_dict(lvs_response: Any) -> dict[str, Any] | None:
+    """Normalize an LVS tool result into a plain dict.
+
+    The ``lvs_video_understanding`` tool returns a Pydantic
+    ``LVSVideoUnderstandingOutput``; older callers/tests still pass a JSON
+    string or a plain dict. This helper accepts any of those shapes so the
+    downstream report-generation pipeline can treat them uniformly.
+
+    Returns ``None`` when the input cannot be parsed as a dict.
+    """
+    if lvs_response is None:
+        return None
+    if hasattr(lvs_response, "model_dump"):
+        dumped: dict[str, Any] = lvs_response.model_dump()
+        return dumped
+    if isinstance(lvs_response, dict):
+        return lvs_response
+    if isinstance(lvs_response, str):
+        try:
+            parsed = json.loads(lvs_response)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _format_lvs_response(lvs_response: Any) -> str:
     """
     Format the LVS video understanding tool response into a readable markdown template.
 
-    The lvs_video_understanding tool returns JSON like:
-    {
-        "video_summary": "...",
-        "events": [...],
-        "hitl_prompts": {
-            "scenario": "...",
+    The lvs_video_understanding tool returns an ``LVSVideoUnderstandingOutput``
+    Pydantic model (legacy callers may still pass a JSON string or dict) with
+    fields like::
+
+        {
+            "video_summary": "...",
             "events": [...],
-            "objects_of_interest": [...]
-        },
-        "lvs_backend_response": {...}
-    }
+            "hitl_prompts": {"scenario": "...", "events": [...], "objects_of_interest": [...]},
+            "lvs_backend_response": {...},
+        }
 
     Note: The LVS backend service itself only returns video_summary and events.
     The hitl_prompts are added by the lvs_video_understanding tool wrapper.
     Video clip links are injected later by _inject_video_clips in the main workflow.
 
     Args:
-        lvs_response: JSON string from LVS tool
+        lvs_response: ``LVSVideoUnderstandingOutput`` instance, dict, or JSON string.
     """
+    lvs_data = _lvs_result_to_dict(lvs_response)
     try:
-        lvs_data = json.loads(lvs_response)
+        if lvs_data is None:
+            raise ValueError("LVS response could not be normalized to a dict")
 
         # Extract fields
         video_summary = lvs_data.get("video_summary", "")
@@ -1112,7 +1199,11 @@ def _format_lvs_response(lvs_response: str) -> str:
 
     except (json.JSONDecodeError, Exception) as e:
         logger.warning(f"Video Analysis Report: Failed to parse LVS response as JSON: {e}, returning raw response")
-        return lvs_response
+        if isinstance(lvs_response, str):
+            return lvs_response
+        if lvs_data is not None:
+            return json.dumps(lvs_data, indent=2, default=str)
+        return str(lvs_response)
 
 
 def _create_report_header(
@@ -1202,6 +1293,21 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
                 f"Video Analysis Report: LVS tool '{config.lvs_video_understanding_tool}' not found, LVS features will be disabled: {e}"
             )
             lvs_video_understanding_tool = None
+
+    # Load LVS stream tool if configured (optional; powers media_type='stream' reports).
+    lvs_stream_understanding_tool = None
+    if config.lvs_stream_understanding_tool is not None:
+        try:
+            lvs_stream_understanding_tool = await builder.get_tool(
+                config.lvs_stream_understanding_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN
+            )
+        except ValueError as e:
+            logger.warning(
+                "Video Analysis Report: LVS stream tool '%s' not found, stream reports will be disabled: %s",
+                config.lvs_stream_understanding_tool,
+                e,
+            )
+            lvs_stream_understanding_tool = None
 
     video_url_tool = None
     if config.video_url_tool:
@@ -1804,6 +1910,120 @@ Enter your choice or press Submit to keep current value:"""
             "video_url": video_url,
         }
 
+    async def _stream_report_gen_single(report_input: VideoReportGenInput) -> VideoReportGenOutput:
+        """Generate an LVS stream report for a configured live stream over a time range.
+
+        Calls ``lvs_stream_understanding`` for the narrative + events, then reuses
+        the standard report header / markdown / PDF pipeline. Skips snapshot and
+        video-clip injection because streams are live (no historical clips/frames).
+
+        ``report_input.sensor_id`` is the VST stream/camera name; the stream must
+        already be configured for LVS via ``lvs_config_media``. ``start_time`` /
+        ``end_time`` are required offsets in seconds (``end_time=0`` means
+        "no upper bound / until now").
+        """
+        if lvs_stream_understanding_tool is None:
+            return VideoReportGenOutput(
+                http_url=None,
+                summary=(
+                    "Stream report generation is disabled: no LVS stream understanding tool is configured. "
+                    "Set 'lvs_stream_understanding_tool' on video_report_gen to enable this option."
+                ),
+            )
+
+        stream_name = report_input.sensor_id if isinstance(report_input.sensor_id, str) else report_input.sensor_id[0]
+        # _validate_media_type_constraints already enforced these are not None.
+        start_time = report_input.start_time
+        end_time = report_input.end_time
+        assert start_time is not None and end_time is not None
+
+        logger.info(
+            "Generating stream report for '%s' (start=%.3fs, end=%.3fs)",
+            stream_name,
+            start_time,
+            end_time,
+        )
+
+        try:
+            stream_result = await lvs_stream_understanding_tool.ainvoke(
+                input={
+                    "stream_name": stream_name,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "response_type": "report",
+                }
+            )
+        except Exception as e:
+            logger.exception("Stream report: LVS stream understanding call failed: %s", e)
+            raise ValueError(f"Stream report: failed to fetch LVS stream summary for '{stream_name}': {e}") from e
+
+        # Normalize the LVSStreamUnderstandingOutput model into a plain dict.
+        stream_data = stream_result.model_dump() if hasattr(stream_result, "model_dump") else stream_result
+        if not isinstance(stream_data, dict):
+            raise ValueError(
+                f"Stream report: unexpected response shape from lvs_stream_understanding for '{stream_name}': "
+                f"{type(stream_data).__name__}"
+            )
+
+        status = stream_data.get("status")
+        message = stream_data.get("message") or ""
+        # Non-success terminal states: surface the message to the user instead of generating an empty report.
+        if status != LVSMediaStatus.SUCCESS.value:
+            logger.info("Stream report: LVS returned status=%s for '%s' — no report generated.", status, stream_name)
+            return VideoReportGenOutput(
+                http_url=None,
+                summary=message or f"LVS stream understanding returned status '{status}' for stream '{stream_name}'.",
+            )
+
+        content = stream_data.get("content")
+        if not isinstance(content, dict):
+            logger.warning(
+                "Stream report: LVS success response missing structured 'content' for '%s'; using raw payload.",
+                stream_name,
+            )
+            content = {"video_summary": str(content) if content is not None else ""}
+
+        # Recover HITL prompts (scenario / events / objects_of_interest) the user
+        # confirmed during lvs_config_media so they appear in the report header.
+        hitl_prompts: dict[str, Any] | None = None
+        configured = configured_media("stream", stream_name)
+        if configured is not None:
+            hitl_prompts = {
+                "scenario": configured.scenario,
+                "events": list(configured.events),
+                "objects_of_interest": list(configured.objects_of_interest),
+            }
+
+        vlm_content = _format_lvs_response(content)
+
+        report_header = _create_report_header(stream_name, report_input.user_query, hitl_prompts=hitl_prompts)
+        markdown_content = report_header + vlm_content
+
+        # Streams are live; no historical playback URL or snapshot/clip injection.
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_stream_name = stream_name.replace("/", "_").replace(" ", "_").replace(":", "_")
+        filename = f"vss_report_{safe_stream_name}_{timestamp_str}.md"
+        pdf_filename = filename.replace(".md", ".pdf")
+
+        http_url, file_size = await _save_markdown_to_object_store(markdown_content, filename, object_store, config)
+        pdf_url, pdf_file_size = await _save_pdf_to_object_store(
+            markdown_content, filename, pdf_filename, object_store, config
+        )
+
+        logger.info("Stream report generated for '%s': %s", stream_name, http_url)
+
+        return VideoReportGenOutput(
+            http_url=http_url,
+            pdf_url=pdf_url,
+            object_store_key=None,
+            summary=f"Stream report generated for '{stream_name}'.",
+            file_size=file_size,
+            pdf_file_size=pdf_file_size,
+            content=None,
+            video_url=None,
+            hitl_prompts=hitl_prompts,
+        )
+
     async def _video_report_gen_single(
         report_input: VideoReportGenInput,
         vlm_prompt_override: str | None = None,
@@ -2000,11 +2220,9 @@ Enter your choice or press Submit to keep current value:"""
         # Extract HITL prompts if using LVS (needed for header)
         hitl_prompts = None
         if tool_name == "lvs_video_understanding" and vlm_results:
-            lvs_data = None
-            try:
-                lvs_data = json.loads(vlm_results[0])
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning(f"Failed to parse LVS response as JSON: {e}, falling back to raw formatting")
+            lvs_data = _lvs_result_to_dict(vlm_results[0])
+            if lvs_data is None:
+                logger.warning("Failed to normalize LVS response, falling back to raw formatting")
 
             if lvs_data is not None:
                 # Check if LVS was aborted by user
@@ -2018,7 +2236,7 @@ Enter your choice or press Submit to keep current value:"""
                 hitl_prompts = lvs_data.get("hitl_prompts")
 
                 # Check if this is a multi-video response (has "results" field)
-                if "results" in lvs_data:
+                if lvs_data.get("results") is not None:
                     # Multi-video response - generate individual reports for each video
                     logger.info(f"Multi-video LVS response detected: {lvs_data['videos_processed']} videos")
 
@@ -2031,9 +2249,8 @@ Enter your choice or press Submit to keep current value:"""
                         video_sensor_id = video_result["sensor_id"]
                         logger.info(f"Generating report for '{video_sensor_id}'")
 
-                        # Format LVS response for this video
-                        video_result_str = json.dumps(video_result)
-                        vlm_content = _format_lvs_response(video_result_str)
+                        # Format LVS response for this video (pass dict directly).
+                        vlm_content = _format_lvs_response(video_result)
 
                         # Generate the report using helper method
                         report_metadata = await _generate_single_report(
@@ -2120,17 +2337,24 @@ Enter your choice or press Submit to keep current value:"""
 
     async def _video_report_gen(report_input: VideoReportGenInput) -> VideoReportGenOutput:
         """
-        Generate a video analysis report for uploaded videos (Video(uploaded) Report mode).
+        Generate a video analysis report for uploaded videos or a configured live stream.
 
-        This tool:
-        1. Sanitizes VLM prompts (removes SOM markers)
-        2. Calls video_understanding tool (LVS for long videos, standard VLM for short videos)
-        3. Formats results using optional template and LLM
-        4. Saves markdown and PDF to object store
-        5. Returns URLs and metadata
-
-        Supports multiple videos with mixed LVS/VLM routing and parallel processing.
+        Modes:
+        - media_type='video' (default): uploaded VST file(s).
+            1. Sanitizes VLM prompts (removes SOM markers)
+            2. Calls video_understanding tool (LVS for long videos, standard VLM for short videos)
+            3. Formats results using optional template and LLM
+            4. Saves markdown and PDF to object store
+            5. Returns URLs and metadata
+            Supports multiple videos with mixed LVS/VLM routing and parallel processing.
+        - media_type='stream': configured LVS live stream (single sensor_id; requires
+            start_time/end_time). Calls lvs_stream_understanding for narrative+events,
+            then reuses the same report header/markdown/PDF pipeline. The stream must
+            already be configured via lvs_config_media.
         """
+        if report_input.media_type == "stream":
+            return await _stream_report_gen_single(report_input)
+
         sensor_ids = report_input.sensor_id if isinstance(report_input.sensor_id, list) else [report_input.sensor_id]
 
         if len(sensor_ids) > 1:
@@ -2140,6 +2364,12 @@ Enter your choice or press Submit to keep current value:"""
     desc = _video_report_gen.__doc__ if _video_report_gen.__doc__ is not None else ""
     if config.lvs_video_understanding_tool is not None:
         desc += f"\nlvs is available. report agent will call lvs to generate a report for videos longer than {config.lvs_video_length}s.\n\n"
+    if config.lvs_stream_understanding_tool is not None:
+        desc += (
+            "\nstream reports are available. Set media_type='stream' with start_time and end_time "
+            "(in seconds; end_time=0 means 'until now') and a single stream sensor_id to generate "
+            "a report for a configured LVS live stream.\n\n"
+        )
 
     function_info = FunctionInfo.create(
         single_fn=_video_report_gen,

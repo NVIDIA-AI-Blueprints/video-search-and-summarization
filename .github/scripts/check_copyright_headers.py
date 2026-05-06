@@ -12,6 +12,7 @@ Exit code 0 if all files pass, 1 if any are missing headers.
 from __future__ import annotations
 
 import fnmatch
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -45,10 +46,28 @@ EXCLUDE_PATTERNS = (
 )
 
 
-def git_ls_files() -> list[str]:
-    """Return all git-tracked files."""
+def repo_root() -> Path:
+    """Return the repository root, or the CI workspace when .git is absent."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return Path(result.stdout.strip())
+    return Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+
+
+def tracked_files(root: Path) -> list[str]:
+    """Return all tracked files from git or the CI source manifest."""
+    manifest = root / ".ci" / "tracked-files.txt"
+    if manifest.is_file():
+        return manifest.read_text(encoding="utf-8").splitlines()
+
     result = subprocess.run(
         ["git", "ls-files"],
+        cwd=root,
         capture_output=True,
         text=True,
         check=True,
@@ -76,7 +95,8 @@ def has_spdx_header(filepath: str) -> bool:
 
 
 def main() -> int:
-    files = git_ls_files()
+    root = repo_root()
+    files = tracked_files(root)
     missing: list[str] = []
 
     for filepath in files:
@@ -85,7 +105,7 @@ def main() -> int:
             continue
         if is_excluded(filepath):
             continue
-        if not has_spdx_header(filepath):
+        if not has_spdx_header(str(root / filepath)):
             missing.append(filepath)
 
     if missing:
