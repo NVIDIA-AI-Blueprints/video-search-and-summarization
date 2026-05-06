@@ -116,6 +116,15 @@ class _SharedFusionParams(BaseModel):
             "OR-exemption: top-N in any space bypasses post-fuse gates. E.g. =3 -> rank <=3 anywhere survives."
         ),
     )
+    required_spaces: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Hard gate: every listed space must appear in a chunk's ``contributing_spaces`` for it to survive. "
+            'e.g. =["embed"] enforces an embed-anchor invariant - any chunk with no embed contribution is dropped, '
+            "even if it would qualify via ``keep_if_top_n_in_any_space`` (no exemption - required means required). "
+            "Empty list (default) disables this gate."
+        ),
+    )
     min_fused_score_ratio: float | None = Field(
         default=None,
         allow_inf_nan=False,
@@ -438,20 +447,35 @@ def apply_global_filters(
     min_contributing_spaces: int,
     keep_if_top_n_in_any_space: int | None,
     score_threshold: float | None,
+    required_spaces: list[str] | None = None,
 ) -> dict[ChunkKey, FusedRow]:
     """Apply the post-fusion filters.
 
-    ``keep_if_top_n_in_any_space`` is an OR exemption: a chunk that ranks ``<= N``
-    in at least one space survives even if it would otherwise fail the vote-count
-    or score-ratio filters ("strong somewhere" override).
+    Filter precedence (per row):
+    1. ``required_spaces`` - hard gate, no exemption. Drops a row if any listed
+       space is missing from ``contributing_spaces``. Evaluated first so the
+       "strong somewhere" exemption below cannot rescue an anchor-violating row.
+    2. ``keep_if_top_n_in_any_space`` - OR exemption. A row that ranks ``<= N``
+       in at least one space bypasses the vote-count and score-ratio filters.
+    3. ``min_contributing_spaces`` and ``score_threshold`` - vote-count and
+       ratio gates.
+    TODO: Revisit to streamline, clarify params/order
 
     Example: min_contributing_spaces=2, keep_if_top_n_in_any_space=3
     - C1 (3 spaces voted, ranks [1, 2, 1]) -> kept (passes vote-count gate)
     - C2 (1 space, rank=2)                 -> kept via exemption (top-3 somewhere)
     - C3 (1 space, rank=8)                 -> dropped (no agreement, no top-3 vote)
+
+    Example: required_spaces=["embed"], keep_if_top_n_in_any_space=3
+    - C4 (attribute only, rank=1)          -> dropped (anchor missing, exemption ignored)
+    - C5 (embed+attribute, ranks [4, 1])   -> kept (anchor present, exemption applies)
     """
     out: dict[ChunkKey, FusedRow] = {}
+    required = set(required_spaces or ())
     for key, row in fused.items():
+        if required and not required.issubset(row.contributing_spaces):
+            # Hard anchor gate evaluated before any exemption.
+            continue
         is_strong_somewhere = keep_if_top_n_in_any_space is not None and any(
             rank <= keep_if_top_n_in_any_space for rank in row.per_space_ranks.values()
         )
@@ -650,6 +674,7 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
         min_contributing_spaces=inp.min_contributing_spaces,
         keep_if_top_n_in_any_space=inp.keep_if_top_n_in_any_space,
         score_threshold=threshold,
+        required_spaces=inp.required_spaces,
     )
 
     rows = sorted(

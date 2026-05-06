@@ -974,8 +974,16 @@ async def _run_generalized_fusion_path(
     fusion_fn: Any,
     default_top_k: int,
 ) -> list[SearchResult]:
-    """Generalized fusion path - replaces ``fusion_search_rerank`` (legacy) when flag is on."""
-    # Embed-anchored gate.
+    """Generalized fusion path - replaces ``fusion_search_rerank`` (legacy) when flag is on.
+
+    Embed scores are used as a quality filter, but if they are weak, results from other spaces
+    (like attributes etc.) are still included.
+    This provides a smooth fallback instead of failing the search when embeds are low-confidence.
+
+    Note: callers needing strict per-chunk embed-mandatory semantics can opt in by
+    setting ``FusionInput.required_spaces=[ANCHOR_EMBEDDING_SPACE]``; this
+    orchestrator deliberately does not for legacy parity.
+    """
     if not embed_output.results:
         return []
 
@@ -1012,13 +1020,13 @@ async def _run_generalized_fusion_path(
             for k, v in payloads.items():
                 payload_index[k] = _merge_payload(payload_index.get(k), v, ranked.space, priority_table)
 
-    # Build the fusion call
-    # For now fusion search knobs are owned by fusion and not passthrough in search
-    # Ensure re-snapping to the same grid with ``chunk_seconds`` so payload joining works
+    # Build the fusion call.
+    # For now the rest of fusion search knobs are owned by fusion and not passthrough in search
     fusion_input = FusionInput(
         lists=ranked_lists,
         space_weights=_build_space_weights(config),
         chunk_seconds=chunk_seconds,
+        per_space_min_score={ANCHOR_EMBEDDING_SPACE: config.embed_confidence_threshold},
     )
 
     fused_raw = await fusion_fn.ainvoke(fusion_input)
