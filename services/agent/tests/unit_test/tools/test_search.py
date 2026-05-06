@@ -31,6 +31,7 @@ from vss_agents.tools.embed_search import QueryInput
 from vss_agents.tools.embed_search import _str_input_converter
 from vss_agents.tools.search import QUERY_DECOMPOSITION_PROMPT
 from vss_agents.tools.search import DecomposedQuery
+from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
@@ -187,17 +188,34 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.embed_search_tool == "embed_search"
         assert config.agent_mode_llm == "gpt-4o"
         assert config.vst_internal_url == "http://localhost:30888"
+        assert config.embed_weight == 1.0
         assert "query" in config.agent_mode_prompt
+
+    def test_embed_weight_is_mandatory(self):
+        """``embed_weight`` has no default - SearchConfig refuses to construct without it.
+
+        Pinning this prevents silent regressions and explicit config for an important
+        space that is the anchor.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            SearchConfig(
+                embed_search_tool="embed_search",
+                agent_mode_llm="gpt-4o",
+                vst_internal_url="http://localhost:30888",
+            )
+        assert "embed_weight" in str(exc_info.value)
 
     def test_custom_prompt(self):
         config = SearchConfig(
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
             agent_mode_prompt="Custom prompt for analysis",
         )
         assert config.agent_mode_prompt == "Custom prompt for analysis"
@@ -208,6 +226,7 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.fusion_method == "rrf"
         assert config.w_attribute == 0.55
@@ -221,6 +240,7 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
             fusion_method="weighted_linear",
             w_attribute=0.6,
             w_embed=0.4,
@@ -235,6 +255,7 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
             fusion_method="rrf",
             rrf_k=100,
             rrf_w=0.7,
@@ -242,6 +263,74 @@ class TestSearchConfig:
         assert config.fusion_method == "rrf"
         assert config.rrf_k == 100
         assert config.rrf_w == 0.7
+
+    def test_anchor_in_ranking_spaces_rejected(self):
+        """``embed`` declared in ``ranking_spaces`` is rejected with a clear message.
+
+        Anchor handling is separate: the anchor space is dispatched outside the
+        registry and weighted via ``embed_weight``.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            SearchConfig(
+                embed_search_tool="embed_search",
+                agent_mode_llm="gpt-4o",
+                vst_internal_url="http://localhost:30888",
+                embed_weight=1.0,
+                enable_generalized_fusion=True,
+                fusion_tool="fusion",
+                ranking_spaces=[
+                    RankingSpaceConfig(space="embed", tool="embed_search", weight=1.0),
+                    RankingSpaceConfig(space="attribute", tool="attribute_search", weight=0.5),
+                ],
+            )
+        msg = str(exc_info.value)
+        assert "anchor" in msg
+        assert "embed_weight" in msg
+
+    def test_generalized_fusion_with_only_anchor_rejected(self):
+        """Generalized path requires at least one non-anchor space.
+
+        The anchor participates implicitly, an empty ``ranking_spaces`` is
+        not allowed for now i.e. there are no other spaces to fuse with, and
+        usual setups include at least one embedding space like attributes.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            SearchConfig(
+                embed_search_tool="embed_search",
+                agent_mode_llm="gpt-4o",
+                vst_internal_url="http://localhost:30888",
+                embed_weight=1.0,
+                enable_generalized_fusion=True,
+                fusion_tool="fusion",
+            )
+        assert "non-empty ranking_spaces" in str(exc_info.value)
+
+
+class TestRankingSpaceConfigValidation:
+    """Validate the (space, tool) pair against the registry at config-load time."""
+
+    def test_valid_pair_passes(self):
+        """Registered (space, tool) pair constructs successfully."""
+        cfg = RankingSpaceConfig(space="attribute", tool="attribute_search")
+        assert cfg.space == "attribute"
+        assert cfg.tool == "attribute_search"
+
+    def test_mismatched_pair_raises(self):
+        """A tool not in ``allowed_tools`` for the declared space is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            RankingSpaceConfig(space="attribute", tool="caption_search")
+        msg = str(exc_info.value)
+        assert "attribute" in msg
+        assert "caption_search" in msg
+        assert "registered tools for this space" in msg
+
+    def test_error_message_lists_allowed_tools(self):
+        """Failure message names the allowed tools so users can self-correct."""
+        with pytest.raises(ValidationError) as exc_info:
+            RankingSpaceConfig(space="attribute", tool="not_a_real_tool")
+        # The validator surfaces sorted allowed_tools so YAML authors see the
+        # exact alternatives to choose from.
+        assert "attribute_search" in str(exc_info.value)
 
 
 class TestSearchInput:

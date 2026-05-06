@@ -50,11 +50,13 @@ from pydantic import model_validator
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
+from vss_agents.data_models.ranking import EmbeddingSpaceName
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
+from vss_agents.tools.search import _default_payload_merge_priority
 from vss_agents.tools.search import execute_core_search
 from vss_agents.tools.spaces_registry import ANCHOR_EMBEDDING_SPACE
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
@@ -230,11 +232,23 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         default_factory=list,
         description=(
             "List of ranking spaces to fuse, each declaring its tool and per-search weight. "
+            f"The anchor space ('{ANCHOR_EMBEDDING_SPACE}') is implicit and must not appear here, "
+            "configure its weight via ``embed_weight`` instead. "
             "Empty by default; required non-empty when `enable_generalized_fusion=True`."
         ),
     )
-    payload_merge_priority: dict[str, int] = Field(
-        default_factory=lambda: {"attribute": 0, "embed": 1},
+    embed_weight: float = Field(
+        ...,
+        ge=0.0,
+        allow_inf_nan=False,
+        description=(
+            f"Per-search trust weight of the anchor space ('{ANCHOR_EMBEDDING_SPACE}'), "
+            "threaded into ``FusionInput.space_weights``. Higher values give more influence "
+            "to embed scores in the fused ranking. Used only by the generalized fusion path."
+        ),
+    )
+    payload_merge_priority: dict[EmbeddingSpaceName, int] = Field(
+        default_factory=_default_payload_merge_priority,
         description=(
             "Cross-space payload-merge priority used when joining payloads back onto "
             "FusedSegment.member_keys after the fusion call. Lower value = higher priority. "
@@ -249,14 +263,18 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         if len(spaces) != len(set(spaces)):
             dups = sorted({s for s in spaces if spaces.count(s) > 1})
             raise ValueError(f"Duplicate space(s) in ranking_spaces: {dups}")
+        if ANCHOR_EMBEDDING_SPACE in spaces:
+            raise ValueError(
+                f"'{ANCHOR_EMBEDDING_SPACE}' is the anchor space and must not appear in `ranking_spaces`. "
+                f"Set its weight via `embed_weight` in the config instead."
+            )
         if self.enable_generalized_fusion:
             if self.fusion_tool is None:
                 raise ValueError("enable_generalized_fusion=true requires fusion_tool to be set.")
             if not self.ranking_spaces:
-                raise ValueError("enable_generalized_fusion=true requires non-empty ranking_spaces.")
-            if ANCHOR_EMBEDDING_SPACE not in spaces:
                 raise ValueError(
-                    f"enable_generalized_fusion=true requires '{ANCHOR_EMBEDDING_SPACE}' in ranking_spaces."
+                    "enable_generalized_fusion=true requires non-empty ranking_spaces "
+                    f"(non-anchor spaces, the '{ANCHOR_EMBEDDING_SPACE}' anchor participates implicitly)."
                 )
         return self
 

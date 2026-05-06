@@ -62,6 +62,7 @@ class TestSearchInner:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
 
     @pytest.fixture
@@ -303,6 +304,7 @@ class TestSearchInner:
             attribute_search_tool="attribute_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
 
         mock_embed = AsyncMock()
@@ -777,14 +779,16 @@ class TestSearchInnerFusionPath:
             "enable_generalized_fusion": fusion_flag,
         }
         if fusion_flag:
-            # Generalized path requires fusion_tool + non-empty ranking_spaces with 'embed' present
             kwargs.update(
                 fusion_tool="fusion",
+                embed_weight=1.0,
                 ranking_spaces=[
-                    RankingSpaceConfig(space="embed", tool="embed_search", weight=1.0),
                     RankingSpaceConfig(space="attribute", tool="attribute_search", weight=0.5),
                 ],
             )
+        else:
+            # legacy path ignores it but the field is required at construction time
+            kwargs["embed_weight"] = 1.0
         return SearchConfig(**kwargs)
 
     @pytest.fixture
@@ -1103,6 +1107,7 @@ class TestSearchConfigDefaults:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         prio = config.payload_merge_priority
 
