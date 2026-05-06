@@ -242,13 +242,11 @@ class TestFusionInvocation:
         assert top_zero < top_neutral, "space_weights_default did not flow through to fuse"
 
     @pytest.mark.asyncio
-    async def test_three_space_fusion_via_wrapper(self, mock_builder):
-        """N=3 spaces flows through the wrapper end-to-end.
+    async def test_multi_space_provenance_via_wrapper(self, mock_builder):
+        """Per-segment provenance reflects every contributing space end-to-end.
 
-        Proves the registered tool is not hard-coded to 2 lists: a third
-        ``caption`` space participates and its winning chunk shows up in the
-        fused output. Also verifies ``contributing_spaces`` reflects the
-        per-segment provenance the wrapper passes through.
+        With :data:`EmbeddingSpaceName` closed to ``{"embed", "attribute"}``,
+        we exercise the wrapper at N = 2 (the current ceiling).
         """
         config = FusionConfig()
         inner = await self._get_inner_fn(config, mock_builder)
@@ -263,21 +261,16 @@ class TestFusionInvocation:
                     space="attribute",
                     chunks=[_chunk("warehouse_01", 85, 0.74, 1), _chunk("warehouse_01", 90, 0.81, 2)],
                 ),
-                RankedList(
-                    space="caption",
-                    chunks=[_chunk("warehouse_01", 90, 0.65, 1), _chunk("dock", 300, 0.55, 2)],
-                ),
             ],
-            space_weights={"embed": 1.0, "attribute": 0.5, "caption": 0.7},
+            space_weights={"embed": 1.0, "attribute": 0.5},
         )
         out = await inner(inp)
 
         assert len(out.segments) >= 1
-        # warehouse_01 @ 85-95 should consolidate; provenance must reflect all
-        # spaces that contributed to it (at minimum embed + attribute + caption
-        # for the @ 90 chunk).
+        # warehouse_01 @ 85-95 should consolidate; provenance must reflect both
+        # spaces that contributed to it.
         contributing = {sp for seg in out.segments for sp in seg.contributing_spaces}
-        assert {"embed", "attribute", "caption"}.issubset(contributing)
+        assert {"embed", "attribute"}.issubset(contributing)
 
     @pytest.mark.asyncio
     async def test_post_fuse_filters_exercised_via_wrapper(self, mock_builder):
@@ -374,6 +367,7 @@ class TestMergeConfigDefaults:
             per_space_min_score={},
             min_contributing_spaces=1,
             keep_if_top_n_in_any_space=None,
+            required_spaces=[],
             min_fused_score_ratio=None,
             top_k_segments=10,
             merge_adjacent=True,

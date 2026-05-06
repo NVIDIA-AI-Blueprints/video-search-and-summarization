@@ -248,9 +248,9 @@ class TestFuseRRF:
         assert rows[4].contributing_spaces == ["attribute"]
 
     def test_missing_rank_contributes_zero(self):
-        # A chunk in space A but absent from space B: the B contribution is 0.
-        a_only = RankedList(space="A", chunks=[_chunk("s", 0, 0.5, 1)])
-        b_only = RankedList(space="B", chunks=[_chunk("s", 100, 0.5, 1)])
+        # A chunk in embed but absent from attribute: the attribute contribution is 0.
+        a_only = RankedList(space="embed", chunks=[_chunk("s", 0, 0.5, 1)])
+        b_only = RankedList(space="attribute", chunks=[_chunk("s", 100, 0.5, 1)])
         lists = [a_only, b_only]
         fused = fuse(lists, method="rrf", rrf_k=60, weights=_neutral_weights(lists))
         # Two distinct keys, each scored only by its source space.
@@ -295,7 +295,7 @@ class TestFuseWeightedLinear:
         # Multiplying one space's raw scores by 100 must not
         # change order under weighted_linear.
         original = RankedList(
-            space="A",
+            space="embed",
             chunks=[
                 _chunk("s", 0, 0.50, 1),
                 _chunk("s", 5, 0.40, 2),
@@ -303,7 +303,7 @@ class TestFuseWeightedLinear:
             ],
         )
         scaled = RankedList(
-            space="A",
+            space="embed",
             chunks=[
                 _chunk("s", 0, 50.0, 1),
                 _chunk("s", 5, 40.0, 2),
@@ -319,7 +319,7 @@ class TestFuseWeightedLinear:
     def test_constant_score_space_normalizes_to_one(self):
         # All scores equal -> spread=0 -> norm=1.0 for every chunk (no NaN).
         rl = RankedList(
-            space="A",
+            space="embed",
             chunks=[_chunk("s", 0, 0.5, 1), _chunk("s", 5, 0.5, 2)],
         )
         fused = fuse([rl], method="weighted_linear", weights=_neutral_weights([rl]))
@@ -332,10 +332,10 @@ class TestFuseWeightedLinear:
 
     def test_partial_weights_dict_raises_key_error(self):
         """Fail-loud invariant at the pure-algorithm layer."""
-        a = RankedList(space="A", chunks=[_chunk("s", 0, 0.5, 1)])
-        b_unmapped = RankedList(space="B", chunks=[_chunk("s", 5, 0.5, 1)])
-        with pytest.raises(KeyError, match="B"):
-            fuse([a, b_unmapped], method="rrf", rrf_k=60, weights={"A": 1.0})
+        a = RankedList(space="embed", chunks=[_chunk("s", 0, 0.5, 1)])
+        b_unmapped = RankedList(space="attribute", chunks=[_chunk("s", 5, 0.5, 1)])
+        with pytest.raises(KeyError, match="attribute"):
+            fuse([a, b_unmapped], method="rrf", rrf_k=60, weights={"embed": 1.0})
 
 
 # ---------------------------------------------------------------------------
@@ -358,14 +358,14 @@ class TestApplyPerSpaceFilter:
     def test_recomputes_ranks_after_drop(self):
         # Two of three chunks pass; surviving ranks must be 1 and 2.
         rl = RankedList(
-            space="A",
+            space="embed",
             chunks=[
                 _chunk("s", 0, 0.10, 1),  # drops
                 _chunk("s", 5, 0.90, 2),  # survives, becomes rank 1
                 _chunk("s", 10, 0.50, 3),  # survives, becomes rank 2
             ],
         )
-        out = apply_per_space_filter(rl, {"A": 0.3})
+        out = apply_per_space_filter(rl, {"embed": 0.3})
         assert [c.rank for c in out.chunks] == [1, 2]
         assert [c.score for c in out.chunks] == [0.90, 0.50]
 
@@ -557,24 +557,24 @@ class TestComputeScoreThreshold:
 
     def test_rrf_ceiling(self):
         # ceiling = Σ w_i / (k + 1); fraction=1.0 returns the full ceiling.
-        lists = [self._list("a"), self._list("b")]
-        weights = {"a": 1.0, "b": 0.5}
+        lists = [self._list("embed"), self._list("attribute")]
+        weights = {"embed": 1.0, "attribute": 0.5}
         assert compute_score_threshold("rrf", rrf_k=60, lists=lists, weights=weights, fraction=1.0) == pytest.approx(
             1.5 / 61
         )
 
     def test_weighted_linear_ceiling(self):
         # ceiling = Σ w_i (max-normalized); fraction=1.0 returns the full ceiling.
-        lists = [self._list("a"), self._list("b"), self._list("c")]
-        weights = {"a": 1.0, "b": 0.5, "c": 0.4}
+        lists = [self._list("embed"), self._list("attribute")]
+        weights = {"embed": 1.0, "attribute": 0.5}
         assert compute_score_threshold(
             "weighted_linear", rrf_k=60, lists=lists, weights=weights, fraction=1.0
-        ) == pytest.approx(1.9)
+        ) == pytest.approx(1.5)
 
     def test_fraction_scales_ceiling(self):
         # fraction=0.5 -> threshold is half the ceiling.
-        lists = [self._list("a")]
-        weights = {"a": 1.0}
+        lists = [self._list("embed")]
+        weights = {"embed": 1.0}
         assert compute_score_threshold("rrf", rrf_k=60, lists=lists, weights=weights, fraction=0.5) == pytest.approx(
             0.5 / 61
         )
@@ -583,9 +583,9 @@ class TestComputeScoreThreshold:
         # A list with no chunks contributes 0 to every fused score, so its weight
         # MUST NOT count toward the ceiling. Otherwise the threshold over-tightens
         # and drops legitimate survivors.
-        populated = self._list("a")
-        empty = RankedList(space="b", chunks=[])
-        weights = {"a": 1.0, "b": 1.0}
+        populated = self._list("embed")
+        empty = RankedList(space="attribute", chunks=[])
+        weights = {"embed": 1.0, "attribute": 1.0}
         # Buggy ceiling would be (1.0 + 1.0) / 61 = 2/61.
         # Fixed ceiling skips the empty list -> 1.0 / 61 = 1/61.
         assert compute_score_threshold(
@@ -596,8 +596,8 @@ class TestComputeScoreThreshold:
         # A weight=0 entry in the weights dict is a "disabled space": adds 0 to every
         # fused score, so it must add 0 to the ceiling - matching the disabled-space
         # intent end-to-end.
-        lists = [self._list("a"), self._list("b")]
-        weights = {"a": 1.0, "b": 0.0}
+        lists = [self._list("embed"), self._list("attribute")]
+        weights = {"embed": 1.0, "attribute": 0.0}
         assert compute_score_threshold("rrf", rrf_k=60, lists=lists, weights=weights, fraction=1.0) == pytest.approx(
             1 / 61
         )
@@ -696,14 +696,16 @@ class TestMergeAdjacent:
         assert segments[0].member_chunk_count == 2
 
     def test_unions_contributing_spaces(self):
+        # Across merged rows, contributing_spaces is the order-preserving
+        # set-union of every member's spaces (deduped).
         rows = [
             _row("s", 0, 0.5, contributing=("embed",)),
             _row("s", 5, 0.4, contributing=("attribute",)),
-            _row("s", 10, 0.3, contributing=("embed", "caption")),
+            _row("s", 10, 0.3, contributing=("embed", "attribute")),  # dup -> still one of each
         ]
         segments = merge_adjacent_rows(rows, chunk_seconds=5, merge_gap_chunks=0)
         assert len(segments) == 1
-        assert sorted(segments[0].contributing_spaces) == ["attribute", "caption", "embed"]
+        assert sorted(segments[0].contributing_spaces) == ["attribute", "embed"]
 
     def test_member_keys_preserve_order(self):
         rows = [_row("s", 0, 0.1), _row("s", 5, 0.2), _row("s", 10, 0.3)]

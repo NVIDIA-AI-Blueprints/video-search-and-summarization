@@ -112,9 +112,7 @@ class RankedList(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    # Kept dynamic (not a literal) for ease of extensibility when consumers add new spaces
-    # "embed", "attribute", "caption", "face", ...
-    space: str
+    space: EmbeddingSpaceName
     chunks: list[RankedChunk] = Field(default_factory=list)
 
 

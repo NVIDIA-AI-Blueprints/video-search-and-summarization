@@ -45,6 +45,7 @@ from pydantic import Field
 
 from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
 from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import EmbeddingSpaceName
 from vss_agents.data_models.ranking import RankedChunk
 from vss_agents.data_models.ranking import RankedList
 from vss_agents.data_models.ranking import _validate_chunk_seconds
@@ -95,7 +96,7 @@ class _SharedFusionParams(BaseModel):
     )
 
     # Pre-fuse filter
-    per_space_min_score: dict[str, FiniteFloat] = Field(
+    per_space_min_score: dict[EmbeddingSpaceName, FiniteFloat] = Field(
         default_factory=dict,
         description=(
             "Drop per-space chunks early below a raw-unit threshold. "
@@ -116,7 +117,7 @@ class _SharedFusionParams(BaseModel):
             "OR-exemption: top-N in any space bypasses post-fuse gates. E.g. =3 -> rank <=3 anywhere survives."
         ),
     )
-    required_spaces: list[str] = Field(
+    required_spaces: list[EmbeddingSpaceName] = Field(
         default_factory=list,
         description=(
             "Hard gate: every listed space must appear in a chunk's ``contributing_spaces`` for it to survive. "
@@ -174,7 +175,7 @@ class FusionInput(_SharedFusionParams):
         description="N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]",
     )
 
-    space_weights: dict[str, FiniteNonNegFloat] = Field(
+    space_weights: dict[EmbeddingSpaceName, FiniteNonNegFloat] = Field(
         ...,
         description=(
             "Per-space trust weight used when fusing results. Higher values give "
@@ -213,7 +214,7 @@ class FusedSegment(BaseModel):
 
     # Union across member chunks
     # Reflects the breadth of evidence for this segment (i.e. more contributing spaces means more trustworthy)
-    contributing_spaces: list[str]
+    contributing_spaces: list[EmbeddingSpaceName]
 
     # Original chunk keys that fed this segment
     member_keys: list[ChunkKey]
@@ -244,8 +245,8 @@ class FusedRow:
 
     key: ChunkKey
     score: float = 0.0
-    contributing_spaces: list[str] = field(default_factory=list)
-    per_space_ranks: dict[str, int] = field(default_factory=dict)
+    contributing_spaces: list[EmbeddingSpaceName] = field(default_factory=list)
+    per_space_ranks: dict[EmbeddingSpaceName, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +313,7 @@ def bucketize(rl: RankedList, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> Ran
     return _rerank_by_score(rl, best.values())
 
 
-def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]) -> RankedList:
+def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[EmbeddingSpaceName, float]) -> RankedList:
     """Drop below-threshold chunks for one space and recompute ranks.
 
     Gotcha: Score survives a drop. Rank does not - it is a relative property in the list.
@@ -335,7 +336,7 @@ def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]
 
 def fuse(
     lists: list[RankedList],
-    weights: dict[str, float],
+    weights: dict[EmbeddingSpaceName, float],
     method: FusionMethod = "rrf",
     rrf_k: int = DEFAULT_RRF_K,
 ) -> dict[ChunkKey, FusedRow]:
@@ -425,7 +426,7 @@ def compute_score_threshold(
     method: FusionMethod,
     rrf_k: int,
     lists: list[RankedList],
-    weights: dict[str, float],
+    weights: dict[EmbeddingSpaceName, float],
     fraction: float = 0.5,
 ) -> float:
     """Returns meaningful score cutoff.
@@ -447,7 +448,7 @@ def apply_global_filters(
     min_contributing_spaces: int,
     keep_if_top_n_in_any_space: int | None,
     score_threshold: float | None,
-    required_spaces: list[str] | None = None,
+    required_spaces: list[EmbeddingSpaceName] | None = None,
 ) -> dict[ChunkKey, FusedRow]:
     """Apply the post-fusion filters.
 
@@ -588,7 +589,7 @@ def _finalize_group(
 
     # Dedupe loop to keep unique contributing spaces
     # Order-preserving for stability
-    contributing: list[str] = []
+    contributing: list[EmbeddingSpaceName] = []
     for row in group:
         for space in row.contributing_spaces:
             if space not in contributing:

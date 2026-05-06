@@ -51,7 +51,10 @@ class TestSearchMoreEdgeCases:
     @pytest.fixture
     def config(self):
         return SearchConfig(
-            embed_search_tool="embed_search", agent_mode_llm="gpt-4o", vst_internal_url="http://localhost:30888"
+            embed_search_tool="embed_search",
+            agent_mode_llm="gpt-4o",
+            vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
 
     @pytest.fixture

@@ -857,8 +857,8 @@ async def _invoke_space(
 def _merge_payload(
     existing: dict | None,
     new: dict,
-    space: str,
-    priority: dict[str, int],
+    space: EmbeddingSpaceName,
+    priority: dict[EmbeddingSpaceName, int],
 ) -> dict:
     """Priority-aware payload merge for cross-space chunk collisions.
 
@@ -960,9 +960,12 @@ def _segment_to_search_result(
     )
 
 
-def _build_space_weights(config: "SearchConfig") -> dict[str, float]:
+def _build_space_weights(config: "SearchConfig") -> dict[EmbeddingSpaceName, float]:
     """Build the complete per-space weights dict for ``FusionInput.space_weights``."""
-    return {s.space: s.weight for s in config.ranking_spaces}
+    return {
+        ANCHOR_EMBEDDING_SPACE: config.embed_weight,
+        **{s.space: s.weight for s in config.ranking_spaces},
+    }
 
 
 async def _run_generalized_fusion_path(
@@ -1739,6 +1742,36 @@ class RankingSpaceConfig(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_space_tool_pair(self) -> "RankingSpaceConfig":
+        """Reject (space, tool) pairs not declared compatible in the registry."""
+        # TODO handle anchor vs ranking spaces, streamline
+        if self.space == ANCHOR_EMBEDDING_SPACE:
+            return self
+        adapter = EMBEDDING_SPACE_ADAPTERS.get(self.space)
+        if adapter is None:
+            # Defensive, should not happen
+            # Because guarded by ``EmbeddingSpaceName`` literal and ``_check_registry_exhaustive`` at import
+            # Re-raised here as a config-level error in case the invariant is ever violated
+            raise ValueError(
+                f"Unknown embedding space {self.space!r}. "
+                f"Known: {sorted(EMBEDDING_SPACE_ADAPTERS)} "
+                f"(+ '{ANCHOR_EMBEDDING_SPACE}' anchor)."
+            )
+        if self.tool not in adapter.allowed_tools:
+            raise ValueError(
+                f"space={self.space!r} cannot be paired with tool={self.tool!r}; "
+                f"registered tools for this space: {sorted(adapter.allowed_tools)}. "
+                f"Add the tool to ``EMBEDDING_SPACE_ADAPTERS[{self.space!r}].allowed_tools`` "
+                f"if it produces compatible I/O."
+            )
+        return self
+
+
+def _default_payload_merge_priority() -> dict[EmbeddingSpaceName, int]:
+    """Default ordering for ``payload_merge_priority`` (attribute wins over embed)."""
+    return {"attribute": 0, "embed": 1}
+
 
 class SearchConfig(FunctionBaseConfig, name="search"):
     """Configuration for the Search tool."""
@@ -1868,11 +1901,23 @@ class SearchConfig(FunctionBaseConfig, name="search"):
         default_factory=list,
         description=(
             "List of ranking spaces to fuse, each declaring its tool and per-search weight. "
+            f"The anchor space ('{ANCHOR_EMBEDDING_SPACE}') is implicit and must not appear here, "
+            "configure its weight via ``embed_weight`` instead. "
             "Empty by default; required non-empty when `enable_generalized_fusion=True`."
         ),
     )
-    payload_merge_priority: dict[str, int] = Field(
-        default_factory=lambda: {"attribute": 0, "embed": 1},
+    embed_weight: float = Field(
+        ...,
+        ge=0.0,
+        allow_inf_nan=False,
+        description=(
+            f"Per-search trust weight of the anchor space ('{ANCHOR_EMBEDDING_SPACE}'), "
+            "threaded into ``FusionInput.space_weights``. Higher values give more influence "
+            "to embed scores in the fused ranking. Used only by the generalized fusion path."
+        ),
+    )
+    payload_merge_priority: dict[EmbeddingSpaceName, int] = Field(
+        default_factory=_default_payload_merge_priority,
         description=(
             "Cross-space payload-merge priority used when joining payloads back onto "
             "FusedSegment.member_keys after the fusion call. Lower value = higher priority. "
@@ -1887,15 +1932,18 @@ class SearchConfig(FunctionBaseConfig, name="search"):
         if len(spaces) != len(set(spaces)):
             dups = sorted({s for s in spaces if spaces.count(s) > 1})
             raise ValueError(f"Duplicate space(s) in ranking_spaces: {dups}")
+        if ANCHOR_EMBEDDING_SPACE in spaces:
+            raise ValueError(
+                f"'{ANCHOR_EMBEDDING_SPACE}' is the anchor space and must not appear in `ranking_spaces`. "
+                f"Set its weight via `embed_weight` in the config instead."
+            )
         if self.enable_generalized_fusion:
             if self.fusion_tool is None:
                 raise ValueError("enable_generalized_fusion=true requires fusion_tool to be set.")
             if not self.ranking_spaces:
-                raise ValueError("enable_generalized_fusion=true requires non-empty ranking_spaces.")
-            if ANCHOR_EMBEDDING_SPACE not in spaces:
-                # Always anchor fusion path with the anchor embedding space. Fail early.
                 raise ValueError(
-                    f"enable_generalized_fusion=true requires '{ANCHOR_EMBEDDING_SPACE}' in ranking_spaces."
+                    "enable_generalized_fusion=true requires non-empty ranking_spaces "
+                    f"(non-anchor spaces, the '{ANCHOR_EMBEDDING_SPACE}' anchor participates implicitly)."
                 )
         return self
 
