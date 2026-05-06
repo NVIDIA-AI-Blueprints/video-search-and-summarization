@@ -67,11 +67,6 @@ object_stores:
     _type: in_memory
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: "${AGENT_BASE_URL}"
-
   search:
     _type: search
     embed_search_tool: embed_search
