@@ -34,7 +34,8 @@
 {{- $streamerEnabled := default false (index $nvstreamerVals "enabled") }}
 {{- $analyticsEnabled := default false (index $videoAnalyticsVals "enabled") }}
 {{- $alertBridgeEnabled := default false (index $alertBridgeVals "enabled") }}
-{{- $hasRewrite := or $analyticsEnabled $alertBridgeEnabled $phoenixEnabled }}
+{{/* /storage/* compat rewrite is always active; other rewrites are gated on the corresponding subchart. */}}
+{{- $hasRewrite := true }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -45,6 +46,8 @@ metadata:
 {{- if $hasRewrite }}
   annotations:
     haproxy.org/path-rewrite: |
+      /storage/(.*) /vst/storage/\1
+      /storage /vst/storage
 {{- if $analyticsEnabled }}
       /video-analytics-api/(.*) /\1
 {{- end }}
@@ -98,6 +101,17 @@ spec:
                 port:
                   number: {{ index $vssIngress "vssAgentPort" | default 8000 }}
           - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
+                port:
+                  number: {{ index $vssIngress "vstIngressPort" | default 30888 }}
+          # Compat alias: /storage/* is rewritten to /vst/storage/* by the
+          # haproxy.org/path-rewrite annotation above, then proxied to the
+          # VST ingress. Mirrors deploy/docker/services/infra/haproxy/
+          # bk_vst_storage_compat (same HOST_IP:VST_PORT destination).
+          - path: /storage
             pathType: Prefix
             backend:
               service:

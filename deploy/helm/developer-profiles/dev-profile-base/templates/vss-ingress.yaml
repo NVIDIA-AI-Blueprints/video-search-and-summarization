@@ -14,9 +14,11 @@ metadata:
     app.kubernetes.io/name: vss
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-  {{- if $phoenixStackEnabled }}
   annotations:
     haproxy.org/path-rewrite: |
+      /storage/(.*) /vst/storage/\1
+      /storage /vst/storage
+  {{- if $phoenixStackEnabled }}
       /phoenix/(.*) /\1
       /phoenix /
   {{- end }}
@@ -62,6 +64,17 @@ spec:
                 port:
                   number: {{ $vi.vssAgentPort }}
           - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress") }}
+                port:
+                  number: {{ $vi.vstIngressPort }}
+          # Compat alias: /storage/* is rewritten to /vst/storage/* by the
+          # haproxy.org/path-rewrite annotation above, then proxied to the
+          # VST ingress. Mirrors deploy/docker/services/infra/haproxy/
+          # bk_vst_storage_compat (same HOST_IP:VST_PORT destination).
+          - path: /storage
             pathType: Prefix
             backend:
               service:

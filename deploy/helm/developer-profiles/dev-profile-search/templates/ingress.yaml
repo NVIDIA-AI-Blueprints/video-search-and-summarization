@@ -52,6 +52,8 @@ metadata:
     {{- include "dev-profile-search.labels" . | nindent 4 }}
   annotations:
     haproxy.org/path-rewrite: |
+      /storage/(.*) /vst/storage/\1
+      /storage /vst/storage
 {{- if $videoAnalyticsEnabled }}
       /video-analytics-api/(.*) /\1
 {{- end }}
@@ -119,6 +121,18 @@ spec:
           {{- $vioIng := index $vios "vss-vios-ingress" | default dict }}
           {{- if $vioIng.enabled }}
           - path: /vst
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}
+                port:
+                  {{- $vioIngSvc := index $vioIng "service" | default dict }}
+                  number: {{ coalesce $vioIng.port $vioIngSvc.port 30888 }}
+          # Compat alias: /storage/* is rewritten to /vst/storage/* by the
+          # haproxy.org/path-rewrite annotation above, then proxied to the
+          # VST ingress. Mirrors deploy/docker/services/infra/haproxy/
+          # bk_vst_storage_compat (same HOST_IP:VST_PORT destination).
+          - path: /storage
             pathType: Prefix
             backend:
               service:
