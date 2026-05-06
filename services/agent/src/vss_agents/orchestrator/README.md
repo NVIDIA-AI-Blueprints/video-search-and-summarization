@@ -20,8 +20,17 @@ If these are left as invalid/non-writable paths, tool execution will fail early 
 From `agent/`:
 
 ```bash
+export HARDWARE_PROFILE=RTXPRO6000BW  # optional deployment-wide override
+export NGC_CLI_API_KEY="<your-ngc-key>"  # required only when pulling/downloading NGC/NIM artifacts
+export NVIDIA_API_KEY="<your-nvidia-key>"  # required only for NVIDIA-hosted remote endpoints
 uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_mcp_config.yml --port 9902
 ```
+
+`docker_generate` resolves values in this order, with later entries overriding earlier ones:
+
+1. Selected profile `.env`
+2. MCP server environment, for deployment-wide defaults such as `HARDWARE_PROFILE`
+3. Per-call `env_overrides`, for one-off changes
 
 ## Call tools manually
 
@@ -36,7 +45,6 @@ uv run nat mcp client tool call \
   --transport streamable-http \
   --json-args '{
     "env_overrides": [
-      "HARDWARE_PROFILE=RTXPRO6000BW",
       "VLM_MODE=local_shared"
     ],
     "ngc_cli_api_key": "<NGC-CLI-API-KEY>",
@@ -112,7 +120,6 @@ uv run nat mcp client tool call \
     {
       "profile": "search",
       "env_overrides": [
-        "HARDWARE_PROFILE=H100",
         "HOST_IP=10.0.0.10"
       ],
       "ngc_cli_api_key": null,

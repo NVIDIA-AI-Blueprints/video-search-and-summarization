@@ -16,7 +16,6 @@
 
 import os
 
-from pydantic import ValidationError
 import pytest
 
 from vss_agents.orchestrator.tools import GenerateInput
@@ -66,22 +65,24 @@ def test_runtime_settings_loads_dotenv_file(tmp_path, monkeypatch: pytest.Monkey
     assert settings.hardware_profile == "H100"
 
 
-def test_runtime_settings_reports_missing_field_name(tmp_path, monkeypatch: pytest.MonkeyPatch):
+def test_runtime_settings_allows_missing_runtime_env(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("NGC_CLI_API_KEY", raising=False)
     monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("HARDWARE_PROFILE", raising=False)
 
-    with pytest.raises(ValidationError) as exc_info:
-        OrchestratorRuntimeSettings()
+    settings = OrchestratorRuntimeSettings()
 
-    message = str(exc_info.value)
-    assert "ngc_cli_api_key must not be empty" in message
-    assert "nvidia_api_key must not be empty" in message
-    assert "hardware_profile must not be empty" in message
+    assert settings.ngc_cli_api_key == ""
+    assert settings.nvidia_api_key == ""
+    assert settings.hardware_profile == ""
 
 
 def test_runtime_settings_apply_to_environment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NGC_CLI_API_KEY", "previous-ngc")  # pragma: allowlist secret
+    monkeypatch.setenv("NVIDIA_API_KEY", "previous-nvidia")  # pragma: allowlist secret
+    monkeypatch.setenv("HARDWARE_PROFILE", "previous-hardware")
+
     settings = OrchestratorRuntimeSettings(
         NGC_CLI_API_KEY="ngc-from-settings",  # pragma: allowlist secret
         NVIDIA_API_KEY="nvidia-from-settings",  # pragma: allowlist secret
@@ -93,3 +94,21 @@ def test_runtime_settings_apply_to_environment(monkeypatch: pytest.MonkeyPatch):
     assert os.environ["NGC_CLI_API_KEY"] == "ngc-from-settings"  # pragma: allowlist secret
     assert os.environ["NVIDIA_API_KEY"] == "nvidia-from-settings"  # pragma: allowlist secret
     assert os.environ["HARDWARE_PROFILE"] == "L40S"
+
+
+def test_runtime_settings_apply_to_environment_preserves_existing_values_when_empty(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NGC_CLI_API_KEY", "previous-ngc")  # pragma: allowlist secret
+    monkeypatch.setenv("NVIDIA_API_KEY", "previous-nvidia")  # pragma: allowlist secret
+    monkeypatch.setenv("HARDWARE_PROFILE", "previous-hardware")
+
+    settings = OrchestratorRuntimeSettings(
+        NGC_CLI_API_KEY="",  # pragma: allowlist secret
+        NVIDIA_API_KEY="",  # pragma: allowlist secret
+        HARDWARE_PROFILE="",
+    )
+
+    settings.apply_to_environment()
+
+    assert os.environ["NGC_CLI_API_KEY"] == "previous-ngc"  # pragma: allowlist secret
+    assert os.environ["NVIDIA_API_KEY"] == "previous-nvidia"  # pragma: allowlist secret
+    assert os.environ["HARDWARE_PROFILE"] == "previous-hardware"
