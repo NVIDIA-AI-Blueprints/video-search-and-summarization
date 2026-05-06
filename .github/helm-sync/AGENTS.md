@@ -20,10 +20,14 @@ or service topology, and check whether the corresponding **helm
 chart files** under `deploy/helm/` were updated to match. If the
 chart is in sync, exit with `DONE: in sync` and post nothing. If
 the chart is out of sync (or missing for a new docker artifact),
-generate the helm changes in the workspace, push them as a bot PR
-against the **source PR's own branch** (NOT the `pull-request/<N>`
-mirror), comment on the source PR with the bot-PR URL, and exit
-with `BLOCKED: helm drift`.
+generate the helm changes in the workspace, force-push them to a
+**single bot branch** `helm-sync-bot/pr-<N>` against the source PR's
+own branch (NOT the `pull-request/<N>` mirror), post one comment on
+the source PR with merge instructions and a 1–5 confidence rating,
+and exit with `BLOCKED: helm drift`. The workflow exit code is 1
+on any `BLOCKED:`, so the source PR stays blocked until the merge
+lands and a subsequent mirror push reports `DONE: in sync`. **Do
+NOT open a bot PR** — comment-only.
 
 ## Repo layout (canonical, on develop)
 
@@ -167,12 +171,26 @@ repo evolves.
      `helm lint` only — and only if a `Chart.yaml` exists in the
      edited dir.
 
-5. **Raise a bot PR against the source PR's *original* branch and
-   STOP.** `pull-request/${PR_NUMBER}` is a throwaway CPR mirror —
-   merging into it gets overwritten on the next CPR sync. The bot
-   PR must target `headRefName` (the contributor's actual branch
-   on the main repo). Same flow as the skills-eval bot-PR mechanism
-   (`.github/skill-eval/AGENTS.md` § 3c).
+5. **Push a bot branch against the source PR's *original* branch
+   and comment — DO NOT open a bot PR.** `pull-request/${PR_NUMBER}`
+   is a throwaway CPR mirror; the contributor's actual branch is
+   `headRefName`. The proposed sync lands as a single force-pushed
+   branch named `helm-sync-bot/pr-${PR_NUMBER}` (no sha suffix —
+   one branch per source PR, force-pushed on every run). The
+   contributor (or their agent) merges it into their working
+   branch; helm-sync re-runs on the next mirror push and reports
+   `DONE: in sync` when drift clears.
+
+   You must rate your **confidence** in the proposed sync on a
+   1–5 scale and include it in the comment:
+
+   | Score | When to use |
+   |---|---|
+   | **5/5** | Mechanical mirror — env var both sides, image tag bump, port already templated. No design call. |
+   | **4/5** | Confident fix following the chart's existing convention; minor judgment (e.g. picked the obvious values key for a new field). |
+   | **3/5** | Ambiguous — multiple plausible chart structures, you picked one but a human review is genuinely useful. |
+   | **2/5** | Significant uncertainty — chart layout makes the mapping unclear; your fix may be wrong. |
+   | **1/5** | Barely a guess. Likely needs human design (e.g. compose introduces a new pattern the chart doesn't cover). |
 
    ```bash
    SOURCE_BRANCH=$(gh pr view "$PR_NUMBER" --repo "$PR_REPO" \
@@ -182,58 +200,96 @@ repo evolves.
    # `$PR_REPO`'s owner, comment that the contributor must port the
    # helm changes manually and emit BLOCKED:fork-pr.
 
-   BOT_BRANCH="helm-sync-bot/pr-${PR_NUMBER}/sync-${SHORT_SHA}"
+   BOT_BRANCH="helm-sync-bot/pr-${PR_NUMBER}"
    cd "$REPO_ROOT"
    git config user.name  "github-actions[bot]"
    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-   # The workflow runs on ubuntu-latest with `permissions: contents:
-   # write, pull-requests: write` — actions/checkout@v4 has already
-   # injected GITHUB_TOKEN via http.extraheader with those grants, so
+   # The workflow runs with `permissions: contents: write,
+   # pull-requests: write`. actions/checkout@v4 has injected
+   # GITHUB_TOKEN via http.extraheader with those grants, so
    # git push and gh calls just work. No PAT, no rotation, no
    # extraheader-bypass needed.
 
    git fetch origin "$SOURCE_BRANCH":"refs/remotes/origin/$SOURCE_BRANCH"
-   git checkout -b "$BOT_BRANCH" "origin/$SOURCE_BRANCH"
+   git checkout -B "$BOT_BRANCH" "origin/$SOURCE_BRANCH"
    git add deploy/helm/
-   # `-s` is mandatory: every commit on PR branches must carry a
-   # `Signed-off-by:` trailer or the org-level DCO check rejects
-   # the PR. Identity comes from `git config user.{name,email}`.
-   git commit -s -m "helm: sync chart with deploy/docker changes (PR #${PR_NUMBER})"
-   git push -u origin "$BOT_BRANCH"
+   # `-s` is mandatory: the org-level DCO check rejects unsigned
+   # commits on any branch CI sees. Identity comes from `git config
+   # user.{name,email}` set above (the github-actions bot).
+   git commit -s -m "helm: sync chart with deploy/docker changes (PR #${PR_NUMBER})
 
-   BOT_PR_URL=$(gh pr create \
-     --repo "$PR_REPO" \
-     --base "$SOURCE_BRANCH" \
-     --head "$BOT_BRANCH" \
-     --title "[helm-sync] sync chart with PR #${PR_NUMBER}" \
-     --body-file /tmp/helm-sync/bot-pr-body.md)
-
-   gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "
-   The helm-sync bot detected changes under \`deploy/docker/\` that
-   weren't reflected in \`deploy/helm/\`. The proposed sync is in
-   ${BOT_PR_URL}; merge it into \`${SOURCE_BRANCH}\` (or cherry-pick
-   the commit) and the helm-sync check will re-run on the next mirror.
-
-   Drift summary: ${REASON}
+   Confidence: ${CONFIDENCE}/5
+   ${ONE_LINE_JUSTIFICATION}
    "
-   echo "BLOCKED: helm drift for PR #${PR_NUMBER}; see ${BOT_PR_URL}"
-   exit 0
+   # Force-push: one branch per source PR, idempotent across runs.
+   # Stale commits on the same branch from prior pushes are replaced
+   # by the latest proposed sync.
+   git push --force-with-lease=origin/"$BOT_BRANCH" -u origin "$BOT_BRANCH"
    ```
 
-   The PR body MUST: (a) link the source PR `#${PR_NUMBER}`,
-   (b) list each docker-side change and the corresponding helm
-   change you made, (c) explicitly state "no checks beyond `helm
-   lint` were run; the contributor should validate against their
-   target environment."
+   Then post a comment on the source PR (NOT a bot PR — comment
+   only). Use the high- or low-confidence template based on the
+   score:
 
-6. **Idempotency.** Before pushing in step 5, check whether
-   `helm-sync-bot/pr-${PR_NUMBER}/...` already exists on origin.
-   If it does, fetch it, diff against your workspace changes:
-   - identical → reuse the existing PR; just re-comment with the
-     existing URL.
-   - different → push as a new commit on the same branch (PR auto-
-     updates). Don't open a duplicate PR.
+   **High confidence (5/5 or 4/5):**
+
+   ```bash
+   gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "$(cat <<EOF
+   🟢 **Helm drift detected — proposed sync ready** (confidence ${CONFIDENCE}/5)
+
+   Branch \`${BOT_BRANCH}\` contains the chart updates that mirror
+   your \`deploy/docker/\` changes. To resolve and unblock this PR:
+
+   \`\`\`bash
+   git fetch origin
+   git merge origin/${BOT_BRANCH}    # or have your agent merge it
+   git push
+   \`\`\`
+
+   The next CI run will re-check parity and pass once the merge lands.
+
+   **Drift summary:** ${REASON}
+
+   **What changed in the bot branch:**
+   ${HELM_DIFF_SUMMARY}
+   EOF
+   )"
+   ```
+
+   **Low confidence (≤ 3/5):**
+
+   ```bash
+   gh pr comment "$PR_NUMBER" --repo "$PR_REPO" --body "$(cat <<EOF
+   🟡 **Helm drift detected — low-confidence proposed sync** (confidence ${CONFIDENCE}/5)
+
+   Branch \`${BOT_BRANCH}\` contains my best attempt at syncing the
+   chart with your \`deploy/docker/\` changes, but **please review it
+   carefully before merging** — I'm not confident this is the right
+   shape.
+
+   **Why I'm not confident:** ${LOW_CONFIDENCE_REASON}
+
+   If the bot branch is wrong, apply your own helm changes directly
+   to \`${SOURCE_BRANCH}\` instead of merging.
+
+   **Drift summary:** ${REASON}
+
+   **What changed in the bot branch:**
+   ${HELM_DIFF_SUMMARY}
+   EOF
+   )"
+   ```
+
+   After commenting, emit the final marker so the driver sets the
+   correct exit code (always 1 when drift was detected, regardless
+   of confidence — the source PR must be blocked until parity
+   returns):
+
+   ```bash
+   echo "BLOCKED: helm drift for PR #${PR_NUMBER}; branch=${BOT_BRANCH}; confidence=${CONFIDENCE}/5"
+   exit 0   # the driver, not you, sets the workflow exit code from the marker
+   ```
 
 ## Hard rules (non-negotiable)
 
@@ -244,12 +300,19 @@ repo evolves.
 - **Never run trials, never `brev exec`, never `docker compose up`.**
   This workflow is pure file comparison + bot-PR generation. Use
   `Bash` for `git`, `gh`, `helm lint`, `cat`/`grep`, and nothing else.
-- **Never force-push, never modify history, never merge PRs.**
-- **The only writes you may push are bot PRs from step 5.** They
-  target the source PR's `headRefName` (the contributor's branch on
-  the main repo, NOT the `pull-request/<N>` mirror), come from a
-  branch prefixed `helm-sync-bot/pr-${PR_NUMBER}/`, and only ever
-  touch `deploy/helm/`.
+- **Never modify history on `develop`/`main` or any contributor
+  branch.** You MAY force-push your own bot branch
+  `helm-sync-bot/pr-${PR_NUMBER}` (it's owned by this workflow and
+  exists solely to carry the latest proposed sync for one source PR).
+  Use `--force-with-lease=origin/<branch>` so a concurrent run can't
+  silently lose work.
+- **Never open a PR.** This workflow communicates via a single bot
+  branch + one comment on the source PR. No `gh pr create`. Merging
+  is the contributor's responsibility.
+- **Never merge PRs.**
+- **The only writes you may push are to `helm-sync-bot/pr-${PR_NUMBER}`,
+  branched from the source PR's `headRefName`, only ever touching
+  `deploy/helm/`.**
 - **Never dispatch on non-mirror branches.** You only ever process
   `pull-request/<N>` SHAs; those are CPR-bot vetted.
 - **Never leak `ANTHROPIC_API_KEY`, `GH_TOKEN`, or any other
@@ -268,11 +331,19 @@ repo evolves.
 
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
-- On success (no drift), final line: `DONE: in sync`. No PR
-  comment posted.
-- On bot-PR raised, final line:
-  `BLOCKED: helm drift for PR #<N>; see <bot-PR-url>`.
-- On other blocker (no helm counterpart for the changed area, fork
-  PR, etc.), final line: `BLOCKED: <short reason>`.
+- The driver (`helm_sync_agent.py`) parses your **final line** to
+  decide the workflow exit code. It must be exactly one of:
+  - `DONE: in sync` — no drift, exit 0, source PR gets no comment.
+  - `BLOCKED: helm drift for PR #<N>; branch=helm-sync-bot/pr-<N>; confidence=<N>/5`
+    — drift detected, bot branch pushed, source PR commented.
+    Driver exits 1; the helm-sync check fails; source PR stays
+    blocked until the merge lands and the next mirror push reports
+    `DONE: in sync`.
+  - `BLOCKED: <short reason>` — anything else (no helm counterpart,
+    fork PR, no `deploy/` changes after filtering, etc.). Driver
+    exits 1.
+- Whenever the final line is `BLOCKED:` with drift, the marker
+  MUST include the `confidence=<N>/5` field — the driver records
+  it for telemetry / future reporting.
 
 Now proceed.
