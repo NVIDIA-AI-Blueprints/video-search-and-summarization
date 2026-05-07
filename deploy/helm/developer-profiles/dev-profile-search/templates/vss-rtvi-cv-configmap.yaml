@@ -37,7 +37,7 @@ data:
           fi
 
           echo -e "\nds pgie configs\n"
-          cat ds-ppl-analytics-pgie-config.yml
+          cat ds-pgie-config.yml
 
           if [ "$STREAM_TYPE" = "kafka" ]; then
               echo "Running metropolis_perception_app with kafka configuration..."
@@ -72,7 +72,7 @@ data:
     [message-broker]
     partition-key = sensorId
 
-  ds-ppl-analytics-pgie-config.yml: |
+  ds-pgie-config.yml: |
     class-attrs-all:
       pre-cluster-threshold: 0.5
       topk: 20
@@ -307,7 +307,7 @@ data:
     interval=1
     gie-unique-id=1
     nvbuf-memory-type=0
-    config-file=ds-ppl-analytics-pgie-config.yml
+    config-file=ds-pgie-config.yml
 
     [tracker]
     enable=1
