@@ -4,20 +4,27 @@ auto_sync_ready: true
 additional_vetters:
   - abhishek-ak-nv
   - akshayanv
+  - ashwind-nvidia
   - asonny02
   - ayyappa-dev
+  - danh-nguyen-nvidia
   - daviddu0425
+  - dineshv
   - freshyjmp
   - hugoverjus
+  - huyprowow
   - jiayin-nvidia
   - kaushikc-nvidia
   - liamy-nv
   - mansiigo
   - munjalp6
   - nv-mpandele
+  - peterychang
   - pratik-bhatt-nv
   - prisrivastav-nv
+  - romalakar
   - soumilinandi
   - ssmmoo1
+  - trongp-nvidia
   - vineet-raina
   - zac-wang-nv
