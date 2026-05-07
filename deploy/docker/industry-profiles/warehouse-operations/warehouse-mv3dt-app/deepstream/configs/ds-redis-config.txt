@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include:
-  - path: ./warehouse-2d-app/warehouse-2d-app.yml
-  - path: ./warehouse-3d-app/warehouse-3d-app.yml
-  - path: ./warehouse-mv3dt-app/warehouse-mv3dt-app.yml
-
-  # Warehouse Configuration - includes both 2D and 3D apps
-
-  # Services are differentiated by -2d and -3d suffixes
-  # Use profiles: bp_wh_2d, bp_wh_kafka_2d, bp_wh_redis_2d (2D)
-  # bp_wh_kafka_3d, bp_wh_redis_3d (3D) to activate services
+[message-broker]
+hostname=localhost
+port=6379
+streamsize=10000
+payloadkey=value
+consumergroup=mygroup
+consumername=myname
+share-connection=1
+# password=password

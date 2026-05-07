@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+include:
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    network_mode: "host"
+    profiles: ["bp_wh_kafka_3d_mv3dt", "bp_wh_redis_3d_mv3dt"]
+    container_name: mosquitto
+    restart: always
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf", "-p", "${MQTT_PORT_0:-1884}"]
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "${MQTT_PORT_0:-1884}", "-t", "health", "-m", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  vss-rtvi-cv-bev-fusion:
+    image: ${MEASUREMENT_FUSION_IMAGE:-nvcr.io/nv-metropolis-dev/auto-calib/vss-rt-cv-mv3dt-measurement-fusion}:${MEASUREMENT_FUSION_TAG:-3.2.0-3}
+    network_mode: "host"
+    profiles: ["bp_wh_kafka_3d_mv3dt", "bp_wh_redis_3d_mv3dt"]
+    container_name: vss-rtvi-cv-bev-fusion
+    restart: always
+    environment:
+      BROKER_TYPE: ${STREAM_TYPE:-kafka}
+      KAFKA_BOOTSTRAP: "localhost:9092"
+      REDIS_HOST: "localhost"
+      REDIS_PORT: "6379"
+      RAW_TOPIC: "mdx-raw"
+      FUSED_TOPIC: "mdx-bev"
+      SENSOR_TIMEOUT_MS: "100"
+      MAX_EXPECTED_SENSORS: ${NUM_STREAMS:-4}
+      BUFFER_DURATION_S: "2.0"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/fusion_ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 10s
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+
+  vss-rtvi-cv-mv3dt:
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nv-metropolis-dev/auto-calib/vss-rt-cv-mv3dt}:${PERCEPTION_TAG:-3.2.0-3}
+    network_mode: "host"
+    runtime: nvidia
+    profiles: ["bp_wh_kafka_3d_mv3dt", "bp_wh_redis_3d_mv3dt"]
+    container_name: vss-rtvi-cv-mv3dt
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 2
+      resources:
+        reservations:
+          devices:
+          - capabilities: [gpu]
+            device_ids: ["${RT_CV_DEVICE_ID:-0}"]
+    volumes:
+      - $MDX_DATA_DIR/models/mtmc/:/opt/storage/
+      - $MDX_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/:/tmp/camInfo/
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-main-config-mv3dt.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config-mv3dt.txt
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-main-redis-config-mv3dt.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-redis-config-mv3dt.txt
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-ppl-analytics-pgie-config.yml:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-ppl-analytics-pgie-config.yml
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-mv3dt-tracker-config.yml:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-mv3dt-tracker-config.yml
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-detector-labels.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-detector-labels.txt
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-kafka-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-kafka-config.txt
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-redis-config.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-redis-config.txt
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/config_mqtt.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/config_mqtt.txt
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/pub-sub-config/generate_pub_sub_configs.py:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/generate_pub_sub_configs.py
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/generated:/tmp/generated
+
+    environment:
+      INSTANCE_ID: "0"
+      DS_HTTP_PORT: "9000"
+      BATCH_SIZE: "${NUM_STREAMS:-4}"
+      MAX_BATCH_SIZE: "${NUM_STREAMS:-4}"
+      MQTT_BROKERS: "127.0.0.1:${MQTT_PORT_0:-1884}"
+      DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
+      STREAM_TYPE: ${STREAM_TYPE}
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
+      OTEL_SERVICE_NAME: "rtvi-cv-mv3dt"
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+    command: ["bash", "-c", "./ds-start-mv3dt.sh"]
+    depends_on:
+      sdr-streamprocessing:
+        condition: service_started
+      sensor-ms-3d:
+        condition: service_started
+      broker-health-check:
+        condition: service_completed_successfully
+      ds-configurator-3d:
+        condition: service_started
+      vss-rtvi-cv-bev-fusion:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+

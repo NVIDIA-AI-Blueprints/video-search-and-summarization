@@ -1,0 +1,101 @@
+%YAML:1.0
+
+BaseConfig:
+  minDetectorConfidence: 0.027087304322979212
+  useBatchNumForFrameId: 1
+TargetManagement:
+  enableBboxUnClipping: 1
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 200
+  minIouDiff4NewTarget: 0.22656630527418112
+  minTrackerConfidence: 0.6957540479571296
+  probationAge: 5
+  maxShadowTrackingAge: 162
+  earlyTerminationAge: 1
+  maxTrajectoryBufferLength: -1
+  outputTerminatedTracks: 0
+TrajectoryManagement:
+  useUniqueID: 0
+  enableReAssoc: 1
+  minMatchingScore4Overall: 0.9349462651721144
+  minTrackletMatchingScore: 0.2940
+  minMatchingScore4ReidSimilarity: 0
+  matchingScoreWeight4TrackletSimilarity: 0.7981
+  matchingScoreWeight4ReidSimilarity: 0
+  minTrajectoryLength4Projection: 34
+  prepLength4TrajectoryProjection: 58
+  trajectoryProjectionLength: 33
+  maxAngle4TrackletMatching: 67
+  minSpeedSimilarity4TrackletMatching: 0.0574
+  minBboxSizeSimilarity4TrackletMatching: 0.1013
+  maxTrackletMatchingTimeSearchRange: 27
+  trajectoryProjectionProcessNoiseScale: 0.0100
+  trajectoryProjectionMeasurementNoiseScale: 100
+  trackletSpacialSearchRegionScale: 0.0100
+  reidExtractionInterval: 0
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 1
+  checkClassMatch: 1
+  minMatchingScore4Overall: 0.4
+  minMatchingScore4SizeSimilarity: 0.4
+  minMatchingScore4Iou: 0.1393522182207021
+  minMatchingScore4VisualSimilarity: 0.0520394823204932
+  matchingScoreWeight4SizeSimilarity: 0.104589699500018
+  matchingScoreWeight4Iou: 0.7844652139368062
+  matchingScoreWeight4VisualSimilarity: 0.9294872869302965
+  tentativeDetectorConfidence: 0.70167245554449
+  minMatchingScore4TentativeIou: 0.1768733030811293
+  minMatchingScore4PeerAssocIou: 0.2
+StateEstimator:
+  stateEstimatorType: 3
+  processNoiseVar4Loc: 6497.75224242603
+  processNoiseVar4Vel: 8035.858212054732
+  measurementNoiseVar4Detector: 100.0000
+  measurementNoiseVar4Tracker: 883.5847350922555
+ObjectModelProjection:
+  minPoseConfidence: 0.925
+  outputFootLocation: 1
+  outputVisibility: 1
+  outputConvexHull: 0
+  cameraModelFilepath:
+    Camera: /tmp/camInfo/Camera.yml
+    Camera_01: /tmp/camInfo/Camera_01.yml
+    Camera_02: /tmp/camInfo/Camera_02.yml
+    Camera_03: /tmp/camInfo/Camera_03.yml
+  objectModelType: 0
+VisualTracker:
+  visualTrackerType: 0
+  useColorNames: 1
+  useHog: 1
+  featureImgSizeLevel: 5
+  featureFocusOffsetFactor_y: -0.10525549278780495
+  filterLr: 0.025008995723548734
+  filterChannelWeightsLr: 0.09460260509799209
+  gaussianSigma: 0.44967391866177786
+MultiViewAssociator:
+  multiViewAssociatorType: 1
+  maxPeerToPredDistance4Fusion: 3.0
+  minPeerTrackletMatchScore: 0.4
+  minPeerVisibility4Fusion: 0.15
+  recentlyActiveAge: 178
+Communicator:
+  communicatorType: 2
+  pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
+  mqttProtoAdaptorConfigPath: config_mqtt.txt
+PoseEstimator:
+  poseEstimatorType: 1
+  useVPICropScaler: 1
+  operateOnClassIds: [0]
+  batchSize: 1
+  workspaceSize: 1000
+  inferDims: [3, 256, 192]
+  networkMode: 1
+  inputOrder: 0
+  colorFormat: 0
+  offsets: [123.6750, 116.2800, 103.5300]
+  netScaleFactor: 0.00392156
+  onnxFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx
+  modelEngineFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx_b1_gpu0_fp16.engine
+  poseInferenceInterval: 30
+
