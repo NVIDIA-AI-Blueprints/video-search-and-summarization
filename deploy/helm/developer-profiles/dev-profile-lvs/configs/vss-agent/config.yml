@@ -118,6 +118,8 @@ functions:
     # Video processing parameters for better event detection
     chunk_duration: 10  # Split video into 10-second chunks (0 = entire video in one request)
     num_frames_per_chunk: 20  # Sample 20 frames per chunk
+    vlm_input_width: 1280
+    vlm_input_height: 720
     # HITL Templates (shown each for each query to the user during interaction)
     hitl_scenario_template: |
       Scenario (REQUIRED):
@@ -169,6 +171,8 @@ functions:
     conn_timeout_ms: 5000
     read_timeout_ms: 600000
     chunk_duration: 10
+    vlm_input_width: 1280
+    vlm_input_height: 720
     hitl_scenario_template: |
       Scenario (REQUIRED):
       Please provide a scenario description for the stream analysis.
