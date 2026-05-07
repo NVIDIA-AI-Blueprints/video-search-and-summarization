@@ -56,18 +56,6 @@ class RTVIVLMAlertConfig(FunctionBaseConfig, name="rtvi_vlm_alert"):
         "alert",
         description="Default alert_type label assigned to created rules when not provided",
     )
-    default_vlm_input_width: int = Field(
-        256,
-        description="Default VLM input width",
-    )
-    default_vlm_input_height: int = Field(
-        256,
-        description="Default VLM input height",
-    )
-    default_enable_reasoning: bool = Field(
-        False,
-        description="Whether to enable VLM reasoning by default",
-    )
     default_prompt: str | None = Field(
         None,
         description="Default detection prompt (if not provided via tool call)",
