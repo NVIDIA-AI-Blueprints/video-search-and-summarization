@@ -208,6 +208,9 @@ rtvi:
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
         destPath: siglip2_v1.1.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_weights.bin
+        destPath: siglip2_v1.1_weights.bin
+      - model: nvidia/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_tokenizer
         destPath: siglip2_v1.1_tokenizer
     models:
