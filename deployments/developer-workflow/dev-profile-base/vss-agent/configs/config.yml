@@ -54,7 +54,10 @@ functions:
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm # e.g. nim_vlm, openai_vlm
-    max_frames: 30
+    # OpenAI vision API allows at most 8 images per request (frame mode).
+    # Until agent image includes frame_select truncation fix, keep <=7 so discrete
+    # sampling never exceeds 8 JPEGs (see video_understanding._build_vlm_messages).
+    max_frames: 7
     max_fps: 2  # for CR1, max fps is 2
     min_pixels: 3136
     max_pixels: 8388608
@@ -186,7 +189,8 @@ llms:
   openai_vlm:
     _type: openai
     model_name: ${VLM_NAME}
-    # uses https://api.openai.com/v1 by default
+    # OpenAI-compatible API (set base_url for NVIDIA NIM / integrate.api.nvidia.com; omit for api.openai.com)
+    base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 4096
 

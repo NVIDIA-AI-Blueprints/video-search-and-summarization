@@ -296,6 +296,9 @@ async def _build_vlm_messages(
             tmp.flush()
             step_size = max(video_length_seconds / num_frames, 1.0 / max_fps)
             base64_frames = frame_select(tmp.name, 0.0, video_length_seconds, step_size)
+            # Discrete frame indices can yield one extra JPEG vs. num_targets (API image limits are strict).
+            if len(base64_frames) > num_frames:
+                base64_frames = base64_frames[:num_frames]
 
         return [
             HumanMessage(
