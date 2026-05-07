@@ -94,7 +94,7 @@ User query: "Search for a woman with a blue backpack walking"
 Output: {{"query": "woman walking with blue backpack", "video_sources": [], "source_type": "video_file", "attributes": ["woman with blue backpack"], "has_action": true}}
 
 Example 4:
-User query: "Find delivery truck at warehouse entrance between 2pm and 4pm"
+User query: "Find delivery truck at warehouse entrance between 2pm and 4pm."
 Output: {{"query": "delivery truck at warehouse entrance", "video_sources": ["warehouse entrance"], "source_type": "rtsp", "timestamp_start": "2025-01-01T14:00:00Z", "timestamp_end": "2025-01-01T16:00:00Z", "has_action": false}}
 
 Example 5:

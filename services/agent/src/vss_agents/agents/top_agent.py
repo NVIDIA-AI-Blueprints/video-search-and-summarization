@@ -193,6 +193,10 @@ class TopAgentState(BaseModel):
         default_factory=list,
         description="Accumulated sub-agent side effects (download links, media URLs)",
     )
+    last_search_runtime_params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Runtime params used by the previous search_agent results.",
+    )
 
 
 class TopAgentConfig(FunctionBaseConfig, name="top_agent"):
@@ -441,6 +445,38 @@ class TopAgent(AsyncMixin):
             return param_name in schema_fields
         return False
 
+    def _runtime_params_for_tool(self, options: AgentRequestOptions, tool_name: str) -> dict[str, Any]:
+        """Return top-agent runtime params that are injected into a tool call."""
+        runtime_params: dict[str, Any] = {}
+        # Only search_agent uses source_type as the media source selector.
+        if tool_name == "search_agent" and self._tool_accepts_param(tool_name, "source_type"):
+            runtime_params["source_type"] = options.search_source_type
+        if self._tool_accepts_param(tool_name, "use_critic"):
+            runtime_params["use_critic"] = options.use_critic
+        return runtime_params
+
+    def _search_runtime_param_context(self, state: TopAgentState) -> str:
+        """Return a prompt note when previous search results used different runtime params."""
+        if "search_agent" not in self.tools_dict:
+            return ""
+        current_params = self._runtime_params_for_tool(state.options, "search_agent")
+        if not state.last_search_runtime_params or state.last_search_runtime_params == current_params:
+            return ""
+        params_context = json.dumps(
+            {
+                "current_search_params": current_params,
+                "previous_search_result_params": state.last_search_runtime_params,
+            },
+            sort_keys=True,
+            default=str,
+        )
+        return (
+            "\n\nSearch runtime parameters changed since the previous search results. "
+            "If the current user request depends on those previous search results, call search_agent again "
+            "instead of answering from stale results. If the request is unrelated, answer normally.\n"
+            f"{params_context}"
+        )
+
     async def astream(
         self,
         input_messages: list[BaseMessage],
@@ -530,6 +566,7 @@ class TopAgent(AsyncMixin):
                 agent_scratchpad=[],
                 final_answer="",
                 options=options,
+                last_search_runtime_params=copy.deepcopy(previous_state.get("last_search_runtime_params", {})),
             )
         else:
             input_state = TopAgentState(
@@ -633,11 +670,13 @@ class TopAgent(AsyncMixin):
         if state.previous_conversation:
             summary_block = f"\n\nPrevious conversation summary:\n{state.previous_conversation}\n\n"
             logger.debug("Summary: " + summary_block)
+        search_runtime_param_context = self._search_runtime_param_context(state)
         system_content = (
             self.plan_system_prompt
             + planning_instruction
             + tool_descriptions_block
             + summary_block
+            + search_runtime_param_context
             + previous_exec_feedback
         )
 
@@ -711,6 +750,7 @@ class TopAgent(AsyncMixin):
 
             llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
             llm_to_use = self.llm_with_tools.bind(**llm_kwargs) if llm_kwargs else self.llm_with_tools
+            search_runtime_param_context = self._search_runtime_param_context(state)
 
             if state.plan and self.plan_exec_prompt is not None:
                 prompt_to_use = self.plan_exec_prompt
@@ -718,6 +758,7 @@ class TopAgent(AsyncMixin):
                 invoke_kwargs: dict[str, Any] = {
                     "question": question,
                     "plan_section": state.plan,  # Already updated by plan_update node
+                    "search_runtime_param_context": search_runtime_param_context,
                     "current_time": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                     "thinking_tag": thinking_tag_formatted,
                 }
@@ -728,6 +769,7 @@ class TopAgent(AsyncMixin):
                     "conversation_summary": state.previous_conversation,
                     "agent_scratchpad": state.agent_scratchpad,
                     "conversation_history": state.conversation_history,
+                    "search_runtime_param_context": search_runtime_param_context,
                     "current_time": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                     "thinking_tag": thinking_tag_formatted,
                 }
@@ -847,14 +889,10 @@ class TopAgent(AsyncMixin):
                     if self._tool_accepts_param(tool_name, "vlm_reasoning"):
                         tool_args["vlm_reasoning"] = state.options.vlm_reasoning
                         logger.info(f"Passing vlm_reasoning={state.options.vlm_reasoning} to {tool_name}")
-                    # Only inject search_source_type for search_agent (video_file/rtsp). report_agent and
-                    # others use source_type with different semantics (e.g. sensor/place)
-                    if tool_name == "search_agent" and self._tool_accepts_param(tool_name, "source_type"):
-                        tool_args["source_type"] = state.options.search_source_type
-                        logger.info(f"Passing source_type={state.options.search_source_type} to {tool_name}")
-                    if self._tool_accepts_param(tool_name, "use_critic"):
-                        tool_args["use_critic"] = state.options.use_critic
-                        logger.info(f"Passing use_critic={state.options.use_critic} to {tool_name}")
+                    runtime_params = self._runtime_params_for_tool(state.options, tool_name)
+                    for param_name, param_value in runtime_params.items():
+                        tool_args[param_name] = param_value
+                        logger.info("Passing runtime param %s=%s to %s", param_name, param_value, tool_name)
 
                     # Use native streaming for configured sub-agents
                     final_chunks = []
@@ -1051,6 +1089,9 @@ class TopAgent(AsyncMixin):
                     if not tool_content or (isinstance(tool_content, str) and tool_content.strip() == ""):
                         logger.warning(f"Tool {tool_call['name']} returned empty content, using placeholder")
                         tool_content = "Tool returned empty content"
+
+                    if tool_name == "search_agent":
+                        state.last_search_runtime_params = copy.deepcopy(runtime_params)
 
                     return ToolMessage(
                         name=tool_call["name"],
@@ -1402,6 +1443,7 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
                 + "\n\n"
                 + "current time: {current_time}"
                 + "\n\nPrevious conversation summary: {conversation_summary}"
+                + "{search_runtime_param_context}"
                 + "{thinking_tag}",
             ),
             MessagesPlaceholder(variable_name="conversation_history", optional=True),
@@ -1421,6 +1463,7 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
             "Summarize and return the final answer to the user after all steps are completed.\n"
             "- Your final answer MUST answer ALL parts of the user's question (User's Question: {question}). "
             "If the user asked multiple things, you MUST answer each one. "
+            "{search_runtime_param_context}"
         )
         if tool_call_prompt:
             plan_exec_system += "\n\n## Tool call rules:\n " + tool_call_prompt

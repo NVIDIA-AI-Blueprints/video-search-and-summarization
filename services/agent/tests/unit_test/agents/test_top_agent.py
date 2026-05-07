@@ -14,6 +14,14 @@
 # limitations under the License.
 """Unit tests for top_agent module."""
 
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+
+from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import MessagesPlaceholder
+from langchain_core.runnables import RunnableLambda
 import pytest
 
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
@@ -21,7 +29,9 @@ from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
 from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
 from vss_agents.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
 from vss_agents.agents.top_agent import AgentRequestOptions
+from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
+from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import strip_frontend_tags
 
 
@@ -129,6 +139,178 @@ class TestAgentRequestOptions:
         assert opts.vlm_reasoning is True
         assert opts.search_source_type == "rtsp"
         assert opts.use_critic is False
+
+
+class TestSearchRuntimeParamContext:
+    """Tests for stale search runtime-param context."""
+
+    def _agent_with_search_tool(self):
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"search_agent": MagicMock()}
+        search_tool = agent.tools_dict["search_agent"]
+        search_tool.args_schema = MagicMock()
+        search_tool.args_schema.model_fields = {
+            "source_type": MagicMock(),
+            "use_critic": MagicMock(),
+        }
+        return agent
+
+    def test_runtime_params_for_search_agent(self):
+        agent = self._agent_with_search_tool()
+
+        params = agent._runtime_params_for_tool(
+            AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+            "search_agent",
+        )
+
+        assert params == {"source_type": "rtsp", "use_critic": False}
+
+    def test_search_runtime_param_context_omits_unchanged_params(self):
+        agent = self._agent_with_search_tool()
+        state = TopAgentState(
+            options=AgentRequestOptions(search_source_type="video_file", use_critic=True),
+            last_search_runtime_params={"source_type": "video_file", "use_critic": True},
+        )
+
+        assert agent._search_runtime_param_context(state) == ""
+
+    def test_search_runtime_param_context_omits_without_search_agent(self):
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {}
+        state = TopAgentState(
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=True),
+            last_search_runtime_params={"source_type": "video_file", "use_critic": True},
+        )
+
+        assert agent._search_runtime_param_context(state) == ""
+
+    def test_search_runtime_param_context_describes_changed_params(self):
+        agent = self._agent_with_search_tool()
+        state = TopAgentState(
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=True),
+            last_search_runtime_params={"source_type": "video_file", "use_critic": True},
+        )
+
+        context = agent._search_runtime_param_context(state)
+
+        assert "Search runtime parameters changed" in context
+        assert '"current_search_params": {"source_type": "rtsp", "use_critic": true}' in context
+        assert '"previous_search_result_params": {"source_type": "video_file", "use_critic": true}' in context
+
+    @pytest.mark.asyncio
+    async def test_agent_node_passes_changed_search_context_without_forcing_tool_call(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        captured = {}
+
+        def _capture_prompt(prompt_value):
+            captured["messages"] = prompt_value.to_messages()
+            return AIMessage(content="Here are the previous results.")
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm_with_tools = RunnableLambda(_capture_prompt)
+        agent.prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", "current time: {current_time}{search_runtime_param_context}{thinking_tag}"),
+                MessagesPlaceholder(variable_name="conversation_history", optional=True),
+                ("user", "{question}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
+            ]
+        )
+        agent.plan_exec_prompt = None
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=True),
+            last_search_runtime_params={"source_type": "video_file", "use_critic": True},
+        )
+
+        result = await agent.agent_node(state)
+
+        assert result.final_answer == "Here are the previous results."
+        assert len(result.agent_scratchpad) == 1
+        ai_message = result.agent_scratchpad[0]
+        assert isinstance(ai_message, AIMessage)
+        assert not ai_message.tool_calls
+        assert "Search runtime parameters changed" in captured["messages"][0].content
+
+    @pytest.mark.asyncio
+    async def test_plan_node_includes_changed_search_context(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        captured = {}
+
+        async def _capture_plan(messages, config=None):
+            captured["system"] = messages[0].content
+            return AIMessage(content="1. Call `search_agent` with the user's query.")
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(side_effect=_capture_plan)
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=True),
+            last_search_runtime_params={"source_type": "video_file", "use_critic": True},
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == "1. Call `search_agent` with the user's query."
+        assert "Search runtime parameters changed" in captured["system"]
+
+    @pytest.mark.parametrize(
+        "fails,expected_params",
+        [
+            (False, {"source_type": "rtsp", "use_critic": False}),
+            (True, {"source_type": "video_file", "use_critic": True}),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_tool_node_records_search_params_only_after_success(self, monkeypatch, fails, expected_params):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class SearchTool:
+            def __init__(self):
+                self.args_schema = MagicMock()
+                self.args_schema.model_fields = {
+                    "source_type": MagicMock(),
+                    "use_critic": MagicMock(),
+                }
+                self.received_input = None
+
+            async def astream(self, input, config=None):
+                self.received_input = input
+                if fails:
+                    raise RuntimeError("search failed")
+                yield "search ok"
+
+        search_tool = SearchTool()
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"search_agent": search_tool}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling search",
+                    tool_calls=[{"name": "search_agent", "args": {"query": "boxes"}, "id": "call_1"}],
+                )
+            ],
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+            last_search_runtime_params={"source_type": "video_file", "use_critic": True},
+        )
+
+        result = await agent.tool_or_subagent_node(state)
+
+        assert search_tool.received_input["source_type"] == "rtsp"
+        assert search_tool.received_input["use_critic"] is False
+        assert result.last_search_runtime_params == expected_params
 
 
 class TestTopAgentRequestUseCritic:
