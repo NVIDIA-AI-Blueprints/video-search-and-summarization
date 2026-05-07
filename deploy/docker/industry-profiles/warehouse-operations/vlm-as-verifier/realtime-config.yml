@@ -18,35 +18,14 @@ always_on_rules:
     alert_type: "ppe"                        # Required. Passed to RTVI as `alert_category`.
     always_on_params:
       # ── Required ────────────────────────────────────────────────────────
-      system_prompt: "You are a helpful assistant."
-      prompt: "Are there any people without personal protective equipment? Answer yes or no."      # Required. The detection prompt sent to the VLM.
-
-      # ── Optional (shown with their defaults if omitted) ─────────────────
-    #  system_prompt: "You are a traffic safety monitoring assistant"  # default: "You are a helpful assistant."
+      system_prompt: "You are a warehouse PPE inspector. Classify the video as PPE Violation (ID 0 / Yes) or No PPE Violation (ID 1 / No).\n\nREQUIRED PPE per worker (BOTH, on OUTER layer):\n  H. Rigid hard hat — hard shell, rounded dome/brim, any color (yellow/white/blue/red/green/orange/black). Soft caps, beanies, baseball caps, hair-covers are NOT hard hats.\n  V. High-vis garment — fluorescent color AND/OR reflective stripes (vest, jacket, coverall, jumpsuit). A high-vis coverall counts as V by itself.\n\nWORKERS = every adult on foot or operating equipment (incl. forklift/pallet-jack drivers), foreground AND background. Skip people behind glass walls or on monitors.\n\nVALID (do not flag):\n  - White or any-colored rigid hard hat.\n  - High-vis coverall/jumpsuit worn alone.\n  - Soft cap UNDER a hard hat; dark shirt UNDER a high-vis vest.\n\nCORE RULES:\n  1. SCAN EVERY WORKER, including background and partially visible figures. Count workers, then describe each one's head and torso individually — never lump groups (\"all workers wear...\").\n  2. CONSISTENCY: if your description names ANY worker without a rigid hard hat OR without a high-vis outer garment, you MUST output ID 0. Do not describe a missing item and then classify as compliant.\n  3. NO REVERSALS: do not flip an initial compliant read with \"however / briefly / appears to / may not be\". PPE does not vanish mid-clip.\n  4. NO SPECULATION: if a figure is too distant/blurred/occluded to see head AND torso clearly, treat as compliant — never invent a violation.\n\nDECISION:\n  - Any worker concretely observed with bare head, soft-only headwear, or plain non-reflective torso → ID 0.\n  - Otherwise (all clear workers compliant, or none assessable) → ID 1.\n\nMapping: 0 ↔ \"PPE Violation\" ↔ \"Yes\"; 1 ↔ \"No PPE Violation\" ↔ \"No\"."
+      # Required. The detection prompt sent to the VLM.
+      prompt: "Raw warehouse surveillance video. Identify EVERY clearly visible worker — foreground AND background, on foot AND on equipment — and check whether each wears BOTH a rigid hard hat AND a high-vis garment on their outer layer.\n\n| ID | Label | Definition |\n| :--- | :--- | :--- |\n| 0 | PPE Violation | At least one clearly visible worker concretely lacks a rigid hard hat OR a high-vis outer garment (bare head; soft cap/beanie/baseball cap as only headwear; plain non-reflective shirt/hoodie/jacket as only torso). |\n| 1 | No PPE Violation | Every clearly visible worker has BOTH items, OR no one is concretely assessable (occlusion/distance/no workers). |\n\nSTEPS:\n1. Count workers. Scan foreground AND background — do not stop at the most prominent figure.\n2. Describe each worker's head (rigid helmet vs soft vs bare) and torso (high-vis with stripes/fluorescent vs plain) individually. No group statements.\n3. White hats and high-vis coveralls/jumpsuits are valid.\n4. If your description names any worker without a hard hat OR without high-vis on the outer layer, classify as ID 0. Description and classification MUST agree.\n5. Do not speculate on distant/occluded figures and do not reverse an initial compliant read.\n\nOUTPUT one JSON object with these exact keys:\n  prediction_class_id: 0 or 1\n  prediction_label: \"PPE Violation\" or \"No PPE Violation\"\n  prediction_answer: \"Yes\" or \"No\"\n  video_description: worker count, each worker's head + torso, and (if ID 0) the specific missing item on the specific worker.\n\nConsistency: 0 ↔ \"PPE Violation\" ↔ \"Yes\"; 1 ↔ \"No PPE Violation\" ↔ \"No\". Description must not contradict the classification."
       model: "nim_nvidia_cosmos-reason2-8b_hf-1208"                   # default: "" (falls back to rtvi_vlm.default_model in config.yaml)
       chunk_duration: 5                           # default: 30   — seconds of video per VLM chunk
       chunk_overlap_duration: 1                    # default: 5    — seconds of overlap between chunks
-      num_frames_per_second_or_fixed_frames_chunk: 1  # default: 10  — interpreted per `use_fps_for_chunking`
+      num_frames_per_second_or_fixed_frames_chunk: 4  # default: 10  — interpreted per `use_fps_for_chunking`
       use_fps_for_chunking: true                   # default: true — if false, the value above is a fixed frame count
-      vlm_input_width: 256                         # default: 256  — VLM input frame width (pixels)
-      vlm_input_height: 256                        # default: 256  — VLM input frame height (pixels)
-      enable_reasoning: false                       # default: true — ask the VLM to emit reasoning alongside alerts
-
-  # ── Rule 2 (minimal) ────────────────────────────────────────────────────
-  # Everything except `prompt` is optional; omit anything you want to keep at
-  # its default. This rule will run with defaults for chunking, model, etc.
-  - rule_id: person_count
-    description: "Person visible"
-    alert_type: "person_visible"
-    always_on_params:
-      system_prompt: "You are a helpful assistant."
-      prompt: "Are there any people visible in the scene? Answer yes or no."
-      model: "nim_nvidia_cosmos-reason2-8b_hf-1208"                   # default: "" (falls back to rtvi_vlm.default_model in config.yaml)
-      chunk_duration: 5                           # default: 30   — seconds of video per VLM chunk
-      chunk_overlap_duration: 1                    # default: 5    — seconds of overlap between chunks
-      num_frames_per_second_or_fixed_frames_chunk: 1  # default: 10  — interpreted per `use_fps_for_chunking`
-      use_fps_for_chunking: true                   # default: true — if false, the value above is a fixed frame count
-      vlm_input_width: 256                         # default: 256  — VLM input frame width (pixels)
-      vlm_input_height: 256                        # default: 256  — VLM input frame height (pixels)
-      enable_reasoning: false                       # default: true — ask the VLM to emit reasoning alongside alerts
-
+      vlm_input_width: 1280                         # default: 256  — VLM input frame width (pixels)
+      vlm_input_height: 720                        # default: 256  — VLM input frame height (pixels)
+      enable_reasoning: true                       # default: true — ask the VLM to emit reasoning alongside alerts
