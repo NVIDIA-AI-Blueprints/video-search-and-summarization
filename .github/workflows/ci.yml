@@ -703,8 +703,14 @@ jobs:
       NVSKILLS_DOWNSTREAM_CI_URL: ${{ secrets.NVSKILLS_DOWNSTREAM_CI_URL }}
       NVSKILLS_DOWNSTREAM_CI_TOKEN: ${{ secrets.NVSKILLS_DOWNSTREAM_CI_TOKEN }}
       NVSKILLS_DOWNSTREAM_PROJECT_PATH: ${{ secrets.NVSKILLS_DOWNSTREAM_PROJECT_PATH }}
-      NVSKILLS_DOWNSTREAM_REF: main
+      NVSKILLS_DOWNSTREAM_REF: feat/external
       NVSKILLS_DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
+      NVSKILLS_DOWNSTREAM_VARIABLES: |
+        NVCARPS_CI_PROFILE=external
+        UPSTREAM_PROJECT_URL=${{ github.server_url }}/${{ github.repository }}
+        UPSTREAM_COMMIT_SHA=${{ github.sha }}
+        UPSTREAM_REF_NAME=${{ github.ref_name }}
+        UPSTREAM_DEFAULT_BRANCH=main
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
