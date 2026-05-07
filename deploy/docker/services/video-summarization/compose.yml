@@ -107,7 +107,7 @@ services:
     image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc6-eec0a57}
     container_name: vss-lvs
 
-    profiles: ["bp_developer_lvs_2d"]
+    profiles: ["lvs-server"]
 
     network_mode: host
 
