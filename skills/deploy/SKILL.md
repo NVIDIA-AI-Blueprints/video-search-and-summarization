@@ -266,10 +266,27 @@ and `BREV_LINK_PREFIX=77770` (launchable default; override with
 `BREV_LINK_PREFIX=7777` if the secure link was created manually without
 the `0` suffix). On non-Brev instances the script is a no-op.
 
+**You must also rewrite the four `VSS_PUBLIC_*` vars in the profile
+`.env`** so haproxy's `known_host` ACL accepts the brev hostname and
+the agent emits public-facing URLs. Without this the browser sees
+404 on every request even though `curl http://localhost:7777/` works:
+
+```bash
+ENV=<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/.env
+BREV_HOST="${BREV_LINK_PREFIX}-${BREV_ENV_ID}.brevlab.com"
+sed -i \
+  -e "s|^VSS_PUBLIC_HOST=.*|VSS_PUBLIC_HOST=${BREV_HOST}|" \
+  -e 's|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=443|' \
+  -e 's|^VSS_PUBLIC_HTTP_PROTOCOL=.*|VSS_PUBLIC_HTTP_PROTOCOL=https|' \
+  -e 's|^VSS_PUBLIC_WS_PROTOCOL=.*|VSS_PUBLIC_WS_PROTOCOL=wss|' \
+  "$ENV"
+```
+
 See [`references/brev.md`](references/brev.md) for:
 - Per-profile secure-link requirements (base needs 1, lvs/search/alerts need 2–3)
 - The launchable `0`-suffix quirk
-- Common CORS / 502 troubleshooting
+- Per-var rationale for the `VSS_PUBLIC_*` overrides
+- Common CORS / 502 / 404 troubleshooting
 
 ### Step 2 — Build env_overrides
 

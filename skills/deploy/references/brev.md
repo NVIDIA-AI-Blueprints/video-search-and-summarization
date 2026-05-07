@@ -85,6 +85,49 @@ The compose stack reads those via `${VAR:-default}` so missing vars fall back
 to internal IPs — you can skip the source step on non-Brev hosts without
 breaking anything.
 
+## Required `.env` overrides for Brev — the haproxy `Host`-header trap
+
+Sourcing `brev_setup.sh` is **not enough**. The reverse proxy
+(`vss-haproxy-ingress`) gates every request on a `known_host` ACL that
+matches `VSS_PUBLIC_HOST`, `EXTERNAL_IP`, `HOST_IP`, and `localhost`
+only. The Brev tunnel forwards Cloudflare's `Host: <link-prefix>-<id>.brevlab.com`
+header verbatim — that string isn't in the ACL, so haproxy returns
+**404 to every request from the browser** even though `curl
+http://localhost:7777/` from the host returns 200.
+
+Before `docker compose up`, write the four `VSS_PUBLIC_*` vars
+into the profile `.env` so the haproxy ACL matches the brev hostname
+and the agent constructs report / VST URLs against the public origin
+(not `http://172.x.x.x:7777`):
+
+```bash
+ENV=<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/.env
+BREV_HOST="${BREV_LINK_PREFIX}-${BREV_ENV_ID}.brevlab.com"
+
+sed -i \
+  -e "s|^VSS_PUBLIC_HOST=.*|VSS_PUBLIC_HOST=${BREV_HOST}|" \
+  -e 's|^VSS_PUBLIC_PORT=.*|VSS_PUBLIC_PORT=443|' \
+  -e 's|^VSS_PUBLIC_HTTP_PROTOCOL=.*|VSS_PUBLIC_HTTP_PROTOCOL=https|' \
+  -e 's|^VSS_PUBLIC_WS_PROTOCOL=.*|VSS_PUBLIC_WS_PROTOCOL=wss|' \
+  "$ENV"
+```
+
+Rationale per var:
+
+| Var | Brev value | Why |
+|---|---|---|
+| `VSS_PUBLIC_HOST` | `${BREV_LINK_PREFIX}-${BREV_ENV_ID}.brevlab.com` | Matches the haproxy `known_host` / `h_main` ACL so requests don't 404 |
+| `VSS_PUBLIC_PORT` | `443` | Cloudflare terminates HTTPS on 443; the secure link tunnels to 7777 internally, but the browser-facing URL has no port suffix |
+| `VSS_PUBLIC_HTTP_PROTOCOL` | `https` | Reports / VST URLs that the agent emits to the UI must be `https://` or the browser blocks mixed content |
+| `VSS_PUBLIC_WS_PROTOCOL` | `wss` | WebSocket equivalent — the alert-bridge real-time stream and chat sockets need `wss://` over Cloudflare |
+
+`scripts/dev-profile.sh` does **not** apply these — it sets
+`VSS_PUBLIC_HOST=${EXTERNAL_IP}` (the internal IP), which works for
+host-local browsers but breaks every Brev tunnel deploy. The
+compose-direct flow has to set them manually until either
+`brev_setup.sh` writes them or the profile `.env` defaults are
+re-templated.
+
 ## Verifying the deploy is reachable externally
 
 After `docker compose up -d`:
@@ -121,4 +164,5 @@ suffix may or may not be there — in which case set `BREV_LINK_PREFIX=7777`
 | UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; the UI should use the proxy only. |
 | `curl https://77770-...brevlab.com` → 502 | nginx container (`vss-proxy`) is down — `docker logs vss-proxy` |
 | `curl https://77770-...brevlab.com` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
-| Agent-generated report URLs don't open | `BREV_LINK_PREFIX` wasn't exported before compose → reports hard-code internal IPs. Source `brev_setup.sh` and redeploy |
+| `curl https://77770-...brevlab.com/` → 404 (haproxy default page) **after** Cloudflare login succeeds | `VSS_PUBLIC_HOST` still set to the internal IP. Apply the four `VSS_PUBLIC_*` overrides above and recreate `vss-haproxy-ingress`, `vss-agent`, `vss-ui`. |
+| Agent-generated report URLs don't open | `BREV_LINK_PREFIX` wasn't exported before compose → reports hard-code internal IPs. Source `brev_setup.sh`, apply the `VSS_PUBLIC_*` overrides, and redeploy |
