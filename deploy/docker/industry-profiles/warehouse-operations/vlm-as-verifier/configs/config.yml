@@ -71,6 +71,9 @@ vlm:
   temperature: 0.0
   do_resize: false
 
+rtvi_vlm:
+  base_url: "${VLM_BASE_URL}/v1"
+  default_model: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 # Event Bridge Configuration - Choose between kafka and redisStream
 event_bridge:
@@ -82,6 +85,8 @@ event_bridge:
     topics:
       incident: 'mdx-incidents'
       alert: 'mdx-alerts'
+    protect_confirmed_verdicts:
+      enabled: true
 
   # Redis Streams Configuration
   redis_source:
@@ -99,7 +104,9 @@ event_bridge:
     consumer_config:
       block_time: 10                          
       count: 1                                 
-      batch_size: 1     
+      batch_size: 1
+    protect_confirmed_verdicts:
+      enabled: true
   
   redis_sink:
     host: "localhost"
