@@ -156,6 +156,16 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
         description="Number of frames to sample per chunk",
     )
 
+    vlm_input_width: int | None = Field(
+        default=None,
+        description="Optional VLM input frame width (pixels). When set, forwarded to LVS to bound the visual-token count.",
+    )
+
+    vlm_input_height: int | None = Field(
+        default=None,
+        description="Optional VLM input frame height (pixels). When set, forwarded to LVS to bound the visual-token count.",
+    )
+
     enable_audio: bool = Field(
         default=False,
         description="Enable audio processing",
@@ -692,6 +702,11 @@ async def lvs_video_understanding(
 
         if objects_of_interest:
             lvs_request["objects_of_interest"] = objects_of_interest
+
+        if config.vlm_input_width is not None:
+            lvs_request["vlm_input_width"] = config.vlm_input_width
+        if config.vlm_input_height is not None:
+            lvs_request["vlm_input_height"] = config.vlm_input_height
 
         logger.info(f"LVS request: {lvs_request}")
 
