@@ -179,17 +179,6 @@ vss-summarization:
       value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "vss-rtvi-vlm" }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
     - name: RTVI_VLM_URL_PASSTHROUGH
       value: "true"
-    # LVS streams support (PR #196): enable Kafka integration in
-    # vss-summarization — consume RTVI captions and publish structured
-    # summaries to `structured-events-summary`. Compose parity:
-    # dev-profile-lvs/.env KAFKA_ENABLED=true, KAFKA_BOOTSTRAP_SERVERS,
-    # KAFKA_STRUCTURED_SUMMARY_TOPIC.
-    - name: KAFKA_ENABLED
-      value: "true"
-    - name: KAFKA_BOOTSTRAP_SERVERS
-      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "kafka" }}{{- printf "%s:9092" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
-    - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
-      value: "structured-events-summary"
 
 agent:
   enabled: true
@@ -208,7 +197,7 @@ agent:
     vstInternalUrl: ""
     vstInternalIp: ""
     vssAgentExternalUrl: ""
-    vssAgentVersion: "3.2.0-26.05.1-4648c6ac8160"
+    vssAgentVersion: "3.2.0-26.05.1-dba533103a50"
     evalLlmJudgeName: ""
     evalLlmJudgeBaseUrl: ""
     reportsBaseUrl: ""
@@ -292,7 +281,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.1-4648c6ac8160" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.1-dba533103a50" }}'
 vss-agent-ui:
   enabled: true
   # NEXT_PUBLIC_* defaults aligned with dev-profile-base; LVS deltas: subtitle + dashboard tab.
