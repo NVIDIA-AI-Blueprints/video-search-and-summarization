@@ -185,8 +185,6 @@ functions:
     vst_internal_url: ${VST_INTERNAL_URL}
     va_get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
     default_model: ${VLM_NAME}
-    default_chunk_duration: 2
-    default_fps: 1
     timeout: 180
 
   # Prompt generator for RTVI-VLM alerts (LLM-based)
