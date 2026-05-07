@@ -33,6 +33,7 @@ when memory allows.
 - Change deployment config (hardware, LLM mode, GPU assignment)
 - Tear down a running deployment
 - **Debug or verify** an existing deployment (see [Debugging a Deployment](#debugging-a-deployment))
+- Enable an opt-in agent tool that's a config-time choice (e.g. `knowledge_retrieval` — pick a `config_rag.yml` instead of `config.yml` via `VSS_AGENT_CONFIG_FILE`; details in [`references/knowledge-retrieval.md`](references/knowledge-retrieval.md))
 
 ## How it works
 
