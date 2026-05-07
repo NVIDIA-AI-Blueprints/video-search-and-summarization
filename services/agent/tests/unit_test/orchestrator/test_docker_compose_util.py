@@ -34,6 +34,7 @@ def _make_recipe(
     env_overrides: dict[str, str] | None = None,
     ngc_cli_api_key: str | None = None,
     nvidia_api_key: str | None = None,
+    hardware_profile: str | None = None,
 ) -> dcu.DryRunRecipe:
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
@@ -47,6 +48,7 @@ def _make_recipe(
         env_overrides=env_overrides or {},
         ngc_cli_api_key=ngc_cli_api_key,
         nvidia_api_key=nvidia_api_key,
+        hardware_profile=hardware_profile,
         output_env_file=tmp_path / "generated.env",
         output_compose_file=tmp_path / "docker-compose.generated.yml",
         deployments_dir=deployments_dir,
@@ -287,7 +289,63 @@ class TestBuildResolvedEnv:
         assert resolved["COMPOSE_PROFILES"] == "search_local,llm_local_shared_llm-a-slug,vlm_local_shared_vlm-a-slug"
         assert brev_calls == [("10.0.0.5", "brev-from-etc")]
 
-    def test_build_resolved_env_preserves_nonempty_env_file_values(
+    def test_build_resolved_env_uses_recipe_hardware_profile_when_not_overridden(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=base",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=igx",
+                "LLM_MODE=local",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.8",
+                "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+            ),
+            hardware_profile="thor",
+        )
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["HARDWARE_PROFILE"] == "thor"
+
+    def test_build_resolved_env_prefers_env_override_over_recipe_hardware_profile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=search",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=thor",
+                "LLM_MODE=local_shared",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local_shared",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.8",
+                "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+            ),
+            profile=dcu.PROFILE_SEARCH,
+            env_overrides={"HARDWARE_PROFILE": "igx"},
+            hardware_profile="thor",
+        )
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["HARDWARE_PROFILE"] == "igx"
+
+    def test_build_resolved_env_uses_recipe_api_keys_over_env_file_values(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         recipe = _make_recipe(
@@ -308,8 +366,8 @@ class TestBuildResolvedEnv:
                 "NVIDIA_API_KEY=from-file",  # pragma: allowlist secret
             ),
             env_overrides={"MDX_DATA_DIR": "/override/data"},
-            ngc_cli_api_key="ignored-ngc",  # pragma: allowlist secret
-            nvidia_api_key="ignored-nvidia",  # pragma: allowlist secret
+            ngc_cli_api_key="from-recipe-ngc",  # pragma: allowlist secret
+            nvidia_api_key="from-recipe-nvidia",  # pragma: allowlist secret
         )
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
@@ -324,8 +382,43 @@ class TestBuildResolvedEnv:
         assert "EXTERNAL_IP" in resolved
         assert resolved["MDX_SAMPLE_APPS_DIR"] == "/already/set"
         assert resolved["MDX_DATA_DIR"] == "/override/data"
-        assert resolved["NGC_CLI_API_KEY"] == "from-file"  # pragma: allowlist secret
-        assert resolved["NVIDIA_API_KEY"] == "from-file"  # pragma: allowlist secret
+        assert resolved["NGC_CLI_API_KEY"] == "from-recipe-ngc"  # pragma: allowlist secret
+        assert resolved["NVIDIA_API_KEY"] == "from-recipe-nvidia"  # pragma: allowlist secret
+
+    def test_build_resolved_env_prefers_env_override_over_recipe_api_keys(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=base",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=thor",
+                "LLM_MODE=local",
+                "LLM_NAME=llm-a",
+                "VLM_MODE=local",
+                "VLM_NAME=vlm-a",
+                "HOST_IP=10.0.0.8",
+                "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+                "NGC_CLI_API_KEY=from-file",  # pragma: allowlist secret
+                "NVIDIA_API_KEY=from-file",  # pragma: allowlist secret
+            ),
+            env_overrides={
+                "NGC_CLI_API_KEY": "from-override-ngc",  # pragma: allowlist secret
+                "NVIDIA_API_KEY": "from-override-nvidia",  # pragma: allowlist secret
+            },
+            ngc_cli_api_key="from-recipe-ngc",  # pragma: allowlist secret
+            nvidia_api_key="from-recipe-nvidia",  # pragma: allowlist secret
+        )
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+        monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["NGC_CLI_API_KEY"] == "from-override-ngc"  # pragma: allowlist secret
+        assert resolved["NVIDIA_API_KEY"] == "from-override-nvidia"  # pragma: allowlist secret
 
     def test_build_resolved_env_alerts_real_time_sets_edge_and_rtvi_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
