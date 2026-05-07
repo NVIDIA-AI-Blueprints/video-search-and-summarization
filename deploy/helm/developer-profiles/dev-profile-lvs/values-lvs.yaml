@@ -52,13 +52,12 @@ nims:
 vios:
   enabled: true
 
-# vss-agent / vss-summarization model ids: set global.llmName / global.vlmName above (override with agent.vss-agent.llmName or vss-summarization.llmName if needed).
+# vss-agent / vss-summarization model ids: set global.llmName / global.vlmName above.
 
-# In-cluster LVS → LLM/VLM: optional llmService / vlmService slugs under vss-summarization (defaults match nims). Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
-# LVS backend routes VLM calls through vss-rtvi-vlm by default (RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
+# In-cluster LVS → LLM: optional llmService slug under vss-summarization (default matches nims).
+# Remote LLM endpoints: use global.llmBaseUrl. LVS routes VLM calls through vss-rtvi-vlm.
 vss-summarization:
   llmService: ""
-  vlmService: ""
 
 # LVS always enables vss-rtvi-vlm (shared NIM, Kafka enabled in values.yaml). Override here only when you need a different image tag,
 # a dedicated GPU (useSharedNim: false), or edge VLM_INPUT_* defaults. See values.yaml for the full env list.

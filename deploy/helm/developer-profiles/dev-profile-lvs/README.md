@@ -21,16 +21,15 @@ Helm chart for deploying **VSS LVS (Long Video Summarization) Developer Profile*
 
 ## GPU requirements
 
-With default **`values.yaml`** and typical LVS install (both NIMs enabled, **`vss-summarization`**, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **5 GPUs** (`nvidia.com/gpu: 1` each). Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
+With default **`values.yaml`** and typical LVS install (both NIMs enabled, **`vss-summarization`**, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **4 GPUs** (`nvidia.com/gpu: 1` each). Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
 
 | Workload | GPU |
 |----------|-----|
 | `nvidia-cosmos-reason2-8b` (NIM) | 1 |
-| `vss-summarization` | 1 |
 | `nvidia-nemotron-nano-9b-v2` (NIM) | 1 |
 | `vss-vios-streamprocessing` | 1 |
 | `vss-rtvi-vlm` (useSharedNim: true — GPU used for video decode only) | 1 |
-| **Total** | **5** |
+| **Total** | **4** |
 
 To run the RTVI-VLM on the shared NIM without a dedicated GPU (lower parity with Docker, experimental), clear `rtvi.vss-rtvi-vlm.resources` in your values file.
 
@@ -39,20 +38,20 @@ To run the RTVI-VLM on the shared NIM without a dedicated GPU (lower parity with
 The LVS profile always deploys **`vss-rtvi-vlm`** (mirrors the `bp_developer_lvs_2d` Compose profile). VLM calls from both clients follow the Docker flow:
 
 - **`vss-agent`**: `video_understanding` picks the `rtvi_vlm` LLM profile (`configs/vss-agent/config.yml`) because `VLM_MODEL_TYPE=rtvi`. `RTVI_VLM_BASE_URL` resolves to the in-cluster `vss-rtvi-vlm` Service via `agent.vss-agent.rtviVlmServiceName` (default `vss-rtvi-vlm`).
-- **`vss-summarization`**: receives `RTVI_VLM_URL=http://<release>-vss-rtvi-vlm:8000`, `RTVI_VLM_URL_PASSTHROUGH=true` via `vss-summarization.extraEnv` — LVS backend forwards `/generate_captions` to the RTVI pod.
+- **`vss-summarization`**: receives `RTVI_VLM_URL=http://<release>-vss-rtvi-vlm:8000`, `RTVI_VLM_URL_PASSTHROUGH=true` via `vss-summarization.env` — LVS backend forwards `/generate_captions` to the RTVI pod.
 
 Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` list):
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `rtvi.enabled` | `true` | Umbrella switch; set `false` to return to the pre-RTVI behavior (requires also flipping `vss-agent` `VLM_MODEL_TYPE` back to `nim` and dropping `vss-summarization.extraEnv`). |
+| `rtvi.enabled` | `true` | Umbrella switch; set `false` to return to the pre-RTVI behavior (requires also flipping `vss-agent` `VLM_MODEL_TYPE` back to `nim` and updating `vss-summarization.env.RTVI_VLM_URL`). |
 | `rtvi.vss-rtvi-vlm.enabled` | `true` | Deploy the RTVI-VLM pod. |
 | `rtvi.vss-rtvi-vlm.useSharedNim` | `true` | Share the `nvidia-cosmos-reason2-8b` NIM instead of loading a second model copy. Sets `MODEL_PATH=none`, `VIA_VLM_ENDPOINT=http://<release>-nvidia-cosmos-reason2-8b:8000/v1`. |
 | `rtvi.vss-rtvi-vlm.vlmNameSlug` | `nvidia-cosmos-reason2-8b` | NIM service slug used when `useSharedNim: true`. Keep aligned with the NIM you enable under `nims`. |
 | `infra.kafka.enabled` | `true` | Deploy Kafka for RTVI-VLM event publishing and create the default VSS topics, including `mdx-vlm` and `mdx-vlm-incidents`. |
 | `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `true` | The RTVI-VLM init container waits for Kafka and required RTVI topics before startup. |
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
-| `vss-summarization.extraEnv` | 2 RTVI vars | `RTVI_VLM_URL`, `RTVI_VLM_URL_PASSTHROUGH`. `RTVI_VLM_URL` is rendered with `tpl`, so it picks up `{{ .Release.Name }}` when `global.useReleaseNamePrefix` is true. |
+| `vss-summarization.env.RTVI_VLM_URL` | `http://vss-rtvi-vlm:8000` | LVS routes VLM calls through RTVI-VLM. The env-map values are rendered with `tpl`, so this picks up `{{ .Release.Name }}` when `global.useReleaseNamePrefix` is true. |
 | `agent.vss-agent.rtviVlmEnabled` / `rtviVlmServiceName` | `true` / `vss-rtvi-vlm` | Parity flags; `RTVI_VLM_BASE_URL` in the `env` list reads `rtviVlmServiceName`. |
 | `agent.vss-agent.env` → `VLM_MODEL_TYPE` | `rtvi` | Flip to `nim` only to bypass RTVI for the agent (video_understanding will then hit the VLM NIM directly). |
 
@@ -107,8 +106,8 @@ Edit **`values-lvs.yaml`** and set at least:
 | **`llmNameSlug`** | Replace the placeholder with the subchart name of the **LLM** NIM you enable under **`services/nims/charts/`** (e.g. `nvidia-nemotron-nano-9b-v2`). Keep **`agent.vss-agent.llmName`** / **`global.llmName`** in **`values.yaml`** aligned with the same NGC model. |
 | **`vlmNameSlug`** | Replace the placeholder with the subchart name of the **VLM** NIM you enable (e.g. `nvidia-cosmos-reason2-8b`). Keep **`agent.vss-agent.vlmName`** / **`global.vlmName`** aligned with the same NGC model id (**`nvidia/cosmos-reason2-8b`**). |
 | **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Per model: **`nims.<model>.enabled`** and **`nims.<model>.hardwareProfile`**. **`<model>`** must match a subchart directory (e.g. `nvidia-cosmos-reason2-8b`). Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
-| **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) base URLs when LLM/VLM are **not** deployed by this chart. Use with **`nims.enabled: false`**. Shared by **vss-agent** and **vss-summarization**; must be reachable from those pods. Leave **`""`** for in-cluster **NIM** services. |
-| **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
+| **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) base URLs when LLM/VLM are **not** deployed by this chart. Use with **`nims.enabled: false`**. `global.llmBaseUrl` is shared by **vss-agent** and **vss-summarization**; `global.vlmBaseUrl` is consumed by **vss-agent** and **vss-rtvi-vlm**. Leave **`""`** for in-cluster **NIM** services. |
+| **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for the LLM/VLM endpoints. `global.llmName` feeds **vss-agent** and **vss-summarization**; `global.vlmName` feeds **vss-agent** and **vss-rtvi-vlm**. Defaults in **`values-lvs.yaml`** match common NGC models. |
 | **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana** and **Phoenix** on **`kibana.<host>`** / **`phoenix.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
 
 #### `values-lvs.yaml` vs chart `values.yaml`
@@ -136,10 +135,10 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`global.externalHost`** | **`""`** | Hostname or IP clients use in the browser (e.g. **`vss.YOUR_IP.nip.io`**). |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs; use **`""`** so URLs omit **`:port`** when using default 80/443. Set only for non-default ports (e.g. **`8080`**). |
 | **`global.kibanaPublicUrl`** | **`""`** | Public Kibana base URL (no **`/kibana`** path suffix). Prefer this over duplicating **`kibana.kibanaPublicUrl`** unless Kibana must use a different host than the main UI. |
-| **`global.llmBaseUrl`** | **`""`** | **Single place** for remote LLM base URL shared by **vss-agent** and **vss-summarization** ( **`LLM_BASE_URL`**, **`LVS_LLM_BASE_URL`** ). LVS often needs **`/v1`** on the path (e.g. **`http://host:31081/v1`**). Subchart **`agent.vss-agent.llmBaseUrl`** or **`vss-summarization.llmBaseUrl`** overrides when set. |
-| **`global.vlmBaseUrl`** | **`""`** | Same for VLM (**`VLM_BASE_URL`**, **`VIA_VLM_ENDPOINT`**). |
-| **`global.llmName`** | **`nvidia/nvidia-nemotron-nano-9b-v2`** | NGC model id for **both** **vss-agent** (**`LLM_NAME`**) and **vss-summarization** (**`LVS_LLM_MODEL_NAME`**). Override with **`agent.vss-agent.llmName`** or **`vss-summarization.llmName`** when a workload needs a different id (e.g. remote NIM). |
-| **`global.vlmName`** | **`nvidia/cosmos-reason2-8b`** | Same for VLM (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
+| **`global.llmBaseUrl`** | **`""`** | **Single place** for remote LLM base URL shared by **vss-agent** and **vss-summarization** ( **`LLM_BASE_URL`**, **`LVS_LLM_BASE_URL`** ). LVS often needs **`/v1`** on the path (e.g. **`http://host:31081/v1`**). Subchart **`agent.vss-agent.llmBaseUrl`** or **`vss-summarization.env.LVS_LLM_BASE_URL`** overrides when set. |
+| **`global.vlmBaseUrl`** | **`""`** | Same for VLM endpoints used by **vss-agent** and **vss-rtvi-vlm** (**`VLM_BASE_URL`**, **`VIA_VLM_ENDPOINT`**). LVS itself calls **`vss-rtvi-vlm`** through **`vss-summarization.env.RTVI_VLM_URL`**. |
+| **`global.llmName`** | **`nvidia/nvidia-nemotron-nano-9b-v2`** | NGC model id for **vss-agent** (**`LLM_NAME`**) and **vss-summarization** (**`LVS_LLM_MODEL_NAME`**). Override with **`agent.vss-agent.llmName`** or **`vss-summarization.env.LVS_LLM_MODEL_NAME`** when a workload needs a different id (e.g. remote NIM). |
+| **`global.vlmName`** | **`nvidia/cosmos-reason2-8b`** | Same for VLM consumers such as **vss-agent** and **vss-rtvi-vlm** (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
 | **`global.storageClass`** | unset in repo **`values.yaml`** | Set in **`values-lvs.yaml`**; used for **Elasticsearch**, **`vios.vstStorage`** PVCs, and other subcharts that inherit **`global.storageClass`**. |
 | **`vios.vstStorage.createSharedPvcs`** | **`true`** | **`true`:** the **`vios`** umbrella creates **PersistentVolumeClaims** so **sensor** and **streamprocessing** share on-disk folders for VST data and video; data survives pod restarts but your cluster must have a working **StorageClass** (see **`global.storageClass`**). **`false`:** no shared PVCs from **`vios`**; behavior depends on **`vios.vss-vios-*`** persistence settings. |
 | **`vios.vstStorage.accessMode`** | **`ReadWriteOnce`** | Access mode for the three shared VST PVCs (see **`helm/services/vios/templates/vst-storage-pvc.yaml`**). |
@@ -170,14 +169,11 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port when Phoenix is enabled. |
 | **`vios.vss-vios-mcp.enabled`** | **`true`** | Set **`false`** to disable VST MCP dev. |
 | **`vss-summarization.enabled`** | **`true`** | Set **`false`** to disable the **LVS** summarization service. |
-| **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty, defaults to **`<release>-elasticsearch`**. |
-| **`vss-summarization.elasticsearchPort`** | **`9200`** | Elasticsearch HTTP port (**`ES_PORT`**). |
-| **`vss-summarization.llmService`** | **`""`** | NIM subchart **name segment** used to build **`LVS_LLM_BASE_URL`** as **`http://<release>-<value>:8000/v1`** when **`global.llmBaseUrl`** and **`vss-summarization.llmBaseUrl`** are empty. When empty, defaults to **`nvidia-nemotron-nano-9b-v2`**; set to match your enabled **LLM** under **`nims`** (same as **`llmNameSlug`**). |
-| **`vss-summarization.vlmService`** | **`""`** | Same for **`VIA_VLM_ENDPOINT`** when **`global.vlmBaseUrl`** and **`vss-summarization.vlmBaseUrl`** are empty. |
-| **`vss-summarization.llmBaseUrl`** | **`""`** | Optional **LVS-only** override of **`global.llmBaseUrl`**. |
-| **`vss-summarization.vlmBaseUrl`** | **`""`** | Optional **LVS-only** override of **`global.vlmBaseUrl`**. |
-| **`vss-summarization.llmName`** | **`""`** | Optional **LVS-only** override of **`global.llmName`** (**`LVS_LLM_MODEL_NAME`**). |
-| **`vss-summarization.vlmName`** | **`""`** | Optional **LVS-only** override of **`global.vlmName`** (**`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
+| **`vss-summarization.llmService`** | **`""`** | NIM subchart **name segment** used by **`vss-summarization.env.LVS_LLM_BASE_URL`** when **`global.llmBaseUrl`** is empty. When empty, defaults to **`nvidia-nemotron-nano-9b-v2`**; set to match your enabled **LLM** under **`nims`** (same as **`llmNameSlug`**). |
+| **`vss-summarization.rtviVlmServiceName`** | **`vss-rtvi-vlm`** | Service name used to build **`vss-summarization.env.RTVI_VLM_URL`**. |
+| **`vss-summarization.env`** | *(see **`values.yaml`**)* | Env-map overrides for the standalone-style LVS subchart. The profile sets **`RTVI_VLM_URL`**, **`LVS_LLM_BASE_URL`**, **`LVS_LLM_MODEL_NAME`**, **`ES_HOST`**, **`ES_PORT`**, **`KAFKA_*`**, and **`VST_INTERNAL_URL`**. Values are rendered with **`tpl`**. |
+| **`vss-summarization.env.LVS_KAFKA_ENABLED`** | **`true`** | Controls CA-RAG **`kafka_enabled`** via the generated config map. Set **`false`** along with **`KAFKA_ENABLED=false`** only when deploying LVS without Kafka. |
+| **`vss-summarization.service.name`** | **`vss-summarization`** | Kubernetes **Service** name for the LVS backend. Keep aligned with **`agent.vss-agent.lvsBackendService`**. |
 | **`elasticsearch.enabled`** | **`true`** | Set **`false`** to disable the in-cluster **Elasticsearch** deployment. |
 | **`elasticsearch.storage.dataSize`** | **10Gi** | PVC size for Elasticsearch **data** volume. |
 | **`elasticsearch.storage.logsSize`** | **5Gi** | PVC size for Elasticsearch **logs** volume (LVS chart exposes both **data** and **logs** sizes). |
@@ -222,7 +218,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 
 ### Remote LLM and VLM
 
-When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`false`** and configure **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** in **`values-lvs.yaml`** (or **`--set`**). **vss-summarization** and **vss-agent** both consume these globals unless overridden with **`vss-summarization.llmBaseUrl`**, **`agent.vss-agent.llmBaseUrl`**, etc. Endpoints must be reachable from pods in the release namespace. LVS often expects a **`/v1`** path on the LLM URL when talking to OpenAI-compatible NIM APIs.
+When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`false`** and configure **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** in **`values-lvs.yaml`** (or **`--set`**). **vss-summarization** consumes the LLM globals through **`vss-summarization.env.LVS_LLM_BASE_URL`** / **`LVS_LLM_MODEL_NAME`** and continues to call **`vss-rtvi-vlm`** for VLM work. Endpoints must be reachable from pods in the release namespace. LVS often expects a **`/v1`** path on the LLM URL when talking to OpenAI-compatible NIM APIs.
 
 ### 2. Install
 
@@ -253,7 +249,7 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
   --set global.externalHost=vss.$EXTERNAL_HOST.nip.io \
   --set global.storageClass="$STORAGE_CLASS"
 
-# OR — LVS with remote LLM/VLM (no NIM subcharts); URLs must be reachable from vss-agent and vss-summarization pods
+# OR — LVS with remote LLM/VLM (no NIM subcharts); URLs must be reachable from vss-agent, vss-rtvi-vlm, and vss-summarization pods
 # (reuse NGC_CLI_API_KEY, STORAGE_CLASS, EXTERNAL_HOST from the example above)
 export LLM_BASE_URL='<REMOTE LLM ENDPOINT>'
 export VLM_BASE_URL='<REMOTE VLM ENDPOINT>'

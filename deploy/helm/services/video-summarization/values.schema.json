@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "runtimeClassName": {
+      "type": "string",
+      "description": "RuntimeClass name for the pod. Empty string means no runtimeClassName is emitted."
+    },
+    "enableServiceLinks": { "type": ["boolean", "null"] },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": { "type": "boolean" },
+        "automount": { "type": "boolean" },
+        "annotations": { "type": "object" },
+        "name": { "type": "string" },
+        "clusterRules": {
+          "type": "array",
+          "description": "RBAC rules for the ClusterRole. Follow principle of least privilege — avoid wildcards in verbs, apiGroups, or resources.",
+          "items": { "$ref": "#/definitions/rbacClusterRule" }
+        },
+        "rules": {
+          "type": "array",
+          "description": "RBAC rules for the namespace-scoped Role. Prefer this over clusterRules when namespace-scoped access is sufficient.",
+          "items": { "$ref": "#/definitions/rbacRule" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "rbacRule": {
+      "type": "object",
+      "required": ["verbs", "apiGroups", "resources"],
+      "additionalProperties": false,
+      "properties": {
+        "verbs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "apiGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "resources": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "resourceNames": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "rbacClusterRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["verbs", "apiGroups", "resources"],
+          "not": { "required": ["nonResourceURLs"] }
+        },
+        {
+          "required": ["verbs", "nonResourceURLs"],
+          "not": {
+            "anyOf": [
+              { "required": ["apiGroups"] },
+              { "required": ["resources"] },
+              { "required": ["resourceNames"] }
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "verbs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "apiGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "resources": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "resourceNames": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "nonResourceURLs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}

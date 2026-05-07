@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.configMaps }}
+{{- range $configMapName, $configMapData := .Values.configMaps }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-summarization.configMapName" (dict "root" $ "name" $configMapName) }}
+  labels:
+    app: {{ include "vss-summarization.fullname" $ }}
+    chart: {{ include "vss-summarization.chart" $ }}
+    release: {{ $.Release.Name }}
+    heritage: {{ $.Release.Service }}
+data:
+{{- range $key, $value := $configMapData }}
+  {{- if kindIs "string" $value }}
+  {{ $key }}: |
+{{ $value | indent 4 }}
+  {{- else }}
+  {{ $key }}: |
+{{ $value | toYaml | indent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

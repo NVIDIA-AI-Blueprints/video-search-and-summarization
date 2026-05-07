@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.serviceAccount .Values.serviceAccount.create .Values.serviceAccount.clusterRules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s-%s" .Release.Name (include "vss-summarization.serviceAccountName" .) .Release.Namespace }}
+  labels:
+    {{- include "vss-summarization.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.serviceAccount.clusterRules | nindent 2 }}
+{{- end }}

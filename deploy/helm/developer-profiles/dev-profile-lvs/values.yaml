@@ -26,7 +26,9 @@ ngc:
   apiKey: ""
 
 global:
-  # When false (default), Service/Workload names use chart short names (redis, vss-vios-streamprocessing, vss-summarization, …). Set true for <release>-<chart> naming.
+  # When false (default), most Service names use chart short names (redis, vss-vios-streamprocessing, vss-summarization, …).
+  # Some generated subcharts still use Helm fullname semantics for workload/config object names.
+  # Set true for <release>-<chart> service naming where supported.
   useReleaseNamePrefix: false
   imagePullSecrets:
     - name: ngc-secret
@@ -168,27 +170,37 @@ vios:
 
 vss-summarization:
   enabled: true
-  elasticsearchHost: ""
-  elasticsearchPort: "9200"
   llmService: ""
-  vlmService: ""
-  # LVS backend routes VLM calls through vss-rtvi-vlm (docker parity: RTVI_VLM_URL=http://HOST:RTVI_VLM_PORT).
-  # Values are rendered with `tpl` so {{ .Release.Name }} works when global.useReleaseNamePrefix is enabled.
-  extraEnv:
-    - name: RTVI_VLM_URL
-      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "vss-rtvi-vlm" }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
-    - name: RTVI_VLM_URL_PASSTHROUGH
+  rtviVlmServiceName: "vss-rtvi-vlm"
+  # Values are rendered with `tpl` by the subchart, so release-prefixed
+  # service names and remote global LLM values still work with the env-map
+  # format generated from the standalone LVS blueprint.
+  env:
+    RTVI_VLM_URL:
+      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.rtviVlmServiceName | default "vss-rtvi-vlm" }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
+    RTVI_VLM_URL_PASSTHROUGH:
       value: "true"
-    # LVS streams support (PR #196): enable Kafka integration in
-    # vss-summarization — consume RTVI captions and publish structured
-    # summaries to `structured-events-summary`. Compose parity:
-    # dev-profile-lvs/.env KAFKA_ENABLED=true, KAFKA_BOOTSTRAP_SERVERS,
-    # KAFKA_STRUCTURED_SUMMARY_TOPIC.
-    - name: KAFKA_ENABLED
+    LVS_LLM_BASE_URL:
+      value: '{{- $g := .Values.global | default dict }}{{- $llmIn := trim (default "" (coalesce .Values.llmBaseUrl ((index $g "llmBaseUrl") | default ""))) }}{{- if $llmIn }}{{- if hasSuffix "/v1" $llmIn }}{{ $llmIn }}{{- else }}{{ printf "%s/v1" (trimSuffix "/" $llmIn) }}{{- end }}{{- else }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := .Values.llmService | default "nvidia-nemotron-nano-9b-v2" }}{{- printf "http://%s:8000/v1" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
+    LVS_LLM_MODEL_NAME:
+      value: '{{- $g := .Values.global | default dict }}{{- coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2" -}}'
+    ES_HOST:
+      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "elasticsearch" }}{{- ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx -}}'
+    ES_PORT:
+      value: "9200"
+    ES_TRANSPORT_PORT:
+      value: "9300"
+    LVS_DATABASE_BACKEND:
+      value: elasticsearch_db
+    VST_INTERNAL_URL:
+      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "vss-vios-ingress" }}{{- printf "http://%s:30888" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
+    KAFKA_ENABLED:
       value: "true"
-    - name: KAFKA_BOOTSTRAP_SERVERS
-      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "kafka" }}{{- printf "%s:9092" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
-    - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
+    LVS_KAFKA_ENABLED:
+      value: "true"
+    KAFKA_BOOTSTRAP_SERVERS:
+      value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "kafka-kafka" }}{{- printf "%s:9092" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
+    KAFKA_STRUCTURED_SUMMARY_TOPIC:
       value: "structured-events-summary"
 
 agent:

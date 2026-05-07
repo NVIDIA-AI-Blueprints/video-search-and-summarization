@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- /* SECURITY: ClusterRoleBinding grants cluster-wide permissions. See .Values.serviceAccount.clusterRules documentation. */ -}}
+{{- if and .Values.serviceAccount .Values.serviceAccount.create .Values.serviceAccount.clusterRules }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s-%s" .Release.Name (include "vss-summarization.serviceAccountName" .) .Release.Namespace }}
+  labels:
+    {{- include "vss-summarization.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s-%s" .Release.Name (include "vss-summarization.serviceAccountName" .) .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "vss-summarization.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

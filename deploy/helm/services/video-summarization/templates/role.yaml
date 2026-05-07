@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.serviceAccount .Values.serviceAccount.create (gt (len .Values.serviceAccount.rules) 0) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "vss-summarization.serviceAccountName" . }}
+  labels:
+    {{- include "vss-summarization.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.serviceAccount.rules | nindent 2 }}
+{{- end }}

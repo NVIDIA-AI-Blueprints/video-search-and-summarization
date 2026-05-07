@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-{{- if not (and .Values.statefulSet (.Values.statefulSet.enabled | default false)) }}
+{{- if (and .Values.statefulSet (.Values.statefulSet.enabled | default false)) }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "vss-summarization.fullname" . }}
   labels:
@@ -15,7 +15,16 @@ spec:
   selector:
     matchLabels:
       {{- include "vss-summarization.selectorLabels" . | nindent 6 }}
-  progressDeadlineSeconds: 3600
+  serviceName: {{ include "vss-summarization.headlessServiceName" . }}
+  podManagementPolicy: "Parallel"
   template:
     {{- include "vss-summarization.podTemplateSpec" . | nindent 4 }}
+  {{- with .Values.statefulSet.persistentVolumeClaimRetentionPolicy }}
+  persistentVolumeClaimRetentionPolicy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.statefulSet.volumeClaimTemplates }}
+  volumeClaimTemplates:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}

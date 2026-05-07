@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $files := .Files.Glob "files/*" }}
+{{- if $files }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-summarization.filesConfigMapName" . }}
+  labels:
+    {{- include "vss-summarization.labels" . | nindent 4 }}
+data:
+  {{- range $path, $fileContents := $files }}
+  {{- $filename := base $path }}
+  {{ $filename }}: |-
+{{ $.Files.Get $path | indent 4 }}
+  {{- end }}
+{{- end }}
