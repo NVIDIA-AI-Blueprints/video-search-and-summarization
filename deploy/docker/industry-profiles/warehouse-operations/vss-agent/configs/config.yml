@@ -50,7 +50,7 @@ function_groups:
 functions:
   video_understanding:
     _type: video_understanding
-    vlm_name: vlm
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
     max_frames: 30
     min_pixels: 3136
     max_pixels: 12845056
@@ -167,12 +167,38 @@ llms:
     max_tokens: 4096
     temperature: 0.0
 
-  vlm:
-    _type: ${VLM_MODEL_TYPE:-nim}
+  # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
+  nim_vlm:
+    _type: nim
     model_name: ${VLM_NAME}
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 1024
+
+  openai_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    temperature: 0.0
+    max_tokens: 1024
+
+  vllm_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 1024
+
+  rtvi_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${RTVI_VLM_BASE_URL}/v1
+    temperature: 0.0
+    model_kwargs:
+      extra_body:
+        num_frames_per_second_or_fixed_frames_chunk: 20
+        use_fps_for_chunking: false
+        vlm_input_width: 1280
+        vlm_input_height: 720
 
 workflow:
   _type: top_agent

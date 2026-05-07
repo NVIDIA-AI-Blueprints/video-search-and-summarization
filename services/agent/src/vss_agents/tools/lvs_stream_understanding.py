@@ -16,6 +16,7 @@
 """LVS stream summary/report tool."""
 
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 import json
 import logging
 import re
@@ -37,6 +38,10 @@ from vss_agents.tools.lvs_config_media import CAPTION_GENERATION_STARTED_MESSAGE
 from vss_agents.tools.lvs_config_media import LVSMediaStatus
 from vss_agents.tools.lvs_config_media import _coerce_lvs_response
 from vss_agents.tools.lvs_media_state import configured_media
+from vss_agents.tools.vst.timeline import get_timeline
+from vss_agents.tools.vst.utils import VSTError
+from vss_agents.utils.time_convert import datetime_to_iso8601
+from vss_agents.utils.time_convert import iso8601_to_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +53,7 @@ class LVSStreamUnderstandingConfig(FunctionBaseConfig, name="lvs_stream_understa
     """Configuration for the LVS stream summary/report tool."""
 
     lvs_backend_url: str = Field(..., description="The URL of the LVS backend service.")
+    vst_internal_url: str = Field(..., description="Internal VST URL used to resolve live stream timelines.")
     model: str = Field(default="gpt-4o", description="Model to use for LVS stream summarization.")
     conn_timeout_ms: int = Field(default=5000, description="Connection timeout in milliseconds.")
     read_timeout_ms: int = Field(default=600000, description="Read timeout in milliseconds.")
@@ -180,12 +186,56 @@ async def lvs_stream_understanding(config: LVSStreamUnderstandingConfig, _: Buil
                 ),
             )
 
-        payload = {
-            "id": configured.media_id,
-            "model": config.model,
-            "start_time": lvs_input.start_time,
-            "end_time": lvs_input.end_time,
-        }
+        # LVS now expects ISO 8601 timestamps for live streams. Anchor relative
+        # second offsets on the VST stream timeline's startTime so "second 0" is
+        # the start of the captioned timeline.
+        #
+        # Per LVS contract:
+        #   - end_time=0   => consider all captions from start_time until now
+        #   - start_time=0 => consider all captions until end_time
+        #   - both start_time=0 and end_time=0 => consider all captions stored in db
+
+        # When both bounds are 0, skip the VST round-trip entirely.
+        if lvs_input.start_time == 0 and lvs_input.end_time == 0:
+            payload: dict[str, Any] = {
+                "id": configured.media_id,
+                "model": config.model,
+                "start_time": 0,
+                "end_time": 0,
+            }
+        else:
+            try:
+                timeline_start, _ = await get_timeline(configured.media_id, config.vst_internal_url)
+            except VSTError as e:
+                logger.error(
+                    "Failed to fetch VST timeline for stream=%r media_id=%s: %s",
+                    configured.media_name,
+                    configured.media_id,
+                    e,
+                )
+                return LVSStreamUnderstandingOutput(
+                    status=LVSMediaStatus.FAILED,
+                    stream_name=configured.media_name,
+                    stream_id=configured.media_id,
+                    configured=True,
+                    message=f"Failed to resolve VST timeline for stream '{configured.media_name}': {e}",
+                )
+
+            anchor = iso8601_to_datetime(timeline_start)
+            # Convert non-zero offsets to ISO 8601; pass 0 through unchanged
+            start_payload: str | int = (
+                datetime_to_iso8601(anchor + timedelta(seconds=lvs_input.start_time)) if lvs_input.start_time > 0 else 0
+            )
+            end_payload: str | int = (
+                datetime_to_iso8601(anchor + timedelta(seconds=lvs_input.end_time)) if lvs_input.end_time > 0 else 0
+            )
+
+            payload = {
+                "id": configured.media_id,
+                "model": config.model,
+                "start_time": start_payload,
+                "end_time": end_payload,
+            }
 
         request_url = f"{config.lvs_backend_url.rstrip('/')}{STREAM_SUMMARIZE_ENDPOINT}"
         logger.info(
