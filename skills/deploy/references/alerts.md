@@ -31,33 +31,19 @@ Both GPUs required:
 | 0 | RT-CV perception (reserved — object detection) |
 | 1 | LLM + VLM (`local_shared`) |
 
-## Required env override for `local_shared` mode
+## Shared-device caveat — set `RTVI_VLLM_GPU_MEMORY_UTILIZATION`
 
-When `LLM_MODE=local_shared` and `VLM_MODE=local_shared` for this profile, you
-**must** set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35` in the `.env` before
-`docker compose up`. The profile's `.env` ships this value empty, which
-makes vLLM in the `rtvi-vlm` container fall back to its default of `0.9`.
-On a 97 GB GPU that reserves ~87 GB for the VLM, leaving the LLM NIM
-(asks for 0.4 of the GPU under shared mode) no room for KV cache → the
-LLM crashloops with `CUDA out of memory ... Tried to allocate 5.05 GiB ...
-GPU 0 has ... 2.76 GiB free`. Compose treats the LLM as an *optional*
-dependency of the alerts stack, so the rest of the services come up
-healthy and the failure is silent until the agent is asked to answer.
+Whenever rtvi-vlm shares its GPU with another inference container — most
+commonly when `LLM_MODE=local_shared` puts the LLM NIM on the same GPU as
+rtvi-vlm — you must cap `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35` in the
+profile `.env`. Without it, vLLM defaults to `0.9` of the device, the
+LLM NIM OOMs on KV-cache init, and compose lets the rest of the stack
+come up "healthy" (the LLM is an *optional* dependency).
 
-`scripts/dev-profile.sh` applies this override automatically (see the
-`alerts + local_shared` branch in the script). The compose-direct
-deploy flow in [`SKILL.md`](../SKILL.md) bypasses that, so set it
-manually:
-
-```bash
-sed -i "s|^RTVI_VLLM_GPU_MEMORY_UTILIZATION=.*|RTVI_VLLM_GPU_MEMORY_UTILIZATION='0.35'|" \
-  "$REPO/deploy/docker/developer-profiles/dev-profile-alerts/.env"
-```
-
-The same cap applies to all hardware profiles except `OTHER`, `IGX-THOR`,
-and `AGX-THOR` (those have separate handling). For `dedicated` /
-`local` mode the rtvi-vlm has its own GPU and this override is not
-needed.
+The general rule and the dedicated-mode values for VRAM-tight hardware
+live in [`SKILL.md` → Step 2 → "Cap GPU memory utilization on every
+shared device"](../SKILL.md). `scripts/dev-profile.sh` applies these
+automatically; the compose-direct flow does not.
 
 ## Use Cases
 

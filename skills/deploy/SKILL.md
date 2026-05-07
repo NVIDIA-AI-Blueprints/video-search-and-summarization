@@ -343,6 +343,65 @@ See the profile reference doc for full env override recipes.
 
 **Do NOT set `COMPOSE_PROFILES` directly** — it is computed from `BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`, `LLM_NAME_SLUG`, `VLM_MODE`, `VLM_NAME_SLUG`.
 
+**Cap GPU memory utilization on every shared device.**
+
+Every vLLM-backed service grabs `gpu_memory_utilization=0.9` of the
+device by default. That's safe when the service has the GPU to itself,
+but on a device shared with another inference container it leaves no
+room for the second process and causes a silent crash-loop (the
+co-located container OOMs on KV-cache init while the rest of the stack
+stays "healthy" because compose marks it as an *optional* dependency).
+
+`scripts/dev-profile.sh` sets these caps automatically; the
+compose-direct flow does not, so you must apply them yourself. The
+rule is the same regardless of profile or mode — **decide per device,
+based on what else is on it.**
+
+1. **Build the device → services map.** From the resolved env, group
+   services by GPU index:
+   - `RT_CV_DEVICE_ID` → rtvi-cv
+   - `RT_VLM_DEVICE_ID` → rtvi-vlm
+   - `LLM_DEVICE_ID` → LLM NIM (only when `LLM_MODE=local*`)
+   - `VLM_DEVICE_ID` → VLM NIM (only when `VLM_MODE=local*`)
+   - `SHARED_LLM_VLM_DEVICE_ID` (if set) overrides LLM/VLM device when `*_MODE=local_shared`
+
+   The placement table for the chosen profile is in
+   `references/<profile>.md` under "GPU Layout".
+
+2. **For every device with two or more vLLM-backed services**, cap each
+   to ~0.4 of the GPU. Concretely:
+
+   | Service env var | When the device is shared | When the device is dedicated |
+   |---|---|---|
+   | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.35` | leave default (or `0.8` on DGX-SPARK / L40S) |
+   | NIM `*_KVCACHE_PERCENT` (read by `hw-${HARDWARE_PROFILE}-shared.env`) | `0.4` (set by the shipped `*-shared.env` file when the right compose profile is selected) | per the non-shared `hw-*.env` |
+
+   The NIM cap is applied automatically when the resolved compose
+   profile is `*_local_shared_*` — that pulls in
+   `hw-<HW>-shared.env`. You don't write it by hand. **You do** have
+   to write `RTVI_VLLM_GPU_MEMORY_UTILIZATION` because the rtvi-vlm
+   container has no per-hardware shared overlay.
+
+3. **VRAM-tight hardware (≤48 GB / GPU like L40S, or unified memory
+   like DGX-Spark / Thor) needs lower caps even in dedicated mode**
+   because the VLM's KV cache + prefix cache eats into what would
+   otherwise be headroom on a 96 GB+ device. `dev-profile.sh` uses
+   `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8` for `DGX-SPARK` and `L40S`
+   in dedicated mode; do the same.
+
+4. **Verify after writing.** `grep -E '^(LLM_MODE|VLM_MODE|RTVI_VLLM_GPU_MEMORY_UTILIZATION)=' <env-file>`
+   and confirm the cap is present whenever the device map shows
+   colocation. A missing cap presents as a healthy stack with the LLM
+   container `Restarting` or `unhealthy` and a `CUDA out of memory`
+   line in `docker logs <llm-container>`.
+
+| Concrete example | Caps to write |
+|---|---|
+| `alerts` real-time, `RTXPRO6000BW`, `local_shared` (LLM+VLM share GPU 1, rtvi-vlm also on GPU 1) | `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35` |
+| `alerts` real-time, dedicated (LLM on GPU 2, rtvi-vlm on GPU 1) | leave `RTVI_VLLM_GPU_MEMORY_UTILIZATION` empty |
+| `base` `local_shared` on H100 (LLM+VLM share GPU 0, no rtvi-vlm) | nothing — NIM `*-shared.env` overlay handles both |
+| `lvs` on L40S, dedicated | `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8` (low-VRAM cap) |
+
 ### Step 3 — Config / dry-run
 
 **Env file location:** `<repo>/deployments/developer-workflow/dev-profile-<profile>/.env`
