@@ -690,23 +690,12 @@ jobs:
         run: python3 .github/scripts/poll-downstream-pipeline.py
 
   # ---------------------------------------------------------------------------
-  # Job 13: Trigger nvskills downstream pipeline
+  # Job 13: Trigger nvskills downstream pipeline and poll it to completion
   # ---------------------------------------------------------------------------
   trigger-nvskills-downstream-pipeline:
     name: Trigger NVSkills Downstream Pipeline
-    needs:
-      - lint
-      - typecheck
-      - test
-      - security
-      - frontend-lint
-      - frontend-build
-      - copyright-headers
-      - dco
-      - license-check-python
-      - license-check-ui
-    runs-on: self-hosted
-    timeout-minutes: 10
+    runs-on: [self-hosted, downstream-pipeline]
+    timeout-minutes: 245
     permissions:
       contents: read
       pull-requests: read
@@ -720,6 +709,15 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Trigger pipeline
+        id: trigger
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 .github/scripts/trigger-downstream-pipeline.sh nvskills-downstream
+
+      - name: Poll pipeline
+        env:
+          NVSKILLS_DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          NVSKILLS_DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+          POLL_INTERVAL_SECONDS: "120"
+          MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
+        run: python3 .github/scripts/poll-downstream-pipeline.py nvskills-downstream
