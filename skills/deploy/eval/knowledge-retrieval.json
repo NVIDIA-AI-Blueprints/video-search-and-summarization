@@ -1,0 +1,30 @@
+{
+  "skills": [
+    "deploy",
+    "knowledge-retrieval"
+  ],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": [
+          "remote-all"
+        ]
+      }
+    }
+  },
+  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. For `remote-*` modes, the corresponding `LLM_REMOTE_URL`/`LLM_REMOTE_MODEL` and/or `VLM_REMOTE_URL`/`VLM_REMOTE_MODEL` must also be set. The `/deploy` skill owns the deploy mechanic; the `/knowledge-retrieval` skill governs how retrievers are wired into a profile. This spec exercises the customization path end-to-end: the agent must apply the three patches from the `/knowledge-retrieval` skill with non-default values (custom YAML block name + non-default `default_doc_type`), then deploy and verify the custom retriever registered with the chosen settings. Self-contained — no external RAG server needed; the lvs stack bundles Elasticsearch.",
+  "expects": [
+    {
+      "query": "Apply the customization procedure from the `/knowledge-retrieval` skill to the lvs profile: register a second `_type: knowledge_retrieval` block named `custom_caption_retriever` with `backend: es_caption` and `backend_config.default_doc_type: aggregated_summary` (a non-default value). Add it to `workflow.tool_names` and add a one-line routing rule. Save the result to a new YAML file in the profile's `configs/` directory and point `VSS_AGENT_CONFIG_FILE` at it. Then deploy the VSS **lvs** profile on {{platform}} in {{mode}} mode end-to-end using the `/deploy` skill, autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+        "`docker logs vss-agent 2>&1 | grep -q 'knowledge_retrieval ready: backend=es_caption'` returns exit 0 (custom retriever block registered)",
+        "`docker logs vss-agent 2>&1 | grep -q 'es_caption initialised:.*default_doc_type=aggregated_summary'` returns exit 0 (custom `default_doc_type` flowed through to the adapter, proving the customization took effect)",
+        "`curl -sf --max-time 15 http://localhost:9200/_cluster/health` returns exit 0 (Elasticsearch reachable — the adapter's dependency)"
+      ]
+    }
+  ]
+}
