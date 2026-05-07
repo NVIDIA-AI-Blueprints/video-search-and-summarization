@@ -233,3 +233,5 @@ uv run mypy src/vss_agents/
 
 [Apache-2.0](LICENSE.md). Third-party licenses: [LICENSE-3rd-party.txt](LICENSE-3rd-party.txt).
 
+<!-- ci-trigger: no-op edit to exercise the VSS_CHANGED_AGENT bucket (services/agent/**) in metromind/ci-vss-oss vss-diff-probe. Safe to delete. -->
+
