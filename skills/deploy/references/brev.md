@@ -122,3 +122,23 @@ suffix may or may not be there — in which case set `BREV_LINK_PREFIX=7777`
 | `curl https://77770-...brevlab.com` → 502 | nginx container (`vss-proxy`) is down — `docker logs vss-proxy` |
 | `curl https://77770-...brevlab.com` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
 | Agent-generated report URLs don't open | `BREV_LINK_PREFIX` wasn't exported before compose → reports hard-code internal IPs. Source `brev_setup.sh` and redeploy |
+
+
+## Brev secure-link env vars (extracted from SKILL.md Step 1c)
+
+### Step 1c — If deploying on Brev, set up secure-link env vars
+
+On a Brev-managed instance, VSS is accessed from the browser via a
+Cloudflare-fronted secure link that tunnels to an nginx proxy on port 7777.
+The proxy consolidates UI + Agent API + VST behind one origin (CORS-safe).
+
+Source the helper **before** `docker compose up`:
+
+```bash
+source skills/deploy/scripts/brev_setup.sh
+```
+
+It detects `/etc/environment`'s `BREV_ENV_ID` and exports `PROXY_PORT=7777`
+and `BREV_LINK_PREFIX=77770` (launchable default; override with
+`BREV_LINK_PREFIX=7777` if the secure link was created manually without
+the `0` suffix). On non-Brev instances the script is a no-op.
