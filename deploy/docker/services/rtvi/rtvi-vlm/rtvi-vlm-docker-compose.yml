@@ -122,6 +122,22 @@ services:
     extra_hosts:
       host.docker.internal: host-gateway
 
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        FILE=/opt/nvidia/rtvi/rtvi/api_models/captions.py
+        NEW_LIMIT=10000
+        if [ -f "$$FILE" ]; then
+          echo "[patch] Raising prompt max_length 5000 -> $$NEW_LIMIT in $$FILE"
+          sed -i "s/max_length=5000,/max_length=$${NEW_LIMIT},/g" "$$FILE"
+          HITS=$$(grep -c "max_length=$${NEW_LIMIT}," "$$FILE" || true)
+          echo "[patch] verified $$HITS occurrences of max_length=$${NEW_LIMIT} in $$FILE"
+        else
+          echo "[patch] WARNING: $$FILE not found — patch skipped" >&2
+        fi
+        exec /opt/nvidia/rtvi/start_rtvi_vlm.sh
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
       interval: 30s
