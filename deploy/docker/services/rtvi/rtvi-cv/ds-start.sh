@@ -28,7 +28,7 @@ build_extra_flags() {
 start_rtdetr_warehouse()
 {
     echo "##### RT-DETR Warehouse models will be used. #####"
-    cat /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-ppl-analytics-pgie-config.yml
+    cat /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-pgie-config.yml
 
     local config_file="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-main-config.txt"
     local extra_flags

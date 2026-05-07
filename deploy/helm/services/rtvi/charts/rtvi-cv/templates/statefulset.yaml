@@ -318,8 +318,8 @@ spec:
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-main-config.txt
               subPath: ds-main-config.txt
             - name: ds-scripts
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-ppl-analytics-pgie-config.yml
-              subPath: ds-ppl-analytics-pgie-config.yml
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-pgie-config.yml
+              subPath: ds-pgie-config.yml
             - name: ds-scripts
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-nvdcf-accuracy-tracker-config.yml
               subPath: ds-nvdcf-accuracy-tracker-config.yml
