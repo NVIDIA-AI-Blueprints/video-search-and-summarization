@@ -21,14 +21,24 @@ packages = ["src/vss_agents", "src/lib"]
 prerelease = "allow"
 managed = true
 index-strategy = "unsafe-best-match"
-# Security: constrain transitive dependencies to patch HIGH/CRITICAL CVEs
+# Security: constrain transitive dependencies to patch HIGH/CRITICAL CVEs.
+# Upper bounds prevent uv (which has prerelease=allow) from pulling alpha/dev
+# tracks (e.g. langchain-core 1.4.0a2, litellm 1.84.0.dev2) when satisfying
+# these minimums.
 constraint-dependencies = [
+    "authlib>=1.6.9,<1.7",          # Fix GHSA-wvwj-cvrp-7pv5 (Critical), GHSA-7432-952r-cw78, GHSA-m344-f55w-2m6j
     "cryptography>=46.0.5",         # Fix CVE-2026-26007 (SECT curve subgroup attack)
     "langchain-community>=0.3.27",  # Fix CVE-2025-6984 (XXE in EverNoteLoader)
-    "langchain-core>=1.2.11",       # Fix CVE-2025-68664, CVE-2025-65106, CVE-2026-26013 (SSRF in ChatOpenAI)
+    "langchain-core>=1.2.22,<1.3",  # Fix GHSA-qh6h-p6c9-ff54 (path traversal in load_prompt) + prior SSRF/CVE fixes
     "langgraph-checkpoint>=4.0.0",  # Fix CVE-2025-64439 (RCE in JsonPlusSerializer) & CVE-2026-27794 (BaseCache pickle)
-    "pillow>=12.1.1",               # Fix CVE-2026-25990 (PSD out-of-bounds write)
+    "litellm>=1.83.7,<1.84",        # Fix GHSA-r75f-5x8p-qvmc (Critical), GHSA-v4p8-mg3p-g94g, GHSA-xqmj-j6mv-4862
+    "lxml>=6.1.0,<6.2",             # Fix GHSA-vfmq-68hx-4jfw
+    "pillow>=12.2.0",               # Fix GHSA-whj4-6x5x-4v2j + CVE-2026-25990 (PSD out-of-bounds write)
+    "pyjwt>=2.12.0,<2.13",          # Fix GHSA-752w-5fwx-jx9f
     "pypdf>=6.7.3",                 # Fix CVE-2026-27888 (XFA decompression bomb) & CVE-2026-27628 (infinite loop)
+    # ragas>=0.3.0rc1 (Fix GHSA-v2xr-wvrv-p969) blocked by nvidia-nat-eval==1.5.0 pin (ragas<0.3.dev0).
+    # Track separately — needs nvidia-nat upgrade or override-dependency.
+    "tornado>=6.5.5,<6.6",          # Fix GHSA-fqwm-6jpj-5wxc, GHSA-qjxf-f2mg-c6mc
 ]
 
 # Override nvidia-nat-core's fastapi~=0.119.0 pin to allow starlette>=0.49.1
@@ -69,7 +79,7 @@ dependencies = [
   # s3 for s3 object store
   "docker>=7.1.0",
   "duckdb>=1.5.0.dev44",
-  "langchain-core >= 1.2.11",
+  "langchain-core >= 1.2.22",
   "langchain-nvidia-ai-endpoints>=1.0.4",
   "langgraph-checkpoint >= 4.0.0",
   "markdown>=3.4.0",
@@ -79,6 +89,7 @@ dependencies = [
   "opencv-python-headless>=4.13.0.92",
   "protobuf>=6.33.5",
   "pydantic >=2.11,<3",
+  "pydantic-settings~=2.13",
   "python-multipart>=0.0.22",
   "sentence-transformers>=3.0.0",
   "starlette >= 0.49.1",

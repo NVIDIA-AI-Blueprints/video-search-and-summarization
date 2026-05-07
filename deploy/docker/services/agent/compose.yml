@@ -110,6 +110,7 @@ services:
       VLM_NAME: ${VLM_NAME}
       VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
+      ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}}
 
       # NVIDIA API Key (for remote NIM)
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
