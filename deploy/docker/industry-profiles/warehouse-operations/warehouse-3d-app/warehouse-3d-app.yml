@@ -27,6 +27,9 @@ services:
       - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
     command: python3 apps/spatial_analytics/main_spatial_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
 
   vss-behavior-analytics-playback-3d:
     extends:
@@ -246,9 +249,13 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
     container_name: vss-video-analytics-api
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
+      elasticsearch-init-container:
+        condition: service_completed_successfully
+        required: false
 
   import-calibration-output-container-3d:
     build:

@@ -24,6 +24,9 @@ services:
       - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
     container_name: vss-behavior-analytics
     command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json 
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
 
   vss-video-analytics-api-fusion:
     extends:
@@ -31,10 +34,13 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_developer_search_2d"]
     container_name: vss-video-analytics-api
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
-
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
+      elasticsearch-init-container:
+        condition: service_completed_successfully
+        required: false
 
   nvstreamer-2d-fusion:
     container_name: vss-vios-nvstreamer
