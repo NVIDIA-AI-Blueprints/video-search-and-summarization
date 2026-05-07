@@ -513,25 +513,55 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
                 "streaming_ingest must be configured under general.front_end to register videos-for-search routes"
             )
 
-        vst_internal_url = getattr(streaming_config, "vst_internal_url", "") or ""
-        rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", "") or ""
-        rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
-        rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
-        rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+        if streaming_config:
+            # streaming_ingest found in config (NAT supports extra fields)
+            vst_internal_url = getattr(streaming_config, "vst_internal_url", None) or os.getenv("VST_INTERNAL_URL")
+            rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", None)
+            rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
+            rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
+            rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+            logger.info("Using streaming_ingest config from YAML for search video ingest routes")
+        else:
+            # Fallback: streaming_ingest not found (NAT strips unknown fields)
+            # Use environment variables. Require BOTH host AND port to build a
+            # URL — empty `RTVI_EMBED_PORT` (e.g. base profile, where RTVI isn't
+            # deployed) means RTVI is not configured and the URL stays empty,
+            # so /complete will register but skip the embedding step at request
+            # time instead of hanging on `http://host:` with no resolvable port.
+            vst_internal_url = os.getenv("VST_INTERNAL_URL")
+            host_ip = os.getenv("HOST_IP")
+            rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "")
+            rtvi_cv_port = os.getenv("RTVI_CV_PORT", "")
+            rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip and rtvi_embed_port else ""
+            rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
+            rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
+            rtvi_embed_chunk_duration = 5
+            logger.info("streaming_ingest not in config, using environment variables")
 
         if not vst_internal_url:
             raise ValueError("streaming_ingest.vst_internal_url must be set for videos-for-search routes")
 
         if not rtvi_embed_base_url:
-            raise ValueError(
-                "streaming_ingest.rtvi_embed_base_url must be set for videos-for-search routes "
-                "(this endpoint is search-only and requires the embedding service)"
+            # When the YAML explicitly configures streaming_ingest, a missing
+            # rtvi_embed_base_url is a config bug — fail loud.
+            if streaming_config is not None:
+                logger.error("streaming_ingest configured but rtvi_embed_base_url is missing")
+                raise ValueError("rtvi_embed_base_url must be set when streaming_ingest is configured")
+            # Env-var fallback path with RTVI ports unset (e.g. base profile,
+            # where RTVI isn't deployed). Register the routes anyway so the UI
+            # gets 200 instead of 404; the /complete handler will skip the
+            # embedding step at request time when the URL is unset.
+            logger.warning(
+                "RTVI not configured (HOST_IP=%r RTVI_EMBED_PORT=%r); "
+                "/complete routes will register but skip embedding generation",
+                os.getenv("HOST_IP", ""),
+                os.getenv("RTVI_EMBED_PORT", ""),
             )
 
         router = create_streaming_video_ingest_router(
             vst_internal_url=vst_internal_url,
-            rtvi_embed_base_url=rtvi_embed_base_url,
-            rtvi_cv_base_url=rtvi_cv_base_url,
+            rtvi_embed_base_url=rtvi_embed_base_url or "",
+            rtvi_cv_base_url=rtvi_cv_base_url or "",
             rtvi_embed_model=rtvi_embed_model,
             rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
         )
@@ -539,4 +569,186 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
         logger.info("Registered videos-for-search routes")
     except Exception as e:
         logger.error(f"Failed to register videos-for-search routes: {e}", exc_info=True)
+        raise
+
+
+# Forwarded to VST verbatim. Incoming request headers we don't want to pass
+# through (hop-by-hop, transport-level, or set by httpx itself).
+_CHUNK_PROXY_SKIP_HEADERS = {
+    "host",
+    "content-length",
+    "accept-encoding",
+    "connection",
+    "keep-alive",
+    "transfer-encoding",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "upgrade",
+}
+
+
+def create_generic_video_router(
+    vst_internal_url: str,
+    rtvi_embed_base_url: str = "",
+    rtvi_cv_base_url: str = "",
+    rtvi_embed_model: str = "cosmos-embed1-448p",
+    rtvi_embed_chunk_duration: int = 5,
+) -> APIRouter:
+    """
+    Create a FastAPI router for the generic (profile-agnostic) video upload flow.
+
+    Used by the Chat upload path, which calls only the agent — not VST directly —
+    to stay backend-agnostic. The agent proxies each chunk to VST's nvstreamer
+    endpoint, then runs post-processing via the shared
+    `_run_post_upload_processing` helper.
+
+    Routes:
+        POST /api/v1/videos/chunked/upload    — proxies a single chunk to VST
+        POST /api/v1/videos/{filename}/complete — post-processing (timelines,
+             RTVI-CV register, embeddings). Each post-processing step skips
+             gracefully if its backing service isn't configured, so this route
+             works on base/alerts/lvs profiles too.
+    """
+    router = APIRouter()
+
+    @router.post(
+        "/api/v1/videos/chunked/upload",
+        summary="Proxy a chunked upload to VST (nvstreamer protocol)",
+        tags=["Video Ingest"],
+    )
+    async def proxy_chunk_to_vst(request: Request) -> dict[str, Any]:
+        """
+        Forward an incoming chunk (multipart body + nvstreamer-* headers) to VST's
+        /vst/api/v1/storage/file. Returns VST's response body and status to the
+        client unchanged.
+        """
+        vst_url = vst_internal_url.rstrip("/")
+        vst_chunk_url = f"{vst_url}/vst/api/v1/storage/file"
+
+        # Stream the request body straight through — buffering a 10MB chunk is
+        # fine, but read-all keeps memory bounded by the chunk size (not the
+        # file size).
+        body = await request.body()
+
+        headers = {
+            k: v for k, v in request.headers.items()
+            if k.lower() not in _CHUNK_PROXY_SKIP_HEADERS
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                with TimeMeasure("video_ingest: proxy chunk to VST"):
+                    vst_response = await client.post(vst_chunk_url, content=body, headers=headers)
+        except httpx.ConnectError as e:
+            logger.error("VST not reachable at %s: %s", vst_chunk_url, e)
+            raise HTTPException(status_code=502, detail=f"VST not reachable: {e}") from e
+        except httpx.TimeoutException as e:
+            logger.error("VST timed out at %s: %s", vst_chunk_url, e)
+            raise HTTPException(status_code=504, detail=f"VST timed out: {e}") from e
+
+        # Forward VST's response shape verbatim (JSON for success, same status code).
+        try:
+            payload = vst_response.json()
+        except ValueError:
+            # VST returned non-JSON — fall back to text so the client sees the error body.
+            raise HTTPException(
+                status_code=vst_response.status_code,
+                detail=f"VST returned non-JSON response: {vst_response.text[:500]}",
+            ) from None
+
+        if vst_response.status_code >= 400:
+            raise HTTPException(status_code=vst_response.status_code, detail=payload)
+        return payload
+
+    @router.post(
+        "/api/v1/videos/{filename}/complete",
+        response_model=VideoIngestResponse,
+        summary="Run post-upload processing for a chunked upload (generic)",
+        description=(
+            "Generic completion endpoint used by the Chat upload flow. Accepts "
+            "the full storage-API upload response as the request body and runs "
+            "timeline fetch → storage URL resolution → optional RTVI-CV register "
+            "→ optional embedding generation. Each post-processing step skips "
+            "gracefully if its backing service isn't configured, so this route "
+            "works across profiles."
+        ),
+        tags=["Video Ingest"],
+    )
+    async def generic_complete(
+        filename: str,
+        body: VideoUploadCompleteInput,
+    ) -> VideoIngestResponse:
+        sensor_id = body.sensor_id
+        # Strip the extension so RTVI-CV's camera_name matches what the search
+        # profile's /videos-for-search/*/complete and streaming PUT produce.
+        camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        try:
+            return await _run_post_upload_processing(
+                camera_name=camera_name,
+                sensor_id=sensor_id,
+                filename=filename,
+                vst_url=vst_internal_url,
+                rtvi_embed_base_url=rtvi_embed_base_url,
+                rtvi_cv_base_url=rtvi_cv_base_url,
+                rtvi_embed_model=rtvi_embed_model,
+                rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Generic /complete failed for %s: %s", filename, exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Post-processing failed: {exc}") from exc
+
+    return router
+
+
+def register_generic_video_routes(app: "FastAPI", config: "Any") -> None:
+    """
+    Register the generic (profile-agnostic) video upload routes.
+
+    Separate from `register_streaming_routes`: this one only needs
+    VST_INTERNAL_URL to register. Embedding and RTVI-CV URLs are passed
+    through when available and silently skipped at runtime when absent —
+    so base/alerts/lvs profiles get a working chunked-upload path too.
+    """
+    try:
+        streaming_config = getattr(config.general.front_end, "streaming_ingest", None)
+
+        if streaming_config:
+            vst_internal_url = getattr(streaming_config, "vst_internal_url", None) or os.getenv("VST_INTERNAL_URL")
+            rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", None) or ""
+            rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
+            rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
+            rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+        else:
+            vst_internal_url = os.getenv("VST_INTERNAL_URL")
+            host_ip = os.getenv("HOST_IP")
+            rtvi_embed_port = os.getenv("RTVI_EMBED_PORT")
+            rtvi_cv_port = os.getenv("RTVI_CV_PORT")
+            rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip and rtvi_embed_port else ""
+            rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
+            rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
+            rtvi_embed_chunk_duration = 5
+
+        if not vst_internal_url:
+            logger.warning(
+                "VST_INTERNAL_URL not set — skipping generic video routes "
+                "(/api/v1/videos/chunked/upload and /api/v1/videos/{filename}/complete)",
+            )
+            return
+
+        router = create_generic_video_router(
+            vst_internal_url=vst_internal_url,
+            rtvi_embed_base_url=rtvi_embed_base_url,
+            rtvi_cv_base_url=rtvi_cv_base_url,
+            rtvi_embed_model=rtvi_embed_model,
+            rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+        )
+        app.include_router(router)
+        logger.info("Successfully registered generic video routes (chunked upload proxy + /complete)")
+    except Exception as exc:
+        logger.error(f"Failed to register generic video routes: {exc}", exc_info=True)
         raise
