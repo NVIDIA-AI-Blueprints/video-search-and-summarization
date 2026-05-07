@@ -188,8 +188,14 @@ async def lvs_stream_understanding(config: LVSStreamUnderstandingConfig, _: Buil
 
         # LVS now expects ISO 8601 timestamps for live streams. Anchor relative
         # second offsets on the VST stream timeline's startTime so "second 0" is
-        # the start of the captioned timeline. When both bounds are 0 ("from
-        # start until now"), skip the VST round-trip and let LVS apply no filter.
+        # the start of the captioned timeline.
+        #
+        # Per LVS contract:
+        #   - end_time=0   => consider all captions from start_time until now
+        #   - start_time=0 => consider all captions until end_time
+        #   - both start_time=0 and end_time=0 => consider all captions stored in db
+
+        # When both bounds are 0, skip the VST round-trip entirely.
         if lvs_input.start_time == 0 and lvs_input.end_time == 0:
             payload: dict[str, Any] = {
                 "id": configured.media_id,
@@ -216,16 +222,19 @@ async def lvs_stream_understanding(config: LVSStreamUnderstandingConfig, _: Buil
                 )
 
             anchor = iso8601_to_datetime(timeline_start)
-            iso_start = datetime_to_iso8601(anchor + timedelta(seconds=lvs_input.start_time))
-            iso_end = (
-                datetime_to_iso8601(anchor + timedelta(seconds=lvs_input.end_time)) if lvs_input.end_time > 0 else ""
+            # Convert non-zero offsets to ISO 8601; pass 0 through unchanged
+            start_payload: str | int = (
+                datetime_to_iso8601(anchor + timedelta(seconds=lvs_input.start_time)) if lvs_input.start_time > 0 else 0
+            )
+            end_payload: str | int = (
+                datetime_to_iso8601(anchor + timedelta(seconds=lvs_input.end_time)) if lvs_input.end_time > 0 else 0
             )
 
             payload = {
                 "id": configured.media_id,
                 "model": config.model,
-                "start_time": iso_start,
-                "end_time": iso_end,
+                "start_time": start_payload,
+                "end_time": end_payload,
             }
 
         request_url = f"{config.lvs_backend_url.rstrip('/')}{STREAM_SUMMARIZE_ENDPOINT}"
