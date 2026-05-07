@@ -114,6 +114,11 @@ authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 
 [project.optional-dependencies]
+# In-process RAG via the `nvidia-rag` library — pulled by the `rag_lib`
+# knowledge_retrieval adapter. Opt-in only; the default agent image stays
+# small for `frag_api`-only deployments.
+rag_lib = ["nvidia-rag>=2.4.0"]
+
 # In-process retrieval over a Chroma-backed vector store via LlamaIndex —
 # pulled by the `llama_index` knowledge_retrieval adapter. Opt-in only;
 # the default agent image stays small for `frag_api`-only deployments.
