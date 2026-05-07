@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+{{- $agent := index .Values "agent" | default dict }}
+{{- $vss := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
+{{- $agentEnabled := index $agent "enabled" | default true }}
+{{- if and $agentEnabled $vss.enabled }}
+{{- $cm := include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent" "subchartValues" $vss) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cm }}-config
+  labels:
+    app.kubernetes.io/name: vss-agent
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  config.yml: |
+{{ .Files.Get "configs/vss-agent/config.yml" | nindent 4 }}
+{{- if .Files.Glob "configs/vss-agent/config_edge.yml" }}
+  config_edge.yml: |
+{{ (.Files.Get "configs/vss-agent/config_edge.yml") | nindent 4 }}
+{{- end }}
+{{- if .Files.Glob "configs/vss-agent/incident_report_template.md" }}
+  incident_report_template.md: |
+{{ (.Files.Get "configs/vss-agent/incident_report_template.md") | nindent 4 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+dependencies:
+- name: infra
+  repository: file://../../services/infra
+  version: 26.04.2
+- name: vios
+  repository: file://../../services/vios
+  version: 26.04.2
+- name: agent
+  repository: file://../../services/agent
+  version: 26.04.2
+- name: vss-agent-ui
+  repository: file://../../services/ui
+  version: 26.04.2
+- name: vss-alert-bridge
+  repository: file://../../services/alert
+  version: 26.04.2
+- name: analytics
+  repository: file://../../services/analytics
+  version: 26.04.2
+- name: rtvi
+  repository: file://../../services/rtvi
+  version: 26.04.2
+- name: nims
+  repository: file://../../services/nims
+  version: 26.04.2
+- name: calibration-toolkit
+  repository: file://services/calibration-toolkit
+  version: 26.04.2
+- name: import-calibration
+  repository: file://services/import-calibration
+  version: 26.04.2
+digest: sha256:70830ab2681724c00369487dfb648f9cb6afdbdd90ff07771c451a2d68bc6a60
+generated: "2026-05-07T02:16:31.968192577Z"

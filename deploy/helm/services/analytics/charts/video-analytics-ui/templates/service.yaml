@@ -12,24 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
-apiVersion: v2
-name: analytics
-description: VSS analytics stack (behavior analytics, video analytics API) for developer-profile umbrella charts
-type: application
-version: 26.04.2
-appVersion: "1.0"
-dependencies:
-  - name: vss-behavior-analytics
-    version: 26.04.2
-    repository: "file://./charts/behavior-analytics"
-    condition: vss-behavior-analytics.enabled
-  - name: vss-video-analytics-api
-    version: 26.04.2
-    repository: "file://./charts/video-analytics-api"
-    condition: vss-video-analytics-api.enabled
-  - name: video-analytics-ui
-    version: 26.04.2
-    repository: "file://./charts/video-analytics-ui"
-    condition: video-analytics-ui.enabled
-maintainers: []
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "video-analytics-ui.fullname" . }}
+  labels:
+    {{- include "video-analytics-ui.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "video-analytics-ui.selectorLabels" . | nindent 4 }}
+{{- end }}

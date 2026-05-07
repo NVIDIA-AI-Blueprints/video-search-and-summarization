@@ -120,8 +120,11 @@ spec:
             {{- $mdxP := .Values.mdxWebApiPath | default "/video-analytics-api" }}
             {{- $_ := set $ov "NEXT_PUBLIC_MDX_WEB_API_URL" (index $ov "NEXT_PUBLIC_MDX_WEB_API_URL" | default (printf "%s%s" $globalBase $mdxP)) }}
             {{- $mapP := .Values.mapAppPath | default "" | trim }}
+            {{- $mapHostPfx := .Values.mapAppHostPrefix | default "" | trim }}
             {{- if ne $mapP "" }}
             {{- $_ := set $ov "NEXT_PUBLIC_MAP_URL" (index $ov "NEXT_PUBLIC_MAP_URL" | default (printf "%s%s" $globalBase $mapP)) }}
+            {{- else if and (ne $mapHostPfx "") (ne $eh "") }}
+            {{- $_ := set $ov "NEXT_PUBLIC_MAP_URL" (index $ov "NEXT_PUBLIC_MAP_URL" | default (printf "%s://%s.%s" $es $mapHostPfx $eh)) }}
             {{- end }}
             {{- end }}
             {{- range .Values.env }}
