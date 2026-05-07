@@ -1,17 +1,19 @@
 ---
 name: alerts
-description: Manage and monitor VSS alerts after the alerts profile is deployed. The deployment's mode (CV vs VLM real-time) is fixed at deploy time and determines the workflow — start/stop real-time alerts via the VSS Agent on a VLM deployment, onboard CV alerts by adding RTSP streams to VIOS on a CV deployment, query incidents, customize verifier prompts. Use when asked to start/stop a real-time alert, check or list alerts, add a camera, customize alert prompts, or view verdicts.
+description: Manage and monitor VSS alerts after the alerts profile is deployed. The deployment's mode (CV vs VLM real-time) is fixed at deploy time and determines the workflow — start/stop real-time alerts via the VSS Agent on a VLM deployment, onboard CV alerts by adding RTSP streams to VIOS on a CV deployment, query incidents, customize verifier prompts, manage realtime alert subscriptions through Alert Bridge, and forward incidents to Slack via webhook. Use when asked to start/stop a real-time alert, create/list/delete realtime alert rules, set up Slack notifications, check webhook status, check or list alerts, add a camera, customize alert prompts, or view verdicts.
 version: "3.2.0"
 license: "Apache License 2.0"
 ---
 
 # VSS Alert Management
 
-The alerts profile is deployed in **one** of two modes at a time. The mode is chosen at `deploy -p alerts -m {verification,real-time}` and is static until you tear down and redeploy. Which mode is running determines which flow to use — this skill does not route per-request.
+The alerts profile is deployed in **one** of two modes at a time. The mode is chosen at `deploy -p alerts -m {verification,real-time}` and is static until you tear down and redeploy. This skill routes by **mode first**, then by **user intent** (monitoring vs subscription CRUD vs Slack webhook operations).
 
 ## When to Use
 
 - Start or stop a real-time alert on a sensor ("Start real-time alert for boxes dropped on sensor warehouse_sample")
+- Create, list, or stop realtime subscription rules on Alert Bridge ("List active realtime rules on warehouse-dock-1")
+- Set up or manage Slack incident notifications ("Start alert Slack webhook and send test notification")
 - List or query detected incidents / alerts
 - Add a new camera to the alerts pipeline
 - Customize the VLM-verifier prompts (CV mode)
@@ -87,12 +89,27 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 
 | Deployed mode | User asks about… | Action |
 |---|---|---|
-| **CV** | any alert request | Run **Workflow A (CV)** — onboard RTSP via `vios` skill, then query alerts. No per-request create call. |
+| **CV** | Slack webhook setup/status/test/stop | Run **Workflow E (Slack Notifications)** — follow `alert-notify-slack/SKILL.md`. |
+| **CV** | alert onboarding/query/verdict prompts | Run **Workflow A (CV)** — onboard RTSP via `vios` skill, then query alerts. No per-request create call. |
 | **CV** | specifically a VLM real-time alert ("start alert for boxes dropped…") | **Redeployment required.** Confirm with the user first, then point to the `deploy` skill to tear down and redeploy with `-m real-time`. Do not attempt to run the VLM flow on a CV deployment — the agent's `rtvi_vlm_alert` tool will fail because `rtvi-vlm` is not running. |
-| **VLM** | any alert request | Run **Workflow B (VLM)** — call the VSS Agent with a detection prompt. |
+| **VLM** | explicit subscription CRUD ("create/list/delete realtime rule", "stop rule ID") | Run **Workflow D (Alert Subscriptions)** — follow `alert-subscriptions/SKILL.md` for Alert Bridge rule management. |
+| **VLM** | Slack webhook setup/status/test/stop | Run **Workflow E (Slack Notifications)** — follow `alert-notify-slack/SKILL.md`. |
+| **VLM** | start/stop monitoring via VSS Agent ("start real-time alert on sensor ...") | Run **Workflow B (VLM)** — call the VSS Agent with a detection prompt. |
 | **VLM** | specifically a CV / behavior-analytics / PPE-rule alert | **Redeployment required.** Confirm, then point to `deploy` skill for `-m verification`. The CV pipeline (RT-CV, Behavior Analytics, `alert-bridge`) is not running on a VLM deployment. |
 
 **Always confirm before triggering a redeploy.** A mode switch stops all currently-running monitoring and restarts services.
+
+### Intent precedence (to avoid overlap)
+
+Apply these matching rules top-to-bottom; first match wins:
+
+1. **Workflow E (Slack):** contains webhook/Slack ops keywords (`slack`, `webhook`, `notify`, `test notification`, `channel`, `bot token`, `status webhook`).
+2. **Workflow D (Subscriptions):** contains rule-management keywords (`rule`, `subscription`, `create/list/delete realtime rule`, explicit rule ID).
+3. **Workflow B (VLM monitoring):** contains start/stop/monitor realtime intent without rule-management wording.
+4. **Workflow C (Query):** incident lookup/reporting requests (`show/list incidents`, `recent alerts`, time-range queries).
+5. **Workflow A (CV):** CV deployment handling when not matched by higher-priority intents.
+
+If a prompt mixes two workflows ("start monitoring and send to Slack"), ask one clarifying question to split execution order.
 
 ---
 
@@ -146,7 +163,7 @@ If the user asks you to "start a real-time alert" on a CV deployment, that is a 
 
 ## Workflow B — VLM Mode (deployment is `-m real-time` / `MODE=2d_vlm`)
 
-On a VLM deployment, the user drives alert creation via natural-language requests to the VSS Agent. The agent calls `rtvi_prompt_gen` to turn the description into a Yes/No detection question, then `rtvi_vlm_alert` with `action="start"` to register the stream with `rtvi-vlm` and begin continuous monitoring.
+On a VLM deployment, this workflow handles **direct monitoring intents** (start/stop/monitor) via natural-language requests to the VSS Agent. For **rule CRUD** intents, route to Workflow D instead. The agent calls `rtvi_prompt_gen` to turn the description into a Yes/No detection question, then `rtvi_vlm_alert` with `action="start"` to register the stream with `rtvi-vlm` and begin continuous monitoring.
 
 **Canonical sample request:**
 
@@ -186,6 +203,38 @@ curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
 ```
 
 If the user asks you to flag a scenario that matches a CV `alert_type` (e.g. "ladder PPE violation") on a VLM deployment, that is a mode mismatch — see the routing table above.
+
+---
+
+## Workflow D — Alert Subscriptions (VLM mode, nested workflow)
+
+Use this workflow when the user explicitly asks to manage Alert Bridge realtime rules as subscriptions (create/list/delete by sensor, tag, or rule ID) instead of using generic "start/stop alert" phrasing.
+
+Examples:
+- "Set up a realtime alert on warehouse-dock-1 for PPE violations"
+- "Show me all active realtime rules"
+- "Stop rule 496aebd1-16d0-4123-81cf-10603e047d02"
+
+Execution rule:
+- Load and follow `alert-subscriptions/SKILL.md` as the authoritative playbook for subscription CRUD.
+- Keep this `alerts` skill as the entrypoint and router; treat `alert-subscriptions/SKILL.md` as a delegated sub-workflow.
+- If the deployed mode is CV, do not run subscription CRUD; follow Step 2 routing and request mode switch confirmation first.
+
+---
+
+## Workflow E — Slack Notifications (nested workflow)
+
+Use this workflow when the user asks to configure or operate the Slack webhook relay for incidents (start/stop webhook server, check status/health, send test message, or set Slack channel/token).
+
+Examples:
+- "Set up Slack notifications for alerts"
+- "Check if alert-notify-slack is running"
+- "Send a test alert notification to Slack"
+
+Execution rule:
+- Load and follow `alert-notify-slack/SKILL.md` as the authoritative playbook.
+- Keep this `alerts` skill as the entrypoint and router; treat `alert-notify-slack/SKILL.md` as a delegated sub-workflow.
+- This workflow is valid on both CV and VLM deployments because it forwards incidents after they are produced.
 
 ---
 
@@ -268,6 +317,7 @@ Each entry maps a CV `alert_type` (the `category` field emitted by Behavior Anal
 | List sensors, take a snapshot, download a clip | **`vios`** skill |
 | Time-range incident / occupancy / PPE metrics from Elasticsearch | **`video-analytics`** skill (VA-MCP :9901) |
 | Generate a detailed incident report from an alert | **`incident-report`** skill |
+| Forward incidents to Slack webhook | **`alert-notify-slack`** nested skill (`alerts/alert-notify-slack/SKILL.md`) |
 
 ---
 
