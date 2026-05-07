@@ -124,6 +124,7 @@ class DryRunRecipe:
     env_overrides: dict[str, str]
     ngc_cli_api_key: str | None
     nvidia_api_key: str | None
+    hardware_profile: str | None
     output_env_file: Path
     output_compose_file: Path
     deployments_dir: Path
@@ -148,6 +149,7 @@ def create_dry_run_recipe(
     env_overrides: dict[str, str],
     ngc_cli_api_key: str | None = None,
     nvidia_api_key: str | None = None,
+    hardware_profile: str | None = None,
     model_resolution: Any,
     output_env_file: str,
     output_compose_file: str,
@@ -195,6 +197,7 @@ def create_dry_run_recipe(
         env_overrides=dict(env_overrides),
         ngc_cli_api_key=(ngc_cli_api_key or "").strip() or None,
         nvidia_api_key=(nvidia_api_key or "").strip() or None,
+        hardware_profile=(hardware_profile or "").strip() or None,
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
         deployments_dir=deployments_path,
@@ -337,11 +340,13 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
 
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     merged = parse_env_file(config.source_env_file)
-    merged.update(config.env_overrides)
-    if config.ngc_cli_api_key and not merged.get("NGC_CLI_API_KEY", "").strip():
+    if config.hardware_profile:
+        merged["HARDWARE_PROFILE"] = config.hardware_profile
+    if config.ngc_cli_api_key:
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
-    if config.nvidia_api_key and not merged.get("NVIDIA_API_KEY", "").strip():
+    if config.nvidia_api_key:
         merged["NVIDIA_API_KEY"] = config.nvidia_api_key
+    merged.update(config.env_overrides)
 
     host_ip = (
         first_non_placeholder([config.env_overrides.get("HOST_IP", ""), merged.get("HOST_IP", "")])
