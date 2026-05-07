@@ -688,3 +688,61 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+  # ---------------------------------------------------------------------------
+  # Job 13: Trigger nvskills downstream pipeline and poll it to completion
+  # ---------------------------------------------------------------------------
+  trigger-nvskills-downstream-pipeline:
+    name: Trigger NVSkills Downstream Pipeline
+    # Mirrors `trigger-downstream-pipeline`, but uses independent
+    # nvskills-specific secrets so this test job does not affect the
+    # existing downstream CI configuration.
+    needs:
+      - prepare-source
+      - lint
+      - typecheck
+      - security
+      - frontend-lint
+      - copyright-headers
+      - dco
+      - license-check-python
+      - license-check-ui
+      - folder-structure
+    runs-on: [self-hosted, downstream-pipeline]
+    timeout-minutes: 245
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      NVSKILLS_DOWNSTREAM_CI_URL: ${{ secrets.NVSKILLS_DOWNSTREAM_CI_URL }}
+      NVSKILLS_DOWNSTREAM_CI_TOKEN: ${{ secrets.NVSKILLS_DOWNSTREAM_CI_TOKEN }}
+      NVSKILLS_DOWNSTREAM_PROJECT_PATH: ${{ secrets.NVSKILLS_DOWNSTREAM_PROJECT_PATH }}
+      NVSKILLS_DOWNSTREAM_REF: main
+      NVSKILLS_DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+
+      - name: Unpack source artifact
+        run: |
+          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
+          tar -xzf .source-artifact/source.tar.gz --strip-components=1
+          mkdir -p .ci
+          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          rm -rf .source-artifact
+
+      - name: Trigger pipeline
+        id: trigger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/trigger-downstream-pipeline.sh nvskills-downstream
+
+      - name: Poll pipeline
+        env:
+          NVSKILLS_DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          NVSKILLS_DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+          POLL_INTERVAL_SECONDS: "120"
+          MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
+        run: python3 .github/scripts/poll-downstream-pipeline.py nvskills-downstream

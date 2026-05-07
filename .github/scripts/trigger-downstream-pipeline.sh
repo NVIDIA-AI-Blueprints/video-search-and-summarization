@@ -33,6 +33,26 @@ def require_env(name: str) -> str:
     return value
 
 
+def env_prefix() -> str:
+    if len(sys.argv) > 2:
+        emit_error(f"Usage: {sys.argv[0]} [ENV_PREFIX]")
+        raise SystemExit(1)
+
+    if len(sys.argv) == 1:
+        return "DOWNSTREAM"
+
+    prefix = sys.argv[1].strip().upper().replace("-", "_").rstrip("_")
+    if not prefix:
+        emit_error("ENV_PREFIX must not be empty")
+        raise SystemExit(1)
+
+    return prefix
+
+
+def prefixed_env(prefix: str, suffix: str) -> str:
+    return f"{prefix}_{suffix}"
+
+
 def api_base_url(raw_url: str) -> str:
     base = raw_url.rstrip("/")
     if not base.endswith("/api/v4"):
@@ -248,13 +268,14 @@ def write_output(key: str, value: str) -> None:
 
 def main() -> int:
     try:
-        raw_url = require_env("DOWNSTREAM_CI_URL")
+        prefix = env_prefix()
+        raw_url = require_env(prefixed_env(prefix, "CI_URL"))
         base_url = api_base_url(raw_url)
-        token = require_env("DOWNSTREAM_CI_TOKEN")
-        project_path = require_env("DOWNSTREAM_PROJECT_PATH")
+        token = require_env(prefixed_env(prefix, "CI_TOKEN"))
+        project_path = require_env(prefixed_env(prefix, "PROJECT_PATH"))
         commit_sha = require_env("GITHUB_SHA")
-        ref = os.environ.get("DOWNSTREAM_REF", "main")
-        variable_name = os.environ.get("DOWNSTREAM_SUBMODULE_HASH_VARIABLE", "VSS_SUBMODULE_HASH")
+        ref = os.environ.get(prefixed_env(prefix, "REF"), "main")
+        variable_name = os.environ.get(prefixed_env(prefix, "SUBMODULE_HASH_VARIABLE"), "VSS_SUBMODULE_HASH")
 
         # Mask the raw URL (e.g. "https://gitlab.example.com"), the API
         # base URL (with "/api/v4" appended), and every path component of
