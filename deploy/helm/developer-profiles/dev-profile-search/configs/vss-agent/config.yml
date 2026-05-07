@@ -52,6 +52,10 @@ general:
       method: POST
       description: "Direct embedding search (bypasses agent)"
       function_name: embed_search
+    - path: /api/v1/fusion
+      method: POST
+      description: "Fuse N ranked lists of 5 seconds chunks. Filter and merge adjacent winners"
+      function_name: fusion
     - path: /api/v1/critic
       method: POST
       description: "Score video clips with critic agent"
@@ -131,6 +135,18 @@ functions:
     enable_frame_lookup: false
     vst_external_url: ${VST_EXTERNAL_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
+
+  fusion:
+    _type: fusion
+    chunk_seconds: 5
+    method: rrf
+    rrf_k: 60
+    space_weights_default: 1.0
+    per_space_min_score: { attribute: 0.3 }
+    min_contributing_spaces: 1
+    top_k_segments: 10
+    merge_adjacent: true
+    merge_gap_chunks: 0
 
   critic_agent:
     _type: critic_agent

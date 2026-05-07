@@ -20,8 +20,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from vss_agents.tools.attribute_search import AttributeSearchMetadata
+from vss_agents.tools.attribute_search import AttributeSearchResult
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.embed_search import EmbedSearchResultItem
+from vss_agents.tools.fusion import FusionConfig
+from vss_agents.tools.fusion import FusionInput
+from vss_agents.tools.fusion import _merge_config_defaults
+from vss_agents.tools.fusion import run_fusion
+from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
@@ -55,6 +62,7 @@ class TestSearchInner:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
 
     @pytest.fixture
@@ -296,6 +304,7 @@ class TestSearchInner:
             attribute_search_tool="attribute_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
 
         mock_embed = AsyncMock()
@@ -695,3 +704,410 @@ class TestSearchInner:
         function_info = await gen.__anext__()
         assert function_info.converters is not None
         assert len(function_info.converters) >= 4
+
+
+def _make_attribute_results(*, video_name="warehouse_01.mp4", frame_score=0.7):
+    """Minimal valid `list[AttributeSearchResult]` for fusion-path tests."""
+    return [
+        AttributeSearchResult(
+            screenshot_url="http://attr.example/overlay.jpg",
+            metadata=AttributeSearchMetadata(
+                sensor_id="warehouse_01",
+                object_id="42",
+                object_type="person",
+                frame_timestamp="2025-01-15T10:00:02Z",
+                start_time="2025-01-15T10:00:00Z",
+                end_time="2025-01-15T10:00:05Z",
+                behavior_score=0.6,
+                frame_score=frame_score,
+                video_name=video_name,
+            ),
+        )
+    ]
+
+
+def _make_llm_mock(*, attributes, query="person in red shirt"):
+    """Build an LLM mock whose decomposed-query response carries `attributes`."""
+    mock_llm = AsyncMock()
+    llm_response = MagicMock()
+    llm_response.content = json.dumps({"query": query, "attributes": attributes, "has_action": True})
+    mock_llm.ainvoke.return_value = llm_response
+    return mock_llm
+
+
+class _RealFusionStub:
+    """Test stub exposing the same surface as the registered fusion NAT tool,
+    routed through the real fusion math from ``fusion.py``.
+    """
+
+    def __init__(self):
+        self.config = FusionConfig()
+
+    async def ainvoke(self, fusion_input):
+        if isinstance(fusion_input, dict):
+            fusion_input = FusionInput.model_validate(fusion_input)
+        merged = _merge_config_defaults(fusion_input, self.config)
+        for rl in merged.lists:
+            merged.space_weights.setdefault(rl.space, self.config.space_weights_default)
+        return run_fusion(merged)
+
+
+class TestSearchInnerFusionPath:
+    """Behavioral fusion-path tests that pass on BOTH the legacy and the
+    new generalized fusion path.
+
+    Parametrization: every test runs twice - once with ``enable_generalized_fusion=False`` (legacy)
+    and once with ``True`` (new path, delegates to the fusion NAT tool).
+
+    Tests pass only if the behavioral contract is met by both implementations for sanity testing
+    and avoiding regressions.
+    """
+
+    @pytest.fixture(params=[False, True], ids=["legacy", "generalized"])
+    def fusion_flag(self, request):
+        return request.param
+
+    @pytest.fixture
+    def config(self, fusion_flag):
+        kwargs = {
+            "embed_search_tool": "embed_search",
+            "attribute_search_tool": "attribute_search",
+            "agent_mode_llm": "gpt-4o",
+            "vst_internal_url": "http://localhost:30888",
+            "use_attribute_search": True,
+            "fusion_method": "rrf",
+            "enable_generalized_fusion": fusion_flag,
+        }
+        if fusion_flag:
+            kwargs.update(
+                fusion_tool="fusion",
+                embed_weight=1.0,
+                ranking_spaces=[
+                    RankingSpaceConfig(space="attribute", tool="attribute_search", weight=0.5),
+                ],
+            )
+        return SearchConfig(**kwargs)
+
+    @pytest.fixture
+    def mock_builder(self):
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_attribute(self):
+        m = AsyncMock()
+        m.ainvoke.return_value = _make_attribute_results()
+        return m
+
+    @pytest.fixture
+    def mock_fusion(self):
+        return _RealFusionStub()
+
+    def _wire_builder(self, mock_builder, mock_embed, mock_attribute, mock_llm, mock_fusion):
+        """Wire `builder.get_function` to dispatch by NAT tool name.
+
+        The "fusion" entry is harmless on the legacy path (never looked up
+        since `enable_generalized_fusion=False` skips the startup resolve)
+        and required on the new path. Wiring it unconditionally keeps the
+        helper signature uniform across both parametrizations.
+        """
+
+        def _get_function(name):
+            return {
+                "embed_search": mock_embed,
+                "attribute_search": mock_attribute,
+                "fusion": mock_fusion,
+            }[name]
+
+        mock_builder.get_function.side_effect = _get_function
+        mock_builder.get_llm.return_value = mock_llm
+
+    async def _drive_search(self, config, mock_builder, search_input):
+        gen = search.__wrapped__(config, mock_builder)
+        function_info = await gen.__anext__()
+        return await function_info.single_fn(search_input)
+
+    @pytest.mark.asyncio
+    async def test_fusion_path_returns_all_embed_videos(self, config, mock_builder, mock_attribute, mock_fusion):
+        """Happy path: fusion runs and every embed-input video is in the output.
+
+        Embed-anchored contract: fusion may rerank/filter on score but never
+        invents new videos and never silently drops one. Both legacy and
+        the new path must preserve this invariant.
+        """
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "warehouse_01.mp4",
+                    "similarity_score": 0.85,
+                    "sensor_id": "",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                },
+                {
+                    "video_name": "dock_03.mp4",
+                    "similarity_score": 0.55,
+                    "sensor_id": "",
+                    "start_time": "2025-01-15T11:00:00Z",
+                    "end_time": "2025-01-15T11:00:05Z",
+                },
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        self._wire_builder(
+            mock_builder, mock_embed, mock_attribute, _make_llm_mock(attributes=["red shirt"]), mock_fusion
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in red shirt", source_type="video_file", agent_mode=True),
+        )
+
+        assert isinstance(result, SearchOutput)
+        assert {r.video_name for r in result.data} >= {"warehouse_01.mp4", "dock_03.mp4"}
+
+        # Every surfaced result must report a meaningful, bounded match strength
+        assert all(0.0 < r.similarity <= 1.0 for r in result.data)
+
+        # Presentation order matches the agent's claim of quality (descending)
+        sims = [r.similarity for r in result.data]
+        assert sims == sorted(sims, reverse=True)
+
+        # similarity tracks fusion's ranking
+        if all(r.fused_score is not None for r in result.data):
+            by_sim = [r.video_name for r in sorted(result.data, key=lambda r: -r.similarity)]
+            by_fused = [r.video_name for r in sorted(result.data, key=lambda r: -r.fused_score)]
+            assert by_sim == by_fused
+
+    @pytest.mark.asyncio
+    async def test_fusion_path_respects_top_k(self, config, mock_builder, mock_attribute, mock_fusion):
+        """Happy path: ``top_k`` caps the output after fusion, never before.
+
+        Both paths must apply ``top_k`` to the fused result list, not to
+        one of the input ranking spaces.
+        """
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": f"clip_{i:02d}.mp4",
+                    "similarity_score": 0.9 - 0.05 * i,
+                    "sensor_id": "",
+                    "start_time": f"2025-01-15T10:{i:02d}:00Z",
+                    "end_time": f"2025-01-15T10:{i:02d}:05Z",
+                }
+                for i in range(5)
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        self._wire_builder(
+            mock_builder, mock_embed, mock_attribute, _make_llm_mock(attributes=["red shirt"]), mock_fusion
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in red shirt", source_type="video_file", agent_mode=True, top_k=2),
+        )
+
+        assert isinstance(result, SearchOutput)
+        assert len(result.data) <= 2
+
+    @pytest.mark.asyncio
+    async def test_fusion_path_skipped_when_llm_returns_no_attributes(
+        self, config, mock_builder, mock_attribute, mock_fusion
+    ):
+        """Failure path (gate): empty ``attributes`` from LLM -> attribute_search not called."""
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "warehouse_01.mp4",
+                    "similarity_score": 0.85,
+                    "sensor_id": "",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                },
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        self._wire_builder(mock_builder, mock_embed, mock_attribute, _make_llm_mock(attributes=[]), mock_fusion)
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="anything", source_type="video_file", agent_mode=True),
+        )
+
+        assert isinstance(result, SearchOutput)
+        assert {r.video_name for r in result.data} == {"warehouse_01.mp4"}
+        assert mock_attribute.ainvoke.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_fusion_path_returns_empty_when_embed_returns_no_results(
+        self, config, mock_builder, mock_attribute, mock_fusion
+    ):
+        """Failure path (empty embed): no embed results -> empty output, no fusion.
+
+        Embed-anchored semantics: if embed produces nothing, the new path
+        must NOT surface attribute-only chunks. Both paths short-circuit
+        and return an empty ``SearchOutput``.
+        """
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = _make_embed_output_with_results([])
+
+        self._wire_builder(
+            mock_builder, mock_embed, mock_attribute, _make_llm_mock(attributes=["red shirt"]), mock_fusion
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in red shirt", source_type="video_file", agent_mode=True),
+        )
+
+        assert isinstance(result, SearchOutput)
+        assert result.data == []
+        assert mock_attribute.ainvoke.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_attribute_dominant_segment_still_reports_meaningful_similarity(
+        self, config, mock_builder, mock_fusion
+    ):
+        """A fused segment whose member chunks come only from a non-embed space
+        (no ``raw_embed_cosine`` in payload) must still report a meaningful similarity.
+
+        Scenario: embed contributes one chunk at 10:00 (passes the embed-anchored
+        gate). Attribute hits a DIFFERENT chunk at 10:01 - so the new fusion path
+        produces two segments, the second of which has only attribute contribution.
+        Ensure the second segment does not leak ``similarity=0.0`` to end user's chat output
+        and report the normalized fused score.
+        """
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "warehouse_01.mp4",
+                    "similarity_score": 0.85,
+                    "sensor_id": "warehouse_01",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                },
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        # Attribute hit at a different chunk than embed -> attribute-only segment.
+        mock_attribute_local = AsyncMock()
+        mock_attribute_local.ainvoke.return_value = [
+            AttributeSearchResult(
+                screenshot_url="http://attr.example/overlay.jpg",
+                metadata=AttributeSearchMetadata(
+                    sensor_id="warehouse_01",
+                    object_id="42",
+                    object_type="person",
+                    frame_timestamp="2025-01-15T10:01:02Z",
+                    start_time="2025-01-15T10:01:00Z",
+                    end_time="2025-01-15T10:01:05Z",
+                    behavior_score=0.6,
+                    frame_score=0.95,
+                    video_name="warehouse_01.mp4",
+                ),
+            ),
+        ]
+
+        self._wire_builder(
+            mock_builder,
+            mock_embed,
+            mock_attribute_local,
+            _make_llm_mock(attributes=["red shirt"]),
+            mock_fusion,
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in red shirt", source_type="video_file", agent_mode=True),
+        )
+
+        # Every surfaced result reports a meaningful match strength,
+        # including any segment that came purely from the attribute space.
+        assert result.data
+        assert all(r.similarity > 0 for r in result.data)
+
+    @pytest.mark.asyncio
+    async def test_single_space_run_still_reports_meaningful_similarity(self, config, mock_builder, mock_fusion):
+        """Single-non-empty-space scenario: attribute returns nothing, embed has hits."""
+        embed_output = _make_embed_output_with_results(
+            [
+                {
+                    "video_name": "warehouse_01.mp4",
+                    "similarity_score": 0.85,
+                    "sensor_id": "warehouse_01",
+                    "start_time": "2025-01-15T10:00:00Z",
+                    "end_time": "2025-01-15T10:00:05Z",
+                },
+                {
+                    "video_name": "dock_03.mp4",
+                    "similarity_score": 0.55,
+                    "sensor_id": "dock_03",
+                    "start_time": "2025-01-15T11:00:00Z",
+                    "end_time": "2025-01-15T11:00:05Z",
+                },
+            ]
+        )
+        mock_embed = AsyncMock()
+        mock_embed.ainvoke.return_value = embed_output
+
+        # Attribute returns nothing - only embed contributes.
+        mock_attribute_empty = AsyncMock()
+        mock_attribute_empty.ainvoke.return_value = []
+
+        self._wire_builder(
+            mock_builder,
+            mock_embed,
+            mock_attribute_empty,
+            _make_llm_mock(attributes=["red shirt"]),
+            mock_fusion,
+        )
+
+        result = await self._drive_search(
+            config,
+            mock_builder,
+            SearchInput(query="person in red shirt", source_type="video_file", agent_mode=True),
+        )
+
+        # Single-space run still produces meaningful, bounded similarities in
+        # descending order - the orchestrator must not degrade when one space
+        # has nothing to say
+        assert result.data
+        assert all(0.0 < r.similarity <= 1.0 for r in result.data)
+        sims = [r.similarity for r in result.data]
+        assert sims == sorted(sims, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# SearchConfig defaults (pin contracts that the orchestrator depends on)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchConfigDefaults:
+    """Pin defaults that govern orchestrator behavior on the generalized path."""
+
+    def test_default_payload_merge_priority(self):
+        """attribute outranks embed; unlisted spaces (e.g. caption) silently default to 99."""
+        config = SearchConfig(
+            embed_search_tool="embed_search",
+            agent_mode_llm="gpt-4o",
+            vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
+        )
+        prio = config.payload_merge_priority
+
+        assert prio == {"attribute": 0, "embed": 1}
+        assert prio["attribute"] < prio["embed"]
+        assert "caption" not in prio

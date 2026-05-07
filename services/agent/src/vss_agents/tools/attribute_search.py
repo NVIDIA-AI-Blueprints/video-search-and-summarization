@@ -33,6 +33,12 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 
+from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
+from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import RankedList
+from vss_agents.data_models.search import DecomposedQuery
+from vss_agents.data_models.search import SearchInput
 from vss_agents.embed.embed import EmbedClient
 from vss_agents.embed.rtvi_cv_embed import RTVICVEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
@@ -87,7 +93,7 @@ class AttributeSearchInput(BaseModel):
     )
 
     min_similarity: float = Field(
-        default=0.3,
+        default=0.4,
         description="Minimum cosine similarity threshold",
     )
 
@@ -121,6 +127,125 @@ class AttributeSearchResult(BaseModel):
 
     screenshot_url: str | None = Field(None, description="Screenshot URL")
     metadata: AttributeSearchMetadata = Field(..., description="Search result metadata")
+
+
+class AttributeSearchOutput(BaseModel):
+    """Output of attribute search with adapter wrappers."""
+
+    results: list[AttributeSearchResult] = Field(default_factory=list)
+
+    @classmethod
+    def from_raw(cls, raw: Any) -> "AttributeSearchOutput":
+        """Coerce NAT's loose return shape into a typed wrapper.
+
+        ``ainvoke`` may surface a ``list``, a wrapped instance, ``None``, or a
+        dict-shaped representation. Normalize all of them here so the dispatcher
+        in ``search.py`` can stay branch-free downstream.
+        """
+        if raw is None:
+            return cls(results=[])
+        if isinstance(raw, cls):
+            return raw
+        if isinstance(raw, list):
+            results = [
+                item if isinstance(item, AttributeSearchResult) else AttributeSearchResult.model_validate(item)
+                for item in raw
+            ]
+            return cls(results=results)
+        return cls.model_validate(raw)
+
+    def to_ranked_list(self, *, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
+        """Bucketize attribute hits onto the chunk grid.
+
+        Per-result score follows legacy ``fusion_search_rerank`` semantics:
+        prefer ``frame_score`` when > 0, else fall back to ``behavior_score``.
+        Multiple raw hits inside the same window collapse to one
+        :class:`RankedChunk` (max-score wins).
+        """
+        bucketed: dict[ChunkKey, float] = {}
+        for r in self.results:
+            m = r.metadata
+            # Prefer explicit start; fall back to the frame timestamp.
+            start_iso = m.start_time or m.frame_timestamp
+            try:
+                key = ChunkKey.from_iso(m.sensor_id, start_iso, chunk_seconds)
+            except Exception as e:
+                logger.warning(f"Skipping attribute result with unparseable timestamps: {e}")
+                continue
+            score = (
+                float(m.frame_score) if (m.frame_score is not None and m.frame_score > 0.0) else float(m.behavior_score)
+            )
+            existing = bucketed.get(key)
+            if existing is None or score > existing:
+                bucketed[key] = score
+
+        sorted_keys = sorted(bucketed.keys(), key=lambda k: -bucketed[k])
+        chunks = [RankedChunk(key=k, score=bucketed[k], rank=i + 1) for i, k in enumerate(sorted_keys)]
+        return RankedList(space="attribute", chunks=chunks)
+
+    def to_payload_index(
+        self,
+        *,
+        chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
+    ) -> dict[ChunkKey, dict[str, Any]]:
+        """Per-:class:`ChunkKey` payload sidecar.
+
+        Object IDs are propagated so they survive into ``SearchResult.object_ids``.
+        When multiple object hits land in the same chunk window, the highest-scoring
+        hit's payload is kept and the additional ``object_id``s are merged onto it.
+        """
+        seen_score: dict[ChunkKey, float] = {}
+        payloads: dict[ChunkKey, dict[str, Any]] = {}
+        for r in self.results:
+            m = r.metadata
+            start_iso = m.start_time or m.frame_timestamp
+            try:
+                key = ChunkKey.from_iso(m.sensor_id, start_iso, chunk_seconds)
+            except Exception:
+                continue
+            score = (
+                float(m.frame_score) if (m.frame_score is not None and m.frame_score > 0.0) else float(m.behavior_score)
+            )
+            existing_score = seen_score.get(key)
+            if existing_score is None or score > existing_score:
+                seen_score[key] = score
+                payloads[key] = {
+                    "video_name": m.video_name or "",
+                    "description": "",
+                    "screenshot_url": r.screenshot_url or "",
+                    "object_ids": [str(m.object_id)] if m.object_id else [],
+                    "_source_space": "attribute",
+                }
+            elif m.object_id:
+                # Same chunk hit by multiple object_ids - merge the IDs onto the existing payload.
+                ids = payloads[key].setdefault("object_ids", [])
+                if str(m.object_id) not in ids:
+                    ids.append(str(m.object_id))
+        return payloads
+
+
+def build_attribute_request(
+    decomposed: DecomposedQuery | None,
+    search_input: SearchInput,
+    top_k: int,
+) -> "AttributeSearchInput | None":
+    """Build the per-call :class:`AttributeSearchInput`, or return None to skip the space.
+
+    Returns None when there are no attributes to search on - that's the
+    "fusion path skipped when LLM returns no attributes" gate.
+    """
+    attrs = list(decomposed.attributes) if (decomposed and decomposed.attributes) else []
+    if not attrs:
+        return None
+    return AttributeSearchInput(
+        query=attrs,
+        source_type=search_input.source_type,
+        timestamp_start=search_input.timestamp_start,
+        timestamp_end=search_input.timestamp_end,
+        video_sources=search_input.video_sources,
+        top_k=top_k,
+        fuse_multi_attribute=True,
+    )
 
 
 class AttributeSearchConfig(FunctionBaseConfig, name="attribute_search"):
@@ -474,7 +599,7 @@ async def search_by_object_embedding(
     timestamp_start: datetime | None = None,
     timestamp_end: datetime | None = None,
     source_type: str = "video_file",
-) -> list["AttributeSearchResult"]:
+) -> list[AttributeSearchResult]:
     """Search for similar objects using a known object's embedding from the behavior index.
 
     Fetches the object's embedding, then runs KNN on the behavior index to find
@@ -510,7 +635,7 @@ async def search_by_object_embedding(
 
 
 async def enrich_attribute_results(
-    results: list["AttributeSearchResult"],
+    results: list[AttributeSearchResult],
     vst_url: str | None,
 ) -> None:
     """Enrich attribute search results with screenshot URLs and resolved stream IDs.

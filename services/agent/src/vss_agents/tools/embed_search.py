@@ -33,6 +33,10 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 
+from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
+from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import RankedList
 from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.es_client import VSSESClient
@@ -97,10 +101,68 @@ class EmbedSearchResultItem(BaseModel):
 
 
 class EmbedSearchOutput(BaseModel):
-    """Output of embed search."""
+    """Output of embed search with adapter wrappers."""
 
     query_embedding: list[float] = Field(default_factory=list, description="Query embedding vector")
     results: list[EmbedSearchResultItem] = Field(default_factory=list, description="Search results")
+
+    def to_ranked_list(self, *, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
+        """Bucketize raw embed hits onto the chunk grid; max-score wins per :class:`ChunkKey`.
+
+        Multiple raw hits inside the same ``chunk_seconds`` window collapse to one
+        :class:`RankedChunk`; the survivor's score is reused for the rank input
+        (so the screenshot URL via the payload sidecar points at the most
+        representative frame of the chunk).
+        """
+        bucketed: dict[ChunkKey, float] = {}
+        for hit in self.results:
+            if not hit.video_name:
+                continue
+            try:
+                key = ChunkKey.from_iso(hit.sensor_id, hit.start_time, chunk_seconds)
+            except Exception as e:
+                logger.warning(f"Skipping embed hit with unparseable timestamps: {e}")
+                continue
+            score = float(hit.similarity_score)
+            existing = bucketed.get(key)
+            if existing is None or score > existing:
+                bucketed[key] = score
+
+        sorted_keys = sorted(bucketed.keys(), key=lambda k: -bucketed[k])
+        chunks = [RankedChunk(key=k, score=bucketed[k], rank=i + 1) for i, k in enumerate(sorted_keys)]
+        return RankedList(space="embed", chunks=chunks)
+
+    def to_payload_index(
+        self,
+        *,
+        chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
+    ) -> dict[ChunkKey, dict[str, Any]]:
+        """Per-:class:`ChunkKey` payload sidecar.
+
+        Carries the raw embed cosine in ``raw_embed_cosine`` so
+        ``search.py``'s ``_segment_to_search_result`` can surface it via
+        ``SearchResult.similarity`` (split from ``fused_score`` for clarity).
+        """
+        seen_score: dict[ChunkKey, float] = {}
+        payloads: dict[ChunkKey, dict[str, Any]] = {}
+        for hit in self.results:
+            if not hit.video_name:
+                continue
+            try:
+                key = ChunkKey.from_iso(hit.sensor_id, hit.start_time, chunk_seconds)
+            except Exception:
+                continue
+            score = float(hit.similarity_score)
+            if seen_score.get(key, float("-inf")) < score:
+                seen_score[key] = score
+                payloads[key] = {
+                    "video_name": hit.video_name,
+                    "description": hit.description,
+                    "screenshot_url": hit.screenshot_url,
+                    "raw_embed_cosine": score,
+                    "_source_space": "embed",
+                }
+        return payloads
 
 
 class QueryInput(BaseModel):

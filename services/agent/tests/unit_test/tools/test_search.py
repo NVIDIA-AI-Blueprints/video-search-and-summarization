@@ -23,17 +23,22 @@ from unittest.mock import MagicMock
 from pydantic import ValidationError
 import pytest
 
+from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import RankedList
 from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import QueryInput
 from vss_agents.tools.embed_search import _str_input_converter
 from vss_agents.tools.search import QUERY_DECOMPOSITION_PROMPT
 from vss_agents.tools.search import DecomposedQuery
+from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
 from vss_agents.tools.search import _resolve_video_sources_for_search
 from vss_agents.tools.search import decompose_query
+from vss_agents.tools.search import representative_member
 
 
 class TestResolveVideoSourcesForSearch:
@@ -82,6 +87,99 @@ class TestResolveVideoSourcesForSearch:
         assert result == ["missing-camera"]
 
 
+class TestRepresentativeMember:
+    """Unit tests for ``representative_member`` using unit-less score agnostic to different embedding spaces
+    (payload picker for fused segments).
+    """
+
+    @staticmethod
+    def _key(second: int) -> ChunkKey:
+        return ChunkKey(sensor_id="cam-1", start=datetime(2025, 1, 1, 0, 0, second, tzinfo=UTC))
+
+    def test_tied_best_rank_resolves_by_member_keys_order(self):
+        """Both keys rank #1 in some space -> tie -> stable: first ``member_keys`` entry wins."""
+        k1, k2 = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.50),
+                RankedChunk(key=k2, rank=1, score=0.40),  # k2 ranks 1 in embed
+            ],
+        )
+        attr = RankedList(
+            space="attribute",
+            chunks=[
+                # k1 ranks 1 in attribute (top score is irrelevant - unit-incompatible with embed)
+                RankedChunk(key=k1, rank=1, score=0.99),
+                RankedChunk(key=k2, rank=3, score=0.30),
+            ],
+        )
+        # Both k1 and k2 have best_rank=1 (in different spaces) -> tied.
+        # Stable selection: first in member_keys wins.
+        assert representative_member([k1, k2], [embed, attr]) == k1
+        assert representative_member([k2, k1], [embed, attr]) == k2
+
+    def test_picks_lowest_rank_when_not_tied(self):
+        """Asymmetric case: k1 best_rank=1, k2 best_rank=3 -> k1 wins by rank."""
+        k1, k2 = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.50),
+                RankedChunk(key=k2, rank=5, score=0.40),  # k2 only ranks 5 in embed
+            ],
+        )
+        attr = RankedList(
+            space="attribute",
+            chunks=[
+                RankedChunk(key=k1, rank=1, score=0.99),
+                RankedChunk(key=k2, rank=3, score=0.30),
+            ],
+        )
+        # k1 best_rank = min(2, 1) = 1; k2 best_rank = min(5, 3) = 3 -> k1 wins.
+        assert representative_member([k1, k2], [embed, attr]) == k1
+        # Order independent: even when k2 is listed first, k1 still wins on rank.
+        assert representative_member([k2, k1], [embed, attr]) == k1
+
+    def test_uses_rank_not_raw_score_to_avoid_apples_to_oranges(self):
+        """Regression for the apples-to-oranges bug: rank, not raw score, decides.
+
+        k2 has the best rank (1 in embed) but a low raw score there.
+        k1 has rank 2 in both spaces but a high raw score in attribute.
+        Pre-fix raw-score picker would always pick k1 (top raw score 0.99).
+        Post-fix rank picker picks k2 (best_rank=1 < k1's best_rank=2).
+        """
+        k1, k2 = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.50),
+                RankedChunk(key=k2, rank=1, score=0.10),  # k2's top embed rank, low raw
+            ],
+        )
+        attr = RankedList(
+            space="attribute",
+            chunks=[
+                RankedChunk(key=k1, rank=2, score=0.99),  # k1's high raw, but rank 2
+                RankedChunk(key=k2, rank=3, score=0.30),
+            ],
+        )
+        # Rank picker: k2 wins (best_rank=1 < k1's best_rank=2).
+        # Raw-score picker would pick k1 (max raw 0.99) -> different answer.
+        assert representative_member([k1, k2], [embed, attr]) == k2
+
+    def test_keys_absent_from_lists_lose_via_inf_sentinel(self):
+        """Defensive fallback: keys never appearing in any list (sentinel = inf) lose to anything seen."""
+        k_seen, k_unseen = self._key(0), self._key(5)
+        embed = RankedList(
+            space="embed",
+            chunks=[RankedChunk(key=k_seen, rank=4, score=0.10)],
+        )
+        # k_unseen has no rank anywhere -> sentinel inf -> loses to k_seen even at rank 4.
+        assert representative_member([k_unseen, k_seen], [embed]) == k_seen
+        assert representative_member([k_seen, k_unseen], [embed]) == k_seen
+
+
 class TestSearchConfig:
     """Test SearchConfig model."""
 
@@ -90,10 +188,12 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.embed_search_tool == "embed_search"
         assert config.agent_mode_llm == "gpt-4o"
         assert config.vst_internal_url == "http://localhost:30888"
+        assert config.embed_weight == 1.0
         assert "query" in config.agent_mode_prompt
 
     def test_custom_prompt(self):
@@ -101,6 +201,7 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
             agent_mode_prompt="Custom prompt for analysis",
         )
         assert config.agent_mode_prompt == "Custom prompt for analysis"
@@ -111,6 +212,7 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.fusion_method == "rrf"
         assert config.w_attribute == 0.55
@@ -124,6 +226,7 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
             fusion_method="weighted_linear",
             w_attribute=0.6,
             w_embed=0.4,
@@ -138,6 +241,7 @@ class TestSearchConfig:
             embed_search_tool="embed_search",
             agent_mode_llm="gpt-4o",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
             fusion_method="rrf",
             rrf_k=100,
             rrf_w=0.7,
@@ -145,6 +249,74 @@ class TestSearchConfig:
         assert config.fusion_method == "rrf"
         assert config.rrf_k == 100
         assert config.rrf_w == 0.7
+
+    def test_anchor_in_ranking_spaces_rejected(self):
+        """``embed`` declared in ``ranking_spaces`` is rejected with a clear message.
+
+        Anchor handling is separate: the anchor space is dispatched outside the
+        registry and weighted via ``embed_weight``.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            SearchConfig(
+                embed_search_tool="embed_search",
+                agent_mode_llm="gpt-4o",
+                vst_internal_url="http://localhost:30888",
+                embed_weight=1.0,
+                enable_generalized_fusion=True,
+                fusion_tool="fusion",
+                ranking_spaces=[
+                    RankingSpaceConfig(space="embed", tool="embed_search", weight=1.0),
+                    RankingSpaceConfig(space="attribute", tool="attribute_search", weight=0.5),
+                ],
+            )
+        msg = str(exc_info.value)
+        assert "anchor" in msg
+        assert "embed_weight" in msg
+
+    def test_generalized_fusion_with_only_anchor_rejected(self):
+        """Generalized path requires at least one non-anchor space.
+
+        The anchor participates implicitly, an empty ``ranking_spaces`` is
+        not allowed for now i.e. there are no other spaces to fuse with, and
+        usual setups include at least one embedding space like attributes.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            SearchConfig(
+                embed_search_tool="embed_search",
+                agent_mode_llm="gpt-4o",
+                vst_internal_url="http://localhost:30888",
+                embed_weight=1.0,
+                enable_generalized_fusion=True,
+                fusion_tool="fusion",
+            )
+        assert "non-empty ranking_spaces" in str(exc_info.value)
+
+
+class TestRankingSpaceConfigValidation:
+    """Validate the (space, tool) pair against the registry at config-load time."""
+
+    def test_valid_pair_passes(self):
+        """Registered (space, tool) pair constructs successfully."""
+        cfg = RankingSpaceConfig(space="attribute", tool="attribute_search")
+        assert cfg.space == "attribute"
+        assert cfg.tool == "attribute_search"
+
+    def test_mismatched_pair_raises(self):
+        """A tool not in ``allowed_tools`` for the declared space is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            RankingSpaceConfig(space="attribute", tool="caption_search")
+        msg = str(exc_info.value)
+        assert "attribute" in msg
+        assert "caption_search" in msg
+        assert "registered tools for this space" in msg
+
+    def test_error_message_lists_allowed_tools(self):
+        """Failure message names the allowed tools so users can self-correct."""
+        with pytest.raises(ValidationError) as exc_info:
+            RankingSpaceConfig(space="attribute", tool="not_a_real_tool")
+        # The validator surfaces sorted allowed_tools so YAML authors see the
+        # exact alternatives to choose from.
+        assert "attribute_search" in str(exc_info.value)
 
 
 class TestSearchInput:

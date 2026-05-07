@@ -17,150 +17,180 @@
 Fusion is a ranker only (pure math, no side effects). It does not call ``embed_search``, ``attribute_search``, etc.
 These are still left to the coordinator ``search.py`` to orchestrate.
 
+Fusion never crosses sensors, ChunkKey = (sensor_id, snapped_start), so chunks from different video sources
+are independent rows in every stage of the pipeline
+
 A clip can appear in some lists and not others. "Missing" is equivalent to rank = ∞ in that space -> contributes 0.
 """
 
-from __future__ import annotations
-
 from collections import defaultdict
+from collections.abc import AsyncGenerator
+from collections.abc import Iterable
 from dataclasses import dataclass
 from dataclasses import field
-from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
-from typing import TYPE_CHECKING
+import logging
+from typing import Annotated
 from typing import Literal
+from typing import assert_never
 
-from pydantic import AwareDatetime
+from nat.builder.builder import Builder
+from nat.builder.framework_enum import LLMFrameworkEnum
+from nat.builder.function_info import FunctionInfo
+from nat.cli.register_workflow import register_function
+from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable
+from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
+from vss_agents.data_models.ranking import ChunkKey
+from vss_agents.data_models.ranking import EmbeddingSpaceName
+from vss_agents.data_models.ranking import RankedChunk
+from vss_agents.data_models.ranking import RankedList
+from vss_agents.data_models.ranking import _validate_chunk_seconds
+from vss_agents.data_models.ranking import snap
 
-FusionMethod = Literal["rrf", "weighted_linear"]
+# TODO: remove "rrf_with_attribute_rank" (only for backward compatibility) when generalized fusion is fully adopted
+FusionMethod = Literal["rrf", "weighted_linear", "rrf_with_attribute_rank"]
 Aggregation = Literal["max", "mean"]
-DEFAULT_CHUNK_SECONDS = 5
 DEFAULT_RRF_K = 60
 
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+FiniteNonNegFloat = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Public data contract
+# Fusion data contract
 # ---------------------------------------------------------------------------
 
 
-class ChunkKey(BaseModel):
-    """Unique identifier for a 5-second video chunk on the snapped grid.
+class _SharedFusionParams(BaseModel):
+    """Knobs shared between request body (:class:`FusionInput`) and deployment config (:class:`FusionConfig`).
 
-    Note: End of the chunk is intentionally not a field of the key. End is fully derived
-    as ``start + chunk_seconds`` post-bucketize.
+    Single source of truth for every field that exists on both models.
+    Overridable fields via user request, they get overlayed on top of the deployment config.
     """
 
-    # Makes model hashable so it can be used as a ``dict`` key during the outer-join
-    model_config = ConfigDict(frozen=True)
-
-    sensor_id: str
-    start: AwareDatetime = Field(
+    chunk_seconds: int = Field(
+        default=DEFAULT_CHUNK_SECONDS,
+        gt=0,
         description=(
-            "Raw upstream timestamp; bucketize snaps to chunk_seconds grid. "
-            "Must be tz-aware (naive rejected; non-UTC coerced to UTC)."
+            "Chunk grid in seconds. Drives snap/dedup and merge gap math. "
+            "E.g. =5 -> 00:03 and 00:04 collapse to one bucket."
+        ),
+    )
+    method: FusionMethod = Field(
+        default="rrf",
+        description=(
+            "Fusion math. 'rrf' uses ranks (unit-free, robust). 'weighted_linear' uses min-max normalized raw scores."
+        ),
+    )
+    rrf_k: int = Field(
+        default=DEFAULT_RRF_K,
+        gt=0,
+        description=("RRF damping. Larger k flattens, smaller k amplifies top ranks. 60 is the TREC standard."),
+    )
+
+    # Pre-fuse filter
+    per_space_min_score: dict[EmbeddingSpaceName, FiniteFloat] = Field(
+        default_factory=dict,
+        description=(
+            "Drop per-space chunks early below a raw-unit threshold. "
+            'E.g. {"embed": 0.7} -> cosine < 0.7 chunks dropped.'
         ),
     )
 
-    @field_validator("start")
-    @classmethod
-    def _coerce_to_utc(cls, v: datetime) -> datetime:
-        """Normalize any tz-aware datetime to UTC.
+    # Post-fuse filters
+    min_contributing_spaces: int = Field(
+        default=1,
+        ge=0,
+        description="Chunk must appear in >=N spaces to survive. E.g. =2 -> at least 2 spaces voted for it.",
+    )
+    keep_if_top_n_in_any_space: int | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "OR-exemption: top-N in any space bypasses post-fuse gates. E.g. =3 -> rank <=3 anywhere survives."
+        ),
+    )
+    required_spaces: list[EmbeddingSpaceName] = Field(
+        default_factory=list,
+        description=(
+            "Hard gate: every listed space must appear in a chunk's contributing_spaces for it to survive. "
+            'e.g. =["embed"] enforces an embed-anchor invariant - any chunk with no embed contribution is dropped, '
+            "even if it would qualify via keep_if_top_n_in_any_space (no exemption - required means required). "
+            "Empty list (default) disables this gate."
+        ),
+    )
+    min_fused_score_ratio: float | None = Field(
+        default=None,
+        allow_inf_nan=False,
+        description=(
+            "Drop chunks below ratio x theoretical ceiling. E.g. 0.3 -> keep only >=30% of the best possible fused_score. "
+            "Absolute comparison, independent of what is returned. Therefore, weak queries may return zero segments."
+        ),
+    )
+    # TODO: add a relative min filter similar to "top_percent_filter" where the filter is relative to what is returned, so weak queries can still return some segments
 
-        Note: ``AwareDatetime`` has already rejected naive non-tz inputs at this point.
-        """
-        return v.astimezone(UTC)
+    # Merge knobs (applied after filtering and fusion)
+    merge_adjacent: bool = Field(
+        default=True,
+        description="Collapse touching chunks into one segment. E.g. [0-5]+[5-10] -> [0-10].",
+    )
+    merge_gap_chunks: int = Field(
+        default=0,
+        ge=0,
+        description="Tolerate up to N missing chunks between merges. E.g. =1 keeps [0-5]+[10-15] as one.",
+    )
+    segment_score_aggregation: Aggregation = Field(
+        default="mean",
+        description=(
+            "How per-chunk fused scores collapse into one segment score. "
+            "'mean' matches legacy search and merge behavior - sustained events outrank single-chunk spikes. "
+            "'max' opts in to surfacing peak moments instead."
+        ),
+    )
+
+    # End of pipeline knobs
+    top_k_segments: int | None = Field(
+        default=None,
+        gt=0,
+        description=("Cap the final segments by fused_score. None -> no cap (return every survivor)."),
+    )
 
 
-class RankedChunk(BaseModel):
-    """One ranked entry from a single embedding space.
+class FusionInput(_SharedFusionParams):
+    """Request body for fusion. Carries only what the math needs.
 
-    Pure data model. Fusion is blind to payloads.
-    Hence no VST URLs, screenshots, descriptions, object_ids, they live on the
-    original search results in ``search.py``.
+    Inherits all shared knobs that can be overridden by the user in the request.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    key: ChunkKey
+    lists: list[RankedList] = Field(
+        default_factory=list,
+        description="N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]",
+    )
 
-    # Raw score in space-native units (cosine, frame_score, …)
-    score: float = Field(allow_inf_nan=False)
+    space_weights: dict[EmbeddingSpaceName, FiniteNonNegFloat] = Field(
+        default_factory=dict,
+        description=(
+            "Per-space trust weight used when fusing results. Higher values give "
+            "more influence to that space. Optional - omit, pass None, or pass "
+            "{} to defer entirely to the config space_weights_default. "
+            "Missing per-space keys are also filled from that default."
+        ),
+    )
 
-    # 1-based position inside its source list
-    # Note: Fusion does not compute initial ranks - it receives them
-    # (the ranks come baked into the input from upstream search tools)
-    # e.g. each embedding space tool -> emits ``RankedList(rank=1..K)``
-    rank: int
-
-
-class RankedList(BaseModel):
-    """A ranked list of chunks from one embedding space."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # Kept dynamic (not a literal) for ease of extensibility when consumers add new spaces
-    # "embed", "attribute", "caption", "face", ...
-    space: str
-
-    # Trust knob for this space (used in RRF / weighted_linear etc.)
-    # Makes this space's votes count for more
-    weight: float = Field(default=1.0, ge=0, allow_inf_nan=False)
-    chunks: list[RankedChunk] = Field(default_factory=list)
-
-
-class FusionInput(BaseModel):
-    """Request body for fusion. Carries only what the math needs."""
-
-    model_config = ConfigDict(frozen=True)
-
-    # N per-space ranked lists from upstream search tools, e.g. [embed, attribute, caption]
-    lists: list[RankedList] = Field(default_factory=list)
-
-    # Chunk grid in seconds - drives snap/dedup and merge gap math, e.g. =5 -> 00:03 and 00:04 collapse to one bucket
-    chunk_seconds: int = Field(default=DEFAULT_CHUNK_SECONDS, gt=0)
-
-    # Fusion math
-    # - rrf uses ranks (unit-free, robust)
-    # - weighted_linear uses min-max normalized raw scores
-    method: FusionMethod = "rrf"
-    # RRF damping (larger k flattens, smaller k amplifies top ranks), e.g. 60 is the TREC standard
-    rrf_k: int = Field(default=DEFAULT_RRF_K, gt=0)
-
-    # Filter knobs (Pre-fuse)
-    # Drop per-space chunks early below a raw-unit threshold, e.g. {"embed": 0.7} -> cosine < 0.7 chunks dropped
-    per_space_min_score: dict[str, float] = Field(default_factory=dict)
-
-    # Filter knobs (Post-fuse)
-    # Chunk must appear in >=N spaces to survive, e.g. =2 -> at least 2 spaces voted for it
-    min_contributing_spaces: int = Field(default=1, ge=0)
-    # Drop chunks below ratio x theoretical ceiling, e.g. 0.3 -> keep only >=30% of best-possible fused_score
-    min_fused_score_ratio: float | None = Field(default=None, allow_inf_nan=False)
-    # OR-exemption - top-N in any space bypasses post-fuse gates here
-    # e.g. =3 -> rank <=3 anywhere survives
-    keep_if_top_n_in_any_space: int | None = Field(default=None, gt=0)
-
-    # Merge knobs (applied after filtering and fusion)
-    # Collapse touching chunks into one segment, e.g. [0-5]+[5-10] -> [0-10]
-    merge_adjacent: bool = True
-    # Tolerate up to N missing chunks between merges, e.g. =1 keeps [0-5]+[10-15] as one
-    merge_gap_chunks: int = Field(default=0, ge=0)
-    # How per-chunk fused scores collapse/aggregate into one segment score
-    # ``mean`` matches legacy behavior ``search.py``/``_merge_consecutive_results``
-    # (sustained events outrank single-chunk spikes)
-    # ``max`` opts in to surfacing peak moments instead
-    segment_score_aggregation: Aggregation = "mean"
-
-    # End of pipeline knobs
-    # Cap the final segments by fused_score, e.g. =5 -> only top 5 returned
-    top_k_segments: int | None = Field(default=10, gt=0)
+    @field_validator("space_weights", mode="before")
+    @classmethod
+    def _none_to_empty(cls, v: dict | None) -> dict:
+        return {} if v is None else v
 
 
 class FusedSegment(BaseModel):
@@ -187,12 +217,12 @@ class FusedSegment(BaseModel):
     # Rank-derived voting score (not a similarity)
     # Gotcha: Unitless and varies by method (e.g. RRF, rrf_k=60, 3 spaces, weights=1, ceiling ≈ 0.0492)
     # Always interpret and compare fused_score as a *ratio* of this ceiling (see ``_theoretical_ceiling``), not as an absolute value.
-    # TODO: maybe revisit model to have this more meaningful ratio for easy interpretation
+    # TODO: maybe revisit model to also have a more meaningful ratio in the ranked lists for easy interpretation
     fused_score: float
 
     # Union across member chunks
     # Reflects the breadth of evidence for this segment (i.e. more contributing spaces means more trustworthy)
-    contributing_spaces: list[str]
+    contributing_spaces: list[EmbeddingSpaceName]
 
     # Original chunk keys that fed this segment
     member_keys: list[ChunkKey]
@@ -207,6 +237,10 @@ class FusionOutput(BaseModel):
 
     segments: list[FusedSegment] = Field(default_factory=list)
 
+    # Theoretical maximum fused_score possible for this query
+    # Used for normalizing the fused score to 0-1
+    theoretical_max_score: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Internal structures
@@ -219,8 +253,8 @@ class FusedRow:
 
     key: ChunkKey
     score: float = 0.0
-    contributing_spaces: list[str] = field(default_factory=list)
-    per_space_ranks: dict[str, int] = field(default_factory=dict)
+    contributing_spaces: list[EmbeddingSpaceName] = field(default_factory=list)
+    per_space_ranks: dict[EmbeddingSpaceName, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -228,39 +262,10 @@ class FusedRow:
 # ---------------------------------------------------------------------------
 
 
-def _validate_chunk_seconds(chunk_seconds: int) -> None:
-    """Invariant for callers that bypass :class:`FusionInput`."""
-    if chunk_seconds <= 0:
-        raise ValueError(f"chunk_seconds must be > 0, got {chunk_seconds!r}")
-
-
 def _validate_rrf_k(rrf_k: int) -> None:
     """Invariant for callers that bypass :class:`FusionInput`."""
     if rrf_k <= 0:
         raise ValueError(f"rrf_k must be > 0, got {rrf_k!r}")
-
-
-def snap(ts: AwareDatetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datetime:
-    """Snap an arbitrary timestamp down to the chunk-grid floor.
-
-    Different search tools may return chunks at slightly different timestamps
-    even when describing the same moment of video. Snapping lines them up onto a deterministic grid
-    so the outer-join in :func:`fuse` matches the same chunk across spaces.
-
-    Example:
-    - `embed_search` (Cosmos clip embeddings) -> 00:01:25.300 (sliding window started)
-    - `attribute_search` (CV per-frame) -> 00:01:27.100 (bounding box landed)
-    -> both snap to 00:01:25
-
-    TODO consumed by ``search.py`` adapters later, maybe make it a separate util?
-    """
-    _validate_chunk_seconds(chunk_seconds)
-    if ts.tzinfo is None:
-        raise ValueError(f"snap requires a tz-aware datetime, got naive {ts!r}")
-    epoch = datetime(1970, 1, 1, tzinfo=ts.tzinfo)
-    seconds_since_epoch = (ts - epoch).total_seconds()
-    snapped = (seconds_since_epoch // chunk_seconds) * chunk_seconds
-    return epoch + timedelta(seconds=snapped)
 
 
 def _score_with_tiebreak(score: float, sensor_id: str, start: datetime) -> tuple[float, str, datetime]:
@@ -282,7 +287,7 @@ def _rerank_by_score(rl: RankedList, survivors: Iterable[RankedChunk]) -> Ranked
         key=lambda c: _score_with_tiebreak(c.score, c.key.sensor_id, c.key.start),
     )
     reranked = [RankedChunk(key=c.key, score=c.score, rank=i + 1) for i, c in enumerate(sorted_chunks)]
-    return RankedList(space=rl.space, weight=rl.weight, chunks=reranked)
+    return RankedList(space=rl.space, chunks=reranked)
 
 
 def bucketize(rl: RankedList, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> RankedList:
@@ -316,7 +321,7 @@ def bucketize(rl: RankedList, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> Ran
     return _rerank_by_score(rl, best.values())
 
 
-def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]) -> RankedList:
+def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[EmbeddingSpaceName, float]) -> RankedList:
     """Drop below-threshold chunks for one space and recompute ranks.
 
     Gotcha: Score survives a drop. Rank does not - it is a relative property in the list.
@@ -339,6 +344,7 @@ def apply_per_space_filter(rl: RankedList, per_space_min_score: dict[str, float]
 
 def fuse(
     lists: list[RankedList],
+    weights: dict[EmbeddingSpaceName, float],
     method: FusionMethod = "rrf",
     rrf_k: int = DEFAULT_RRF_K,
 ) -> dict[ChunkKey, FusedRow]:
@@ -377,9 +383,10 @@ def fuse(
 
     if method == "rrf":
         for rl in lists:
+            w = weights[rl.space]
             for chunk in rl.chunks:
                 row = out.setdefault(chunk.key, FusedRow(key=chunk.key))
-                row.score += rl.weight / (rrf_k + chunk.rank)
+                row.score += w / (rrf_k + chunk.rank)
                 if rl.space not in row.contributing_spaces:
                     row.contributing_spaces.append(rl.space)
                 row.per_space_ranks[rl.space] = chunk.rank
@@ -389,19 +396,30 @@ def fuse(
         for rl in lists:
             if not rl.chunks:
                 continue
+            w = weights[rl.space]
             scores = [c.score for c in rl.chunks]
             lo, hi = min(scores), max(scores)
             spread = hi - lo
             for chunk in rl.chunks:
                 norm = 1.0 if spread == 0 else (chunk.score - lo) / spread
                 row = out.setdefault(chunk.key, FusedRow(key=chunk.key))
-                row.score += rl.weight * norm
+                row.score += w * norm
                 if rl.space not in row.contributing_spaces:
                     row.contributing_spaces.append(rl.space)
                 row.per_space_ranks[rl.space] = chunk.rank
         return out
 
-    raise ValueError(f"Unknown fusion method: {method!r}")
+    if method == "rrf_with_attribute_rank":
+        # Temporary branch to support the integration with legacy path
+        # TODO: drop this conditional and the ``rrf_with_attribute_rank`` literal from
+        # ``FusionMethod`` once the legacy path is retired.
+        raise ValueError(
+            "fusion method 'rrf_with_attribute_rank' is legacy-only and is not supported "
+            "by generalized fusion search. Use 'rrf' instead, it already operates "
+            "over both embed and attribute ranked lists."
+        )
+
+    assert_never(method)
 
 
 def _theoretical_ceiling(
@@ -418,14 +436,22 @@ def _theoretical_ceiling(
         return sum(w / (rrf_k + 1) for w in weights)
     if method == "weighted_linear":
         return sum(weights)
+    if method == "rrf_with_attribute_rank":
+        # Temporary branch to support the integration with legacy path
+        # TODO: drop alongside the ``fuse`` carve-out when the legacy path is retired.
+        raise ValueError(
+            "fusion method 'rrf_with_attribute_rank' is legacy-only and is not supported "
+            "by the generalized fusion engine, use 'rrf' instead."
+        )
 
-    raise ValueError(f"Unknown fusion method: {method!r}")
+    assert_never(method)
 
 
 def compute_score_threshold(
     method: FusionMethod,
     rrf_k: int,
     lists: list[RankedList],
+    weights: dict[EmbeddingSpaceName, float],
     fraction: float = 0.5,
 ) -> float:
     """Returns meaningful score cutoff.
@@ -437,7 +463,7 @@ def compute_score_threshold(
     """
     _validate_rrf_k(rrf_k)
     # Skip empty lists. They contribute 0, so counting their weight inflates the ceiling.
-    contributing_weights = [rl.weight for rl in lists if rl.chunks]
+    contributing_weights = [weights[rl.space] for rl in lists if rl.chunks]
     return _theoretical_ceiling(method, rrf_k, contributing_weights) * fraction
 
 
@@ -447,20 +473,35 @@ def apply_global_filters(
     min_contributing_spaces: int,
     keep_if_top_n_in_any_space: int | None,
     score_threshold: float | None,
+    required_spaces: list[EmbeddingSpaceName] | None = None,
 ) -> dict[ChunkKey, FusedRow]:
     """Apply the post-fusion filters.
 
-    ``keep_if_top_n_in_any_space`` is an OR exemption: a chunk that ranks ``<= N``
-    in at least one space survives even if it would otherwise fail the vote-count
-    or score-ratio filters ("strong somewhere" override).
+    Filter precedence (per row):
+    1. ``required_spaces`` - hard gate, no exemption. Drops a row if any listed
+       space is missing from ``contributing_spaces``. Evaluated first so the
+       "strong somewhere" exemption below cannot rescue an anchor-violating row.
+    2. ``keep_if_top_n_in_any_space`` - OR exemption. A row that ranks ``<= N``
+       in at least one space bypasses the vote-count and score-ratio filters.
+    3. ``min_contributing_spaces`` and ``score_threshold`` - vote-count and
+       ratio gates.
+    TODO: Revisit to streamline, clarify params/order
 
     Example: min_contributing_spaces=2, keep_if_top_n_in_any_space=3
     - C1 (3 spaces voted, ranks [1, 2, 1]) -> kept (passes vote-count gate)
     - C2 (1 space, rank=2)                 -> kept via exemption (top-3 somewhere)
     - C3 (1 space, rank=8)                 -> dropped (no agreement, no top-3 vote)
+
+    Example: required_spaces=["embed"], keep_if_top_n_in_any_space=3
+    - C4 (attribute only, rank=1)          -> dropped (anchor missing, exemption ignored)
+    - C5 (embed+attribute, ranks [4, 1])   -> kept (anchor present, exemption applies)
     """
     out: dict[ChunkKey, FusedRow] = {}
+    required = set(required_spaces or ())
     for key, row in fused.items():
+        if required and not required.issubset(row.contributing_spaces):
+            # Hard anchor gate evaluated before any exemption.
+            continue
         is_strong_somewhere = keep_if_top_n_in_any_space is not None and any(
             rank <= keep_if_top_n_in_any_space for rank in row.per_space_ranks.values()
         )
@@ -573,7 +614,7 @@ def _finalize_group(
 
     # Dedupe loop to keep unique contributing spaces
     # Order-preserving for stability
-    contributing: list[str] = []
+    contributing: list[EmbeddingSpaceName] = []
     for row in group:
         for space in row.contributing_spaces:
             if space not in contributing:
@@ -637,20 +678,29 @@ def _finalize_group(
 
 def run_fusion(inp: FusionInput) -> FusionOutput:
     """Run the full pipeline declaratively: bucketize -> filter raw -> fuse -> filter fused -> sort -> merge -> cap etc."""
+    weights = inp.space_weights
     bucketed = [bucketize(rl, inp.chunk_seconds) for rl in inp.lists]
     bucketed = [apply_per_space_filter(rl, inp.per_space_min_score) for rl in bucketed]
 
-    fused = fuse(bucketed, method=inp.method, rrf_k=inp.rrf_k)
+    fused = fuse(
+        bucketed,
+        weights=weights,
+        method=inp.method,
+        rrf_k=inp.rrf_k,
+    )
+
+    theoretical_max_score = compute_score_threshold(inp.method, inp.rrf_k, bucketed, weights, fraction=1.0)
 
     threshold: float | None = None
     if inp.min_fused_score_ratio is not None:
-        threshold = compute_score_threshold(inp.method, inp.rrf_k, bucketed, fraction=inp.min_fused_score_ratio)
+        threshold = theoretical_max_score * inp.min_fused_score_ratio
 
     fused = apply_global_filters(
         fused,
         min_contributing_spaces=inp.min_contributing_spaces,
         keep_if_top_n_in_any_space=inp.keep_if_top_n_in_any_space,
         score_threshold=threshold,
+        required_spaces=inp.required_spaces,
     )
 
     rows = sorted(
@@ -670,4 +720,84 @@ def run_fusion(inp: FusionInput) -> FusionOutput:
     if inp.top_k_segments is not None:
         segments = segments[: inp.top_k_segments]
 
-    return FusionOutput(segments=segments)
+    return FusionOutput(segments=segments, theoretical_max_score=theoretical_max_score)
+
+
+# ---------------------------------------------------------------------------
+# NAT tool registration
+# ---------------------------------------------------------------------------
+
+
+class FusionConfig(FunctionBaseConfig, _SharedFusionParams, name="fusion"):
+    """YAML-configured defaults for the fusion tool.
+
+    Any inherited field the caller did not explicitly set in the request
+    falls through to the config value here (see :func:`_merge_config_defaults`).
+    """
+
+    # -- Fields set once upon service startup (not overridable per request) --
+    space_weights_default: FiniteNonNegFloat = Field(
+        default=1.0,
+        description=(
+            "Safety-net fallback weight used by the fusion NAT wrapper to fill in "
+            "the input space_weights for any missing space."
+            "Default 1.0 (neutral)."
+        ),
+    )
+
+    # -- Fields overridable per request --
+    # Included from ``_SharedFusionParams``
+
+
+def _merge_config_defaults(inp: FusionInput, config: FusionConfig) -> FusionInput:
+    """Overlay :class:`FusionConfig` defaults onto a :class:`FusionInput`.
+
+    Approach: take the shared knobs from ``config`` as the base layer, then
+    layer the caller's explicitly-set fields on top. Caller wins for any
+    field they sent, everything else falls through to deployment defaults.
+
+    Example: caller posts ``{"lists": [...], "rrf_k": 30}``.
+    - ``rrf_k`` was set in the request -> stays 30 (caller wins).
+    - ``method`` was not set -> falls through to ``config.method`` (e.g. "rrf").
+    - all other knobs -> fall through to config defaults.
+    """
+    # Fast path: caller already set every shared knob -> nothing to overlay
+    if _SharedFusionParams.model_fields.keys() <= inp.model_fields_set:
+        return inp
+
+    shared_defaults = {name: getattr(config, name) for name in _SharedFusionParams.model_fields}
+    caller_set = inp.model_dump(exclude_unset=True)
+    return FusionInput.model_validate({**shared_defaults, **caller_set})
+
+
+@register_function(config_type=FusionConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+async def fusion(config: FusionConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
+    """Register the fusion ranker as a NAT tool / FastAPI endpoint."""
+
+    async def _fusion(inp: FusionInput) -> FusionOutput:
+        """Fuse N ranked lists of 5s chunks. Pure ranker. No I/O, no searches.
+
+        Overlay config defaults onto unset request fields/knobs.
+        """
+        merged_params = _merge_config_defaults(inp, config)
+
+        # Fill up any missing weight for spaces (via new copy)
+        weights = {**merged_params.space_weights}
+        for rl in merged_params.lists:
+            weights.setdefault(rl.space, config.space_weights_default)
+        merged_params_with_weights = merged_params.model_copy(update={"space_weights": weights})
+
+        logger.debug(
+            "fusion: method=%s spaces=%s weights=%s",
+            merged_params.method,
+            [rl.space for rl in merged_params.lists],
+            weights,
+        )
+        return run_fusion(merged_params_with_weights)
+
+    yield FunctionInfo.create(
+        single_fn=_fusion,
+        description=_fusion.__doc__,
+        input_schema=FusionInput,
+        single_output_schema=FusionOutput,
+    )

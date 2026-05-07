@@ -17,9 +17,9 @@
 Search Agent - Streaming search with agent-think visibility.
 
 This agent implements the full search workflow with streaming and three execution paths:
-- Path 1: Attribute-only search (if has_action=False and attributes exist) - Query decomposition → Attribute search
-- Path 2: Embed-only search (if no attributes) - Query decomposition → Embed search
-- Path 3: Fusion search (if has_action=True and attributes exist) - Query decomposition → Embed search → Fusion reranking (with confidence threshold check)
+- Path 1: Attribute-only search (if has_action=False and attributes exist) - Query decomposition -> Attribute search
+- Path 2: Embed-only search (if no attributes) - Query decomposition -> Embed search
+- Path 3: Fusion search (if has_action=True and attributes exist) - Query decomposition -> Embed search -> Fusion reranking (with confidence threshold check)
 
 All paths yield AgentMessageChunk for real-time visibility.
 """
@@ -45,15 +45,23 @@ from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import model_validator
 
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
+from vss_agents.data_models.ranking import EmbeddingSpaceName
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
+from vss_agents.tools.fusion import FusionMethod
+from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
+from vss_agents.tools.search import build_space_weights
+from vss_agents.tools.search import default_payload_merge_priority
 from vss_agents.tools.search import execute_core_search
+from vss_agents.tools.search import warn_missing_payload_merge_priority
+from vss_agents.tools.spaces_registry import ANCHOR_EMBEDDING_SPACE
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.utils.time_convert import iso8601_to_datetime
 
@@ -146,11 +154,18 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         description="The internal VST URL for stream_id to sensor_id conversion in fusion reranking.",
     )
 
-    fusion_method: Literal["weighted_linear", "rrf", "rrf_with_attribute_rank"] = Field(
+    fusion_method: FusionMethod = Field(
         default="rrf",
-        description="Fusion method: 'weighted_linear' for weighted linear fusion, 'rrf' for Reciprocal Rank Fusion using embed rank, 'rrf_with_attribute_rank' for RRF using both embed and attribute ranks",
+        description=(
+            "Fusion method. "
+            "'rrf' (Reciprocal Rank Fusion) and 'weighted_linear' are supported on both legacy and "
+            "generalized fusion paths. "
+            "'rrf_with_attribute_rank' is legacy-only and not supported through generalized fusion. "
+        ),
     )
+    # TODO: remove ``rrf_with_attribute_rank`` when generalized fusion is fully adopted
 
+    # TODO: remove these other fields when generalized fusion is fully adopted
     w_attribute: float = Field(
         default=0.55,
         description="Weight for attribute score in weighted linear fusion (default: 0.55)",
@@ -187,9 +202,12 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         Note, high max iterations can run for a long time. Default is 1.""",
     )
 
+    # TODO: when the generalized fusion path becomes the default, migrate this
+    # knob to ``FusionInput`` (e.g. ``min_fused_score_ratio_relative``) so fusion
+    # owns relative filtering end-to-end and search no longer post-filters
     top_percent_filter: float | None = Field(
         default=None,
-        description="Score-based filter applied before merging consecutive segments. "
+        description="Score-based filter (relative to results) applied before merging consecutive segments. "
         "Value between 0 and 1.0 — keeps results with similarity >= max_similarity * top_percent_filter. "
         "E.g., 0.9 with max similarity 0.5 keeps results >= 0.45. None or 0 disables filtering.",
     )
@@ -203,6 +221,74 @@ class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
         default=DEFAULT_BEHAVIOR_INDEX,
         description="Behavior index name for object embedding lookup.",
     )
+
+    # -- Generalized fusion (feature-flagged for staged rollout) --
+    enable_generalized_fusion: bool = Field(
+        default=False,
+        description=(
+            "If true, search delegates fusion/filter/merge to the fusion NAT tool and "
+            "leverages ranking spaces. If false, falls back to the legacy inline fusion "
+            "path (embed + attribute, hard-coded). Used for staged rollout."
+        ),
+    )
+    fusion_tool: FunctionRef | None = Field(
+        default=None,
+        description=(
+            "NAT tool name of the registered fusion function. Required when "
+            "enable_generalized_fusion=True. Resolved once at startup."
+        ),
+    )
+    ranking_spaces: list[RankingSpaceConfig] = Field(
+        default_factory=list,
+        description=(
+            "List of ranking spaces to fuse, each declaring its tool and per-search weight. "
+            f"The anchor space ('{ANCHOR_EMBEDDING_SPACE}') is implicit and must not appear here, "
+            "configure its weight via embed_weight instead. "
+            "Empty by default, required non-empty when enable_generalized_fusion=True."
+        ),
+    )
+    embed_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        allow_inf_nan=False,
+        description=(
+            f"Per-search trust weight of the anchor space ('{ANCHOR_EMBEDDING_SPACE}'), "
+            "threaded into the input space weights. Higher values give more influence "
+            "to embed scores in the fused ranking. Used only by the generalized fusion path. "
+            "Defaults to 1.0 (neutral)."
+        ),
+    )
+    payload_merge_priority: dict[EmbeddingSpaceName, int] = Field(
+        default_factory=default_payload_merge_priority,
+        description=(
+            "Cross-space payload-merge priority used when joining payloads back onto "
+            "FusedSegment.member_keys after the fusion call. Lower value = higher priority. "
+            "Spaces missing from this dict fall back to the lowest priority. "
+            "Used only by the generalized fusion path."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_generalized_fusion(self) -> "SearchAgentConfig":
+        spaces = [s.space for s in self.ranking_spaces]
+        if len(spaces) != len(set(spaces)):
+            dups = sorted({s for s in spaces if spaces.count(s) > 1})
+            raise ValueError(f"Duplicate space(s) in ranking_spaces: {dups}")
+        if ANCHOR_EMBEDDING_SPACE in spaces:
+            raise ValueError(
+                f"'{ANCHOR_EMBEDDING_SPACE}' is the anchor space and must not appear in `ranking_spaces`. "
+                f"Set its weight via `embed_weight` in the config instead."
+            )
+        if self.enable_generalized_fusion:
+            if self.fusion_tool is None:
+                raise ValueError("enable_generalized_fusion=true requires fusion_tool to be set.")
+            if not self.ranking_spaces:
+                raise ValueError(
+                    "enable_generalized_fusion=true requires non-empty ranking_spaces "
+                    f"(non-anchor spaces, the '{ANCHOR_EMBEDDING_SPACE}' anchor participates implicitly)."
+                )
+            warn_missing_payload_merge_priority(self.payload_merge_priority, self.ranking_spaces)
+        return self
 
 
 # ===== Presentation converters (moved from embed_search.py) =====
@@ -373,6 +459,16 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
     if config.critic_agent:
         critic_agent = await builder.get_function(config.critic_agent)
 
+    # Resolve fusion NAT tool when the generalized fusion path is enabled
+    fusion_fn = None
+    if config.enable_generalized_fusion and config.fusion_tool:
+        fusion_fn = await builder.get_function(config.fusion_tool)
+        logger.info(
+            "[search_agent] Generalized fusion enabled: spaces=%s, fusion_tool=%r",
+            build_space_weights(config.embed_weight, config.ranking_spaces),
+            config.fusion_tool,
+        )
+
     logger.info("Search agent initialized with direct tool references")
 
     async def _execute_search(search_agent_input: SearchAgentInput) -> SearchOutput:
@@ -417,6 +513,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             builder=builder,
             attribute_search_fn=attribute_search_fn,
             critic_agent=critic_agent,
+            fusion_fn=fusion_fn,
         ):
             if isinstance(update, SearchOutput):
                 search_output = update
@@ -493,6 +590,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
                 builder=builder,
                 attribute_search_fn=attribute_search_fn,
                 critic_agent=critic_agent,
+                fusion_fn=fusion_fn,
             ):
                 if isinstance(update, AgentMessageChunk):
                     # Forward progress updates directly
