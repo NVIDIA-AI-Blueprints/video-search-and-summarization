@@ -33,6 +33,45 @@ def require_env(name: str) -> str:
     return value
 
 
+def env_prefix() -> str:
+    if len(sys.argv) > 2:
+        emit_error(f"Usage: {sys.argv[0]} [ENV_PREFIX]")
+        raise SystemExit(1)
+
+    if len(sys.argv) == 1:
+        return "DOWNSTREAM"
+
+    prefix = sys.argv[1].strip().upper().replace("-", "_").rstrip("_")
+    if not prefix:
+        emit_error("ENV_PREFIX must not be empty")
+        raise SystemExit(1)
+
+    return prefix
+
+
+def prefixed_env(prefix: str, suffix: str) -> str:
+    return f"{prefix}_{suffix}"
+
+
+def parse_extra_variables(prefix: str) -> list[tuple[str, str]]:
+    raw = os.environ.get(prefixed_env(prefix, "VARIABLES"), "")
+    variables: list[tuple[str, str]] = []
+    for line_number, raw_line in enumerate(raw.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            emit_error(f"{prefixed_env(prefix, 'VARIABLES')} line {line_number} must be KEY=value")
+            raise SystemExit(1)
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            emit_error(f"{prefixed_env(prefix, 'VARIABLES')} line {line_number} has invalid key {key!r}")
+            raise SystemExit(1)
+        variables.append((key, value))
+    return variables
+
+
 def api_base_url(raw_url: str) -> str:
     base = raw_url.rstrip("/")
     if not base.endswith("/api/v4"):
@@ -150,6 +189,7 @@ def trigger_pipeline(
     commit_sha: str,
     target_branch: str,
     compare_branch: str,
+    extra_variables: list[tuple[str, str]],
 ) -> dict[str, Any]:
     payload_pairs: list[tuple[str, str]] = [
         ("ref", ref),
@@ -160,6 +200,13 @@ def trigger_pipeline(
         ("variables[][key]", "VSS_COMPARE_BRANCH"),
         ("variables[][value]", compare_branch),
     ]
+    for key, value in extra_variables:
+        payload_pairs.extend(
+            [
+                ("variables[][key]", key),
+                ("variables[][value]", value),
+            ]
+        )
     payload = urlencode(payload_pairs).encode("utf-8")
     return request_json("Pipeline trigger", f"{base_url}/projects/{project_id}/pipeline", token, data=payload)
 
@@ -248,18 +295,22 @@ def write_output(key: str, value: str) -> None:
 
 def main() -> int:
     try:
-        raw_url = require_env("DOWNSTREAM_CI_URL")
+        prefix = env_prefix()
+        raw_url = require_env(prefixed_env(prefix, "CI_URL"))
         base_url = api_base_url(raw_url)
-        token = require_env("DOWNSTREAM_CI_TOKEN")
-        project_path = require_env("DOWNSTREAM_PROJECT_PATH")
+        token = require_env(prefixed_env(prefix, "CI_TOKEN"))
+        project_path = require_env(prefixed_env(prefix, "PROJECT_PATH"))
         commit_sha = require_env("GITHUB_SHA")
-        ref = os.environ.get("DOWNSTREAM_REF", "main")
-        variable_name = os.environ.get("DOWNSTREAM_SUBMODULE_HASH_VARIABLE", "VSS_SUBMODULE_HASH")
+        ref = os.environ.get(prefixed_env(prefix, "REF"), "main")
+        variable_name = os.environ.get(prefixed_env(prefix, "SUBMODULE_HASH_VARIABLE"), "VSS_SUBMODULE_HASH")
+        extra_variables = parse_extra_variables(prefix)
 
         # Mask the raw URL (e.g. "https://gitlab.example.com"), the API
         # base URL (with "/api/v4" appended), and every path component of
         # the project so no combination of them can leak into the log.
         for value in (raw_url, base_url, token, project_path, ref, variable_name):
+            add_mask(value)
+        for _, value in extra_variables:
             add_mask(value)
         for segment in project_path.split("/"):
             add_mask(segment)
@@ -276,6 +327,7 @@ def main() -> int:
             commit_sha,
             target_branch,
             compare_branch,
+            extra_variables,
         )
 
         pipeline_iid = str(pipeline.get("iid") or pipeline.get("id") or "")

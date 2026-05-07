@@ -688,3 +688,42 @@ jobs:
           POLL_INTERVAL_SECONDS: "120"
           MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
         run: python3 .github/scripts/poll-downstream-pipeline.py
+
+  # ---------------------------------------------------------------------------
+  # Job 13: Trigger nvskills downstream pipeline and poll it to completion
+  # ---------------------------------------------------------------------------
+  trigger-nvskills-downstream-pipeline:
+    name: Trigger NVSkills Downstream Pipeline
+    runs-on: [self-hosted, downstream-pipeline]
+    timeout-minutes: 245
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      NVSKILLS_DOWNSTREAM_CI_URL: ${{ secrets.NVSKILLS_DOWNSTREAM_CI_URL }}
+      NVSKILLS_DOWNSTREAM_CI_TOKEN: ${{ secrets.NVSKILLS_DOWNSTREAM_CI_TOKEN }}
+      NVSKILLS_DOWNSTREAM_PROJECT_PATH: ${{ secrets.NVSKILLS_DOWNSTREAM_PROJECT_PATH }}
+      NVSKILLS_DOWNSTREAM_REF: feat/external
+      NVSKILLS_DOWNSTREAM_SUBMODULE_HASH_VARIABLE: VSS_SUBMODULE_HASH
+      NVSKILLS_DOWNSTREAM_VARIABLES: |
+        NVCARPS_CI_PROFILE=external
+        UPSTREAM_PROJECT_URL=${{ github.server_url }}/${{ github.repository }}
+        UPSTREAM_COMMIT_SHA=${{ github.sha }}
+        UPSTREAM_REF_NAME=${{ github.ref_name }}
+        UPSTREAM_DEFAULT_BRANCH=main
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Trigger pipeline
+        id: trigger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/trigger-downstream-pipeline.sh nvskills-downstream
+
+      - name: Poll pipeline
+        env:
+          NVSKILLS_DOWNSTREAM_PIPELINE_ID: ${{ steps.trigger.outputs.pipeline_id }}
+          NVSKILLS_DOWNSTREAM_PROJECT_ID: ${{ steps.trigger.outputs.project_id }}
+          POLL_INTERVAL_SECONDS: "120"
+          MAX_POLL_DURATION_SECONDS: "14400" # 4 hours
+        run: python3 .github/scripts/poll-downstream-pipeline.py nvskills-downstream
