@@ -205,6 +205,27 @@ def highlight_message(message: str) -> str:
     return f"{RED_BOLD}{message}{RESET}"
 
 
+def update_hooks_config(
+    data: dict,
+    *,
+    enabled: bool,
+    token: str,
+    path: str,
+) -> bool:
+    if not enabled:
+        return False
+
+    if not token:
+        raise ValueError("OpenClaw hooks token is required when hooks are enabled")
+
+    hooks = data.setdefault("hooks", {})
+    before = json.dumps(hooks, sort_keys=True)
+    hooks["enabled"] = True
+    hooks["token"] = token
+    hooks["path"] = path or "/hooks"
+    return json.dumps(hooks, sort_keys=True) != before
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Safely update openclaw.json inside a sandbox pod."
@@ -239,6 +260,22 @@ def main() -> int:
         action="store_true",
         help="Show the resulting JSON without writing it",
     )
+    parser.add_argument(
+        "--enable-hooks",
+        action="store_true",
+        default=os.environ.get("OPENCLAW_HOOKS_ENABLED", "").strip() == "1",
+        help="Enable OpenClaw webhook hooks in openclaw.json",
+    )
+    parser.add_argument(
+        "--hooks-token",
+        default=os.environ.get("OPENCLAW_HOOKS_TOKEN", "").strip(),
+        help="Shared secret for OpenClaw hooks. Required when hooks are enabled.",
+    )
+    parser.add_argument(
+        "--hooks-path",
+        default=os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip() or "/hooks",
+        help="OpenClaw hooks path (default: /hooks)",
+    )
     args = parser.parse_args()
 
     env_id = get_brev_env_id()
@@ -261,6 +298,14 @@ def main() -> int:
         origins.insert(0, origin)
         changed = True
 
+    if update_hooks_config(
+        data,
+        enabled=args.enable_hooks,
+        token=args.hooks_token,
+        path=args.hooks_path,
+    ):
+        changed = True
+
     updated_json = json.dumps(data, indent=2) + "\n"
 
     if args.dry_run:
@@ -268,9 +313,11 @@ def main() -> int:
         print(f"Derived env_id: {env_id}")
         print(f"Target file: {args.config_path}")
         print(f"Origin enabled: {origin}")
+        if args.enable_hooks:
+            print(f"OpenClaw hooks enabled at: {args.hooks_path}")
         print(f"Would change file: {'yes' if changed else 'no'}")
         print()
-        print(updated_json)
+        print(json.dumps(updated_json, indent=2) + "\n")
         return 0
 
     if args.backup_path:
@@ -309,6 +356,8 @@ def main() -> int:
 
     print(f"Brev instance ID: {env_id}")
     print(f"Origin allowed in OpenClaw: {origin}")
+    if args.enable_hooks:
+        print(f"OpenClaw hooks enabled at: {args.hooks_path}")
     if dashboard_token:
         print(f"Dashboard token: {dashboard_token}")
         ui_url = f"{origin}/#token={dashboard_token}"
@@ -326,6 +375,9 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except json.JSONDecodeError as e:
         print(f"Invalid JSON: {e}", file=sys.stderr)
+        raise SystemExit(1)
+    except ValueError as e:
+        print(f"Invalid configuration: {e}", file=sys.stderr)
         raise SystemExit(1)
     except subprocess.CalledProcessError as e:
         print(f"Command failed with exit code {e.returncode}", file=sys.stderr)
