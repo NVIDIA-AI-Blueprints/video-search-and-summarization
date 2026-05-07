@@ -15,6 +15,7 @@ import sys
 DEFAULT_CONTAINER = "openshell-cluster-nemoclaw"
 DEFAULT_NAMESPACE = "openshell"
 DEFAULT_CONFIG_PATH = "/sandbox/.openclaw/openclaw.json"
+DEFAULT_WORKSPACE_DIR = "/sandbox/.openclaw/workspace"
 RED_BOLD = "\033[1;31m"
 RESET = "\033[0m"
 
@@ -231,6 +232,15 @@ def main() -> int:
         help=f"Path to openclaw.json in the pod (default: {DEFAULT_CONFIG_PATH})",
     )
     parser.add_argument(
+        "--openclaw-workspace-dir",
+        default=DEFAULT_WORKSPACE_DIR,
+        help=(
+            "Value to set for agents.defaults.workspace in openclaw.json. The VSS plugin's "
+            "register hook reads this to know where to copy workspace .md files. "
+            f"(default: {DEFAULT_WORKSPACE_DIR})"
+        ),
+    )
+    parser.add_argument(
         "--backup-path",
         help="Optional backup path inside the pod, e.g. /sandbox/.openclaw/openclaw.json.bak",
     )
@@ -261,6 +271,13 @@ def main() -> int:
         origins.insert(0, origin)
         changed = True
 
+    # Set agents.defaults.workspace so the VSS plugin's register hook can locate the
+    # workspace dir and copy AGENTS.md / BOOTSTRAP.md / IDENTITY.md / SOUL.md / TOOLS.md.
+    agents_defaults = data.setdefault("agents", {}).setdefault("defaults", {})
+    if agents_defaults.get("workspace") != args.openclaw_workspace_dir:
+        agents_defaults["workspace"] = args.openclaw_workspace_dir
+        changed = True
+
     updated_json = json.dumps(data, indent=2) + "\n"
 
     if args.dry_run:
@@ -268,6 +285,7 @@ def main() -> int:
         print(f"Derived env_id: {env_id}")
         print(f"Target file: {args.config_path}")
         print(f"Origin enabled: {origin}")
+        print(f"Workspace dir: {args.openclaw_workspace_dir}")
         print(f"Would change file: {'yes' if changed else 'no'}")
         print()
         print(updated_json)
@@ -309,6 +327,7 @@ def main() -> int:
 
     print(f"Brev instance ID: {env_id}")
     print(f"Origin allowed in OpenClaw: {origin}")
+    print(f"agents.defaults.workspace: {args.openclaw_workspace_dir}")
     if dashboard_token:
         print(f"Dashboard token: {dashboard_token}")
         ui_url = f"{origin}/#token={dashboard_token}"

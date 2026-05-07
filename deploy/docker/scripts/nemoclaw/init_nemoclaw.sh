@@ -267,7 +267,7 @@ apply_vss_policy() {
 }
 
 install_vss_openclaw_plugin() {
-  local plugin_dir tgz_name tgz_path container_name remote_tgz
+  local plugin_dir tgz_name tgz_path container_name remote_tgz install_cmd
   plugin_dir="${VSS_PLUGIN_DIR}"
 
   if [ ! -f "${plugin_dir}/package.json" ]; then
@@ -308,9 +308,12 @@ install_vss_openclaw_plugin() {
   log "Uploading ${tgz_name} to sandbox ${NEMOCLAW_SANDBOX_NAME}:/tmp/"
   openshell sandbox upload "${NEMOCLAW_SANDBOX_NAME}" "${tgz_path}" "/tmp/"
 
-  log "Installing plugin via 'openclaw plugins install ${remote_tgz} --force'"
+  # --dangerously-force-unsafe-install: the plugin's index.ts uses child_process (npx skills add agent-browser,
+  # systemctl daemon-reload), which OpenClaw's install-time scanner flags. We trust this first-party plugin.
+  install_cmd="openclaw plugins install ${remote_tgz} --force --dangerously-force-unsafe-install"
+  log "Installing plugin via: ${install_cmd}"
   sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "su - sandbox -c 'openclaw plugins install ${remote_tgz} --force' && rm -f '${remote_tgz}'"
+    "su - sandbox -c '${install_cmd}' && rm -f '${remote_tgz}'"
 
   rm -f "${tgz_path}"
   log "VSS OpenClaw plugin installed"
@@ -377,8 +380,8 @@ main() {
   refresh_path
   configure_openshell_provider
   apply_vss_policy
-  install_vss_openclaw_plugin
   update_openclaw_allowed_origin
+  install_vss_openclaw_plugin
 
   log "To use nemoclaw in your current shell, run:"
   printf '\n  . "%s/nvm.sh"\n\n' "${NVM_DIR:-$HOME/.nvm}"
