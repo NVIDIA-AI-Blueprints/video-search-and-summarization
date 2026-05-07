@@ -178,16 +178,16 @@ functions:
     get_incident_tool: video_analytics_mcp.video_analytics.get_incident
     template_report_tool: template_report_gen
 
-  # RTVI-VLM Real-time Stream Alert Tool
+  # Real-time VLM Alert Tool — drives Alert Bridge POST/DELETE /api/v1/realtime
   rtvi_vlm_alert:
     _type: rtvi_vlm_alert
-    rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
+    alert_bridge_url: ${ALERT_BRIDGE_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
     va_get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
     default_model: ${VLM_NAME}
     default_chunk_duration: 2
     default_fps: 1
-    timeout: 60
+    timeout: 180
 
   # Prompt generator for RTVI-VLM alerts (LLM-based)
   rtvi_prompt_gen:
