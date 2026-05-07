@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy, debug, or tear down any VSS profile using a compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken".
+description: Deploy, debug, or tear down any VSS profile using a compose-centric workflow — config (dry-run) with env overrides, review resolved compose, then compose up. Use this skill when the user says "deploy vss", "deploy `profile`", "debug deploy", "verify deployment", or "why is my vss deploy broken".
 license: Apache-2.0
 metadata:
   version: "3.1.0"
@@ -77,16 +77,7 @@ Always follow this sequence. Never skip the dry-run.
 
 ### Step 0 — Tear down any existing deployment
 
-Before every deploy, **always** stop any prior VSS stack. This is
-mandatory even if you think the host is clean, and especially when
-switching profiles (`base` → `search`, `alerts` verification →
-`alerts` real-time, etc.). Compose profile flags only *start* the
-services listed under the selected profile — they do NOT stop
-services from a previously-active profile, so containers from the
-prior deploy linger and pass unrelated container-name checks,
-contaminate results, and can bind ports the new deploy needs.
-
-```bash
+If a deployment already exists, tear it down first. Full procedure (resolved.yml-driven path, container-name catch-all patterns covering dev-profile compose files, why leftovers cause /sensor/list 502s) lives in [`references/teardown.md`](references/teardown.md).
 # If a resolved.yml from a prior deploy exists, prefer it — it
 # knows about all compose-profile services that were brought up.
 if [ -f "$REPO/deployments/resolved.yml" ]; then
@@ -193,28 +184,7 @@ mode.
 
 ### Step 1b — Prepare the data directory
 
-**This is the #1 source of silent-deploy bugs. Follow it exactly.**
-
-The stack mounts several subdirs of `$MDX_DATA_DIR` into containers that each
-run as a different uid. Docker auto-creates empty bind-mount paths as
-`root:root`, which is read-only for the container processes. The reference
-`scripts/dev-profile.sh` uses `chmod -R 777` on the relevant subdirs — it
-does **not** `chown`.
-
-Run this verbatim before `docker compose up`:
-
-```bash
-DATA=$MDX_DATA_DIR      # e.g. <repo>/data
-mkdir -p \
-  "$DATA/data_log/analytics_cache" \
-  "$DATA/data_log/calibration_toolkit" \
-  "$DATA/data_log/elastic/data" \
-  "$DATA/data_log/elastic/logs" \
-  "$DATA/data_log/kafka" \
-  "$DATA/data_log/redis/data" \
-  "$DATA/data_log/redis/log" \
-  "$DATA/agent_eval/dataset" \
-  "$DATA/agent_eval/results"
+The data directory layout (asset paths, ownership, mount points, profile-specific subdirs) is documented in [`references/data-directory.md`](references/data-directory.md). Read that file before deploying for the first time on a host or when changing profiles.
 # Profile-specific subdirs:
 #   alerts → mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/videos/dev-profile-alerts" "$DATA/models/rtdetr-its" "$DATA/models/gdino"
 #   search → mkdir -p "$DATA/models"
@@ -252,98 +222,10 @@ docker restart centralizedb-dev
 
 ### Step 1c — If deploying on Brev, set up secure-link env vars
 
-On a Brev-managed instance, VSS is accessed from the browser via a
-Cloudflare-fronted secure link that tunnels to an nginx proxy on port 7777.
-The proxy consolidates UI + Agent API + VST behind one origin (CORS-safe).
-
-Source the helper **before** `docker compose up`:
-
-```bash
-source skills/deploy/scripts/brev_setup.sh
-```
-
-It detects `/etc/environment`'s `BREV_ENV_ID` and exports `PROXY_PORT=7777`
-and `BREV_LINK_PREFIX=77770` (launchable default; override with
-`BREV_LINK_PREFIX=7777` if the secure link was created manually without
-the `0` suffix). On non-Brev instances the script is a no-op.
-
-See [`references/brev.md`](references/brev.md) for:
-- Per-profile secure-link requirements (base needs 1, lvs/search/alerts need 2–3)
-- The launchable `0`-suffix quirk
-- Common CORS / 502 troubleshooting
-
+Brev-specific env vars (`BREV_ENV_ID`, secure-link patterns) are documented in [`references/brev.md`](references/brev.md).
 ### Step 2 — Build env_overrides
 
-Build a dictionary of env var overrides based on user intent. Only include vars that differ from the profile's `.env` defaults.
-
-**Always set (they have placeholder defaults in the template):**
-
-| Var | Value |
-|---|---|
-| `HARDWARE_PROFILE` | Detected or user-specified |
-| `MDX_SAMPLE_APPS_DIR` | `<repo>/deployments` |
-| `MDX_DATA_DIR` | `<repo>/data` (or user-specified) |
-| `HOST_IP` | Detected host IP |
-| `NGC_CLI_API_KEY` | From environment or user |
-
-**Common overrides by user intent:**
-
-| User intent | Env overrides |
-|---|---|
-| Remote LLM | `LLM_MODE=remote`, `LLM_BASE_URL=<host>` (no `/v1`), `LLM_NAME=<model>`, `NVIDIA_API_KEY=<key>` |
-| Remote VLM | `VLM_MODE=remote`, `VLM_BASE_URL=<host>` (no `/v1`), `VLM_NAME=<model>`, `NVIDIA_API_KEY=<key>` |
-| **Remote LLM AND remote VLM** (aka `remote-all`) | **BOTH of the above** — you must set `LLM_MODE=remote`, `VLM_MODE=remote`, `LLM_BASE_URL`, `VLM_BASE_URL`, `LLM_NAME`, `VLM_NAME`. The presence of a remote VLM endpoint does not imply `VLM_MODE=remote` — you have to write it explicitly. |
-| NVIDIA API for remote inference | `LLM_BASE_URL=https://integrate.api.nvidia.com` |
-| Dedicated GPUs | `LLM_MODE=local`, `VLM_MODE=local`, `LLM_DEVICE_ID=0`, `VLM_DEVICE_ID=1` |
-| Different LLM model | `LLM_NAME=<name>`, `LLM_NAME_SLUG=<slug>` |
-| Different VLM model | `VLM_NAME=<name>`, `VLM_NAME_SLUG=<slug>` |
-
-**Extracting remote endpoints from user intent.**
-
-If the user says "remote LLM" or mentions an LLM endpoint URL, you MUST do
-all of the following before `docker compose up`:
-
-1. Identify the endpoint URL and model name. If the user gave them in
-   their prompt (e.g. *"deploy with remote LLM at
-   `http://launchpad:11571` serving `nvidia/nvidia-nemotron-nano-9b-v2`"*),
-   use those values directly. Strip any trailing `/v1` (see callout below).
-2. If the user said "remote" without providing a URL or model, **stop and
-   ask the user** for:
-   - The LLM endpoint URL (without `/v1`)
-   - The LLM model name served there
-   - (same pair for VLM if they also said "remote VLM")
-   - An `NVIDIA_API_KEY` if the endpoint requires one
-3. Write `LLM_MODE=remote` + `LLM_BASE_URL=<url>` + `LLM_NAME=<model>` into
-   `deployments/developer-workflow/dev-profile-<profile>/.env`. Do the
-   same pair for VLM if the user said remote VLM. Use `sed -i
-   "s|^KEY=.*|KEY=VALUE|"` — the `.env` template ships with placeholder
-   rows for these keys.
-4. After writing, `grep -E '^(HARDWARE_PROFILE|LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL)=' <env-file>`
-   and verify every line shows the value you intended. A silent miss on
-   `LLM_MODE` / `VLM_MODE` is the #1 cause of deployments coming up with
-   wrong compose profiles.
-
-Never leave `LLM_MODE` or `VLM_MODE` unset when the user said "remote".
-The `.env` template's placeholder value is `LLM_MODE=local` — failing to
-overwrite it means you silently deployed in local mode with remote URLs
-dangling, which no `COMPOSE_PROFILES` path correctly supports.
-
-> **Important — `/v1` suffix on base URLs**
->
-> `LLM_BASE_URL` and `VLM_BASE_URL` must **not** include a trailing `/v1`.
-> The agent's `config.yml` appends `/v1` automatically (`base_url: ${LLM_BASE_URL}/v1`),
-> so including it yourself produces `/v1/v1/chat/completions` and requests will fail
-> with connection / 404 errors.
->
-> If a user or endpoint documentation gives you a URL ending in `/v1`, strip it
-> before writing to `.env`. Examples:
-> - User says: "LLM is at `http://10.0.0.5:31081/v1`" → write `LLM_BASE_URL=http://10.0.0.5:31081`
-> - User says: "Use `https://integrate.api.nvidia.com/v1`" → write `LLM_BASE_URL=https://integrate.api.nvidia.com`
-
-See the profile reference doc for full env override recipes.
-
-**Do NOT set `COMPOSE_PROFILES` directly** — it is computed from `BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`, `LLM_NAME_SLUG`, `VLM_MODE`, `VLM_NAME_SLUG`.
-
+Produce an `env_overrides` dict from the user request and the gathered context: choose remote/local LLM/VLM, set credentials, point at endpoints, set platform-specific flags. The full mapping (every override key, when it applies, defaults, profile-specific differences) lives in [`references/env-overrides.md`](references/env-overrides.md).
 ### Step 3 — Config / dry-run
 
 **Env file location:** `<repo>/deployments/developer-workflow/dev-profile-<profile>/.env`
@@ -380,27 +262,7 @@ The resolved YAML is saved to `<repo>/deployments/resolved.yml`.
 
 ### Step 3b — Verify resolved.yml has no unexpanded ${...} tokens
 
-**Skipping this is the #1 cause of "I deployed `search` but it brought
-up `base` + `lvs` + `search` services."** The `.env` line near 90 is
-literal `COMPOSE_PROFILES=${BP_PROFILE}_${MODE},...` — docker compose
-expands it at `config` time using the same env file. If any upstream
-var (`BP_PROFILE`, `MODE`, `HARDWARE_PROFILE`, `LLM_MODE`,
-`VLM_MODE`) is missing from the env, the rendered profile list
-collapses to the empty string, and compose then includes **every**
-service from **every** profile.
-
-```bash
-if grep -q '\${' "$REPO/deployments/resolved.yml"; then
-  echo "FAIL: resolved.yml has unexpanded variables:"
-  grep -n '\${' "$REPO/deployments/resolved.yml" | head -5
-  exit 1
-fi
-```
-
-If this check fails, re-apply the Step 2 env overrides directly to
-the `.env` file at the path above, regenerate `resolved.yml` (Step 3),
-and re-run this check before continuing.
-
+Unexpanded `${VAR}` tokens in `resolved.yml` mean compose did not see those env values. Diagnostic procedure and common culprits live in [`references/troubleshooting.md`](references/troubleshooting.md).
 ### Step 4 — Review
 
 Show the user a summary of what will be deployed:
