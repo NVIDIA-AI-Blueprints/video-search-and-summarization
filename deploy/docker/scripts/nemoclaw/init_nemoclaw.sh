@@ -19,13 +19,9 @@ NVIDIA_BASE_URL="${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}"
 NEMOCLAW_SHIM_DIR="${HOME}/.local/bin"
 OPENCLAW_CONFIG_UPDATE_SCRIPT="${OPENCLAW_CONFIG_UPDATE_SCRIPT:-${SCRIPT_DIR}/update_openclaw_config.py}"
 NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemoclaw_policy.yaml}"
-VSS_PLUGIN_ID="openclaw-vss"
+VSS_PLUGIN_DIR="${VSS_PLUGIN_DIR:-${VSS_REPO_DIR}/.openclaw}"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
-VSS_REMOTE_EXTENSIONS_ROOT="/sandbox/.openclaw-data/extensions"
-VSS_REMOTE_PLUGIN_DIR="${VSS_REMOTE_EXTENSIONS_ROOT}/${VSS_PLUGIN_ID}"
 VSS_REMOTE_CONFIG_PATH="/sandbox/.openclaw/openclaw.json"
-VSS_REMOTE_SKILLS_DIR="${VSS_REMOTE_SKILLS_DIR:-}"
-VSS_REMOTE_UPLOAD_DIR="/tmp/${VSS_PLUGIN_ID}-package"
 
 log() {
   printf '[init_nvidia_remote] %s\n' "$*"
@@ -64,8 +60,8 @@ Options:
 Environment (non-interactive Nemoclaw / OpenShell):
   NEMOCLAW_ONBOARD_PROVIDER   Nemoclaw onboard/install provider (default: build = NVIDIA Endpoints / integrate.api.nvidia.com)
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
-  VSS_REMOTE_SKILLS_DIR       Optional remote sandbox skills directory override.
-                              By default, the script discovers OpenClaw's workspaceDir and uses <workspaceDir>/skills.
+  VSS_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
+                              (default: <VSS_REPO_DIR>/.openclaw)
 EOF
 }
 
@@ -253,28 +249,6 @@ resolve_vss_gateway_container() {
   docker ps --format '{{.Names}}' | awk '/^openshell-cluster-/{print; exit}'
 }
 
-resolve_vss_remote_skills_dir() {
-  local container_name="$1"
-  local workspace_dir
-
-  if [ -n "${VSS_REMOTE_SKILLS_DIR:-}" ]; then
-    printf '%s\n' "${VSS_REMOTE_SKILLS_DIR}"
-    return 0
-  fi
-
-  workspace_dir="$(
-    sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-      'su - sandbox -c "openclaw skills list --json"' 2>/dev/null |
-      python3 -c 'import json, sys; print(json.load(sys.stdin).get("workspaceDir", ""))' 2>/dev/null
-  )" || true
-
-  if [ -n "${workspace_dir}" ]; then
-    printf '%s/skills\n' "${workspace_dir%/}"
-  else
-    printf '%s\n' "/sandbox/.openclaw/workspace/skills"
-  fi
-}
-
 apply_vss_policy() {
   local policy_file="${NEMOCLAW_POLICY_FILE}"
 
@@ -293,46 +267,53 @@ apply_vss_policy() {
 }
 
 install_vss_openclaw_plugin() {
-  local skills_root remote_skills_dir remote_upload_dir container_name
-  skills_root="${VSS_REPO_DIR}/skills"
-  remote_upload_dir="/tmp/${VSS_PLUGIN_ID}-skills"
+  local plugin_dir tgz_name tgz_path container_name remote_tgz
+  plugin_dir="${VSS_PLUGIN_DIR}"
 
-  if [ ! -d "${skills_root}" ]; then
-    log "${skills_root} is not available; skipping VSS skills install"
+  if [ ! -f "${plugin_dir}/package.json" ]; then
+    log "${plugin_dir} is not a packable OpenClaw plugin; skipping plugin install"
     return
   fi
 
+  if ! have npm; then
+    log "npm is not available; cannot pack VSS OpenClaw plugin"
+    return 1
+  fi
+
   if ! have openshell; then
-    log "OpenShell is not available; skipping VSS skills install"
+    log "OpenShell is not available; skipping VSS plugin install"
     return
   fi
 
   if ! openshell sandbox list >/dev/null 2>&1; then
-    log "OpenShell sandbox access is not ready; skipping VSS skills install"
+    log "OpenShell sandbox access is not ready; skipping VSS plugin install"
     return
   fi
 
   container_name="$(resolve_vss_gateway_container)"
   if [ -z "${container_name}" ]; then
-    log "Could not determine the OpenShell gateway container; skipping VSS skills install"
+    log "Could not determine the OpenShell gateway container; skipping VSS plugin install"
     return
   fi
 
-  remote_skills_dir="$(resolve_vss_remote_skills_dir "${container_name}")"
-  log "Using OpenClaw skills directory ${remote_skills_dir}"
+  log "Packing VSS OpenClaw plugin in ${plugin_dir}"
+  tgz_name="$(cd "${plugin_dir}" && npm pack 2>/dev/null | tail -n1)"
+  if [ -z "${tgz_name}" ] || [ ! -f "${plugin_dir}/${tgz_name}" ]; then
+    log "ERROR: npm pack did not produce a tarball in ${plugin_dir}"
+    return 1
+  fi
+  tgz_path="${plugin_dir}/${tgz_name}"
+  remote_tgz="/tmp/${tgz_name}"
 
-  log "Preparing sandbox skills staging directory inside ${NEMOCLAW_SANDBOX_NAME}"
+  log "Uploading ${tgz_name} to sandbox ${NEMOCLAW_SANDBOX_NAME}:/tmp/"
+  openshell sandbox upload "${NEMOCLAW_SANDBOX_NAME}" "${tgz_path}" "/tmp/"
+
+  log "Installing plugin via 'openclaw plugins install ${remote_tgz} --force'"
   sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "rm -rf '${remote_upload_dir}' && su - sandbox -c \"mkdir -p '${remote_upload_dir}'\""
+    "su - sandbox -c 'openclaw plugins install ${remote_tgz} --force' && rm -f '${remote_tgz}'"
 
-  log "Uploading ${skills_root} to sandbox ${NEMOCLAW_SANDBOX_NAME}:${remote_upload_dir}"
-  openshell sandbox upload "${NEMOCLAW_SANDBOX_NAME}" "${skills_root}" "${remote_upload_dir}"
-
-  log "Copying staged skills into sandbox workspace inside ${NEMOCLAW_SANDBOX_NAME} via ${container_name}"
-  sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "rm -rf '${remote_skills_dir}' && su - sandbox -c \"mkdir -p '${remote_skills_dir}' && cp -r '${remote_upload_dir}/'* '${remote_skills_dir}/'\""
-
-  log "VSS skills installed"
+  rm -f "${tgz_path}"
+  log "VSS OpenClaw plugin installed"
 }
 
 run_onboard() {

@@ -5,6 +5,10 @@
   "type": "module",
   "keywords": ["openclaw", "openclaw-plugin", "vss", "nvidia", "video-search"],
   "files": ["skills/", "workspace/", "openclaw.plugin.json", "README.md", "index.ts"],
+  "scripts": {
+    "prepack": "rm -rf skills && cp -r ../skills skills",
+    "postpack": "rm -rf skills"
+  },
   "openclaw": {
     "extensions": [
       "./index.ts"
