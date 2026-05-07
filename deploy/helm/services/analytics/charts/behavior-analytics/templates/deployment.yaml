@@ -68,8 +68,25 @@ spec:
               mountPath: /resources/vss-behavior-analytics-config.json
               subPath: vss-behavior-analytics-config.json
               readOnly: true
+            {{- if .Values.resourceFiles.calibration.enabled }}
+            - name: vss-behavior-analytics-resources
+              mountPath: {{ .Values.resourceFiles.calibration.mountPath }}
+              subPath: calibration.json
+              readOnly: true
+            {{- end }}
+            {{- if .Values.resourceFiles.roadNetwork.enabled }}
+            - name: vss-behavior-analytics-resources
+              mountPath: {{ .Values.resourceFiles.roadNetwork.mountPath }}
+              subPath: road-network.json
+              readOnly: true
+            {{- end }}
       volumes:
         - name: vss-behavior-analytics-config
           configMap:
             name: {{ include "vss-behavior-analytics.fullname" . }}-config
+        {{- if or .Values.resourceFiles.calibration.enabled .Values.resourceFiles.roadNetwork.enabled }}
+        - name: vss-behavior-analytics-resources
+          configMap:
+            name: {{ include "vss-behavior-analytics.fullname" . }}-resources
+        {{- end }}
 {{- end }}

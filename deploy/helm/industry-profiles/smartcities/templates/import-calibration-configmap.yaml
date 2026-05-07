@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- $ic := index .Values "import-calibration" | default dict }}
+{{- if (index $ic "enabled") }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce (index $ic "useReleaseNamePrefix") (index $g "useReleaseNamePrefix")) }}
+{{- $vaApi := ternary (printf "%s-vss-video-analytics-api" .Release.Name) "vss-video-analytics-api" $pfx }}
+{{- $apiUrl := (index $ic "videoAnalyticsApiUrl") | default (printf "http://%s:8081" $vaApi) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-import-calibration-data
+  labels:
+    app.kubernetes.io/name: import-calibration
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  calibration.json: |
+{{ .Files.Get "configs/behavior-analytics/calibration.json" | indent 4 }}
+  road-network.json: |
+{{ .Files.Get "configs/behavior-analytics/road-network.json" | indent 4 }}
+  calibration-import.sh: |
+    #!/bin/bash
+    set -e
+    API_URL="{{ $apiUrl }}"
+
+    fetchstatus() {
+      curl -o /dev/null --silent --head --write-out '%{http_code}' "${API_URL}/livez"
+      echo ""
+    }
+
+    sleep 10
+    echo "Checking if API service is reachable at ${API_URL}"
+    apistatus=$(fetchstatus)
+    echo "apistatus: $apistatus"
+    until [ "$apistatus" = "200" ]; do
+      sleep 2
+      apistatus=$(fetchstatus)
+      echo "apistatus: $apistatus"
+    done
+
+    echo "Importing calibration..."
+    curl -f -X POST "${API_URL}/config/upload-file/calibration" \
+      --form configFiles=@"/data/calibration.json" || { echo "Calibration import failed"; exit 1; }
+
+    echo "Importing road network..."
+    curl -f -X POST "${API_URL}/config/upload-file/road-network" \
+      --form configFiles=@"/data/road-network.json" || { echo "Road-network import failed"; exit 1; }
+
+    sleep 2
+    echo "Done"
+{{- end }}

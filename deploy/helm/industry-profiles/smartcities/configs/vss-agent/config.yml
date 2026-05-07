@@ -1,0 +1,576 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+general:
+  use_uvloop: true
+  front_end:
+    _type: vss_fastapi
+    runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      enable_rtsp_streams: true
+      enable_video_delete: true
+    endpoints:
+    - path: /api/v1/videos
+      method: POST
+      description: Generate VST upload URL
+      function_name: video_upload_url
+
+    cors:
+      allow_origins: ['*']
+      allow_methods: ['*']
+      allow_headers: ['*']
+      allow_credentials: false
+  telemetry:
+    tracing:
+      phoenix:
+        _type: phoenix
+        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+        project: SC-vss-agent-${VSS_AGENT_VERSION}
+
+object_stores:
+  local_object_store:
+    _type: in_memory
+
+function_groups:
+  video_analytics_mcp:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: ${VIDEO_ANALYSIS_MCP_URL}/mcp
+    include:
+    - video_analytics__get_incidents
+    - video_analytics__get_incident
+    - video_analytics__get_fov_histogram
+    - video_analytics__get_sensor_ids
+    - video_analytics__get_places
+
+functions:
+  video_upload_url:
+    _type: video_upload_url
+    vst_external_url: ${VST_EXTERNAL_URL}
+    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
+
+  video_understanding:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 30
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: true
+    video_url_tool: vst_video_clip
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${INTERNAL_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  video_understanding_iso:
+    _type: video_understanding
+    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+    max_frames: 30
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: true
+    video_url_tool: vst_video_url
+    use_base64: true
+    vlm_mode: ${VLM_MODE}
+    internal_ip: ${INTERNAL_IP}
+    external_ip: ${EXTERNAL_IP}
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  vst_video_clip:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_snapshot:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+
+  vst_video_url:
+    _type: vst.video_clip
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    overlay_config: true
+    time_format: iso
+
+  vst_picture_url:
+    _type: vst.snapshot
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    overlay_config: true
+    time_format: iso
+
+  get_sensor_names:
+    _type: vst.sensor_list
+    vst_internal_url: ${VST_INTERNAL_URL}
+
+  chart_generator:
+    _type: chart_generator
+    object_store_name: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    object_store_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+
+  multi_incident_formatter:
+    _type: multi_incident_formatter
+    video_url_tool: vst_video_url
+    picture_url_tool: vst_picture_url
+    incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    chart_generator_tool: chart_generator
+    generate_chart: true
+    chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    display_limit: 20
+
+  geolocation:
+    _type: geolocation
+    timeout: 10
+
+  template_report_gen:
+    _type: template_report_gen
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    output_dir: /tmp/its_reports
+    save_local_copy: true
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    template_path: ${VSS_AGENT_TEMPLATE_PATH}
+    template_name: ${VSS_AGENT_TEMPLATE_NAME}
+    agent_version: ${VSS_AGENT_VERSION}
+    llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+    video_understanding_tool: video_understanding_iso
+    picture_url_tool: vst_picture_url
+    video_url_tool: vst_video_url
+    geolocation_tool: geolocation
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
+    vlm_prompts:
+    - "Describe the type of road (e.g., residential street, highway, rural road, intersection)."
+    - >-
+      Describe road and environmental conditions for the incident. Include road condition
+      (e.g., Dry / Wet / Ice / Snow / Sand / Unknown), light condition (e.g., Daylight / Dusk / Dawn /
+      Darkness with street lighting / Darkness without lighting / Unknown), weather (e.g., Clear / Rain /
+      Fog / Snow / Storm / Windy / Unknown), traffic control devices (e.g., Traffic lights / Stop signs /
+      Yield signs / None / Unknown), and road geometry (e.g., Straight / Curve / Hillcrest / Intersection /
+      Roundabout / Bridge / Unknown).
+    - >-
+      Describe vehicles involved in the video. Focus only on the following object ids: {object_ids}.
+      Include vehicle type (e.g., Car / Bus / Truck / Motorcycle / Bicycle / Other) and vehicle color for
+      each vehicle with the object id.
+    - "Identify whether the police attended the scene."
+    - "Extract the speed limit at the location if it is visible."
+    report_prompt: |
+      Template to populate:
+      {template}
+
+      Instructions:
+      1. Extract incident details from tool results (incident ID, sensor ID, timestamp, location,
+         collision objects, etc.)
+      2. Extract video analysis details from video_understanding tool results (lighting, road and
+         environmental conditions, vehicle details, etc.)
+      3. Fill in all template fields with extracted information
+      4. Use "Unknown" or "N/A" for fields where information is not available
+      5. Ensure the report is complete and well-structured
+      6. For Report Indentifier, generate a unique identifier for the report
+      7. AI Agent version: {agent_version}
+
+      Return only the populated markdown template without any additional text or code blocks.
+
+  get_fov_counts_with_chart:
+    _type: get_fov_counts_with_chart
+    get_fov_histogram_tool: video_analytics_mcp.video_analytics__get_fov_histogram
+    chart_generator_tool: chart_generator
+    chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+
+  # Report Agent - sub-agent for single incident reports (Video Analytics MCP mode)
+  report_agent:
+    _type: report_agent
+    get_incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    get_incident_tool: video_analytics_mcp.video_analytics__get_incident
+    template_report_tool: template_report_gen
+
+  # Multi Report Agent - sub-agent for multiple incident reports
+  multi_report_agent:
+    _type: multi_report_agent
+    multi_incident_tool: multi_incident_formatter
+    max_incidents: 9999
+
+  # Incident Report Agent - for incident-based reports from VA-MCP
+  incident_report_agent:
+    _type: report_agent
+    log_level: INFO
+    get_incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    get_incident_tool: video_analytics_mcp.video_analytics__get_incident
+    template_report_tool: template_report_gen
+
+  # RTVI-VLM Real-time Stream Alert Tool
+  rtvi_vlm_alert:
+    _type: rtvi_vlm_alert
+    rtvi_vlm_base_url: "${RTVI_VLM_BASE_URL}"
+    vst_internal_url: ${VST_INTERNAL_URL}
+    va_get_incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    default_model: ${VLM_NAME}
+    default_chunk_duration: 2
+    default_fps: 1
+    timeout: 60
+
+  # Prompt generator for RTVI-VLM alerts (LLM-based)
+  rtvi_prompt_gen:
+    _type: prompt_gen
+    llm_name: prompt_gen_llm
+    # yamllint disable rule:line-length
+    prompt: |
+      You are a prompt generator for video monitoring alerts. Please use the exact prompt if they are provided as examples below. system_prompt should always be "You are a helpful assistant.".
+
+      User wants to monitor: {user_query}
+      Intent: {user_intent}
+
+      Generate a Yes/No detection question and a system role.
+
+      Example for "warehouse anomalies":
+      prompt: Detect for a box being dropped. Answer in Yes or No
+      system_prompt: You are a helpful assistant.
+
+      Now generate for the user request above. Output format:
+      prompt: [your detection question]
+      system_prompt: You are a helpful assistant.
+
+llms:
+  nim_llm:
+    _type: nim
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  openai_llm:
+    _type: openai
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+  nim_vlm:
+    _type: nim
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 1024
+
+  openai_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  vllm_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 4096
+
+  prompt_gen_llm:
+    _type: ${LLM_MODEL_TYPE:-nim}
+    model_name: ${LLM_NAME}
+    base_url: ${LLM_BASE_URL}/v1
+    max_tokens: 256
+    temperature: 0.0
+
+  eval_llm_judge:
+    _type: nim
+    model_name: ${EVAL_LLM_JUDGE_NAME}
+    base_url: ${EVAL_LLM_JUDGE_BASE_URL}/v1
+    max_tokens: 4096
+    temperature: 0.0
+
+workflow:
+  _type: top_agent
+  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  log_level: INFO
+  max_retries: 3
+  max_iterations: 15
+  max_history: 20
+  llm_reasoning: false
+  planning_enabled: true
+  tool_names:
+  - video_understanding
+  - video_understanding_iso
+  - vst_video_clip
+  - vst_snapshot
+  - get_sensor_names
+  - get_fov_counts_with_chart
+  - video_analytics_mcp.video_analytics__get_sensor_ids
+  - video_analytics_mcp.video_analytics__get_places
+  - vst_picture_url
+  - rtvi_vlm_alert
+  - rtvi_prompt_gen
+  subagent_names:
+  - report_agent
+  - multi_report_agent
+  # yamllint disable rule:line-length
+  prompt: |
+    You are a routing agent for a smart city traffic incident reporting system with tool calling capabilities.
+
+    TOOL CALL RULES:
+    - ALWAYS include ALL required parameters when calling tools
+    - If a tool call fails with a validation error, RETRY IMMEDIATELY: Fix the error and call the tool again with correct parameters.
+
+    PRIORITY ACTIONS:
+    1. If user asks about available sensors/cameras → DIRECTLY CALL
+       video_analytics_mcp.video_analytics__get_sensor_ids tool
+    2. If user asks about available places/cities/intersections OR mentions a location name → DIRECTLY CALL
+       video_analytics_mcp.video_analytics__get_places tool to verify if it's a valid place
+    3. For FOV counts/occupancy queries → DIRECTLY CALL get_fov_counts_with_chart tool
+    4. For taking a snapshot/picture from a sensor -> DIRECTLY CALL vst_picture_url tool
+    5. For LISTING/MULTIPLE incidents → route to multi_report_agent
+    6. For DETAILED SINGLE incident reports → route to report_agent
+    7. For direct video analytics queries → use video_analytics_mcp tools
+
+    GET PLACES TOOL:
+    Use video_analytics_mcp.video_analytics__get_places to get the list of available cities and intersections.
+    - No parameters required
+    - Returns: A hierarchical map like {{"city_name": ["intersection1", "intersection2", ...]}}
+    - Use this to:
+      1. Verify if a user-mentioned location is a valid place
+      2. Show users what places/intersections are available
+      3. Determine correct source_type for incident queries
+
+    SNAPSHOT/PICTURE TOOL:
+    Use vst_picture_url when user asks to "take a snapshot" or "get a picture" from a sensor.
+    CRITICAL:
+      - If the user asks for a snapshot/picture of a sensor without specifying a timestamp, you should always call vst_picture_url tool to get the URL and never use the URLs from conversation history.
+      - If a snapshot/picture for the same sensor AND at the same timestamp has already been generated from previous interactions, return the answer with the EXACT URLs from conversation history - DO NOT call vst_picture_url, DO NOT modify any parts of the URLs. However, if the query asks for snapshot/picture of a new sensor or a new timestamp for the same sensor, you MUST call vst_picture_url tool to get the URL. You should NEVER generate the URL yourself.
+    - Required: sensor_id
+    - Optional: start_time (only provide if user asks for a specific past time; for live/current picture,
+      OMIT this parameter)
+    - Returns: A direct URL to the image. When you have the URL, display it to the user as an image in
+      markdown format like this: ![Snapshot](image_url)
+
+    FOV COUNTS TOOL:
+    Use get_fov_counts_with_chart when user asks "How many people/vehicles are in <sensor>?" or similar
+    occupancy questions.
+    - Required: sensor_id, start_time, end_time
+    - Optional: object_type (e.g., "Person", "Vehicle"), bucket_count (default: 10)
+    - Returns: Count statistics and a visualization chart
+
+    IMPORTANT: If user asks "How many people are there?" or "How many people/vehicles are in <sensor>?"
+    without specifying a time:
+    - Automatically use the LAST 10 MINUTES as the time range
+    - Calculate: end_time = current time, start_time = current time - 10 minutes
+    - DO NOT ask the user for time range clarification
+    - Example: "How many people are in Montague-2-HO-6?" → Use last 10 minutes automatically
+
+    LOCATION TYPE IDENTIFICATION (CRITICAL):
+    When users specify locations, you MUST verify if they are valid places by calling the get_places tool:
+
+    STEP 1: CALL video_analytics_mcp.video_analytics__get_places
+    - This returns a hierarchical map: {{"city_name": ["intersection1", "intersection2", ...]}}
+    - Call this tool whenever a user mentions a location that might be a place
+
+    STEP 2: DETERMINE source_type based on verification:
+
+    === USE source_type="place" WHEN: ===
+    - The location name appears in the get_places result (either as a city key OR as an intersection in the values)
+    - User says: "intersection X", "at intersection X", "place X", "location X", "area X"
+    - User says: "city X", "in city X", "downtown X"
+    - User mentions named intersections, neighborhoods, or geographic areas
+    - Examples: "intersection Montague-2-HO-6", "city of Dubuque", "downtown area"
+
+    === USE source_type="sensor" WHEN: ===
+    - User says: "sensor X", "camera X", "from sensor X"
+    - User provides what appears to be a technical sensor identifier without location context
+    - Examples: "sensor CAM001", "camera Montague-2-HO-6" (if NOT in get_places result)
+
+    RULE: Context words (intersection, city, place) take precedence over identifier format.
+    If user says "intersection Montague-2-HO-6", treat it as source_type="place" even if the ID
+    looks like a sensor name.
+
+    INCIDENT REPORTING - CHOOSE THE RIGHT AGENT:
+
+    === USE multi_report_agent WHEN: ===
+    - User wants to LIST/SHOW MULTIPLE incidents
+    - Keywords: "list", "show all", "get incidents", "last 5/10/N incidents"
+    - User wants incident summaries or aggregated view
+    - User wants to see incident statistics/charts
+
+    multi_report_agent parameters (pass as DIRECT fields, NOT in additional_context):
+    - source: The source identifier (sensor ID, intersection name, city name) (REQUIRED)
+    - source_type: The type of source - "sensor", "place", or "city" (REQUIRED - see LOCATION TYPE
+      rules above)
+    - start_time: Start of time range (OPTIONAL - if omitted, gets most recent incidents)
+    - end_time: End of time range (OPTIONAL - if omitted, gets most recent incidents)
+    - max_result_size: Maximum number of incidents to return (OPTIONAL - use when user specifies
+      "last 5", "show 10", etc.)
+
+    Example tool call:
+    {{
+      "source": "Montague-2-HO-6",
+      "source_type": "place",
+      "max_result_size": 5
+    }}
+
+    Example user queries for multi_report_agent:
+    - "List all incidents from sensor X in the last hour"
+    - "Show me the last 5 incidents at Montague"
+    - "Get incidents between 2pm-3pm at sensor Y"
+    - "What incidents happened today?"
+
+    === PAGINATION SUPPORT FOR "NEXT/MORE" QUERIES: ===
+    When user asks for "next 20 incidents", "show more", "next page", etc.:
+    1. Look in the conversation history for the PRESERVED STRUCTURED DATA section
+    2. Find the most recent <incidents> block from a previous multi_report_agent call
+    3. Extract the LAST incident's timestamp from that block (look for the last incident entry)
+    4. Extract the source and source_type that were used in the previous query
+    5. Calculate new time range:
+       - start_time = timestamp of LAST shown incident (this ensures continuity)
+       - end_time = current time OR the original end_time if it was a historical query
+    6. Call multi_report_agent with these parameters
+
+    === USE report_agent WHEN: ===
+    - User wants a DETAILED/COMPREHENSIVE report for ONE SPECIFIC incident
+    - Keywords: "detailed report", "full analysis", "comprehensive report", "report for incident X"
+    - User wants video analysis, snapshots, detailed timeline
+    - User specifies an incident ID OR asks for "last incident" (singular)
+
+    report_agent parameters (pass as DIRECT fields, NOT in additional_context):
+    - user_query: The original user question (REQUIRED)
+    - sensor_id: The sensor ID (optional if incident_id provided)
+    - incident_id: Specific incident ID (optional - if not provided, gets last incident)
+    - start_time: Start of time range (optional, for finding last incident)
+    - end_time: End of time range (optional, for finding last incident)
+
+    Example tool call:
+    {{
+      "user_query": "Generate a detailed report for the last incident at Montague-2-HO-6",
+      "sensor_id": "Montague-2-HO-6",
+      "incident_id": "ABC123"
+    }}
+
+    Example user queries for report_agent:
+    - "Generate a detailed report for the last incident at sensor X"
+    - "Create a comprehensive report for incident ABC123"
+    - "Give me a full analysis of the most recent incident at Montague"
+
+    CRITICAL: If a report for the same incident has already been generated from previous interactions AND the user did not request a new report for the same incident, return the answer with the EXACT URLs from conversation history - DO NOT call report_agent, DO NOT modify any parts of the URLs.
+
+    PARAMETER EXTRACTION:
+    - If source is not provided AND there is no previous query context, use
+      video_analytics_mcp.video_analytics__get_sensor_ids to show available sensors and ask user to choose
+    - Parse time expressions like "last 5 minutes", "yesterday", "between 2pm-3pm" into ISO timestamps
+    - Extract max_incidents from phrases like "last 5", "show 10", etc.
+
+    CONVERSATION HISTORY & CONTEXT EXTRACTION:
+    - The conversation history includes a "PRESERVED STRUCTURED DATA" section that contains
+      <incidents> blocks
+    - Each <incidents> block is a JSON structure with incident details including timestamps
+    - When user asks for "next", "more", or refers to "the Nth incident", look in this preserved data
+    - Extract source, source_type, timestamps, and incident_ids from these blocks to provide context
+      continuity
+    - This allows you to support follow-up queries without asking the user to repeat information
+
+    TIME CALCULATION RULES (IMPORTANT - BE CAREFUL WITH MATH):
+    - "last X minutes" means: end_time = NOW, start_time = NOW - X minutes
+      Example: If NOW is 20:35:00, "last 20 minutes" means 20:15:00 to 20:35:00
+    - "last X hours" means: end_time = NOW, start_time = NOW - X hours
+      Example: If NOW is 20:35:00, "last 2 hours" means 18:35:00 to 20:35:00
+    - ALWAYS double-check your time calculations before making tool calls
+    - Time format: YYYY-MM-DDTHH:MM:SS.sssZ (ISO 8601 with milliseconds and Z timezone)
+
+    TIMESTAMP FORMAT (CRITICAL):
+    When calling ANY tool that requires timestamps (start_time, end_time), you MUST use this exact format:
+    YYYY-MM-DDTHH:MM:SS.sssZ
+
+    Examples:
+    - 2020-01-01T00:00:00.000Z
+    - 2025-11-12T14:19:30.000Z
+
+    NEVER use formats like "2020-01-01T00:00:00+00:00" or "2020-01-01T00:00:00Z"
+    ALWAYS include milliseconds (.000) and use Z for timezone
+
+    RESPONSE FORMAT (CRITICAL):
+    When you have completed all necessary tool calls and have the final answer:
+    1. After your analysis, provide ONLY the clean, formatted answer for the user
+    2. Do NOT include reasoning phrases like "I should", "Let me", "The user", etc. in your final answer
+    3. Present information directly and professionally
+
+    Example for sensor query:
+    - Your thinking: "User asked for sensors. Tool returned 30 sensors. I should format them as a list."
+    - Your answer: "Here are the available sensors:\n\n1. SENSOR_NAME_1\n2. SENSOR_NAME_2\n..."
+  # yamllint enable rule:line-length
+eval:
+  general:
+    workflow_alias: ${WEAVE_WORKFLOW_ALIAS}
+    output_dir: ${EVAL_DIR}/results
+    dataset:
+      _type: json
+      file_path: ${EVAL_DIR}/dataset.json
+      structure:
+        question_key: "query"
+
+  evaluators:
+    trajectory_evaluator:
+      _type: customized_trajectory_evaluator
+      llm_name: eval_llm_judge
+      track_agent_selected_tools_only: true
+      max_retries: 2
+      llm_judge_reasoning: true
+      custom_prompt_template: |
+        You are an expert evaluator assessing an AI agent's performance on tool calling.
+
+        Question: {question}
+
+        Available Tools and Their Schemas:
+        {tool_schemas}
+
+        Agent's Actions and Tool Calls:
+        {agent_trajectory}
+
+        Agent's Final Answer:
+        {answer}
+
+        Reference/Expected Output:
+        {reference}
+
+        Evaluation Criteria:
+        1. **Tool Selection**: Did the agent select the appropriate tools for the task?
+        2. **Parameter Accuracy**: Were tool parameters correct according to the tool schemas above?
+        Check that all parameters match the expected types, required fields, and descriptions.
+        3. **Data Retrieval**: Did the agent successfully retrieve the necessary data? Sometimes the
+        data is not available, that should not be considered as a failure. As long as the tools are
+        called correctly, it should be considered as a success.
+        4. **Completeness**: Did the agent gather all required information to answer the question?
+        5. **Efficiency**: Did the agent avoid unnecessary or redundant tool calls?
+
+        IMPORTANT NOTES:
+
+        1. VLM Failure: The report_agent always will fail on VLM analysis. This is EXPECTED and
+           should NOT be considered a failure. As long as the correct tools are called, it should
+           be considered as a success and should be scored 1.0.
+
+        2. LLM Model Names in Trajectory: Some trajectory steps have tool names equal to LLM model names. These are NOT
+           actual tool calls. They are INTERNAL REASONING STEPS showing which LLM is thinking.
+
+           **CRITICAL: When evaluating tool selection, COMPLETELY IGNORE any steps where the tool
+           name is an LLM model name. Only evaluate steps where actual function tools are called.**
+
+        Scoring Guidelines:
+        - 1.0: Perfect execution - all criteria met, accurate answer
+        - 0.8-0.9: Excellent - minor issues but correct answer
+        - 0.6-0.7: Good - some issues but mostly correct
+        - 0.4-0.5: Fair - significant issues, partially correct
+        - 0.0-0.3: Poor - major issues, incorrect or incomplete answer
+
+        Think through your evaluation carefully, then output only a single number (your score from
+        0.0 to 1.0).

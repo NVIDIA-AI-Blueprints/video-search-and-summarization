@@ -38,6 +38,14 @@ command: []
 config:
   kafkaConfigJson: ""
 
+resourceFiles:
+  calibration:
+    enabled: false
+    mountPath: /resources/calibration.json
+  roadNetwork:
+    enabled: false
+    mountPath: /resources/road-network.json
+
 imagePullSecrets: []
 
 resources: {}

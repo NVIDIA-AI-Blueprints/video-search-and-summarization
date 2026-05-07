@@ -1,0 +1,640 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# VSS parent chart — Smart Cities profile. Default install matches verification mode (2d_cv).
+# Usage: helm install vss-smc . -f values-verification.yaml -n vss-smc --create-namespace
+
+profile: smartcities
+mode: verification
+
+# NGC: when using nvcr.io images, set ngc.createSecrets and ngc.apiKey.
+ngc:
+  createSecrets: true
+  apiKey: ""
+
+global:
+  useReleaseNamePrefix: false
+  postgresServiceHost: ""
+  imagePullSecrets:
+    - name: ngc-secret
+  ngcApiSecret:
+    name: ngc-api
+    key: NGC_API_KEY
+  externalScheme: ""
+  externalHost: ""
+  externalPort: ""
+  kibanaPublicUrl: ""
+  llmBaseUrl: ""
+  vlmBaseUrl: ""
+  llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
+  vlmName: "nvidia/cosmos-reason2-8b"
+  createSharedVstPvcs: true
+
+infra:
+  enabled: true
+  phoenix:
+    enabled: true
+    env:
+      - name: PHOENIX_HOST_ROOT_PATH
+        value: "/phoenix"
+  redis:
+    enabled: true
+    command: ["redis-server"]
+    args:
+      - "--loadmodule"
+      - "/usr/local/lib/redis/modules/rejson.so"
+      - "--loadmodule"
+      - "/usr/local/lib/redis/modules/redisearch.so"
+      - "--loadmodule"
+      - "/usr/local/lib/redis/modules/redisbloom.so"
+      - "--loadmodule"
+      - "/usr/local/lib/redis/modules/redistimeseries.so"
+      - "/config/redis.conf"
+  elasticsearch:
+    enabled: true
+    persistence:
+      data:
+        size: 10Gi
+      logs:
+        size: 5Gi
+      storageClass: ''
+    init:
+      enabled: true
+      env:
+        ELASTICSEARCH_ILM_MIN_AGE: 4h
+        ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM: '1536'
+        ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM: '768'
+        BP_PROFILE: bp_developer_alerts
+  kibana:
+    enabled: true
+    init:
+      enabled: true
+      objectsBundle: alerts
+  kafka:
+    enabled: true
+    topicJob:
+      enabled: true
+    heapOpts: -Xmx6G -Xms6G
+    persistence:
+      size: 10Gi
+      storageClass: ''
+    resources:
+      requests:
+        memory: 6Gi
+        cpu: '1'
+      limits:
+        memory: 8Gi
+        cpu: '2'
+    topics:
+      - name: mdx-raw
+      - name: mdx-bev
+      - name: mdx-space-utilization
+      - name: mdx-alerts
+      - name: mdx-behavior
+        retention_ms: '14400000'
+        segment_ms: '3600000'
+        replication_factor: '1'
+      - name: mdx-behavior-plus
+      - name: mdx-frames
+      - name: mdx-mtmc
+      - name: mdx-rtls
+      - name: mdx-rtls-region-1
+      - name: mdx-amr
+      - name: mdx-vlm-alerts
+      - name: mdx-notification
+        partitions: '1'
+      - name: mdx-events
+      - name: mdx-incidents
+      - name: mdx-vlm-incidents
+      - name: mdx-vlm
+      - name: mdx-embed
+      - name: mdx-embed-filtered
+      - name: vision-llm-messages
+      - name: vision-llm-events-incidents
+      - name: vision-llm-errors
+  logstash:
+    enabled: true
+  vss-broker-health-check:
+    enabled: true
+    kafkaHost: ""
+    kafkaPort: "9092"
+    redisHost: ""
+    redisPort: "6379"
+
+vios:
+  enabled: true
+  vstStorage:
+    createSharedPvcs: true
+    accessMode: ReadWriteOnce
+    vstData:
+      size: 10Gi
+      storageClass: ""
+    vstVideo:
+      size: 20Gi
+      storageClass: ""
+    streamerVideos:
+      size: 20Gi
+      storageClass: ""
+  vss-vios-postgres:
+    enabled: true
+
+  vss-vios-envoy-proxy:
+    enabled: true
+
+  vss-vios-sdr:
+    enabled: true
+
+  vss-vios-sensor:
+    enabled: true
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+
+  vss-vios-streamprocessing:
+    enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
+    persistence:
+      vstData: { enabled: true, create: false, existingClaim: "" }
+      vstVideo: { enabled: true, create: false, existingClaim: "" }
+      streamerVideos: { enabled: true, create: false, existingClaim: "" }
+
+  vss-vios-ingress:
+    enabled: true
+    externallyAccessibleIp: ""
+
+  vss-vios-mcp:
+    enabled: true
+
+  vss-vios-nvstreamer:
+    enabled: true
+
+agent:
+  enabled: true
+  vss-agent:
+    enabled: true
+    profile: smartcities
+    rtviVlmEnabled: false
+    cosmosEmbedEnabled: false
+    reportTemplates:
+      enabled: true
+    mountEvalOutput: false
+    evalLlmJudgeName: ""
+    evalLlmJudgeBaseUrl: ""
+    reportsBaseUrl: ""
+    vstExternalUrl: ""
+    externalIp: ""
+    env:
+      - name: VSS_AGENT_CONFIG_FILE
+        value: '{{ .Values.configFilePath | default "/etc/vss-agent/config.yml" }}'
+      - name: VSS_AGENT_HOST
+        value: '0.0.0.0'
+      - name: VSS_AGENT_PORT
+        value: '8000'
+      - name: LLM_MODE
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) | toString | trim }}{{- if $llm }}remote{{- else }}local{{- end }}'
+      - name: VLM_MODE
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) | toString | trim }}{{- if $vlm }}remote{{- else }}local{{- end }}'
+      - name: LLM_MODEL_TYPE
+        value: nim
+      - name: VLM_MODEL_TYPE
+        value: nim
+      - name: STREAM_MODE
+        value: other
+      - name: VSS_AGENT_OBJECT_STORE_TYPE
+        value: local_object_store
+      - name: VSS_AGENT_TEMPLATE_PATH
+        value: '{{- $rt := .Values.reportTemplates | default dict }}{{- if ($rt.enabled | default false) }}/etc/vss-agent/report-templates{{- end }}'
+      - name: VSS_AGENT_TEMPLATE_NAME
+        value: '{{- $rt := .Values.reportTemplates | default dict }}{{- if ($rt.enabled | default false) }}{{ $rt.configMapKey | default "incident_report_template.md" }}{{- end }}'
+      - name: EXTERNAL_IP
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{ coalesce .Values.externalIp $eh "127.0.0.1" }}'
+      - name: INTERNAL_IP
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $viosIng := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalIp $viosIng }}'
+      - name: HOST_IP
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $viosIng := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalIp $viosIng }}'
+      - name: LVS_BACKEND_URL
+        value: ''
+      - name: RTVI_EMBED_PORT
+        value: ''
+      - name: RTVI_CV_PORT
+        value: ''
+      - name: VSS_ES_PORT
+        value: '9200'
+      - name: VST_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstBaseUrl .Values.vstExternalUrl $globalBase $vstHttp }}'
+      - name: VIDEO_ANALYSIS_MCP_URL
+        value: '{{- if (trim (.Values.videoAnalysisMcpUrl | default "")) }}{{ trim .Values.videoAnalysisMcpUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-va-mcp" .Release.Name) "vss-va-mcp" $pfx }}{{- printf "http://%s:9901" $host -}}{{- end }}'
+      - name: RTVI_VLM_BASE_URL
+        value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
+      - name: NVIDIA_API_KEY
+        value: ''
+      - name: OPENAI_API_KEY
+        value: ''
+      - name: COSMOS_EMBED_ENDPOINT
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-rtvi-embed:8000" .Release.Name) "http://vss-rtvi-embed:8000" $pfx }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
+      - name: ELASTIC_SEARCH_ENDPOINT
+        value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
+      - name: ELASTIC_SEARCH_INDEX
+        value: '{{ .Values.elasticsearchIndex | default "" }}'
+      - name: PHOENIX_ENDPOINT
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
+      - name: LLM_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
+      - name: VLM_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $vlm := (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+      - name: VST_EXTERNAL_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+      - name: VST_INTERNAL_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalUrl $vstHttp }}'
+      - name: VST_MCP_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-vios-mcp:8001" .Release.Name) "http://vss-vios-mcp:8001" $pfx }}{{ coalesce .Values.vstMcpUrl $def }}'
+      - name: LLM_NAME
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
+      - name: VLM_NAME
+        value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos-reason2-8b") }}'
+      - name: EVAL_LLM_JUDGE_NAME
+        value: '{{- $g := .Values.global | default dict }}{{- $ln := trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}{{ coalesce .Values.evalLlmJudgeName $ln }}'
+      - name: EVAL_LLM_JUDGE_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $llm := (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{ coalesce .Values.evalLlmJudgeBaseUrl $llm $def }}'
+      - name: VSS_AGENT_REPORTS_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.reportsBaseUrl (ternary (printf "%s/static/" $globalBase) "" (ne $globalBase "")) (printf "%s/static/" $vssAgentHttp) }}'
+      - name: VSS_AGENT_EXTERNAL_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+      - name: AGENT_BASE_URL
+        value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
+      - name: VSS_AGENT_VERSION
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9388d6486f30" }}'
+    waitForDependencies:
+      enabled: true
+  vss-va-mcp:
+    enabled: true
+    vstIngressUrl: ""
+    elasticsearchUrl: ""
+
+vss-agent-ui:
+  enabled: true
+  appSubtitle: "Smart Cities"
+  enableDashboardTab: "true"
+  fillAlertBridgeUrlFromGlobal: true
+  agentApiUrlBase: ""
+  vstApiUrl: ""
+  chatCompletionUrl: ""
+  websocketChatUrl: ""
+  alertsApiUrl: ""
+  envOverrides:
+    - name: NEXT_PUBLIC_ENABLE_CHAT_TAB
+      value: "false"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_WORKFLOW
+      value: "Smart Cities Agent"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
+      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
+    - name: NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR
+      value: "true"
+    - name: NEXT_PUBLIC_ENABLE_ALERTS_TAB
+      value: "true"
+    - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE
+      value: "true"
+    - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE
+      value: "false"
+    - name: NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE
+      value: "true"
+    - name: NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON
+      value: "false"
+    - name: NEXT_PUBLIC_ALERTS_TAB_VERIFIED_FLAG_DEFAULT
+      value: "true"
+    - name: NEXT_PUBLIC_ENABLE_DASHBOARD_TAB
+      value: "true"
+    - name: NEXT_PUBLIC_ENABLE_MAP_TAB
+      value: "true"
+  mapAppHostPrefix: "analytics-ui"
+
+vss-alert-bridge:
+  enabled: true
+  kafkaBootstrapServers: ""
+  redisHost: ""
+  redisPort: "6379"
+  elasticHosts: ""
+  vlmBaseUrl: ""
+  vlmName: "nvidia/cosmos-reason2-8b"
+  vstBaseUrl: ""
+  alertReviewMediaBaseDir: ""
+  configVariant: ""
+  alertTypeConfigJson: |
+    {
+      "version": "1.0",
+      "alerts": [
+        {
+          "alert_type": "collision",
+          "output_verdict_description": {
+            "confirmed": "Collision detected",
+            "rejected": "No collision detected"
+          },
+          "prompts": {
+            "system": "You are a helpful assistant.",
+            "user": "Focus on vehicles {info.primaryObjectId} and vehicle list {objectIds}. Identify if there is a moment in the video where both vehicles occupy the same space simultaneously, indicating physical contact. Did vehicles {info.primaryObjectId} and vehicle from the list {objectIds} collide? Your final answer should be either Yes or No."
+          }
+        },
+        {
+          "alert_type": "Stop Anomaly Module",
+          "prompts": {
+            "system": "You are a helpful assistant.",
+            "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal stopping behavior or a stop anomaly.\n\n- Normal Stop: A worker, vehicle, or machinery stops briefly as part of expected operational behavior.\n- Stop Anomaly: A worker, vehicle, or machinery stops unexpectedly, in an unsafe location, or for an abnormal duration.\n\nIs there a stop anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
+          }
+        },
+        {
+          "alert_type": "Movement Anomaly Module",
+          "prompts": {
+            "system": "You are a helpful assistant.",
+            "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal movement or an abnormal movement anomaly.\n\n- Normal Movement: Movement follows expected speed, direction, and path patterns.\n- Movement Anomaly: Sudden or unusual motion patterns such as abrupt speed spikes, sharp direction changes, or deviations from usual routes.\n\nIs there a movement anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
+          }
+        }
+      ]
+    }
+  waitForDependencies:
+    enabled: true
+
+analytics:
+  enabled: true
+  vss-behavior-analytics:
+    enabled: true
+    command:
+      - python3
+      - apps/its/main_its_app.py
+      - --config
+      - /resources/vss-behavior-analytics-config.json
+      - --calibration
+      - /resources/calibration.json
+    resourceFiles:
+      calibration:
+        enabled: true
+        mountPath: /resources/calibration.json
+      roadNetwork:
+        enabled: true
+        mountPath: /resources/road-network.json
+    config:
+      kafkaConfigJson: |
+        {
+          "kafka": {
+            "brokers": "kafka-kafka:9092",
+            "consumer": {
+              "autoOffsetReset": "latest",
+              "enableAutoCommit": false,
+              "maxPollIntervalMs": 900000,
+              "maxPartitionFetchBytes": 10485760,
+              "maxPollRecords": 10000,
+              "pollTimeoutMs": 100
+            },
+            "producer": {
+              "lingerMs": 0
+            },
+            "group": "mdx-its-app",
+            "topics": [
+              {"name": "raw", "value": "mdx-raw"},
+              {"name": "behavior", "value": "mdx-behavior"},
+              {"name": "notification", "value": "mdx-notification"},
+              {"name": "behaviorPlus", "value": "mdx-behavior-plus"},
+              {"name": "anomaly", "value": "mdx-alerts"},
+              {"name": "incidents", "value": "mdx-incidents"}
+            ]
+          },
+          "sensors": [
+            {
+              "id": "default",
+              "configs": [
+                {"name": "anomalyIgnoreSensors", "value": "[\"sensorABC\",\"sensorXYZ\"]"},
+                {"name": "anomalyClasses", "value": "[\"Car\",\"Truck\",\"Bus\",\"Motorcycle\",\"Bicycle\",\"Scooter\",\"Emergency Vehicle\",\"Vehicle\"]"},
+                {"name": "anomalySpeedViolation", "value": "{ \"enable\": true, \"mphThreshold\" : 90, \"timeIntervalSecThreshold\": 10 }"},
+                {"name": "anomalyUnexpectedStop", "value": "{ \"enable\": true, \"mphThreshold\" : 5, \"timeIntervalSecThreshold\": 25 }"},
+                {"name": "anomalyAbnormalMovement", "value": "{ \"enable\": true, \"useLinearDistance\": false, \"distanceMetersThreshold\": 10, \"timeIntervalSecThreshold\": 5, \"strideDeviationComputation\": 5, \"distanceMetersThresholdDeviationComputation\": 10, \"abnormalRelativeThreshold\": 2.0, \"abnormalRelativeMaxThreshold\": 10.0, \"abnormalRelativeDirectionChangeEnable\": true, \"changeInDirectionDegree\": 30 }"},
+                {"name": "anomalyCollisionDetection", "value": "{ \"enable\": true, \"useSpeedStopCondition\": true, \"stopTimeBySpeedThreshold\" : 25, \"targetClasses\" : [\"Car\",\"Truck\",\"Bus\",\"Motorcycle\",\"Bicycle\",\"Scooter\",\"Emergency Vehicle\",\"Vehicle\"] }"}
+              ]
+            }
+          ],
+          "coordinateReferenceSystem": {
+            "inputDataInCRSCartesian": false,
+            "crsCartesian": "EPSG:26915",
+            "crsCartesianEnablePerSensorOrigin": false,
+            "crsCartesianCustomOrigin": {
+              "enable": false,
+              "lat": 37.397006,
+              "lon": -121.951583
+            },
+            "roadNetwork": {
+              "enable": true,
+              "segmentShiftDistanceMeters": 5,
+              "mapMatching": {
+                "mapMatchingMaxDistMeters": 30,
+                "mapMatchingMaxDistInitMeters": 20,
+                "mapMatchingMinProbNorm": 0.001,
+                "mapMatchingNonEmittingLengthFactor": 0.75,
+                "mapMatchingObsNoiseMeters": 10,
+                "mapMatchingObsNoiseNonEmittingStatesMeters": 15,
+                "mapMatchingDistNoiseMeters": 10,
+                "mapMatchingNonEmittingStates": true,
+                "mapMatchingMaxLatticeWidth": 5
+              },
+              "graph": {
+                "graphFromOSM": true,
+                "osmLoadMethod": "from_place",
+                "osmType": "drive",
+                "osmSimplify": false,
+                "osmQueryPoint": {"lat": 37.397006, "lon": -121.951583},
+                "osmQueryPointDistMeters": 500,
+                "osmQueryPolygon": [
+                  {"lat": 37.401949, "lon": -121.963497},
+                  {"lat": 37.382608, "lon": -121.966127},
+                  {"lat": 37.381430, "lon": -121.924272},
+                  {"lat": 37.407479, "lon": -121.924194}
+                ],
+                "osmQueryPlace": "Santa Clara County, California, United States",
+                "osmQueryFile": "../ITS_new/sample_data/california-latest.osm.pbf"
+              },
+              "visualization": {
+                "visualizationGraphNodeColor": "r",
+                "visualizationGraphShowGraph": true,
+                "visualizationMapUseBackground": true,
+                "visualizationMapZoomPath": false,
+                "visualizationMapShowLabels": false,
+                "visualizationMapShowMatching": true
+              }
+            }
+          },
+          "app": [
+            {"name": "trajGeoCoordEnable", "value": "true"},
+            {"name": "trajDirectionMode", "value": "0"},
+            {"name": "trajDirectionClusterMode", "value": "1"},
+            {"name": "trajSmoothMinPoints", "value": "20"},
+            {"name": "trajSmoothWindowSize", "value": "5"},
+            {"name": "trajDistanceStride", "value": "5"},
+            {"name": "trajSpeedSegmentSize", "value": "10"},
+            {"name": "mapMatchingMaxPoints", "value": "5"},
+            {"name": "mapMatchingClasses", "value": "[\"Car\",\"Truck\",\"Bus\",\"Motorcycle\",\"Bicycle\",\"Scooter\",\"Emergency Vehicle\",\"Vehicle\",\"Person\"]"},
+            {"name": "behaviorWatermarkSec", "value": "30"},
+            {"name": "behaviorMaxPoints", "value": "200"},
+            {"name": "objectConfidenceThreshold", "value": "0.5"},
+            {"name": "clusterThreshold", "value": "0.9"},
+            {"name": "coordinateSystem", "value": "geo"},
+            {"name": "sourceType", "value": "kafka"},
+            {"name": "sinkType", "value": "kafka"},
+            {"name": "numWorkersForBehaviorCreation", "value": "4"},
+            {"name": "numWorkersForBehaviorClustering", "value": "2"}
+          ],
+          "inference": {
+            "enable": false,
+            "url": "10.128.34.61:8001"
+          }
+        }
+
+  vss-video-analytics-api:
+    enabled: true
+    kafkaBrokers: ""
+    elasticsearchNode: ""
+    storage:
+      size: 5Gi
+      storageClass: ""
+    waitForDependencies:
+      enabled: true
+
+  video-analytics-ui:
+    enabled: true
+    appName: its
+    service:
+      port: 3002
+    googleMapsApiKey: ""
+
+rtvi:
+  enabled: true
+  vss-rtvi-cv:
+    enabled: true
+    profileMode: alerts
+    downloadModelsFromNgc: true
+    downloadModelsFromNgcWaitSeconds: 900
+    ngcApiKeySecretName: ngc-api
+    ngcApiKeySecretKey: NGC_CLI_API_KEY
+    ngcOrg: nvidia
+    ngcModelsToDownload:
+      - model: nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
+        sourcePath: trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx
+        destPath: rtdetr-its/model_epoch_035.fp16.onnx
+      - model: nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
+        sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
+        destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
+  vss-rtvi-cv-sdr:
+    enabled: true
+    perceptionProvisioningAddress: ""
+    vstStatusEndpoint: ""
+    vstStreamsEndpoint: ""
+  vss-rtvi-vlm:
+    enabled: false
+    useSharedNim: true
+    kafkaBootstrapServers: ""
+    redisHost: ""
+
+# Smart Cities specific services
+calibration-toolkit:
+  enabled: true
+  service:
+    port: 8003
+  persistence:
+    enabled: true
+    size: 5Gi
+
+import-calibration:
+  enabled: true
+  videoAnalyticsApiUrl: ""
+
+# Ingress
+vssIngress:
+  enabled: true
+  ingressClassName: haproxy
+  host: ""
+  vssUiPort: 3000
+  vssAgentPort: 8000
+  vstIngressPort: 30888
+  videoAnalyticsApiPort: 8081
+  alertBridgePort: 9080
+  calibrationPort: 8003
+  videoAnalyticsUiPort: 3002
+  behaviorAnalyticsPort: 8080
+  perceptionSdrPort: 4001
+  vaMcpPort: 9901
+  kibanaHost: ""
+  phoenixHost: ""
+  kibanaPort: 5601
+  phoenixPort: 6006
+  streamerHost: ""
+  streamerPort: 31000
+
+nims:
+  enabled: true
+  gpuType: H100
+  global:
+    pullSecretName: ngc-secret
+    authSecretName: ngc-api
+    storageClass: ""
+  nemotron:
+    enabled: true
+    image:
+      repository: nvcr.io/nim/nvidia/nvidia-nemotron-nano-9b-v2
+      tag: "1"
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+      requests:
+        nvidia.com/gpu: "1"
+    storage:
+      pvc:
+        storageClass: ""
+        size: 120Gi
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+  cosmos:
+    enabled: true
+    image:
+      repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
+      tag: "1.6.0"
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      limits:
+        nvidia.com/gpu: "1"
+      requests:
+        nvidia.com/gpu: "1"
+    storage:
+      pvc:
+        storageClass: ""
+        size: 120Gi
+    service:
+      type: ClusterIP
+      port: 8000
+    nodeSelector: {}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    env:
+      CUDA_VISIBLE_DEVICES: "0"
+      NIM_KVCACHE_PERCENT: "0.75"
+      NIM_MAX_MODEL_LEN: "16384"
+      NIM_LOW_MEMORY_MODE: "true"
