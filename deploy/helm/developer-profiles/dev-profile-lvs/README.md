@@ -264,6 +264,7 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
   --set nims.enabled=false \
   --set-string ngc.apiKey="$NGC_CLI_API_KEY" \
   --set global.externalHost=vss.$EXTERNAL_HOST.nip.io \
+  --set global.kibanaPublicUrl=http://kibana.$EXTERNAL_HOST.nip.io \
   --set global.storageClass="$STORAGE_CLASS" \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
