@@ -28,7 +28,4 @@ services:
     restart: always
     volumes:
       - $MDX_SAMPLE_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
     command: python3 apps/spatial_analytics/main_spatial_analytics_2d_app.py --config resources/spatial_analytics_2d_config.json
