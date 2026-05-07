@@ -106,6 +106,26 @@ def require_env(name: str) -> str:
     return value
 
 
+def env_prefix() -> str:
+    if len(sys.argv) > 2:
+        emit_error(f"Usage: {sys.argv[0]} [ENV_PREFIX]")
+        raise SystemExit(1)
+
+    if len(sys.argv) == 1:
+        return "DOWNSTREAM"
+
+    prefix = sys.argv[1].strip().upper().replace("-", "_").rstrip("_")
+    if not prefix:
+        emit_error("ENV_PREFIX must not be empty")
+        raise SystemExit(1)
+
+    return prefix
+
+
+def prefixed_env(prefix: str, suffix: str) -> str:
+    return f"{prefix}_{suffix}"
+
+
 def api_base_url(raw_url: str) -> str:
     base = raw_url.rstrip("/")
     if not base.endswith("/api/v4"):
@@ -401,14 +421,15 @@ def main() -> int:
     except (AttributeError, OSError):
         pass
 
-    raw_url = require_env("DOWNSTREAM_CI_URL")
+    prefix = env_prefix()
+    raw_url = require_env(prefixed_env(prefix, "CI_URL"))
     base_url = api_base_url(raw_url)
-    token = require_env("DOWNSTREAM_CI_TOKEN")
-    project_path = require_env("DOWNSTREAM_PROJECT_PATH")
-    pipeline_id = int(require_env("DOWNSTREAM_PIPELINE_ID"))
+    token = require_env(prefixed_env(prefix, "CI_TOKEN"))
+    project_path = require_env(prefixed_env(prefix, "PROJECT_PATH"))
+    pipeline_id = int(require_env(prefixed_env(prefix, "PIPELINE_ID")))
     # project_id is emitted by the trigger step; if absent, fall back to
     # a project-path lookup via the same machinery as the trigger script.
-    project_id_env = os.environ.get("DOWNSTREAM_PROJECT_ID", "").strip()
+    project_id_env = os.environ.get(prefixed_env(prefix, "PROJECT_ID"), "").strip()
 
     for value in (raw_url, base_url, token, project_path):
         add_mask(value)
@@ -422,7 +443,7 @@ def main() -> int:
         try:
             project_id = int(project_id_env)
         except ValueError:
-            emit_error("DOWNSTREAM_PROJECT_ID is set but not an integer")
+            emit_error(f"{prefixed_env(prefix, 'PROJECT_ID')} is set but not an integer")
             return 1
     else:
         try:
