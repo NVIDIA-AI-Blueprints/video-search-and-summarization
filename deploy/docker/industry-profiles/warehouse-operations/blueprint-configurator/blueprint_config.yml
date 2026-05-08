@@ -252,7 +252,7 @@ commons:
   variables:
     2d:
       - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
-      # pre_cluster_threshold: 0.6 for nv-warehouse-4cams, else 0.5 (used in ds-ppl-analytics-pgie-config.yml)
+      # pre_cluster_threshold: 0.6 for nv-warehouse-4cams, else 0.5 (used in ds-pgie-config.yml)
       - pre_cluster_threshold: '"0.6" if "${SAMPLE_VIDEO_DATASET}" == "nv-warehouse-4cams" else "0.5"'
       - person_detection_threshold: '"0.85" if "${SAMPLE_VIDEO_DATASET}" == "warehouse-loading-dock-3cams-synthetic" else "0.6"'
       - msg-broker-conn-str: '"localhost;6379;" if "${STREAM_TYPE}" == "redis" else "localhost;9092;mdx-raw"'
@@ -325,7 +325,7 @@ commons:
 
       # Update DeepStream YAML config
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/ds-ppl-analytics-pgie-config.yml"
+        target_file: "${DS_CONFIG_DIR}/ds-pgie-config.yml"
         backup: true
         updates:
           property.model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b${final_stream_count}_gpu0_fp16.engine
