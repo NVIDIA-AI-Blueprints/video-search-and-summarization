@@ -29,8 +29,8 @@ from typing import NamedTuple
 from nat.data_models.component_ref import FunctionRef
 from pydantic import BaseModel
 
-from vss_agents.data_models.ranking import EmbeddingSpaceName
-from vss_agents.data_models.ranking import FusableSearchOutput
+from lib.fusion.ranking_models import EmbeddingSpaceName
+from lib.fusion.ranking_models import FusableSearchOutput
 from vss_agents.data_models.search import DecomposedQuery
 from vss_agents.data_models.search import SearchInput
 from vss_agents.tools.attribute_search import AttributeSearchOutput

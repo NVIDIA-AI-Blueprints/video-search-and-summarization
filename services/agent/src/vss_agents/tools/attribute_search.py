@@ -33,10 +33,10 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 
-from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
-from vss_agents.data_models.ranking import ChunkKey
-from vss_agents.data_models.ranking import RankedChunk
-from vss_agents.data_models.ranking import RankedList
+from lib.fusion.ranking_models import DEFAULT_CHUNK_SECONDS
+from lib.fusion.ranking_models import ChunkKey
+from lib.fusion.ranking_models import RankedChunk
+from lib.fusion.ranking_models import RankedList
 from vss_agents.data_models.search import DecomposedQuery
 from vss_agents.data_models.search import SearchInput
 from vss_agents.embed.embed import EmbedClient
@@ -903,7 +903,7 @@ async def _build_result(
     output_end_time: str | None
     if input_timestamp_start is not None:
         # Convert datetime to ISO string
-        from vss_agents.utils.time_convert import datetime_to_iso8601
+        from lib.utils.time_convert import datetime_to_iso8601
 
         output_start_time = datetime_to_iso8601(input_timestamp_start)
         output_end_time = (
@@ -963,10 +963,10 @@ async def _extend_clip_to_one_second(
         return
 
     try:
+        from lib.utils.time_convert import datetime_to_iso8601
+        from lib.utils.time_convert import iso8601_to_datetime
         from vss_agents.tools.vst.timeline import get_timeline
         from vss_agents.tools.vst.utils import get_stream_id
-        from vss_agents.utils.time_convert import datetime_to_iso8601
-        from vss_agents.utils.time_convert import iso8601_to_datetime
 
         start_dt = iso8601_to_datetime(result.metadata.start_time)
         end_dt = iso8601_to_datetime(result.metadata.end_time)

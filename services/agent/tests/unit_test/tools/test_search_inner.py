@@ -20,14 +20,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from lib.fusion import FusionInput
+from lib.fusion import run_fusion
 from vss_agents.tools.attribute_search import AttributeSearchMetadata
 from vss_agents.tools.attribute_search import AttributeSearchResult
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.embed_search import EmbedSearchResultItem
 from vss_agents.tools.fusion import FusionConfig
-from vss_agents.tools.fusion import FusionInput
 from vss_agents.tools.fusion import _merge_config_defaults
-from vss_agents.tools.fusion import run_fusion
 from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchConfig
 from vss_agents.tools.search import SearchInput

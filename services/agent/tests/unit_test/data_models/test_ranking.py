@@ -23,9 +23,9 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.data_models.ranking import ChunkKey
-from vss_agents.data_models.ranking import RankedChunk
-from vss_agents.data_models.ranking import snap
+from lib.fusion.ranking_models import ChunkKey
+from lib.fusion.ranking_models import RankedChunk
+from lib.fusion.ranking_models import snap
 
 
 def _ts(seconds: int) -> datetime:

@@ -27,18 +27,19 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.data_models.ranking import ChunkKey
-from vss_agents.data_models.ranking import RankedChunk
-from vss_agents.data_models.ranking import RankedList
+from lib.fusion import FusedRow
+from lib.fusion import FusionInput
+from lib.fusion import apply_global_filters
+from lib.fusion import apply_per_space_filter
+from lib.fusion import bucketize
+from lib.fusion import compute_score_threshold
+from lib.fusion import fuse
+from lib.fusion import merge_adjacent_rows
+from lib.fusion import run_fusion
+from lib.fusion.ranking_models import ChunkKey
+from lib.fusion.ranking_models import RankedChunk
+from lib.fusion.ranking_models import RankedList
 from vss_agents.tools.fusion import FusionConfig
-from vss_agents.tools.fusion import FusionInput
-from vss_agents.tools.fusion import apply_global_filters
-from vss_agents.tools.fusion import apply_per_space_filter
-from vss_agents.tools.fusion import bucketize
-from vss_agents.tools.fusion import compute_score_threshold
-from vss_agents.tools.fusion import fuse
-from vss_agents.tools.fusion import merge_adjacent_rows
-from vss_agents.tools.fusion import run_fusion
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -618,8 +619,6 @@ class TestComputeScoreThreshold:
 
 def _row(sensor: str, start_seconds: int, score: float, contributing=("embed",)):
     """Construct a FusedRow for merge tests without going through fuse()."""
-    from vss_agents.tools.fusion import FusedRow
-
     return FusedRow(
         key=ChunkKey(sensor_id=sensor, start=_ts(start_seconds)),
         score=score,

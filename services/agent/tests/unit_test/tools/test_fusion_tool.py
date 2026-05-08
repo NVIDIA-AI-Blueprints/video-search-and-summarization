@@ -27,12 +27,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from vss_agents.data_models.ranking import ChunkKey
-from vss_agents.data_models.ranking import RankedChunk
-from vss_agents.data_models.ranking import RankedList
+from lib.fusion import FusionInput
+from lib.fusion import FusionOutput
+from lib.fusion.ranking_models import ChunkKey
+from lib.fusion.ranking_models import RankedChunk
+from lib.fusion.ranking_models import RankedList
 from vss_agents.tools.fusion import FusionConfig
-from vss_agents.tools.fusion import FusionInput
-from vss_agents.tools.fusion import FusionOutput
 from vss_agents.tools.fusion import _merge_config_defaults
 from vss_agents.tools.fusion import fusion
 

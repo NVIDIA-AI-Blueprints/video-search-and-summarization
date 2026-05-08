@@ -47,12 +47,13 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import model_validator
 
+from lib.fusion import FusionMethod
+from lib.fusion.ranking_models import EmbeddingSpaceName
+from lib.utils.time_convert import iso8601_to_datetime
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
-from vss_agents.data_models.ranking import EmbeddingSpaceName
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
-from vss_agents.tools.fusion import FusionMethod
 from vss_agents.tools.search import RankingSpaceConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
@@ -63,7 +64,6 @@ from vss_agents.tools.search import execute_core_search
 from vss_agents.tools.search import warn_missing_payload_merge_priority
 from vss_agents.tools.spaces_registry import ANCHOR_EMBEDDING_SPACE
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
-from vss_agents.utils.time_convert import iso8601_to_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -474,8 +474,6 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
     async def _execute_search(search_agent_input: SearchAgentInput) -> SearchOutput:
         """Non-streaming search execution. Returns SearchOutput directly."""
         # Convert SearchAgentInput to SearchInput
-        from vss_agents.utils.time_convert import iso8601_to_datetime
-
         timestamp_start = None
         timestamp_end = None
         if search_agent_input.start_time:
@@ -549,8 +547,6 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
         logger.info(f"Search agent executing: {search_agent_input.model_dump_json()}")
 
         # Convert SearchAgentInput to SearchInput
-        from vss_agents.utils.time_convert import iso8601_to_datetime
-
         timestamp_start = None
         timestamp_end = None
         if start_time:

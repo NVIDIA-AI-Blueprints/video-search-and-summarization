@@ -33,15 +33,15 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 
-from vss_agents.data_models.ranking import DEFAULT_CHUNK_SECONDS
-from vss_agents.data_models.ranking import ChunkKey
-from vss_agents.data_models.ranking import RankedChunk
-from vss_agents.data_models.ranking import RankedList
+from lib.fusion.ranking_models import DEFAULT_CHUNK_SECONDS
+from lib.fusion.ranking_models import ChunkKey
+from lib.fusion.ranking_models import RankedChunk
+from lib.fusion.ranking_models import RankedList
+from lib.utils.time_convert import datetime_to_iso8601
+from lib.utils.time_convert import iso8601_to_datetime
 from vss_agents.embed.cosmos_embed import CosmosEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.es_client import VSSESClient
-from vss_agents.utils.time_convert import datetime_to_iso8601
-from vss_agents.utils.time_convert import iso8601_to_datetime
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.uuid_string import is_standard_uuid_string
 

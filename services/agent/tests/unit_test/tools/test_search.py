@@ -23,9 +23,9 @@ from unittest.mock import MagicMock
 from pydantic import ValidationError
 import pytest
 
-from vss_agents.data_models.ranking import ChunkKey
-from vss_agents.data_models.ranking import RankedChunk
-from vss_agents.data_models.ranking import RankedList
+from lib.fusion.ranking_models import ChunkKey
+from lib.fusion.ranking_models import RankedChunk
+from lib.fusion.ranking_models import RankedList
 from vss_agents.tools.embed_search import EmbedSearchConfig
 from vss_agents.tools.embed_search import QueryInput
 from vss_agents.tools.embed_search import _str_input_converter

@@ -16,7 +16,7 @@
 
 from typing import get_args
 
-from vss_agents.data_models.ranking import EmbeddingSpaceName
+from lib.fusion.ranking_models import EmbeddingSpaceName
 from vss_agents.tools.spaces_registry import ANCHOR_EMBEDDING_SPACE
 from vss_agents.tools.spaces_registry import EMBEDDING_SPACE_ADAPTERS
 

@@ -31,7 +31,7 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 
-from vss_agents.utils.time_convert import iso8601_to_datetime
+from lib.utils.time_convert import iso8601_to_datetime
 
 # Single source of truth for the chunk grid. Keep all grid-aware code aligned
 # to this one value (fusion, search embedding space tools adapters, etc.)
@@ -116,7 +116,7 @@ class RankedList(BaseModel):
     chunks: list[RankedChunk] = Field(default_factory=list)
 
 
-def _validate_chunk_seconds(chunk_seconds: int) -> None:
+def validate_chunk_seconds(chunk_seconds: int) -> None:
     """Invariant for callers that bypass the Pydantic boundary."""
     if chunk_seconds <= 0:
         raise ValueError(f"chunk_seconds must be > 0, got {chunk_seconds!r}")
@@ -134,7 +134,7 @@ def snap(ts: AwareDatetime, chunk_seconds: int = DEFAULT_CHUNK_SECONDS) -> datet
     - `attribute_search` (CV per-frame) -> 00:01:27.100 (bounding box landed)
     -> both snap to 00:01:25
     """
-    _validate_chunk_seconds(chunk_seconds)
+    validate_chunk_seconds(chunk_seconds)
     if ts.tzinfo is None:
         raise ValueError(f"snap requires a tz-aware datetime, got naive {ts!r}")
     epoch = datetime(1970, 1, 1, tzinfo=ts.tzinfo)
@@ -174,4 +174,5 @@ __all__ = [
     "RankedChunk",
     "RankedList",
     "snap",
+    "validate_chunk_seconds",
 ]
