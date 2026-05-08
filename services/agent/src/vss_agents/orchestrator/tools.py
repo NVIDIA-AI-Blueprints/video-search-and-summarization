@@ -230,24 +230,26 @@ _COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S: Final[int] = 5
 class GenerateInput(BaseModel):
     """Input for the docker_generate tool."""
 
-    profile: str = Field(
+    profile: Literal["base", "search", "lvs", "alerts"] = Field(
         ...,
-        description="Deployment profile. Supported values: 'base', 'search', 'lvs', 'alerts'.",
+        description="Deployment profile.",
+        examples=["base"],
     )
     env_overrides: list[str] = Field(
         default=[],
         description=(
-            "Environment variable overrides as KEY=VALUE strings. "
-            "Example: ['HARDWARE_PROFILE=H100', 'LLM_MODE=local', 'HOST_IP=192.168.1.10']. "
+            "Environment variable overrides as KEY=VALUE strings (NOT a JSON object). "
             "Keys must be uppercase with only letters, digits, and underscores."
         ),
+        examples=[["HARDWARE_PROFILE=H100", "LLM_MODE=local", "HOST_IP=192.168.1.10"]],
     )
-    alerts_mode: str | None = Field(
+    alerts_mode: Literal["verification", "real-time"] | None = Field(
         default=None,
         description=(
-            "Optional high-level alerts mode. Supported values are configured in the orchestrator MCP YAML. "
-            "When provided for profile='alerts', the orchestrator maps it to the corresponding MODE value."
+            "High-level alerts mode; required when profile='alerts'. "
+            "'verification' maps to MODE=2d_cv, 'real-time' maps to MODE=2d_vlm."
         ),
+        examples=["verification"],
     )
 
 
