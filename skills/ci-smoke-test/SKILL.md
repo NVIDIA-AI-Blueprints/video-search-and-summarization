@@ -1,7 +1,7 @@
 ---
 name: "ci-smoke-test"
 description: "Dummy skill used only to verify that downstream CI detects and validates changes under the repository skills/ folder. Use only for CI smoke testing, not for product workflows."
-version: "0.0.1"
+version: "0.0.2"
 license: "Apache License 2.0"
 metadata:
   author: "ci <test@nvidia.com>"
@@ -17,7 +17,8 @@ metadata:
 ## Purpose
 
 This dummy skill exists to exercise the external downstream CI path for skill
-content changes in this repository.
+content changes in this repository. It is intentionally small so test commits
+can focus on validation, signing, and reporting behavior.
 
 ## Expected Behavior
 
