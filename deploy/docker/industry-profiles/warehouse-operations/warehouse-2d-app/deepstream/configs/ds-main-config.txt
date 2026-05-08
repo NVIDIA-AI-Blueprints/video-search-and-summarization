@@ -197,7 +197,7 @@ interval=1
 #Required by the app for SGIE, when used along with config-file property
 gie-unique-id=1
 nvbuf-memory-type=0
-config-file=ds-ppl-analytics-pgie-config.yml
+config-file=ds-pgie-config.yml
 
 [tracker]
 enable=1
