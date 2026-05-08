@@ -150,8 +150,6 @@ functions:
     video_url_tool: vst_video_clip
     time_format: offset
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${HOST_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
 
 llms:
