@@ -35,8 +35,6 @@ class TestRTVIVLMAlertConfig:
         assert config.vst_internal_url == "http://10.0.0.1:30888"
         assert config.default_model == "nvidia/cosmos-reason1-7b"
         assert config.default_alert_type == "alert"
-        assert config.default_chunk_duration == 20
-        assert config.default_fps == 1
         assert config.timeout == 180
 
     def test_custom_defaults(self):
@@ -45,16 +43,12 @@ class TestRTVIVLMAlertConfig:
             vst_internal_url="http://10.0.0.1:30888",
             default_model="custom-model",
             default_alert_type="collision",
-            default_chunk_duration=10,
-            default_fps=2,
             default_prompt="Detect collisions",
             default_system_prompt="You are a monitor",
             timeout=30,
         )
         assert config.default_model == "custom-model"
         assert config.default_alert_type == "collision"
-        assert config.default_chunk_duration == 10
-        assert config.default_fps == 2
         assert config.default_prompt == "Detect collisions"
         assert config.default_system_prompt == "You are a monitor"
         assert config.timeout == 30
