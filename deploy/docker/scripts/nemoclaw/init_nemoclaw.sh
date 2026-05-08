@@ -19,7 +19,7 @@ NVIDIA_BASE_URL="${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}"
 NEMOCLAW_SHIM_DIR="${HOME}/.local/bin"
 OPENCLAW_CONFIG_UPDATE_SCRIPT="${OPENCLAW_CONFIG_UPDATE_SCRIPT:-${SCRIPT_DIR}/update_openclaw_config.py}"
 NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemoclaw_policy.yaml}"
-VSS_PLUGIN_DIR="${VSS_PLUGIN_DIR:-${VSS_REPO_DIR}/.openclaw}"
+OPENCLAW_PLUGIN_DIR="${OPENCLAW_PLUGIN_DIR:-${VSS_REPO_DIR}/.openclaw}"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
 VSS_REMOTE_CONFIG_PATH="/sandbox/.openclaw/openclaw.json"
 
@@ -60,7 +60,7 @@ Options:
 Environment (non-interactive Nemoclaw / OpenShell):
   NEMOCLAW_ONBOARD_PROVIDER   Nemoclaw onboard/install provider (default: build = NVIDIA Endpoints / integrate.api.nvidia.com)
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
-  VSS_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
+  OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
                               (default: <VSS_REPO_DIR>/.openclaw)
 EOF
 }
@@ -268,7 +268,7 @@ apply_vss_policy() {
 
 install_vss_openclaw_plugin() {
   local plugin_dir tgz_name tgz_path container_name remote_tgz install_cmd
-  plugin_dir="${VSS_PLUGIN_DIR}"
+  plugin_dir="${OPENCLAW_PLUGIN_DIR}"
 
   if [ ! -f "${plugin_dir}/package.json" ]; then
     log "${plugin_dir} is not a packable OpenClaw plugin; skipping plugin install"
