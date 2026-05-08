@@ -56,18 +56,6 @@ class RTVIVLMAlertConfig(FunctionBaseConfig, name="rtvi_vlm_alert"):
         "alert",
         description="Default alert_type label assigned to created rules when not provided",
     )
-    default_chunk_duration: int = Field(
-        20,
-        description="Default chunk duration in seconds",
-    )
-    default_chunk_overlap_duration: int = Field(
-        0,
-        description="Default chunk overlap duration in seconds",
-    )
-    default_fps: int = Field(
-        1,
-        description="Default frames per second to analyze",
-    )
     default_vlm_input_width: int = Field(
         256,
         description="Default VLM input width",
@@ -302,13 +290,6 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                         "prompt": prompt,
                         "system_prompt": system_prompt,
                         "model": config.default_model,
-                        "chunk_duration": config.default_chunk_duration,
-                        "chunk_overlap_duration": config.default_chunk_overlap_duration,
-                        "num_frames_per_second_or_fixed_frames_chunk": config.default_fps,
-                        "use_fps_for_chunking": True,
-                        "vlm_input_width": config.default_vlm_input_width,
-                        "vlm_input_height": config.default_vlm_input_height,
-                        "enable_reasoning": config.default_enable_reasoning,
                     }
 
                     async with session.post(f"{base_url}/api/v1/realtime", json=payload) as response:
