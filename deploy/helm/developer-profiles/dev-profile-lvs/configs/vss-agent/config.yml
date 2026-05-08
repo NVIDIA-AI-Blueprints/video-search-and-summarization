@@ -208,6 +208,7 @@ functions:
   lvs_stream_understanding:
     _type: lvs_stream_understanding
     lvs_backend_url: ${LVS_BACKEND_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
     model: ${VLM_NAME}
     conn_timeout_ms: 5000
     read_timeout_ms: 600000
