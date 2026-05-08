@@ -208,6 +208,7 @@ functions:
   lvs_stream_understanding:
     _type: lvs_stream_understanding
     lvs_backend_url: ${LVS_BACKEND_URL}
+    vst_internal_url: ${VST_INTERNAL_URL}
     model: ${VLM_NAME}
     conn_timeout_ms: 5000
     read_timeout_ms: 600000
@@ -218,6 +219,7 @@ functions:
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     video_understanding_tool: video_understanding
     lvs_video_understanding_tool: lvs_video_understanding
+    lvs_stream_understanding_tool: lvs_stream_understanding
     video_url_tool: vst_video_clip
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
@@ -286,7 +288,7 @@ functions:
     backend: es_caption
     top_k: 5
     backend_config:
-      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://${HOST_IP}:9200}
       index: default_*                                  # per-stream `default_<stream_id>` indices
       default_doc_type: raw_events
       api_key: ""
@@ -378,14 +380,15 @@ workflow:
       - If user ask to show a video not in the list from previous interactions, call this tool to verify if the video is available then call the appropriate tool to show the video or snapshot.
       - Examples: "What videos are available?", "List all available videos" "list sensors"
       **report_agent**
-      - Only call report_agent when user mentions "report" in the question (works for both uploaded videos AND live streams).
-      - For "report" requests, call report_agent DIRECTLY as the first tool — do NOT call lvs_stream_understanding, lvs_config_media, or any other tool first to "check"/"verify" anything.
+      - HIGHEST PRIORITY: If the user mentions "report" anywhere in the question, call report_agent (works for both uploaded videos AND live streams).
+      - For "report" requests, call report_agent DIRECTLY as the first tool. Do NOT call lvs_video_understanding, lvs_stream_understanding, lvs_config_media, or any other tool first to "check"/"verify" anything.
+      - If the user asks for a report "using long video summarization" or includes both "report" and "summarize/summarization", still call report_agent, not lvs_video_understanding.
       - Don't use the report from previous interactions.
       - CRITICAL: For multiple uploaded videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
       - For uploaded videos: pass sensor_id (str or list[str]) and user_query.
       - For live streams: pass media_type='stream', a single sensor_id (the stream name), start_time and end_time as floats in seconds (use end_time=0 for "until now"), and user_query.
-      - Examples: "Generate a report for video1" → ONE call report_agent(sensor_id='video1', user_query=...). "Generate a report for stream CAM_1 from 0 to 60 seconds" → ONE call report_agent(media_type='stream', sensor_id='CAM_1', start_time=0, end_time=60, user_query=...).
-       **lvs_caption_retrieval** - DEFAULT path for content questions about a captioned live stream.
+      - Examples: "Generate a report for video1" -> ONE call report_agent(sensor_id='video1', user_query=...). "Generate a report using long video summarization for warehouse_sample" -> ONE call report_agent(sensor_id='warehouse_sample', user_query=...). "Generate a report for stream CAM_1 from 0 to 60 seconds" -> ONE call report_agent(media_type='stream', sensor_id='CAM_1', start_time=0, end_time=60, user_query=...).
+      **lvs_caption_retrieval** - DEFAULT path for content questions about a captioned live stream.
       - REQUIRED args: `query` (keyword string, e.g. "PPE violations") AND `collection` (stream's friendly name, e.g. "warehouse_sample_test"). Missing `query` will fail validation.
       - Add `filters={"time_range": {"start": "<ISO 8601 UTC>", "end": "<ISO 8601 UTC>"}}` only when the user gives a time window. Use today's date from the system prompt.
       - Never pass numeric/stream-relative times ("first 2 minutes") — captions use absolute timestamps. Route those to `lvs_stream_understanding` instead.
@@ -393,13 +396,14 @@ workflow:
       - Example: "PPE violations in CAM_1 in the last 5 minutes" at 22:32 UTC → `query="PPE violations", collection="CAM_1", filters={"time_range": {"start": "2026-05-05T22:27:00Z", "end": "2026-05-05T22:32:00Z"}}`.
       **lvs_video_understanding** - For SUMMARIZING uploaded videos (not streams, not reports).
       - Use when user asks to "summarize" or "give a summary of" a video, optionally over a time range.
+      - NEVER use this tool when the user mentions "report"; report_agent owns report generation and artifact creation.
       - Pass sensor_id (the video name from vst_video_list); start_time/end_time are floats in seconds (omit both for the whole video).
       - Examples: "Summarize video warehouse_sample" (no times), "Summarize video warehouse_sample from start to second 45" (start_time=0, end_time=45)
       **lvs_stream_understanding** - For SUMMARIZING live streams (not videos, not reports), AND as the VLM fallback when `lvs_caption_retrieval` returns `chunks=[]`.
       - Use when user asks to "summarize" or "describe" a stream over a time range, OR when a prior `lvs_caption_retrieval` call returned no chunks.
       - Do NOT use this tool to "check" whether a stream is configured before calling another tool — it is for showing summaries to the user.
-      - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Pass stream_name, numeric start_time, numeric end_time, response_type='summary'.
+      - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Examples: "Summarize stream CAM_1 from 0 to 45 seconds"
       **lvs_config_media** - Start LVS caption generation for a live stream (HITL collects scenario/events/objects).
       - Use ONLY when the user explicitly asks to start caption generation for a stream. Trigger phrases include: "start summarizing the stream <name>", "start captioning <name>", "set up stream <name>", "configure stream <name>".
