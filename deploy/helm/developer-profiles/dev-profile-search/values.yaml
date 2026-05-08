@@ -208,6 +208,9 @@ rtvi:
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
         destPath: siglip2_v1.1.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_weights.bin
+        destPath: siglip2_v1.1_weights.bin
+      - model: nvstaging/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_tokenizer
         destPath: siglip2_v1.1_tokenizer
     models:
@@ -414,6 +417,7 @@ agent:
       imagePullPolicy: IfNotPresent
     profile: search
     replicas: 1
+    rtviEmbedModelName: cosmos-embed1-448p-anomaly-detection
     llmName: nvidia/nvidia-nemotron-nano-9b-v2
     vlmName: nvidia/cosmos-reason2-8b
     llmBaseUrl: ''
@@ -533,6 +537,8 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{- $agentBaseExplicit := coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl }}{{ if $agentBaseExplicit }}{{ $agentBaseExplicit }}{{ else if and $useNip (ne $nipBase "") }}{{ $nipBase }}{{ else }}{{ coalesce $globalBase $vssAgentHttp }}{{ end }}'
       - name: ENABLE_CRITIC
         value: '{{- if and .Values.global (hasKey .Values.global "enableCritic") }}{{ (index .Values.global "enableCritic") | toString }}{{- else }}true{{- end }}'
+      - name: RTVI_EMBED_MODEL
+        value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
         value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.1-4648c6ac8160" }}'
 
