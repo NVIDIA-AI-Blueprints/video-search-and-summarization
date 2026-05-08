@@ -15,7 +15,7 @@
 
 services:
   vss-video-analytics-api:
-    image: nvcr.io/nvstaging/vss-core/vss-video-analytics-api:3.2-26.04.23
+    image: nvcr.io/nvstaging/vss-core/vss-video-analytics-api:3.2-26.05.07
     network_mode: "host"
     command: node index.js --config /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
     restart: always
