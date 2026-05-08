@@ -258,6 +258,14 @@ services:
       WDM_WL_DELETE_URL: "/api/v1/realtime/always-on"
       WDM_WL_HEALTH_CHECK_URL: "/health"
       WDM_ADD_REMOVE_REQUEST_TIMEOUT: 10
+      WDM_ADD_REMOVE_RETRY_ATTEMPTS: 60
+    depends_on:
+      alert-bridge:
+        condition: service_started
+      broker-health-check:
+        condition: service_completed_successfully
+      rtvi-vlm:
+        condition: service_healthy
 
   import-calibration-output-container-2d:
     build:
