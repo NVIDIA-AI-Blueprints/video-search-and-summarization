@@ -19,7 +19,7 @@ data:
 {{ $content | nindent 4 }}
 {{- else }}
   ds-main-config.txt: |
-{{- $patched := replace "ll-config-file=ds-nvdcf-accuracy-tracker-config.yml" (printf "ll-config-file=%s/ds-nvdcf-accuracy-tracker-config.yml" $bundle) (replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) (replace "config-file=ds-ppl-analytics-pgie-config.yml" (printf "config-file=%s/ds-ppl-analytics-pgie-config.yml" $bundle) $content)) }}
+{{- $patched := replace "ll-config-file=ds-nvdcf-accuracy-tracker-config.yml" (printf "ll-config-file=%s/ds-nvdcf-accuracy-tracker-config.yml" $bundle) (replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) (replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $content)) }}
 {{ $patched | nindent 4 }}
 {{- end }}
 {{- end }}
