@@ -1,9 +1,9 @@
-import toast from 'react-hot-toast';
+import { Conversation } from '@/types/chat';
 
-import { Conversation, Role } from '@/types/chat';
-
-const key = (base: string, prefix?: string | null) =>
-  prefix ? `${prefix}_${base}` : base;
+import {
+  saveConversationToDb,
+  saveConversationsToDb,
+} from './conversationDb';
 
 export const updateConversation = (
   updatedConversation: Conversation,
@@ -31,32 +31,16 @@ export const saveConversation = (
   conversation: Conversation,
   storageKeyPrefix?: string | null,
 ) => {
-  try {
-    sessionStorage.setItem(
-      key('selectedConversation', storageKeyPrefix),
-      JSON.stringify(conversation),
-    );
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-      console.log('Storage quota exceeded, cannot save conversation.');
-      toast.error('Storage quota exceeded, cannot save conversation.');
-    }
-  }
+  saveConversationToDb(conversation, storageKeyPrefix).catch((error) => {
+    console.warn('Failed to persist conversation:', error);
+  });
 };
 
 export const saveConversations = (
   conversations: Conversation[],
   storageKeyPrefix?: string | null,
 ) => {
-  try {
-    sessionStorage.setItem(
-      key('conversationHistory', storageKeyPrefix),
-      JSON.stringify(conversations),
-    );
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-      console.log('Storage quota exceeded, cannot save conversations.');
-      toast.error('Storage quota exceeded, cannot save conversation.');
-    }
-  }
+  saveConversationsToDb(conversations, storageKeyPrefix).catch((error) => {
+    console.warn('Failed to persist conversations:', error);
+  });
 };
