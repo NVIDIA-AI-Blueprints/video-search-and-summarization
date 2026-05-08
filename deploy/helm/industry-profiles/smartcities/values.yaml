@@ -239,6 +239,8 @@ agent:
         value: '{{- if (trim (.Values.videoAnalysisMcpUrl | default "")) }}{{ trim .Values.videoAnalysisMcpUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-va-mcp" .Release.Name) "vss-va-mcp" $pfx }}{{- printf "http://%s:9901" $host -}}{{- end }}'
       - name: RTVI_VLM_BASE_URL
         value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
+      - name: ALERT_BRIDGE_URL
+        value: '{{- if (trim (.Values.alertBridgeUrl | default "")) }}{{ trim .Values.alertBridgeUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.alertBridgeServiceName | default "vss-alert-bridge") }}{{- printf "http://%s:9080" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
       - name: NVIDIA_API_KEY
         value: ''
       - name: OPENAI_API_KEY
@@ -254,7 +256,7 @@ agent:
       - name: LLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $llm := (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $vlm := (default "" (coalesce .Values.vlmBaseUrl (index $g "vlmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-cosmos-reason2-8b:8000" .Release.Name) "http://nvidia-cosmos-reason2-8b:8000" $pfx }}{{- if $vlm }}{{ $vlm }}{{- else }}{{ $def }}{{- end }}'
+        value: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
       - name: VST_EXTERNAL_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VST_INTERNAL_URL
@@ -276,7 +278,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.04.3-9388d6486f30" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.1-4648c6ac8160" }}'
     waitForDependencies:
       enabled: true
   vss-va-mcp:
@@ -327,8 +329,8 @@ vss-alert-bridge:
   redisHost: ""
   redisPort: "6379"
   elasticHosts: ""
-  vlmBaseUrl: ""
-  vlmName: "nvidia/cosmos-reason2-8b"
+  vlmBaseUrl: '{{- if (trim (.Values.rtviVlmBaseUrl | default "")) }}{{ trim .Values.rtviVlmBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := trim (.Values.rtviVlmServiceName | default "vss-rtvi-vlm") }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}{{- end }}'
+  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
   vstBaseUrl: ""
   alertReviewMediaBaseDir: ""
   configVariant: ""
@@ -538,7 +540,7 @@ rtvi:
     vstStatusEndpoint: ""
     vstStreamsEndpoint: ""
   vss-rtvi-vlm:
-    enabled: false
+    enabled: true
     useSharedNim: true
     kafkaBootstrapServers: ""
     redisHost: ""
