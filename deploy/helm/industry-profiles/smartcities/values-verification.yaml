@@ -51,6 +51,9 @@ agent:
     cosmosEmbedEnabled: false
     vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
+vss-alert-bridge:
+  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
+
 calibration-toolkit:
   enabled: true
 

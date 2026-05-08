@@ -54,7 +54,7 @@ dependencies:
     condition: nims.enabled
   - name: calibration-toolkit
     version: 26.04.2
-    repository: "file://services/calibration-toolkit"
+    repository: "file://../../services/calibration-toolkit"
     condition: calibration-toolkit.enabled
   - name: import-calibration
     version: 26.04.2
