@@ -19,9 +19,9 @@
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx metropolis-vss-ui` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx mdx-redis` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx centralizedb-dev` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-postgres` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0"
       ]
     }
