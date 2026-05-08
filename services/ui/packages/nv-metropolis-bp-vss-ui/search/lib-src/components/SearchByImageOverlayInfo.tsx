@@ -28,17 +28,20 @@ export const SearchByImageOverlayInfo: React.FC<SearchByImageOverlayInfoProps> =
   const hintClassName = isDark ? 'text-gray-300' : 'text-gray-600';
 
   return (
-    <div className={containerClassName}>
+    <div data-testid="search-by-image-info-bar" className={containerClassName}>
       {selectedObjectId ? (
-        <div className="min-w-0 truncate">
+        <div data-testid="search-by-image-selected-object" className="min-w-0 truncate">
           <span className="font-medium">Selected Object Id:</span>
           {' '}
-          <span className="font-mono font-semibold">{selectedObjectId}</span>
+          <span data-testid="search-by-image-selected-object-id" className="font-mono font-semibold">{selectedObjectId}</span>
           {' '}
           <span className={hintClassName}>({selectedTypeLabel})</span>
         </div>
       ) : (
-        <span className={`flex items-center ${hintClassName}`}>
+        <span
+          data-testid={hasBoxes ? 'search-by-image-hint-select' : 'search-by-image-hint-no-boxes'}
+          className={`flex items-center ${hintClassName}`}
+        >
           {hasBoxes
             ? 'Select one to search for similar object embeddings across views/cameras'
             : 'No bounding boxes detected in this frame'}
@@ -50,6 +53,7 @@ export const SearchByImageOverlayInfo: React.FC<SearchByImageOverlayInfoProps> =
           <VideoModalTooltip content="Search related embeddings for the selected object">
             <div>
               <KaizenButton
+                data-testid="search-by-image-search-button"
                 onClick={() => onConfirm(selectedObjectId)}
                 kind="primary"
                 size="small"
@@ -65,6 +69,7 @@ export const SearchByImageOverlayInfo: React.FC<SearchByImageOverlayInfoProps> =
         >
           <div>
             <KaizenButton
+              data-testid="search-by-image-cancel-button"
               onClick={onCancel}
               kind="secondary"
               size="small"

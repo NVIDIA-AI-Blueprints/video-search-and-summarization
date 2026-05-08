@@ -13,6 +13,12 @@ import { Prompt } from '@/types/prompt';
 import { getStorageKey } from '@/contexts/RuntimeConfigContext';
 
 import { cleanConversationHistory } from './clean';
+import {
+  loadConversationsFromDb,
+  removeConversationFromDb,
+  saveConversationsToDb,
+  saveConversationToDb,
+} from './conversationDb';
 
 export function isExportFormatV1(obj: any): obj is ExportFormatV1 {
   return Array.isArray(obj);
@@ -73,22 +79,21 @@ function currentDate() {
   return `${month}-${day}`;
 }
 
-export const exportData = (storageKeyPrefix?: string | null) => {
+export const exportData = async (storageKeyPrefix?: string | null) => {
   const key = (base: string) => getStorageKey(base, storageKeyPrefix);
-  let history = sessionStorage.getItem(key('conversationHistory'));
-  let folders = sessionStorage.getItem(key('folders'));
-  let prompts = sessionStorage.getItem(key('prompts'));
 
-  if (history) {
-    history = JSON.parse(history);
+  const history = await loadConversationsFromDb(storageKeyPrefix);
+
+  let folders: FolderInterface[] = [];
+  const foldersRaw = sessionStorage.getItem(key('folders'));
+  if (foldersRaw) {
+    folders = JSON.parse(foldersRaw);
   }
 
-  if (folders) {
-    folders = JSON.parse(folders);
-  }
-
-  if (prompts) {
-    prompts = JSON.parse(prompts);
+  let prompts: Prompt[] = [];
+  const promptsRaw = sessionStorage.getItem(key('prompts'));
+  if (promptsRaw) {
+    prompts = JSON.parse(promptsRaw);
   }
 
   const data = {
@@ -112,33 +117,60 @@ export const exportData = (storageKeyPrefix?: string | null) => {
   URL.revokeObjectURL(url);
 };
 
-export const importData = (
+/**
+ * Error thrown when importData fails to persist conversations to IndexedDB.
+ * The original IndexedDB error is preserved on the `cause` property so callers
+ * can surface a meaningful message to the user.
+ */
+export class ConversationPersistenceError extends Error {
+  override readonly cause: unknown;
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.name = 'ConversationPersistenceError';
+    this.cause = cause;
+  }
+}
+
+export const importData = async (
   data: SupportedExportFormats,
   storageKeyPrefix?: string | null,
-): LatestExportFormat => {
+): Promise<LatestExportFormat> => {
   const { history, folders, prompts } = cleanData(data);
   const key = (base: string) => getStorageKey(base, storageKeyPrefix);
 
-  const oldConversations = sessionStorage.getItem(key('conversationHistory'));
-  const oldConversationsParsed = oldConversations
-    ? JSON.parse(oldConversations)
-    : [];
+  let oldConversations: Conversation[];
+  try {
+    oldConversations = await loadConversationsFromDb(storageKeyPrefix);
+  } catch (error) {
+    throw new ConversationPersistenceError(
+      'Failed to read existing conversations from IndexedDB during import',
+      error,
+    );
+  }
 
   const newHistory: Conversation[] = [
-    ...oldConversationsParsed,
+    ...oldConversations,
     ...history,
   ].filter(
     (conversation, index, self) =>
       index === self.findIndex((c) => c.id === conversation.id),
   );
-  sessionStorage.setItem(key('conversationHistory'), JSON.stringify(newHistory));
-  if (newHistory.length > 0) {
-    sessionStorage.setItem(
-      key('selectedConversation'),
-      JSON.stringify(newHistory[newHistory.length - 1]),
+
+  try {
+    await saveConversationsToDb(newHistory, storageKeyPrefix);
+    if (newHistory.length > 0) {
+      await saveConversationToDb(
+        newHistory[newHistory.length - 1],
+        storageKeyPrefix,
+      );
+    } else {
+      await removeConversationFromDb(storageKeyPrefix);
+    }
+  } catch (error) {
+    throw new ConversationPersistenceError(
+      'Failed to persist imported conversations to IndexedDB',
+      error,
     );
-  } else {
-    sessionStorage.removeItem(key('selectedConversation'));
   }
 
   const oldFolders = sessionStorage.getItem(key('folders'));
