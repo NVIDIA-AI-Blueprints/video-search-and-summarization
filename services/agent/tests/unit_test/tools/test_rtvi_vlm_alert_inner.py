@@ -24,7 +24,7 @@ import pytest
 
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertConfig
 from vss_agents.tools.rtvi_vlm_alert import RTVIVLMAlertInput
-from vss_agents.tools.rtvi_vlm_alert import _sensor_to_rtvi_stream_id
+from vss_agents.tools.rtvi_vlm_alert import _sensor_to_alert_rule_id
 from vss_agents.tools.rtvi_vlm_alert import rtvi_vlm_alert
 
 
@@ -34,7 +34,7 @@ class TestRTVIVLMAlertInner:
     @pytest.fixture
     def config(self):
         return RTVIVLMAlertConfig(
-            rtvi_vlm_base_url="http://localhost:8000",
+            alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
         )
 
@@ -66,7 +66,7 @@ class TestRTVIVLMAlertInner:
     @pytest.mark.asyncio
     async def test_get_incidents_with_va_tool(self, mock_builder):
         config = RTVIVLMAlertConfig(
-            rtvi_vlm_base_url="http://localhost:8000",
+            alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
             va_get_incidents_tool="va_get_incidents",
         )
@@ -88,7 +88,7 @@ class TestRTVIVLMAlertInner:
     @pytest.mark.asyncio
     async def test_get_incidents_string_result(self, mock_builder):
         config = RTVIVLMAlertConfig(
-            rtvi_vlm_base_url="http://localhost:8000",
+            alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
             va_get_incidents_tool="va_get_incidents",
         )
@@ -105,7 +105,7 @@ class TestRTVIVLMAlertInner:
     @pytest.mark.asyncio
     async def test_get_incidents_va_tool_error(self, mock_builder):
         config = RTVIVLMAlertConfig(
-            rtvi_vlm_base_url="http://localhost:8000",
+            alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
             va_get_incidents_tool="va_get_incidents",
         )
@@ -162,23 +162,18 @@ class TestRTVIVLMAlertInner:
 
     @pytest.mark.asyncio
     async def test_stop_404_response(self, config, mock_builder):
-        """Test stop when stream delete returns 404."""
-        _sensor_to_rtvi_stream_id["SENSOR_404"] = "rtvi-uuid-404"
+        """Stop returns success when Alert Bridge reports rule already gone."""
+        _sensor_to_alert_rule_id["SENSOR_404"] = "rule-uuid-404"
 
-        mock_delete_caption_resp = MagicMock()
-        mock_delete_caption_resp.status = 200
-        mock_delete_caption_cm = AsyncMock()
-        mock_delete_caption_cm.__aenter__ = AsyncMock(return_value=mock_delete_caption_resp)
-        mock_delete_caption_cm.__aexit__ = AsyncMock(return_value=False)
-
-        mock_delete_stream_resp = MagicMock()
-        mock_delete_stream_resp.status = 404
-        mock_delete_stream_cm = AsyncMock()
-        mock_delete_stream_cm.__aenter__ = AsyncMock(return_value=mock_delete_stream_resp)
-        mock_delete_stream_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_delete_resp = MagicMock()
+        mock_delete_resp.status = 404
+        mock_delete_resp.text = AsyncMock(return_value='{"status":"error","error":"not_found"}')
+        mock_delete_cm = AsyncMock()
+        mock_delete_cm.__aenter__ = AsyncMock(return_value=mock_delete_resp)
+        mock_delete_cm.__aexit__ = AsyncMock(return_value=False)
 
         mock_session = MagicMock()
-        mock_session.delete.side_effect = [mock_delete_caption_cm, mock_delete_stream_cm]
+        mock_session.delete.return_value = mock_delete_cm
 
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
@@ -192,27 +187,22 @@ class TestRTVIVLMAlertInner:
 
         assert result.success is True
         assert "already stopped" in result.message.lower()
+        assert "SENSOR_404" not in _sensor_to_alert_rule_id
 
     @pytest.mark.asyncio
     async def test_stop_error_response(self, config, mock_builder):
-        """Test stop when stream delete returns error."""
-        _sensor_to_rtvi_stream_id["SENSOR_ERR"] = "rtvi-uuid-err2"
+        """Stop reports failure when Alert Bridge returns 5xx."""
+        _sensor_to_alert_rule_id["SENSOR_ERR"] = "rule-uuid-err"
 
-        mock_delete_caption_resp = MagicMock()
-        mock_delete_caption_resp.status = 200
-        mock_delete_caption_cm = AsyncMock()
-        mock_delete_caption_cm.__aenter__ = AsyncMock(return_value=mock_delete_caption_resp)
-        mock_delete_caption_cm.__aexit__ = AsyncMock(return_value=False)
-
-        mock_delete_stream_resp = MagicMock()
-        mock_delete_stream_resp.status = 500
-        mock_delete_stream_resp.text = AsyncMock(return_value="Internal error")
-        mock_delete_stream_cm = AsyncMock()
-        mock_delete_stream_cm.__aenter__ = AsyncMock(return_value=mock_delete_stream_resp)
-        mock_delete_stream_cm.__aexit__ = AsyncMock(return_value=False)
+        mock_delete_resp = MagicMock()
+        mock_delete_resp.status = 500
+        mock_delete_resp.text = AsyncMock(return_value="Internal error")
+        mock_delete_cm = AsyncMock()
+        mock_delete_cm.__aenter__ = AsyncMock(return_value=mock_delete_resp)
+        mock_delete_cm.__aexit__ = AsyncMock(return_value=False)
 
         mock_session = MagicMock()
-        mock_session.delete.side_effect = [mock_delete_caption_cm, mock_delete_stream_cm]
+        mock_session.delete.return_value = mock_delete_cm
 
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
@@ -228,39 +218,8 @@ class TestRTVIVLMAlertInner:
         assert "Failed" in result.message
 
     @pytest.mark.asyncio
-    async def test_stop_caption_error_continues(self, config, mock_builder):
-        """Test stop when caption deletion raises error but continues."""
-        _sensor_to_rtvi_stream_id["SENSOR_CAP_ERR"] = "rtvi-uuid-cap"
-
-        mock_delete_caption_cm = AsyncMock()
-        mock_delete_caption_cm.__aenter__ = AsyncMock(side_effect=RuntimeError("caption error"))
-        mock_delete_caption_cm.__aexit__ = AsyncMock(return_value=False)
-
-        mock_delete_stream_resp = MagicMock()
-        mock_delete_stream_resp.status = 200
-        mock_delete_stream_cm = AsyncMock()
-        mock_delete_stream_cm.__aenter__ = AsyncMock(return_value=mock_delete_stream_resp)
-        mock_delete_stream_cm.__aexit__ = AsyncMock(return_value=False)
-
-        mock_session = MagicMock()
-        mock_session.delete.side_effect = [mock_delete_caption_cm, mock_delete_stream_cm]
-
-        mock_session_cm = AsyncMock()
-        mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientSession", return_value=mock_session_cm):
-            with patch("vss_agents.tools.rtvi_vlm_alert.aiohttp.ClientTimeout"):
-                inner_fn = await self._get_inner_fn(config, mock_builder)
-                inp = RTVIVLMAlertInput(action="stop", sensor_name="SENSOR_CAP_ERR")
-                result = await inner_fn(inp)
-
-        assert result.success is True
-
-    @pytest.mark.asyncio
     async def test_stop_no_active_alert(self, config, mock_builder):
-        # Clear mapping
-        _sensor_to_rtvi_stream_id.pop("MISSING_SENSOR", None)
+        _sensor_to_alert_rule_id.pop("MISSING_SENSOR", None)
 
         mock_session = MagicMock()
         mock_session_cm = AsyncMock()
@@ -278,21 +237,17 @@ class TestRTVIVLMAlertInner:
 
     @pytest.mark.asyncio
     async def test_stop_success(self, config, mock_builder):
-        # Set up mapping
-        _sensor_to_rtvi_stream_id["TEST_STOP"] = "rtvi-uuid-999"
+        _sensor_to_alert_rule_id["TEST_STOP"] = "rule-uuid-999"
 
-        mock_delete_caption_resp = AsyncMock()
-        mock_delete_caption_resp.status = 200
-        mock_delete_caption_resp.__aenter__ = AsyncMock(return_value=mock_delete_caption_resp)
-        mock_delete_caption_resp.__aexit__ = AsyncMock(return_value=False)
-
-        mock_delete_stream_resp = AsyncMock()
-        mock_delete_stream_resp.status = 200
-        mock_delete_stream_resp.__aenter__ = AsyncMock(return_value=mock_delete_stream_resp)
-        mock_delete_stream_resp.__aexit__ = AsyncMock(return_value=False)
+        mock_delete_resp = MagicMock()
+        mock_delete_resp.status = 200
+        mock_delete_resp.text = AsyncMock(return_value='{"status":"success"}')
+        mock_delete_cm = AsyncMock()
+        mock_delete_cm.__aenter__ = AsyncMock(return_value=mock_delete_resp)
+        mock_delete_cm.__aexit__ = AsyncMock(return_value=False)
 
         mock_session = MagicMock()
-        mock_session.delete.side_effect = [mock_delete_caption_resp, mock_delete_stream_resp]
+        mock_session.delete.return_value = mock_delete_cm
 
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
@@ -306,10 +261,11 @@ class TestRTVIVLMAlertInner:
 
         assert result.success is True
         assert "stopped" in result.message.lower()
+        assert "TEST_STOP" not in _sensor_to_alert_rule_id
 
     @pytest.mark.asyncio
     async def test_connection_error(self, config, mock_builder):
-        _sensor_to_rtvi_stream_id["ERR_SENSOR"] = "rtvi-uuid-err"
+        _sensor_to_alert_rule_id["ERR_SENSOR"] = "rule-uuid-err"
 
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__ = AsyncMock(side_effect=aiohttp.ClientError("connection refused"))
@@ -325,7 +281,7 @@ class TestRTVIVLMAlertInner:
 
     @pytest.mark.asyncio
     async def test_generic_error(self, config, mock_builder):
-        _sensor_to_rtvi_stream_id["GEN_ERR"] = "rtvi-uuid-gen"
+        _sensor_to_alert_rule_id["GEN_ERR"] = "rule-uuid-gen"
 
         mock_session_cm = AsyncMock()
         mock_session_cm.__aenter__ = AsyncMock(side_effect=RuntimeError("something broke"))
