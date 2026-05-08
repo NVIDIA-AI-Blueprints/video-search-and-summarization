@@ -1382,17 +1382,21 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
     if config.planning_enabled and not prompts_explicitly_provided:
         tool_call_prompt, response_format_prompt = await _extract_prompt_sections(llm, config.prompt)
 
+    def _escape_template_literals(text: str) -> str:
+        """Treat config-authored prompt braces as literals in LangChain f-string templates."""
+        return text.replace("{", "{{").replace("}", "}}")
+
     # --- Build the main agent system prompt ----------------------------------
     # When the user provided tool_call / response_format separately they have
     # removed those sections from config.prompt, so we need to append them.
     # When extracted, the main prompt already contains them — appending again is
     # harmless (slight repetition) but keeps both paths identical.
-    agent_prompt_text = config.prompt
+    agent_prompt_text = _escape_template_literals(config.prompt)
     if not config.planning_enabled:
         if config.tool_call_prompt:
-            agent_prompt_text += "\n\n" + config.tool_call_prompt
+            agent_prompt_text += "\n\n" + _escape_template_literals(config.tool_call_prompt)
         if config.response_format_prompt:
-            agent_prompt_text += "\n\n" + config.response_format_prompt
+            agent_prompt_text += "\n\n" + _escape_template_literals(config.response_format_prompt)
 
     prompt = ChatPromptTemplate(
         [
@@ -1423,9 +1427,9 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
             "If the user asked multiple things, you MUST answer each one. "
         )
         if tool_call_prompt:
-            plan_exec_system += "\n\n## Tool call rules:\n " + tool_call_prompt
+            plan_exec_system += "\n\n## Tool call rules:\n " + _escape_template_literals(tool_call_prompt)
         if response_format_prompt:
-            plan_exec_system += "\n\n## Response format rules:\n " + response_format_prompt
+            plan_exec_system += "\n\n## Response format rules:\n " + _escape_template_literals(response_format_prompt)
         plan_exec_system += "\n\ncurrent time: {current_time}{thinking_tag}"
 
         plan_exec_prompt = ChatPromptTemplate(

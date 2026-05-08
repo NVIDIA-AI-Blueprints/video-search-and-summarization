@@ -7,3 +7,19 @@
 
 # Default — all files
 * @NVIDIA-AI-Blueprints/VSS-developers
+
+# Lockfiles and 3rd-party license inventory.
+# Resolved-dependency state is the authoritative record of which packages
+# (and which licenses) ship in VSS, so OSRB must approve any change.
+# CODEOWNERS is last-match-wins, so these rules override the default
+# `*` owner above for the listed paths only.
+uv.lock                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+package-lock.json       @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+yarn.lock               @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+pnpm-lock.yaml          @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+poetry.lock             @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Pipfile.lock            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Cargo.lock              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+go.sum                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Gemfile.lock            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+LICENSE-3rd-party.txt   @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
