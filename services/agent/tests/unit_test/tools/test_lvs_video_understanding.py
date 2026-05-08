@@ -41,6 +41,11 @@ class TestLVSVideoUnderstandingConfig:
         assert config.model == "gpt-4o"
         assert config.video_url_tool == "vst_video_url"
 
+    def test_url_translation_fields_are_not_exposed(self):
+        assert "vlm_mode" not in LVSVideoUnderstandingConfig.model_fields
+        assert "internal_ip" not in LVSVideoUnderstandingConfig.model_fields
+        assert "external_ip" not in LVSVideoUnderstandingConfig.model_fields
+
     def test_custom_timeouts(self):
         config = LVSVideoUnderstandingConfig(
             lvs_backend_url="http://localhost:38111",
