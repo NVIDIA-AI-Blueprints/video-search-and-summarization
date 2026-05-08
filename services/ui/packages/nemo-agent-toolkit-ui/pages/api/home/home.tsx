@@ -14,6 +14,11 @@ import {
   saveConversations,
   updateConversation,
 } from '@/utils/app/conversation';
+import {
+  initConversationSessionLifecycle,
+  loadConversationFromDb,
+  loadConversationsFromDb,
+} from '@/utils/app/conversationDb';
 import { saveFolders } from '@/utils/app/folders';
 // import { getSettings } from '@/utils/app/settings';
 
@@ -323,6 +328,11 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
   // EFFECTS  --------------------------------------------
 
   useEffect(() => {
+    // Tag IndexedDB conversation data with a per-tab session id and sweep
+    // orphan data so persistence follows sessionStorage wipe semantics
+    // (cleared on tab close, window close, and browser reboot).
+    initConversationSessionLifecycle();
+
     // Give priority to saved sessionStorage value over environment variable (only when not externally controlled)
     if (!externalTheme) {
       const savedLightMode = sessionStorage.getItem('lightMode');
@@ -347,49 +357,66 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
       dispatch({ field: 'folders', value: JSON.parse(folders) });
     }
 
-    const conversationHistoryKey = getStorageKey('conversationHistory', storageKeyPrefix);
-    const conversationHistory = sessionStorage.getItem(conversationHistoryKey);
-    if (conversationHistory) {
-      const parsedConversationHistory: Conversation[] =
-        JSON.parse(conversationHistory);
-      const cleanedConversationHistory = cleanConversationHistory(
-        parsedConversationHistory,
-      );
+    // Load conversations from IndexedDB
+    let cancelled = false;
 
-      dispatch({ field: 'conversations', value: cleanedConversationHistory });
-    }
+    const loadConversations = async () => {
+      let storedConversations: Conversation[];
+      try {
+        storedConversations = await loadConversationsFromDb(storageKeyPrefix);
+      } catch (error) {
+        console.warn('Failed to load conversation history from IndexedDB; starting fresh:', error);
+        storedConversations = [];
+      }
+      if (cancelled) return;
 
-    const selectedConversationKey = getStorageKey('selectedConversation', storageKeyPrefix);
-    const selectedConversationFromStorage = sessionStorage.getItem(selectedConversationKey);
-    if (selectedConversationFromStorage) {
-      const parsedSelectedConversation: Conversation =
-        JSON.parse(selectedConversationFromStorage);
-      const cleanedSelectedConversation = cleanSelectedConversation(
-        parsedSelectedConversation,
-      );
+      if (storedConversations.length > 0) {
+        const cleanedConversationHistory = cleanConversationHistory(storedConversations);
+        dispatch({ field: 'conversations', value: cleanedConversationHistory });
+      }
 
-      dispatch({
-        field: 'selectedConversation',
-        value: cleanedSelectedConversation,
-      });
-    } else {
-      // Create homepage conversation like sidebar does, but mark it as homepage conversation
-      const homepageConversation: Conversation = {
-        id: uuidv4(),
-        name: t('New Conversation'),
-        messages: [],
-        folderId: null,
-        isHomepageConversation: true, // Flag to track it's a homepage conversation
-      };
+      let storedSelected: Conversation | null;
+      try {
+        storedSelected = await loadConversationFromDb(storageKeyPrefix);
+      } catch (error) {
+        console.warn('Failed to load selected conversation from IndexedDB; starting fresh:', error);
+        storedSelected = null;
+      }
+      if (cancelled) return;
 
-      const updatedConversations = [...conversations, homepageConversation];
+      if (storedSelected) {
+        const cleanedSelectedConversation = cleanSelectedConversation(storedSelected);
+        dispatch({
+          field: 'selectedConversation',
+          value: cleanedSelectedConversation,
+        });
+      } else {
+        const homepageConversation: Conversation = {
+          id: uuidv4(),
+          name: t('New Conversation'),
+          messages: [],
+          folderId: null,
+          isHomepageConversation: true,
+        };
 
-      dispatch({ field: 'selectedConversation', value: homepageConversation });
-      dispatch({ field: 'conversations', value: updatedConversations });
+        // When there's no stored data, start fresh. Don't fall back to the
+        // closure-captured `conversations` here: the effect only depends on
+        // `storageKeyPrefix`, so that value is stale (initial empty state on
+        // mount, or out-of-date on prefix change) and would silently drop
+        // any in-memory conversations on re-runs.
+        const updatedConversations = [...storedConversations, homepageConversation];
 
-      saveConversation(homepageConversation, storageKeyPrefix);
-      saveConversations(updatedConversations, storageKeyPrefix);
-    }
+        dispatch({ field: 'selectedConversation', value: homepageConversation });
+        dispatch({ field: 'conversations', value: updatedConversations });
+
+        saveConversation(homepageConversation, storageKeyPrefix);
+        saveConversations(updatedConversations, storageKeyPrefix);
+      }
+    };
+
+    loadConversations();
+
+    return () => { cancelled = true; };
   }, [storageKeyPrefix]); // Run when instance prefix is set (e.g. main vs search tab)
 
   // Handle external theme prop changes separately
