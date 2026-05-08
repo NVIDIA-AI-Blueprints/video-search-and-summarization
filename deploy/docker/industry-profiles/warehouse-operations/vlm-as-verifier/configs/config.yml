@@ -61,6 +61,7 @@ vlm:
   base_url: "${VLM_BASE_URL}/v1"
   model: "${VLM_NAME}"
   max_tokens: 4096
+  response_format: "json"
   # Beware that these parameters need to be set in accordance with the VLM max context window
   min_pixels: 1568
   max_pixels: 345600
