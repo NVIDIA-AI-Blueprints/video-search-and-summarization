@@ -49,6 +49,7 @@
     "html-to-image": "^1.11.11",
     "http-proxy": "^1.18.1",
     "i18next": "^22.4.13",
+    "idb": "^8.0.3",
     "isomorphic-dompurify": "^2.26.0",
     "jsonwebtoken": "^9.0.2",
     "jwt-decode": "^4.0.0",

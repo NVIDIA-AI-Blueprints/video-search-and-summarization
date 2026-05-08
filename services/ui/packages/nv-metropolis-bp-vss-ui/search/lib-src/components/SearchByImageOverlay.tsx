@@ -70,7 +70,10 @@ export const SearchByImageOverlay: React.FC<SearchByImageOverlayProps> = ({
 
   if (!frameData.frameImage) {
     return (
-      <div className="flex items-center justify-center h-full bg-black text-white">
+      <div
+        data-testid="search-by-image-frame-loading"
+        className="flex items-center justify-center h-full bg-black text-white"
+      >
         Loading frame...
       </div>
     );
@@ -139,10 +142,14 @@ export const SearchByImageOverlay: React.FC<SearchByImageOverlayProps> = ({
   });
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div data-testid="search-by-image-overlay" className="flex h-full min-h-0 min-w-0 flex-col">
       {/* Canvas area */}
       <div
         ref={containerRef}
+        data-testid="search-by-image-canvas-container"
+        data-frame-width={frameData.frameImage.width}
+        data-frame-height={frameData.frameImage.height}
+        data-objects-count={frameData.objects.length}
         className="relative flex flex-1 items-center justify-center overflow-hidden bg-black min-h-0 min-w-0"
         style={{ minHeight: 0 }}
       >
