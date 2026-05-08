@@ -350,16 +350,9 @@ class HardwareResolutionConfig(BaseModel):
     thor_profiles: tuple[str, ...]
 
 
-class LlmResolutionConfig(BaseModel):
-    """LLM name-to-slug resolution rules."""
-
-    supported_models: dict[str, str]
-
-
 class VlmResolutionConfig(BaseModel):
-    """VLM name-to-slug resolution rules and Thor base overrides."""
+    """VLM Thor overrides applied during docker_generate."""
 
-    supported_models: dict[str, str]
     thor_overrides: dict[str, str]
     thor_base_overrides: dict[str, str]
 
@@ -368,7 +361,6 @@ class ModelResolutionConfig(BaseModel):
     """Model/hardware resolution rules supplied via MCP YAML."""
 
     hardware: HardwareResolutionConfig
-    llm: LlmResolutionConfig
     vlm: VlmResolutionConfig
 
 

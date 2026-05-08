@@ -61,8 +61,6 @@ def _make_recipe(
         edge_device_ids={"llm": "0", "vlm": "1"},
         thor_profiles=frozenset({"thor"}),
         alerts_mode_to_env_modes={"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM},
-        supported_llm_models={"llm-a": "llm-a-slug"},
-        supported_vlm_models={"vlm-a": "vlm-a-slug"},
         thor_vlm_overrides={
             "VLM_NAME_SLUG": "none",
             "VLM_NAME": "nim_nvidia_cosmos-reason2-8b_hf-1208",
@@ -116,17 +114,6 @@ class TestParseEnvFile:
             "DOUBLE": "quoted",
             "SINGLE": "also-quoted",
         }
-
-
-class TestDeriveRtviOpenaiModelId:
-    def test_derive_rtvi_openai_model_id_from_ngc_nim_path(self):
-        assert (
-            dcu.derive_rtvi_openai_model_id("ngc:nim/nvidia/cosmos-reason2-8b:hf-1208")
-            == "nim_nvidia_cosmos-reason2-8b_hf-1208"
-        )
-
-    def test_derive_rtvi_openai_model_id_ignores_unrecognized_paths(self):
-        assert dcu.derive_rtvi_openai_model_id("nvidia/cosmos-reason2-8b") is None
 
 
 class TestFirstNonPlaceholder:
@@ -246,8 +233,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=igx",
                 "LLM_MODE=local_shared",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local_shared",
                 "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
                 "HOST_IP=<HOST_IP>",
                 "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
                 "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}",
@@ -301,8 +290,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=igx",
                 "LLM_MODE=local",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
                 "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
                 "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
@@ -328,8 +319,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=thor",
                 "LLM_MODE=local_shared",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local_shared",
                 "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
                 "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
@@ -357,8 +350,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=thor",
                 "LLM_MODE=local",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
                 "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
                 "MDX_SAMPLE_APPS_DIR=/already/set",
@@ -397,8 +392,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=thor",
                 "LLM_MODE=local",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
                 "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
                 "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
@@ -432,8 +429,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=igx",
                 "LLM_MODE=local_shared",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
-                "VLM_NAME=vlm-a",
+                "VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208",
+                "VLM_NAME_SLUG=none",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
                 "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
@@ -475,8 +474,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=igx",
                 "LLM_MODE=local_shared",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local_shared",
-                "VLM_NAME=vlm-a",
+                "VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208",
+                "VLM_NAME_SLUG=none",
                 "HOST_IP=10.0.0.9",
                 "RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
                 "RTVI_VLM_MODEL_TO_USE=cosmos-reason2",
@@ -509,8 +510,10 @@ class TestBuildResolvedEnv:
                 "HARDWARE_PROFILE=thor",
                 "LLM_MODE=local",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
                 "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
                 "HOST_IP=10.0.0.8",
             ),
             profile=dcu.PROFILE_ALERTS,
@@ -544,8 +547,10 @@ class TestGenerateDryRunArtifacts:
                 "HARDWARE_PROFILE=igx",
                 "LLM_MODE=local_shared",
                 "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
                 "VLM_MODE=local",
-                "VLM_NAME=vlm-a",
+                "VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208",
+                "VLM_NAME_SLUG=none",
                 "HOST_IP=10.0.0.9",
                 "VLM_PORT=30099",
                 "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},${BP_PROFILE}_${MODE}_${HARDWARE_PROFILE},"

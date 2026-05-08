@@ -102,19 +102,13 @@ class HardwareResolutionInput(BaseModel):
     thor_profiles: tuple[str, ...]
 
 
-class LlmResolutionInput(BaseModel):
-    supported_models: dict[str, str]
-
-
 class VlmResolutionInput(BaseModel):
-    supported_models: dict[str, str]
     thor_overrides: dict[str, str]
     thor_base_overrides: dict[str, str]
 
 
 class ModelResolutionInput(BaseModel):
     hardware: HardwareResolutionInput
-    llm: LlmResolutionInput
     vlm: VlmResolutionInput
 
 
@@ -137,8 +131,6 @@ class DryRunRecipe:
     edge_device_ids: Mapping[str, str]
     thor_profiles: frozenset[str]
     alerts_mode_to_env_modes: Mapping[str, str]
-    supported_llm_models: Mapping[str, str]
-    supported_vlm_models: Mapping[str, str]
     thor_vlm_overrides: Mapping[str, str]
     thor_base_vlm_overrides: Mapping[str, str]
 
@@ -188,9 +180,7 @@ def create_dry_run_recipe(
     try:
         model_resolution = ModelResolutionInput.model_validate(model_resolution, from_attributes=True)
     except Exception as exc:
-        raise ValidationError(
-            "model_resolution must include hardware, llm, and vlm sections with required keys."
-        ) from exc
+        raise ValidationError("model_resolution must include hardware and vlm sections with required keys.") from exc
 
     return DryRunRecipe(
         profile=profile,  # type: ignore[arg-type]
@@ -215,8 +205,6 @@ def create_dry_run_recipe(
         ),
         thor_profiles=frozenset(model_resolution.hardware.thor_profiles),
         alerts_mode_to_env_modes=MappingProxyType(dict(alerts_mode_to_env_modes or {})),
-        supported_llm_models=MappingProxyType(dict(model_resolution.llm.supported_models)),
-        supported_vlm_models=MappingProxyType(dict(model_resolution.vlm.supported_models)),
         thor_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_overrides)),
         thor_base_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_base_overrides)),
     )
@@ -239,24 +227,6 @@ def _validate_env_value(key: str, value: str) -> str:
     if "\n" in value or "\r" in value:
         raise ValidationError(f"Invalid env value for '{key}'. Newlines are not allowed.")
     return value
-
-
-def derive_rtvi_openai_model_id(model_path: str) -> str | None:
-    """Return the RTVI OpenAI-compatible model id for an NGC NIM model path."""
-    model_path = model_path.strip().strip("'\"")
-    prefix = "ngc:nim/"
-    if not model_path.startswith(prefix):
-        return None
-
-    model_ref = model_path.removeprefix(prefix)
-    if ":" not in model_ref:
-        return None
-
-    model_name, model_tag = model_ref.rsplit(":", 1)
-    if not model_name or not model_tag:
-        return None
-
-    return f"nim_{model_name.replace('/', '_')}_{model_tag.replace(':', '_')}"
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -409,33 +379,11 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["LLM_NAME_SLUG"] = MODEL_SLUG_NONE
         if not merged.get("LLM_BASE_URL", "").strip():
             raise ValidationError("LLM_BASE_URL is required when LLM_MODE=remote.")
-    else:
-        llm_name = merged.get("LLM_NAME", "")
-        if llm_name not in config.supported_llm_models:
-            raise ValidationError(
-                f"Invalid LLM_NAME for profile '{config.profile}'. "
-                f"Supported values: {sorted(config.supported_llm_models.keys())}"
-            )
-        merged["LLM_NAME_SLUG"] = config.supported_llm_models[llm_name]
 
     if merged["VLM_MODE"] == MODE_REMOTE:
         merged["VLM_NAME_SLUG"] = MODEL_SLUG_NONE
         if not merged.get("VLM_BASE_URL", "").strip():
             raise ValidationError("VLM_BASE_URL is required when VLM_MODE=remote.")
-    else:
-        vlm_name = merged.get("VLM_NAME", "")
-        if vlm_name not in config.supported_vlm_models:
-            raise ValidationError(
-                f"Invalid VLM_NAME for profile '{config.profile}'. "
-                f"Supported values: {sorted(config.supported_vlm_models.keys())}"
-            )
-        merged["VLM_NAME_SLUG"] = config.supported_vlm_models[vlm_name]
-
-    if config.profile == PROFILE_ALERTS and merged["VLM_MODE"] != MODE_REMOTE:
-        rtvi_model_id = derive_rtvi_openai_model_id(merged.get("RTVI_VLM_MODEL_PATH", ""))
-        if rtvi_model_id:
-            merged["VLM_NAME"] = rtvi_model_id
-            merged["VLM_NAME_SLUG"] = MODEL_SLUG_NONE
 
     if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
         merged["LLM_DEVICE_ID"] = config.edge_device_ids["llm"]
