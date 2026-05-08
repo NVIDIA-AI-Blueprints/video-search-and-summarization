@@ -15,11 +15,14 @@ interface AgentUploadUrlResponse {
  */
 export interface FileUploadResult {
   filename: string;
-  bytes: number;
-  sensorId: string;
-  streamId: string;
-  filePath: string;
-  timestamp: string;
+  bytes?: number;
+  sensorId?: string;
+  streamId?: string;
+  filePath?: string;
+  timestamp?: string;
+  message?: string;
+  video_id?: string;
+  chunks_processed?: number;
 }
 
 /**
@@ -57,6 +60,66 @@ export async function getUploadUrl(
 
   const data: AgentUploadUrlResponse = await response.json();
   return data.url;
+}
+
+function removeFileExtension(filename: string): string {
+  const dotIndex = filename.lastIndexOf('.');
+  return dotIndex > 0 ? filename.substring(0, dotIndex) : filename;
+}
+
+/**
+ * Notify the agent that the direct VST upload has completed.
+ *
+ * Video Management already performs this step after chunked uploads. Chat uploads
+ * use the older direct VST PUT path, so they must call the same completion route
+ * before reporting success; otherwise the file exists in VST but the agent has
+ * not run timeline lookup / URL registration / downstream post-processing.
+ */
+async function notifyUploadComplete(
+  uploadUrl: string,
+  filename: string,
+  uploadResponse: FileUploadResult,
+  formData?: Record<string, any>,
+  signal?: AbortSignal
+): Promise<Partial<FileUploadResult>> {
+  const sensorId = uploadResponse.sensorId;
+  if (!sensorId) {
+    throw new Error('Upload response missing sensorId');
+  }
+
+  const filenameWithoutExt = removeFileExtension(filename);
+  const completeUrl = `${uploadUrl.replace(/\/$/, '')}/videos-for-search/${encodeURIComponent(filenameWithoutExt)}/complete`;
+  const body: Record<string, any> = { ...uploadResponse };
+
+  if (formData && Object.keys(formData).length > 0) {
+    body.custom_params = formData;
+  }
+
+  const response = await fetch(completeUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!response.ok) {
+    let message = `Post-processing failed with status ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData?.detail != null) {
+        message = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+      }
+    } catch {
+      // ignore JSON parse failure, use default message
+    }
+    throw new Error(message);
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -119,13 +182,20 @@ export async function uploadFile(
         }
       });
 
-      xhr.addEventListener('load', () => {
+      xhr.addEventListener('load', async () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
-            const result: FileUploadResult = JSON.parse(xhr.responseText);
-            resolve(result);
-          } catch {
-            reject(new Error('Failed to parse upload response'));
+            const uploadResult: FileUploadResult = JSON.parse(xhr.responseText);
+            const completionResult = await notifyUploadComplete(
+              uploadUrl,
+              filenameForRequest,
+              uploadResult,
+              formData,
+              abortSignal
+            );
+            resolve({ ...uploadResult, ...completionResult, sensorId: uploadResult.sensorId });
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error('Failed to parse upload response'));
           }
         } else {
           reject(new Error(`Upload failed with status: ${xhr.status}`));

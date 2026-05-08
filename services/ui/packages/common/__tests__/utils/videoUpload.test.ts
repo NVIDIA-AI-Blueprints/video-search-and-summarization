@@ -93,11 +93,23 @@ describe('uploadFile', () => {
   });
 
   it('returns FileUploadResult after successful upload', async () => {
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({ url: 'https://presigned.example.com/upload' }),
-    });
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ url: 'https://presigned.example.com/upload' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            message: 'Video upload and processing complete',
+            video_id: 'sensor-1',
+            filename: 'test.mp4',
+            chunks_processed: 0,
+          }),
+      });
 
     const mockResult = {
       filename: 'test.mp4',
@@ -139,7 +151,23 @@ describe('uploadFile', () => {
       { sensorId: 'sensor-1' }
     );
 
-    expect(result).toEqual(mockResult);
+    expect(result).toEqual({
+      ...mockResult,
+      message: 'Video upload and processing complete',
+      video_id: 'sensor-1',
+      chunks_processed: 0,
+    });
+    expect(global.fetch).toHaveBeenLastCalledWith(
+      'http://api.test/videos-for-search/test/complete',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...mockResult,
+          custom_params: { sensorId: 'sensor-1' },
+        }),
+      })
+    );
   });
 
   it('throws when abortSignal is already aborted', async () => {
@@ -155,11 +183,23 @@ describe('uploadFile', () => {
 
   it('uses requestFilename when provided', async () => {
     const handlers: Record<string, () => void> = {};
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({ url: 'https://presigned.example.com/upload' }),
-    });
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ url: 'https://presigned.example.com/upload' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            message: 'Video upload and processing complete',
+            video_id: 'sensor-custom',
+            filename: 'custom-name',
+            chunks_processed: 0,
+          }),
+      });
 
     global.XMLHttpRequest = jest.fn().mockImplementation(() => ({
       open: jest.fn(),
@@ -171,7 +211,7 @@ describe('uploadFile', () => {
             value: JSON.stringify({
               filename: 'custom-name',
               bytes: 0,
-              sensorId: '',
+              sensorId: 'sensor-custom',
               streamId: '',
               filePath: '',
               timestamp: '',
@@ -200,5 +240,50 @@ describe('uploadFile', () => {
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)).toMatchObject({
       filename: 'custom-name.mp4',
     });
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toBe(
+      'http://api.test/videos-for-search/custom-name/complete'
+    );
+  });
+
+  it('fails when post-upload processing fails', async () => {
+    const handlers: Record<string, () => void> = {};
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({ url: 'https://presigned.example.com/upload' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ detail: 'processing failed' }),
+      });
+
+    global.XMLHttpRequest = jest.fn().mockImplementation(() => ({
+      open: jest.fn(),
+      setRequestHeader: jest.fn(),
+      send: jest.fn(function (this: any) {
+        setTimeout(() => {
+          Object.defineProperty(this, 'status', { value: 200 });
+          Object.defineProperty(this, 'responseText', {
+            value: JSON.stringify({
+              filename: 'test.mp4',
+              sensorId: 'sensor-1',
+            }),
+          });
+          handlers['load']?.();
+        }, 0);
+      }),
+      upload: { addEventListener: jest.fn() },
+      addEventListener: jest.fn((ev: string, fn: () => void) => {
+        handlers[ev] = fn;
+      }),
+      abort: jest.fn(),
+    })) as any;
+
+    await expect(uploadFile(createMockFile(), 'http://api.test', {})).rejects.toThrow(
+      'processing failed'
+    );
   });
 });
