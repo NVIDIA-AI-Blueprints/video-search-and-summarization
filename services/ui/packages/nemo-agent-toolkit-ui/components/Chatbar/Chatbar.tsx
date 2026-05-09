@@ -6,6 +6,7 @@ import { useCreateReducer } from '@/hooks/useCreateReducer';
 
 import { getStorageKey } from '@/contexts/RuntimeConfigContext';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
+import { removeConversationFromDb } from '@/utils/app/conversationDb';
 import { saveFolders } from '@/utils/app/folders';
 import { exportData, importData } from '@/utils/app/importExport';
 
@@ -64,11 +65,13 @@ export const Chatbar: React.FC<ChatbarProps> = ({
   } = chatBarContextValue;
 
   const handleExportData = useCallback(() => {
-    exportData(storageKeyPrefix);
+    exportData(storageKeyPrefix).catch((error) => {
+      console.warn('Failed to export data:', error);
+    });
   }, [storageKeyPrefix]);
 
-  const handleImportConversations = useCallback((data: SupportedExportFormats) => {
-    const { history, folders, prompts }: LatestExportFormat = importData(data, storageKeyPrefix);
+  const handleImportConversations = useCallback(async (data: SupportedExportFormats) => {
+    const { history, folders, prompts }: LatestExportFormat = await importData(data, storageKeyPrefix);
     homeDispatch({ field: 'conversations', value: history });
     homeDispatch({
       field: 'selectedConversation',
@@ -132,7 +135,9 @@ export const Chatbar: React.FC<ChatbarProps> = ({
         },
       });
 
-      sessionStorage.removeItem(getStorageKey('selectedConversation', storageKeyPrefix));
+      removeConversationFromDb(storageKeyPrefix).catch((error) => {
+        console.warn('Failed to remove selected conversation from IndexedDB:', error);
+      });
     }
   }, [conversations, homeDispatch, chatDispatch, t, storageKeyPrefix]);
 
