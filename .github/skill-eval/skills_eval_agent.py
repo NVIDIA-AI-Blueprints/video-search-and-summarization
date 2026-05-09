@@ -51,15 +51,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 
-# Hard cap on the agent's tool loop — one `/deploy` trial is ~15 min of
-# `Bash(uvx harbor run ...)`, plus its own tool calls. 300 turns covers
-# a full fan-out with room for retries.
-MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "300"))
-
-# How long to sleep after the agent exits before stopping/deleting Brev
-# instances it spun up. Lets a human see last-minute logs / traces.
-COOLDOWN_SEC = int(os.environ.get("POST_EVAL_COOLDOWN_SEC", "300"))
-
+# Hard cap on the agent's tool loop — one trial burns ~20-30 harness
+# turns (startup + brev wait + `uvx harbor run` exec + reading results +
+# migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
+# recon/retry overhead exceeds the previous 300 ceiling. Run
+# 24879743425 burned ~270 turns on only 3 trials before hitting it
+# mid-lvs with 10+ trials unstarted. 600 is a safety valve against
+# runaway loops, not a budget knob — the workflow's 8h wall-clock
+# (skills-eval.yml timeout-minutes: 480) is the real ceiling.
+MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "600"))
 
 # ---------------------------------------------------------------------------
 # Pre-flight
@@ -139,10 +139,6 @@ adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset �
 a Brev lock for the target platform(s) → run harbor trials → gather results →
 post ONE comment per (PR, spec) batch → release the lock → stop/delete any Brev
 instance you brought online.
-
-Write the list of Brev instance IDs you provisioned to
-`/tmp/brev/started-by-{run_id}.txt` (one per line). The CI step will use that file
-to drive cleanup after a {COOLDOWN_SEC}s cooldown.
 
 When done, emit a one-line final summary starting with `DONE:` so the workflow
 can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
@@ -230,77 +226,6 @@ line starting with `BLOCKED:` followed by the reason.
 # Cleanup
 # ---------------------------------------------------------------------------
 
-_STOPPABLE_TYPES = {"l40s", "rtx"}   # see AGENTS.md lifecycle table
-_DELETE_TYPES = {"h100", "massedcompute"}
-# SPARK / BYOH are no-op
-
-def cleanup_instances() -> None:
-    """After the agent exits, wait COOLDOWN_SEC then stop or delete any
-    Brev instance the agent brought online. Identification comes from
-    `/tmp/brev/started-by-<run_id>.txt`, which the agent is told to
-    populate. Unknown entries are logged and skipped — never delete an
-    instance we can't identify."""
-    run_id = os.environ.get("GITHUB_RUN_ID", "")
-    if not run_id:
-        print("[cleanup] no GITHUB_RUN_ID → skipping teardown", flush=True)
-        return
-
-    marker = Path(f"/tmp/brev/started-by-{run_id}.txt")
-    if not marker.exists() or not marker.read_text().strip():
-        print(f"[cleanup] {marker} missing/empty — nothing to tear down", flush=True)
-        return
-
-    names = [line.strip() for line in marker.read_text().splitlines() if line.strip()]
-    if not names:
-        return
-
-    print(f"[cleanup] {COOLDOWN_SEC}s cooldown before tearing down: {names}", flush=True)
-    time.sleep(COOLDOWN_SEC)
-
-    # Re-check live state — name → (status, instance_type)
-    try:
-        import json as _json
-        out = subprocess.check_output(
-            ["brev", "ls", "--json"], timeout=30,
-        ).decode()
-        data = _json.loads(out)
-        instances = data if isinstance(data, list) else [data]
-        by_name = {i.get("name"): i for i in instances if isinstance(i, dict)}
-    except Exception as exc:
-        print(f"[cleanup] brev ls --json failed: {exc}; skipping", flush=True)
-        return
-
-    for name in names:
-        inst = by_name.get(name)
-        if inst is None:
-            print(f"[cleanup] {name}: not found in brev ls — skip", flush=True)
-            continue
-        itype = (inst.get("instance_type") or "").lower()
-        # Decide stop vs delete based on the AGENTS.md § lifecycle rules.
-        if any(k in itype for k in ("h100", "dmz.h100", "massedcompute",
-                                     "scaleway", "nebius", "hyperstack",
-                                     "latitude", "oci")):
-            action = ["brev", "delete", name]
-            reason = "non-stoppable provider — delete"
-        elif any(k in itype for k in ("l40s-48gb.2x", "l40s-48gb.1x",
-                                       "g7e", "g6e", "crusoe")):
-            action = ["brev", "stop", name]
-            reason = "stoppable — stop"
-        elif inst.get("_registered") or inst.get("kind") == "registered":
-            print(f"[cleanup] {name}: BYOH registered node — no-op", flush=True)
-            continue
-        else:
-            # Unknown provider — default to stop (safer than delete).
-            action = ["brev", "stop", name]
-            reason = f"unknown provider {itype!r} — defaulting to stop"
-
-        print(f"[cleanup] {name}: {reason}  →  {' '.join(action)}", flush=True)
-        try:
-            subprocess.run(action, timeout=120, check=False)
-        except subprocess.TimeoutExpired:
-            print(f"[cleanup] {name}: {action[1]} timed out after 120s", flush=True)
-
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -317,8 +242,6 @@ def main() -> int:
         print(f"[agent] crashed: {exc!r}", file=sys.stderr)
         import traceback; traceback.print_exc()
         rc = 2
-    finally:
-        cleanup_instances()
     return rc
 
 
