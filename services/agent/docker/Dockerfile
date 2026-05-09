@@ -87,9 +87,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends wget ca-certificates && \
     mkdir -p /patches && \
     if [ "$TARGETARCH" = "amd64" ]; then \
-        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u2_amd64.deb; \
+        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.19-1~deb12u2_amd64.deb; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        wget -O /patches/libssl3.deb http://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.19-1~deb12u2_arm64.deb; \
+        wget -O /patches/libssl3.deb http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl3_3.0.19-1~deb12u2_arm64.deb; \
     fi && \
     cd /patches && \
     dpkg-deb -x libssl3.deb /patches/libssl3-extracted && \
