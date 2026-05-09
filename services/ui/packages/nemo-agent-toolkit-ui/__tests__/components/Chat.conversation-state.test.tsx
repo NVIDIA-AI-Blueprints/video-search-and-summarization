@@ -5,13 +5,24 @@
 import { cleanConversationHistory } from '@/utils/app/clean';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import {
+  saveConversationToDb,
+  saveConversationsToDb,
+} from '@/utils/app/conversationDb';
+import {
   appendAssistantText,
   mergeIntermediateSteps,
   shouldRenderAssistantMessage,
   applyMessageUpdate
 } from '@/utils/chatTransform';
 
-// sessionStorage is already mocked globally in jest.setup.js
+jest.mock('@/utils/app/conversationDb', () => ({
+  saveConversationToDb: jest.fn().mockResolvedValue(undefined),
+  saveConversationsToDb: jest.fn().mockResolvedValue(undefined),
+  loadConversationFromDb: jest.fn().mockResolvedValue(null),
+  loadConversationsFromDb: jest.fn().mockResolvedValue([]),
+  removeConversationFromDb: jest.fn().mockResolvedValue(undefined),
+  clearAllConversationsFromDb: jest.fn().mockResolvedValue(undefined),
+}));
 
 describe('Conversation State Management', () => {
   beforeEach(() => {
@@ -20,10 +31,10 @@ describe('Conversation State Management', () => {
 
     describe('Conversation Persistence - INTEGRATION TESTS', () => {
     /**
-     * Description: Verifies that saveConversations correctly stores conversation arrays to sessionStorage
-     * Success: sessionStorage.setItem is called with 'conversationHistory' key and properly serialized JSON data
+     * Description: Verifies that saveConversations correctly stores conversation arrays to IndexedDB
+     * Success: saveConversationsToDb is called with the conversation data
      */
-    test('saveConversations persists to sessionStorage correctly', () => {
+    test('saveConversations persists to IndexedDB correctly', () => {
       const mockConversations = [
         { id: 'conv-1', name: 'Test Chat', messages: [], folderId: null },
         { id: 'conv-2', name: 'Another Chat', messages: [], folderId: null }
@@ -31,15 +42,15 @@ describe('Conversation State Management', () => {
 
       saveConversations(mockConversations);
 
-      expect(sessionStorage.setItem).toHaveBeenCalledWith(
-        'conversationHistory',
-        JSON.stringify(mockConversations)
+      expect(saveConversationsToDb).toHaveBeenCalledWith(
+        mockConversations,
+        undefined,
       );
     });
 
     /**
-     * Description: Verifies that saveConversation correctly stores individual conversations to sessionStorage
-     * Success: sessionStorage.setItem is called with 'selectedConversation' key and properly serialized conversation data
+     * Description: Verifies that saveConversation correctly stores individual conversations to IndexedDB
+     * Success: saveConversationToDb is called with the conversation data
      */
     test('saveConversation persists single conversation correctly', () => {
       const mockConversation = {
@@ -54,50 +65,40 @@ describe('Conversation State Management', () => {
 
       saveConversation(mockConversation);
 
-      expect(sessionStorage.setItem).toHaveBeenCalledWith(
-        'selectedConversation',
-        JSON.stringify(mockConversation)
+      expect(saveConversationToDb).toHaveBeenCalledWith(
+        mockConversation,
+        undefined,
       );
     });
 
     /**
-     * Description: Verifies that conversation data persists across page refreshes by testing sessionStorage retrieval
-     * Success: Data retrieved from sessionStorage matches original conversation structure and content exactly
+     * Description: Verifies that saveConversation handles IndexedDB errors gracefully
+     * Success: Function does not throw exceptions when IndexedDB save fails
      */
-    test('conversation state survives page refresh', () => {
-      const mockConversations = [
-        {
-          id: 'conv-1',
-          name: 'Persistent Chat',
-          messages: [
-            { role: 'user', content: 'Hello' },
-            { role: 'assistant', content: 'Hi there!' }
-          ],
-          folderId: null
-        }
-      ];
+    test('handles IndexedDB errors gracefully', () => {
+      (saveConversationToDb as jest.Mock).mockRejectedValueOnce(
+        new Error('IndexedDB write failed'),
+      );
 
-      (sessionStorage.getItem as jest.Mock).mockReturnValue(JSON.stringify(mockConversations));
+      const mockConversation = { id: 'conv-1', name: 'Test', messages: [], folderId: null };
 
-      const loadedConversations = JSON.parse(sessionStorage.getItem('conversationHistory') || '[]');
-
-      expect(loadedConversations).toEqual(mockConversations);
-      expect(loadedConversations[0].messages).toHaveLength(2);
+      expect(() => saveConversation(mockConversation)).not.toThrow();
+      expect(saveConversationToDb).toHaveBeenCalled();
     });
 
     /**
-     * Description: Verifies that saveConversation handles sessionStorage quota exceeded errors gracefully
-     * Success: Function does not throw exceptions when sessionStorage.setItem fails due to quota limits
+     * Description: Verifies that storageKeyPrefix is passed through to IndexedDB functions
+     * Success: saveConversationToDb receives the correct prefix
      */
-    test('handles sessionStorage errors gracefully', () => {
+    test('passes storageKeyPrefix to IndexedDB functions', () => {
       const mockConversation = { id: 'conv-1', name: 'Test', messages: [], folderId: null };
 
-      (sessionStorage.setItem as jest.Mock).mockImplementation(() => {
-        throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
-      });
+      saveConversation(mockConversation, 'searchTab');
 
-      expect(() => saveConversation(mockConversation)).not.toThrow();
-      expect(sessionStorage.setItem).toHaveBeenCalled();
+      expect(saveConversationToDb).toHaveBeenCalledWith(
+        mockConversation,
+        'searchTab',
+      );
     });
   });
 
