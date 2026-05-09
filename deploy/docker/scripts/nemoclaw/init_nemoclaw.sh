@@ -10,6 +10,7 @@ NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
 # Nemoclaw onboard/install only accepts: build, openai, … — "build" is NVIDIA Endpoints (integrate.api.nvidia.com).
 NEMOCLAW_ONBOARD_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER:-build}"
 # OpenShell provider display name (separate from Nemoclaw's NEMOCLAW_PROVIDER for onboard).
+OPENCLAW_PLUGIN_VARIANT="${OPENCLAW_PLUGIN_VARIANT:-}"
 OPENSHELL_PROVIDER_NAME="${OPENSHELL_PROVIDER_NAME:-nvidia}"
 NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-nvidia/nemotron-3-super-120b-a12b}"
 NEMOCLAW_NON_INTERACTIVE=1
@@ -310,7 +311,7 @@ install_vss_openclaw_plugin() {
 
   # --dangerously-force-unsafe-install: the plugin's index.ts uses child_process (npx skills add agent-browser,
   # systemctl daemon-reload), which OpenClaw's install-time scanner flags. We trust this first-party plugin.
-  install_cmd="openclaw plugins install ${remote_tgz} --force --dangerously-force-unsafe-install"
+  install_cmd="OPENCLAW_PLUGIN_VARIANT=${OPENCLAW_PLUGIN_VARIANT} openclaw plugins install ${remote_tgz} --force --dangerously-force-unsafe-install"
   log "Installing plugin via: ${install_cmd}"
   sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
     "su - sandbox -c '${install_cmd}' && rm -f '${remote_tgz}'"

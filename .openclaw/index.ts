@@ -25,6 +25,7 @@ function copyWorkspaceTemplates(api: {
   if (!workspaceDir) return;
 
   const templatesDir = join(dirname(api.source), "workspace");
+  const variant = process.env.OPENCLAW_PLUGIN_VARIANT?.trim();
 
   try {
     mkdirSync(workspaceDir, { recursive: true });
@@ -33,6 +34,19 @@ function copyWorkspaceTemplates(api: {
       copyFileSync(join(templatesDir, file), join(workspaceDir, file));
     }
     api.logger.info(`[vss-claw] copied ${files.length} workspace templates to ${workspaceDir}`);
+
+    if (variant) {
+      const overlayDir = join(templatesDir, `_${variant}`);
+      if (existsSync(overlayDir)) {
+        const overlayFiles = readdirSync(overlayDir).filter((f) => f.endsWith(".md"));
+        for (const file of overlayFiles) {
+          copyFileSync(join(overlayDir, file), join(workspaceDir, file));
+        }
+        api.logger.info(`[vss-claw] applied _${variant} overrides (${overlayFiles.length} files)`);
+      } else {
+        api.logger.warn(`[vss-claw] OPENCLAW_PLUGIN_VARIANT='${variant}' set but ${overlayDir} is missing`);
+      }
+    }
   } catch (err) {
     api.logger.warn(`[vss-claw] workspace copy failed: ${err}`);
   }
