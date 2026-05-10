@@ -2,6 +2,8 @@
 
 ### Step 0 — Tear down any existing deployment
 
+Ask user to confirm to tear down the deployment.
+
 Before every deploy, **always** stop any prior VSS stack. This is
 mandatory even if you think the host is clean, and especially when
 switching profiles (`base` → `search`, `alerts` verification →
@@ -35,6 +37,13 @@ docker ps -a --format '{{.Names}}' \
   | xargs -r docker rm -f
 ```
 
-If this is the host's first deploy, the `docker compose down`
-line is a no-op (exit 0 with no containers to stop) — safe to run
-unconditionally.
+# Step 0b - Cleanup previous stale state and local logs, data.
+
+Ask user to confirm to clean up.
+
+Use the bundled cleanup helper. It clears every directory whose stale state can poison a fresh deploy: kafka logs, elasticsearch data + logs, redis data + log, behavior-learning data, video-analytics API state, calibration toolkit, VST/nvstreamer recordings, and any blueprint-configurator backup files. The same logic `dev-profile.sh` runs internally between deploys.
+
+```bash
+sudo bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" \
+    --env-file "$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/.env"
+```
