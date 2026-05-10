@@ -74,50 +74,9 @@ Always follow this sequence. Never skip the dry-run.
 
 ### Step 0 — Tear down any existing deployment + clear data volumes
 
-If a deployment already exists, tear it down AND clear stale data volumes before redeploying. Full procedure (resolved.yml-driven path, container-name catch-all patterns covering dev-profile compose files, why leftovers cause `/sensor/list` 502s) lives in [`references/teardown.md`](references/teardown.md).
+If a deployment already exists, tear it down AND clear stale data volumes before redeploying. 
 
-**Step 0a — Stop containers:**
-
-```bash
-# If a resolved.yml from a prior deploy exists, prefer it — it
-# knows about all compose-profile services that were brought up.
-if [ -f "$REPO/deployments/resolved.yml" ]; then
-  docker compose -f "$REPO/deployments/resolved.yml" down --remove-orphans
-fi
-
-# Catch-all: remove every VSS-stack container the dev-profile compose
-# files bring up (covers leftovers from prior deploys that linger and
-# bind ports the new deploy needs, or pass health checks while serving
-# stale data).
-docker ps -a --format '{{.Names}}' \
-  | grep -E '^(vss-|mdx-|perception-|rtvi-|alert-|nvstreamer-|sensor-ms-|vst-ingress-|vst-mcp-|vst-file-proxy|centralizedb-|storage-ms-|streamprocessing-ms-|sdr-(http|streamprocessing)-|envoy-(http|streamprocessing)-|rtspserver-ms-|recorder-ms-|replaystream-ms-|livestream-ms-|metropolis-vss-ui|phoenix)' \
-  | xargs -r docker rm -f
-```
-
-If this is the host's first deploy, the `docker compose down` line is a no-op (exit 0 with no containers to stop) — safe to run unconditionally.
-
-**Step 0b — Clear data volumes** (`$MDX_DATA_DIR/data_log/*`):
-
-Use the bundled cleanup helper. It clears every directory whose stale state can poison a fresh deploy: kafka logs, elasticsearch data + logs, redis data + log, behavior-learning data, video-analytics API state, calibration toolkit, VST/nvstreamer recordings, and any blueprint-configurator backup files. The same logic `dev-profile.sh` runs internally between deploys.
-
-```bash
-sudo bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" \
-    --env-file "$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/.env"
-```
-
-What it deletes (paths under `$MDX_DATA_DIR/data_log/` unless noted):
-
-| Path | Always cleared | Toggle to skip |
-|---|---|---|
-| `kafka/*`, `elastic/data/*`, `elastic/logs/*`, `redis/data/*`, `redis/log/*` | yes | — |
-| `behavior_learning_data/*`, `vss_video_analytics_api/*` | yes | — |
-| `calibration_toolkit/*` | yes (default) | `--skip-delete-calibration-data` |
-| `vst/`, `nvstreamer/` (uploaded videos + clips) | yes (default) | `--skip-delete-vst-data` |
-| `*.backup_*` files under `$MDX_DATA_DIR`, repo root, `$MDX_SAMPLE_APPS_DIR` | yes (default) | `--skip-delete-backup-files` |
-
-> **Skip `--skip-delete-vst-data` when uploads must persist across redeploys.** This is the only flag with a real user-facing impact (loses uploaded videos). The other directories hold ephemeral broker/index state that must be wiped to avoid stale-data bugs (e.g. `centralizedb-dev` postgres schema mismatches, Kafka topic ID drift, Elasticsearch index conflicts).
-
-> **Skip Step 0b on a brand-new host with no prior deploy** — `cleanup_all_datalog.sh` is safe to no-op on missing dirs, but skipping the run avoids the `sudo` prompt entirely.
+Full procedure lives in [`references/teardown.md`](references/teardown.md).
 
 ### Step 1 — Gather context
 
