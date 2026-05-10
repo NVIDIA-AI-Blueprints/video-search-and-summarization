@@ -187,11 +187,11 @@ before any container starts.
 
 > **The fix only touches the generated `resolved.yml` — never the source compose files.** The dependencies are correctly marked optional in the source; profile filtering is what creates the dangling references in the resolved artifact.
 
-Run the bundled normalizer:
+Run the bundled normalizer via `uv` (no install required — the script declares its `pyyaml` dep with PEP 723 inline metadata, and `uv run` pulls it into an ephemeral env on demand):
 
 ```bash
 # From the repo root
-python3 skills/deploy/scripts/normalize_resolved_yml.py "$REPO/deployments/resolved.yml"
+uv run skills/deploy/scripts/normalize_resolved_yml.py "$REPO/deployments/resolved.yml"
 ```
 
 The script ([`scripts/normalize_resolved_yml.py`](scripts/normalize_resolved_yml.py)):
@@ -202,7 +202,7 @@ The script ([`scripts/normalize_resolved_yml.py`](scripts/normalize_resolved_yml
 - Prints the list of removed `(service → dangling target)` pairs so the user can see what was cleaned.
 - Idempotent — running it on an already-clean file is a no-op.
 
-Requires `pyyaml` (`pip install pyyaml` if the deploy host doesn't have it).
+If `uv` isn't on the host, install it once with `curl -LsSf https://astral.sh/uv/install.sh | sh` (no root needed). Don't `pip install pyyaml` — many deploy hosts don't have pip configured for the system Python, and uv keeps the script's deps isolated.
 
 **Re-validate** before `up -d`:
 
