@@ -177,33 +177,13 @@ Unexpanded `${VAR}` tokens in `resolved.yml` mean compose did not see those env 
 
 **MUST run after Step 3, before Step 5.** Skipping this aborts the deploy:
 
-`docker compose --env-file .env config` filters out services that don't match the active `COMPOSE_PROFILES`, but it leaves `depends_on:` entries that point at those filtered-out services. Compose's schema validator rejects any `depends_on` target that isn't a defined service in the file — even when the entry is `required: false`. The result: `docker compose -f resolved.yml up -d` aborts with
-
-```
-service "vst-ingress" depends on undefined service "sensor-ms-2d": invalid compose project
-```
-
-before any container starts.
-
-> **The fix only touches the generated `resolved.yml` — never the source compose files.** The dependencies are correctly marked optional in the source; profile filtering is what creates the dangling references in the resolved artifact.
-
-Run the bundled normalizer via `uv` (no install required — the script declares its `pyyaml` dep with PEP 723 inline metadata, and `uv run` pulls it into an ephemeral env on demand):
+Normalize - drop optional dependencies for services filtered out from resolved.yml
 
 ```bash
 # From the repo root
 uv run skills/deploy/scripts/normalize_resolved_yml.py "$REPO/deployments/resolved.yml"
 ```
-
-The script ([`scripts/normalize_resolved_yml.py`](scripts/normalize_resolved_yml.py)):
-
-- Drops every `depends_on` target that isn't a defined service in the file.
-- Preserves required active dependencies (kafka, redis, rtvi-vlm, sensor-ms, streamprocessing-ms, etc.).
-- Removes the `depends_on:` key entirely if it ends up empty.
-- Prints the list of removed `(service → dangling target)` pairs so the user can see what was cleaned.
-- Idempotent — running it on an already-clean file is a no-op.
-
-If `uv` isn't on the host, install it once with `curl -LsSf https://astral.sh/uv/install.sh | sh` (no root needed). Don't `pip install pyyaml` — many deploy hosts don't have pip configured for the system Python, and uv keeps the script's deps isolated.
-
+If `uv` isn't on the host, install it once with `curl -LsSf https://astral.sh/uv/install.sh | sh` (no root needed).
 **Re-validate** before `up -d`:
 
 ```bash
