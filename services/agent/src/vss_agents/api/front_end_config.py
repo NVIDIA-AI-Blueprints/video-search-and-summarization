@@ -81,10 +81,6 @@ class StreamingIngestConfig(BaseModel):
     elasticsearch_url: str = Field(default="", description="Elasticsearch endpoint URL")
     rtvi_embed_es_index: str = Field(default="", description="Elasticsearch index for embeddings")
 
-    vlm_mode: str = Field(default="", description="VLM mode (remote/local/local_shared)")
-    internal_ip: str = Field(default="", description="Internal IP address of the host")
-    external_ip: str = Field(default="", description="External IP address for public-facing URLs")
-
 
 class VSSFastApiFrontEndConfig(FastApiFrontEndConfig, name="vss_fastapi"):  # type: ignore[call-arg]
     """
