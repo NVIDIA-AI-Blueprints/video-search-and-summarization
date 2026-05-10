@@ -215,9 +215,67 @@ Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GP
 deploy/docker/developer-profiles/dev-profile-alerts/.env
 ```
 
+## Stage perception models (RTDETR-ITS + GDINO)
+
+**MUST run before `docker compose -f resolved.yml up -d` for verification mode (`MODE=2d_cv`).** The alerts compose has no init container that downloads the perception detector models — `dev-profile.sh` stages them via NGC CLI, and since this skill doesn't run that script, the agent stages them directly.
+
+Real-time mode (`MODE=2d_vlm`) doesn't deploy RT-CV and skips this entirely.
+
+Symptom if skipped (verification mode): RT-CV starts but its TensorRT engine build fails because the ONNX detector files are missing under `${MDX_DATA_DIR}/models/`.
+
+```bash
+# Source: deploy/docker/scripts/dev-profile.sh (alerts profile, model staging block).
+# Requires NGC_CLI_API_KEY exported and ngc CLI on PATH (see references/ngc.md).
+
+DATA="$MDX_DATA_DIR"                                     # e.g. <repo>/data
+APPS="$MDX_SAMPLE_APPS_DIR"                              # e.g. <repo>/deploy/docker
+
+# Profile-specific dirs
+mkdir -p \
+    "$DATA/data_log/vss_video_analytics_api" \
+    "$DATA/videos/dev-profile-alerts" \
+    "$APPS/engines/gdino" \
+    "$APPS/engines/rtdetr-its"
+chmod -R 777 "$APPS/engines"
+
+# DESTRUCTIVE: dev-profile.sh wipes $DATA/models before re-staging. If the host
+# also runs other profiles whose models live under $DATA/models, gate this on
+# whether you really want a clean slate.
+rm -rf "$DATA/models"
+mkdir -p "$DATA/models/rtdetr-its" "$DATA/models/gdino"
+
+# 1. RTDETR-ITS (TrafficcamNet)
+NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+    download-version \
+    nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
+mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
+    "$DATA/models/rtdetr-its/model_epoch_035.fp16.onnx"
+rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
+
+# 2. Mask Grounding DINO
+NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+    download-version \
+    nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
+mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
+    "$DATA/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+rm -rf mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
+
+chmod -R 777 "$DATA/models"
+```
+
+**Verify** before deploying:
+
+```bash
+ls -l "$MDX_DATA_DIR/models/rtdetr-its/model_epoch_035.fp16.onnx" \
+      "$MDX_DATA_DIR/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+# expected: both files present, mode 777
+```
+
+After RT-CV starts, it builds TensorRT engines from these ONNX files (3–5 min on first start), cached under `$MDX_SAMPLE_APPS_DIR/engines/`.
+
 ## First-run note
 
-RT-VLM downloads `cosmos-reason2-8b:hf-1208` from NGC on first start (~10–20 min depending on bandwidth). RT-CV's perception model (`GDINO`) is downloaded by the `perception-2d-init` container into `$DATA/models/gdino`. Real-time mode skips RT-CV entirely.
+RT-VLM downloads `cosmos-reason2-8b:hf-1208` from NGC on first start (~10–20 min depending on bandwidth). For verification mode (`MODE=2d_cv`), RT-CV builds TensorRT engines from the ONNX models staged in [Stage perception models](#stage-perception-models-rtdetr-its--gdino) above. Real-time mode skips RT-CV entirely.
 
 ## Debugging
 
