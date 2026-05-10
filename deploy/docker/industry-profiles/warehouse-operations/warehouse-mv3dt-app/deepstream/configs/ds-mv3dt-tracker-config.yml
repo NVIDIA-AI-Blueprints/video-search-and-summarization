@@ -82,7 +82,7 @@ MultiViewAssociator:
 Communicator:
   communicatorType: 2
   pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
-  mqttProtoAdaptorConfigPath: config_mqtt.txt
+  mqttProtoAdaptorConfigPath: configs/config_mqtt.txt
 PoseEstimator:
   poseEstimatorType: 1
   useVPICropScaler: 1

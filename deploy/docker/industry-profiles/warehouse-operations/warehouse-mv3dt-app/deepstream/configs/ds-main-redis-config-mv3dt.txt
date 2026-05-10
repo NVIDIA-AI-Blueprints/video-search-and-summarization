@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # ============================================================================
-# RT-DETR + MV3DT pipeline for warehouse-3d-app — Redis variant
+# RT-DETR + MV3DT pipeline for warehouse-mv3dt-app — Redis variant
 # Uses standard nvinfer (RT-DETR detector) + NvMultiObjectTracker (MV3DT)
 # Publishes raw per-camera frames to Redis stream mdx-mv3dt-raw for fusion.
 # ============================================================================
@@ -164,7 +164,7 @@ bbox-border-color3=0;1;0;1
 interval=0
 gie-unique-id=1
 nvbuf-memory-type=0
-config-file=ds-ppl-analytics-pgie-config.yml
+config-file=ds-pgie-config.yml
 
 [tracker]
 enable=1

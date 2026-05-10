@@ -13,13 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include:
-  - path: ./warehouse-2d-app/warehouse-2d-app.yml
-  - path: ./warehouse-3d-app/warehouse-3d-app.yml
-  - path: ./warehouse-mv3dt-app/warehouse-mv3dt-app.yml
+FROM alpine:3.23.4
 
-  # Warehouse Configuration - includes 2D, sparse4d 3D, and MV3DT apps
+# Create a working directory
+WORKDIR /opt/vss/
 
-  # Services are differentiated by -2d, -3d, and -mv3dt suffixes
-  # Use profiles: bp_wh_2d, bp_wh_kafka_2d, bp_wh_redis_2d (2D)
-  # bp_wh_kafka_3d, bp_wh_redis_3d (sparse4d 3D), bp_wh_kafka_mv3dt, bp_wh_redis_mv3dt (MV3DT)
+# Copy the init scripts into the working directory
+COPY ./kibana-dashboard/init-scripts ./init-scripts
+
+# Install bash and curl commands.
+RUN apk update && apk add bash
+
+RUN apk --no-cache add curl

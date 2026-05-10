@@ -1,0 +1,22 @@
+pubBrokerTopicStr:
+  Camera: 127.0.0.1:1883;/trck/Camera
+  Camera_01: 127.0.0.1:1883;/trck/Camera_01
+  Camera_02: 127.0.0.1:1883;/trck/Camera_02
+  Camera_03: 127.0.0.1:1883;/trck/Camera_03
+subPeerBrokerTopicStrs:
+  Camera:
+  - 127.0.0.1:1883;/trck/Camera_01
+  - 127.0.0.1:1883;/trck/Camera_02
+  - 127.0.0.1:1883;/trck/Camera_03
+  Camera_01:
+  - 127.0.0.1:1883;/trck/Camera
+  - 127.0.0.1:1883;/trck/Camera_02
+  - 127.0.0.1:1883;/trck/Camera_03
+  Camera_02:
+  - 127.0.0.1:1883;/trck/Camera
+  - 127.0.0.1:1883;/trck/Camera_01
+  - 127.0.0.1:1883;/trck/Camera_03
+  Camera_03:
+  - 127.0.0.1:1883;/trck/Camera
+  - 127.0.0.1:1883;/trck/Camera_01
+  - 127.0.0.1:1883;/trck/Camera_02

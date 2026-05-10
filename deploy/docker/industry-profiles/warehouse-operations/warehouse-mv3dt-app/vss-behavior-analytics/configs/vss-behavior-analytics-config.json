@@ -1,0 +1,203 @@
+{
+	"kafka": {
+		"brokers": "localhost:9092",
+		"topics": [
+			{
+				"name": "raw",
+				"value": "mdx-bev"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "spaceUtilization",
+				"value": "mdx-space-utilization"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		],
+		"consumer": {
+			"autoOffsetReset": "latest",
+			"enableAutoCommit": false,
+			"maxPollIntervalMs": 900000,
+			"maxPartitionFetchBytes": 10485760,
+			"fetchMaxBytes": 104857600,
+			"maxPollRecords": 10000,
+			"timeout": 0.01
+		},
+		"producer": {
+			"lingerMs": 0
+		},
+		"group": "mdx-spatial-analytics-3d-app"
+	},
+	"redisStream": {
+		"host": "localhost",
+		"port": 6379,
+		"streams": [
+			{
+				"name": "raw",
+				"value": "mdx-bev"
+			},
+			{
+				"name": "behavior",
+				"value": "mdx-behavior"
+			},
+			{
+				"name": "frames",
+				"value": "mdx-frames"
+			},
+			{
+				"name": "notification",
+				"value": "mdx-notification"
+			},
+			{
+				"name": "spaceUtilization",
+				"value": "mdx-space-utilization"
+			},
+			{
+				"name": "events",
+				"value": "mdx-events"
+			},
+			{
+				"name": "incidents",
+				"value": "mdx-incidents"
+			}
+		],
+		"consumer": {
+			"readCount": 200,
+			"readBlockMs": 100
+		},
+		"producer": {
+			"maxLen": 10000
+		},
+		"group": "mdx-spatial-analytics-3d-app"
+	},
+	"sensors": [
+		{
+			"id": "default",
+			"configs": [
+				{
+					"name": "proximityDetectionEnable",
+					"value": "true"
+				},
+				{
+					"name": "proximityDetectionThreshold",
+					"value": "2"
+				},
+				{
+					"name": "proximityDetectionCenterClasses",
+					"value": "[\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\"]"
+				},
+				{
+					"name": "proximityDetectionSurroundingClasses",
+					"value": "[\"Person\"]"
+				}
+			]
+		}
+	],
+	"app": [
+		{
+			"name": "spaceAnalyticsIntervalSec",
+			"value": "1.0"
+		},
+		{
+			"name": "spaceAnalyticsCalibSensorsOnly",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsGridSize",
+			"value": "0.2"
+		},
+		{
+			"name": "spaceAnalyticsUnsafeSize",
+			"value": "0.5"
+		},
+		{
+			"name": "spaceAnalyticsTargetClasses",
+			"value": "[\"Box\", \"Pallet\"]"
+		},
+		{
+			"name": "spaceAnalyticsUseGA",
+			"value": "false"
+		},
+		{
+			"name": "spaceAnalyticsPopulationSizeGA",
+			"value": "100"
+		},
+		{
+			"name": "spaceAnalyticsNumGenerationsGA",
+			"value": "100"
+		},
+		{
+			"name": "behaviorStateTimeout",
+			"value": "20"
+		},
+		{
+			"name": "behaviorWatermarkSec",
+			"value": "30"
+		},
+		{
+			"name": "behaviorMaxPoints",
+			"value": "100"
+		},
+		{
+			"name": "in3dMode",
+			"value": "true"
+		},
+        {
+			"name": "playbackLoop",
+			"value": "10000"
+		},
+		{
+			"name": "compactFrame",
+			"value": "true"
+		},
+		{
+			"name": "stateManagementFilter",
+			"value": "[\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\",\"Person\",\"NovaCarter\",\"Transporter\",\"Forklift\"]"
+		},
+		{
+			"name": "playbackStartUpDelaySec",
+			"value": "90"
+		},
+		{
+			"name": "coordinateSystem",
+			"value": "euclidean"
+		},
+		{
+			"name": "sourceType",
+			"value": "kafka"
+		},
+		{
+			"name": "sinkType",
+			"value": "kafka"
+		},
+		{
+			"name": "numWorkersForBehaviorCreation",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForFrameEnhancement",
+			"value": "1"
+		},
+		{
+			"name": "numWorkersForSpaceEstimation",
+			"value": "0"
+		}
+	]
+}

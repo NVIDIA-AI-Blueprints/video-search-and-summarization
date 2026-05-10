@@ -183,7 +183,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_wh_kafka_3d${ENABLE_MV3DT_PROFILE:+_disabled}","bp_wh_redis_3d${ENABLE_MV3DT_PROFILE:+_disabled}"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
     container_name: vss-rtvi-cv
     volumes:
       # General mountings
