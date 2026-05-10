@@ -173,6 +173,75 @@ The resolved YAML is saved to `<repo>/deployments/resolved.yml`.
 
 Unexpanded `${VAR}` tokens in `resolved.yml` mean compose did not see those env values. Diagnostic procedure and common culprits live in [`references/troubleshooting.md`](references/troubleshooting.md).
 
+### Step 3c — Strip dangling optional `depends_on` from resolved.yml
+
+`docker compose --env-file .env config` filters out services that don't match the active `COMPOSE_PROFILES`, but it leaves `depends_on:` entries that point at those filtered-out services. Compose's schema validator rejects any `depends_on` target that isn't a defined service in the file — even when the entry is `required: false`. The result: `docker compose -f resolved.yml up -d` aborts with
+
+```
+service "vst-ingress" depends on undefined service "sensor-ms-2d": invalid compose project
+```
+
+before any container starts.
+
+> **Edit the generated `resolved.yml` only — never the source compose files.** The dependencies are correctly marked optional in the source; profile filtering is what creates the dangling references in the resolved artifact.
+
+**Detect:**
+
+```bash
+python3 - <<'PY'
+import yaml
+with open("resolved.yml") as f:
+    d = yaml.safe_load(f)
+defined = set((d.get("services") or {}).keys())
+dangling = []
+for name, svc in (d.get("services") or {}).items():
+    deps = (svc or {}).get("depends_on") or {}
+    targets = deps.keys() if isinstance(deps, dict) else deps
+    for t in targets:
+        if t not in defined:
+            dangling.append((name, t))
+for n, t in dangling:
+    print(f"{n} -> {t} (not defined)")
+print(f"\n{len(dangling)} dangling depends_on entries")
+PY
+```
+
+**Fix in place** (drops only the dangling entries; required active deps like `kafka`, `redis`, `rtvi-vlm`, `sensor-ms`, `streamprocessing-ms` are preserved):
+
+```bash
+python3 - <<'PY'
+import yaml
+with open("resolved.yml") as f:
+    d = yaml.safe_load(f)
+defined = set((d.get("services") or {}).keys())
+for name, svc in (d.get("services") or {}).items():
+    deps = (svc or {}).get("depends_on")
+    if not deps:
+        continue
+    if isinstance(deps, dict):
+        kept = {k: v for k, v in deps.items() if k in defined}
+        if kept:
+            svc["depends_on"] = kept
+        else:
+            svc.pop("depends_on", None)
+    elif isinstance(deps, list):
+        kept = [k for k in deps if k in defined]
+        if kept:
+            svc["depends_on"] = kept
+        else:
+            svc.pop("depends_on", None)
+with open("resolved.yml", "w") as f:
+    yaml.safe_dump(d, f, sort_keys=False)
+print("resolved.yml normalized")
+PY
+```
+
+**Re-validate** before `up -d`:
+
+```bash
+docker compose -f resolved.yml config --quiet && echo "resolved.yml OK"
+```
+
 ### Step 4 — Review
 
 Show the user a summary of what will be deployed:
