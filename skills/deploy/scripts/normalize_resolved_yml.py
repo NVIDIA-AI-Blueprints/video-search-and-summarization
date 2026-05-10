@@ -1,6 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --quiet --script
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+# /// script
+# requires-python = ">=3.9"
+# dependencies = ["pyyaml"]
+# ///
 """Strip dangling optional depends_on entries from a resolved compose file.
 
 Why this exists
@@ -28,8 +32,10 @@ calls this as part of every deploy.
 
 Usage
 -----
-    python3 normalize_resolved_yml.py [path/to/resolved.yml]
+    uv run skills/deploy/scripts/normalize_resolved_yml.py [path/to/resolved.yml]
         # default path: ./resolved.yml in CWD
+        # PEP 723 inline metadata declares pyyaml; uv pulls it into an
+        # ephemeral env on demand, so no `pip install` on the host is needed.
 
 Exit codes
 ----------
