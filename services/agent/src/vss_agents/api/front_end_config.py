@@ -71,6 +71,14 @@ class StreamingIngestConfig(BaseModel):
     rtvi_embed_model: str = Field(default="cosmos-embed1-448p", description="Embedding model name")
     rtvi_embed_chunk_duration: int = Field(default=5, description="Chunk duration in seconds for embedding")
     rtvi_cv_base_url: str = Field(default="", description="Base URL for RTVI CV service")
+    disable_audio: bool = Field(
+        default=True,
+        description=(
+            "When True, post-upload processing requests VST to transcode uploaded videos with "
+            "audio stripped (disableAudio=true). Set False for audio-capable VLMs (e.g. Nemotron "
+            "Omni) so audio is preserved in the stored clip."
+        ),
+    )
     rtvi_vlm_base_url: str = Field(
         default="",
         description=(

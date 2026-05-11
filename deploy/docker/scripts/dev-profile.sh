@@ -1194,10 +1194,17 @@ function state_up() {
     # VLM_NAME / VLM_BASE_URL / RTVI_VLM_MODEL_PATH to the NIM-packaged cosmos-reason2 model.
     # RTVI_VLM_MODEL_TO_USE and RTVI_VLM_ENDPOINT come from the profile .env defaults for local
     # (see dev-profile-{alerts,lvs}/.env). Remote VLM overrides these in the block above via VLM_BASE_URL/vlm.
+    # Nemotron Nano Omni opt-in: when source .env has an uncommented
+    # RTVI_VLM_MODEL_TO_USE=vllm-compatible line (i.e. RT-VLM loads an HF git
+    # model in-pod), preserve the user's VLM_NAME / RTVI_VLM_MODEL_PATH instead
+    # of forcing the cosmos NGC defaults. VLM_BASE_URL stays http://<host>:8018
+    # either way.
     if [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
+      if ! grep -q "^RTVI_VLM_MODEL_TO_USE=vllm-compatible" "${_source_env}" 2>/dev/null; then
+        set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
+        set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
+      fi
       set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
-      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
     fi
     # RTVI_VLLM_GPU_MEMORY_UTILIZATION: mirrors NIM NIM_KVCACHE_PERCENT hw-*.env pattern.
     # IGX-THOR/AGX-THOR have no NIM hw env file → ignored here, handled in the hw sub-block below.

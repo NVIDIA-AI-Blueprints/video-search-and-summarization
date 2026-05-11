@@ -113,6 +113,7 @@ async def _run_post_upload_processing(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    disable_audio: bool = True,
 ) -> VideoIngestResponse:
     """
     Run post-upload processing: get timeline, get video URL, add to RTVI-CV, generate embeddings.
@@ -160,7 +161,7 @@ async def _run_post_upload_processing(
         "startTime": timeline_start_time,
         "endTime": timeline_end_time,
         "container": "mp4",
-        "configuration": json.dumps({"disableAudio": True}),
+        "configuration": json.dumps({"disableAudio": disable_audio}),
     }
     logger.info(f"Calling Storage API: GET {storage_url}")
 
@@ -286,6 +287,7 @@ def create_streaming_video_ingest_router(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    disable_audio: bool = True,
 ) -> APIRouter:
     """
     Create a FastAPI router for streaming video ingest.
@@ -433,6 +435,7 @@ def create_streaming_video_ingest_router(
                     rtvi_cv_base_url=rtvi_cv_base_url,
                     rtvi_embed_model=rtvi_embed_model,
                     rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                    disable_audio=disable_audio,
                 )
 
         except HTTPException:
@@ -479,6 +482,7 @@ def create_streaming_video_ingest_router(
                 rtvi_cv_base_url=rtvi_cv_base_url,
                 rtvi_embed_model=rtvi_embed_model,
                 rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                disable_audio=disable_audio,
             )
         except HTTPException:
             raise
@@ -518,6 +522,7 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
         rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
         rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+        disable_audio = getattr(streaming_config, "disable_audio", True)
 
         if not vst_internal_url:
             raise ValueError("streaming_ingest.vst_internal_url must be set for videos-for-search routes")
@@ -534,6 +539,7 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
             rtvi_cv_base_url=rtvi_cv_base_url,
             rtvi_embed_model=rtvi_embed_model,
             rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+            disable_audio=disable_audio,
         )
         app.include_router(router)
         logger.info("Registered videos-for-search routes")
