@@ -397,7 +397,7 @@ def main() -> int:
 
     print(f"Brev instance ID: {env_id}")
     print(f"Origin allowed in OpenClaw: {origin}")
-    print(f"agents.defaults.workspace: {args.openclaw_workspace_dir}")
+    print(f"agents.defaults.workspace: {DEFAULT_WORKSPACE_DIR}")
     if args.enable_hooks:
         print(f"OpenClaw hooks enabled at: {args.hooks_path}")
     if args.mcp_url:

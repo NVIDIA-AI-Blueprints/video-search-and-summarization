@@ -268,7 +268,7 @@ apply_vss_policy() {
 }
 
 install_vss_openclaw_plugin() {
-  local plugin_dir tgz_name tgz_path container_name remote_tgz
+  local plugin_dir tgz_name tgz_path container_name remote_tgz install_cmd
   plugin_dir="${OPENCLAW_PLUGIN_DIR}"
 
   if [ ! -f "${plugin_dir}/package.json" ]; then
@@ -313,19 +313,27 @@ install_vss_openclaw_plugin() {
   # Clean up the local tarball on every return path (success, upload failure, install failure).
   trap 'rm -f "${tgz_path}"; trap - RETURN' RETURN
 
-  log "Uploading ${tgz_name} to sandbox ${NEMOCLAW_SANDBOX_NAME}:/tmp/"
-  if ! openshell sandbox upload "${NEMOCLAW_SANDBOX_NAME}" "${tgz_path}" "/tmp/"; then
-    log "ERROR: failed to upload ${tgz_name} to sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  # Stream the tarball into the agent container via kubectl exec stdin. `openshell
+  # sandbox upload` silently dropped the file (reported success, but it never landed
+  # anywhere visible to the install step), so we write the bytes directly through the
+  # same kubectl exec path the install will use.
+  log "Streaming ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}:${remote_tgz}"
+  if ! sudo docker exec -i "${container_name}" kubectl exec -i -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- \
+      sh -c "cat > '${remote_tgz}'" < "${tgz_path}"; then
+    log "ERROR: failed to stream ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}"
     return 1
   fi
 
   # --dangerously-force-unsafe-install: the plugin's index.ts uses child_process (npx skills add agent-browser,
   # systemctl daemon-reload), which OpenClaw's install-time scanner flags. We trust this first-party plugin.
-  # Pass variant and tarball path as positional args so neither value is re-parsed by any shell layer.
+  # printf %q shell-escapes both interpolated values so a quote in tgz_name or
+  # OPENCLAW_PLUGIN_VARIANT can't break out of `su - sandbox -c`'s quoting.
+  printf -v install_cmd 'OPENCLAW_PLUGIN_VARIANT=%q openclaw plugins install %q --force --dangerously-force-unsafe-install' \
+    "${OPENCLAW_PLUGIN_VARIANT}" "${remote_tgz}"
   log "Installing VSS OpenClaw plugin ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME} (variant=${OPENCLAW_PLUGIN_VARIANT})"
+  log "Plugin install command: ${install_cmd}"
   if ! sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- \
-      sh -lc 'variant=$1; tarball=$2; su - sandbox -c "OPENCLAW_PLUGIN_VARIANT=\"\$1\" openclaw plugins install \"\$2\" --force --dangerously-force-unsafe-install" sandbox-install "$variant" "$tarball" && rm -f "$tarball"' \
-      sandbox-install "${OPENCLAW_PLUGIN_VARIANT}" "${remote_tgz}"; then
+      sh -lc "$(printf 'su - sandbox -c %q && rm -f %q' "${install_cmd}" "${remote_tgz}")"; then
     log "ERROR: openclaw plugins install failed for ${tgz_name}"
     return 1
   fi
