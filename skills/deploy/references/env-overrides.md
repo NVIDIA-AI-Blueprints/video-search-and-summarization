@@ -9,8 +9,8 @@ Build a dictionary of env var overrides based on user intent. Only include vars 
 | Var | Value |
 |---|---|
 | `HARDWARE_PROFILE` | Detected or user-specified |
-| `MDX_SAMPLE_APPS_DIR` | `<repo>/deployments` |
-| `MDX_DATA_DIR` | `<repo>/data` (or user-specified) |
+| `VSS_APPS_DIR` | `<repo>/deployments` |
+| `VSS_DATA_DIR` | `<repo>/data` (or user-specified) |
 | `HOST_IP` | Detected host IP |
 | `NGC_CLI_API_KEY` | From environment or user |
 
