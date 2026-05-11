@@ -310,18 +310,25 @@ install_vss_openclaw_plugin() {
   fi
   tgz_path="${plugin_dir}/${tgz_name}"
   remote_tgz="/tmp/${tgz_name}"
+  # Clean up the local tarball on every return path (success, upload failure, install failure).
+  trap 'rm -f "${tgz_path}"; trap - RETURN' RETURN
 
   log "Uploading ${tgz_name} to sandbox ${NEMOCLAW_SANDBOX_NAME}:/tmp/"
-  openshell sandbox upload "${NEMOCLAW_SANDBOX_NAME}" "${tgz_path}" "/tmp/"
+  if ! openshell sandbox upload "${NEMOCLAW_SANDBOX_NAME}" "${tgz_path}" "/tmp/"; then
+    log "ERROR: failed to upload ${tgz_name} to sandbox ${NEMOCLAW_SANDBOX_NAME}"
+    return 1
+  fi
 
   # --dangerously-force-unsafe-install: the plugin's index.ts uses child_process (npx skills add agent-browser,
   # systemctl daemon-reload), which OpenClaw's install-time scanner flags. We trust this first-party plugin.
   install_cmd="OPENCLAW_PLUGIN_VARIANT=${OPENCLAW_PLUGIN_VARIANT} openclaw plugins install ${remote_tgz} --force --dangerously-force-unsafe-install"
   log "Installing plugin via: ${install_cmd}"
-  sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "su - sandbox -c '${install_cmd}' && rm -f '${remote_tgz}'"
+  if ! sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
+      "su - sandbox -c '${install_cmd}' && rm -f '${remote_tgz}'"; then
+    log "ERROR: openclaw plugins install failed for ${tgz_name}"
+    return 1
+  fi
 
-  rm -f "${tgz_path}"
   log "VSS OpenClaw plugin installed"
 }
 
