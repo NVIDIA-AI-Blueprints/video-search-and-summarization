@@ -268,7 +268,7 @@ apply_vss_policy() {
 }
 
 install_vss_openclaw_plugin() {
-  local plugin_dir tgz_name tgz_path container_name remote_tgz install_cmd
+  local plugin_dir tgz_name tgz_path container_name remote_tgz
   plugin_dir="${OPENCLAW_PLUGIN_DIR}"
 
   if [ ! -f "${plugin_dir}/package.json" ]; then
@@ -321,10 +321,11 @@ install_vss_openclaw_plugin() {
 
   # --dangerously-force-unsafe-install: the plugin's index.ts uses child_process (npx skills add agent-browser,
   # systemctl daemon-reload), which OpenClaw's install-time scanner flags. We trust this first-party plugin.
-  install_cmd="OPENCLAW_PLUGIN_VARIANT=${OPENCLAW_PLUGIN_VARIANT} openclaw plugins install ${remote_tgz} --force --dangerously-force-unsafe-install"
-  log "Installing plugin via: ${install_cmd}"
-  if ! sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-      "su - sandbox -c '${install_cmd}' && rm -f '${remote_tgz}'"; then
+  # Pass variant and tarball path as positional args so neither value is re-parsed by any shell layer.
+  log "Installing VSS OpenClaw plugin ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME} (variant=${OPENCLAW_PLUGIN_VARIANT})"
+  if ! sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- \
+      sh -lc 'variant=$1; tarball=$2; su - sandbox -c "OPENCLAW_PLUGIN_VARIANT=\"\$1\" openclaw plugins install \"\$2\" --force --dangerously-force-unsafe-install" sandbox-install "$variant" "$tarball" && rm -f "$tarball"' \
+      sandbox-install "${OPENCLAW_PLUGIN_VARIANT}" "${remote_tgz}"; then
     log "ERROR: openclaw plugins install failed for ${tgz_name}"
     return 1
   fi
