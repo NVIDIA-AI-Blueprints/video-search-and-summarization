@@ -110,21 +110,21 @@ Layout (asset paths, ownership, mount points, profile-specific subdirs) is docum
 >
 > This is "good housekeeping" to a shell-admin instinct but is **the** deploy-breaking command in this stack. You will observe a "healthy" deploy (containers Up, endpoints 200) while the video pipeline is silently broken. Use `chmod -R 777` on the specific subdirs documented in `data-directory.md` — nothing else.
 
-### Step 1c — If deploying on Brev, set up secure-link env vars
+### Step 1c — If deploying on Brev, set `EXTERNAL_IP` to the secure-link domain
 
 On a Brev-managed instance, VSS is accessed from the browser via a Cloudflare-fronted secure link that tunnels to an nginx proxy on port 7777. The proxy consolidates UI + Agent API + VST behind one origin (CORS-safe).
 
-Source the helper **before** `docker compose up`:
+Before deploy, read `BREV_ENV_ID` from `/etc/environment` and write `EXTERNAL_IP` into `dev-profile-<profile>/.env`:
 
 ```bash
-source skills/deploy/scripts/brev_setup.sh
+brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
+sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=77770-${brev_env_id}.brevlab.com|" \
+  deploy/docker/developer-profiles/dev-profile-<profile>/.env
 ```
 
-It detects `/etc/environment`'s `BREV_ENV_ID` and exports `PROXY_PORT=7777` and `BREV_LINK_PREFIX=77770` (launchable default; override with `BREV_LINK_PREFIX=7777` if the secure link was created manually without the `0` suffix). On non-Brev instances the script is a no-op.
+The profile `.env` derives `VSS_PUBLIC_HOST=${EXTERNAL_IP}` and feeds that to haproxy + the agent's external URLs (see [Step 1 callout](#step-1--gather-context)). Leaving `EXTERNAL_IP=${HOST_IP}` makes report URLs and VST playback links unreachable from the browser even though haproxy is up — the most common Brev-deploy footgun.
 
-> **Set `EXTERNAL_IP` to the Brev secure-link domain** in `dev-profile-<profile>/.env`. The profile `.env` derives `VSS_PUBLIC_HOST=${EXTERNAL_IP}` and feeds that to haproxy + the agent's external URLs (see [Step 1 callout](#step-1--gather-context)). For a launchable-created link on port 7777, that's `EXTERNAL_IP=${BREV_LINK_PREFIX}-${BREV_ENV_ID}.brevlab.com` (e.g. `77770-<id>.brevlab.com`). Leaving `EXTERNAL_IP=${HOST_IP}` makes report URLs and VST playback links unreachable from the browser even though haproxy is up — the most common Brev-deploy footgun.
-
-See [`references/brev.md`](references/brev.md) for per-profile secure-link requirements, the launchable `0`-suffix quirk, and common CORS / 502 troubleshooting.
+See [`references/brev.md`](references/brev.md) for per-profile secure-link requirements and troubleshooting (manually-created links, CORS, 502s).
 
 ### Step 2 — Build env_overrides
 
