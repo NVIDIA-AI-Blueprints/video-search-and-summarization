@@ -29,8 +29,8 @@ services:
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}.env
-      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - qwen3_vl_8b_instruct_cache:/opt/nim/.cache
     user: "${UID:-1000}:${GID:-1000}"
@@ -65,8 +65,8 @@ services:
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}-shared.env
-      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/qwen3-vl-8b-instruct/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - qwen3_vl_8b_instruct_cache:/opt/nim/.cache
     user: "${UID:-1000}:${GID:-1000}"

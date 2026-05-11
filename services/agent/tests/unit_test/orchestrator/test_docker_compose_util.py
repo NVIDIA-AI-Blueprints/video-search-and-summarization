@@ -139,7 +139,6 @@ class TestFirstNonPlaceholder:
                 "${HOST_IP}",
                 "http://${HOST_IP}:30888",
                 "/path/to/deploy/docker",
-                "/path/to/deployments",
                 "10.0.0.5",
             ]
         )
@@ -249,7 +248,7 @@ class TestBuildResolvedEnv:
                 "VLM_MODE=local_shared",
                 "VLM_NAME=vlm-a",
                 "HOST_IP=<HOST_IP>",
-                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+                "VSS_APPS_DIR=/path/to/deploy/docker",
                 "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}",
                 "NGC_CLI_API_KEY=",  # pragma: allowlist secret
                 "NVIDIA_API_KEY=",  # pragma: allowlist secret
@@ -277,8 +276,8 @@ class TestBuildResolvedEnv:
         assert resolved["HOST_IP"] == "10.0.0.5"
         assert resolved["EXTERNALLY_ACCESSIBLE_IP"] == "44.55.66.77"
         assert resolved["EXTERNAL_IP"] == "44.55.66.77"
-        assert resolved["MDX_SAMPLE_APPS_DIR"] == str(recipe.deployments_dir)
-        assert resolved["MDX_DATA_DIR"] == str(recipe.mdx_data_dir)
+        assert resolved["VSS_APPS_DIR"] == str(recipe.deployments_dir)
+        assert resolved["VSS_DATA_DIR"] == str(recipe.mdx_data_dir)
         assert resolved["NGC_CLI_API_KEY"] == "ngc-from-config"  # pragma: allowlist secret
         assert resolved["NVIDIA_API_KEY"] == "nvidia-from-config"  # pragma: allowlist secret
         assert resolved["LLM_NAME_SLUG"] == "llm-a-slug"
@@ -305,7 +304,7 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
-                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+                "VSS_APPS_DIR=/path/to/deploy/docker",
             ),
             hardware_profile="thor",
         )
@@ -332,7 +331,7 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
-                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+                "VSS_APPS_DIR=/path/to/deploy/docker",
             ),
             profile=dcu.PROFILE_SEARCH,
             env_overrides={"HARDWARE_PROFILE": "igx"},
@@ -361,11 +360,11 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
-                "MDX_SAMPLE_APPS_DIR=/already/set",
+                "VSS_APPS_DIR=/already/set",
                 "NGC_CLI_API_KEY=from-file",  # pragma: allowlist secret
                 "NVIDIA_API_KEY=from-file",  # pragma: allowlist secret
             ),
-            env_overrides={"MDX_DATA_DIR": "/override/data"},
+            env_overrides={"VSS_DATA_DIR": "/override/data"},
             ngc_cli_api_key="from-recipe-ngc",  # pragma: allowlist secret
             nvidia_api_key="from-recipe-nvidia",  # pragma: allowlist secret
         )
@@ -380,8 +379,8 @@ class TestBuildResolvedEnv:
         assert resolved["HOST_IP"] == "10.0.0.8"
         assert resolved["EXTERNALLY_ACCESSIBLE_IP"] == "198.51.100.5"
         assert "EXTERNAL_IP" in resolved
-        assert resolved["MDX_SAMPLE_APPS_DIR"] == "/already/set"
-        assert resolved["MDX_DATA_DIR"] == "/override/data"
+        assert resolved["VSS_APPS_DIR"] == "/already/set"
+        assert resolved["VSS_DATA_DIR"] == "/override/data"
         assert resolved["NGC_CLI_API_KEY"] == "from-recipe-ngc"  # pragma: allowlist secret
         assert resolved["NVIDIA_API_KEY"] == "from-recipe-nvidia"  # pragma: allowlist secret
 
@@ -401,7 +400,7 @@ class TestBuildResolvedEnv:
                 "VLM_NAME=vlm-a",
                 "HOST_IP=10.0.0.8",
                 "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
-                "MDX_SAMPLE_APPS_DIR=/path/to/deploy/docker",
+                "VSS_APPS_DIR=/path/to/deploy/docker",
                 "NGC_CLI_API_KEY=from-file",  # pragma: allowlist secret
                 "NVIDIA_API_KEY=from-file",  # pragma: allowlist secret
             ),

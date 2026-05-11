@@ -436,8 +436,8 @@ def generate_solve_script(
 
     overrides: dict[str, str] = {
         "HARDWARE_PROFILE": platform,
-        "MDX_SAMPLE_APPS_DIR": "$REPO/deployments",
-        "MDX_DATA_DIR": "$REPO/data",
+        "VSS_APPS_DIR": "$REPO/deployments",
+        "VSS_DATA_DIR": "$REPO/data",
         "HOST_IP": "$(hostname -I | awk '{print $1}')",
         "LLM_MODE": mode_spec["llm_mode"],
         "VLM_MODE": mode_spec["vlm_mode"],

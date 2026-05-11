@@ -78,7 +78,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_LOG_DIR:-/dummy}${RTVI_EMBED_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
-      - ${MDX_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
+      - ${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
       - rtvi-triton-model-repo:/tmp/triton_model_repo
 
     ulimits:

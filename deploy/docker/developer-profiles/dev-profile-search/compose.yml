@@ -18,8 +18,8 @@ include:
 services:
   kibana-init-container-search:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search
-      dockerfile: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/Dockerfiles/kibana-dashboard.Dockerfile
+      context: $VSS_APPS_DIR/developer-profiles/dev-profile-search
+      dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-search/Dockerfiles/kibana-dashboard.Dockerfile
       network: "host"
     network_mode: "host"
     profiles: ["bp_developer_search_2d"]

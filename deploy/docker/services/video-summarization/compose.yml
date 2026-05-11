@@ -20,7 +20,7 @@ services:
     network_mode: "host"
     profiles: ["bp_developer_lvs_2d"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/infra/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
+      - $VSS_APPS_DIR/services/infra/kafka/init-scripts/create-kafka-topics.sh:/usr/bin/create-kafka-topics.sh
     environment:
       DEFAULT_PARTITIONS: "8"
       DEFAULT_RETENTION_MS: "14400000"
@@ -85,9 +85,9 @@ services:
       # Bind mounts: editing any of these files on the host takes effect
       # without an image rebuild. `config.reload.automatic: true` in
       # logstash.yml hot-reloads pipeline changes within 10s.
-      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
-      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/logstash/pipeline:/usr/share/logstash/pipeline:ro
-      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/logstash/pb_definitions:/etc/logstash/pb_definitions:ro
+      - $VSS_APPS_DIR/services/video-summarization/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - $VSS_APPS_DIR/services/video-summarization/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - $VSS_APPS_DIR/services/video-summarization/logstash/pb_definitions:/etc/logstash/pb_definitions:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9600 || exit 1"]
       interval: 30s
@@ -114,7 +114,7 @@ services:
     # Volume mounts
     volumes:
       # Mount config.yaml and set CA_RAG_CONFIG_PATH to this location
-      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
+      - $VSS_APPS_DIR/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
       # Optional: Mount model cache directory if MODEL_ROOT_DIR is set
       - ${MODEL_ROOT_DIR:-/tmp/model_cache}:${MODEL_ROOT_DIR:-/tmp/model_cache}
 
@@ -189,7 +189,7 @@ services:
 
     # Alternative: Load all variables from .env file
     env_file:
-      - $MDX_SAMPLE_APPS_DIR/services/video-summarization/.env
+      - $VSS_APPS_DIR/services/video-summarization/.env
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT:-38111}/v1/ready"]

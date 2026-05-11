@@ -102,7 +102,7 @@ services:
     volumes:
       - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
       - "${RTVI_VLM_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
-      - ${MDX_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
+      - ${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_VLM_LOG_DIR:-/dummy}${RTVI_VLM_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
 

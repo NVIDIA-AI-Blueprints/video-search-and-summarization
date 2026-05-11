@@ -19,7 +19,7 @@ rtviCv:
 
   models:
     # Host directory mounted at /opt/storage (read-write). Meaning depends on rtviCv.warehouse.mode:
-    #   2d — MTMC / warehouse 2D model tree (Compose: MDX_DATA_DIR/models/mtmc/)
+    #   2d — MTMC / warehouse 2D model tree (Compose: VSS_DATA_DIR/models/mtmc/)
     #   3d — same directory (or PVC) holds ONNX + NPY + TensorRT engines (e.g. model.engine); same as Compose.
     path: ""
     # Optional: existing PVC at /opt/storage instead of host path (2d or 3d). 3d: ONNX/NPY use pvc*SubPath keys.

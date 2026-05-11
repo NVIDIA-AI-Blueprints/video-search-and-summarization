@@ -247,7 +247,7 @@ services:
     ports:
       - ${LLM_PORT:-30081}:8000
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/<slug>/hw-${HARDWARE_PROFILE}.env
+      - ${VSS_APPS_DIR}/services/nim/<slug>/hw-${HARDWARE_PROFILE}.env
     deploy:
       resources:
         reservations:
@@ -265,7 +265,7 @@ services:
     profiles:
       - llm_local_shared_<slug>
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/<slug>/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VSS_APPS_DIR}/services/nim/<slug>/hw-${HARDWARE_PROFILE}-shared.env
     deploy:
       resources:
         reservations:
@@ -305,8 +305,8 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "MDX_SAMPLE_APPS_DIR": "<repo>/deployments",
-  "MDX_DATA_DIR": "<repo>/data",
+  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>"
 }
@@ -321,8 +321,8 @@ If you're unsure what fits, deploy `remote-all` (both LLM and VLM at remote endp
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "MDX_SAMPLE_APPS_DIR": "<repo>/deployments",
-  "MDX_DATA_DIR": "<repo>/data",
+  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
   "LLM_MODE": "remote",
@@ -341,8 +341,8 @@ silently breaks `COMPOSE_PROFILES`.
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "MDX_SAMPLE_APPS_DIR": "<repo>/deployments",
-  "MDX_DATA_DIR": "<repo>/data",
+  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "LLM_MODE": "remote",
   "LLM_BASE_URL": "<llm-endpoint-from-user>",
@@ -373,8 +373,8 @@ template placeholder — re-run the `sed` with the correct value.
 ```json
 {
   "HARDWARE_PROFILE": "<detected>",
-  "MDX_SAMPLE_APPS_DIR": "<repo>/deployments",
-  "MDX_DATA_DIR": "<repo>/data",
+  "VSS_APPS_DIR": "<repo>/deployments",
+  "VSS_DATA_DIR": "<repo>/data",
   "HOST_IP": "<detected>",
   "NGC_CLI_API_KEY": "<from env>",
   "LLM_MODE": "local",
@@ -438,7 +438,7 @@ Common failure modes and what they mean for base:
 |---|---|
 | `POST /api/v1/videos` HTTP 500 | Agent not finished starting — poll `/health` longer |
 | VST `sensor/streams` stays empty | VST container unhealthy — check `docker logs vst-ingress-dev` |
-| VST returns empty `sensor/streams` but VST container is healthy | `centralizedb-dev` (postgres) can't read PGDATA because `$MDX_DATA_DIR` was `chown`ed to ubuntu. See [SKILL.md § Step 1b](../SKILL.md#step-1b--prepare-the-data-directory) — use `chmod -R 777`, not `chown`. Fix: `sudo rm -rf $MDX_DATA_DIR/data_log/vst/postgres && redeploy` (postgres re-initializes on start) |
+| VST returns empty `sensor/streams` but VST container is healthy | `centralizedb-dev` (postgres) can't read PGDATA because `$VSS_DATA_DIR` was `chown`ed to ubuntu. See [SKILL.md § Step 1b](../SKILL.md#step-1b--prepare-the-data-directory) — use `chmod -R 777`, not `chown`. Fix: `sudo rm -rf $VSS_DATA_DIR/data_log/vst/postgres && redeploy` (postgres re-initializes on start) |
 | WebSocket query returns `error_message` | LLM or VLM NIM not healthy — `docker logs nvidia-nemotron-nano-9b-v2-shared-gpu` / `cosmos-reason2-8b-shared-gpu` |
 | HITL prompt never arrives | `vss-agent` misconfigured HITL config — check `config.yml` |
 | Empty report | VLM unreachable from inside `vss-agent` container — check `VLM_BASE_URL` in resolved compose env |

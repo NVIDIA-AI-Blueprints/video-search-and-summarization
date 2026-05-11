@@ -38,8 +38,8 @@ services:
     
     # Volume mounts
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/auto-calibration/projects:/home/auto-calibration-ms/server/projects
-      - $MDX_DATA_DIR/auto-calib/vggt:/tmp/vggt_model:ro
+      - $VSS_APPS_DIR/services/auto-calibration/projects:/home/auto-calibration-ms/server/projects
+      - $VSS_DATA_DIR/auto-calib/vggt:/tmp/vggt_model:ro
     
     # Working directory inside container
     working_dir: /home/auto-calibration-ms/server
