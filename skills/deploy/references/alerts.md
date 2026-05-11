@@ -221,14 +221,14 @@ deploy/docker/developer-profiles/dev-profile-alerts/.env
 
 Real-time mode (`MODE=2d_vlm`) doesn't deploy RT-CV and skips this entirely.
 
-Symptom if skipped (verification mode): RT-CV starts but its TensorRT engine build fails because the ONNX detector files are missing under `${MDX_DATA_DIR}/models/`.
+Symptom if skipped (verification mode): RT-CV starts but its TensorRT engine build fails because the ONNX detector files are missing under `${VSS_DATA_DIR}/models/`.
 
 ```bash
 # Source: deploy/docker/scripts/dev-profile.sh (alerts profile, model staging block).
 # Requires NGC_CLI_API_KEY exported and ngc CLI on PATH (see references/ngc.md).
 
-DATA="$MDX_DATA_DIR"                                     # e.g. <repo>/data
-APPS="$MDX_SAMPLE_APPS_DIR"                              # e.g. <repo>/deploy/docker
+DATA="$VSS_DATA_DIR"                                     # e.g. <repo>/data
+APPS="$VSS_APPS_DIR"                              # e.g. <repo>/deploy/docker
 
 # Profile-specific dirs
 mkdir -p \
@@ -266,12 +266,12 @@ chmod -R 777 "$DATA/models"
 **Verify** before deploying:
 
 ```bash
-ls -l "$MDX_DATA_DIR/models/rtdetr-its/model_epoch_035.fp16.onnx" \
-      "$MDX_DATA_DIR/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+ls -l "$VSS_DATA_DIR/models/rtdetr-its/model_epoch_035.fp16.onnx" \
+      "$VSS_DATA_DIR/models/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
 # expected: both files present, mode 777
 ```
 
-After RT-CV starts, it builds TensorRT engines from these ONNX files (3–5 min on first start), cached under `$MDX_SAMPLE_APPS_DIR/engines/`.
+After RT-CV starts, it builds TensorRT engines from these ONNX files (3–5 min on first start), cached under `$VSS_APPS_DIR/engines/`.
 
 ## First-run note
 

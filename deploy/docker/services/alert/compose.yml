@@ -36,7 +36,7 @@ services:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
       - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE:-/path/to/alert_type_config.json}:/app/alert_type_config.json:ro
-      - $MDX_SAMPLE_APPS_DIR/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
+      - $VSS_APPS_DIR/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
     tmpfs:
       - /app/runtime:mode=1777,size=10M
     depends_on:
