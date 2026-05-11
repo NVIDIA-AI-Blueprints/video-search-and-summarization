@@ -3,7 +3,7 @@
 How to deploy VSS on a Brev GPU instance so the UI and API are reachable
 from a browser via Brev **secure links** (a Cloudflare-fronted reverse proxy).
 
-This reference derives from `scripts/deploy_vss_launchable.ipynb`, which is the
+This reference derives from `deploy/docker/scripts/deploy_vss_launchable.ipynb`, which is the
 interactive reference implementation.
 
 ## When this applies
