@@ -43,7 +43,7 @@ services:
               - "${LLM_DEVICE_ID:-0}"
     restart: always
     healthcheck:
-      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $elapsed"; elapsed=$((elapsed + 5)); if [ $elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
       timeout: 650s
       retries: 2
@@ -76,7 +76,7 @@ services:
               - "${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"
     restart: always
     healthcheck:
-      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $elapsed"; elapsed=$((elapsed + 5)); if [ $elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
       timeout: 650s
       retries: 2
