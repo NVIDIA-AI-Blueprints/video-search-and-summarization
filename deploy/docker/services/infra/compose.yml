@@ -145,7 +145,9 @@ services:
         {"name": "mdx-vlm-incidents"},
         {"name": "mdx-vlm"},
         {"name": "mdx-embed"},
-        {"name": "mdx-embed-filtered"}]'
+        {"name": "mdx-embed-filtered"},
+        {"name": "${KAFKA_RAW_VLM_TOPIC:-raw-vlm-events-response}"},
+        {"name": "${KAFKA_STRUCTURED_SUMMARY_TOPIC:-structured-events-summary}"}]'
     depends_on:
       kafka:
         condition: service_healthy
@@ -184,15 +186,16 @@ services:
   logstash:
     image: docker.elastic.co/logstash/logstash:9.3.3
     network_mode: "host"
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     volumes:
       - mdx-logstash-libs:/opt/logstash-data-libs
       - $VSS_APPS_DIR/services/infra/elk/pb_definitions/ruby/ext_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/ext_pb.rb
       - $VSS_APPS_DIR/services/infra/elk/pb_definitions/ruby/schema_pb.rb:/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb
       - $VSS_APPS_DIR/services/infra/elk/pb_definitions/descriptors/ext.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/ext.desc
       - $VSS_APPS_DIR/services/infra/elk/pb_definitions/descriptors/schema.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/schema.desc
-      - $VSS_APPS_DIR/services/infra/elk/configs/logstash.yml:/usr/share/logstash/config/logstash.yml
-      - $VSS_APPS_DIR/services/infra/elk/configs/mdx-${STREAM_TYPE}-logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ${LOGSTASH_CONFIG_FILE:-$VSS_APPS_DIR/services/infra/elk/configs/logstash.yml}:/usr/share/logstash/config/logstash.yml:ro
+      - ${LOGSTASH_PIPELINE_FILE:-$VSS_APPS_DIR/services/infra/elk/configs/mdx-${STREAM_TYPE}-logstash.conf}:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ${LOGSTASH_PROTOBUF_DIR:-$VSS_APPS_DIR/services/infra/elk/pb_definitions/ruby}:/etc/logstash/pb_definitions:ro
       - $VSS_APPS_DIR/services/infra/elk/gems/logstash-input-redis_stream-3.1.0-java.gem:/usr/share/logstash/gems/logstash-redis-stream-input-java.gem
     environment:
       LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
@@ -250,7 +253,9 @@ services:
         {"name": "mdx-vlm-incidents"},
         {"name": "mdx-vlm"},
         {"name": "mdx-embed"},
-        {"name": "mdx-embed-filtered"}]'
+        {"name": "mdx-embed-filtered"},
+        {"name": "${KAFKA_RAW_VLM_TOPIC:-raw-vlm-events-response}"},
+        {"name": "${KAFKA_STRUCTURED_SUMMARY_TOPIC:-structured-events-summary}"}]'
     container_name: vss-broker-health-check
     restart: "no"
 
