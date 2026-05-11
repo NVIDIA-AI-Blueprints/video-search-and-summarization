@@ -185,6 +185,13 @@ rtvi_vlm:
   rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
   pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
   health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
+  # Rollback switch for the realtime-rules persistence + replay feature.
+  # When false, POST/DELETE on /api/v1/realtime do not write to
+  # Elasticsearch and POST /api/v1/realtime/replay returns 501.
+  # Independent of `persistence.enabled`: the global flag turns the whole
+  # persistence layer (alert configs, prompts, realtime) off, while this
+  # one only disables the realtime-rules path.
+  enable_realtime_persistence: true
 
 # WebSocket Configuration - Real-time alert broadcasting
 websocket:
