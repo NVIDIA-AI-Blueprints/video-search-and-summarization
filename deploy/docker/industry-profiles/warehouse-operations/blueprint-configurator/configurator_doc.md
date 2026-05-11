@@ -70,8 +70,8 @@ The following environment variables are typically used in file operations:
 
 - **`DS_CONFIG_DIR`**: DeepStream configuration directory (e.g., `/opt/deepstream/configs`)
 - **`VST_CONFIG_DIR`**: VST configuration directory (e.g., `/opt/vst/configs`)
-- **`MDX_DATA_DIR`**: MDX data directory (e.g., `/opt/mdx/data`)
-- **`MDX_SAMPLE_APPS_DIR`**: MDX sample applications directory (e.g., `/opt/mdx/apps`)
+- **`VSS_DATA_DIR`**: VSS data directory (e.g., `/opt/vss/data`)
+- **`VSS_APPS_DIR`**: VSS applications directory (e.g., `/opt/vss/apps`)
 - **`NUM_STREAMS`**: Desired number of concurrent streams (user-defined)
 
 ---
@@ -190,7 +190,7 @@ commons:
     2d:
       - operation_type: "file_management"
         target_directories:
-          - "${MDX_DATA_DIR}/videos/warehouse-2d-app"
+          - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
         file_management:
           action: "keep_count"
           parameters:
@@ -494,8 +494,8 @@ batched-push-timeout=50000
 ```yaml
 - operation_type: "file_management"
   target_directories:
-    - "${MDX_DATA_DIR}/videos/warehouse-2d-app"
-    - "${MDX_DATA_DIR}/videos/backup"
+    - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+    - "${VSS_DATA_DIR}/videos/backup"
   file_management:
     action: "keep_count"
     parameters:
@@ -1378,8 +1378,8 @@ The following environment variables are typically available and used in configur
 | `NUM_STREAMS` | Desired number of streams (user input) | `4`, `8`, `16` |
 | `DS_CONFIG_DIR` | DeepStream config directory | `/opt/deepstream/configs` |
 | `VST_CONFIG_DIR` | VST config directory | `/opt/vst/configs` |
-| `MDX_DATA_DIR` | MDX data directory | `/opt/mdx/data` |
-| `MDX_SAMPLE_APPS_DIR` | MDX sample apps directory | `/opt/mdx/apps` |
+| `VSS_DATA_DIR` | VSS data directory | `/opt/vss/data` |
+| `VSS_APPS_DIR` | VSS applications directory | `/opt/vss/apps` |
 
 ### Using Environment Variables
 
@@ -1539,7 +1539,7 @@ IGX-THOR:
           batched-push-timeout: "50000"
       
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/services/vios/configs/vst_config_kafka.json"
+        target_file: "${VSS_APPS_DIR}/services/vios/configs/vst_config_kafka.json"
         updates:
           overlay.enable_overlay_skip_frame: true
 ```

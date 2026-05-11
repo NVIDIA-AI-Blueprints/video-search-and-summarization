@@ -17,11 +17,11 @@ services:
 
   vss-behavior-analytics-alerts:
     extends:
-      file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
     profiles: ["bp_developer_alerts_2d_cv"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
     command: python3 apps/dev_example/main_dev_example_app.py --config /resources/vss-behavior-analytics-config.json
 
@@ -41,24 +41,24 @@ services:
         max_attempts: 2
     container_name: vss-vios-nvstreamer
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $MDX_DATA_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
-      - $MDX_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
-      - $MDX_SAMPLE_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - $VSS_DATA_DIR/videos/dev-profile-alerts:/home/vst/vst_release/streamer_videos
+      - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
+      - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
 
   perception-sdr-alerts:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception-sdr
     profiles: ["bp_developer_alerts_2d_cv"]
     container_name: vss-rtvi-cv-sdr
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-data
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-data
     environment:
       WDM_INITIALIZE_FROM_VST: true
       WDM_KFK_ENABLE: false
@@ -71,14 +71,14 @@ services:
 
   perception-alerts:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
     profiles: ["bp_developer_alerts_2d_cv"]
     container_name: vss-rtvi-cv
     volumes:
-      - $MDX_DATA_DIR/models/:/opt/storage/
-      - $MDX_SAMPLE_APPS_DIR/engines/:/opt/engines/
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/engines/:/opt/engines/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
 
     environment:
       MODEL_TYPE: ${MODEL_TYPE}
@@ -98,8 +98,8 @@ services:
 
   kibana-init-container-alerts:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts
-      dockerfile: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
+      context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts
+      dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
     network_mode: "host"
     profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     container_name: vss-kibana-init
@@ -110,13 +110,13 @@ services:
 
   vss-video-analytics-api-alerts:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/compose.yml
+      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
     profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     container_name: vss-video-analytics-api
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+      - $VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+      - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
 
 volumes:
   mdx-nvstreamer-data:

@@ -28,8 +28,8 @@ services:
       NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
       VLM_NIM_KVCACHE_PERCENT: "${VLM_NIM_KVCACHE_PERCENT}"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/cosmos-reason2-8b/hw-${HARDWARE_PROFILE}.env
-      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/cosmos-reason2-8b/hw-${HARDWARE_PROFILE}.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - cosmos_reason2_8b_cache:/opt/nim/.cache
       - type: bind
@@ -67,8 +67,8 @@ services:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
       NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/cosmos-reason2-8b/hw-${HARDWARE_PROFILE}-shared.env
-      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/cosmos-reason2-8b/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - cosmos_reason2_8b_cache:/opt/nim/.cache
       - type: bind
