@@ -276,13 +276,13 @@ deploy/docker/developer-profiles/dev-profile-search/.env
 
 **MUST run before `docker compose -f resolved.yml up -d`.** The compose's `perception-2d-init` container only fetches the SigLIP vision encoder. The RT-DETR detector model that RT-CV needs is staged separately by `dev-profile.sh` — and since this skill doesn't run that script, the agent must stage it directly.
 
-Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${MDX_DATA_DIR}/models/rtdetr_warehouse_v1.0.1.fp16.onnx` is missing. (User-confirmed on 2026-05-10.)
+Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${VSS_DATA_DIR}/models/rtdetr_warehouse_v1.0.1.fp16.onnx` is missing. (User-confirmed on 2026-05-10.)
 
 ```bash
 # Source: deploy/docker/scripts/dev-profile.sh (search profile, model staging block)
 # Requires NGC_CLI_API_KEY exported and ngc CLI on PATH (see references/ngc.md).
 
-DATA="$MDX_DATA_DIR"                                     # e.g. <repo>/data
+DATA="$VSS_DATA_DIR"                                     # e.g. <repo>/data
 mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/models"
 
 NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
@@ -300,7 +300,7 @@ chmod -R 777 "$DATA/models"
 **Verify** before deploying:
 
 ```bash
-ls -l "$MDX_DATA_DIR/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
+ls -l "$VSS_DATA_DIR/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
 # expected: ~30–50 MB onnx file, mode 777
 ```
 

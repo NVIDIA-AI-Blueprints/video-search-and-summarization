@@ -4,7 +4,7 @@ Shared DeepStream perception stack used across all blueprints: the published `vs
 
 ## Running Standalone
 
-Blueprint compose files still expect `MDX_SAMPLE_APPS_DIR` to be the **`deployments` root** (so paths like `$MDX_SAMPLE_APPS_DIR/developer-profiles/...` resolve). The `rtvi/rtvi-cv/compose.yaml` bind mount for `ds-start.sh` is **`./ds-start.sh`** relative to that file, so it does not use `MDX_SAMPLE_APPS_DIR` and cannot double up when your env points at `.../rtvi/rtvi-cv`.
+Blueprint compose files still expect `VSS_APPS_DIR` to be the **`deployments` root** (so paths like `$VSS_APPS_DIR/developer-profiles/...` resolve). The `rtvi/rtvi-cv/compose.yaml` bind mount for `ds-start.sh` is **`./ds-start.sh`** relative to that file, so it does not use `VSS_APPS_DIR` and cannot double up when your env points at `.../rtvi/rtvi-cv`.
 
 Standalone smoke test:
 
@@ -37,12 +37,12 @@ Blueprints use `extends` on `compose.yaml` and add blueprint-specific volumes an
 services:
   perception-2d:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/rtvi/rtvi-cv/compose.yaml
+      file: $VSS_APPS_DIR/rtvi/rtvi-cv/compose.yaml
       service: perception
     profiles: ["my_profile"]
     container_name: vss-rtvi-cv
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/my-blueprint/deepstream/configs/ds-main-config.txt:/opt/.../ds-main-config.txt
+      - $VSS_APPS_DIR/my-blueprint/deepstream/configs/ds-main-config.txt:/opt/.../ds-main-config.txt
     environment:
       DS_MODEL_FAMILY: rtdetr-warehouse
 ```
