@@ -67,9 +67,11 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      sdr-streamprocessing:
-        condition: service_started
-      envoy-streamprocessing:
+      # sdr-streamprocessing:
+      #   condition: service_started
+      # envoy-streamprocessing:
+      #   condition: service_started
+      sdr-controller:
         condition: service_started
 
   sensor-ms-2d:
@@ -111,9 +113,11 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      sdr-streamprocessing:
-        condition: service_started
-      envoy-streamprocessing:
+      # sdr-streamprocessing:
+      #   condition: service_started
+      # envoy-streamprocessing:
+      #   condition: service_started
+      sdr-controller:
         condition: service_started
 
   sensor-ms-3d:
@@ -154,7 +158,9 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      sdr-streamprocessing:
-        condition: service_started
-      envoy-streamprocessing:
+      # sdr-streamprocessing:
+      #   condition: service_started
+      # envoy-streamprocessing:
+      #   condition: service_started
+      sdr-controller:
         condition: service_started

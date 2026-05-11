@@ -1,0 +1,44 @@
+docker-workload:
+  wl_obj_name: vss-vios-streamprocessing-1
+  port: 4003
+  enable: true
+  WDM_CONSUMER_GRP_ID: sdr-streamprocessing-vios-cg
+  WDM_REDIS_CACHE_OBJECT: streamprocessing-data
+  WDM_XDS_USE_POD_DNS: false
+  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_REDIS_MSG_KEY: vst.event
+#  WDM_REAPPLY_ON_WL_RESTART: true
+  WDM_CLUSTER_TYPE: docker
+  WDM_CLUSTER_CONTAINER_NAMES: '["vss-vios-streamprocessing-1"]'
+  WDM_KFK_BOOTSTRAP_URL: "10.86.13.158:29092"
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: 10.86.13.158
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_WL_ADD_URL: /api/v1/proxy/stream/add
+  WDM_WL_DELETE_URL: /api/v1/proxy/stream/
+  WDM_WL_CHANGE_ID_ADD: camera_proxy
+  WDM_WL_CHANGE_ID_DEL: camera_remove
+  WDM_WL_HEALTH_CHECK_URL: /api/v1/proxy/configuration
+  WDM_WL_THRESHOLD: 3
+  WDM_CONTROLLER_REPROVISION: true
+  WDM_RESET_ON_WLOBJ_CRASH: false
+  WDM_CLEAR_DATA_WL: true
+  WDM_KFK_ENABLE: false
+  WDM_MSG_TOPIC: vst_events
+  WDM_DS_SWAP_ID_NAME: false
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 50 
+  WDM_DISABLE_WERKZEUG_LOGGING: true
+  WDM_WL_OBJECT_NAME: vss-vios-streamprocessing-1
+  VST_STREAMS_ENDPOINT: http://localhost:30000/api/v1/sensor/streams
+  VST_STATUS_ENDPOINT: http://localhost:30000/api/v1/sensor/status
+  OTEL_SDK_DISABLED: true
+  OTEL_SERVICE_NAME: SDR_AGENT
+  WDM_WL_NAME_IGNORE_REGEX: ""
+  WDM_TARGET_PORT_MAPPING: "{\"vss-vios-streamprocessing-1\": 30001}"
+  ENVOY_ROUTE_HEADER: "streamid"
+  WDM_MS_LISTENER_PORT: 10000
+  NOHEADERTARGETROUTE: true
+  HEADERLESS_SERVICE_ENDPOINTS: "[\"10.86.13.158:30001\", \"10.86.13.158:30002\"]"
+  WDM_WL_REDIS_MSG_FIELD: sensor.id
+  WDM_MSG_KEY: vst_events
+  REDIS_MSG_KEY: vst.event

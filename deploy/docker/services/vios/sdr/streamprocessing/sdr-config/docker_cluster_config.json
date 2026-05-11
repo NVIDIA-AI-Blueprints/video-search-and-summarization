@@ -1,6 +1,6 @@
 {
-  "streamprocessing-ms-1": {
-    "provisioning_address": "localhost:30001",
+  "vss-vios-streamprocessing-1": {
+    "provisioning_address": "10.86.13.158:30001",
     "process_type": "docker"
   }
 }
