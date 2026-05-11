@@ -1019,8 +1019,8 @@ function state_up() {
   }
 
   # Set the required environment variables
-  set_env_var "MDX_SAMPLE_APPS_DIR" "${deployment_directory}"
-  set_env_var "MDX_DATA_DIR" "${data_directory}"
+  set_env_var "VSS_APPS_DIR" "${deployment_directory}"
+  set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
   if [[ -n "${external_ip}" ]]; then
     set_env_var "EXTERNAL_IP" "${external_ip}"

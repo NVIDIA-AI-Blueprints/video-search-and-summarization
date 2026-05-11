@@ -27,7 +27,7 @@ services:
     network_mode: "host"
     restart: always
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+      - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     depends_on:
       broker-health-check:
         condition: service_completed_successfully

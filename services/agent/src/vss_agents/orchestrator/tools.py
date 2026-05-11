@@ -394,8 +394,8 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     mdx_data_dir: str = Field(
         min_length=1,
         description=(
-            "Absolute path for MDX_DATA_DIR resolved from MCP YAML config. "
-            "Profile .env MDX_DATA_DIR values are ignored."
+            "Absolute path for VSS_DATA_DIR resolved from MCP YAML config. "
+            "Profile .env VSS_DATA_DIR values are ignored."
         ),
     )
     output_dir: str = Field(
@@ -407,7 +407,7 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     )
     mdx_data_directories: tuple[str, ...] = Field(
         ...,
-        description="Relative subdirectories created under MDX_DATA_DIR for all profiles by docker_generate.",
+        description="Relative subdirectories created under VSS_DATA_DIR for all profiles by docker_generate.",
     )
     model_artifacts: dict[str, tuple[ModelArtifactConfig, ...]] = Field(
         ...,
@@ -625,11 +625,11 @@ async def vss_orchestrator(
         if action == ComposeAction.UP.value:
             profile = str(spec.get("profile") or "").strip()
             resolved_env = parse_env_file(env_path)
-            mdx_data_dir = resolved_env.get("MDX_DATA_DIR", "").strip()
+            mdx_data_dir = resolved_env.get("VSS_DATA_DIR", "").strip()
             if not mdx_data_dir:
                 return {
                     "status": ComposeStatus.ERROR.value,
-                    "error": f"MDX_DATA_DIR is missing in generated env file: {env_path}",
+                    "error": f"VSS_DATA_DIR is missing in generated env file: {env_path}",
                 }
             pre_compose_checks.append(
                 PreComposeCheck(
@@ -910,7 +910,7 @@ async def vss_orchestrator(
                 )
                 resolved_env, env_path, compose_path = generate_dry_run_artifacts(dry_run_recipe)
                 ensure_data_directories(
-                    resolved_env["MDX_DATA_DIR"],
+                    resolved_env["VSS_DATA_DIR"],
                     required_subdirectories=configured_mdx_data_directories,
                 )
                 if input.profile == "alerts":

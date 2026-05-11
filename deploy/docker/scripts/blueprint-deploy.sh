@@ -138,7 +138,7 @@ function usage() {
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
   echo "  -e, --external-ip                Externally accessible IP."
-  echo "  -D, --data-dir PATH             [REQUIRED] Path for sample data (VSS_DATA_DIR/MDX_DATA_DIR)."
+  echo "  -D, --data-dir PATH             [REQUIRED] Path for sample data (VSS_DATA_DIR)."
   echo "                                   • Where warehouse sample data tar is extracted"
   echo "                                   • Contains: models, videos, data_log, playback"
   echo "                                   • Also required for 'down' (same path used with 'up')"
@@ -586,9 +586,7 @@ function state_up() {
   }
 
   set_env_var "VSS_APPS_DIR" "${deployment_directory}"
-  set_env_var "MDX_SAMPLE_APPS_DIR" "${deployment_directory}"
   set_env_var "VSS_DATA_DIR" "${data_directory}"
-  set_env_var "MDX_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
   if [[ -n "${external_ip}" ]]; then
     set_env_var "EXTERNAL_IP" "${external_ip}"
@@ -812,8 +810,8 @@ function run_revert_from_oldest_backup() {
   local -a _revert_roots
 
   _revert_roots=("${data_directory}" "$(dirname "${script_dir}")")
-  if [[ -n "${MDX_SAMPLE_APPS_DIR:-}" && -d "${MDX_SAMPLE_APPS_DIR}" ]]; then
-    _revert_roots+=("${MDX_SAMPLE_APPS_DIR}")
+  if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
+    _revert_roots+=("${VSS_APPS_DIR}")
   fi
 
   for _search_dir in "${_revert_roots[@]}"; do
@@ -849,7 +847,7 @@ function run_revert_from_oldest_backup() {
 
 # Clean data_log contents (matches cleanup_all_datalog.sh behavior)
 # Revert (optional) then: kafka, elastic, redis, vst, nvstreamer, vss_video_analytics_api, calibration_toolkit, backup files
-# Backup files: same roots as cleanup_all_datalog.sh (data dir, repo root, optional MDX_SAMPLE_APPS_DIR), with sudo when needed
+# Backup files: same roots as cleanup_all_datalog.sh (data dir, repo root, optional VSS_APPS_DIR), with sudo when needed
 function run_data_log_cleanup() {
   local _data_dir="${data_directory}"
   if [[ ! -d "${_data_dir}" ]]; then
@@ -863,7 +861,7 @@ function run_data_log_cleanup() {
   fi
   if [[ "${dry_run}" == "true" ]]; then
     if [[ "${revert_from_oldest_backup}" == "true" ]]; then
-      echo "[DRY-RUN] Would revert live files from oldest *.backup_* under ${data_directory}, $(dirname "${script_dir}"), and MDX_SAMPLE_APPS_DIR (if set), then clean data_log and delete backups"
+      echo "[DRY-RUN] Would revert live files from oldest *.backup_* under ${data_directory}, $(dirname "${script_dir}"), and VSS_APPS_DIR (if set), then clean data_log and delete backups"
     else
       echo "[DRY-RUN] Skipping revert (--skip-revert-from-oldest-backup); would clean data_log under ${_data_dir} and delete *.backup_*"
     fi
@@ -886,13 +884,13 @@ function run_data_log_cleanup() {
   [[ -d "${_data_dir}/data_log/vst" ]] && $_sudo rm -rf "${_data_dir}/data_log/vst"
   [[ -d "${_data_dir}/data_log/nvstreamer" ]] && $_sudo rm -rf "${_data_dir}/data_log/nvstreamer"
   # Delete blueprint-configurator backup files (*.backup_*), same roots as cleanup_all_datalog.sh:
-  # MDX_DATA_DIR (-D), met-blueprints repo root (parent of deploy/docker/), and MDX_SAMPLE_APPS_DIR when set.
+  # VSS_DATA_DIR (-D), met-blueprints repo root (parent of deploy/docker/), and VSS_APPS_DIR when set.
   local _backup_count _root
   local -a _backup_roots
 
   _backup_roots=("${_data_dir}" "$(dirname "${script_dir}")")
-  if [[ -n "${MDX_SAMPLE_APPS_DIR:-}" && -d "${MDX_SAMPLE_APPS_DIR}" ]]; then
-    _backup_roots+=("${MDX_SAMPLE_APPS_DIR}")
+  if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
+    _backup_roots+=("${VSS_APPS_DIR}")
   fi
 
   for _root in "${_backup_roots[@]}"; do

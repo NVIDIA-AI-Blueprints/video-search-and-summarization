@@ -30,8 +30,8 @@ services:
       VLLM_MAX_TOTAL_VIDEO_PIXELS: "150299200"
       VLM_NIM_KVCACHE_PERCENT: "${VLM_NIM_KVCACHE_PERCENT}"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/cosmos-reason1-7b/hw-${HARDWARE_PROFILE}.env
-      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/cosmos-reason1-7b/hw-${HARDWARE_PROFILE}.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - cosmos_reason1_7b_cache:/opt/nim/.cache
       - type: bind
@@ -71,8 +71,8 @@ services:
       NIM_DISABLE_LOG_REQUESTS: "1"
       VLLM_MAX_TOTAL_VIDEO_PIXELS: "150299200"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/cosmos-reason1-7b/hw-${HARDWARE_PROFILE}-shared.env
-      - ${VLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/cosmos-reason1-7b/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - cosmos_reason1_7b_cache:/opt/nim/.cache
       - type: bind

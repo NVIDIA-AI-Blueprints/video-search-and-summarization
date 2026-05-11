@@ -17,23 +17,23 @@ services:
 
   vss-search-analytics-2d-fusion:
     extends:
-      file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
     profiles: ["bp_developer_search_2d"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
     container_name: vss-behavior-analytics
     command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json 
 
   vss-video-analytics-api-fusion:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/compose.yml
+      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
     profiles: ["bp_developer_search_2d"]
     container_name: vss-video-analytics-api
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+      - $VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+      - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
 
 
   nvstreamer-2d-fusion:
@@ -58,9 +58,9 @@ services:
           - capabilities: [gpu]
             device_ids: ["0"]
     volumes:    
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $MDX_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
@@ -76,8 +76,8 @@ services:
   #       max-file: "3"
   #   container_name: vss-rtvi-cv-sdr
   #   volumes:
-  #     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-configs
-  #     - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-data
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-configs
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-data
   #     - /var/run/docker.sock:/var/run/docker.sock
   #   environment:
   #     PORT: 4001
@@ -145,8 +145,8 @@ services:
           cpus: '0.5'
           memory: 1g
     volumes:
-      - $MDX_DATA_DIR/models/:/opt/storage/
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/download-vision-encoder.sh:/opt/scripts/download-vision-encoder.sh:ro
+      - $VSS_DATA_DIR/models/:/opt/storage/
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/download-vision-encoder.sh:/opt/scripts/download-vision-encoder.sh:ro
     environment:
       VISION_ENCODER_NGC_ORG: ${VISION_ENCODER_NGC_ORG:-nvstaging}
       VISION_ENCODER_NGC_TEAM: ${VISION_ENCODER_NGC_TEAM:-tao}
@@ -163,19 +163,19 @@ services:
 
   perception-2d-fusion:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
     profiles: ["bp_developer_search_2d"]
     container_name: vss-rtvi-cv
     volumes:
         # Config file mounts (read-only staging; ds-search-start.sh copies to the writable app dir)
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/ds-configs-ro:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/:/opt/ds-configs-ro:ro
 
       # Search-profile wrapper script (patches configs, then calls ds-start.sh)
-      - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/ds-search-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh:ro
+      - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/ds-search-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-search-start.sh:ro
 
       # Models directory — RT-DETR + vision encoder models (downloaded by init container)
-      - $MDX_DATA_DIR/models/:/opt/storage/
+      - $VSS_DATA_DIR/models/:/opt/storage/
     command:
       - bash
       - -c

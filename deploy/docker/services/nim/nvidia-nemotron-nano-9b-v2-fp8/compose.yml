@@ -63,7 +63,7 @@ services:
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}.env
+      - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}.env
     volumes:
       - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
       - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro
@@ -122,7 +122,7 @@ services:
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2-fp8/hw-${HARDWARE_PROFILE}-shared.env
     volumes:
       - nvidia_nemotron_nano_9b_v2_fp8_cache:/opt/nim/.cache
       - nvidia_nemotron_nano_9b_v2_fp8_toolcall_parser_script:/opt/toolcall_parser:ro
