@@ -14,11 +14,11 @@
  *     register → optional embedding generation, each step self-skipping
  *     when its backing service isn't configured).
  *
- * `uploadFileChunkedToVst` orchestrates all three. Callers don't need
+ * `uploadFileChunked` orchestrates all three. Callers don't need
  * VST's URL.
  */
 
-import { uploadFileChunked } from './chunkedUpload';
+import { chunkedUpload } from './chunkedUpload';
 import type { ChunkedUploadResponse } from './chunkedUpload';
 
 interface AgentUploadUrlResponse {
@@ -130,7 +130,7 @@ export async function notifyGenericUploadComplete(
  * `formData` is forwarded to /complete as `custom_params` so per-upload
  * parameters from the chat dialog template reach the agent.
  */
-export async function uploadFileChunkedToVst(
+export async function uploadFileChunked(
   file: File,
   agentApiUrl: string,
   formData: Record<string, any>,
@@ -150,7 +150,7 @@ export async function uploadFileChunkedToVst(
     throw new Error('Upload was cancelled');
   }
 
-  const uploadResponse = await uploadFileChunked({
+  const uploadResponse = await chunkedUpload({
     file,
     uploadUrl: chunkUploadUrl,
     onProgress,

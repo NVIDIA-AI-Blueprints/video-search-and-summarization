@@ -6,7 +6,7 @@ import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react
 import {
   UploadFilesDialog,
   copyToClipboard,
-  uploadFileChunkedToVst,
+  uploadFileChunked,
   type UploadFileConfigTemplate,
   type FileUploadResult,
 } from '@aiqtoolkit-ui/common';
@@ -563,7 +563,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       // chunks straight to VST (bypassing Cloudflare's 100s timeout on
       // large files), then the agent's /complete hook runs post-processing
       // (timelines + RTVI register + embeddings on search profiles).
-      const result = await uploadFileChunkedToVst(
+      const result = await uploadFileChunked(
         file,
         agentApiUrlBase,
         formData,

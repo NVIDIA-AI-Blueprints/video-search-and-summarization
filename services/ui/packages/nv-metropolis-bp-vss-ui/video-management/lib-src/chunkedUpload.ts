@@ -8,7 +8,7 @@
 // (search/lvs/base/alerts).
 
 import type { FileUploadResponse } from './types';
-import { uploadFileChunked as sharedUploadFileChunked } from '@nemo-agent-toolkit/ui';
+import { chunkedUpload as sharedChunkedUpload } from '@nemo-agent-toolkit/ui';
 import type { ChunkedUploadOptions, ChunkedUploadResponse } from '@nemo-agent-toolkit/ui';
 
 export type { ChunkedUploadOptions };
@@ -16,11 +16,11 @@ export type { ChunkedUploadOptions };
 /**
  * Upload a file to VST in chunks using the nvstreamer chunked upload protocol.
  *
- * Thin wrapper around the shared helper that re-types the response as the
+ * Thin wrapper around the shared primitive that re-types the response as the
  * package-local FileUploadResponse for existing call sites.
  */
-export async function uploadFileChunked(options: ChunkedUploadOptions): Promise<FileUploadResponse> {
-  const response: ChunkedUploadResponse = await sharedUploadFileChunked(options);
+export async function chunkedUpload(options: ChunkedUploadOptions): Promise<FileUploadResponse> {
+  const response: ChunkedUploadResponse = await sharedChunkedUpload(options);
   return response as unknown as FileUploadResponse;
 }
 

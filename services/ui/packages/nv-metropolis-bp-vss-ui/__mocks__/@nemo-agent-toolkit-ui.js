@@ -34,7 +34,7 @@ module.exports = {
   UploadFilesDialog,
   useVideoModal,
   copyToClipboard: jest.fn(),
-  uploadFileChunked: chunkedUploadModule.uploadFileChunked,
+  chunkedUpload: chunkedUploadModule.chunkedUpload,
   CHUNK_SIZE_BYTES: chunkedUploadModule.CHUNK_SIZE_BYTES,
   MAX_CHUNK_RETRIES: chunkedUploadModule.MAX_CHUNK_RETRIES,
 };

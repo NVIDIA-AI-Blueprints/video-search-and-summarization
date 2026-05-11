@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import {
   getUploadUrl,
-  uploadFileChunkedToVst,
+  uploadFileChunked,
   notifyGenericUploadComplete,
 } from '../../lib-src/utils/videoUpload';
 
@@ -194,7 +194,7 @@ describe('notifyGenericUploadComplete', () => {
   });
 });
 
-describe('uploadFileChunkedToVst', () => {
+describe('uploadFileChunked', () => {
   beforeEach(() => {
     MockXHR.instances = [];
     (globalThis as any).XMLHttpRequest = MockXHR;
@@ -214,7 +214,7 @@ describe('uploadFileChunkedToVst', () => {
     const file = new File(['x'.repeat(25)], 'chat_video.mp4', { type: 'video/mp4' });
     const agentUrl = 'https://agent.example.com/api/v1';
 
-    const promise = uploadFileChunkedToVst(file, agentUrl, {}, undefined, undefined);
+    const promise = uploadFileChunked(file, agentUrl, {}, undefined, undefined);
 
     await flushAndFinish(200, JSON.stringify({
       sensorId: 'chat-sensor-1',
@@ -252,7 +252,7 @@ describe('uploadFileChunkedToVst', () => {
   it('uses requestFilename override when provided', async () => {
     const file = new File(['y'.repeat(10)], 'original.mp4');
 
-    const promise = uploadFileChunkedToVst(
+    const promise = uploadFileChunked(
       file,
       'https://agent.example.com/api/v1',
       {},
@@ -273,7 +273,7 @@ describe('uploadFileChunkedToVst', () => {
 
   it('forwards non-empty formData to /complete as custom_params', async () => {
     const file = new File(['z'.repeat(10)], 'chat_video.mp4');
-    const promise = uploadFileChunkedToVst(
+    const promise = uploadFileChunked(
       file,
       'https://agent.example.com/api/v1',
       { embedding: true, language: 'en' },

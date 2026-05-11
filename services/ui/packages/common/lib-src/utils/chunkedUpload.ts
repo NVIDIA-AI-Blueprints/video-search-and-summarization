@@ -9,7 +9,7 @@
  *
  * Consumers:
  *  - video-management/chunkedUpload.ts: uploads straight to VST (URL hardcoded from `vstApiUrl`)
- *  - videoUpload.ts#uploadFileChunkedToVst: uploads to VST using the URL the agent returns
+ *  - videoUpload.ts#uploadFileChunked: uploads to VST using the URL the agent returns
  *    from POST /api/v1/videos
  */
 
@@ -134,7 +134,7 @@ async function uploadChunk(
  * malformed final-chunk response — without it, `undefined` would propagate
  * into downstream calls like `notifyUploadComplete`.
  */
-export async function uploadFileChunked(options: ChunkedUploadOptions): Promise<ChunkedUploadResponse> {
+export async function chunkedUpload(options: ChunkedUploadOptions): Promise<ChunkedUploadResponse> {
   const {
     file,
     uploadUrl,

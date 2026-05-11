@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { uploadFileChunked, notifyUploadComplete } from '../lib-src/chunkedUpload';
+import { chunkedUpload, notifyUploadComplete } from '../lib-src/chunkedUpload';
 
 // Minimal XMLHttpRequest double that the test drives explicitly. Each `new
 // MockXHR()` instance is captured via the `send` spy so tests can inspect
@@ -80,12 +80,12 @@ const flushAndFinish = async (status: number, responseBody: string) => {
   throw new Error('flushAndFinish: no pending XHR found');
 };
 
-describe('uploadFileChunked', () => {
+describe('chunkedUpload', () => {
   beforeEach(installMockXHR);
 
   it('single-chunk upload: sets nvstreamer headers and returns parsed response', async () => {
     const file = new File(['x'.repeat(1024)], 'small.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({
+    const promise = chunkedUpload({
       file,
       uploadUrl: 'http://vst/storage/file',
       chunkSize: 10 * 1024 * 1024, // way larger than the file
@@ -110,7 +110,7 @@ describe('uploadFileChunked', () => {
   it('multi-chunk: sends total-chunks, marks last chunk, reuses identifier', async () => {
     // 25-byte file, chunkSize=10 → 3 chunks (10, 10, 5)
     const file = new File(['x'.repeat(25)], 'multi.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
+    const promise = chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
 
     for (let i = 1; i <= 3; i++) {
       await flushAndFinish(200, JSON.stringify(i === 3 ? { sensorId: 'sensor-xyz' } : { chunkCount: String(i) }));
@@ -130,7 +130,7 @@ describe('uploadFileChunked', () => {
   it('retries a failed chunk up to maxRetries and succeeds on retry', async () => {
     jest.useFakeTimers();
     const file = new File(['y'.repeat(10)], 'retry.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10, maxRetries: 2 });
+    const promise = chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10, maxRetries: 2 });
 
     // First attempt fails with a network error
     await Promise.resolve();
@@ -148,7 +148,7 @@ describe('uploadFileChunked', () => {
 
   it('throws when final-chunk response lacks sensorId (runtime guard)', async () => {
     const file = new File(['z'.repeat(10)], 'nosensor.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
+    const promise = chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
 
     await flushAndFinish(200, JSON.stringify({ chunkCount: '1' /* no sensorId */ }));
 
@@ -161,7 +161,7 @@ describe('uploadFileChunked', () => {
     ctrl.abort();
 
     await expect(
-      uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10, abortSignal: ctrl.signal })
+      chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10, abortSignal: ctrl.signal })
     ).rejects.toThrow(/cancelled/i);
   });
 });

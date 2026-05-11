@@ -4,7 +4,7 @@ import type { VideoManagementComponentProps, UploadProgress, StreamInfo } from '
 import { useStreams, useStorageTimelines } from './hooks';
 import { filterStreams, isRtspStream } from './utils';
 import { UploadFilesDialog, VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
-import { uploadFileChunked, notifyUploadComplete } from './chunkedUpload';
+import { chunkedUpload, notifyUploadComplete } from './chunkedUpload';
 import { createApiEndpoints } from './api';
 import { deleteRtspStream } from './rtspStream';
 import { deleteVideo } from './videoDelete';
@@ -164,7 +164,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         // Step 1: Chunked upload directly to the video storage service
         // (bypasses agent, avoids Cloudflare 100s timeout on large files)
         const uploadEndpoints = createApiEndpoints(vstApiUrl);
-        const videoUploadApiResponse = await uploadFileChunked({
+        const videoUploadApiResponse = await chunkedUpload({
           file,
           uploadUrl: uploadEndpoints.UPLOAD_FILE,
           onProgress: (progress: number) => {
