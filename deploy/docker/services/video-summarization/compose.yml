@@ -82,7 +82,7 @@ services:
       # Kafka integration (consume captions / publish structured summaries)
       - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
       - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-      - KAFKA_STRUCTURED_SUMMARY_TOPIC=${KAFKA_STRUCTURED_SUMMARY_TOPIC:-structured-events-summary}
+      - KAFKA_STRUCTURED_SUMMARY_TOPIC=structured-events-summary
 
       # Feature flags
       - DISABLE_CA_RAG=false
