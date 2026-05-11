@@ -113,6 +113,17 @@ classifiers = [
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
 
+[project.optional-dependencies]
+# In-process retrieval over a Chroma-backed vector store via LlamaIndex —
+# pulled by the `llama_index` knowledge_retrieval adapter. Opt-in only;
+# the default agent image stays small for `frag_api`-only deployments.
+llama_index = [
+    "chromadb>=0.5",
+    "llama-index-core>=0.11",
+    "llama-index-vector-stores-chroma>=0.3",
+    "llama-index-embeddings-nvidia>=0.3",
+]
+
 [dependency-groups]
 dev = [
     "ipdb>=0.13.13",
