@@ -42,7 +42,7 @@ chmod -R 777 "$DATA/data_log" "$DATA/agent_eval"
 
 | Container | Image | Runs as | Mount path | Symptom if permissions wrong |
 |---|---|---|---|---|
-| `centralizedb-dev` | postgres:17.6-alpine | uid **70** | `$DATA/data_log/vst/postgres/db` | Can't read own PGDATA → VST `sensor_details` query fails → uploaded videos never appear in `/vst/api/v1/sensor/streams` → warehouse E2E check returns empty |
+| `centralizedb-dev` | postgres:17.9-alpine | uid **70** | `$DATA/data_log/vst/postgres/db` | Can't read own PGDATA → VST `sensor_details` query fails → uploaded videos never appear in `/vst/api/v1/sensor/streams` → warehouse E2E check returns empty |
 | `mdx-redis` | redis:8.2.2-alpine | uid **999** | `$DATA/data_log/redis/log`, `/redis/data` | "Can't open the log file: Permission denied" → redis dies → `envoy-streamprocessing` dies (needs Redis Lua script) → stream pipeline broken |
 | `elasticsearch` | elasticsearch | uid **1000** | `$DATA/data_log/elastic/{data,logs}` | "AccessDeniedException" on startup → ES refuses to start |
 | `vst` / `sensor-ms-dev` | vst | uid **1000** | `$DATA/data_log/vst/*` (videos, clips) | 403 on ingest or stream write |
