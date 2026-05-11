@@ -297,8 +297,13 @@ install_vss_openclaw_plugin() {
     return
   fi
 
+  if [ ! -d "${VSS_REPO_DIR}/skills" ]; then
+    log "ERROR: ${VSS_REPO_DIR}/skills is missing; prepack (cp -r ../skills skills) will fail. Cannot pack VSS OpenClaw plugin."
+    return 1
+  fi
+
   log "Packing VSS OpenClaw plugin in ${plugin_dir}"
-  tgz_name="$(cd "${plugin_dir}" && npm pack 2>/dev/null | tail -n1)"
+  tgz_name="$(cd "${plugin_dir}" && npm pack | tail -n1)"
   if [ -z "${tgz_name}" ] || [ ! -f "${plugin_dir}/${tgz_name}" ]; then
     log "ERROR: npm pack did not produce a tarball in ${plugin_dir}"
     return 1
