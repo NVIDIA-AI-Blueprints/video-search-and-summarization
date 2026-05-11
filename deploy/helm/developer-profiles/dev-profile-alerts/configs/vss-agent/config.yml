@@ -22,6 +22,7 @@ general:
     # Configuration for streaming video ingest endpoint
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      vst_external_url: ${VST_EXTERNAL_URL}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']

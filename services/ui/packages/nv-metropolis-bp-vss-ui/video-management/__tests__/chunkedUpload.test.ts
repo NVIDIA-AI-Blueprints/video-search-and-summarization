@@ -178,45 +178,33 @@ describe('notifyUploadComplete', () => {
     global.fetch = fetchMock;
   });
 
-  // Minimal valid upload response shape for tests that don't care about the body content
+  // Minimal valid upload response — sensorId becomes the {video_id} path param
   const uploadResponse = { sensorId: 's1' } as any;
 
-  it('POSTs to videos/{basename}/complete forwarding the full upload response', async () => {
-    const response = { sensorId: 'sensor-123', filename: 'my clip', bytes: 100 } as any;
+  it('POSTs to videos/{sensorId}/complete with filename + the full upload response in the body', async () => {
+    const response = { sensorId: 'sensor-123', bytes: 100 } as any;
     await notifyUploadComplete('https://agent.example.com/api/v1', 'my clip.mp4', response);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      'https://agent.example.com/api/v1/videos/my%20clip/complete',
-    );
+    expect(url).toBe('https://agent.example.com/api/v1/videos/sensor-123/complete');
     expect(init?.method).toBe('POST');
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(init?.body as string)).toEqual(response);
+    expect(JSON.parse(init?.body as string)).toEqual({ ...response, filename: 'my clip.mp4' });
   });
 
   it('strips trailing slash from agentApiUrl before appending path', async () => {
     await notifyUploadComplete('https://agent.example.com/api/v1/', 'video.mp4', uploadResponse);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/api/v1/videos/video/complete',
+      'https://agent.example.com/api/v1/videos/s1/complete',
     );
   });
 
-  it('uses full filename when there is no extension (no dot)', async () => {
-    await notifyUploadComplete('https://agent.example.com', 'README', uploadResponse);
-
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/videos/README/complete',
-    );
-  });
-
-  it('uses basename before last dot for multi-dot names', async () => {
-    await notifyUploadComplete('https://agent.example.com', 'a.b.c.mp4', uploadResponse);
-
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/videos/a.b.c/complete',
-    );
+  it('throws if the upload response is missing sensorId', async () => {
+    await expect(
+      notifyUploadComplete('https://agent.example.com', 'f.mp4', {} as any),
+    ).rejects.toThrow(/sensorId/);
   });
 
   it('forwards AbortSignal to fetch when provided', async () => {
@@ -233,8 +221,8 @@ describe('notifyUploadComplete', () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.custom_params).toEqual(formData);
-    // Upload response fields are still present at the top level
     expect(body.sensorId).toBe('s1');
+    expect(body.filename).toBe('f.mp4');
   });
 
   it('omits custom_params entirely when formData is empty or undefined', async () => {

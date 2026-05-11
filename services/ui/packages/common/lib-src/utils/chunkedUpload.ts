@@ -8,8 +8,9 @@
  * monolithic upload of a large video.
  *
  * Consumers:
- *  - video-management/chunkedUpload.ts: uploads straight to VST
- *  - videoUpload.ts#uploadFileChunkedViaAgent: uploads via an agent proxy
+ *  - video-management/chunkedUpload.ts: uploads straight to VST (URL hardcoded from `vstApiUrl`)
+ *  - videoUpload.ts#uploadFileChunkedToVst: uploads to VST using the URL the agent returns
+ *    from POST /api/v1/videos
  */
 
 export const CHUNK_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB

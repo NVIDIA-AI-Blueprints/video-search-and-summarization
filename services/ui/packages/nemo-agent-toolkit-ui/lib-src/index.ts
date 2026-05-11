@@ -65,7 +65,6 @@ export {
   copyToClipboard,
   formatTimestamp,
   getUploadUrl,
-  uploadFile,
   uploadFileChunked,
   uploadFileChunkedToVst,
   notifyGenericUploadComplete,

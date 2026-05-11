@@ -44,6 +44,14 @@ class StreamingIngestConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     vst_internal_url: str = Field(default="", description="Internal URL for VST service")
+    vst_external_url: str = Field(
+        default="",
+        description=(
+            "Externally reachable URL for VST. Returned to the browser from "
+            "POST /api/v1/videos so chunks can be uploaded directly to VST. "
+            "Falls back to vst_internal_url when unset."
+        ),
+    )
 
     delete_vst_storage_on_stream_remove: bool = Field(
         default=True,

@@ -313,7 +313,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   children,
 }) => {
   const {
-    state: { agentApiUrlBase, vstApiUrl, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
+    state: { agentApiUrlBase, chatUploadFileConfigTemplateJson, chatUploadFileMetadataEnabled, chatUploadFileHiddenMessageTemplate },
   } = useContext(HomeContext);
 
   const fileInputId = useId();
@@ -551,13 +551,6 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       return { filename, error: errorMessage, cancelled: false };
     }
 
-    if (!vstApiUrl) {
-      const errorMessage =
-        'VST API URL is not configured (NEXT_PUBLIC_VST_API_URL)';
-      updateUploadingFileStatus(fileId, 'error', errorMessage);
-      return { filename, error: errorMessage, cancelled: false };
-    }
-
     updateUploadingFileStatus(fileId, 'uploading');
     updateUploadingFileProgress(fileId, 0);
 
@@ -566,14 +559,12 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       const abortController = new AbortController();
       abortControllerMapRef.current.set(fileId, abortController);
 
-      // Chunked upload directly to VST (bypasses Cloudflare 100s timeout
-      // on large files by sending many short chunks instead of one
-      // monolithic PUT). The agent's /complete hook then runs
-      // post-processing (timelines + RTVI register + embeddings on
-      // search profiles).
+      // Three-step chunked upload: agent gives us the VST URL, we POST
+      // chunks straight to VST (bypassing Cloudflare's 100s timeout on
+      // large files), then the agent's /complete hook runs post-processing
+      // (timelines + RTVI register + embeddings on search profiles).
       const result = await uploadFileChunkedToVst(
         file,
-        vstApiUrl,
         agentApiUrlBase,
         formData,
         (progress) => updateUploadingFileProgress(fileId, progress),

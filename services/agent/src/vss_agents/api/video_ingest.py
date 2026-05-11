@@ -14,21 +14,27 @@
 # limitations under the License.
 
 """
-Profile-agnostic video upload completion.
+Profile-agnostic video upload routes.
 
-The UI uploads chunks directly to VST's nvstreamer endpoint (the same path
-Video Management already uses), then calls this module's universal
-``POST /api/v1/videos/{filename}/complete`` for post-processing: timeline
-lookup, storage URL resolution, optional RTVI-CV register, and optional
-embedding generation. Each post-processing step skips gracefully if its
-backing service isn't configured, so this single endpoint works on every
-profile — search profiles get ingestion (RTVI-CV + embeddings) for free,
-base/lvs/alerts profiles complete the upload without it.
+The chat upload flow is a three-step contract:
+
+1. ``POST /api/v1/videos`` — the UI sends ``{filename}`` and gets back
+   ``{url}`` (the VST nvstreamer upload endpoint). The agent owns URL
+   resolution so the browser doesn't need to know where VST lives.
+2. The UI POSTs the file in chunks directly to that URL (nvstreamer
+   protocol; the agent is not in the upload data path). VST returns
+   ``sensorId`` on the final-chunk response — that's the VST stream id.
+3. ``POST /api/v1/videos/{video_id}/complete`` — the UI calls this with
+   the stream id as ``video_id`` to trigger post-processing: timeline
+   lookup, storage URL resolution, optional RTVI-CV register, optional
+   embedding generation. Each step self-skips if its backing service
+   isn't configured, so the same endpoint works on every profile.
 """
 
 import json
 import logging
 import os
+import re
 from typing import Any
 import urllib.parse
 
@@ -87,36 +93,55 @@ class VideoIngestResponse(BaseModel):
     chunks_processed: int = Field(default=0, description="Number of chunks processed")
 
 
-class VideoUploadCompleteInput(BaseModel):
-    """Input for the upload-complete endpoint (chunked upload post-processing).
+class VideoUploadUrlInput(BaseModel):
+    """Input for ``POST /api/v1/videos`` — the upload-URL handshake."""
 
-    The UI forwards the full video-storage upload response as the request body
-    so it stays decoupled from the storage API shape. We extract the single
-    field the post-processing pipeline needs (sensorId) and ignore the rest.
-    Accepts both the camelCase ``sensorId`` (as VST returns it) and the
-    snake_case ``sensor_id`` for backward compatibility.
+    model_config = ConfigDict(extra="ignore")
+
+    filename: str = Field(..., min_length=1, description="Video filename to upload")
+
+
+class VideoUploadUrlResponse(BaseModel):
+    """Response for ``POST /api/v1/videos``."""
+
+    url: str = Field(..., description="VST nvstreamer endpoint to POST chunks to")
+
+
+class VideoUploadCompleteInput(BaseModel):
+    """Input for ``POST /api/v1/videos/{video_id}/complete``.
+
+    The UI forwards the VST upload response as the request body so the
+    schema stays loose against storage-API churn. Only ``filename`` is read
+    today (used for the response message and RTVI ``camera_name``); the
+    rest is ignored.
     """
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    sensor_id: str = Field(
-        ...,
-        alias="sensorId",
-        min_length=1,
-        description="Video stream identifier from the upload response",
+    filename: str | None = Field(
+        default=None,
+        description="Original filename returned by VST (used in the response message and RTVI camera_name)",
+    )
+    custom_params: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional per-upload custom parameters forwarded by the UI",
     )
 
 
 class _VideoUploadConfig(BaseModel):
-    """Resolved settings for the video upload + upload-complete routes.
+    """Resolved settings for the video upload routes.
 
     Built once at registration time from ``streaming_ingest`` (preferred) or
     environment variables (fallback for profiles where NAT strips the
     section). ``vst_internal_url`` is the only required field — the RTVI URLs
     are optional and downstream calls self-skip when their URL is empty.
+    ``vst_external_url`` falls back to ``vst_internal_url`` when unset (works
+    for in-cluster deployments where the URL the browser can hit is the same
+    as the URL the agent uses server-to-server).
     """
 
     vst_internal_url: str
+    vst_external_url: str = ""
     rtvi_embed_base_url: str = ""
     rtvi_cv_base_url: str = ""
     rtvi_embed_model: str = "cosmos-embed1-448p"
@@ -133,6 +158,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
 
     if streaming_config:
         vst_internal_url = getattr(streaming_config, "vst_internal_url", None) or os.getenv("VST_INTERNAL_URL", "")
+        vst_external_url = getattr(streaming_config, "vst_external_url", None) or os.getenv("VST_EXTERNAL_URL", "")
         rtvi_embed_base_url = getattr(streaming_config, "rtvi_embed_base_url", None) or ""
         rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
         rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
@@ -143,6 +169,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         # isn't deployed) keeps the URL empty so the post-processing step
         # skips at request time instead of hanging on `http://host:`.
         vst_internal_url = os.getenv("VST_INTERNAL_URL", "")
+        vst_external_url = os.getenv("VST_EXTERNAL_URL", "")
         host_ip = os.getenv("HOST_IP", "")
         rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "")
         rtvi_cv_port = os.getenv("RTVI_CV_PORT", "")
@@ -156,6 +183,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
 
     return _VideoUploadConfig(
         vst_internal_url=vst_internal_url,
+        vst_external_url=vst_external_url or vst_internal_url,
         rtvi_embed_base_url=rtvi_embed_base_url,
         rtvi_cv_base_url=rtvi_cv_base_url,
         rtvi_embed_model=rtvi_embed_model,
@@ -339,6 +367,36 @@ async def _run_post_upload_processing(
     )
 
 
+def create_video_upload_router(vst_external_url: str) -> APIRouter:
+    """Build the ``POST /api/v1/videos`` router (upload-URL handshake)."""
+    router = APIRouter()
+
+    @router.post(
+        "/api/v1/videos",
+        response_model=VideoUploadUrlResponse,
+        summary="Get the VST upload URL for a new video",
+        description=(
+            "Returns the VST nvstreamer upload URL for the given filename. "
+            "The UI POSTs file chunks directly to this URL, then calls "
+            "``POST /api/v1/videos/{video_id}/complete`` to finalize."
+        ),
+        tags=["Video Ingest"],
+    )
+    async def get_upload_url(body: VideoUploadUrlInput) -> VideoUploadUrlResponse:
+        filename = body.filename
+        if re.search(r"\s", filename):
+            raise HTTPException(
+                status_code=400,
+                detail="Filename cannot contain whitespace. Please rename the file and try again.",
+            )
+
+        url = f"{vst_external_url.rstrip('/')}/v1/storage/file"
+        logger.info("POST /api/v1/videos -> %s (filename=%s)", url, filename)
+        return VideoUploadUrlResponse(url=url)
+
+    return router
+
+
 def create_video_upload_complete_router(
     vst_internal_url: str,
     rtvi_embed_base_url: str = "",
@@ -346,32 +404,42 @@ def create_video_upload_complete_router(
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
 ) -> APIRouter:
-    """Build the universal ``POST /api/v1/videos/{filename}/complete`` router."""
+    """Build the universal ``POST /api/v1/videos/{video_id}/complete`` router.
+
+    ``video_id`` is the VST stream id returned by VST on the final-chunk
+    response (``sensorId``). The body is the rest of that VST response,
+    forwarded verbatim by the UI — we only read ``filename`` (for the
+    response message and RTVI ``camera_name``); other fields are ignored.
+    """
     router = APIRouter()
 
     @router.post(
-        "/api/v1/videos/{filename}/complete",
+        "/api/v1/videos/{video_id}/complete",
         response_model=VideoIngestResponse,
         summary="Complete a chunked video upload",
         description=(
             "Universal completion endpoint. Called by the UI after the last chunk "
-            "lands. Runs timeline lookup → storage URL resolution → optional "
-            "RTVI-CV register → optional embedding generation. Each step skips "
-            "gracefully if its backing service isn't configured, so this works "
-            "across profiles; for search profiles the RTVI-CV/embedding hooks "
-            "drive ingestion."
+            "lands, with the VST stream id as ``video_id``. Runs timeline lookup "
+            "→ storage URL resolution → optional RTVI-CV register → optional "
+            "embedding generation. Each step skips gracefully if its backing "
+            "service isn't configured, so this works across profiles; for search "
+            "profiles the RTVI-CV/embedding hooks drive ingestion."
         ),
         tags=["Video Ingest"],
     )
-    async def upload_complete(filename: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
-        # Strip the extension so RTVI-CV's camera_name matches what the
-        # search-profile streaming PUT produces for the same filename.
+    async def upload_complete(video_id: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
+        if not video_id:
+            raise HTTPException(status_code=400, detail="video_id is required")
+        # ``filename`` comes from the VST upload response the UI forwards. Fall
+        # back to ``video_id`` when missing so RTVI-CV's camera_name is at
+        # least populated (lookups by stream id keep working either way).
+        filename = body.filename or video_id
         camera_name = filename.rsplit(".", 1)[0] if "." in filename else filename
 
         try:
             return await _run_post_upload_processing(
                 camera_name=camera_name,
-                sensor_id=body.sensor_id,
+                sensor_id=video_id,
                 filename=filename,
                 vst_url=vst_internal_url,
                 rtvi_embed_base_url=rtvi_embed_base_url,
@@ -382,14 +450,33 @@ def create_video_upload_complete_router(
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("/complete failed for %s: %s", filename, exc, exc_info=True)
+            logger.error("/complete failed for %s: %s", video_id, exc, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Post-processing failed: {exc}") from exc
 
     return router
 
 
+def register_video_upload(app: "FastAPI", config: "Any") -> None:
+    """Register ``POST /api/v1/videos`` — the upload-URL handshake.
+
+    Returns a VST nvstreamer URL the browser POSTs chunks to. Skipped (with
+    a warning) when VST isn't configured.
+    """
+    try:
+        cfg = _resolve_video_upload_config(config)
+        if cfg is None:
+            logger.warning("VST_INTERNAL_URL not set — skipping POST /api/v1/videos")
+            return
+
+        app.include_router(create_video_upload_router(vst_external_url=cfg.vst_external_url))
+        logger.info("Registered POST /api/v1/videos")
+    except Exception as exc:
+        logger.error("Failed to register video upload-URL route: %s", exc, exc_info=True)
+        raise
+
+
 def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
-    """Register ``POST /api/v1/videos/{filename}/complete``.
+    """Register ``POST /api/v1/videos/{video_id}/complete``.
 
     Embedding and RTVI-CV URLs are passed through when configured and the
     handler self-skips downstream calls when they aren't — so base/alerts/lvs
@@ -399,7 +486,7 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
     try:
         cfg = _resolve_video_upload_config(config)
         if cfg is None:
-            logger.warning("VST_INTERNAL_URL not set — skipping POST /api/v1/videos/{filename}/complete")
+            logger.warning("VST_INTERNAL_URL not set — skipping POST /api/v1/videos/{video_id}/complete")
             return
 
         app.include_router(
@@ -411,7 +498,7 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
             )
         )
-        logger.info("Registered POST /api/v1/videos/{filename}/complete")
+        logger.info("Registered POST /api/v1/videos/{video_id}/complete")
     except Exception as exc:
         logger.error("Failed to register video upload-complete route: %s", exc, exc_info=True)
         raise

@@ -21,6 +21,7 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      vst_external_url: ${VST_EXTERNAL_URL}
       rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
       # No RTVI-CV/Embed: lvs ingests RTSP streams to RTVI-VLM only. The
       # universal /api/v1/videos/{filename}/complete handler self-skips the

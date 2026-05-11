@@ -31,7 +31,6 @@ export interface HomeInitialState {
   intermediateStepOverride?: boolean;
   autoScroll?: boolean;
   agentApiUrlBase?: string;
-  vstApiUrl?: string;
   additionalConfig: any;
   customAgentParamsJson?: string;
   chatUploadFileEnabled?: boolean;
@@ -151,15 +150,6 @@ export const initialState: HomeInitialState = {
   agentApiUrlBase:
     env('NEXT_PUBLIC_AGENT_API_URL_BASE') ||
     process?.env?.NEXT_PUBLIC_AGENT_API_URL_BASE ||
-    '',
-  // Base URL for VST's REST API (e.g. http://host:30888/vst/api). Shared
-  // with the alerts/search/video-management tabs (same NEXT_PUBLIC_VST_API_URL
-  // env var). Used by ChatFileUpload to POST chunks directly to
-  // /v1/storage/file before notifying the agent's /complete hook for
-  // post-processing.
-  vstApiUrl:
-    env('NEXT_PUBLIC_VST_API_URL') ||
-    process?.env?.NEXT_PUBLIC_VST_API_URL ||
     '',
   additionalConfig: {},
   customAgentParamsJson:

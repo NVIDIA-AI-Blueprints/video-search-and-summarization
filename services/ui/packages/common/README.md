@@ -24,8 +24,9 @@ The package is included in the monorepo. To use it in an app or another package:
 
 - **copyToClipboard** – Copy text to clipboard (browser API with fallback)
 - **formatTimestamp** – Format timestamp string for display
-- **getUploadUrl** – Get presigned upload URL from Agent API
-- **uploadFile** – Upload file (two-step: get URL, then PUT)
+- **getUploadUrl** – Get the VST upload URL from the agent (`POST /api/v1/videos`)
+- **uploadFileChunkedToVst** – Three-step chunked upload (agent URL handshake → VST chunked upload → agent `/complete`)
+- **notifyGenericUploadComplete** – Notify the agent that a chunked upload finished (`POST /api/v1/videos/{video_id}/complete`)
 
 ## Requirements
 

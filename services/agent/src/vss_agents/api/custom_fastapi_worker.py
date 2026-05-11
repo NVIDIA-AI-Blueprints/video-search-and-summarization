@@ -28,6 +28,7 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 from vss_agents.api.rtsp_delete import register_rtsp_delete_routes
 from vss_agents.api.rtsp_ingest import register_rtsp_ingest_routes
 from vss_agents.api.video_delete import register_video_delete_routes
+from vss_agents.api.video_ingest import register_video_upload
 from vss_agents.api.video_ingest import register_video_upload_complete
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,9 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         when its backing service isn't configured, so the same shape works
         on search/lvs/alerts/base:
 
-        - ``POST /api/v1/videos/{filename}/complete`` — universal upload
+        - ``POST /api/v1/videos`` — returns the VST upload URL for a new
+          chat-tab video upload (UI handshake step 1).
+        - ``POST /api/v1/videos/{video_id}/complete`` — universal upload
           completion hook (self-skips RTVI-CV / embedding when unset).
         - ``POST /api/v1/rtsp-streams/add`` and ``DELETE /.../delete/{name}``.
         - ``DELETE /api/v1/videos/{video_id}``.
@@ -105,6 +108,7 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
 
         logger.info("Registering streaming_ingest routes")
 
+        register_video_upload(app, self.config)
         register_video_upload_complete(app, self.config)
         register_rtsp_ingest_routes(app, self.config)
         register_rtsp_delete_routes(app, self.config)

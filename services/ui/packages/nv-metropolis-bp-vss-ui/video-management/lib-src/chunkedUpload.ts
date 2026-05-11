@@ -3,8 +3,9 @@
 // Chunked upload helpers for the Video Management tab. The core chunking
 // logic lives in the shared `@nemo-agent-toolkit/ui` package so the Chat
 // upload path can reuse it; this file wraps it with notifyUploadComplete(),
-// which posts to the universal /api/v1/videos/{filename}/complete endpoint
-// so VM upload works on every profile (search/lvs/base/alerts).
+// which posts to the universal /api/v1/videos/{video_id}/complete endpoint
+// (video_id = VST stream id) so VM upload works on every profile
+// (search/lvs/base/alerts).
 
 import type { FileUploadResponse } from './types';
 import { uploadFileChunked as sharedUploadFileChunked } from '@nemo-agent-toolkit/ui';
@@ -27,19 +28,11 @@ export async function uploadFileChunked(options: ChunkedUploadOptions): Promise<
  * Notify the agent that a chunked upload to VST is complete, so it can trigger
  * post-upload processing (embeddings, RTVI registration, etc.).
  *
- * The upload API response is forwarded to the agent as the request body
- * without interpretation — the agent extracts whatever fields it needs
- * (e.g. sensorId). This keeps the UI generic with respect to the backend
- * upload target (VST today, potentially others).
- *
- * `formData` carries the per-upload custom parameters collected by the
- * UploadFilesDialog from the env-configurable template (previously
- * NEXT_PUBLIC_CHAT_UPLOAD_FILE_CONFIG_TEMPLATE_JSON, forwarded to the
- * agent's legacy `POST /videos` endpoint). It is sent as a top-level
- * `custom_params` field in the body alongside the full upload response,
- * so the agent can read it via a dedicated model field when needed.
- * With the current agent's `extra="ignore"` on VideoUploadCompleteInput
- * it's a forward-compatible envelope — silently dropped until consumed.
+ * The path param is the VST stream id (``sensorId`` from the final-chunk
+ * response). The upload API response is forwarded as the request body so the
+ * agent can read what it needs (e.g. ``filename`` for the response message
+ * and RTVI ``camera_name``); the rest is ignored. ``formData`` is sent as
+ * top-level ``custom_params`` for per-upload params from the dialog template.
  */
 export async function notifyUploadComplete(
   agentApiUrl: string,
@@ -48,16 +41,18 @@ export async function notifyUploadComplete(
   formData?: Record<string, any>,
   signal?: AbortSignal,
 ): Promise<void> {
-  const dotIndex = filename.lastIndexOf('.');
-  const filenameWithoutExt = dotIndex > 0 ? filename.substring(0, dotIndex) : filename;
+  const sensorId = (videoUploadApiResponse as unknown as { sensorId?: string }).sensorId;
+  if (!sensorId) {
+    throw new Error('notifyUploadComplete: VST upload response missing sensorId');
+  }
   // Universal /complete endpoint — works on every profile.
   // agentApiUrl already includes /api/v1, so just append the resource path.
-  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(filenameWithoutExt)}/complete`;
+  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(sensorId)}/complete`;
 
-  // Body = full upload response + custom_params (if any). custom_params is
-  // omitted entirely when formData is undefined/empty so the body stays
-  // minimal on profiles that don't use the dialog's config template.
-  const body: Record<string, any> = { ...videoUploadApiResponse };
+  // Body = full upload response + filename + custom_params (if any).
+  // custom_params is omitted entirely when formData is undefined/empty so the
+  // body stays minimal on profiles that don't use the dialog's config template.
+  const body: Record<string, any> = { ...videoUploadApiResponse, filename };
   if (formData && Object.keys(formData).length > 0) {
     body.custom_params = formData;
   }
