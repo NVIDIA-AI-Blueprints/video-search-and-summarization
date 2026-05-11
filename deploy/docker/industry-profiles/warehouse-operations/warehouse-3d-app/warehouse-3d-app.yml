@@ -44,7 +44,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d","auto_calib_3d"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -70,6 +70,7 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+        required: false
       bp-configurator-3d:
         condition: service_healthy 
 
@@ -100,11 +101,13 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
     container_name: vss-configurator
     network_mode: "host"
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "auto_calib_3d"]
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
+      ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
+      ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
       SEND_CONFIG_TO_SDR: true
       CALL_SENSOR_ADD_API: true
@@ -146,6 +149,7 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+        required: false
     healthcheck:
       test:
         [
@@ -269,4 +273,3 @@ volumes:
   mdx-nvstreamer-data:        
   mdx-nvstreamer-videos: 
   perception-3d:
-
