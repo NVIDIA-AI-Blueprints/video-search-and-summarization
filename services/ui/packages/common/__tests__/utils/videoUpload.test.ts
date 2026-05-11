@@ -267,6 +267,8 @@ describe('uploadFileChunked', () => {
     const fetchMock = global.fetch as jest.Mock;
     // /videos called with the override filename
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).filename).toBe('renamed.mp4');
+    // The actual nvstreamer upload also uses the override filename.
+    expect(MockXHR.instances[0].headers['nvstreamer-file-name']).toBe('renamed.mp4');
     // /complete body carries the override filename
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).filename).toBe('renamed.mp4');
   });

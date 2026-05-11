@@ -28,6 +28,8 @@ export interface ChunkedUploadResponse {
 
 export interface ChunkedUploadOptions {
   file: File;
+  /** Filename to send to the receiver in nvstreamer headers/form fields. */
+  fileName?: string;
   /** Fully-qualified URL to POST each chunk to (receiver handles nvstreamer reassembly). */
   uploadUrl: string;
   chunkSize?: number;
@@ -137,6 +139,7 @@ async function uploadChunk(
 export async function chunkedUpload(options: ChunkedUploadOptions): Promise<ChunkedUploadResponse> {
   const {
     file,
+    fileName: requestedFileName,
     uploadUrl,
     chunkSize = CHUNK_SIZE_BYTES,
     maxRetries = MAX_CHUNK_RETRIES,
@@ -144,6 +147,7 @@ export async function chunkedUpload(options: ChunkedUploadOptions): Promise<Chun
     abortSignal,
   } = options;
 
+  const fileName = requestedFileName?.trim() || file.name;
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
   const identifier = randomIdentifier();
   let lastResponse: ChunkedUploadResponse | null = null;
@@ -175,7 +179,7 @@ export async function chunkedUpload(options: ChunkedUploadOptions): Promise<Chun
         lastResponse = await uploadChunk(
           chunk,
           uploadUrl,
-          file.name,
+          fileName,
           identifier,
           chunkNumber,
           totalChunks,

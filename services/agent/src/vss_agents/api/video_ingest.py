@@ -204,7 +204,7 @@ async def _run_post_upload_processing(
     """
     Run post-upload processing: get timeline, get video URL, add to RTVI-CV, generate embeddings.
 
-    Called from the universal ``POST /api/v1/videos/{filename}/complete``
+    Called from the universal ``POST /api/v1/videos/{video_id}/complete``
     handler after the UI has uploaded chunks directly to VST.
 
     Args:

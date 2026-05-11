@@ -152,6 +152,7 @@ export async function uploadFileChunked(
 
   const uploadResponse = await chunkedUpload({
     file,
+    fileName: filenameForRequest,
     uploadUrl: chunkUploadUrl,
     onProgress,
     abortSignal,
