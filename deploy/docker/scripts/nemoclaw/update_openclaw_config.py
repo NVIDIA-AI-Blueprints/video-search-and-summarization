@@ -269,15 +269,6 @@ def main() -> int:
         help=f"Path to openclaw.json in the pod (default: {DEFAULT_CONFIG_PATH})",
     )
     parser.add_argument(
-        "--openclaw-workspace-dir",
-        default=DEFAULT_WORKSPACE_DIR,
-        help=(
-            "Value to set for agents.defaults.workspace in openclaw.json. The VSS plugin's "
-            "register hook reads this to know where to copy workspace .md files. "
-            f"(default: {DEFAULT_WORKSPACE_DIR})"
-        ),
-    )
-    parser.add_argument(
         "--backup-path",
         help="Optional backup path inside the pod, e.g. /sandbox/.openclaw/openclaw.json.bak",
     )
@@ -343,8 +334,8 @@ def main() -> int:
     # Set agents.defaults.workspace so the VSS plugin's register hook can locate the
     # workspace dir and copy AGENTS.md / BOOTSTRAP.md / IDENTITY.md / SOUL.md / TOOLS.md.
     agents_defaults = data.setdefault("agents", {}).setdefault("defaults", {})
-    if agents_defaults.get("workspace") != args.openclaw_workspace_dir:
-        agents_defaults["workspace"] = args.openclaw_workspace_dir
+    if agents_defaults.get("workspace") != DEFAULT_WORKSPACE_DIR:
+        agents_defaults["workspace"] = DEFAULT_WORKSPACE_DIR
     if update_hooks_config(
         data,
         enabled=args.enable_hooks,
