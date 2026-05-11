@@ -14,7 +14,12 @@
 # limitations under the License.
 """Unit tests for video_understanding module."""
 
+import pytest
+
+from vss_agents.tools.video_understanding import VideoUnderstandingConfig
+from vss_agents.tools.video_understanding import _build_vlm_messages
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
+from vss_agents.tools.video_understanding import _should_use_video_base64
 
 
 class TestParseThinkingFromContent:
@@ -94,3 +99,96 @@ class TestParseThinkingFromContent:
         thinking, answer = _parse_thinking_from_content(content)
         assert thinking == "All reasoning here."
         assert answer == ""
+
+
+class TestShouldUseVideoBase64:
+    """Test video base64 selection for remote VLMs."""
+
+    def test_explicit_base64_enabled_for_local_vlm(self):
+        assert _should_use_video_base64(
+            use_base64=True,
+            vlm_mode="local",
+        )
+
+    def test_remote_vlm_uses_base64(self):
+        assert _should_use_video_base64(
+            use_base64=False,
+            vlm_mode="remote",
+        )
+
+    def test_local_vlm_does_not_use_base64_by_default(self):
+        assert not _should_use_video_base64(
+            use_base64=False,
+            vlm_mode="local_shared",
+        )
+
+
+class TestBuildVlmMessages:
+    """Test VLM media message construction."""
+
+    @pytest.mark.asyncio
+    async def test_base64_uses_sampled_image_frames(self, monkeypatch):
+        class FakeResponse:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self):
+                return None
+
+            async def read(self):
+                return b"video-bytes"
+
+        class FakeSession:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def get(self, url):
+                assert url == "http://10.0.0.1:30888/vst/storage/video.mp4"
+                return FakeResponse()
+
+        def fake_frame_select(path, start, end, step_size):
+            assert path.endswith(".mp4")
+            assert start == 0.0
+            assert end == 4.0
+            assert step_size == 2.0
+            return ["frame-a", "frame-b"]
+
+        monkeypatch.setattr("vss_agents.tools.video_understanding.aiohttp.ClientSession", FakeSession)
+        monkeypatch.setattr("vss_agents.tools.video_understanding.frame_select", fake_frame_select)
+
+        messages = await _build_vlm_messages(
+            "http://10.0.0.1:30888/vst/storage/video.mp4",
+            "What is happening?",
+            use_base64=True,
+            video_length_seconds=4.0,
+            num_frames=2,
+            max_fps=1,
+        )
+
+        content = messages[0].content
+        assert content[0]["type"] == "text"
+        assert "sequence of frames" in content[0]["text"]
+        assert content[1:] == [
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,frame-a"}},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,frame-b"}},
+        ]
+
+
+class TestVideoUnderstandingConfig:
+    """Test video understanding config shape."""
+
+    def test_ip_translation_fields_are_not_exposed(self):
+        assert "internal_ip" not in VideoUnderstandingConfig.model_fields
+        assert "external_ip" not in VideoUnderstandingConfig.model_fields
+
+    def test_remote_vlm_base64_toggle_is_not_exposed(self):
+        assert "use_base64_for_remote_vlm" not in VideoUnderstandingConfig.model_fields

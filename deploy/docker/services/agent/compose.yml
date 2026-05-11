@@ -72,9 +72,6 @@ services:
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
     environment:
-      # URL rewriting configuration
-      EXTERNAL_IP: ${EXTERNAL_IP}
-      INTERNAL_IP: ${HOST_IP}
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       LLM_MODEL_TYPE: ${LLM_MODEL_TYPE} # nim / openai
@@ -96,7 +93,6 @@ services:
       PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT}
 
       # VST (Video Storage Tool)
-      VST_BASE_URL: ${VST_BASE_URL}
       VST_INTERNAL_URL: ${VST_INTERNAL_URL}
       VST_EXTERNAL_URL: ${VST_EXTERNAL_URL}
       VST_MCP_URL: ${VST_MCP_URL}
