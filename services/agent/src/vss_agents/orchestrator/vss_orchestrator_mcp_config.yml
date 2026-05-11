@@ -45,7 +45,7 @@ function_groups:
     source_compose_yaml: "/home/ubuntu/video-search-and-summarization/deploy/docker/compose.yml"
     # Absolute source profile env path. Supports {profile}.
     source_env: "/home/ubuntu/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-{profile}/.env"
-    # MDX_DATA_DIR base directory used by orchestrator (profile .env MDX_DATA_DIR is ignored).
+    # VSS_DATA_DIR base directory used by orchestrator (profile .env VSS_DATA_DIR is ignored).
     mdx_data_directories:
     - data_log/analytics_cache
     - data_log/calibration_toolkit

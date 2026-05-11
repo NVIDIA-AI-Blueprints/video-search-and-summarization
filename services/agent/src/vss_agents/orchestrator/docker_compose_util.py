@@ -62,8 +62,7 @@ PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
         "/path/to/deploy/docker",
-        "/path/to/deployments",
-        "/path/to/metropolis-apps-data",
+        "/path/to/vss-apps-data",
     }
 )
 
@@ -337,12 +336,10 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         or host_ip
     )
 
-    merged["MDX_SAMPLE_APPS_DIR"] = first_non_placeholder(
-        [merged.get("MDX_SAMPLE_APPS_DIR", ""), str(config.deployments_dir)]
-    )
-    merged["MDX_DATA_DIR"] = first_non_placeholder(
+    merged["VSS_APPS_DIR"] = first_non_placeholder([merged.get("VSS_APPS_DIR", ""), str(config.deployments_dir)])
+    merged["VSS_DATA_DIR"] = first_non_placeholder(
         [
-            config.env_overrides.get("MDX_DATA_DIR", ""),
+            config.env_overrides.get("VSS_DATA_DIR", ""),
             str(config.mdx_data_dir),
         ]
     )
