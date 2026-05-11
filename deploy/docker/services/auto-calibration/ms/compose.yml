@@ -17,7 +17,7 @@ services:
   vss-auto-calibration:
     image: nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-1
     container_name: vss-auto-calibration
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_redis_2d","bp_wh_redis_3d","auto_calib_2d","auto_calib_3d"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_redis_2d","bp_wh_redis_3d","auto-calib","auto_calib_2d","auto_calib_3d"]
     network_mode: "host"
     
     # GPU support
