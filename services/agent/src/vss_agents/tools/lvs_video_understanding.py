@@ -688,6 +688,9 @@ async def lvs_video_understanding(
         if config.vlm_input_height is not None:
             lvs_request["vlm_input_height"] = config.vlm_input_height
 
+        if config.enable_audio:
+            lvs_request["enable_audio"] = True
+
         logger.info(f"LVS request: {lvs_request}")
 
         logger.info(f"Calling LVS service: {config.lvs_backend_url}/summarize")

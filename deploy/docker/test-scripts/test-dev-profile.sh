@@ -866,6 +866,26 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
   "RTVI_VLM_MODEL_PATH" "none" \
   "COMPOSE_PROFILES" '${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}'
 
+# LVS with vllm-compatible source: dev-profile.sh up should NOT change VLM_NAME / RTVI_VLM_MODEL_PATH
+# back to cosmos defaults.
+_source_env_lvs="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-lvs/.env"
+if [[ -f "${_source_env_lvs}" ]]; then
+  _env_backup="$(mktemp)"
+  cp "${_source_env_lvs}" "${_env_backup}"
+  CLEANUP_RESTORES+=("${_env_backup}|${_source_env_lvs}")
+  sed -i \
+    -e 's|^VLM_NAME=.*|VLM_NAME=sentinel-vlm-name|' \
+    -e 's|^RTVI_VLM_MODEL_TO_USE=.*|RTVI_VLM_MODEL_TO_USE=vllm-compatible|' \
+    -e 's|^RTVI_VLM_MODEL_PATH=.*|RTVI_VLM_MODEL_PATH=sentinel-model-path|' \
+    "${_source_env_lvs}"
+  run_dry_run_up_and_check_generated_env "generated.env lvs vllm-compatible preserves user-set VLM_NAME / RTVI_VLM_MODEL_PATH" "lvs" \
+   -i 127.0.0.1 -H OTHER -d -- \
+    "VLM_NAME" "sentinel-vlm-name" \
+    "RTVI_VLM_MODEL_TO_USE" "vllm-compatible" \
+    "RTVI_VLM_MODEL_PATH" "sentinel-model-path"
+  mv "${_env_backup}" "${_source_env_lvs}"
+fi
+
 # Alerts profile: PERCEPTION_DOCKERFILE_PREFIX and VLM_AS_VERIFIER_CONFIG_FILE_PREFIX (conditional on HARDWARE_PROFILE and VLM_MODE)
 run_dry_run_up_and_check_generated_env "generated.env alerts prefixes non-DGX-SPARK (empty)" "alerts" \
  -i 127.0.0.1 -H OTHER -m verification -d -- \
