@@ -94,6 +94,16 @@ class TestLVSVideoUnderstandingConfig:
                 hitl_objects_template="Objects template",
             )
 
+    def test_enable_audio_defaults_false_and_accepts_true(self):
+        base_kwargs = {
+            "lvs_backend_url": "http://localhost:38111",
+            "hitl_scenario_template": "Scenario template",
+            "hitl_events_template": "Events template",
+            "hitl_objects_template": "Objects template",
+        }
+        assert LVSVideoUnderstandingConfig(**base_kwargs).enable_audio is False
+        assert LVSVideoUnderstandingConfig(**base_kwargs, enable_audio=True).enable_audio is True
+
 
 class TestLVSVideoUnderstandingInput:
     """Test LVSVideoUnderstandingInput model."""

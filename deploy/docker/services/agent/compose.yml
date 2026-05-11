@@ -108,6 +108,10 @@ services:
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
       ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}}
 
+      # Audio Configuration
+      ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
+      VST_DISABLE_AUDIO: ${VST_DISABLE_AUDIO:-true}
+
       # NVIDIA API Key (for remote NIM)
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
       # OpenAI API Key (for remote openai LLM/VLM)
