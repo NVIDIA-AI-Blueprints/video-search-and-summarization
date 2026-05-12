@@ -1,6 +1,8 @@
 # Warehouse Blueprint Reference
 
-Blueprint: VSS Warehouse — RT-DETR perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it has its own compose bundle, app-data bundle, and `.env` layout, deployed from `<deployments_dir>/` with `warehouse/.env`.
+Blueprint: VSS Warehouse — RT-DETR perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using `industry-profiles/warehouse-operations/.env`.
+
+The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data (videos and models) is the only artifact you may need to acquire; see [App Data](#app-data).
 
 Work through **one path** under [Choose your path](#choose-your-path). Reference tables (variants, services, GPU layout, endpoints, artifacts) are in the top half; operational phases are in the bottom half.
 
@@ -14,7 +16,7 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 | 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | local / remote |
 | 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none |
 
-`COMPOSE_PROFILES` is computed automatically: `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}`
+`COMPOSE_PROFILES` is computed automatically: `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}`. No `vlm_*` slice — `rtvi-vlm` is always deployed for `bp_wh` and there is no VLM NIM.
 
 ## Minimal vs Extended Profile
 
@@ -32,19 +34,45 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only.
 | Monitoring | ❌ | ✅ |
 | Bounding box overlays in VST | ❌ | ✅ (requires Elasticsearch) |
 
-## Services Deployed (2D — `bp_wh_kafka` / `bp_wh_redis`)
+## Services Deployed
+
+The warehouse blueprint now boots the **full VSS stack** (agent + UI + VST + RTVI behind HAProxy) on top of the warehouse CV pipeline. Service set varies by `BP_PROFILE` and `MODE`.
+
+### Warehouse CV core (all profiles)
 
 | Service | Purpose |
 |---|---|
 | NvStreamer | Streams sample video files via RTSP |
-| VIOS (VST) | Video ingestion, recording, stream management |
-| perception-2d | RT-DETR DeepStream container — 2D object detection and tracking |
-| perception-sdr-2d | Stream data router — manages DeepStream lifecycle |
-| bp-configurator-2d | Blueprint configurator — sets up stream and hardware configs |
-| ds-configurator-2d | DeepStream config adaptor |
-| vss-behavior-analytics-2d | Behavior analytics — ROI, tripwire, proximity events |
-| Kafka or Redis | Message broker for CV metadata and control bus |
+| VIOS (VST) + VST MCP | Video ingestion, recording, stream management |
+| perception-2d / -3d | RT-DETR DeepStream container — 2D object detection / 3D perception |
+| perception-sdr-2d / -3d | Stream data router — manages DeepStream lifecycle |
+| bp-configurator-2d / -3d | Blueprint configurator — sets up stream and hardware configs |
+| ds-configurator-2d / -3d | DeepStream config adaptor |
+| vss-behavior-analytics-2d / -3d | Behavior analytics — ROI, tripwire, proximity events |
+| Kafka or Redis (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | broker-health-check | Waits for broker readiness before starting dependent services |
+| vss-auto-calibration (+ UI) | Camera auto-calibration |
+
+### Agent + UI + ingress (all profiles)
+
+| Service | Container | Port |
+|---|---|---|
+| HAProxy ingress | mdx-haproxy-1 | `HAPROXY_PORT` (default `7777`) |
+| VSS UI (Next.js) | mdx-vss-ui-1 | 3000 |
+| VSS Agent | mdx-vss-agent-1 | `VSS_AGENT_PORT` (default `8000`) |
+| VSS VA MCP | mdx-vss-va-mcp-1 | `VSS_VA_MCP_PORT` (default `9901`) |
+| Elasticsearch | mdx-elasticsearch-1 | `VSS_ES_PORT` (default `9200`) |
+| Phoenix (telemetry) | mdx-phoenix-1 | 6006 |
+
+### LLM + RTVI VLM (`bp_wh` only)
+
+| Service | Container | Port | When |
+|---|---|---|---|
+| LLM NIM | mdx-nim-llm-1 | `LLM_PORT` (default `30081`) | `LLM_MODE=local` or `local_shared` |
+| RTVI VLM (real-time) | rtvi-vlm | 8018 | **Always** deployed for `bp_wh` — no remote / none option |
+| Alert Bridge | alert-bridge | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
+
+> No VLM NIM. The warehouse blueprint runs **only `rtvi-vlm`** for vision-language inference, and `rtvi-vlm` is **always local** — there is no `VLM_MODE` / no remote-VLM endpoint, the same way perception is always local.
 
 ## Perception Model
 
@@ -54,37 +82,63 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only.
 
 ## GPU Layout
 
-| Role | Device |
-|---|---|
-| RT-CV perception (RT-DETR DeepStream) | `RT_CV_DEVICE_ID` (default: `0`) |
-| LLM NIM | `LLM_DEVICE_ID` (default: `1`) — only for `bp_wh` |
-| VLM NIM | `VLM_DEVICE_ID` (default: `2`) — only for `bp_wh` |
+| Role | Device | Used by |
+|---|---|---|
+| RT-CV perception (RT-DETR DeepStream) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse profiles |
+| RTVI VLM — always local | `RT_VLM_DEVICE_ID` (default: `1`) | `bp_wh` only |
+| LLM NIM (dedicated) | `LLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local` |
+| LLM NIM sharing the RTVI VLM device | `SHARED_LLM_VLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local_shared` |
+
+`LLM_MODE` accepts `local`, `local_shared`, `remote`, or `none`:
+- `local` — LLM NIM on its own GPU (`LLM_DEVICE_ID`)
+- `local_shared` — LLM NIM colocated with RTVI VLM on `SHARED_LLM_VLM_DEVICE_ID` (use when GPU count is limited)
+- `remote` — point at an external LLM endpoint via `LLM_BASE_URL` (no LLM NIM deployed)
+- `none` — no LLM, for `bp_wh_kafka` / `bp_wh_redis`
+
+RTVI VLM has no equivalent setting — like perception, it is always deployed locally on `RT_VLM_DEVICE_ID`.
 
 ## Access Points
 
 | Service | URL | Profile |
 |---|---|---|
+| **VSS UI (via HAProxy ingress)** | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` (defaults `7777`) | All |
+| VSS Agent API | `http://<HOST_IP>:8000` | All |
 | VST / VIOS UI | `http://<HOST_IP>:30888/vst` | All |
+| VST MCP | `http://<HOST_IP>:8001` | All |
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
 | Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
+| Phoenix telemetry | `http://<HOST_IP>:6006` | All |
 | Kibana | `http://<HOST_IP>:5601` | Extended only |
 | Video Analytics UI | `http://<HOST_IP>:3002` | Extended only |
 
+`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, follow the same secure-link pattern as the other VSS profiles (`SKILL.md` Step 1c).
+
 ## Compose File Structure
 
-Deployed from `<deployments_dir>/` (the extracted `deployments/` root) using:
-- `warehouse/.env` — all configuration
-- `compose.yml` — root top-level include (includes foundational, monitoring, vst, warehouse, etc.)
-  - `warehouse/compose.yml` — warehouse sub-include
-    - `warehouse-2d-app/warehouse-2d-app.yml` — 2D app services
-    - `warehouse-3d-app/warehouse-3d-app.yml` — 3D app services
-  - `foundational/mdx-foundational.yml` — Kafka/Redis, broker health check, centralizedb
+Deployed from `<repo>/deploy/docker/` (the repo's compose root) using:
+- `industry-profiles/warehouse-operations/.env` — all configuration
+- `compose.yml` — root top-level include (foundational, monitoring, vst, industry-profiles, etc.)
+  - `industry-profiles/compose.yml` — industry sub-include
+    - `industry-profiles/warehouse-operations/compose.yml` — warehouse sub-include
+      - `industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml` — 2D app services
+      - `industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml` — 3D app services
 
-## NGC Artifacts
+## App Data
+
+App data (sample videos, perception models) is **not** bundled with the repo. Pick one source:
+
+| Source | When to use | `VSS_DATA_DIR` |
+|---|---|---|
+| `<repo>/data` | Quick start — drop assets into the repo's `data/` directory | `<repo>/data` |
+| Custom local path | Existing dataset on a non-repo path (e.g. `/mnt/warehouse-data`) | user-provided path |
+| NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` |
+
+Ask the user which source they want and whether they already have the assets on disk. Only run the NGC download (next subsection) when they explicitly choose the NGC source.
+
+### NGC app-data download (optional)
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| Compose package | `nvidia/vss-warehouse/vss-warehouse-compose:3.1.0` | `vss-warehouse-compose_v3.1.0/` |
 | App data (videos, models) | `nvidia/vss-warehouse/vss-warehouse-app-data:3.1.0` | `vss-warehouse-app-data_v3.1.0/` |
 
 ## Known Limitations
@@ -104,7 +158,7 @@ Deployed from `<deployments_dir>/` (the extracted `deployments/` root) using:
 | **Redeploy** (`.env` change, clean restart, broken stack) | [Redeploy](#redeploy). Skips Phases 1–4 — host is already set up and artifacts exist. |
 | **Tear down only** (stop and remove containers/volumes; keep files on disk) | [Lifecycle: Tear down](#lifecycle-tear-down). |
 
-**`<deployments_dir>`** — directory that contains `compose.yml` and `warehouse/.env`. If unknown, **ask explicitly**: *"What is the full path to your `deployments/` directory?"* before running shell commands for redeploy or tear down.
+**`<repo>`** — path to your `video-search-and-summarization` checkout. All compose commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env`. If you don't know the repo path, **ask explicitly** before running shell commands.
 
 ---
 
@@ -119,11 +173,13 @@ LOG=${LOG:-/tmp/warehouse-blueprint.log}
 ### Lifecycle: Tear down
 
 ```bash
-cd <deployments_dir>
-docker compose --env-file warehouse/.env down
+cd <repo>/deploy/docker
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
 docker volume prune -f
 docker system prune -f
-bash ./cleanup_all_datalog.sh -b warehouse
+
+# Pass the SAME env file you used with `docker compose --env-file ...`
+bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
 ```
 
 ### Lifecycle: Bring up
@@ -132,12 +188,12 @@ Pulls images and builds the perception container (~10–15 min first run). If `d
 
 ```bash
 LOG=${LOG:-/tmp/warehouse-blueprint.log}
-cd <deployments_dir>
+cd <repo>/deploy/docker
 
 docker login --username '$oauthtoken' --password "${NGC_CLI_API_KEY}" nvcr.io
 
-nohup docker compose \
-  --env-file warehouse/.env \
+nohup docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
   up --detach --pull always --force-recreate --build \
   > "$LOG" 2>&1 &
 echo "Compose PID $! — logging to $LOG"
@@ -169,11 +225,11 @@ docker logs -f perception-3d 2>&1 | grep -i fps | head -5   # 3d
 
 ## Redeploy
 
-**When to use:** The machine already satisfies [Phase 2](#phase-2-system-prerequisites); compose bundle and app data are already on disk. You edited `warehouse/.env`, need a clean restart, or are recovering a bad state.
+**When to use:** The machine already satisfies [Phase 2](#phase-2-system-prerequisites); the repo is checked out and `VSS_DATA_DIR` is populated. You edited the warehouse `.env`, need a clean restart, or are recovering a bad state.
 
-**Do not** re-run NGC CLI install, driver install, or artifact download unless something is actually missing or broken.
+**Do not** re-run NGC CLI install, driver install, or NGC app-data download unless something is actually missing or broken.
 
-1. Obtain **`<deployments_dir>`** (ask if unknown — see [Choose your path](#choose-your-path)).
+1. Obtain **`<repo>`** path (ask if unknown — see [Choose your path](#choose-your-path)).
 2. Run **[Lifecycle: Tear down](#lifecycle-tear-down)**.
 3. Run **[Lifecycle: Bring up](#lifecycle-bring-up)** (same `LOG` as monitor).
 4. Run **[Lifecycle: Monitor](#lifecycle-monitor)**.
@@ -245,19 +301,24 @@ Run each check in order. **If a check fails, automatically install and re-verify
 
 `HARDWARE_PROFILE` is a **blueprint setting**, not a string that `nvidia-smi` always prints verbatim. For **discrete GPUs**, match the GPU model from `nvidia-smi` / `lspci` to a row below. **IGX-THOR** and **DGX-SPARK** are **whole-system platforms** (kits/boards): set the profile from product/SKU or vendor docs if you already know the machine type; `nvidia-smi` shows the **on-board NVIDIA GPU name** (e.g. a Thor-class or Spark system GPU), not the text `IGX-THOR` or `DGX-SPARK`. On **DGX Spark**, unified memory can make some `nvidia-smi` memory fields show **Not Supported**; driver and device listing should still be checked per [DGX Spark user guide](https://docs.nvidia.com/dgx/dgx-spark/).
 
+Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK`.
+
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
-| RTX A6000 | `RTXA6000` |
+| RTX A6000 (Ampere) | `RTXA6000` |
+| A6000 (generic alias) | `A6000` |
 | L40S | `L40S` |
 | L40 | `L40` |
 | L4 | `L4` |
 | Platform: NVIDIA IGX Thor (kit / board) | `IGX-THOR` |
 | Platform: NVIDIA DGX Spark | `DGX-SPARK` |
 
-**GPUs not in the table:** set a **custom** `HARDWARE_PROFILE` by taking the GPU **`name`** from `nvidia-smi` (same field as the query above) and **removing all spaces** — e.g. `NVIDIA RTX 5000 Blackwell` → `NVIDIARTX5000Blackwell`. Use that string as `HARDWARE_PROFILE`; deployment may still depend on blueprint support for that GPU class.
+> **Do NOT use a higher profile on lower-profile hardware** (e.g. `H100` on an `L4`) — the env file warns against this directly.
+
+**GPUs not in the list above:** the warehouse blueprint may not have a tuned profile. Pick the closest match from the table or treat the deployment as unsupported on that GPU until the upstream list adds it.
 
 #### 2.1 GPU Detection and NVIDIA Driver
 
@@ -267,7 +328,7 @@ Run each check in order. **If a check fails, automatically install and re-verify
 nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv,noheader
 ```
 
-Use the **`name`** column to pick **`HARDWARE_PROFILE`**: if it matches a **discrete-GPU** row in [Supported Hardware](#supported-hardware), use that profile; **otherwise** use a **custom** profile (GPU `name` with all spaces removed). For **IGX-THOR** or **DGX-SPARK**, set `HARDWARE_PROFILE` to that value when the deployment target is that platform, even though `name` will be a GPU part name, not `IGX-THOR` / `DGX-SPARK`.
+Use the **`name`** column to pick **`HARDWARE_PROFILE`** from the [Supported Hardware](#supported-hardware) list. For **IGX-THOR** or **DGX-SPARK**, set `HARDWARE_PROFILE` to that value when the deployment target is that platform, even though `name` will be a GPU part name, not `IGX-THOR` / `DGX-SPARK`. The blueprint does not currently accept custom/free-form profile strings — if the host's GPU is not in the table, the deployment is unsupported on that hardware.
 
 **Required driver versions (match the platform):**
 
@@ -482,8 +543,8 @@ df -h /  # 500 GB+ SSD
 #### Q2 — Blueprint Profile
 
 **MODE=2d:**
-> - **2D Vision AI** — CV-only, no LLM/VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
-> - **2D Vision AI with Agents** — LLM + VLM NIMs. Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
+> - **2D Vision AI** — CV-only, no LLM and no RTVI VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
+> - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
 
 **MODE=3d:** Profile fixed to **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
 
@@ -502,8 +563,8 @@ BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-loadi
 # 2D Vision AI — redis:
 BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"; NUM_STREAMS=3
 
-# 2D Vision AI with Agents:
-BP_PROFILE=bp_wh; SAMPLE_VIDEO_DATASET="nv-warehouse-4cams"; NUM_STREAMS=4; LLM_MODE=local; VLM_MODE=local
+# 2D Vision AI with Agents (RTVI VLM is always local; only LLM_MODE is selectable):
+BP_PROFILE=bp_wh; SAMPLE_VIDEO_DATASET="nv-warehouse-4cams"; NUM_STREAMS=4; LLM_MODE=local
 
 # 3D Vision AI — kafka:
 BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
@@ -525,16 +586,18 @@ MINIMAL_PROFILE=""       # extended
 
 ---
 
-### Phase 4: Download Artifacts (first run only)
+### Phase 4: Acquire App Data (first run only)
 
-> **Versions:** See [NGC Artifacts](#ngc-artifacts) above for current versions and extracted directory names.
+Compose files ship in the repo — **nothing to download for compose**. Only app data may need to be acquired, and only for the source the user chose in [App Data](#app-data).
+
+**Option A — `<repo>/data`:** ensure assets are present at `<repo>/data` and proceed to Phase 5 (`VSS_DATA_DIR=<repo>/data`).
+
+**Option B — custom local path:** confirm the path exists and has the expected `models/` and `videos/` subdirs, then set `VSS_DATA_DIR=<that path>` in Phase 5.
+
+**Option C — NGC `vss-warehouse-app-data`:**
 
 ```bash
 export NGC_CLI_API_KEY='<your-ngc-api-key>'
-
-ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-compose:<COMPOSE_VERSION>"
-cd vss-warehouse-compose_v<COMPOSE_VERSION>
-tar -xvf deploy-warehouse-compose.tar.gz
 
 ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:<APP_DATA_VERSION>"
 cd vss-warehouse-app-data_v<APP_DATA_VERSION>
@@ -543,34 +606,63 @@ tar -xvf vss-warehouse-app-data.tar.gz
 sudo chmod -R 777 /path/to/vss-warehouse-app-data
 ```
 
+See [App Data → NGC app-data download](#ngc-app-data-download-optional) for the current version pin.
+
 ---
 
-### Phase 5: Configure warehouse/.env
+### Phase 5: Configure the warehouse .env
 
-Edit `<deployments_dir>/warehouse/.env`:
+Edit `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`. Keys below match the actual file — only the values listed need editing for a typical deploy; the rest have working defaults.
 
 ```bash
+# --- Deployment selectors (Phase 3 answers go here) ---
 MODE=<2d|3d>
-BP_PROFILE=<bp_wh_kafka|bp_wh_redis|bp_wh>
-STREAM_TYPE=<kafka|redis>
-MINIMAL_PROFILE=<"true"|"">
+BP_PROFILE=<bp_wh|bp_wh_kafka|bp_wh_redis>
+STREAM_TYPE=<kafka|redis>           # ignored by bp_wh; set for bp_wh_kafka / bp_wh_redis
+MINIMAL_PROFILE="true"              # or "" for extended (bp_wh_kafka / bp_wh_redis only)
 
 SAMPLE_VIDEO_DATASET="<dataset-name>"
 NUM_STREAMS=<3|4>
 
-LLM_MODE=none          # local/remote for bp_wh only
-VLM_MODE=none
-
-MDX_SAMPLE_APPS_DIR="/path/to/deployments"
-MDX_DATA_DIR="/path/to/vss-warehouse-app-data"
-
-HOST_IP='<HOST_IP>'
-NGC_CLI_API_KEY='<your-ngc-api-key>'
-
-# HARDWARE_PROFILE: see Supported Hardware table (H100, RTXA6000ADA, RTXA6000, …), or IGX-THOR / DGX-SPARK,
-# or custom: nvidia-smi GPU name with all spaces removed (e.g. NVIDIARTX5000Blackwell).
+# --- Hardware ---
+# Valid: H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK
 HARDWARE_PROFILE=H100
+
+# GPU device IDs (defaults shown — change only if you need a non-default layout)
+RT_CV_DEVICE_ID='0'                 # perception (always local)
+RT_VLM_DEVICE_ID='1'                # RTVI VLM, bp_wh only (always local)
+LLM_DEVICE_ID='2'                   # bp_wh + LLM_MODE=local
+SHARED_LLM_VLM_DEVICE_ID='2'        # bp_wh + LLM_MODE=local_shared (LLM colocated with RTVI VLM)
+
+# --- LLM (bp_wh only; set LLM_MODE=none for bp_wh_kafka / bp_wh_redis) ---
+# RTVI VLM has no mode — it is always deployed locally for bp_wh.
+LLM_MODE=local                      # local | local_shared | remote | none
+LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2
+LLM_NAME_SLUG=nvidia-nemotron-nano-9b-v2
+# LLM_BASE_URL — only when LLM_MODE=remote
+
+# --- RTVI VLM (bp_wh; always local — these are image/model selectors, not a mode toggle) ---
+VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208
+RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+RTVI_VLM_MODEL_TO_USE=cosmos-reason2
+
+# --- Paths ---
+VSS_APPS_DIR="<repo>/deploy/docker"
+# One of: <repo>/data, a custom local path, or extracted NGC app-data dir (see Phase 4)
+VSS_DATA_DIR="<repo>/data"
+
+# --- Networking ---
+HOST_IP='<HOST_IP>'
+EXTERNAL_IP="${HOST_IP}"             # browser-reachable hostname/IP (Brev: secure-link domain)
+HAPROXY_PORT=7777                    # ingress for VSS UI
+
+# --- Credentials ---
+NGC_CLI_API_KEY='<your-ngc-api-key>'           # required for local NIMs + image pulls
+NVIDIA_API_KEY=''                              # required for build.nvidia.com remote endpoints
+OPENAI_API_KEY=''                              # required for OpenAI remote endpoints
 ```
+
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variables. Comment the default `PERCEPTION_TAG="3.2.0-26.05.1"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa-26.05.1"`. Same pattern for `RTVI_VLM_IMAGE_TAG`.
 
 > DGX-SPARK (SBSA): also uncomment `-sbsa` tagged image variables for `PERCEPTION_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG`.
 
@@ -593,9 +685,10 @@ ngc config current 2>/dev/null | grep -q "apikey" && echo "NGC config: key prese
 ### Phase 7: Dry-Run
 
 ```bash
-cd <deployments_dir>
-source warehouse/.env
-docker compose --env-file warehouse/.env config | grep "container_name"
+cd <repo>/deploy/docker
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  config | grep "container_name"
 ```
 
 Show container list to the user, then ask: **"Looks good — deploy now?"**
@@ -604,7 +697,7 @@ Show container list to the user, then ask: **"Looks good — deploy now?"**
 
 ### Phase 8: Deploy
 
-From `<deployments_dir>`, run **[Lifecycle: Bring up](#lifecycle-bring-up)** after the user confirms Phase 7.
+From `<repo>/deploy/docker`, run **[Lifecycle: Bring up](#lifecycle-bring-up)** after the user confirms Phase 7.
 
 ---
 
