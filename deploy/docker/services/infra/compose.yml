@@ -194,7 +194,9 @@ services:
       - $VSS_APPS_DIR/services/infra/elk/pb_definitions/descriptors/ext.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/ext.desc
       - $VSS_APPS_DIR/services/infra/elk/pb_definitions/descriptors/schema.desc:/opt/logstash-data-libs/logstash/pb_definitions/descriptors/schema.desc
       - ${LOGSTASH_CONFIG_FILE:-$VSS_APPS_DIR/services/infra/elk/configs/logstash.yml}:/usr/share/logstash/config/logstash.yml:ro
-      - ${LOGSTASH_PIPELINE_FILE:-$VSS_APPS_DIR/services/infra/elk/configs/mdx-${STREAM_TYPE}-logstash.conf}:/usr/share/logstash/pipeline/logstash.conf:ro
+      - ${LOGSTASH_PIPELINES_FILE:-$VSS_APPS_DIR/services/infra/elk/configs/pipelines-${STREAM_TYPE}.yml}:/usr/share/logstash/config/pipelines.yml:ro
+      - ${LOGSTASH_PIPELINE_DIR:-$VSS_APPS_DIR/services/infra/elk/configs/pipelines}:/usr/share/logstash/pipeline:ro
+      - ${LOGSTASH_PIPELINE_FILE:-$VSS_APPS_DIR/services/infra/elk/configs/pipelines/mdx-${STREAM_TYPE}-logstash.conf}:/usr/share/logstash/pipeline/mdx-${STREAM_TYPE}-logstash.conf:ro
       - ${LOGSTASH_PROTOBUF_DIR:-$VSS_APPS_DIR/services/infra/elk/pb_definitions/ruby}:/etc/logstash/pb_definitions:ro
       - $VSS_APPS_DIR/services/infra/elk/gems/logstash-input-redis_stream-3.1.0-java.gem:/usr/share/logstash/gems/logstash-redis-stream-input-java.gem
     environment:

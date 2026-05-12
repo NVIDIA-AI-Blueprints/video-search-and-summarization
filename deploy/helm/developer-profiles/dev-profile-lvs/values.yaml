@@ -84,7 +84,7 @@ infra:
       enabled: true
     # Compose parity: deploy/docker/services/video-summarization/compose.yml
     # `lvs-kafka-topic-init` creates `mdx-vlm-captions` (rtvi-vlm →
-    # lvs-logstash) and `mdx-structured-events-summary` (vss-summarization
+    # shared Logstash) and `mdx-structured-events-summary` (vss-summarization
     # publishes structured summaries). Kept the kafka subchart defaults so
     # Kibana dashboards + rtvi-vlm incident topics continue to exist.
     topics:
@@ -114,6 +114,10 @@ infra:
     persistence:
       size: 10Gi
       storageClass: ''
+  logstash:
+    enabled: true
+    lvs:
+      enabled: true
 
 # VIOS umbrella (../../services/vios). Required: vios.enabled — parent Chart.yaml condition: vios.enabled. If missing/false, no VIOS workloads are installed.
 vios:
@@ -468,7 +472,7 @@ rtvi:
         value: "openai-compat"
       - name: KAFKA_ENABLED
         value: "true"
-      # Raw VLM event topic produced by rtvi-vlm; consumed by lvs-logstash.
+      # Raw VLM event topic produced by rtvi-vlm; consumed by shared Logstash.
       # Compose parity: RTVI_VLM_KAFKA_TOPIC in dev-profile-lvs/.env. The
       # previous value `mdx-vlm` had no consumer in the LVS profile.
       - name: KAFKA_TOPIC

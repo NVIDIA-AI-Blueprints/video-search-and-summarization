@@ -23,7 +23,7 @@ Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. The
 | VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates tool calls, embed search, critique |
 | VSS UI | mdx-vss-ui-1 | 3000 | Search tab |
 | VST | mdx-vst-1 | 30888 | Video storage + ingest |
-| Elasticsearch + Logstash + Kibana | mdx-elasticsearch-1, lvs-logstash, kibana | 9200, 5601 | Index, ingest pipeline, dashboards |
+| Elasticsearch + Logstash + Kibana | elasticsearch, logstash, kibana | 9200, 5601 | Index, ingest pipeline, dashboards |
 | Kafka | mdx-kafka-1 | 9092 | Embedding pipeline message bus |
 | Phoenix | mdx-phoenix-1 | 6006 | Observability |
 
@@ -314,5 +314,5 @@ RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; RT-CV
 
 - **`docker logs vss-rtvi-embed`** — confirms model load and `Maximum concurrency for X tokens per GPU: Y x` line. If it OOMs, lower `RTVI_EMBED_NUM_VLM_PROCS` (10 → 4) or `NUM_STREAMS`.
 - **`docker logs vss-rtvi-cv`** — DeepStream perception pipeline logs. If GPU 0 OOMs in Path B (default, VLM co-located), drop `NUM_STREAMS` first (with user confirmation if going below 8), then revisit VLM `NIM_KVCACHE_PERCENT`.
-- **Embedding queries return zero hits** — check `lvs-logstash` is consuming `vision-embed-messages` (default Kafka topic) and that the ES index `mdx-embed-filtered-2025-01-01` exists.
+- **Embedding queries return zero hits** — check `logstash` is consuming `mdx-embed-filtered` and that the ES index `mdx-embed-filtered-2025-01-01` exists.
 - **Critique returns "no VLM configured"** — confirm `VLM_BASE_URL` resolves and the resolved compose includes a VLM service or `VLM_MODE=remote` is set.

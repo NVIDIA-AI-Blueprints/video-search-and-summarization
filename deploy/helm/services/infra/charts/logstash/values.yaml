@@ -20,6 +20,8 @@ image:
   pullPolicy: IfNotPresent
 javaOpts: "-Xmx1536m -Xms512m"
 streamType: "kafka"
+lvs:
+  enabled: false
 kafka:
   bootstrapServers: ""
 elasticsearch:
