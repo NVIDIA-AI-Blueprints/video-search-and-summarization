@@ -200,6 +200,7 @@ services:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: measurement-fusion
+    image: ${BEV_FUSION_MV3DT_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv-mv3dt-bev-fusion}:${BEV_FUSION_MV3DT_TAG:-3.2.0-26.05.1}
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
     depends_on:
       broker-health-check:
@@ -209,7 +210,7 @@ services:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: perception
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nv-metropolis-dev/auto-calib/vss-rt-cv-mv3dt}:${PERCEPTION_TAG:-3.2.0-3}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.05.1}
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
     
