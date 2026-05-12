@@ -1,0 +1,557 @@
+2026-05-12 16:53:32 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:32 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:32 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:33 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:33 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:33 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:33 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:34 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:34 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:34 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:34 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:53:35 [run-workloads] lib.controller - ERROR - Error while consuming pub/sub message
+Traceback (most recent call last):
+  File "redis/connection.py", line 624, in connect
+    sock = self.retry.call_with_retry(
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/connection.py", line 625, in <lambda>
+    lambda: self._connect(), lambda error: self.disconnect(error)
+  File "redis/connection.py", line 690, in _connect
+    raise err
+  File "redis/connection.py", line 678, in _connect
+    sock.connect(socket_address)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "lib/messaging/redis_subscriber.py", line 62, in listen
+  File "redis/client.py", line 1679, in get_message
+    response = self.parse_response(block=(timeout is None), timeout=timeout)
+  File "redis/client.py", line 1531, in parse_response
+    response = self._execute(conn, try_read)
+  File "redis/client.py", line 1507, in _execute
+    return conn.retry.call_with_retry(
+  File "redis/retry.py", line 49, in call_with_retry
+    fail(error)
+  File "redis/client.py", line 1509, in <lambda>
+    lambda error: self._disconnect_raise_connect(conn, error),
+  File "redis/client.py", line 1496, in _disconnect_raise_connect
+    raise error
+  File "redis/retry.py", line 46, in call_with_retry
+    return do()
+  File "redis/client.py", line 1508, in <lambda>
+    lambda: command(*args, **kwargs),
+  File "redis/client.py", line 1525, in try_read
+    if not conn.can_read(timeout=timeout):
+  File "redis/connection.py", line 832, in can_read
+    self.connect()
+  File "redis/connection.py", line 630, in connect
+    raise ConnectionError(self._error_message(e))
+redis.exceptions.ConnectionError: Error 111 connecting to 10.57.202.234:6379. Connection refused.
+2026-05-12 16:56:22 [run-workloads] lib.messaging.redisMessaging - INFO - connected to redis 10.57.202.234  port 6379
+2026-05-12 16:56:22 [run-workloads] lib.controller - INFO - pod watcher thread started
+2026-05-12 16:56:22 [run-workloads] lib.controller - INFO - Subscribing to channels: wdm_error_events
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-streamprocessing' wl_obj_name='vss-vios-streamprocessing' port=4005: worker restart_on_nonzero=True delay_s=3.0
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-rtvi-cv' wl_obj_name='vss-rtvi-cv' port=4004: worker restart_on_nonzero=True delay_s=3.0
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-alerts-2d' wl_obj_name='vss-rtvi-vlm' port=4003: worker restart_on_nonzero=True delay_s=3.0
+2026-05-12 16:56:22 [run-workloads] lib.controller - INFO - Starting Redis pub/sub listener
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - build_xds_app_config: WDM_WL_REDIS_SERVER=10.57.202.234 (from env)
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-streamprocessing' wl_obj_name='vss-vios-streamprocessing' port=4005: WDM_APP_WORKER_CMD='(not set; default worker command)' argv=['/sdr']
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-rtvi-cv' wl_obj_name='vss-rtvi-cv' port=4004: WDM_APP_WORKER_CMD='(not set; default worker command)' argv=['/sdr']
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-alerts-2d' wl_obj_name='vss-rtvi-vlm' port=4003: WDM_APP_WORKER_CMD='(not set; default worker command)' argv=['/sdr']
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - build_xds_app_config: WDM_WL_REDIS_PORT=6379 (from env)
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-streamprocessing': worker subprocess stdout/stderr → /logs/worker-docker-workload-streamprocessing-vss-vios-streamprocessing-4005.log and parent stdout
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-rtvi-cv': worker subprocess stdout/stderr → /logs/worker-docker-workload-rtvi-cv-vss-rtvi-cv-4004.log and parent stdout
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - workload name='docker-workload-alerts-2d': worker subprocess stdout/stderr → /logs/worker-docker-workload-alerts-2d-vss-rtvi-vlm-4003.log and parent stdout
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - build_xds_app_config: WDM_TARGET_PORT_MAPPING={'default': 5000, 'grpc': 50052} (default is set in config.py, used by app.py)
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - Started workload name='docker-workload-streamprocessing' wl_obj_name='vss-vios-streamprocessing' port=4005 pid=20
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - Started workload name='docker-workload-rtvi-cv' wl_obj_name='vss-rtvi-cv' port=4004 pid=22
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - build_xds_app_config: WDM_CONTROLLER_HOST=10.57.202.234 WDM_CONTROLLER_PORT=5002 (WDM_ENVOY_DASHBOARD_PROXY enabled)
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - Started workload name='docker-workload-alerts-2d' wl_obj_name='vss-rtvi-vlm' port=4003 pid=24
+2026-05-12 16:56:22 [run-workloads] __main__ - INFO - build_xds_app_config: WDM_XDS_USE_POD_DNS=False WDM_XDS_USE_IP_ADDRESS=True
+2026-05-12 16:56:22 [run-workloads] lib.xDS.envoyxDS - INFO - redis connected
+2026-05-12 16:56:22 [run-workloads] werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5002
+ * Running on http://10.57.202.234:5002
+2026-05-12 16:56:22 [run-workloads] werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2026-05-12 16:56:43 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.056936
+2026-05-12 16:56:43 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:56:43] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 16:57:06 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.088724
+2026-05-12 16:57:06 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:57:06] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 16:57:18 [run-workloads] run_workloads - INFO - http_request GET /dashboard/health status=200 elapsed_s=0.251055
+2026-05-12 16:57:18 [run-workloads] werkzeug - INFO - 172.29.10.84 - - [12/May/2026 16:57:18] "GET /dashboard/health HTTP/1.1" 200 -
+2026-05-12 16:57:30 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.024926
+2026-05-12 16:57:30 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:57:30] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 16:57:59 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.049590
+2026-05-12 16:57:59 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:57:59] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 16:58:17 [run-workloads] run_workloads - INFO - http_request GET /dashboard/health status=200 elapsed_s=0.033072
+2026-05-12 16:58:17 [run-workloads] werkzeug - INFO - 172.29.10.84 - - [12/May/2026 16:58:17] "GET /dashboard/health HTTP/1.1" 200 -
+2026-05-12 16:58:18 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.051410
+2026-05-12 16:58:18 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:58:18] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 16:58:45 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.039005
+2026-05-12 16:58:45 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:58:45] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 16:59:15 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.050942
+2026-05-12 16:59:15 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:59:15] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 16:59:18 [run-workloads] run_workloads - INFO - http_request GET /dashboard/health status=200 elapsed_s=0.061436
+2026-05-12 16:59:18 [run-workloads] werkzeug - INFO - 172.29.10.84 - - [12/May/2026 16:59:18] "GET /dashboard/health HTTP/1.1" 200 -
+2026-05-12 16:59:39 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.032635
+2026-05-12 16:59:39 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 16:59:39] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 17:00:06 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.056474
+2026-05-12 17:00:06 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 17:00:06] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 17:00:17 [run-workloads] run_workloads - INFO - http_request GET /dashboard/health status=200 elapsed_s=0.056212
+2026-05-12 17:00:17 [run-workloads] werkzeug - INFO - 172.29.10.84 - - [12/May/2026 17:00:17] "GET /dashboard/health HTTP/1.1" 200 -
+2026-05-12 17:00:27 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.041695
+2026-05-12 17:00:27 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 17:00:27] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 17:00:49 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.072464
+2026-05-12 17:00:49 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 17:00:49] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 17:01:13 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.077198
+2026-05-12 17:01:13 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 17:01:13] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 17:01:18 [run-workloads] run_workloads - INFO - http_request GET /dashboard/health status=200 elapsed_s=0.041581
+2026-05-12 17:01:18 [run-workloads] werkzeug - INFO - 172.29.10.84 - - [12/May/2026 17:01:18] "GET /dashboard/health HTTP/1.1" 200 -
+2026-05-12 17:01:30 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.056127
+2026-05-12 17:01:30 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 17:01:30] "POST /v3/discovery:clusters HTTP/1.1" 200 -
+2026-05-12 17:01:50 [run-workloads] run_workloads - INFO - http_request POST /v3/discovery:clusters status=200 elapsed_s=0.089331
+2026-05-12 17:01:50 [run-workloads] werkzeug - INFO - 10.57.202.234 - - [12/May/2026 17:01:50] "POST /v3/discovery:clusters HTTP/1.1" 200 -
