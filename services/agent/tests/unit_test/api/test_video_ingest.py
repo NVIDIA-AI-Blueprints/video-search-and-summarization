@@ -292,15 +292,17 @@ class TestVideoUploadUrlRoute:
 
     @pytest.mark.asyncio
     async def test_returns_vst_storage_url(self):
+        # Must include the `/vst/api` routing prefix so haproxy ingress forwards
+        # the browser's chunked POST to VST (matches NEXT_PUBLIC_VST_API_URL).
         route = self._build_router("http://vst.example.com:30888").routes[0]
         response = await route.endpoint(VideoUploadUrlInput(filename="clip.mp4"))
-        assert response.url == "http://vst.example.com:30888/v1/storage/file"
+        assert response.url == "http://vst.example.com:30888/vst/api/v1/storage/file"
 
     @pytest.mark.asyncio
     async def test_strips_trailing_slash(self):
         route = self._build_router("http://vst.example.com:30888/").routes[0]
         response = await route.endpoint(VideoUploadUrlInput(filename="clip.mp4"))
-        assert response.url == "http://vst.example.com:30888/v1/storage/file"
+        assert response.url == "http://vst.example.com:30888/vst/api/v1/storage/file"
 
     @pytest.mark.asyncio
     async def test_rejects_whitespace_filename(self):

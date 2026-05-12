@@ -390,7 +390,10 @@ def create_video_upload_router(vst_external_url: str) -> APIRouter:
                 detail="Filename cannot contain whitespace. Please rename the file and try again.",
             )
 
-        url = f"{vst_external_url.rstrip('/')}/v1/storage/file"
+        # VST API is reachable at `/vst/api/...` via haproxy ingress; this is the
+        # same path Video Management uses (NEXT_PUBLIC_VST_API_URL already includes
+        # `/vst/api`, so its chunked-upload URL also resolves to `/vst/api/v1/storage/file`).
+        url = f"{vst_external_url.rstrip('/')}/vst/api/v1/storage/file"
         logger.info("POST /api/v1/videos -> %s (filename=%s)", url, filename)
         return VideoUploadUrlResponse(url=url)
 
