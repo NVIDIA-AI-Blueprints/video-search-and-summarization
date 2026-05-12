@@ -219,7 +219,7 @@ workflow:
       and stream names from the query text — do not filter these out.
     - agent_mode: always set to true (enables query decomposition)
     - use_attribute_search: always set to true (enables fusion reranking)
-    - use_critic: always set to true (verify results with VLM critic agent)
+    - use_critic: use the current request option value (verify results with VLM critic agent)
     Optional:
     - max_results: Number of final results to return to the user (default: 5)
     - top_k: Number of internal candidates to fetch before reranking (default: 10)
@@ -230,6 +230,14 @@ workflow:
     - end_time: Leave as None unless the user provides explicit timestamps or time references.
 
     Directly return the entire search result to user, no filtering or summarization.
+
+    Runtime request options:
+    - request_options is passed automatically to search_agent; do not fill it manually.
+    - On follow-up turns, the system prompt may include current_request_options and previous_request_options.
+    - For search requests and search follow-ups, treat search_source_type as the current media source selection
+      and use_critic as the current critic selection.
+    - If search_source_type or use_critic differs from previous_request_options, call search_agent again for
+      the relevant search query instead of answering from previous search results.
 
     Conversation history guidelines:
     - Always call search_agent for any search query, even if it looks similar
