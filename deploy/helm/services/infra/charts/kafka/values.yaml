@@ -59,6 +59,9 @@ service:
 persistence:
   storageClass: ""
   size: 50Gi
+  # Subdirectory of the PVC mounted at /tmp/kafka-data so Kafka does not see ext4 "lost+found"
+  # at the volume root. Set to "" to mount the PVC root (existing clusters with data at root).
+  dataSubPath: kraft-logs
 resources:
   requests:
     memory: "6Gi"
@@ -68,6 +71,10 @@ resources:
     cpu: "2"
 nodeSelector: {}
 tolerations: []
+
+# cp-kafka runs as UID 1000; fsGroup makes RWO block volumes group-writable (e.g. OKE).
+podSecurityContext:
+  fsGroup: 1000
 
 topicJob:
   enabled: true
