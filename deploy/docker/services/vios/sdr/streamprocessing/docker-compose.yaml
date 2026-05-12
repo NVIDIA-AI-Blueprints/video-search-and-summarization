@@ -34,12 +34,12 @@ services:
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
-      - ${MDX_SAMPLE_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     ulimits:
       nofile:
         soft: 8192
@@ -82,13 +82,13 @@ services:
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
-      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
-      - ${MDX_SAMPLE_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     ulimits:
       nofile:
         soft: 8192
@@ -129,15 +129,15 @@ services:
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
       - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
     volumes:
-      - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
-      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
-      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
+      - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
       - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
-      - ${MDX_SAMPLE_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     ulimits:
       nofile:
         soft: 8192

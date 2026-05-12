@@ -58,7 +58,7 @@ commons:
       - operation_type: "file_management"
         enabled: false
         target_directories:
-          - "${MDX_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
           action: "file_count"       # Count files matching pattern
           parameters:
@@ -69,7 +69,7 @@ commons:
       - operation_type: "file_management"
         enabled: false
         target_directories:
-          - "${MDX_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
           action: "file_count"       # Count files matching pattern
           parameters:
@@ -77,15 +77,15 @@ commons:
           output_variable: NUM_STREAMS # Output the number of files matching the pattern to the NUM_STREAMS variable
   variable_validation:
     2d:
-      # MDX path variables must be set to real paths, not placeholders or empty
-      - variable: MDX_SAMPLE_APPS_DIR
+      # VSS path variables must be set to real paths, not placeholders or empty
+      - variable: VSS_APPS_DIR
         required: true
-        disallowed_values: ["", "/path/to/deployments"]
-        error_message: "MDX_SAMPLE_APPS_DIR must be set to a valid deployment path and must not be empty or the placeholder '/path/to/deployments'"
-      - variable: MDX_DATA_DIR
+        disallowed_values: ["", "/path/to/deploy/docker"]
+        error_message: "VSS_APPS_DIR must be set to a valid deployment path and must not be empty or the placeholder '/path/to/deploy/docker'"
+      - variable: VSS_DATA_DIR
         required: true
         disallowed_values: ["", "/path/to/vss-warehouse-app-data"]
-        error_message: "MDX_DATA_DIR must be set to a valid data path and must not be empty or the placeholder '/path/to/vss-warehouse-app-data'"
+        error_message: "VSS_DATA_DIR must be set to a valid data path and must not be empty or the placeholder '/path/to/vss-warehouse-app-data'"
       - variable: HOST_IP
         required: true
         disallowed_values: ["", "<HOST_IP>"]
@@ -176,15 +176,15 @@ commons:
                   matches: "bp_wh_redis_2d,*"
 
     3d:
-      # MDX path variables must be set to real paths, not placeholders or empty
-      - variable: MDX_SAMPLE_APPS_DIR
+      # VSS path variables must be set to real paths, not placeholders or empty
+      - variable: VSS_APPS_DIR
         required: true
-        disallowed_values: ["", "/path/to/deployments"]
-        error_message: "MDX_SAMPLE_APPS_DIR must be set to a valid deployment path and must not be empty or the placeholder '/path/to/deployments'"
-      - variable: MDX_DATA_DIR
+        disallowed_values: ["", "/path/to/deploy/docker"]
+        error_message: "VSS_APPS_DIR must be set to a valid deployment path and must not be empty or the placeholder '/path/to/deploy/docker'"
+      - variable: VSS_DATA_DIR
         required: true
         disallowed_values: ["", "/path/to/vss-warehouse-app-data"]
-        error_message: "MDX_DATA_DIR must be set to a valid data path and must not be empty or the placeholder '/path/to/vss-warehouse-app-data'"
+        error_message: "VSS_DATA_DIR must be set to a valid data path and must not be empty or the placeholder '/path/to/vss-warehouse-app-data'"
       - variable: HOST_IP
         required: true
         disallowed_values: ["", "<HOST_IP>"]
@@ -284,7 +284,7 @@ commons:
     2d:
       # Update DeepStream main config 
       - operation_type: "text_config_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-main-config.txt"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-main-config.txt"
         backup: true
         updates:
           num-source-bins: "0"
@@ -295,14 +295,14 @@ commons:
           msg-broker-proto-lib: "${msg-broker-proto-lib}"
 
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-config.json"
         backup: true 
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
 
       # Update the VST Configs
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json"
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"      
@@ -311,7 +311,7 @@ commons:
 
       # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
         array_kv_updates:
           - list_key: app
@@ -324,9 +324,9 @@ commons:
                 set_key: value
                 set_value: "${spatial_analytics_source_sink_type}"
 
-      # vss-video-analytics-api (compose mounts MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/...)
+      # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
+        target_file: "${VSS_APPS_DIR}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
         backup: true
         updates:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
@@ -342,7 +342,7 @@ commons:
         
       - operation_type: "file_management"
         target_directories:
-          - "${MDX_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
           action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
           parameters:
@@ -381,14 +381,14 @@ commons:
 
       # Update VST Configs
       - operation_type: "json_update"
-        target_file: ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json
+        target_file: ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/nvstreamer/configs/vst-config.json
         backup: true 
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
           onvif.max_devices_supported: ${max_streams_supported}
 
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
@@ -397,7 +397,7 @@ commons:
 
       # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
         array_kv_updates:
           - list_key: app
@@ -410,16 +410,16 @@ commons:
                 set_key: value
                 set_value: "${spatial_analytics_source_sink_type}"
 
-      # vss-video-analytics-api (compose mounts MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/...)
+      # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
+        target_file: "${VSS_APPS_DIR}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
         backup: true
         updates:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
       - operation_type: "file_management"
         target_directories:
-          - "${MDX_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}" 
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
           action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
           parameters:
@@ -505,7 +505,7 @@ IGX-THOR:
 
       # Update VST config
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
@@ -539,7 +539,7 @@ DGX-SPARK:
 
       # Update VST config
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json"
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
