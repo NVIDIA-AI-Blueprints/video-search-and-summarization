@@ -18,8 +18,8 @@ include:
   - path: ./warehouse-3d-app/warehouse-3d-app.yml
   - path: ./warehouse-mv3dt-app/warehouse-mv3dt-app.yml
 
-  # Warehouse Configuration - includes 2D, sparse4d 3D, and MV3DT apps
+  # Warehouse Configuration - includes 2D, 3D (Sparse4D), and MV3DT apps
 
   # Services are differentiated by -2d, -3d, and -mv3dt suffixes
   # Use profiles: bp_wh_2d, bp_wh_kafka_2d, bp_wh_redis_2d (2D)
-  # bp_wh_kafka_3d, bp_wh_redis_3d (sparse4d 3D), bp_wh_kafka_mv3dt, bp_wh_redis_mv3dt (MV3DT)
+  # bp_wh_kafka_3d, bp_wh_redis_3d (3D (Sparse4D)), bp_wh_kafka_mv3dt, bp_wh_redis_mv3dt (MV3DT)
