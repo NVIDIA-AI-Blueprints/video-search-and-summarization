@@ -168,7 +168,12 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
 
     enable_audio: bool = Field(
         default=False,
-        description="Enable audio processing",
+        description=(
+            "When True, forwards `enable_audio=true` in the LVS `/summarize` "
+            "request body. Required for audio-capable VLMs like Nemotron Nano Omni. "
+            "Pairs with `streaming_ingest.enable_audio=True` so VST keeps audio "
+            "during upload transcoding."
+        ),
     )
 
     stream: bool = Field(

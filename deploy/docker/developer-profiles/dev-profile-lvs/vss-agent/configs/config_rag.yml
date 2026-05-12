@@ -22,6 +22,8 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       enable_video_delete: true
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     endpoints:
     - path: /api/v1/videos
       method: POST
@@ -107,6 +109,8 @@ functions:
     # Video processing parameters for better event detection
     chunk_duration: 10  # Split video into 10-second chunks (0 = entire video in one request)
     num_frames_per_chunk: 20  # Sample 20 frames per chunk
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
+    enable_audio: ${ENABLE_AUDIO:-false}
     # HITL Templates (shown each for each query to the user during interaction)
     hitl_scenario_template: |
       Scenario (REQUIRED):

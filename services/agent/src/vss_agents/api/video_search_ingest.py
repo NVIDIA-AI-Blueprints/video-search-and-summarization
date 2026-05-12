@@ -522,7 +522,7 @@ def register_streaming_routes(app: "FastAPI", config: "Any") -> None:
         rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", "") or ""
         rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
-        disable_audio = getattr(streaming_config, "disable_audio", True)
+        disable_audio = not getattr(streaming_config, "enable_audio", False)
 
         if not vst_internal_url:
             raise ValueError("streaming_ingest.vst_internal_url must be set for videos-for-search routes")

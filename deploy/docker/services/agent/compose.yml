@@ -110,7 +110,6 @@ services:
 
       # Audio Configuration
       ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
-      VST_DISABLE_AUDIO: ${VST_DISABLE_AUDIO:-true}
 
       # NVIDIA API Key (for remote NIM)
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}

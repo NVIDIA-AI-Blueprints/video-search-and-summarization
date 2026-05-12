@@ -188,11 +188,9 @@ env:
 - name: VSS_AGENT_VERSION
   value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-55f5cd1d7a59" }}'
 # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).
-# Set ENABLE_AUDIO=true and VST_DISABLE_AUDIO=false for Nemotron Nano Omni audio-aware VLM.
+# Set ENABLE_AUDIO=true for Nemotron Nano Omni audio-aware VLM.
 - name: ENABLE_AUDIO
   value: "false"
-- name: VST_DISABLE_AUDIO
-  value: "true"
 resources: {}
 nodeSelector: {}
 tolerations: []
