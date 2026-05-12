@@ -1121,8 +1121,10 @@ function state_up() {
   fi
   if [[ -n "${vlm_base_url}" ]]; then
     set_env_var "VLM_BASE_URL" "${vlm_base_url}"
-    set_env_var "RTVI_VLM_ENDPOINT" "${vlm_base_url}/v1"
-    set_env_var "RTVI_VLM_MODEL_PATH" "none"
+    if [[ "${vlm_mode}" == "remote" ]]; then
+      set_env_var "RTVI_VLM_ENDPOINT" "${vlm_base_url}/v1"
+      set_env_var "RTVI_VLM_MODEL_PATH" "none"
+    fi
   fi
   if [[ "${vlm_mode}" == "remote" ]]; then
     local _vlm_type="${vlm_model_type:-$(get_env_value "${_source_env}" "VLM_MODEL_TYPE")}"
@@ -1134,12 +1136,12 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Alerts + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason2 is only valid when the
-  # local rtvi-vlm container is serving the model).
-  # The rtvi-vlm container (not deployed when remote) defaults to 8018 for local alerts;
+  # local rtvi-vlm container is serving the integrated checkpoint).
+  # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if [[ "${profile}" == "alerts" ]] && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
   fi
@@ -1185,13 +1187,13 @@ function state_up() {
     set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
     set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
   fi
-  # Alerts profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if  ([[ "${profile}" == "alerts" ]]); then
+  # Alerts/LVS profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
+  if  ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
     # Local VLM only: rtvi-vlm serves cosmos-reason2 locally on port 8018, so fix
     # VLM_NAME / VLM_BASE_URL / RTVI_VLM_MODEL_PATH to the NIM-packaged cosmos-reason2 model.
     # RTVI_VLM_MODEL_TO_USE and RTVI_VLM_ENDPOINT come from the profile .env defaults for local
-    # (see dev-profile-alerts/.env). Remote VLM overrides these in the block above via VLM_BASE_URL/vlm.
+    # (see dev-profile-{alerts,lvs}/.env). Remote VLM overrides these in the block above via VLM_BASE_URL/vlm.
     if [[ "${vlm_mode}" != "remote" ]]; then
       set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
       set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
