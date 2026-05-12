@@ -1,17 +1,8 @@
 ---
-name: "amc-calibrate-videos"
-description: "Calibrate a new dataset from pre-recorded video files via the AutoMagicCalib REST API. Use when the user has local MP4s and says 'calibrate my videos', 'run AMC on these videos', 'calibrate from video files', or similar. Requires a running AMC microservice. For RTSP/live streams, use amc-calibrate-rtsp-streams instead."
-owner: "nvidia-metropolis-team"
-service: "auto-magic-calib"
-version: "1.0.0"
-reviewed: "2026-05-11"
-data_classification: public
+name: amc-calibrate-videos
+description: Calibrate a new dataset from pre-recorded video files via the AutoMagicCalib REST API. Use when the user has local MP4s and says 'calibrate my videos', 'run AMC on these videos', 'calibrate from video files', or similar. Requires a running AMC microservice. For RTSP/live streams, use amc-calibrate-rtsp-streams instead.
+version: "3.2.0"
 license: "Apache License 2.0"
-metadata:
-  author: "NVIDIA Metropolis Team"
-  tags: [amc, calibration, rest-api, camera, python]
-  languages: [bash, python]
-  domain: calibration
 ---
 
 # Skill: Calibrate from Video Files
