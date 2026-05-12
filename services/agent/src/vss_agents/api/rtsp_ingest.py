@@ -217,8 +217,12 @@ async def add_to_rtvi_cv(
     logger.info(f"Adding stream to RTVI-CV: POST {url}")
     logger.debug(f"Payload: {payload}")
 
+    # `x-stream-id` is the routing key used by SDR's in-front-of-RTVI proxy
+    # (HAProxy Ingress / Envoy + SDR coordinator). Consistent-hashing on this
+    # header pins a stream to a single worker so subsequent add/delete/config
+    # calls all land on the same pod. See Projects/SDR/wiki.md.
     try:
-        response = await client.post(url, json=payload)
+        response = await client.post(url, json=payload, headers={"x-stream-id": sensor_id})
         if response.status_code not in (200, 201):
             error = f"RTVI-CV returned {response.status_code}: {response.text}"
             logger.error(error)
@@ -259,10 +263,12 @@ async def add_to_rtvi_embed(
     logger.info(f"Adding stream to RTVI-embed: POST {url}")
     logger.debug(f"Payload: {payload}")
 
+    # SDR routing key — same rationale as RTVI-CV add above.
+    headers = {"x-stream-id": sensor_id}
     try:
         async for retry in create_retry_strategy(delay=2, retries=6, exceptions=(httpx.TransportError, RuntimeError)):
             with retry:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 if response.status_code not in (200, 201):
                     error = f"RTVI-embed returned {response.status_code}: {response.text}"
                     if response.status_code in (408, 429) or response.status_code >= 500:
@@ -316,10 +322,12 @@ async def add_to_rtvi_vlm(
     logger.info(f"Adding stream to RTVI-VLM (name={name!r}, sensor_id={sensor_id}): POST {url}")
     logger.debug(f"Payload: {payload}")
 
+    # SDR routing key — RTVI-VLM is also fronted by the same SDR proxy.
+    headers = {"x-stream-id": sensor_id}
     try:
         async for retry in create_retry_strategy(delay=2, retries=6, exceptions=(httpx.TransportError, RuntimeError)):
             with retry:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 if response.status_code not in (200, 201):
                     error = f"RTVI-VLM returned {response.status_code}: {response.text}"
                     if response.status_code in (408, 429) or response.status_code >= 500:
@@ -383,7 +391,12 @@ async def start_embedding_generation(
             "POST",
             url,
             json=payload,
-            headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+                # SDR routing key — pin to the worker that owns this stream.
+                "x-stream-id": stream_id,
+            },
         ) as response:
             if response.status_code != 200:
                 error_body = await response.aread()
@@ -427,8 +440,10 @@ async def cleanup_rtvi_cv(
 
     logger.info(f"Removing from RTVI-CV: POST {url}")
 
+    # SDR routing key — same stream-id used on the add path, ensures the
+    # remove lands on the worker that holds this stream's state.
     try:
-        response = await client.post(url, json=payload)
+        response = await client.post(url, json=payload, headers={"x-stream-id": sensor_id})
         if response.status_code in (200, 201, 204):
             logger.info(f"RTVI-CV stream removed: {sensor_id}")
             return True, "OK"
@@ -447,8 +462,10 @@ async def cleanup_rtvi_embed_stream(
     url = f"{config.rtvi_embed_url}/v1/streams/delete/{stream_id}"
     logger.info(f"Removing from RTVI-embed: DELETE {url}")
 
+    # SDR routing key — pin to the worker that owns this stream's state.
+    headers = {"x-stream-id": stream_id} if stream_id else {}
     try:
-        response = await client.delete(url)
+        response = await client.delete(url, headers=headers)
         if response.status_code in (200, 204):
             logger.info(f"RTVI-embed stream removed: {stream_id}")
             return True, "OK"
@@ -467,8 +484,10 @@ async def cleanup_rtvi_embed_generation(
     url = f"{config.rtvi_embed_url}/v1/generate_video_embeddings/{stream_id}"
     logger.info(f"Stopping embedding generation: DELETE {url}")
 
+    # SDR routing key.
+    headers = {"x-stream-id": stream_id} if stream_id else {}
     try:
-        response = await client.delete(url)
+        response = await client.delete(url, headers=headers)
         if response.status_code in (200, 204):
             logger.info(f"Embedding generation stopped: {stream_id}")
             return True, "OK"

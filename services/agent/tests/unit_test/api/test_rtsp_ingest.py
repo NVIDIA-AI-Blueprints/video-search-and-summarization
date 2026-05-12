@@ -516,6 +516,7 @@ class TestAddToRtviVlm:
                     }
                 ],
             },
+            headers={"x-stream-id": "sensor-123"},
         )
 
     @pytest.mark.asyncio

@@ -297,10 +297,21 @@ async def _run_post_upload_processing(
 
         logger.info(f"Adding video to RTVI-CV: POST {rtvi_cv_add_url}")
 
+        # `x-stream-id` is the routing key for SDR-fronted RTVI deployments:
+        # the in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR
+        # coordinator) consistent-hashes this header to pin a stream to one
+        # worker pod. Without it the proxy falls back to round-robin and
+        # subsequent /add → /delete → /config calls for the same sensor can
+        # land on different workers. See Projects/SDR/wiki.md for the routing
+        # contract.
         try:
             async with httpx.AsyncClient(timeout=60.0) as rtvi_cv_client:
                 with TimeMeasure("video_ingest: register with RTVI-CV"):
-                    rtvi_cv_response = await rtvi_cv_client.post(rtvi_cv_add_url, json=rtvi_cv_payload)
+                    rtvi_cv_response = await rtvi_cv_client.post(
+                        rtvi_cv_add_url,
+                        json=rtvi_cv_payload,
+                        headers={"x-stream-id": sensor_id},
+                    )
 
                 if rtvi_cv_response.status_code not in (200, 201):
                     error_msg = f"RTVI-CV returned {rtvi_cv_response.status_code}: {rtvi_cv_response.text}"
@@ -347,7 +358,12 @@ async def _run_post_upload_processing(
                 embed_response = await client.post(
                     embedding_url,
                     json=embed_request,
-                    headers={"accept": "application/json", "Content-Type": "application/json"},
+                    headers={
+                        "accept": "application/json",
+                        "Content-Type": "application/json",
+                        # SDR routing key — same rationale as RTVI-CV above.
+                        "x-stream-id": sensor_id,
+                    },
                 )
 
             if embed_response.status_code != 200:
