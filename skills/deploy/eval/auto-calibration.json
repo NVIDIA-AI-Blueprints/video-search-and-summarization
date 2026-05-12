@@ -1,0 +1,60 @@
+{
+  "skills": [
+    "deploy"
+  ],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": [
+          "release-images"
+        ]
+      },
+      "A100": {
+        "modes": [
+          "release-images"
+        ]
+      }
+    }
+  },
+  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. The `auto-calibration` profile (compose flag `auto-calib`, also auto-enabled by `bp_wh_*` blueprints) brings up `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` (UI on `${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`) from `nvcr.io/nvstaging/vss-core/`. Env file is `deploy/docker/industry-profiles/warehouse-operations/.env`. Project state mounts from `$VSS_APPS_DIR/services/auto-calibration/projects`; optional VGGT model mounts from `$VSS_DATA_DIR/auto-calib/vggt`. The `/deploy` skill drives the full deploy workflow — this spec verifies the resulting state by probing the live stack.",
+  "expects": [
+    {
+      "query": "Deploy the VSS **auto-calibration** profile on {{platform}} in {{mode}} mode, using the `/deploy` skill end-to-end and autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/v1/ready` returns exit 0",
+        "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/v1/ready` body matches `\"code\":0`",
+        "`curl -sf -o /dev/null -w '%{http_code}' --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_UI_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/` returns 200",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-auto-calibration` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-auto-calibration-ui` returns exit 0",
+        "`docker inspect --format '{{.State.Health.Status}}' vss-auto-calibration` returns `healthy`"
+      ]
+    },
+    {
+      "query": "Deploy the VSS **auto-calibration** profile on {{platform}} with VGGT model refinement enabled. The user has provided a HuggingFace token and accepted the VGGT license.",
+      "checks": [
+        "`test -f $VSS_DATA_DIR/auto-calib/vggt/vggt_1B_commercial.pt` returns exit 0",
+        "`docker exec vss-auto-calibration test -f /tmp/vggt_model/vggt_1B_commercial.pt` returns exit 0 (VGGT is mounted read-only into the MS container)",
+        "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/v1/ready` returns exit 0",
+        "`docker logs vss-auto-calibration 2>&1 | grep -E 'hf_[A-Za-z0-9]{20,}'` returns non-zero exit (HuggingFace token is not echoed into MS logs)"
+      ]
+    },
+    {
+      "query": "Verify a running auto-calibration deployment on {{platform}}. The user thinks AMC is already up but wants to confirm both containers + endpoints before running calibration.",
+      "checks": [
+        "`docker ps --filter 'name=vss-auto-calibration' --filter 'status=running' --format '{{.Names}}' | sort -u | wc -l` returns `2`",
+        "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/docs` returns exit 0 (Swagger UI responsive)",
+        "`grep -q ^HOST_IP=[0-9] $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env` returns exit 0 (HOST_IP is set to a numeric address, not unset or `localhost`)",
+        "Reported MS URL is not `http://localhost:` or `http://0.0.0.0:` (UI container couldn't reach it that way)"
+      ]
+    },
+    {
+      "query": "Deploy the VSS auto-calibration profile, but `NGC_CLI_API_KEY` is not set and the user provides no value when prompted.",
+      "checks": [
+        "Skill detects the missing NGC credentials before running `docker compose up`",
+        "Skill does NOT attempt `docker compose up` (no `vss-auto-calibration` / `vss-auto-calibration-ui` containers created)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-auto-calibration` returns non-zero exit",
+        "Skill output does NOT contain a literal NGC key matching the pattern `nvapi-[A-Za-z0-9_\\-]{10,}`"
+      ]
+    }
+  ]
+}

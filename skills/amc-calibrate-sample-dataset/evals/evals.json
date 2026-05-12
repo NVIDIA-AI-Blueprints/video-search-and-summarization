@@ -1,0 +1,121 @@
+{
+  "skill_name": "amc-calibrate-sample-dataset",
+  "evals": [
+    {
+      "id": 1,
+      "name": "happy-path-sample-test-backend-already-up",
+      "prompt": "Run the sample calibration test. The microservice is already running on port 8000.",
+      "expected_output": "Skill detects the backend via /v1/ready on port 8000, locates sdg_08_2_sample_data_010926.zip in assets/, extracts it into a .cache/ subdirectory if not already extracted, creates a project, uploads the 4 cam_XX.mp4 files in sorted order, uploads alignment_data.json, layout.png, and GT.zip, verifies project state is READY, starts calibration with detector_type=resnet, polls /v1/get_project_info until COMPLETED, and prints the evaluation_statistics.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill uses the bundled sample zip path",
+          "type": "contains_phrase",
+          "phrase": "sdg_08_2_sample_data_010926"
+        },
+        {
+          "text": "Skill uploads videos sorted by filename",
+          "type": "contains_phrase",
+          "phrase": "sorted"
+        },
+        {
+          "text": "Skill polls for the COMPLETED terminal state",
+          "type": "contains_phrase",
+          "phrase": "COMPLETED"
+        },
+        {
+          "text": "Skill does not leak the NGC API token or bearer credentials in stdout",
+          "type": "not_contains_pattern",
+          "pattern": "(Bearer |nvapi-)[A-Za-z0-9_\\-]{10,}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "launch-and-test-combined-flow",
+      "prompt": "Launch AMC and run the sample calibration test end-to-end.",
+      "expected_output": "Skill detects no backend on 8000-8009, delegates to the deploy skill's auto-calibration profile to bring up MS + UI, waits for /v1/ready to return OK, then runs the sample-dataset pipeline and reports metrics.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill delegates to the deploy skill's auto-calibration profile when backend is not running",
+          "type": "contains_phrase",
+          "phrase": "auto-calibration"
+        },
+        {
+          "text": "Skill waits for readiness before starting the test",
+          "type": "contains_phrase",
+          "phrase": "/v1/ready"
+        },
+        {
+          "text": "Skill reports evaluation metrics since GT is included in the sample",
+          "type": "contains_phrase",
+          "phrase": "evaluation_statistics"
+        },
+        {
+          "text": "Skill does not embed secrets in the prompt or output",
+          "type": "not_contains_pattern",
+          "pattern": "password\\s*[:=]\\s*[\"'][^\"']+[\"']"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "swagger-ui-alternative-path",
+      "prompt": "I don't want to run Python. Walk me through the sample test using the Swagger UI instead.",
+      "expected_output": "Skill points the user at http://<HOST_IP>:<MS_PORT>/docs, lists the endpoint sequence (create_project, upload_video_files, upload_alignment, upload_layout, upload_gt_file, verify_project, calibrate, get_project_info, result/evaluation_statistics), and notes the order and file mapping.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill points to the Swagger /docs path on the microservice",
+          "type": "contains_phrase",
+          "phrase": "/docs"
+        },
+        {
+          "text": "Skill includes the verify_project step in the manual sequence",
+          "type": "contains_phrase",
+          "phrase": "verify_project"
+        },
+        {
+          "text": "Skill mentions GT.zip so evaluation metrics can be produced",
+          "type": "contains_phrase",
+          "phrase": "GT.zip"
+        },
+        {
+          "text": "Skill does not expose bearer tokens in the manual walkthrough",
+          "type": "not_contains_pattern",
+          "pattern": "Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "negative-backend-unreachable-and-sample-missing",
+      "prompt": "Test the sample dataset. Nothing is running.",
+      "expected_output": "Skill scans ports 8000-8009, finds no backend, and instructs the user to run the deploy skill with the auto-calibration profile first. It does not attempt to start calibration against an invalid URL. If the sample zip is missing it also flags that before proceeding.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill reports the backend as not running",
+          "type": "contains_phrase",
+          "phrase": "not running"
+        },
+        {
+          "text": "Skill refuses to start calibration against an unreachable microservice",
+          "type": "not_contains",
+          "phrase": "calibration started"
+        },
+        {
+          "text": "Skill references the deploy skill's auto-calibration profile as the recovery path",
+          "type": "contains_phrase",
+          "phrase": "auto-calibration"
+        },
+        {
+          "text": "Skill does not leak hardcoded credentials while reporting the error",
+          "type": "not_contains_pattern",
+          "pattern": "(?i)secret[_\\-]?key\\s*[:=]\\s*[\"']?[A-Za-z0-9+/=_\\-]{20,}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "skill_name": "amc-calibrate-rtsp-streams",
+  "evals": [
+    {
+      "id": 1,
+      "name": "happy-path-rtsp-capture-and-calibrate",
+      "prompt": "Calibrate from 3 RTSP streams: rtsp://HOST:31554/cam_00, rtsp://HOST:31555/cam_01, rtsp://HOST:31556/cam_02. Record 180 seconds. Alignment JSON and layout PNG are at /data/alignment/. Microservice at http://HOST:8000. VIOS is already running.",
+      "expected_output": "Skill verifies VIOS is reachable via /vst/api/v1/sensor/list, creates a project, calls POST /v1/rtsp/capture/<project_id> with the 3 streams and duration_seconds=180, polls the session through STARTING/RECORDING/COMPLETED, calls POST /v1/rtsp/capture/<project_id>/<session_id>/ingest, uploads alignment and layout, verifies READY, calibrates, polls, and reports results.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill calls the capture start endpoint",
+          "type": "contains_phrase",
+          "phrase": "/rtsp/capture/"
+        },
+        {
+          "text": "Skill ingests clips into the project after capture completes",
+          "type": "contains_phrase",
+          "phrase": "ingest"
+        },
+        {
+          "text": "Skill polls calibration until the COMPLETED state",
+          "type": "contains_phrase",
+          "phrase": "COMPLETED"
+        },
+        {
+          "text": "Skill does not leak bearer tokens or VIOS credentials in output",
+          "type": "not_contains_pattern",
+          "pattern": "(Bearer |vios_token=)[A-Za-z0-9\\-._~+/]{10,}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "manual-alignment-after-rtsp-ingest",
+      "prompt": "Calibrate from RTSP: rtsp://HOST:31554/cam_00 and rtsp://HOST:31555/cam_01, 120 seconds. I don't have alignment or layout files. MS at http://HOST:8000, VIOS up.",
+      "expected_output": "Skill runs the capture + ingest sequence, then directs the user to open the UI and complete Step 4 alignment for the newly created project. It waits for confirmation and verifies projects/project_<id>/manual_adjustment/ contains alignment_data.json and layout.png before calling verify_project and calibrate.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill tells the user to complete alignment in the UI",
+          "type": "contains_phrase",
+          "phrase": "UI"
+        },
+        {
+          "text": "Skill verifies manual alignment output on disk before calibrating",
+          "type": "contains_phrase",
+          "phrase": "alignment_data.json"
+        },
+        {
+          "text": "Skill refuses to calibrate without confirmed alignment",
+          "type": "not_contains",
+          "phrase": "calibration started without alignment"
+        },
+        {
+          "text": "Skill does not echo vios_token or bearer credentials",
+          "type": "not_contains_pattern",
+          "pattern": "Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "negative-vios-unreachable",
+      "prompt": "Calibrate from rtsp://HOST:31554/cam_00. MS is up but VIOS is not.",
+      "expected_output": "Skill probes VIOS at /vst/api/v1/sensor/list, detects it is unreachable, searches for a vios skill in skills/, and if no such skill is found asks the user to deploy VIOS and provide the base URL. It refuses to call /v1/rtsp/capture until VIOS confirms healthy.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill reports that VIOS is unreachable",
+          "type": "contains_phrase",
+          "phrase": "VIOS"
+        },
+        {
+          "text": "Skill searches for a VIOS skill or asks the user",
+          "type": "contains_phrase",
+          "phrase": "vios"
+        },
+        {
+          "text": "Skill does not attempt capture while VIOS is down",
+          "type": "not_contains",
+          "phrase": "capture started"
+        },
+        {
+          "text": "Skill does not embed a real VIOS bearer token in its output",
+          "type": "not_contains_pattern",
+          "pattern": "Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "config-anchor-detector-override-alignment-autoscan",
+      "prompt": "Calibrate from rtsp://HOST:31554/cam_00 and rtsp://HOST:31555/cam_01 for 120s. MS at http://HOST:8000, VIOS up. I have a settings file at /data/calib/settings.json that includes detector: transformer. alignment_data.json and layout.png live in the same /data/calib/ directory.",
+      "expected_output": "Skill uses /data/calib/settings.json as the anchor, auto-scans that directory for alignment_data.json and layout.png, POSTs the settings file to /v1/config/<project_id>, parses it for the detector field and overrides DETECTOR_TYPE to transformer for the calibrate call, uploads alignment and layout, then continues with verify + calibrate + poll.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill uses the config file's directory as the anchor for alignment scan",
+          "type": "contains_phrase",
+          "phrase": "auto-detected"
+        },
+        {
+          "text": "Skill calls the config endpoint",
+          "type": "contains_phrase",
+          "phrase": "/config/"
+        },
+        {
+          "text": "Skill applies the detector override from the config file",
+          "type": "contains_phrase",
+          "phrase": "transformer"
+        },
+        {
+          "text": "Skill does not leak bearer tokens from config-upload or VIOS responses",
+          "type": "not_contains_pattern",
+          "pattern": "Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "negative-vios-base-url-missing-in-ms-env",
+      "prompt": "Calibrate from rtsp://HOST:31554/cam_00. The capture endpoint returned 503 VIOS not configured.",
+      "expected_output": "Skill recognises VIOS_BASE_URL is missing from the MS container environment, instructs the user either to deploy alongside a bp_wh_* blueprint (which auto-wires it from VST_INTERNAL_URL) or set it explicitly in deploy/docker/industry-profiles/warehouse-operations/.env and re-run docker compose --env-file ... up -d from deploy/docker. Does not proceed with capture until the endpoint returns non-503.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill identifies the missing environment variable",
+          "type": "contains_phrase",
+          "phrase": "VIOS_BASE_URL"
+        },
+        {
+          "text": "Skill instructs the user to set the env var via the warehouse-operations .env or a bp_wh_* blueprint",
+          "type": "contains_phrase",
+          "phrase": "warehouse-operations"
+        },
+        {
+          "text": "Skill does not proceed with capture while the endpoint returns 503",
+          "type": "not_contains",
+          "phrase": "capture started"
+        },
+        {
+          "text": "Skill does not hardcode a credential as a fix for the 503",
+          "type": "not_contains_pattern",
+          "pattern": "(?i)token\\s*[:=]\\s*[\"']?[A-Za-z0-9+/=_\\-.]{20,}[\"']?"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "skill_name": "amc-calibrate-videos",
+  "evals": [
+    {
+      "id": 1,
+      "name": "happy-path-full-upload-with-alignment",
+      "prompt": "Calibrate my cameras. Videos are under /data/videos/ (cam_00.mp4 through cam_03.mp4), alignment_data.json and layout.png are at /data/alignment/. Microservice is at http://HOST:8000.",
+      "expected_output": "Skill creates a project, uploads the 4 videos sorted alphabetically, uploads alignment and layout, verifies project state is READY, starts calibration, polls until COMPLETED, and reports results. Does not trigger the manual-alignment fallback because alignment files were provided.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill creates a project before any uploads",
+          "type": "contains_phrase",
+          "phrase": "project_id"
+        },
+        {
+          "text": "Skill polls for the COMPLETED terminal state",
+          "type": "contains_phrase",
+          "phrase": "COMPLETED"
+        },
+        {
+          "text": "Skill uploads videos in sorted order",
+          "type": "contains_phrase",
+          "phrase": "sorted"
+        },
+        {
+          "text": "Skill does not leak API tokens or bearer credentials in its output",
+          "type": "not_contains_pattern",
+          "pattern": "(Bearer |nvapi-)[A-Za-z0-9_\\-]{10,}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "manual-alignment-via-ui-when-files-missing",
+      "prompt": "Calibrate my cameras. I have cam_00.mp4 and cam_01.mp4 but no alignment JSON or layout image.",
+      "expected_output": "Skill uploads the two videos, tells the user to open the UI at http://<HOST_IP>:<UI_PORT>, navigate to their project, and complete UI Step 4 (alignment). Waits for the user to confirm, then verifies projects/project_<id>/manual_adjustment/ contains both alignment_data.json and layout.png before calling verify_project and calibrate.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill instructs the user to complete alignment in the UI",
+          "type": "contains_phrase",
+          "phrase": "UI"
+        },
+        {
+          "text": "Skill verifies the manual alignment output on disk",
+          "type": "contains_phrase",
+          "phrase": "alignment_data.json"
+        },
+        {
+          "text": "Skill does not start calibration before alignment is confirmed",
+          "type": "not_contains",
+          "phrase": "calibration started without alignment"
+        },
+        {
+          "text": "Skill does not embed hardcoded credentials when sharing the UI URL",
+          "type": "not_contains_pattern",
+          "pattern": "password\\s*[:=]\\s*[\"'][^\"']+[\"']"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "calibration-with-ground-truth-evaluation",
+      "prompt": "Calibrate my cameras with ground truth. Videos at /data/videos/, alignment and layout at /data/alignment/, GT.zip at /data/GT.zip, focal lengths 1269.0 and 1099.5, microservice at http://localhost:8000.",
+      "expected_output": "Skill uploads videos, alignment, layout, GT.zip, and focal lengths, runs calibration, and after COMPLETED fetches /v1/result/<project_id>/evaluation_statistics and reports L2 distance plus reprojection error values.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill uploads the ground truth zip",
+          "type": "contains_phrase",
+          "phrase": "GT.zip"
+        },
+        {
+          "text": "Skill retrieves evaluation metrics after completion",
+          "type": "contains_phrase",
+          "phrase": "evaluation_statistics"
+        },
+        {
+          "text": "Skill reports L2 distance as part of the metrics",
+          "type": "contains_phrase",
+          "phrase": "L2"
+        },
+        {
+          "text": "Skill does not echo raw bearer tokens from API responses",
+          "type": "not_contains_pattern",
+          "pattern": "Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "config-auto-detected-with-detector-override",
+      "prompt": "Calibrate my cameras at /data/videos/. I have a settings file at /data/settings.json that I exported from the UI earlier; it pins detector_type to transformer. Microservice at http://localhost:8000.",
+      "expected_output": "Skill auto-scans /data/videos/ and /data/ for settings.json, alignment_data.json, and layout.png, finds the settings file, POSTs it verbatim to /v1/config/<project_id>, detects the detector field inside and overrides DETECTOR_TYPE to transformer for the calibrate call, then continues with verify + calibrate + poll.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill auto-detects the settings file in the videos-directory tree",
+          "type": "contains_phrase",
+          "phrase": "auto-detected"
+        },
+        {
+          "text": "Skill calls the config endpoint",
+          "type": "contains_phrase",
+          "phrase": "/config/"
+        },
+        {
+          "text": "Skill honors the detector override from the config file",
+          "type": "contains_phrase",
+          "phrase": "transformer"
+        },
+        {
+          "text": "Skill does not echo credentials or bearer tokens from the config upload response",
+          "type": "not_contains_pattern",
+          "pattern": "Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "negative-microservice-unreachable",
+      "prompt": "Calibrate my cameras. Videos at /data/videos/. Microservice should be at http://localhost:8000 but I don't remember if I started it.",
+      "expected_output": "Skill probes /v1/ready, detects the microservice is not running, refuses to start calibration against an invalid URL, and points the user at the deploy skill's auto-calibration profile to launch MS + UI first.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Skill detects the service is unreachable",
+          "type": "contains_phrase",
+          "phrase": "not running"
+        },
+        {
+          "text": "Skill points the user at the deploy skill's auto-calibration profile",
+          "type": "contains_phrase",
+          "phrase": "auto-calibration"
+        },
+        {
+          "text": "Skill does not proceed with calibration when the service is down",
+          "type": "not_contains",
+          "phrase": "calibration started"
+        },
+        {
+          "text": "Skill does not leak secrets when surfacing the diagnostic error",
+          "type": "not_contains_pattern",
+          "pattern": "(?i)secret[_\\-]?key\\s*[:=]\\s*[\"']?[A-Za-z0-9+/=_\\-]{20,}"
+        }
+      ]
+    }
+  ]
+}
