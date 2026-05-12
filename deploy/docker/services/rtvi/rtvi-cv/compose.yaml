@@ -19,15 +19,15 @@
 # from this repo. Blueprints extend `perception` and add config/model mounts.
 #
 # Bind mount for `ds-start.sh` uses a path relative to this file (`./ds-start.sh`)
-# so it stays correct whether MDX_SAMPLE_APPS_DIR points at `deploy/docker/` or
-# another layout. (Do not use ${MDX_SAMPLE_APPS_DIR}/rtvi/rtvi-cv/... here — that
+# so it stays correct whether VSS_APPS_DIR points at `deploy/docker/` or
+# another layout. (Do not use ${VSS_APPS_DIR}/rtvi/rtvi-cv/... here — that
 # duplicates the segment when MDX is already .../deploy/docker/rtvi/rtvi-cv.)
 #
 # Standalone: from this directory, `docker compose -f compose.yaml up`
 
 services:
   perception:
-    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.04.2}
+    image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.05.1}
     network_mode: "host"
     runtime: nvidia
     container_name: vss-rtvi-cv

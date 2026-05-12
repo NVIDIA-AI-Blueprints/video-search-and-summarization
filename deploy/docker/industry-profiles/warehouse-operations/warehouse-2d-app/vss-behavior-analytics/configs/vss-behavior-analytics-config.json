@@ -89,7 +89,7 @@
 				},
 				{
 					"name": "proximityDetectionThreshold",
-					"value": "3"
+					"value": "4"
 				},
 				{
 					"name": "proximityDetectionCenterClasses",

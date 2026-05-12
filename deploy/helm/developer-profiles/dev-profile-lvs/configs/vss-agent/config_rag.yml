@@ -64,8 +64,6 @@ functions:
     video_url_tool: vst_video_clip
     time_format: offset
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${INTERNAL_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
     system_prompt: |
       You are a monitoring system analyzing video footage.
@@ -103,8 +101,6 @@ functions:
     model: ${VLM_NAME}
     video_url_tool: vst_video_clip
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${INTERNAL_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
     # Connection and timeout configuration
     conn_timeout_ms: 5000
@@ -276,7 +272,7 @@ llms:
 
   rtvi_vlm:
     _type: openai
-    model_name: nvidia/cosmos-reason2-8b
+    model_name: ${VLM_NAME}
     base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:

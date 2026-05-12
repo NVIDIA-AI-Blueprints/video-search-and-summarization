@@ -1,8 +1,11 @@
 ---
 name: alerts
 description: Manage and monitor VSS alerts after the alerts profile is deployed. The deployment's mode (CV vs VLM real-time) is fixed at deploy time and determines the workflow — start/stop real-time alerts via the VSS Agent on a VLM deployment, onboard CV alerts by adding RTSP streams to VIOS on a CV deployment, query incidents, customize verifier prompts. Use when asked to start/stop a real-time alert, check or list alerts, add a camera, customize alert prompts, or view verdicts.
-version: "3.2.0"
-license: "Apache License 2.0"
+license: Apache-2.0
+metadata:
+  version: "3.2.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint operational"
 ---
 
 # VSS Alert Management
@@ -174,7 +177,7 @@ curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
 
 **What the agent does under the hood:**
 1. `rtvi_prompt_gen` — converts "boxes dropped" → `prompt: "Detect for a box being dropped. Answer in Yes or No"`, `system_prompt: "You are a helpful assistant."`.
-2. `rtvi_vlm_alert action="start"` — looks up the sensor in VIOS live streams, calls `POST /v1/streams/add` and `POST /v1/generate_captions_alerts` (`stream=true`) on `rtvi-vlm`. Returns `stream_id`.
+2. `rtvi_vlm_alert action="start"` — looks up the sensor in VIOS live streams, then calls the Alert Bridge realtime API to register the stream with `rtvi-vlm` and start caption generation. Returns an alert rule ID.
 
 **Alert semantics:** every chunk is captioned; a chunk whose VLM response contains **`"yes"` or `"true"`** (case-insensitive) triggers an incident published to the Kafka incident topic (`mdx-vlm-incidents` on the alerts profile). That is why prompts must force a Yes/No answer.
 

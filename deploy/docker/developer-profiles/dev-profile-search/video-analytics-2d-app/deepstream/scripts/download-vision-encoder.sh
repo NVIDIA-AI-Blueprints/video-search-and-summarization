@@ -17,7 +17,7 @@
 # Init-container script for the search profile.
 #
 # Downloads the selected vision encoder model from NGC into /opt/storage
-# (bind-mounted to $MDX_DATA_DIR/models/ on the host). Idempotent -- skips
+# (bind-mounted to $VSS_DATA_DIR/models/ on the host). Idempotent -- skips
 # download when a marker file from a previous run is found.
 #
 # Expected env vars (set by compose):

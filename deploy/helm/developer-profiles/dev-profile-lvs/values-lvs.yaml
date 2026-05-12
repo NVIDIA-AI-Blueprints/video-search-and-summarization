@@ -22,8 +22,8 @@
 profile: lvs
 mode: ""
 llmNameSlug: <replace-with-llm-name> # e.g. nvidia-nemotron-nano-9b-v2, nvidia-nemotron-nano-9b-v2-mini, nvidia-nemotron-nano-9b-v2-mini-2
-vlmNameSlug: <replace-with-vlm-name> # e.g. nvidia-cosmos-reason2-8b (chart key under nims/charts/)
-vlmName: "nvidia/cosmos-reason2-8b"
+vlmNameSlug: none # LVS uses the integrated RT-VLM checkpoint, not a VLM NIM subchart.
+vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 ngc:
   createSecrets: true
@@ -35,15 +35,16 @@ global:
   externalHost: "EXTERNAL_HOST" # e.g. vss.140.238.75.84.nip.io
   externalPort: "" # Default 80 (http) / 443 (https): use "" — chart omits :port in URLs. Non-default port only: e.g. "8080", "8443".
   # Must be a real browser URL; Helm does not substitute EXTERNAL_HOST here from global.externalHost. Match your ingress host (often http://kibana.<same-as-externalHost>).
-  kibanaPublicUrl: "http://kibana.EXTERNAL_HOST"
+  kibanaPublicUrl: ""
   # Remote NIM: one place for vss-agent + vss-summarization. Use the same base URL for both (e.g. http://host:31081); vss-summarization adds /v1 internally when absent.
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nvidia-nemotron-nano-9b-v2"
-  vlmName: "nvidia/cosmos-reason2-8b"
+  vlmName: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 
 # Shared umbrella helm/services/nims — override gpuType here (see dev-profile-lvs/values.yaml for full nims.* defaults).
+# LVS deploys the LLM NIM and lets vss-rtvi-vlm load the integrated VLM checkpoint.
 nims:
   enabled: true
   gpuType: RTXPRO6000BW
@@ -54,19 +55,21 @@ vios:
 
 # vss-agent / vss-summarization model ids: set global.llmName / global.vlmName above (override with agent.vss-agent.llmName or vss-summarization.llmName if needed).
 
-# In-cluster LVS → LLM/VLM: optional llmService / vlmService slugs under vss-summarization (defaults match nims). Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
+# In-cluster LVS → LLM/RT-VLM: optional llmService / vlmService slugs under vss-summarization.
+# Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
 # LVS backend routes VLM calls through vss-rtvi-vlm by default (RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
 vss-summarization:
   llmService: ""
-  vlmService: ""
+  vlmService: "vss-rtvi-vlm"
 
-# LVS always enables vss-rtvi-vlm (shared NIM, Kafka enabled in values.yaml). Override here only when you need a different image tag,
-# a dedicated GPU (useSharedNim: false), or edge VLM_INPUT_* defaults. See values.yaml for the full env list.
+# LVS always enables vss-rtvi-vlm (integrated checkpoint, Kafka enabled in values.yaml). Override here only when
+# you need a different image tag, a shared/remote VLM endpoint (useSharedNim: true), or edge VLM_INPUT_* defaults.
+# See values.yaml for the full env list.
 rtvi:
   enabled: true
   vss-rtvi-vlm:
     enabled: true
-    useSharedNim: true
+    useSharedNim: false
 
 # Helm-managed Ingress (uses existing IngressClass). Set ingressClassName to match your controller (default haproxy).
 vssIngress:
