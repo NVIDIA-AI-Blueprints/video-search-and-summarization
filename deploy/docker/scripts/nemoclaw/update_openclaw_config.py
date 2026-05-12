@@ -15,6 +15,7 @@ import sys
 DEFAULT_CONTAINER = "openshell-cluster-nemoclaw"
 DEFAULT_NAMESPACE = "openshell"
 DEFAULT_CONFIG_PATH = "/sandbox/.openclaw/openclaw.json"
+DEFAULT_WORKSPACE_DIR = "/sandbox/.openclaw/workspace"
 RED_BOLD = "\033[1;31m"
 RESET = "\033[0m"
 
@@ -226,6 +227,22 @@ def update_hooks_config(
     return json.dumps(hooks, sort_keys=True) != before
 
 
+def update_mcp_server(data: dict, *, name: str, url: str) -> bool:
+    """Register an HTTP MCP server under data['mcp']['servers'][name].
+
+    Returns True if the config changed. No-ops when name or url is empty.
+    """
+    if not name or not url:
+        return False
+    server_config = {"type": "http", "url": url}
+    mcp = data.setdefault("mcp", {})
+    servers = mcp.setdefault("servers", {})
+    if servers.get(name) == server_config:
+        return False
+    servers[name] = server_config
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Safely update openclaw.json inside a sandbox pod."
@@ -276,6 +293,22 @@ def main() -> int:
         default=os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip() or "/hooks",
         help="OpenClaw hooks path (default: /hooks)",
     )
+    parser.add_argument(
+        "--mcp-name",
+        default=os.environ.get("VSS_ORCHESTRATOR_MCP_NAME", "vss_orchestrator").strip()
+        or "vss_orchestrator",
+        help="MCP server name to register under mcp.servers (default: vss_orchestrator)",
+    )
+    parser.add_argument(
+        "--mcp-url",
+        default=os.environ.get(
+            "VSS_ORCHESTRATOR_MCP_URL", "http://host.openshell.internal:9902/mcp"
+        ).strip(),
+        help=(
+            "HTTP MCP server URL to register; pass empty string to skip "
+            "(default: http://host.openshell.internal:9902/mcp)"
+        ),
+    )
     args = parser.parse_args()
 
     env_id = get_brev_env_id()
@@ -298,12 +331,20 @@ def main() -> int:
         origins.insert(0, origin)
         changed = True
 
+    # Set agents.defaults.workspace so the VSS plugin's register hook can locate the
+    # workspace dir and copy AGENTS.md / BOOTSTRAP.md / IDENTITY.md / SOUL.md / TOOLS.md.
+    agents_defaults = data.setdefault("agents", {}).setdefault("defaults", {})
+    if agents_defaults.get("workspace") != DEFAULT_WORKSPACE_DIR:
+        agents_defaults["workspace"] = DEFAULT_WORKSPACE_DIR
     if update_hooks_config(
         data,
         enabled=args.enable_hooks,
         token=args.hooks_token,
         path=args.hooks_path,
     ):
+        changed = True
+
+    if update_mcp_server(data, name=args.mcp_name, url=args.mcp_url):
         changed = True
 
     updated_json = json.dumps(data, indent=2) + "\n"
@@ -356,8 +397,11 @@ def main() -> int:
 
     print(f"Brev instance ID: {env_id}")
     print(f"Origin allowed in OpenClaw: {origin}")
+    print(f"agents.defaults.workspace: {DEFAULT_WORKSPACE_DIR}")
     if args.enable_hooks:
         print(f"OpenClaw hooks enabled at: {args.hooks_path}")
+    if args.mcp_url:
+        print(f"MCP server registered: {args.mcp_name} -> {args.mcp_url}")
     if dashboard_token:
         print(f"Dashboard token: {dashboard_token}")
         ui_url = f"{origin}/#token={dashboard_token}"
