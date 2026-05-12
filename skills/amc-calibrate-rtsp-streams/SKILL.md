@@ -87,13 +87,16 @@ Because there's no videos directory to anchor the scan, ask the user for the **c
 
 | File | Order | UI fallback |
 |---|---|---|
-| Calibration settings | Ask the user for a path (e.g. one exported via UI Step 3 Download). When provided, this file replaces the entire UI Step 3 Parameters dialog — every parameter the user wants tuned (rectification, bundle-adjustment, evaluation, detector, …) lives in this file, so users without the UI handy can drive everything from the local file. The skill additionally parses the file for `"detector"` / `"detector_type"` (`"resnet"` or `"transformer"`) and passes that value to the calibrate call, since the detector is a separate API parameter on `/calibrate`, not driven by `/config`. If they don't have a file, skip to UI Step 3. | UI Step 3: Parameters — tune or accept defaults |
+| Calibration settings | Ask the user for a path (e.g. one exported via UI Step 3 Download). When provided, this file replaces the entire UI Step 3 Parameters dialog — every parameter the user wants tuned (rectification, bundle-adjustment, evaluation, detector, …) lives in this file, so users without the UI handy can drive everything from the local file. The skill additionally parses the file for `"detector"` / `"detector_type"` (`"resnet"` or `"transformer"`) and passes that value to the calibrate call, since the detector is a separate API parameter on `/calibrate`, not driven by `/config`. If they don't have a file, skip to UI Step 3 **and** explicitly ask them which detector to use (see below). | UI Step 3: Parameters — tune or accept defaults. Detector (`resnet` vs `transformer`) is **not** set here; the agent must ask the user separately via `AskUserQuestion` before calling `/calibrate`. |
 | Alignment JSON | If a config path was given, scan the **same directory** for `alignment_data.json`. If exactly one match, use it; zero or multiple → ask the user; no answer → UI fallback. | UI Step 4: Alignment — mark correspondence points |
-| Layout PNG | Same scan rule, filename `layout.png`. | UI Step 4: Alignment — upload layout |
+| Layout PNG | Same scan rule, filename `layout.png`. | UI Step 2 (Video Configuration): upload `layout.png` only — videos are already ingested from the RTSP capture, do not re-upload them. Step 4 (Alignment) then loads that layout as a backdrop for picking correspondence points (or uploading `alignment_data.json`). |
+
+### Required when no calibration-settings file is provided
+6. **Detector type** — `resnet` (default, fast) or `transformer` (slower, better under occlusion). Ask via `AskUserQuestion`. Mandatory if there's no config file because the detector is a separate `/calibrate` argument and the UI Step 3 Parameters dialog does **not** cover it.
 
 ### Optional
-6. **`sensor_id`** per stream — if VIOS already has the sensor registered, pass the ID to skip re-registration. Leave null and the MS auto-registers via VIOS.
-7. **Ground truth zip** (`GT.zip`), **focal lengths**, **VGGT flag** — same options as the video-file flow.
+7. **`sensor_id`** per stream — if VIOS already has the sensor registered, pass the ID to skip re-registration. Leave null and the MS auto-registers via VIOS.
+8. **Ground truth zip** (`GT.zip`), **focal lengths**, **VGGT flag** — same options as the video-file flow.
 
 For nvstreamer setup details and sensor pre-registration, see your VIOS deployment docs; from this skill's perspective a valid RTSP URL is all that's needed.
 
@@ -125,7 +128,7 @@ Content-Type: application/json
 }
 ```
 
-Response includes `session_id`. Save it.
+Response shape: `{"code": 0, "message": "...", "session": {"session_id": "...", "status": "STARTING", ...}}`. Save `session.session_id`. The same nested-`session` shape is returned by `GET /v1/rtsp/capture/<project_id>/<session_id>`, so unwrap it on every poll too.
 
 **Session lifecycle:**
 ```
@@ -182,8 +185,10 @@ POST /v1/upload_focal_length/<project_id> focal_length=<f0>&focal_length=<f1>...
 ```
 
 **UI fallback** — for any file the user doesn't have:
-- Settings missing → UI Step 3 (Parameters), accept defaults or tune, Save.
-- Alignment/layout missing → UI Step 4 (Alignment), mark correspondence points, Save. Verify `projects/project_<id>/manual_adjustment/` contains `alignment_data.json` + `layout.png` before continuing. See [`amc-calibrate-videos`](../amc-calibrate-videos/SKILL.md) Step 5 for the verification shell snippet.
+- Settings missing → UI Step 3 (Parameters), tune via the dialog or accept defaults, Save. **Also**: before the `/calibrate` call, ask the user via `AskUserQuestion` whether to use the `resnet` or `transformer` detector — Step 3 does not cover detector choice, it's a separate `/calibrate` parameter.
+- Layout missing → UI Step 2 (Video Configuration), upload `layout.png` only (do NOT touch the video section — clips are already ingested from RTSP capture), Save.
+- Alignment missing → UI Step 4 (Alignment), either upload `alignment_data.json` or mark correspondence points on the layout, Save.
+- Verify `projects/project_<id>/manual_adjustment/` contains `alignment_data.json` + `layout.png` before continuing. See [`amc-calibrate-videos`](../amc-calibrate-videos/SKILL.md) Step 5 for the verification shell snippet.
 
 ## Step 7 — Verify, Calibrate, Poll, Results
 
@@ -270,7 +275,8 @@ r = s.post(f"{BASE_URL}/rtsp/capture/{project_id}", json={
     "ssl_verify": False,
 })
 r.raise_for_status()
-session_id = r.json()["session_id"]
+session = r.json().get("session") or r.json()  # response nests session_id/status under "session"
+session_id = session["session_id"]
 print(f"[4] Capture session {session_id} — duration {DURATION_SECONDS}s")
 
 # Step 5a — Poll capture status
@@ -278,7 +284,8 @@ print(f"[5] Polling capture status (~{DURATION_SECONDS + 60}s)...")
 start = time.time(); last = ""
 while time.time() - start < DURATION_SECONDS + 600:
     info = s.get(f"{BASE_URL}/rtsp/capture/{project_id}/{session_id}").json()
-    state = info.get("status") or info.get("state")
+    sess = info.get("session") or info
+    state = sess.get("status") or sess.get("state")
     elapsed = int(time.time() - start)
     if state != last:
         print(f"    [{elapsed:>4}s] {state}", flush=True); last = state
@@ -334,8 +341,16 @@ if FOCAL_LENGTHS:
 ui_tasks = []
 if not CONFIG_FILE:
     ui_tasks.append("Step 3 (Parameters): tune settings or accept defaults, then Save.")
+    # Detector is a separate /calibrate param, NOT set in Step 3 — must be asked.
+    # The calling agent should run AskUserQuestion (resnet vs transformer) and edit
+    # DETECTOR_TYPE before this point; the input() below is the fallback for direct runs.
+    if DETECTOR_TYPE == "resnet":  # i.e. still the script default, agent didn't override
+        _choice = input("    Detector [resnet/transformer] (default resnet): ").strip().lower()
+        if _choice in ("resnet", "transformer"):
+            DETECTOR_TYPE = _choice
+        print(f"    Using detector: {DETECTOR_TYPE}")
 if not ALIGNMENT_JSON or not LAYOUT_PNG:
-    ui_tasks.append("Step 4 (Alignment): upload layout, mark correspondence points, then Save.")
+    ui_tasks.append("Step 2 (Video Configuration): upload layout.png ONLY — videos are already ingested from RTSP capture; do not re-upload. Then Save. Step 4 (Alignment): upload alignment_data.json or mark correspondence points, then Save.")
 if ui_tasks:
     print(f"\n[6] UI action required for project {project_id}:")
     for t in ui_tasks:

@@ -42,14 +42,16 @@ The skill scans the **videos directory** and its **parent directory** for these 
 
 | File | Candidate filenames | UI fallback |
 |---|---|---|
-| Calibration settings | `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, this file replaces the entire UI Step 3 Parameters dialog — every parameter the user wants tuned (rectification, bundle-adjustment, evaluation, detector, …) lives in this file, so users without the UI handy can drive everything from the local file. The skill additionally parses the file for `"detector"` / `"detector_type"` (`"resnet"` or `"transformer"`) and passes that value to the calibrate call, since the detector is a separate API parameter on `/calibrate`, not driven by `/config`. | UI Step 3: Parameters — tune manually or leave defaults |
+| Calibration settings | `settings.json`, `config.json`, `calibration_config.json` (UI Step 3 Download produces one of these). When provided, this file replaces the entire UI Step 3 Parameters dialog — every parameter the user wants tuned (rectification, bundle-adjustment, evaluation, detector, …) lives in this file, so users without the UI handy can drive everything from the local file. The skill additionally parses the file for `"detector"` / `"detector_type"` (`"resnet"` or `"transformer"`) and passes that value to the calibrate call, since the detector is a separate API parameter on `/calibrate`, not driven by `/config`. If they don't have a file, skip to UI Step 3 **and** explicitly ask them which detector to use (see below). | UI Step 3: Parameters — tune manually or leave defaults. Detector (`resnet` vs `transformer`) is **not** set here; the agent must ask the user separately via `AskUserQuestion` before calling `/calibrate`. |
 | Alignment JSON | `alignment_data.json` | UI Step 4: Alignment — mark correspondence points |
-| Layout PNG | `layout.png` | UI Step 4: Alignment — upload layout image |
+| Layout PNG | `layout.png` | UI Step 2 (Video Configuration): upload `layout.png` only — videos are already uploaded via API, do not re-upload them. Step 4 (Alignment) then loads that layout as a backdrop for picking correspondence points (or uploading `alignment_data.json`). |
+
+### Required when no calibration-settings file is provided
+4. **Detector type** — `resnet` (default, fast) or `transformer` (slower, better under occlusion). Ask via `AskUserQuestion`. Mandatory if there's no config file because the detector is a separate `/calibrate` argument and the UI Step 3 Parameters dialog does **not** cover it. When a config file IS provided, the script extracts the detector from `"detector"` / `"detector_type"` automatically — no need to ask.
 
 ### Optional
-4. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics)
-5. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`
-6. **Detector type** — `resnet` (default, fast) or `transformer` (slower, better under occlusion)
+5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics)
+6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`
 7. **Run VGGT refinement?** — only if VGGT model is loaded (see the `auto-calibration` profile reference)
 
 See root `README.md` "Custom Dataset" section for input-video guidelines and ground-truth format.
@@ -133,8 +135,9 @@ focal_length=1269.0&focal_length=1099.5&...
 
 If any of settings / alignment / layout was not resolved in Step 3, direct the user to the appropriate UI step:
 
-- **Settings missing** → "Open UI project `<project_id>`, go to **Step 3: Parameters**, tune via the settings dialog (or accept defaults), click Save."
-- **Alignment or layout missing** → "Open UI project `<project_id>`, go to **Step 4: Alignment**, upload layout, mark correspondence points, click Save."
+- **Settings missing** → "Open UI project `<project_id>`, go to **Step 3: Parameters**, tune via the settings dialog (or accept defaults), click Save." **Also**: before the `/calibrate` call, ask the user via `AskUserQuestion` whether to use the `resnet` or `transformer` detector — Step 3 doesn't cover detector choice; it's a separate `/calibrate` parameter.
+- **Layout missing** → "Open UI project `<project_id>`, go to **Step 2: Video Configuration**, upload `layout.png` only (do NOT re-upload videos — they're already attached via API), click Save."
+- **Alignment missing** → "Open UI project `<project_id>`, go to **Step 4: Alignment**, either upload `alignment_data.json` or mark correspondence points on the layout, click Save."
 
 Wait for user confirmation. For alignment/layout, verify on disk before continuing:
 
@@ -323,8 +326,16 @@ if FOCAL_LENGTHS:
 ui_tasks = []
 if not CONFIG_FILE:
     ui_tasks.append("Step 3 (Parameters): tune settings or accept defaults, then Save.")
+    # Detector is a separate /calibrate param, NOT set in Step 3 — must be asked.
+    # The calling agent should run AskUserQuestion (resnet vs transformer) and edit
+    # DETECTOR_TYPE before this point; the input() below is the fallback for direct runs.
+    if DETECTOR_TYPE == "resnet":  # i.e. still the script default, agent didn't override
+        _choice = input("    Detector [resnet/transformer] (default resnet): ").strip().lower()
+        if _choice in ("resnet", "transformer"):
+            DETECTOR_TYPE = _choice
+        print(f"    Using detector: {DETECTOR_TYPE}")
 if not ALIGNMENT_JSON or not LAYOUT_PNG:
-    ui_tasks.append("Step 4 (Alignment): upload layout, mark correspondence points, then Save.")
+    ui_tasks.append("Step 2 (Video Configuration): upload layout.png only — videos already uploaded via API, do not re-upload. Then Save. Step 4 (Alignment): upload alignment_data.json or mark correspondence points, then Save.")
 if ui_tasks:
     print(f"\n[5] UI action required for project {project_id}:")
     for t in ui_tasks:
