@@ -39,9 +39,23 @@ export interface ChunkedUploadOptions {
 }
 
 function randomIdentifier(): string {
-  // crypto.randomUUID is available in all modern browsers over HTTPS; see also
-  // the jest.setup.js polyfill for tests.
-  return crypto.randomUUID();
+  // `crypto.randomUUID` only exists in a *secure context* — HTTPS or localhost.
+  // CI runs the test browser against `http://<host>:<port>` (non-secure), so
+  // calling it directly throws "crypto.randomUUID is not a function" and the
+  // chunked upload silently fails before any chunk leaves the browser. Fall
+  // back to a UUID-v4-shape string for the nvstreamer chunk identifier — it
+  // only needs to be unique per upload session, not cryptographically random.
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const bytes =
+    typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+      ? crypto.getRandomValues(new Uint8Array(16))
+      : Uint8Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 async function sleep(ms: number): Promise<void> {
