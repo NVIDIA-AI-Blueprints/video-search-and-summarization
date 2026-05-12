@@ -113,6 +113,64 @@ function mask_secret() {
   fi
 }
 
+function path_has_access() {
+  local _path="${1}"
+  local _access="${2:-write}"
+  local _check_path="${_path}"
+
+  while [[ ! -e "${_check_path}" && "${_check_path}" != "/" ]]; do
+    _check_path="$(dirname "${_check_path}")"
+  done
+
+  case "${_access}" in
+    read)
+      [[ -r "${_check_path}" ]] && { [[ ! -d "${_check_path}" ]] || [[ -x "${_check_path}" ]]; }
+      ;;
+    write)
+      [[ -w "${_check_path}" ]] && { [[ ! -d "${_check_path}" ]] || [[ -x "${_check_path}" ]]; }
+      ;;
+    *)
+      echo "[ERROR] Unsupported access check: ${_access}" >&2
+      return 1
+      ;;
+  esac
+}
+
+function optional_sudo_prefix_for_path() {
+  local _path="${1}"
+  local _access="${2:-write}"
+
+  if [[ "$(id -u)" -eq 0 ]] || ! command -v sudo >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if path_has_access "${_path}" "${_access}"; then
+    return 0
+  fi
+
+  echo "sudo"
+}
+
+function run_with_optional_sudo_for_path() {
+  local _path="${1}"
+  local _access="${2:-write}"
+  shift 2
+
+  local _sudo
+  _sudo="$(optional_sudo_prefix_for_path "${_path}" "${_access}")"
+  if [[ -n "${_sudo}" ]]; then
+    sudo "$@"
+  else
+    "$@"
+    local _status=$?
+    if [[ ${_status} -ne 0 ]] && [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+      sudo "$@"
+      return $?
+    fi
+    return ${_status}
+  fi
+}
+
 function usage() {
   echo "Usage: ${0} (up|down) [options]"
   echo "   or: ${0} (-h|--help)"
@@ -804,10 +862,10 @@ function state_up() {
 # ${_path%.backup_*} — that strips through the final suffix and drops the original extension
 # (e.g. cfg.backup_TS.json incorrectly becomes cfg instead of cfg.json).
 function run_revert_from_oldest_backup() {
-  local _sudo="${1}"
-  local _search_dir _backup_path _base _oldest _dir _fn _ost _oex _glob
+  local _search_dir _backup_path _base _oldest _dir _fn _ost _oex _glob _sudo
   local -A _seen_base
   local -a _revert_roots
+  local -a _sudo_cmd
 
   _revert_roots=("${data_directory}" "$(dirname "${script_dir}")")
   if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
@@ -816,6 +874,9 @@ function run_revert_from_oldest_backup() {
 
   for _search_dir in "${_revert_roots[@]}"; do
     [[ ! -d "${_search_dir}" ]] && continue
+    _sudo="$(optional_sudo_prefix_for_path "${_search_dir}" "read")"
+    _sudo_cmd=()
+    [[ -n "${_sudo}" ]] && _sudo_cmd=(sudo)
     _seen_base=()
     while IFS= read -r _backup_path; do
       [[ -z "${_backup_path}" ]] && continue
@@ -833,15 +894,15 @@ function run_revert_from_oldest_backup() {
         _oex=""
       fi
       _glob="${_dir}/${_ost}.backup_*${_oex}"
-      _oldest=$($_sudo find "${_search_dir}" -type f -path "${_glob}" 2>/dev/null | sort | head -1)
+      _oldest=$("${_sudo_cmd[@]}" find "${_search_dir}" -type f -path "${_glob}" 2>/dev/null | sort | head -1)
       if [[ -n "${_oldest}" && -f "${_oldest}" ]]; then
         echo "[INFO] Reverting ${_base} from oldest backup: ${_oldest}"
-        if ! $_sudo cp "${_oldest}" "${_base}"; then
+        if ! run_with_optional_sudo_for_path "${_base}" "write" cp "${_oldest}" "${_base}"; then
           echo "[ERROR] Failed to revert ${_base} from ${_oldest}; backup will NOT be deleted for this file" >&2
           continue
         fi
       fi
-    done < <($_sudo find "${_search_dir}" -type f -name '*.backup_*' 2>/dev/null)
+    done < <("${_sudo_cmd[@]}" find "${_search_dir}" -type f -name '*.backup_*' 2>/dev/null)
   done
 }
 
@@ -854,11 +915,6 @@ function run_data_log_cleanup() {
     echo "[INFO] Data directory does not exist, skipping data_log cleanup"
     return
   fi
-  # Use sudo only when not already root (CI containers run as root without sudo installed).
-  local _sudo=""
-  if [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
-    _sudo="sudo"
-  fi
   if [[ "${dry_run}" == "true" ]]; then
     if [[ "${revert_from_oldest_backup}" == "true" ]]; then
       echo "[DRY-RUN] Would revert live files from oldest *.backup_* under ${data_directory}, $(dirname "${script_dir}"), and VSS_APPS_DIR (if set), then clean data_log and delete backups"
@@ -869,7 +925,7 @@ function run_data_log_cleanup() {
   fi
   if [[ "${revert_from_oldest_backup}" == "true" ]]; then
     echo "[INFO] Reverting originals from oldest blueprint-configurator backups (before data_log cleanup and backup deletion)..."
-    run_revert_from_oldest_backup "${_sudo}"
+    run_revert_from_oldest_backup
   fi
   # Clear contents of data_log subdirs (same as cleanup_all_datalog.sh)
   for _path in "data_log/kafka" "data_log/elastic/data" "data_log/elastic/logs" \
@@ -877,16 +933,16 @@ function run_data_log_cleanup() {
                "data_log/redis/data" "data_log/redis/log" "data_log/calibration_toolkit" \
                "data_log/analytics_cache"; do
     if [[ -d "${_data_dir}/${_path}" ]]; then
-      $_sudo rm -rf "${_data_dir}/${_path}"/* 2>/dev/null || true
+      run_with_optional_sudo_for_path "${_data_dir}/${_path}" "write" rm -rf "${_data_dir}/${_path}"/* 2>/dev/null || true
     fi
   done
   # Remove vst and nvstreamer dirs entirely
-  [[ -d "${_data_dir}/data_log/vst" ]] && $_sudo rm -rf "${_data_dir}/data_log/vst"
-  [[ -d "${_data_dir}/data_log/nvstreamer" ]] && $_sudo rm -rf "${_data_dir}/data_log/nvstreamer"
+  [[ -d "${_data_dir}/data_log/vst" ]] && run_with_optional_sudo_for_path "${_data_dir}/data_log/vst" "write" rm -rf "${_data_dir}/data_log/vst"
+  [[ -d "${_data_dir}/data_log/nvstreamer" ]] && run_with_optional_sudo_for_path "${_data_dir}/data_log/nvstreamer" "write" rm -rf "${_data_dir}/data_log/nvstreamer"
   # Delete blueprint-configurator backup files (*.backup_*), same roots as cleanup_all_datalog.sh:
   # VSS_DATA_DIR (-D), met-blueprints repo root (parent of deploy/docker/), and VSS_APPS_DIR when set.
-  local _backup_count _root
-  local -a _backup_roots
+  local _backup_count _root _sudo
+  local -a _backup_roots _sudo_cmd
 
   _backup_roots=("${_data_dir}" "$(dirname "${script_dir}")")
   if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
@@ -895,10 +951,13 @@ function run_data_log_cleanup() {
 
   for _root in "${_backup_roots[@]}"; do
     [[ -d "${_root}" ]] || continue
-    _backup_count=$($_sudo find "${_root}" -type f -name '*.backup_*' 2>/dev/null | wc -l)
+    _sudo="$(optional_sudo_prefix_for_path "${_root}" "read")"
+    _sudo_cmd=()
+    [[ -n "${_sudo}" ]] && _sudo_cmd=(sudo)
+    _backup_count=$("${_sudo_cmd[@]}" find "${_root}" -type f -name '*.backup_*' 2>/dev/null | wc -l)
     if [[ "${_backup_count}" -gt 0 ]]; then
       echo "[INFO] Deleting ${_backup_count} backup file(s) under ${_root}"
-      $_sudo find "${_root}" -type f -name '*.backup_*' -print -delete 2>/dev/null || true
+      run_with_optional_sudo_for_path "${_root}" "write" find "${_root}" -type f -name '*.backup_*' -print -delete 2>/dev/null || true
     fi
   done
   echo "[INFO] data_log cleanup completed"
