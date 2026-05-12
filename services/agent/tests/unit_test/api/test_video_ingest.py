@@ -42,17 +42,17 @@ class TestVideoIngestResponse:
     def test_response_creation(self):
         response = VideoIngestResponse(
             message="Video uploaded successfully",
-            video_id="vid-001",
+            sensor_id="sensor-001",
             filename="test_video.mp4",
             chunks_processed=5,
         )
         assert response.message == "Video uploaded successfully"
-        assert response.video_id == "vid-001"
+        assert response.sensor_id == "sensor-001"
         assert response.filename == "test_video.mp4"
         assert response.chunks_processed == 5
 
     def test_response_default_chunks(self):
-        response = VideoIngestResponse(message="Done", video_id="vid-002", filename="another_video.mp4")
+        response = VideoIngestResponse(message="Done", sensor_id="sensor-002", filename="another_video.mp4")
         assert response.chunks_processed == 0
 
 
@@ -113,7 +113,7 @@ class TestVideoUploadCompleteInput:
     """
 
     def test_no_required_fields(self):
-        # body can be empty: the path param carries the video_id.
+        # body can be empty: the path param carries the sensor_id.
         model = VideoUploadCompleteInput()
         assert model.filename is None
         assert model.custom_params is None
@@ -182,7 +182,7 @@ class TestRunPostUploadProcessing:
                 rtvi_cv_base_url="http://rtvi-cv:9000",
             )
 
-        assert result.video_id == "sensor-abc"
+        assert result.sensor_id == "sensor-abc"
         assert result.chunks_processed == 42
         assert "embeddings generated" in result.message
 
@@ -326,27 +326,26 @@ class TestUploadCompleteRoute:
 
     def test_complete_route_registered(self):
         paths = [r.path for r in self._build_router().routes]
-        assert paths == ["/api/v1/videos/{video_id}/complete"]
+        assert paths == ["/api/v1/videos/{sensor_id}/complete"]
 
     def test_complete_route_not_deprecated(self):
         route = self._build_router().routes[0]
         assert route.deprecated is not True
 
     @pytest.mark.asyncio
-    async def test_handler_passes_video_id_as_sensor_id(self):
-        """The path param is the VST stream id; body.filename drives RTVI's
-        camera_name. The video_id flows straight into _run_post_upload_processing
-        as sensor_id."""
+    async def test_handler_passes_sensor_id_through(self):
+        """The path param is VST's sensor id; body.filename drives RTVI's
+        camera_name. ``sensor_id`` flows straight into _run_post_upload_processing."""
         route = self._build_router().routes[0]
         body = VideoUploadCompleteInput(filename="clip.mp4")
 
         with patch(
             "vss_agents.api.video_ingest._run_post_upload_processing",
-            new=AsyncMock(return_value=VideoIngestResponse(message="ok", video_id="sensor-xyz", filename="clip.mp4")),
+            new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="clip.mp4")),
         ) as mock_post:
-            response = await route.endpoint(video_id="sensor-xyz", body=body)
+            response = await route.endpoint(sensor_id="sensor-xyz", body=body)
 
-        assert response.video_id == "sensor-xyz"
+        assert response.sensor_id == "sensor-xyz"
         mock_post.assert_called_once()
         kwargs = mock_post.call_args.kwargs
         # filename strips its extension on the way to RTVI-CV's camera_name.
@@ -355,17 +354,19 @@ class TestUploadCompleteRoute:
         assert kwargs["filename"] == "clip.mp4"
 
     @pytest.mark.asyncio
-    async def test_filename_falls_back_to_video_id_when_body_omits_it(self):
-        """If the UI doesn't forward filename, video_id at least populates
+    async def test_filename_falls_back_to_sensor_id_when_body_omits_it(self):
+        """If the UI doesn't forward filename, sensor_id at least populates
         the response message and RTVI camera_name."""
         route = self._build_router().routes[0]
         body = VideoUploadCompleteInput()  # no filename
 
         with patch(
             "vss_agents.api.video_ingest._run_post_upload_processing",
-            new=AsyncMock(return_value=VideoIngestResponse(message="ok", video_id="sensor-xyz", filename="sensor-xyz")),
+            new=AsyncMock(
+                return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="sensor-xyz")
+            ),
         ) as mock_post:
-            await route.endpoint(video_id="sensor-xyz", body=body)
+            await route.endpoint(sensor_id="sensor-xyz", body=body)
 
         kwargs = mock_post.call_args.kwargs
         assert kwargs["filename"] == "sensor-xyz"
@@ -470,7 +471,7 @@ class TestRegisterVideoUpload:
 
 
 class TestRegisterVideoUploadComplete:
-    """Registration paths for POST /api/v1/videos/{video_id}/complete."""
+    """Registration paths for POST /api/v1/videos/{sensor_id}/complete."""
 
     def test_registers_router_when_vst_configured(self):
         app = MagicMock(spec=FastAPI)

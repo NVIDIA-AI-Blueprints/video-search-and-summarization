@@ -73,29 +73,33 @@ export async function getUploadUrl(
 }
 
 /**
- * Step 3 of the chunked upload: POST {agent}/videos/{video_id}/complete
+ * Step 3 of the chunked upload: POST {agent}/videos/{sensor_id}/complete
  * so the agent can run post-upload processing (embeddings, RTVI
  * registration, etc.).
  *
- * `videoId` is the VST stream id returned in the final-chunk response
- * (`sensorId`). The VST upload response is forwarded as the request body
- * so the UI stays decoupled from the storage API shape; the agent reads
- * `filename` (for the response message and RTVI camera_name) and
- * `custom_params` (per-upload params from the dialog template) and
- * ignores the rest.
+ * `sensorId` is the VST sensor id returned in the final-chunk response.
+ * The path mirrors VST's `/vst/api/v1/sensor/...` surface. For uploaded
+ * videos one sensor maps to a single stream so sensor_id is unambiguous;
+ * for live RTSP, one VST sensor can fan out to multiple streams — but
+ * that lifecycle goes through /api/v1/rtsp-streams, not this route.
+ *
+ * The VST upload response is forwarded as the request body so the UI
+ * stays decoupled from the storage API shape; the agent reads `filename`
+ * (for the response message and RTVI camera_name) and `custom_params`
+ * (per-upload params from the dialog template) and ignores the rest.
  */
 export async function notifyGenericUploadComplete(
   agentApiUrl: string,
-  videoId: string,
+  sensorId: string,
   filename: string,
   uploadResponse: ChunkedUploadResponse,
   formData?: Record<string, any>,
   signal?: AbortSignal,
 ): Promise<void> {
-  if (!videoId) {
-    throw new Error('notifyGenericUploadComplete: videoId is required');
+  if (!sensorId) {
+    throw new Error('notifyGenericUploadComplete: sensorId is required');
   }
-  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(videoId)}/complete`;
+  const url = `${agentApiUrl.replace(/\/$/, '')}/videos/${encodeURIComponent(sensorId)}/complete`;
 
   const body: Record<string, any> = { ...uploadResponse, filename };
   if (formData && Object.keys(formData).length > 0) {

@@ -3,9 +3,9 @@
 // Chunked upload helpers for the Video Management tab. The core chunking
 // logic lives in the shared `@nemo-agent-toolkit/ui` package so the Chat
 // upload path can reuse it; this file wraps it with notifyUploadComplete(),
-// which posts to the universal /api/v1/videos/{video_id}/complete endpoint
-// (video_id = VST stream id) so VM upload works on every profile
-// (search/lvs/base/alerts).
+// which posts to the universal /api/v1/videos/{sensor_id}/complete endpoint
+// (sensor_id = VST sensor id returned in the final chunk response) so VM
+// upload works on every profile (search/lvs/base/alerts).
 
 import type { FileUploadResponse } from './types';
 import { chunkedUpload as sharedChunkedUpload } from '@nemo-agent-toolkit/ui';

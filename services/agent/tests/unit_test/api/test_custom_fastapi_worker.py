@@ -18,7 +18,7 @@ The dispatcher registers five sets of routes on every profile, with no
 per-profile capability flags:
 
   * ``register_video_upload``          — POST /api/v1/videos
-  * ``register_video_upload_complete`` — POST /api/v1/videos/{video_id}/complete
+  * ``register_video_upload_complete`` — POST /api/v1/videos/{sensor_id}/complete
   * ``register_rtsp_ingest_routes``    — POST /api/v1/rtsp-streams/add
   * ``register_rtsp_delete_routes``    — DELETE /api/v1/rtsp-streams/delete/{name}
   * ``register_video_delete_routes``   — DELETE /api/v1/videos/{video_id}

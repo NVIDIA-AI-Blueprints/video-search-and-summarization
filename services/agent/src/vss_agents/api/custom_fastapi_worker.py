@@ -78,7 +78,7 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
 
         - ``POST /api/v1/videos`` — returns the VST upload URL for a new
           chat-tab video upload (UI handshake step 1).
-        - ``POST /api/v1/videos/{video_id}/complete`` — universal upload
+        - ``POST /api/v1/videos/{sensor_id}/complete`` — universal upload
           completion hook (self-skips RTVI-CV / embedding when unset).
         - ``POST /api/v1/rtsp-streams/add`` and ``DELETE /.../delete/{name}``.
         - ``DELETE /api/v1/videos/{video_id}``.

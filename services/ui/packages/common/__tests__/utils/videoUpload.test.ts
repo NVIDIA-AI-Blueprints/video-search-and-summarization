@@ -123,7 +123,7 @@ describe('notifyGenericUploadComplete', () => {
     global.fetch = fetchMock;
   });
 
-  it('POSTs to /videos/{videoId}/complete using the VST stream id as the path param', async () => {
+  it('POSTs to /videos/{sensorId}/complete using the VST sensor id as the path param', async () => {
     await notifyGenericUploadComplete(
       'https://agent.example.com/api/v1',
       'sensor-1',
@@ -151,10 +151,10 @@ describe('notifyGenericUploadComplete', () => {
     expect(body).toEqual({ ...response, filename: 'foo.mp4' });
   });
 
-  it('throws when called without a video id (caller bug)', async () => {
+  it('throws when called without a sensor id (caller bug)', async () => {
     await expect(
       notifyGenericUploadComplete('https://agent.example.com', '', 'foo.mp4', { sensorId: '' } as any),
-    ).rejects.toThrow(/videoId/);
+    ).rejects.toThrow(/sensorId/);
   });
 
   it('surfaces agent-side error detail strings', async () => {

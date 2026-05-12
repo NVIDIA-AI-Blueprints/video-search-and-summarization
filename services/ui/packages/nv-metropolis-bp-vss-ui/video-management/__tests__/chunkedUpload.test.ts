@@ -178,7 +178,7 @@ describe('notifyUploadComplete', () => {
     global.fetch = fetchMock;
   });
 
-  // Minimal valid upload response — sensorId becomes the {video_id} path param
+  // Minimal valid upload response — sensorId becomes the {sensor_id} path param
   const uploadResponse = { sensorId: 's1' } as any;
 
   it('POSTs to videos/{sensorId}/complete with filename + the full upload response in the body', async () => {
