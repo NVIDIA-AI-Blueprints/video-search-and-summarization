@@ -1,6 +1,0 @@
-{
-    "vss-rtvi-vlm": {
-      "provisioning_address": "10.57.202.234:9080",
-      "process_type": "docker"
-    }
-}

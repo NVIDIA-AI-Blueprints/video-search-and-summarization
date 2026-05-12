@@ -40,20 +40,30 @@ services:
       - ./.wdm-env:/mnt/wdm-env
     restart: "no"
 
-  # Init container: render configs/config.yml from configs/config.yml.tmpl
-  # by substituting ${HOST_IP} / ${NUM_STREAMS}. Every downstream service that
-  # reads configs/config.yml depends on this completing successfully.
+  # Init container: render configs/config.yml and the docker_cluster_config-*.json
+  # files from their .tmpl sources by substituting ${HOST_IP} / ${NUM_STREAMS}.
+  # Every downstream service that reads these rendered files depends on this
+  # completing successfully.
   render-config:
     image: alpine:3
     user: "0:0"
-    entrypoint: ["/bin/sh"]
-    command: ["/render-config.sh", "/tmpl/config.yml.tmpl", "/out/config.yml"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        /render-config.sh /tmpl/config.yml.tmpl /out/config.yml
+        /render-config.sh /tmpl/docker_cluster_config-alerts-2d.json.tmpl /out/docker_cluster_config-alerts-2d.json
+        /render-config.sh /tmpl/docker_cluster_config-rtvi-cv.json.tmpl /out/docker_cluster_config-rtvi-cv.json
+        /render-config.sh /tmpl/docker_cluster_config-streamprocessing.json.tmpl /out/docker_cluster_config-streamprocessing.json
     environment:
       HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
       NUM_STREAMS: ${NUM_STREAMS:-}
     volumes:
       - ./render-config.sh:/render-config.sh:ro
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs/config.yml.tmpl:/tmpl/config.yml.tmpl:ro
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs/docker_cluster_config-alerts-2d.json.tmpl:/tmpl/docker_cluster_config-alerts-2d.json.tmpl:ro
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs/docker_cluster_config-rtvi-cv.json.tmpl:/tmpl/docker_cluster_config-rtvi-cv.json.tmpl:ro
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs/docker_cluster_config-streamprocessing.json.tmpl:/tmpl/docker_cluster_config-streamprocessing.json.tmpl:ro
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs:/out
     restart: "no"
 

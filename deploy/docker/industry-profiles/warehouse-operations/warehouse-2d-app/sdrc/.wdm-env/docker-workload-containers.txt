@@ -1,3 +1,0 @@
-vss-vios-streamprocessing
-vss-rtvi-cv
-vss-rtvi-vlm
