@@ -15,11 +15,11 @@
 
 services:
   # #placeholder for carla server
-  # # create $MDX_SAMPLE_APPS_DIR/services/dt-based-calibration/Dockerfile before using this
+  # # create $VSS_APPS_DIR/services/dt-based-calibration/Dockerfile before using this
   # carla-server:
   #   build:
-  #     context: $MDX_SAMPLE_APPS_DIR/services/dt-based-calibration
-  #     dockerfile: $MDX_SAMPLE_APPS_DIR/services/dt-based-calibration/Dockerfile
+  #     context: $VSS_APPS_DIR/services/dt-based-calibration
+  #     dockerfile: $VSS_APPS_DIR/services/dt-based-calibration/Dockerfile
   #   container_name: carla-server
   #   profiles: ["dt_based_calibration"]
   #   environment:

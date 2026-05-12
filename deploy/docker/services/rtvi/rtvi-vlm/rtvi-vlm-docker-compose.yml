@@ -102,7 +102,7 @@ services:
     volumes:
       - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
       - "${RTVI_VLM_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
-      - ${MDX_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
+      - ${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_VLM_LOG_DIR:-/dummy}${RTVI_VLM_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
 
@@ -121,6 +121,20 @@ services:
 
     extra_hosts:
       host.docker.internal: host-gateway
+
+    # Temporary: patch captions.py max_length at container start.
+    # Remove this wrapper once the RTVI VLM image ships with the desired default (replace image instead of sed here).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ -f /opt/nvidia/rtvi/rtvi/api_models/captions.py ]; then
+          sed -i 's/max_length=5000,/max_length=10000,/g' /opt/nvidia/rtvi/rtvi/api_models/captions.py
+          echo "[patch] applied max_length=10000 to captions.py"
+        else
+          echo "[patch] WARNING: captions.py not found" >&2
+        fi
+        exec /opt/nvidia/rtvi/start_rtvi_vlm.sh
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
