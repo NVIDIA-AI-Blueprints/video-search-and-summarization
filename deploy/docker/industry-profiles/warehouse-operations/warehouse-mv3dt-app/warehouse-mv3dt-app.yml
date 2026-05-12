@@ -220,14 +220,14 @@ services:
       - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/:/tmp/camInfo/
       - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
       - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/generated:/tmp/generated
 
     environment:
       INSTANCE_ID: "0"
       DS_HTTP_PORT: "9000"
       BATCH_SIZE: "${NUM_STREAMS:-4}"
       MAX_BATCH_SIZE: "${NUM_STREAMS:-4}"
-      MQTT_BROKER: "127.0.0.1:${MQTT_PORT:-1883}"
+      MQTT_HOST: "${MQTT_HOST:-localhost}"
+      MQTT_PORT: "${MQTT_PORT:-1883}"
       DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
       STREAM_TYPE: ${STREAM_TYPE}
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1

@@ -10,7 +10,9 @@
 
 echo "##### RT-DETR + MV3DT pipeline #####"
 
-MQTT_BROKER=${MQTT_BROKER:-127.0.0.1:1883}
+MQTT_HOST=${MQTT_HOST:-localhost}
+MQTT_PORT=${MQTT_PORT:-1883}
+MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
 cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
 APP_DIR="$(pwd)"
 CONFIG_DIR="${APP_DIR}/configs"
@@ -18,7 +20,6 @@ CONFIG_DIR="${APP_DIR}/configs"
 GENERATED_DIR="/tmp/generated"
 mkdir -p "${GENERATED_DIR}"
 PUB_SUB_OUT="${GENERATED_DIR}/pub_sub_info_config.yml"
-PRIMARY_PORT="${MQTT_BROKER##*:}"
 
 echo "Generating MQTT pub/sub config..."
 PROVIDED_PUB_SUB=""
@@ -27,8 +28,8 @@ for candidate in "${CONFIG_DIR}/pub_sub_info_config.yml"; do
 done
 
 if [ -n "${PROVIDED_PUB_SUB}" ]; then
-  echo "Using provided pub/sub config: ${PROVIDED_PUB_SUB} (replacing port only)"
-  sed -E "s|127\.0\.0\.1:[0-9]+|127.0.0.1:${PRIMARY_PORT}|g" "${PROVIDED_PUB_SUB}" > "${PUB_SUB_OUT}"
+  echo "Using provided pub/sub config: ${PROVIDED_PUB_SUB} (rewriting host:port to ${MQTT_ENDPOINT})"
+  sed -E "s|[0-9]+(\.[0-9]+){3}:[0-9]+|${MQTT_ENDPOINT}|g" "${PROVIDED_PUB_SUB}" > "${PUB_SUB_OUT}"
 else
   mapfile -t CAM_NAMES < <(for f in /tmp/camInfo/*.yml; do [ -e "${f}" ] || continue; basename "${f}" .yml; done | sort -V)
   [ ${#CAM_NAMES[@]} -gt 0 ] || { echo "ERROR: No camera info files found under /tmp/camInfo"; exit 1; }
@@ -36,13 +37,13 @@ else
   {
     echo "pubBrokerTopicStr:"
     for cam in "${CAM_NAMES[@]}"; do
-      echo "  ${cam}: ${MQTT_BROKER};/trck/${cam}"
+      echo "  ${cam}: ${MQTT_ENDPOINT};/trck/${cam}"
     done
     echo "subPeerBrokerTopicStrs:"
     for cam in "${CAM_NAMES[@]}"; do
       echo "  ${cam}:"
       for peer in "${CAM_NAMES[@]}"; do
-        [ "${peer}" != "${cam}" ] && echo "  - ${MQTT_BROKER};/trck/${peer}"
+        [ "${peer}" != "${cam}" ] && echo "  - ${MQTT_ENDPOINT};/trck/${peer}"
       done
     done
   } > "${PUB_SUB_OUT}"

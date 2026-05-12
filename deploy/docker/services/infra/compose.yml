@@ -27,7 +27,7 @@ services:
     volumes:
       - $MDX_SAMPLE_APPS_DIR/services/infra/mosquitto/configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     healthcheck:
-      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "${MQTT_PORT:-1883}", "-t", "health", "-m", "ping"]
+      test: ["CMD", "mosquitto_pub", "-h", "${MQTT_HOST:-localhost}", "-p", "${MQTT_PORT:-1883}", "-t", "health", "-m", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10

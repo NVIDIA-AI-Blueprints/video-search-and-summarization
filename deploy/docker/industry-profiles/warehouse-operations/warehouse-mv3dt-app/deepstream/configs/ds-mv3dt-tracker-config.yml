@@ -76,7 +76,7 @@ VisualTracker:
 MultiViewAssociator:
   multiViewAssociatorType: 1
   maxPeerToPredDistance4Fusion: 3.0
-  minPeerTrackletMatchScore: 0.4
+  minPeerTrackletMatchScore: 0.3
   minPeerVisibility4Fusion: 0.15
   recentlyActiveAge: 178
 Communicator:

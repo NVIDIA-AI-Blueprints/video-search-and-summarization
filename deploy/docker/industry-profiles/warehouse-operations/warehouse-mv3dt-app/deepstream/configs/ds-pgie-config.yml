@@ -51,7 +51,7 @@ property:
   model-engine-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx_b4_gpu0_fp16.engine
   onnx-file: /opt/storage/rtdetr_warehouse_v1.0.2.fp16.onnx
   num-detected-classes: 7
-  filter-out-class-ids: 6
+  filter-out-class-ids: 4;6
   output-tensor-meta: 1
   output-blob-names: pred_boxes;pred_logits
   parse-bbox-func-name: NvDsInferParseCustomRTDETRTAO
