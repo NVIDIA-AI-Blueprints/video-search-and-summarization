@@ -28,6 +28,8 @@ import logging
 import os
 from typing import Literal
 import urllib.parse
+from urllib.parse import urlparse
+from urllib.parse import urlunparse
 
 import aiohttp
 from nat.builder.builder import Builder
@@ -59,6 +61,14 @@ class VSTVideoClipConfig(FunctionBaseConfig, name="vst.video_clip"):
     vst_external_url: str = Field(
         ...,
         description="The external VST URL for client-facing URLs (e.g., http://${EXTERNAL_IP}:30888)",
+    )
+    use_external_playback_url: bool = Field(
+        True,
+        description=(
+            "If True (default), rewrite the VST videoUrl to use vst_external_url so browsers can open it. "
+            "Set False when the external host is behind Cloudflare Access (or similar) and unauthenticated "
+            "server-side downloads must use the internal VST URL (e.g. video_understanding frame extraction)."
+        ),
     )
     overlay_config: bool = Field(
         False,
@@ -299,8 +309,31 @@ async def vst_video_clip(config: VSTVideoClipConfig, _: Builder) -> AsyncGenerat
             disable_audio=config.disable_audio,
         )
         await validate_video_url(video_clip_url)
-        # Replace internal URL with external URL for client access
-        video_clip_url = f"{config.vst_external_url}{urllib.parse.urlparse(video_clip_url).path}"
+        # VST JSON may return a browser/proxy HTTPS URL (e.g. Brev). Server-side download (frame
+        # extraction, reports) must use vst_internal_url or aiohttp gets HTML, not MP4 bytes.
+        if not config.use_external_playback_url:
+            internal_base = config.vst_internal_url.rstrip("/")
+            parsed_cv = urlparse(video_clip_url)
+            if "/vst/" in (parsed_cv.path or "") and not video_clip_url.startswith(internal_base):
+                base_p = urlparse(internal_base)
+                video_clip_url = urlunparse(
+                    (
+                        base_p.scheme,
+                        base_p.netloc,
+                        parsed_cv.path,
+                        parsed_cv.params,
+                        parsed_cv.query,
+                        parsed_cv.fragment,
+                    )
+                )
+                logger.info(
+                    "vst_video_clip: normalized playback URL to internal VST base (VST returned proxy/external host)"
+                )
+                await validate_video_url(video_clip_url)
+        if config.use_external_playback_url:
+            ext_base = config.vst_external_url.rstrip("/")
+            path_only = urllib.parse.urlparse(video_clip_url).path
+            video_clip_url = f"{ext_base}{path_only}"
         return VSTVideoClipOutput(video_url=video_clip_url, stream_id=stream_id)
 
     # Register the tool with the appropriate input schema based on time_format:

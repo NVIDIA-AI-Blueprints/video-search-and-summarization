@@ -82,6 +82,8 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    # Internal URL only: external Brev/proxy links require Cloudflare Access; server-side clip download cannot authenticate.
+    use_external_playback_url: false
 
   vst_snapshot:
     _type: vst.snapshot
@@ -112,7 +114,7 @@ functions:
       [0.0s-4.0s] <description of the first event>
       [4.0s-12.0s] <description of the second event>
     # HITL Configuration - prompts user to confirm/edit VLM prompt before report generation
-    hitl_enabled: true
+    hitl_enabled: false
     hitl_prompt_llm: ${LLM_MODEL_TYPE:-nim}_llm  # LLM for AI-assisted prompt generation e.g. nim_llm, openai_llm
     hitl_vlm_prompt_template: |
       **VLM Prompt for Report Generation**

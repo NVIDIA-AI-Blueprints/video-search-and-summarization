@@ -14,7 +14,12 @@
 # limitations under the License.
 """Unit tests for video_understanding module."""
 
+from urllib.parse import urlparse
+
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
+from vss_agents.tools.video_understanding import _query_looks_like_signed_object_storage
+from vss_agents.tools.video_understanding import _rebuild_vst_clip_url_with_internal_base
+from vss_agents.tools.video_understanding import _response_body_looks_like_video_error
 
 
 class TestParseThinkingFromContent:
@@ -94,3 +99,39 @@ class TestParseThinkingFromContent:
         thinking, answer = _parse_thinking_from_content(content)
         assert thinking == "All reasoning here."
         assert answer == ""
+
+
+class TestFrameModeClipUrlHelpers:
+    def test_signed_query_detection(self):
+        u = "http://minio:9000/bucket/x?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=x&X-Amz-Signature=abc"
+        assert _query_looks_like_signed_object_storage(urlparse(u).query)
+
+    def test_unsigned_vst_path(self):
+        assert not _query_looks_like_signed_object_storage("")
+
+    def test_rebuild_vst_clip(self):
+        out = _rebuild_vst_clip_url_with_internal_base(
+            "https://proxy.example/vst/storage/temp/abc.mp4?token=1",
+            "http://10.0.0.5:30888",
+        )
+        assert out == "http://10.0.0.5:30888/vst/storage/temp/abc.mp4?token=1"
+
+    def test_rebuild_non_vst_returns_none(self):
+        assert _rebuild_vst_clip_url_with_internal_base("http://other/path", "http://10.0.0.5:30888") is None
+
+    def test_response_body_html_raises(self):
+        try:
+            _response_body_looks_like_video_error(
+                "http://x",
+                b"<!DOCTYPE html><html><body>403</body></html>",
+                "text/html",
+            )
+        except ValueError as e:
+            assert "HTML" in str(e)
+        else:
+            raise AssertionError("expected ValueError")
+
+    def test_response_body_mp4_ok(self):
+        # minimal ftyp-like presence
+        data = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"\x00" * 200
+        _response_body_looks_like_video_error("http://x", data, "video/mp4")
