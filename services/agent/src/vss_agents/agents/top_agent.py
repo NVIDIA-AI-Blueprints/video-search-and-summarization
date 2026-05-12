@@ -23,6 +23,7 @@ import logging
 import re
 import time
 from typing import Any
+from typing import Literal
 from typing import cast
 from uuid import uuid4
 
@@ -69,6 +70,7 @@ from vss_agents.agents.data_models import AgentDecision
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
+from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.postprocessing import POSTPROCESSING_FEEDBACK_MARKER
 from vss_agents.agents.postprocessing import PostprocessingConfig
 from vss_agents.agents.postprocessing import PostprocessingNode
@@ -85,17 +87,7 @@ NO_INPUT_ERROR_MESSAGE = "No human input received to the agent, Please ask a val
 EMPTY_MESSAGES_ERROR = 'No input received in state: "current_message"'
 EMPTY_SCRATCHPAD_ERROR = 'No tool input received in state: "agent_scratchpad"'
 _TOOL_RESULTS_DELIMITER = "\n\n---\n### Latest Tool Results\n"
-
-
-class AgentRequestOptions(BaseModel):
-    """Per-request options passed from the UI/client through the agent pipeline."""
-
-    llm_reasoning: bool = Field(default=False, description="Enable LLM reasoning mode")
-    vlm_reasoning: bool | None = Field(default=None, description="Enable VLM reasoning mode (None = use tool default)")
-    search_source_type: str = Field(
-        default="video_file", description="Video source type for search: 'video_file' or 'rtsp'"
-    )
-    use_critic: bool = Field(default=True, description="Whether to verify search results with VLM critic agent")
+_REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -103,7 +95,7 @@ class TopAgentRequest(ChatRequestOrMessage):
 
     llm_reasoning: bool | None = Field(default=None, description="Enable LLM reasoning mode")
     vlm_reasoning: bool | None = Field(default=None, description="Enable VLM reasoning mode")
-    search_source_type: str = Field(
+    search_source_type: Literal["video_file", "rtsp"] | None = Field(
         default="video_file", description="Video source type for search: 'video_file' or 'rtsp'"
     )
     use_critic: bool | None = Field(default=None, description="Whether to verify search results with VLM critic agent")
@@ -193,6 +185,10 @@ class TopAgentState(BaseModel):
         default_factory=list,
         description="Accumulated sub-agent side effects (download links, media URLs)",
     )
+    previous_options: AgentRequestOptions | None = Field(
+        default=None,
+        description="Per-request options from the previous conversation turn.",
+    )
 
 
 class TopAgentConfig(FunctionBaseConfig, name="top_agent"):
@@ -261,6 +257,7 @@ class TopAgent(AsyncMixin):
     plan_system_prompt: str
     tool_call_prompt: str
     response_format_prompt: str
+    request_options_context_enabled: bool
 
     @override
     async def __ainit__(
@@ -322,9 +319,26 @@ class TopAgent(AsyncMixin):
         self.plan_system_prompt = plan_system_prompt
         self.tool_call_prompt = tool_call_prompt
         self.response_format_prompt = response_format_prompt
+        self.request_options_context_enabled = self._prompt_requests_request_options_context(
+            str(prompt),
+            plan_prompt,
+            plan_system_prompt,
+            tool_call_prompt,
+            response_format_prompt,
+        )
         self.tools_dict = {tool.name: tool for tool in subagents_plus_tools}
         self.graph = await self._build_graph()
         logger.info("Successfully initialized Top Agent with %d total tools", len(self.tools_dict))
+
+    @staticmethod
+    def _prompt_requests_request_options_context(*prompt_parts: str | None) -> bool:
+        """Return True when config prompts explicitly request request-option context."""
+        return any(
+            marker in prompt_part
+            for prompt_part in prompt_parts
+            if prompt_part
+            for marker in _REQUEST_OPTIONS_CONTEXT_MARKERS
+        )
 
     def _get_tool(self, tool_name: str) -> BaseTool | None:
         """Get a tool by name from the tools dict."""
@@ -441,6 +455,24 @@ class TopAgent(AsyncMixin):
             return param_name in schema_fields
         return False
 
+    def _request_options_context(self, state: TopAgentState) -> str:
+        """Return generic request option context for prompts that need it."""
+        if not getattr(self, "request_options_context_enabled", False) or state.previous_options is None:
+            return ""
+        options_context = json.dumps(
+            {
+                "current_request_options": state.options.model_dump(mode="json"),
+                "previous_request_options": state.previous_options.model_dump(mode="json"),
+            },
+            sort_keys=True,
+            default=str,
+        )
+        return (
+            "\n\nRequest options context for the current and previous user turns. "
+            "Use this only when it is relevant to the user's request.\n"
+            f"{options_context}"
+        )
+
     async def astream(
         self,
         input_messages: list[BaseMessage],
@@ -530,6 +562,7 @@ class TopAgent(AsyncMixin):
                 agent_scratchpad=[],
                 final_answer="",
                 options=options,
+                previous_options=copy.deepcopy(previous_state.get("options")),
             )
         else:
             input_state = TopAgentState(
@@ -633,11 +666,13 @@ class TopAgent(AsyncMixin):
         if state.previous_conversation:
             summary_block = f"\n\nPrevious conversation summary:\n{state.previous_conversation}\n\n"
             logger.debug("Summary: " + summary_block)
+        request_options_context = self._request_options_context(state)
         system_content = (
             self.plan_system_prompt
             + planning_instruction
             + tool_descriptions_block
             + summary_block
+            + request_options_context
             + previous_exec_feedback
         )
 
@@ -711,6 +746,7 @@ class TopAgent(AsyncMixin):
 
             llm_kwargs = get_llm_reasoning_bind_kwargs(self.llm, state.options.llm_reasoning)
             llm_to_use = self.llm_with_tools.bind(**llm_kwargs) if llm_kwargs else self.llm_with_tools
+            request_options_context = self._request_options_context(state)
 
             if state.plan and self.plan_exec_prompt is not None:
                 prompt_to_use = self.plan_exec_prompt
@@ -718,6 +754,7 @@ class TopAgent(AsyncMixin):
                 invoke_kwargs: dict[str, Any] = {
                     "question": question,
                     "plan_section": state.plan,  # Already updated by plan_update node
+                    "request_options_context": request_options_context,
                     "current_time": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                     "thinking_tag": thinking_tag_formatted,
                 }
@@ -728,6 +765,7 @@ class TopAgent(AsyncMixin):
                     "conversation_summary": state.previous_conversation,
                     "agent_scratchpad": state.agent_scratchpad,
                     "conversation_history": state.conversation_history,
+                    "request_options_context": request_options_context,
                     "current_time": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                     "thinking_tag": thinking_tag_formatted,
                 }
@@ -839,19 +877,17 @@ class TopAgent(AsyncMixin):
                     tool_name = tool_call["name"]
                     is_subagent = tool_name in self.subagent_names
 
-                    # Build tool args once, filtering None values and injecting llm_reasoning/vlm_reasoning if supported
+                    # Build tool args once, filtering None values and injecting request options when supported.
                     tool_args = {k: v for k, v in tool_call["args"].items() if v is not None}
+                    if self._tool_accepts_param(tool_name, "request_options"):
+                        tool_args["request_options"] = state.options.model_dump(mode="json")
+                        logger.info("Passing request_options to %s", tool_name)
                     if self._tool_accepts_param(tool_name, "llm_reasoning"):
                         tool_args["llm_reasoning"] = state.options.llm_reasoning
                         logger.info(f"Passing llm_reasoning={state.options.llm_reasoning} to {tool_name}")
                     if self._tool_accepts_param(tool_name, "vlm_reasoning"):
                         tool_args["vlm_reasoning"] = state.options.vlm_reasoning
                         logger.info(f"Passing vlm_reasoning={state.options.vlm_reasoning} to {tool_name}")
-                    # Only inject search_source_type for search_agent (video_file/rtsp). report_agent and
-                    # others use source_type with different semantics (e.g. sensor/place)
-                    if tool_name == "search_agent" and self._tool_accepts_param(tool_name, "source_type"):
-                        tool_args["source_type"] = state.options.search_source_type
-                        logger.info(f"Passing source_type={state.options.search_source_type} to {tool_name}")
                     if self._tool_accepts_param(tool_name, "use_critic"):
                         tool_args["use_critic"] = state.options.use_critic
                         logger.info(f"Passing use_critic={state.options.use_critic} to {tool_name}")
@@ -860,7 +896,7 @@ class TopAgent(AsyncMixin):
                     final_chunks = []
                     if is_subagent:
                         # Yield sub-agent call message before processing
-                        subagent_msg = f"Calling sub-agent: {tool_name}\nArgs: {tool_call['args']}"
+                        subagent_msg = f"Calling sub-agent: {tool_name}\nArgs: {tool_args}"
                         writer(AgentMessageChunk(type=AgentMessageChunkType.SUBAGENT_CALL, content=subagent_msg))
 
                         # Emit TOOL_START telemetry for subagent
@@ -878,8 +914,8 @@ class TopAgent(AsyncMixin):
                                 framework=LLMFrameworkEnum.LANGCHAIN,
                                 name=tool_name,
                                 UUID=subagent_run_id,
-                                data=StreamEventData(input=json.dumps(tool_call["args"])),
-                                metadata=TraceMetadata(tool_inputs=tool_call["args"]),
+                                data=StreamEventData(input=json.dumps(tool_args)),
+                                metadata=TraceMetadata(tool_inputs=tool_args),
                                 usage_info=UsageInfo(token_usage=TokenUsageBaseModel()),
                             )
                             step_manager.push_intermediate_step(tool_start_payload)
@@ -989,7 +1025,7 @@ class TopAgent(AsyncMixin):
                                 UUID=subagent_run_id,
                                 metadata=TraceMetadata(tool_outputs=subagent_output),
                                 usage_info=UsageInfo(token_usage=TokenUsageBaseModel()),
-                                data=StreamEventData(input=json.dumps(tool_call["args"]), output=subagent_output),
+                                data=StreamEventData(input=json.dumps(tool_args), output=subagent_output),
                             )
                             step_manager.push_intermediate_step(tool_end_payload)
                             logger.info(f"TOOL_END telemetry emitted for {tool_name}")
@@ -1037,9 +1073,7 @@ class TopAgent(AsyncMixin):
                     # Sub-agents already yielded their call message earlier
                     if not is_subagent:
                         # For regular tools, yield TOOL_CALL with call info and result
-                        result_msg = (
-                            f"Tool: {tool_call['name']}\nArgs: {tool_call['args']}\nResult: {tool_response_str}"
-                        )
+                        result_msg = f"Tool: {tool_call['name']}\nArgs: {tool_args}\nResult: {tool_response_str}"
                         writer(AgentMessageChunk(type=AgentMessageChunkType.TOOL_CALL, content=result_msg))
 
                     logger.debug(
@@ -1406,6 +1440,7 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
                 + "\n\n"
                 + "current time: {current_time}"
                 + "\n\nPrevious conversation summary: {conversation_summary}"
+                + "{request_options_context}"
                 + "{thinking_tag}",
             ),
             MessagesPlaceholder(variable_name="conversation_history", optional=True),
@@ -1425,6 +1460,7 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
             "Summarize and return the final answer to the user after all steps are completed.\n"
             "- Your final answer MUST answer ALL parts of the user's question (User's Question: {question}). "
             "If the user asked multiple things, you MUST answer each one. "
+            "{request_options_context}"
         )
         if tool_call_prompt:
             plan_exec_system += "\n\n## Tool call rules:\n " + _escape_template_literals(tool_call_prompt)
@@ -1501,14 +1537,16 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
         context = Context.get()
         if hasattr(context.metadata, "payload") and isinstance(context.metadata.payload, dict):
             payload = context.metadata.payload
+            options_payload = options.model_dump(mode="json")
             if "llm_reasoning" in payload:
-                options.llm_reasoning = bool(payload["llm_reasoning"])
+                options_payload["llm_reasoning"] = bool(payload["llm_reasoning"])
             if "vlm_reasoning" in payload:
-                options.vlm_reasoning = bool(payload["vlm_reasoning"])
+                options_payload["vlm_reasoning"] = bool(payload["vlm_reasoning"])
             if "search_source_type" in payload:
-                options.search_source_type = str(payload["search_source_type"])
+                options_payload["search_source_type"] = payload["search_source_type"]
             if "use_critic" in payload:
-                options.use_critic = bool(payload["use_critic"])
+                options_payload["use_critic"] = bool(payload["use_critic"])
+            options = AgentRequestOptions.model_validate(options_payload)
             logger.info(f"Extracted from WebSocket payload - {options}")
 
         logger.info("Creating Top Agent with options=%s", options)
