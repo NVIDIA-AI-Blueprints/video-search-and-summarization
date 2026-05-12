@@ -209,6 +209,13 @@ def effective_mode_spec(platform: str, mode: str) -> dict:
 #                        `-p alerts -m verification`). Empty or absent means
 #                        the dict key is itself the deploy profile.
 #   - deploy_mode      → value of `/deploy -m ...` for this eval variant
+#   - local_extras     → additional **always-local** GPUs this profile needs
+#                        beyond LLM/VLM placement. alerts runs RT-CV locally in
+#                        every mode; search runs Cosmos Embed1 locally in every
+#                        mode. Added on top of MODES[mode]["gpus_needed"] when
+#                        computing task-file `gpu_count`. See
+#                        skills/deploy/SKILL.md § Platform × Mode table and
+#                        skills/deploy/references/{alerts,search}.md.
 # Everything else (platforms, modes, checks) lives in the spec.
 PROFILES: dict[str, dict] = {
     "base": {
@@ -220,18 +227,21 @@ PROFILES: dict[str, dict] = {
                        "RT-CV generates candidate alerts, VLM reviews each",
         "profile": "alerts",
         "deploy_mode": "verification",
+        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "alerts_vlm": {
         "description": "VSS alerts profile, VLM mode (`deploy -m real-time`) — "
                        "VLM continuously processes live video",
         "profile": "alerts",
         "deploy_mode": "real-time",
+        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
     },
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
+        "local_extras": 1,  # RTVI-Embed (Cosmos Embed1) GPU (always local)
     },
 }
 
@@ -300,6 +310,17 @@ def _query_hint(mode_spec: dict, llm_remote: dict | None,
     return ""
 
 
+# Prepended to every instruction.md so the skill's own HITL bypass
+# clause fires. Skills default to "ask the user" before /deploy; in CI
+# there's no user, so without this preamble the agent stalls.
+PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. "
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/deploy` or any other "
+    "setup action the trial requires."
+)
+
+
 def generate_instruction(
     profile: str,
     platform: str,
@@ -330,6 +351,8 @@ def generate_instruction(
     verb_phrase += " autonomously — do not ask for confirmation before running."
 
     body = [
+        PREAMBLE,
+        "",
         verb_phrase,
         "",
         "Use the `/deploy` skill.",
@@ -398,10 +421,18 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
     return _sub(spec)
 
 
-def generate_test_script(spec_name: str) -> str:
+def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
-    /logs/verifier/reward.txt."""
+    /logs/verifier/reward.txt.
+
+    On a full-pass (reward == 1.0), OVERWRITES the canonical active
+    marker `/tmp/skill-eval/active-deploy.txt` with this trial's
+    `<underlying_profile>-<mode>` so dependent trials (vios, video-*)
+    reading the marker via `BrevEnvironment._ensure_prerequisite_deployed`
+    see what is currently RUNNING on the box rather than a per-flag
+    deploy log. See specs/stale-marker.spec for why per-flag was wrong."""
+    underlying_profile = deploy_profile(profile)
     return (
         "#!/bin/bash\n"
         "# deploy verifier: delegates to the generic LLM-as-judge\n"
@@ -415,6 +446,17 @@ def generate_test_script(spec_name: str) -> str:
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+        "\n"
+        "# On full pass, overwrite the canonical active-deploy marker so\n"
+        "# downstream trials (vios/video-*) reuse the running deployment\n"
+        "# instead of re-running /deploy. Overwrite, never append — the\n"
+        "# marker is what is currently RUNNING, not a deploy log.\n"
+        'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
+        f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
+        f'  mkdir -p /tmp/skill-eval && '
+        f"printf '%s\\n' '{underlying_profile}-{mode}' "
+        f"> /tmp/skill-eval/active-deploy.txt\n"
+        "fi\n"
         "exit 0\n"
     )
 
@@ -556,7 +598,7 @@ def generate_task(
         "# GPU requirements — BrevEnvironment checks these against the",
         "# instance's actual GPU capacity before the trial runs.",
         f'gpu_type = "{platform_spec["gpu_type"]}"',
-        f'gpu_count = {mode_spec["gpus_needed"]}',
+        f'gpu_count = {mode_spec["gpus_needed"] + profile_def.get("local_extras", 0)}',
         f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
         f'brev_search = "{platform_spec["brev_search"]}"',
         "# Disk + driver requirements — BrevEnvironment validates both via",
@@ -580,7 +622,12 @@ def generate_task(
         "[verifier.env]",
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        'JUDGE_MODEL = "${JUDGE_MODEL:-claude-haiku-4-5}"',
+        # ANTHROPIC_MODEL gives the verifier's judge model cascade
+        # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
+        # fallback when JUDGE_MODEL is unset. Forwarding a literal
+        # default for JUDGE_MODEL would bake it in and short-circuit
+        # the cascade — the proxy 401s the literal default outright.
+        'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
         "",
     ]
     (task_dir / "task.toml").write_text("\n".join(meta_lines))
@@ -604,7 +651,7 @@ def generate_task(
         )
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
-        (tests_dir / "test.sh").write_text(generate_test_script(spec_name))
+        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile, mode))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
     else:
@@ -612,7 +659,7 @@ def generate_task(
         # reports a clear failure instead of silently passing.
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
-            f"echo 'FAIL: no eval spec at skills/deploy/eval/{underlying}.json' >&2\n"
+            f"echo 'FAIL: no eval spec at skills/deploy/eval/{profile}.json' >&2\n"
             "mkdir -p /logs/verifier\n"
             "echo 0 > /logs/verifier/reward.txt\n"
             "exit 0\n"

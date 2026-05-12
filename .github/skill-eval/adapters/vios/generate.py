@@ -85,6 +85,17 @@ DEFAULT_VIDEO_URL = (
 )
 DEFAULT_VIDEO_NAME = "warehouse_forklift_pexels_6079421"
 
+# Prepended to every instruction.md so the skill's own HITL bypass
+# clause fires. Skills default to "ask the user" before /deploy; in CI
+# there's no user, so without this preamble the agent either stalls or
+# falls through to a localhost default.
+PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. "
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/deploy` or any other "
+    "setup action the trial requires."
+)
+
 
 # ---------------------------------------------------------------------------
 # Generation
@@ -156,6 +167,8 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # verifier evaluates them independently. If the agent sees the checks
         # it can write to the test rather than do the work.
         lines = [
+            PREAMBLE,
+            "",
             f"Use the `/vios` skill against the VSS base profile "
             f"already running on this `{platform}` host "
             "(`http://localhost:30888/vst/api/v1/sensor/version` must respond).",
@@ -187,11 +200,16 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             "[verifier.env]",
             'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
             'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-            'JUDGE_MODEL = "${JUDGE_MODEL:-claude-haiku-4-5}"',
+            # ANTHROPIC_MODEL gives the verifier's judge model cascade
+            # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
+            # fallback when JUDGE_MODEL is unset. Forwarding a literal
+            # default for JUDGE_MODEL would bake it in and short-circuit
+            # the cascade — the proxy 401s the literal default outright.
+            'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
             "",
             "[metadata]",
             'skill = "vios"',
-            'profile = "base"',
+            f'profile = "{spec.get("profile", "base")}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
@@ -199,7 +217,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             "requires_deployed_vss = true",
             "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vios",
             "# exercises VIOS/VST only, so there's no benefit to running local NIMs.",
-            'prerequisite_deploy_mode = "remote-all"',
+            f'prerequisite_deploy_mode = "{spec.get("prerequisite_deploy_mode", "remote-all")}"',
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
