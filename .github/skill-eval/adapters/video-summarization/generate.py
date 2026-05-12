@@ -174,6 +174,11 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'profile = "{profile}"',
             f'platform = "{platform}"',
             f'gpu_type = "{pspec["gpu_type"]}"',
+            # video-summarization calls the LVS microservice API only — no local NIMs.
+            # The deploy prerequisite is always remote-all (LLM + VLM via remote
+            # endpoints), so gpu_count = 0 skips the hardware GPU-type match and
+            # allows any RUNNING+READY vss-eval-* box to be used, regardless of GPU.
+            "gpu_count = 0",
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             "requires_deployed_vss = true",
