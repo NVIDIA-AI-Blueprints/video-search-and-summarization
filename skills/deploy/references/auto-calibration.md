@@ -27,7 +27,7 @@ Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../de
 |---|---|---|
 | `VSS_AUTO_CALIBRATION_PORT` | MS HTTP port (host-networked, so this is also the host port) | `8010` |
 | `VSS_AUTO_CALIBRATION_UI_PORT` | UI host port (UI publishes `:5000` inside the container) | `5000` |
-| `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the UI uses to call the MS. Defaults to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_UI_PORT}/v1` — override if MS and UI run on different hosts | computed |
+| `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). Defaults to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
 | `VIOS_BASE_URL` | Base URL of VIOS (used only by `amc-calibrate-rtsp-streams`). Auto-set to `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
@@ -73,6 +73,33 @@ ls -lh "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
 ```
 
 > **Do not log or echo the HuggingFace token value.** Pass it inline to the `hf` CLI via `--token` rather than storing it on disk or in shell history.
+
+### Step 2b — If VIOS is already running, confirm `VIOS_BASE_URL`
+
+AMC's RTSP-stream calibration path calls VIOS over `${VIOS_BASE_URL}`. The warehouse-operations `.env` defaults to `VIOS_BASE_URL=${VST_INTERNAL_URL}` (which resolves to `http://${HOST_IP}:${VST_PORT}`). That default is correct when VIOS/VST comes up as part of the same compose stack — but if you're standing AMC up next to a **pre-existing** VIOS (separate image / different namespace / from another compose project), the default may point at nothing.
+
+Detect first:
+
+```bash
+docker ps --format '{{.Names}}\t{{.Image}}' | grep -E "vst|vios|sensor-ms" || echo "(no VIOS detected)"
+```
+
+If VIOS is running, **before** the dry-run in Step 3:
+
+1. Confirm `VIOS_BASE_URL` is set in `industry-profiles/warehouse-operations/.env`. If the file leaves it commented out or empty, set it explicitly:
+   ```bash
+   grep -E "^VIOS_BASE_URL=" deploy/docker/industry-profiles/warehouse-operations/.env \
+     || echo 'VIOS_BASE_URL=${VST_INTERNAL_URL}' >> deploy/docker/industry-profiles/warehouse-operations/.env
+   ```
+2. Verify the URL actually points at the running VIOS. The default assumes `${HOST_IP}:${VST_PORT}` — check both:
+   ```bash
+   grep -E "^(HOST_IP|VST_PORT)=" deploy/docker/industry-profiles/warehouse-operations/.env
+   docker port vst-ingress 2>/dev/null   # or whichever VIOS ingress container is running
+   curl -sf -o /dev/null -w "%{http_code}\n" "http://${HOST_IP}:${VST_PORT}/"
+   ```
+   If `VST_PORT` doesn't match what the existing VIOS ingress publishes, override either `VST_PORT` or set `VIOS_BASE_URL` directly to the running URL (e.g. `VIOS_BASE_URL=http://10.34.3.199:30888`) — don't leave the variable form pointing at the wrong port.
+
+If you don't intend to use AMC's RTSP-stream path (only sample-dataset or pre-recorded videos), `VIOS_BASE_URL` is unused and you can skip this step.
 
 ### Step 3 — Enable the auto-calib compose profile and deploy
 
@@ -140,7 +167,7 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 |---|---|---|
 | NGC pull fails (401 Unauthorized) | `docker compose up` returns 401 on `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-1` | Re-run NGC login: `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`. Confirm the user has access to the `vss-core` namespace. |
 | `vss-auto-calibration` stays `(starting)` for >10 min | Healthcheck not green; MS not responding on `/v1/ready` | Check logs: `docker logs vss-auto-calibration`. Common cause: missing GPU access. Verify `runtime: nvidia` works: `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` |
-| UI can't reach backend (`API_URL` error) | Browser console shows fetch error from UI to MS | `HOST_IP` is unset or set to `localhost`. Inspect: `grep ^HOST_IP deploy/docker/industry-profiles/warehouse-operations/.env`. Set to the host's reachable IP. |
+| UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/.env` and set to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS port fails. Fix by either: (i) moving the MS to a port the browser can reach — set `VSS_AUTO_CALIBRATION_PORT=8080` (or another allowed port) in the env, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
 | VGGT model not found in MS logs | MS log shows `VGGT model not found at /tmp/vggt_model/vggt_1B_commercial.pt` | Either download VGGT (Step 2) or ignore — AMC works without it. The warning is benign for non-VGGT runs. |
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |

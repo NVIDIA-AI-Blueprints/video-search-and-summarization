@@ -25,7 +25,7 @@ The sample includes GT, so the run produces evaluation metrics (L2 distance, rep
 ## Prerequisites
 
 - [ ] AMC microservice running (deploy via the [`/deploy`](../deploy/SKILL.md) skill with the `auto-calibration` profile if not — see [`references/auto-calibration.md`](../deploy/references/auto-calibration.md))
-- [ ] Sample zip present at `assets/sdg_08_2_sample_data_010926.zip`
+- [ ] Sample zip present at `assets/sdg_08_2_sample_data_010926.zip` — **the VSS repo does not ship this file.** See [Obtain the sample zip](#obtain-the-sample-zip) below.
 - [ ] Python 3 with `requests` available — or use the Swagger UI path below
   - The inline run block self-heals: if `requests` is missing it creates a throwaway venv under `${TMPDIR:-/tmp}/amc-sample-test-venv` (nothing written to the repo)
   - If `python3 -m venv` itself fails with `ensurepip not available`: `sudo apt install -y python3-venv python3-pip`
@@ -63,6 +63,43 @@ fi
 [ -z "$MS_PORT" ] && { echo "No running backend. Run the deploy skill with the auto-calibration profile first."; exit 1; }
 echo "Backend on port $MS_PORT"
 ```
+
+### Obtain the sample zip
+
+The zip is **not** committed to the VSS repo. It lives in the standalone AMC repo on GitHub, where it ships via git-lfs:
+
+- Canonical source: <https://github.com/NVIDIA-AI-IOT/auto-magic-calib/blob/main/assets/sdg_08_2_sample_data_010926.zip>
+- Raw LFS download: <https://github.com/NVIDIA-AI-IOT/auto-magic-calib/raw/main/assets/sdg_08_2_sample_data_010926.zip>
+- File size: ~154 MB
+
+Pick the path that fits your setup:
+
+```bash
+export REPO_ROOT=$(git rev-parse --show-toplevel)
+mkdir -p "$REPO_ROOT/assets"
+TARGET="$REPO_ROOT/assets/sdg_08_2_sample_data_010926.zip"
+
+# (a) Reuse an existing AMC checkout on the same host (cheapest, no network)
+if [ -f "$HOME/auto-magic-calib/assets/sdg_08_2_sample_data_010926.zip" ]; then
+  ln -sf "$HOME/auto-magic-calib/assets/sdg_08_2_sample_data_010926.zip" "$TARGET"
+
+# (b) Pull from GitHub LFS directly (no AMC checkout needed)
+else
+  curl -L -o "$TARGET" \
+    https://github.com/NVIDIA-AI-IOT/auto-magic-calib/raw/main/assets/sdg_08_2_sample_data_010926.zip
+fi
+
+# (c) Or: clone the AMC repo with LFS into a sibling dir and symlink — useful if you
+# also want the AMC scripts/docs:
+#   git lfs install
+#   git clone https://github.com/NVIDIA-AI-IOT/auto-magic-calib.git ../auto-magic-calib
+#   ln -sf "$PWD/../auto-magic-calib/assets/sdg_08_2_sample_data_010926.zip" "$TARGET"
+
+# Verify (~154 MB)
+ls -lh "$TARGET"
+```
+
+> The VSS repo deliberately doesn't bundle the zip (size + version-skew across AMC releases). Don't commit it here — `assets/sdg_08_2_sample_data_010926.zip` should stay gitignored if you copy it in.
 
 ### Locate + Extract Sample Data (idempotent)
 
@@ -332,6 +369,7 @@ docker logs -f vss-auto-calibration
 | `requests` not installed | Inside a venv: `python3 -m venv venv && ./venv/bin/pip install requests`. If `python3 -m venv` fails: `sudo apt install -y python3-venv python3-pip` first |
 | `[2] Uploaded N videos` where N >> 4 | `SAMPLE_DIR` resolved to the repo root (or another over-broad path) and `rglob("cam_*.mp4")` swept stale videos from `.cache/`, `projects/`, etc. Stop the run (`POST /v1/stop_calibration/{id}`), delete the project (`DELETE /v1/delete_project/{id}`), set `SAMPLE_DIR` explicitly to the extracted sample dir, re-run. The script anchors on `videos/` and asserts `len(videos) <= 16` to fail loud |
 | `verify_project` returns state `!= READY` | Confirm all 4 videos + alignment + layout + GT uploaded; inspect `GET /v1/get_project_info/{id}` response |
+| Sample zip not present at `assets/sdg_08_2_sample_data_010926.zip` | The VSS repo does not bundle it. Pull from GitHub LFS or a sibling AMC checkout — see [Obtain the sample zip](#obtain-the-sample-zip). |
 | Sample not extracted | `unzip <repo_root>/assets/sdg_08_2_sample_data_010926.zip -d <repo_root>/assets/.cache/sdg_08_2_sample_data_010926/` |
 | `cam_*.mp4` glob finds 0 files | Check wrapper-folder depth: `find <sample_dir> -name "cam_*.mp4"` |
 | Calibration times out (>60 min) | Check `calibration.log` for "insufficient tracklets"; see root `README.md` guidelines on input videos |
