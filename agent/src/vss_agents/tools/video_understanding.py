@@ -42,6 +42,7 @@ from vss_agents.utils.frame_select import frame_select
 from vss_agents.utils.reasoning_parsing import parse_content_blocks
 from vss_agents.utils.retry import create_retry_strategy
 from vss_agents.utils.url_translation import translate_url
+from vss_agents.utils.vlm_video_understanding_settings import vlm_video_settings_from_llm_config
 
 logger = logging.getLogger(__name__)
 
@@ -107,26 +108,6 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
         "my-bucket",
         description="The name of the S3 bucket to use for video storage",
     )
-    max_frames: int = Field(
-        24,
-        description="The maximum number of frames to sample from the video",
-    )
-    max_fps: int = Field(
-        default=2,
-        description="Maximum frames per second to sample. num_frames = min(video_length * max_fps, max_frames)",
-    )
-    min_pixels: int = Field(
-        1568,
-        description="The minimum number of pixels for 2 frames from the video, 28x28=784 will be converted to one video token",
-    )
-    max_pixels: int = Field(
-        345600,
-        description="The maximum number of pixels for 2 frames from the video, 28x28=784 will be converted to one video token",
-    )
-    reasoning: bool = Field(
-        False,
-        description="Only for cosmos reason models, turn on reasoning when you want to let the VLM reason before returning the answer.",
-    )
     filter_thinking: bool = Field(
         False,
         description="Whether to filter out thinking traces from the VLM response. When enabled, only the answer portion is returned.",
@@ -144,10 +125,6 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
     video_url_tool: str | None = Field(
         None,
         description="A tool to be used to get the video URL by sensor ID and timestamp(default to use VST service)",
-    )
-    use_base64: bool = Field(
-        False,
-        description="Whether to use base64 encoding to send the video to the VLM. If True, the video will be encoded to base64 and sent to the VLM.",
     )
     system_prompt: str | None = Field(
         default=None,
@@ -200,7 +177,7 @@ class VideoUnderstandingInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode. If None, uses config.reasoning default.",
+        description="Enable VLM reasoning mode. If None, uses the selected VLM profile's reasoning default.",
     )
     model_config = {
         "extra": "forbid",
@@ -233,7 +210,7 @@ class VideoUnderstandingOffsetInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode. If None, uses config.reasoning default.",
+        description="Enable VLM reasoning mode. If None, uses the selected VLM profile's reasoning default.",
     )
     model_config = {
         "extra": "forbid",
@@ -332,6 +309,7 @@ async def _build_vlm_messages(
 
 @register_function(config_type=VideoUnderstandingConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def video_understanding(config: VideoUnderstandingConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
+    vlm_settings = vlm_video_settings_from_llm_config(builder.get_llm_config(config.vlm_name))
     base_vlm = await builder.get_llm(config.vlm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     is_nim = config.vlm_name.startswith("nim_")
     model_name = getattr(base_vlm, "model_name", "") or getattr(base_vlm, "model", "")
@@ -342,7 +320,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
     # Supposes any vlm_name prefixed with "openai_" is from an official OpenAI endpoint
     use_frame_images = str(config.vlm_name).startswith("openai_")
     logger.info(
-        f"Using VLM profile: {config.vlm_name}, use_frame_images: {use_frame_images}, use_base64: {config.use_base64}"
+        f"Using VLM profile: {config.vlm_name}, use_frame_images: {use_frame_images}, use_base64: {vlm_settings.use_base64}"
     )
 
     if not config.use_vst:
@@ -443,21 +421,23 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
             end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         video_length_seconds = (end_dt - start_dt).total_seconds()
-        num_frames = min(int(video_length_seconds) * config.max_fps, config.max_frames)
+        num_frames = min(int(video_length_seconds) * vlm_settings.max_fps, vlm_settings.max_frames)
         # Ensure at least 1 frame···
         num_frames = max(num_frames, 1)
         logger.info(
-            f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={config.max_fps}, max_frames={config.max_frames})"
+            f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={vlm_settings.max_fps}, max_frames={vlm_settings.max_frames})"
         )
 
         # Bind VLM with dynamic num_frames
         if is_cosmos_model:
             media_io_kwargs = {"video": {"num_frames": num_frames}}
             if is_cosmos_reason2:
-                mm_processor_kwargs = {"size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}}
+                mm_processor_kwargs = {
+                    "size": {"shortest_edge": vlm_settings.min_pixels, "longest_edge": vlm_settings.max_pixels}
+                }
             else:
                 mm_processor_kwargs = {
-                    "videos_kwargs": {"min_pixels": config.min_pixels, "max_pixels": config.max_pixels}
+                    "videos_kwargs": {"min_pixels": vlm_settings.min_pixels, "max_pixels": vlm_settings.max_pixels}
                 }
             vlm = base_vlm.bind(
                 mm_processor_kwargs=mm_processor_kwargs,
@@ -466,11 +446,11 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         else:
             vlm = base_vlm
 
-        # Select reasoning mode: default to config.reasoning if not specified in the input
+        # Select reasoning mode: default to VLM profile if not specified in the input
         use_reasoning = (
             video_understanding_input.vlm_reasoning
             if video_understanding_input.vlm_reasoning is not None
-            else config.reasoning
+            else vlm_settings.reasoning
         )
 
         if use_frame_images:  # OpenAI models (reasoning configuration through parameters)
@@ -560,10 +540,10 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             video_url,
             user_prompt,
             use_frame_images=use_frame_images,
-            use_base64=config.use_base64,
+            use_base64=vlm_settings.use_base64,
             video_length_seconds=video_length_seconds,
             num_frames=num_frames,
-            max_fps=config.max_fps,
+            max_fps=vlm_settings.max_fps,
         )
 
         # Retry logic for VLM call
@@ -616,7 +596,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             start_timestamp: The start timestamp in offset seconds since beginning of the stream
             end_timestamp: The end timestamp in offset seconds since beginning of the stream
             user_prompt: The prompt that is used to query the VLM to understand the video, mention all search entities in the prompt that is related to the user's query.
-            vlm_reasoning: Enable VLM reasoning mode. If None, uses config.reasoning default.
+            vlm_reasoning: Enable VLM reasoning mode. If None, uses the selected VLM profile's reasoning default.
             Note: start_timestamp and end_timestamp are optional. If None, then the entire stream is returned.
         """
 
@@ -637,7 +617,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             start_timestamp: The start timestamp in UTC ISO 8601 format (e.g., '2025-08-25T03:05:55.752Z')
             end_timestamp: The end timestamp in UTC ISO 8601 format (e.g., '2025-08-25T03:06:15.752Z')
             user_prompt: The prompt that is used to query the VLM to understand the video, mention all search entities in the prompt that is related to the user's query.
-            vlm_reasoning: Enable VLM reasoning mode. If None, uses config.reasoning default.
+            vlm_reasoning: Enable VLM reasoning mode. If None, uses the selected VLM profile's reasoning default.
         """
 
         yield FunctionInfo.create(

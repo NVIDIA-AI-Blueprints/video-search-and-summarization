@@ -78,7 +78,7 @@ class ReportAgentInput(BaseModel):
 
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default.",
+        description="Enable VLM reasoning mode for video analysis. If None, uses the selected VLM profile's reasoning default.",
     )
 
     llm_reasoning: bool | None = Field(
@@ -105,7 +105,7 @@ class VideoReportAgentInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default.",
+        description="Enable VLM reasoning mode for video analysis. If None, uses the selected VLM profile's reasoning default.",
     )
 
 
