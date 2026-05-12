@@ -14,14 +14,28 @@
 # limitations under the License.
 """Unit tests for top_agent module."""
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+
+from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import MessagesPlaceholder
+from langchain_core.runnables import RunnableLambda
 import pytest
 
+from vss_agents.agents.data_models import AgentMessageChunk
+from vss_agents.agents.data_models import AgentMessageChunkType
+from vss_agents.agents.data_models import AgentRequestOptions
+from vss_agents.agents.search_agent import SearchAgentInput
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
 from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
 from vss_agents.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
-from vss_agents.agents.top_agent import AgentRequestOptions
+from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
+from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import strip_frontend_tags
 
 
@@ -129,6 +143,344 @@ class TestAgentRequestOptions:
         assert opts.vlm_reasoning is True
         assert opts.search_source_type == "rtsp"
         assert opts.use_critic is False
+
+
+class TestRequestOptionsContext:
+    """Tests for generic request option context."""
+
+    def _agent_with_search_tool(self, request_options_context_enabled: bool = True):
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"search_agent": MagicMock()}
+        agent.request_options_context_enabled = request_options_context_enabled
+        search_tool = agent.tools_dict["search_agent"]
+        search_tool.name = "search_agent"
+        search_tool.description = "Search videos"
+        search_tool.args_schema = MagicMock()
+        search_tool.args_schema.model_fields = {
+            "request_options": MagicMock(),
+            "use_critic": MagicMock(),
+        }
+        return agent
+
+    def test_request_options_context_omits_without_previous_options(self):
+        agent = self._agent_with_search_tool()
+        state = TopAgentState(options=AgentRequestOptions(search_source_type="rtsp", use_critic=False))
+
+        assert agent._request_options_context(state) == ""
+
+    def test_request_options_context_omits_when_prompt_does_not_opt_in(self):
+        agent = self._agent_with_search_tool(request_options_context_enabled=False)
+        state = TopAgentState(options=AgentRequestOptions(search_source_type="rtsp", use_critic=False))
+
+        assert agent._request_options_context(state) == ""
+
+    @pytest.mark.parametrize(
+        "prompt_parts,expected",
+        [
+            (("Main profile prompt uses current_request_options for runtime choices.",), True),
+            (("Compare previous_request_options before reusing results.",), True),
+            (("Generic assistant prompt.", "No runtime params here."), False),
+            ((None, "", "Generic assistant prompt."), False),
+        ],
+    )
+    def test_prompt_requests_request_options_context(self, prompt_parts, expected):
+        assert TopAgent._prompt_requests_request_options_context(*prompt_parts) is expected
+
+    def test_request_options_context_includes_current_and_previous_options(self):
+        agent = self._agent_with_search_tool()
+        state = TopAgentState(
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+            previous_options=AgentRequestOptions(search_source_type="video_file", use_critic=True),
+        )
+
+        context = agent._request_options_context(state)
+
+        assert "Request options context" in context
+        assert '"current_request_options"' in context
+        assert '"previous_request_options"' in context
+        assert '"search_source_type": "rtsp"' in context
+        assert '"search_source_type": "video_file"' in context
+        assert '"use_critic": false' in context
+        assert '"use_critic": true' in context
+
+    @pytest.mark.asyncio
+    async def test_astream_restores_previous_options_from_checkpoint(self, monkeypatch):
+        previous_options = AgentRequestOptions(search_source_type="video_file", use_critic=True)
+        current_options = AgentRequestOptions(search_source_type="rtsp", use_critic=False)
+        captured = {}
+
+        class FakeGraph:
+            def get_state(self, config):
+                return SimpleNamespace(
+                    values={
+                        "conversation_history": [
+                            HumanMessage(content="find a person"),
+                            AIMessage(content="previous results"),
+                        ],
+                        "previous_conversation": "",
+                        "options": previous_options.model_dump(mode="json"),
+                    }
+                )
+
+            async def astream(self, input, config=None, stream_mode=None):
+                captured["input_state"] = input
+                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content="done")
+
+        monkeypatch.setattr(
+            "vss_agents.agents.top_agent.ContextState.get",
+            lambda: SimpleNamespace(conversation_id=SimpleNamespace(get=lambda: "thread-1")),
+        )
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.graph = FakeGraph()
+        agent.max_history = 10
+        agent.max_iterations = 10
+        agent.llm = MagicMock()
+        agent.callbacks = []
+
+        chunks = [
+            chunk
+            async for chunk in agent.astream(
+                [HumanMessage(content="same search on live streams")],
+                options=current_options,
+            )
+        ]
+
+        assert chunks == [AgentMessageChunk(type=AgentMessageChunkType.FINAL, content="done")]
+        input_state = captured["input_state"]
+        assert input_state.options == current_options
+        assert input_state.previous_options == previous_options
+
+    @pytest.mark.asyncio
+    async def test_agent_node_passes_request_options_context_without_forcing_tool_call(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        captured = {}
+
+        def _capture_prompt(prompt_value):
+            captured["messages"] = prompt_value.to_messages()
+            return AIMessage(content="Here are the previous results.")
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm_with_tools = RunnableLambda(_capture_prompt)
+        agent.prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", "current time: {current_time}{request_options_context}{thinking_tag}"),
+                MessagesPlaceholder(variable_name="conversation_history", optional=True),
+                ("user", "{question}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad", optional=True),
+            ]
+        )
+        agent.plan_exec_prompt = None
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+            previous_options=AgentRequestOptions(search_source_type="video_file", use_critic=True),
+        )
+
+        result = await agent.agent_node(state)
+
+        assert result.final_answer == "Here are the previous results."
+        assert len(result.agent_scratchpad) == 1
+        ai_message = result.agent_scratchpad[0]
+        assert isinstance(ai_message, AIMessage)
+        assert not ai_message.tool_calls
+        assert "Request options context" in captured["messages"][0].content
+
+    @pytest.mark.asyncio
+    async def test_agent_node_passes_request_options_context_to_plan_exec_prompt(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        captured = {}
+
+        def _capture_prompt(prompt_value):
+            captured["messages"] = prompt_value.to_messages()
+            return AIMessage(content="Here are the previous results.")
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm_with_tools = RunnableLambda(_capture_prompt)
+        agent.prompt = ChatPromptTemplate.from_messages([("user", "{question}")])
+        agent.plan_exec_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", "{request_options_context}{thinking_tag}"),
+                ("user", "User Question: {question}\n\nExecution Plan:\n{plan_section}\n\n"),
+            ]
+        )
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            plan="1. Answer from the current plan.",
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+            previous_options=AgentRequestOptions(search_source_type="video_file", use_critic=True),
+        )
+
+        result = await agent.agent_node(state)
+
+        assert result.final_answer == "Here are the previous results."
+        assert "Request options context" in captured["messages"][0].content
+
+    @pytest.mark.asyncio
+    async def test_plan_node_includes_request_options_context(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        captured = {}
+
+        async def _capture_plan(messages, config=None):
+            captured["system"] = messages[0].content
+            return AIMessage(content="1. Call `search_agent` with the user's query.")
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(side_effect=_capture_plan)
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+            previous_options=AgentRequestOptions(search_source_type="video_file", use_critic=True),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == "1. Call `search_agent` with the user's query."
+        assert "Request options context" in captured["system"]
+
+    @pytest.mark.asyncio
+    async def test_tool_node_forwards_request_options_to_accepting_tool(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        class SearchTool:
+            def __init__(self):
+                self.args_schema = MagicMock()
+                self.args_schema.model_fields = {
+                    "request_options": MagicMock(),
+                    "use_critic": MagicMock(),
+                }
+                self.received_input = None
+
+            async def astream(self, input, config=None):
+                self.received_input = input
+                yield "search ok"
+
+        search_tool = SearchTool()
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"search_agent": search_tool}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling search",
+                    tool_calls=[{"name": "search_agent", "args": {"query": "boxes"}, "id": "call_1"}],
+                )
+            ],
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert search_tool.received_input["request_options"]["search_source_type"] == "rtsp"
+        assert search_tool.received_input["request_options"]["use_critic"] is False
+        assert search_tool.received_input["use_critic"] is False
+        assert any(
+            chunk.type == AgentMessageChunkType.TOOL_CALL
+            and "'request_options':" in chunk.content
+            and "'search_source_type': 'rtsp'" in chunk.content
+            and "'use_critic': False" in chunk.content
+            for chunk in chunks
+        )
+
+    @pytest.mark.asyncio
+    async def test_tool_node_forwards_request_options_with_search_agent_schema(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class SearchTool:
+            args_schema = SearchAgentInput
+
+            def __init__(self):
+                self.received_input = None
+
+            async def astream(self, input, config=None):
+                self.received_input = input
+                yield "search ok"
+
+        search_tool = SearchTool()
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"search_agent": search_tool}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling search",
+                    tool_calls=[{"name": "search_agent", "args": {"query": "boxes"}, "id": "call_1"}],
+                )
+            ],
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert search_tool.received_input["request_options"]["search_source_type"] == "rtsp"
+        assert search_tool.received_input["request_options"]["use_critic"] is False
+        assert "source_type" not in search_tool.received_input
+
+    @pytest.mark.asyncio
+    async def test_tool_node_forwards_request_options_to_accepting_subagent_trace(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        search_tool = MagicMock()
+        search_tool.args_schema = MagicMock()
+        search_tool.args_schema.model_fields = {
+            "request_options": MagicMock(),
+            "use_critic": MagicMock(),
+        }
+
+        class SearchFunction:
+            def __init__(self):
+                self.received_input = None
+
+            async def astream(self, input):
+                self.received_input = input
+                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content="search ok")
+
+        search_function = SearchFunction()
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {"search_agent": search_tool}
+        agent.subagent_names = {"search_agent"}
+        agent.subagent_functions = {"search_agent": search_function}
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling search",
+                    tool_calls=[{"name": "search_agent", "args": {"query": "boxes"}, "id": "call_1"}],
+                )
+            ],
+            options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert search_function.received_input["request_options"]["search_source_type"] == "rtsp"
+        assert search_function.received_input["request_options"]["use_critic"] is False
+        assert search_function.received_input["use_critic"] is False
+        assert any(
+            chunk.type == AgentMessageChunkType.SUBAGENT_CALL
+            and "'request_options':" in chunk.content
+            and "'search_source_type': 'rtsp'" in chunk.content
+            and "'use_critic': False" in chunk.content
+            for chunk in chunks
+        )
 
 
 class TestTopAgentRequestUseCritic:

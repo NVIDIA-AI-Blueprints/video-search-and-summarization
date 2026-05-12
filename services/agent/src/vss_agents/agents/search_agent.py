@@ -49,6 +49,7 @@ from pydantic import Field
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
+from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
@@ -109,6 +110,22 @@ class SearchAgentInput(BaseModel):
         description="Type of video source: 'video_file' for uploaded videos, 'rtsp' for live/camera streams",
     )
     use_critic: bool = Field(default=True, description="Whether to verify search results with VLM critic agent")
+    request_options: AgentRequestOptions | None = Field(
+        default=None,
+        description="Per-request options passed by the parent agent. When present, these override matching fields.",
+    )
+
+
+def _effective_search_runtime_options(
+    search_agent_input: SearchAgentInput,
+) -> tuple[Literal["video_file", "rtsp"], bool]:
+    """Resolve runtime search options from the parent request-options interface."""
+    if search_agent_input.request_options is None:
+        return search_agent_input.source_type, search_agent_input.use_critic
+    return (
+        search_agent_input.request_options.search_source_type,
+        search_agent_input.request_options.use_critic,
+    )
 
 
 class SearchAgentConfig(FunctionBaseConfig, name="search_agent"):
@@ -396,15 +413,16 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
         # top_k = input.top_k if input.top_k else default_max_result
         # User's top_k overrides default_max_result (no capping)
         top_k = search_agent_input.top_k if search_agent_input.top_k is not None else config.default_max_results
+        source_type, use_critic = _effective_search_runtime_options(search_agent_input)
 
         search_input = SearchInput(
             query=search_agent_input.query,
-            source_type=search_agent_input.source_type,
+            source_type=source_type,
             top_k=top_k,
             agent_mode=search_agent_input.agent_mode,
             timestamp_start=timestamp_start,
             timestamp_end=timestamp_end,
-            use_critic=search_agent_input.use_critic,
+            use_critic=use_critic,
         )
 
         # Use shared core search function (async generator, collect all progress and return final result)
@@ -447,7 +465,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
         top_k = search_agent_input.top_k
         start_time = search_agent_input.start_time
         end_time = search_agent_input.end_time
-        source_type = search_agent_input.source_type
+        source_type, use_critic = _effective_search_runtime_options(search_agent_input)
 
         logger.info(f"Search agent executing: {search_agent_input.model_dump_json()}")
 
@@ -478,7 +496,7 @@ async def search_agent(config: SearchAgentConfig, builder: Builder) -> AsyncGene
             agent_mode=agent_mode,
             timestamp_start=timestamp_start,
             timestamp_end=timestamp_end,
-            use_critic=search_agent_input.use_critic,
+            use_critic=use_critic,
         )
 
         try:
