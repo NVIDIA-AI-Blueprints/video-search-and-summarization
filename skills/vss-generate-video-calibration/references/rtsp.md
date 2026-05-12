@@ -1,4 +1,4 @@
-# amc-calibrate — RTSP Mode (live camera streams)
+# vss-generate-video-calibration — RTSP Mode (live camera streams)
 
 Load this reference when the user wants to calibrate from **live RTSP camera streams**. The MS records each stream through VIOS, ingests the recorded clips, then runs the normal AMC calibration. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once the RTSP capture + ingest is done and alignment/layout are uploaded.
 

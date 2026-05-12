@@ -1,11 +1,11 @@
 ---
-name: amc-calibrate
+name: vss-generate-video-calibration
 description: Calibrate a multi-camera dataset with AutoMagicCalib — from local MP4s, live RTSP streams, or the bundled sample dataset. Use when the user says "calibrate my videos", "run AMC on these videos", "calibrate from video files", "calibrate RTSP streams", "calibrate from live cameras", "run AMC on RTSP", "test sample dataset", "run sample calibration", "verify AMC install", "launch and test", or provides RTSP URLs / local cam_*.mp4 files. Routes to the videos / rtsp / sample-dataset workflow based on the input the user provides. Requires a running AMC microservice (auto-calibration profile of /deploy).
 version: "3.2.0"
 license: "Apache License 2.0"
 ---
 
-# AMC Calibrate
+# VSS Generate Video Calibration
 
 Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. The input-resolution work differs per source; everything from `verify_project` onward is identical and lives in this file. Pick the right input-mode reference and pair it with the [Shared Calibration Tail](#shared-calibration-tail) below.
 

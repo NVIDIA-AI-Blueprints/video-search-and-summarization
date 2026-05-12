@@ -1,4 +1,4 @@
-# amc-calibrate — Videos Mode (pre-recorded MP4s)
+# vss-generate-video-calibration — Videos Mode (pre-recorded MP4s)
 
 Load this reference when the user has **local MP4 files** to calibrate. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once videos + alignment + layout are uploaded.
 

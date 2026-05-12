@@ -29,7 +29,7 @@ Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../de
 | `VSS_AUTO_CALIBRATION_UI_PORT` | UI host port (UI publishes `:5000` inside the container) | `5000` |
 | `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). Defaults to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
-| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` mode of `amc-calibrate`). Auto-set to `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints | `${VST_INTERNAL_URL}` |
+| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` mode of `vss-generate-video-calibration`). Auto-set to `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
 | `VSS_APPS_DIR` | VSS application data root. MS bind-mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` for project state | inherited from VSS deploy env |
 | `VSS_DATA_DIR` | VSS data root. MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model | inherited from VSS deploy env |
@@ -171,7 +171,7 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
 | VGGT model not found in MS logs | MS log shows `VGGT model not found at /tmp/vggt_model/vggt_1B_commercial.pt` | Either download VGGT (Step 2) or ignore — AMC works without it. The warning is benign for non-VGGT runs. |
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |
-| VIOS_BASE_URL empty (RTSP capture returns 503) | `amc-calibrate` (rtsp mode) reports the MS rejects capture with "VIOS not configured" | Either deploy this profile alongside a `bp_wh_*` blueprint (which sets `VIOS_BASE_URL=${VST_INTERNAL_URL}`), or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
+| VIOS_BASE_URL empty (RTSP capture returns 503) | `vss-generate-video-calibration` (rtsp mode) reports the MS rejects capture with "VIOS not configured" | Either deploy this profile alongside a `bp_wh_*` blueprint (which sets `VIOS_BASE_URL=${VST_INTERNAL_URL}`), or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
 | Container exits immediately | `docker ps` shows `vss-auto-calibration` as `Exited` | Check logs: `docker logs vss-auto-calibration`. Often a GPU device-ID mismatch or VGGT path typo. |
 
 ## Stopping the services
@@ -186,8 +186,8 @@ COMPOSE_PROFILES=bp_wh_2d_remote-all docker compose --env-file industry-profiles
 
 ## What comes next
 
-Once the AMC stack is up and healthy, run [`amc-calibrate`](../../amc-calibrate/SKILL.md) against it. The skill routes to one of three input modes:
+Once the AMC stack is up and healthy, run [`vss-generate-video-calibration`](../../vss-generate-video-calibration/SKILL.md) against it. The skill routes to one of three input modes:
 
-- [`references/sample-dataset.md`](../../amc-calibrate/references/sample-dataset.md) — bundled sample (recommended first run; sanity-checks the install).
-- [`references/videos.md`](../../amc-calibrate/references/videos.md) — your own pre-recorded MP4s.
-- [`references/rtsp.md`](../../amc-calibrate/references/rtsp.md) — live RTSP streams (requires VIOS).
+- [`references/sample-dataset.md`](../../vss-generate-video-calibration/references/sample-dataset.md) — bundled sample (recommended first run; sanity-checks the install).
+- [`references/videos.md`](../../vss-generate-video-calibration/references/videos.md) — your own pre-recorded MP4s.
+- [`references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md) — live RTSP streams (requires VIOS).

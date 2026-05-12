@@ -1,4 +1,4 @@
-# amc-calibrate — Sample-Dataset Mode (verify install)
+# vss-generate-video-calibration — Sample-Dataset Mode (verify install)
 
 Load this reference when the user wants to **verify a fresh AMC install** by running calibration on the bundled sample dataset (`sdg_08_2_sample_data_010926.zip`, 4 synthetic warehouse cameras with ground truth). Useful before throwing real data at it.
 

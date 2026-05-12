@@ -1,5 +1,5 @@
 {
-  "skills": ["amc-calibrate"],
+  "skills": ["vss-generate-video-calibration"],
   "profile": "auto-calibration",
   "resources": {
     "platforms": {
@@ -8,7 +8,7 @@
       }
     }
   },
-  "env": "A GPU host with the **VSS auto-calibration profile** deployed (see `skills/deploy/references/auto-calibration.md`). Both `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` containers running; `curl http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` returns `{\"code\":0,...}`. For RTSP-mode expects, a `bp_wh_*` blueprint is also up so VIOS responds at `http://localhost:30888/vst/api/v1/sensor/list` and `VIOS_BASE_URL` is auto-wired. For videos-mode expects, the test fixture provides `cam_00.mp4` … `cam_03.mp4` under `${VIDEO_DIR}` (defaults to `/data/videos/`) plus `alignment_data.json`, `layout.png`, and `GT.zip` under `/data/alignment/`. For sample-dataset-mode expects, `sdg_08_2_sample_data_010926.zip` is present at `assets/`. The `/amc-calibrate` skill routes to the correct mode reference based on the user's input and drives the full upload + calibrate + poll workflow.",
+  "env": "A GPU host with the **VSS auto-calibration profile** deployed (see `skills/deploy/references/auto-calibration.md`). Both `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` containers running; `curl http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` returns `{\"code\":0,...}`. For RTSP-mode expects, a `bp_wh_*` blueprint is also up so VIOS responds at `http://localhost:30888/vst/api/v1/sensor/list` and `VIOS_BASE_URL` is auto-wired. For videos-mode expects, the test fixture provides `cam_00.mp4` … `cam_03.mp4` under `${VIDEO_DIR}` (defaults to `/data/videos/`) plus `alignment_data.json`, `layout.png`, and `GT.zip` under `/data/alignment/`. For sample-dataset-mode expects, `sdg_08_2_sample_data_010926.zip` is present at `assets/`. The `/vss-generate-video-calibration` skill routes to the correct mode reference based on the user's input and drives the full upload + calibrate + poll workflow.",
   "expects": [
     {
       "query": "Calibrate my cameras. Videos are under /data/videos/ (cam_00.mp4 through cam_03.mp4) and I have alignment_data.json + layout.png at /data/alignment/.",
