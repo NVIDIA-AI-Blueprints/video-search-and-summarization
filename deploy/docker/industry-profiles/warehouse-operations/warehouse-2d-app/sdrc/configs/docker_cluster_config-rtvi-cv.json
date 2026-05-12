@@ -1,0 +1,6 @@
+{
+  "vss-rtvi-cv": {
+    "provisioning_address": "10.57.202.234:9000",
+    "process_type": "docker"
+  }
+}

@@ -1,0 +1,6 @@
+{
+    "vss-vios-streamprocessing": {
+      "provisioning_address": "10.57.202.234:30001",
+      "process_type": "docker"
+    }
+  }

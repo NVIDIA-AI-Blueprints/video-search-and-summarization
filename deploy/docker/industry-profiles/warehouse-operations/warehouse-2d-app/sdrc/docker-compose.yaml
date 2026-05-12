@@ -1,0 +1,198 @@
+# sdr-mw + Envoy (Redis from config.yml). Run ./set-host-ip.sh to replace 10.127.22.222 first.
+# Run from repo root:
+#   docker compose -f compose/docker-compose.yaml up -d
+# Or from this directory:
+#   docker compose up -d
+#
+# Redis: WDM_WL_REDIS_SERVER and WDM_WL_REDIS_PORT on the first enable:true workload in config.yml.
+# Pass KUBERNETES_HOST / KUBERNETES_PORT for sdr-mw.
+#
+# wdm-env-from-config writes .wdm-env/wdm.env (Redis + WDM_DIRECT_* / WDM_XDS_*) and
+# docker-workload-containers.txt (names from every enable:true workload with WDM_CLUSTER_TYPE: docker).
+# wait-for-redis / wait-for-docker-workloads run after that (parallel). sdr-* start only when both succeed.
+# REDIS_WAIT_TIMEOUT_SECONDS (default 120). DOCKER_WORKLOAD_WAIT_SECONDS (default 300).
+# ENVOY_LISTENER_PORT / ENVOY_ADMIN_PORT: see envoy_config_xds_test.yaml.
+#
+# Out-of-cluster Kubernetes + Docker (matches kubernetes/t2 docker run):
+#   export KUBERNETES_JWT_TOKEN=...   # required; e.g. kubectl create token or create-sa-and-token.sh
+#   docker compose -f compose/docker-compose.yaml --profile k8s-listener up -d
+# Optional: KUBERNETES_HOST, KUBERNETES_PORT, KUBE_CA_PATH, WDM_WL_REDIS_*, WDM_CONTROLLER_*,
+#   ROUTER_PORT, KUBERNETS_NAMESPACE, SDR_MW_L_IMAGE.
+
+services:
+  # Init container: ensure bind-mount dirs exist and are writable by the host
+  # user. sdr-controller / wdm-env-from-config run as root inside the container
+  # and would otherwise leave ./log and ./.wdm-env as root:root 755, which the
+  # host user cannot delete without sudo. We chmod 0777 the *parent* dirs so
+  # `rm -rf log/* .wdm-env/*` works without sudo even though the files inside
+  # are root-owned (rm only needs write+exec on the parent dir).
+  init-dirs:
+    image: alpine:3
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /mnt/log /mnt/wdm-env
+        chmod 0777 /mnt/log /mnt/wdm-env
+    volumes:
+      - ./log:/mnt/log
+      - ./.wdm-env:/mnt/wdm-env
+    restart: "no"
+
+  # Init container: render configs/config.yml from configs/config.yml.tmpl
+  # by substituting ${HOST_IP} / ${NUM_STREAMS}. Every downstream service that
+  # reads configs/config.yml depends on this completing successfully.
+  render-config:
+    image: alpine:3
+    user: "0:0"
+    entrypoint: ["/bin/sh"]
+    command: ["/render-config.sh", "/tmpl/config.yml.tmpl", "/out/config.yml"]
+    environment:
+      HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:-}
+    volumes:
+      - ./render-config.sh:/render-config.sh:ro
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs/config.yml.tmpl:/tmpl/config.yml.tmpl:ro
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs:/out
+    restart: "no"
+
+  wdm-env-from-config:
+    image: mikefarah/yq:4
+    # yq image runs as non-root; bind-mounted ./.wdm-env is often root-owned — write as root.
+    user: "0:0"
+    entrypoint: ["/bin/sh"]
+    command: ["/run.sh"]
+    environment:
+      HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:?NUM_STREAMS must be set in .env or shell before running compose}
+    volumes:
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs/config.yml:/config.yml:ro
+      - ./wdm-env-from-config.sh:/run.sh:ro
+      - ./.wdm-env:/env
+    depends_on:
+      init-dirs:
+        condition: service_completed_successfully
+      render-config:
+        condition: service_completed_successfully
+    restart: "no"
+
+  wait-for-redis:
+    image: redis:8.6.2-alpine
+    restart: "no"
+    depends_on:
+      wdm-env-from-config:
+        condition: service_completed_successfully
+    environment:
+      REDIS_WAIT_TIMEOUT_SECONDS: "${REDIS_WAIT_TIMEOUT_SECONDS:-120}"
+    volumes:
+      - ./wait-for-redis.sh:/wait-for-redis.sh:ro
+      - ./.wdm-env:/wdm-env:ro
+    entrypoint: ["/bin/sh", "/wait-for-redis.sh"]
+    # If WDM_WL_REDIS_SERVER is host.docker.internal, uncomment on Linux:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+  wait-for-docker-workloads:
+    image: docker:27-cli
+    restart: "no"
+    user: "0:0"
+    depends_on:
+      wdm-env-from-config:
+        condition: service_completed_successfully
+    environment:
+      DOCKER_WORKLOAD_WAIT_SECONDS: "${DOCKER_WORKLOAD_WAIT_SECONDS:-300}"
+    volumes:
+      - ./wait-for-docker-workloads.sh:/wait-for-docker-workloads.sh:ro
+      - ./.wdm-env:/wdm-env:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["/bin/sh", "/wait-for-docker-workloads.sh"]
+
+  # sdr-mw-l: host network, Kubernetes API + CA, Docker socket, docker_cluster_config.json (mixed docker/k8s).
+  # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
+  #working one - sdr-mw-l:3.0.0-rc.6
+  sdr-controller:
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.0.0-rc.test.headerless-2}
+    container_name: sdr-controller
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      WDM_WL_REDIS_SERVER: ${HOST_IP}
+      WDM_WL_REDIS_PORT: ${WDM_WL_REDIS_PORT:-6379}
+      WDM_WORKLOADS_CONFIG: "/configs/config.yml"
+      OTEL_SDK_DISABLED: "true"
+      WDM_CONTROLLER_PORT: ${HOST_IP}
+      WDM_CONTROLLER_HOST: ${HOST_IP}
+      NUM_STREAMS: "${NUM_STREAMS}"
+      WDM_SDRC_DIRECT_LISTENER_PORT: 8011
+    volumes:
+      - ./log:/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Host dir with docker-config.yml (see WDM_WORKLOADS_CONFIG). Same tree as wdm-env-from-config config.yml.
+      - "${VSS_APPS_DIR:?VSS_APPS_DIR must be set}/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/configs:/configs/:ro"
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      init-dirs:
+        condition: service_completed_successfully
+      render-config:
+        condition: service_completed_successfully
+
+
+
+#  sdr-envoy-proxy:
+#    image: ${ENVOY_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-envoy-proxy:3.2.0-mw-rc.3}
+#    ports:
+#      - "${TEST_PORT:-19000}:${ENVOY_LISTENER_PORT:-9000}"
+#      - "${ADMIN_PORT:-19001}:${ENVOY_ADMIN_PORT:-9901}"
+#    volumes:
+#      - ./envoy_config_xds_test.yaml:/etc/envoy/envoy.yaml.template:ro
+#      - ./envoy-entrypoint.sh:/envoy-entrypoint.sh:ro
+#      - ./.wdm-env:/wdm-env:ro
+#    environment:
+#      ENVOY_ROUTE_HEADER: ${ENVOY_ROUTE_HEADER:-id}
+#      ENVOY_LISTENER_PORT: ${ENVOY_LISTENER_PORT:-9000}
+#      ENVOY_ADMIN_PORT: ${ENVOY_ADMIN_PORT:-9901}
+#    entrypoint: ["/bin/sh", "/envoy-entrypoint.sh"]
+#    depends_on:
+#      wait-for-redis:
+#        condition: service_completed_successfully
+#      wait-for-docker-workloads:
+#        condition: service_completed_successfully
+#    # extra_hosts:
+#    #   - "host.docker.internal:host-gateway"
+
+#  sdr-mw:
+#    build:
+#      context: ..
+#      dockerfile: DockerFile-mw.bin
+#    image: sdr-mw:local
+#    working_dir: /
+#    network_mode: host
+#    depends_on:
+#      wait-for-redis:
+#        condition: service_completed_successfully
+#      wait-for-docker-workloads:
+#        condition: service_completed_successfully
+#    environment:
+#      WDM_WORKLOADS_CONFIG: /config.yml
+#      WDM_ENVOY_DASHBOARD_UPSTREAM_HOST: 10.127.22.222
+#      WDM_ENVOY_DASHBOARD_UPSTREAM_PORT: 5005
+#      WDM_ENVOY_DIRECT_PORT: 5005
+#      WDM_ENVOY_XDS_PORT: 5005
+#      ROUTER_PORT: 5005
+#      OTEL_SDK_DISABLED: true
+ # uncomment to use use with kubernetes
+ #     SSL_CERTS: /etc/kubernetes/pki/ca.crt
+ #     KUBERNETES_HOST: ${KUBERNETES_HOST}
+ #     KUBERNETES_PORT: ${KUBERNETES_PORT}
+#    volumes:
+#      - ./config.yml:/config.yml:ro
+#      - ./docker_cluster_config-a.json:/docker_cluster_config-a.json:ro
+#      - ./docker_cluster_config-b.json:/docker_cluster_config-b.json:ro
+#      - ./log:/logs
+#      - /var/run/docker.sock:/var/run/docker.sock
+# uncomment to use use with kubernetes
+#      - /etc/kubernetes/pki/ca.crt:/etc/kubernetes/pki/ca.crt
+#    command: ["/sdr-mw"]
+

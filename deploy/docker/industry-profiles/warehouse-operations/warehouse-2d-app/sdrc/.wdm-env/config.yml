@@ -1,0 +1,126 @@
+# Template for config.yml. Placeholders written as $$VAR (which envsubst leaves
+# as $VAR in the output, see render-config.sh) are substituted at render time.
+# Supported variables (allowlisted in ../render-config.sh):
+#   HOST_IP      - host IP for Redis / Kafka / headerless endpoints (required)
+#   NUM_STREAMS  - optional, propagated through if referenced
+#
+# Regenerate config.yml after editing this file:
+#   HOST_IP=10.57.202.234 ../render-config.sh
+
+# docker-workload-testapp:
+#   wl_obj_name: wdm-python-testapp-1
+#   port: 4500
+#   enable: true
+#   WDM_CONSUMER_GRP_ID: consumer-grp-id-workload-w
+#   WDM_REDIS_CACHE_OBJECT: wdm-python-testapp-1-data
+#   WDM_TARGET_PORT_MAPPING: '{"default": 6000}'
+#   WDM_XDS_USE_POD_DNS: false
+#   WDM_XDS_USE_IP_ADDRESS: true
+# #  WDM_REAPPLY_ON_WL_RESTART: true
+#   WDM_CLUSTER_TYPE: docker
+#   WDM_CLUSTER_CONTAINER_NAMES: '["wdm-python-testapp-1"]'
+#   WDM_KFK_BOOTSTRAP_URL: "10.111.52.130:29092"
+#   WDM_WL_REDIS_PORT: 6379
+#   WDM_WL_REDIS_SERVER: 10.111.52.130
+#   WDM_INITIALIZE_FROM_VST: false
+#   WDM_WL_ADD_URL: /add
+#   WDM_WL_CHANGE_ID_ADD: camera_add
+#   WDM_WL_DELETE_URL: /delete
+#   WDM_WL_THRESHOLD: 3
+#   WDM_CONTROLLER_REPROVISION: true
+#   WDM_RESET_ON_WLOBJ_CRASH: false
+#   WDM_MS_LISTENER_PORT: 10001
+#   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config.json
+
+docker-workload-streamprocessing:
+  wl_obj_name: vss-vios-streamprocessing
+  port: 4005
+  enable: true
+  WDM_CONSUMER_GRP_ID: sdr-streamprocessing-vios-cg
+  WDM_REDIS_CACHE_OBJECT: streamprocessing-data
+  WDM_XDS_USE_POD_DNS: false
+  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_REDIS_MSG_KEY: vst.event
+  REDIS_MSG_KEY: vst.event
+#  WDM_REAPPLY_ON_WL_RESTART: true
+  WDM_CLUSTER_TYPE: docker
+  WDM_CLUSTER_CONTAINER_NAMES: '["vss-vios-streamprocessing"]'
+  WDM_KFK_BOOTSTRAP_URL: "10.57.202.234:29092"
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: 10.57.202.234
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_WL_ADD_URL: /api/v1/proxy/stream/add
+  WDM_WL_DELETE_URL: /api/v1/proxy/stream/
+  WDM_WL_CHANGE_ID_ADD: camera_proxy
+  WDM_WL_CHANGE_ID_DEL: camera_remove
+  WDM_WL_HEALTH_CHECK_URL: /api/v1/proxy/configuration
+  WDM_WL_THRESHOLD: 100
+  WDM_CONTROLLER_REPROVISION: true
+  WDM_RESET_ON_WLOBJ_CRASH: false
+  WDM_CLEAR_DATA_WL: true
+  WDM_KFK_ENABLE: false
+  WDM_MSG_TOPIC: vst_events
+  WDM_DS_SWAP_ID_NAME: false
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 50 
+  WDM_DISABLE_WERKZEUG_LOGGING: true
+  WDM_WL_OBJECT_NAME: vss-vios-streamprocessing
+  VST_STREAMS_ENDPOINT: http://localhost:30000/api/v1/sensor/streams
+  VST_STATUS_ENDPOINT: http://localhost:30000/api/v1/sensor/status
+  OTEL_SDK_DISABLED: true
+  OTEL_SERVICE_NAME: SDR_AGENT
+  WDM_WL_NAME_IGNORE_REGEX: ""
+  WDM_TARGET_PORT_MAPPING: "{\"vss-vios-streamprocessing\": 30001}"
+  ENVOY_ROUTE_HEADER: "streamid"
+  WDM_MS_LISTENER_PORT: 10000
+  NOHEADERTARGETROUTE: true
+  HEADERLESS_SERVICE_ENDPOINTS: "[\"10.57.202.234:30001\"]"
+  WDM_WL_REDIS_MSG_FIELD: sensor.id
+  WDM_MSG_KEY: vst_events
+  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json
+
+docker-workload-rtvi-cv:
+  wl_obj_name: vss-rtvi-cv
+  port: 4004
+  enable: true
+  WDM_WL_OBJECT_NAME: vss-rtvi-cv
+  WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-cg
+  WDM_REDIS_CACHE_OBJECT: rtvi-cv-data
+  WDM_XDS_USE_POD_DNS: false
+  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_REDIS_MSG_KEY: vst.event
+  REDIS_MSG_KEY: vst.event
+  WDM_CLUSTER_TYPE: docker
+  WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-rtvi-cv.json
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: 10.57.202.234
+  WDM_MS_LISTENER_PORT: 10001
+  NOHEADERTARGETROUTE: false
+  HEADERLESS_SERVICE_ENDPOINTS: "[]"
+
+docker-workload-alerts-2d:
+  wl_obj_name: vss-rtvi-vlm
+  port: 4003
+  enable: true
+  REDIS_MSG_KEY: vst.event
+  WDM_REDIS_MSG_KEY: vst.event
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_KFK_ENABLE: false
+  WDM_PRELOAD_DELAY_FOR_DS_API: true
+  WDM_WL_THRESHOLD: 4
+  WDM_POD_WATCH_DOCKER_DELAY: 0.5
+  WDM_WL_OBJECT_NAME: vss-rtvi-vlm
+  WDM_CONSUMER_GRP_ID: sdr-alerts-cg
+  WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-vlm"]'
+  WDM_WL_ADD_URL: "/api/v1/realtime/always-on"
+  WDM_WL_DELETE_URL: "/api/v1/realtime/always-on"
+  WDM_WL_HEALTH_CHECK_URL: "/health"
+  WDM_ADD_REMOVE_REQUEST_TIMEOUT: 10
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 60
+  WDM_CLUSTER_TYPE: docker
+  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-alerts-2d.json  
+  WDM_WL_REDIS_PORT: 6379
+  WDM_WL_REDIS_SERVER: 10.57.202.234
+  WDM_MS_LISTENER_PORT: 10002
+  NOHEADERTARGETROUTE: false
+  HEADERLESS_SERVICE_ENDPOINTS: "[]"
