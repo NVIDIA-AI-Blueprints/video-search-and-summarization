@@ -321,5 +321,7 @@ class TestVSTVideoClipInner:
                     gen = vst_video_clip.__wrapped__(cfg, mock_builder)
                     fi = await gen.__anext__()
                     inner_fn = fi.single_fn
-                    result = await inner_fn(VSTVideoClipOffsetInput(sensor_id="camera1", start_time=0.0, end_time=5.0))
+                    result = await inner_fn(
+                        VSTVideoClipOffsetInput(sensor_id="camera1", start_time=0.0, end_time=5.0)
+                    )
         assert result.video_url == "http://10.0.0.1:30888/vst/storage/temp_files/clip.mp4"

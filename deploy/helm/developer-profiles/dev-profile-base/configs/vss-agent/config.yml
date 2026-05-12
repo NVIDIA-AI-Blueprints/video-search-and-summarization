@@ -76,8 +76,8 @@ functions:
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
     use_external_playback_url: false
-    # VST disableAudio=false so audio-capable VLMs receive audio in video_understanding / UI clips.
-    disable_audio: true
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_snapshot:
     _type: vst.snapshot
