@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Load when the user says "configure vss", "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken".
+description: Load when the user says "configure vss", "deploy vss", "deploy `profile`", "debug deploy", "verify deployment", or "why is my vss deploy broken".
 license: Apache-2.0
 metadata:
   version: "3.2.0"
