@@ -35,7 +35,7 @@ num-source-bins=0
 # Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
 use-nvmultiurisrcbin=1
 stream-name-display=1
-max-batch-size=3
+max-batch-size=4
 http-ip=localhost
 low-latency-mode=1
 http-port=9000
@@ -161,7 +161,7 @@ nvbuf-memory-type=0
 gpu-id=0
 ##Boolean property to inform muxer that sources are live
 live-source=1
-batch-size=3
+batch-size=4
 ##time out in usec, to wait after the first buffer is available
 ##to push the batch even if the complete batch is not formed
 batched-push-timeout=33000
@@ -187,7 +187,7 @@ enable=1
 gpu-id=0
 #Required to display the PGIE labels, should be added even when using config-file
 #property
-batch-size=3
+batch-size=4
 #Required by the app for OSD, not a plugin property
 bbox-border-color0=1;0;0;1
 bbox-border-color1=0;1;1;1
@@ -219,7 +219,7 @@ enable=0
 backend=tensorrt
 tensorrt-engine=/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/model_batch16.plan
 onnx-model=/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/models/cradio.onnx
-batch-size=3
+batch-size=4
 min-crop-size=32
 verbose=1
 gpu-id=0
@@ -231,7 +231,7 @@ gpu-id=0
 gie-unique-id=2
 operate-on-gie-id=1
 operate-on-class-ids=0
-batch-size=3
+batch-size=4
 config-file=ppl_analytics_sgie_config.txt
 
 [tests]

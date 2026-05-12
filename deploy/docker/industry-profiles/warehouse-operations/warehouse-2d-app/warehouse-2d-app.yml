@@ -185,7 +185,9 @@ services:
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "false"
     depends_on:
-      sdr-streamprocessing:
+      # sdr-streamprocessing:
+      #   condition: service_started
+      sdr-controller:
         condition: service_started
       sensor-ms-2d:
         condition: service_started
