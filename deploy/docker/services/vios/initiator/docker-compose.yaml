@@ -69,8 +69,13 @@ services:
         required: false
       sdr-streamprocessing:
         condition: service_started
+        required: false
       envoy-streamprocessing:
         condition: service_started
+        required: false
+      sdr-controller:
+        condition: service_started
+        required: false
 
   sensor-ms-2d:
     image: ${VST_SENSOR_IMAGE}
@@ -111,10 +116,15 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      sdr-streamprocessing:
+      # sdr-streamprocessing:
+      #   condition: service_started
+      #   required: false
+      # envoy-streamprocessing:
+      #   condition: service_started
+      #   required: false
+      sdr-controller:
         condition: service_started
-      envoy-streamprocessing:
-        condition: service_started
+        required: false
 
   sensor-ms-3d:
     image: ${VST_SENSOR_IMAGE}
@@ -137,6 +147,50 @@ services:
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+    network_mode: host
+    container_name: vss-vios-sensor
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30000}'"]
+      timeout: 3s
+      interval: 10s
+      retries: 20
+      start_period: 5s
+    depends_on:
+      centralizedb:
+        condition: service_healthy
+      sensor-bp-wait-bp-configurator:
+        condition: service_completed_successfully
+        required: false
+      sdr-streamprocessing:
+        condition: service_started
+        required: false
+      envoy-streamprocessing:
+        condition: service_started
+
+  sensor-ms-mv3dt:
+    image: ${VST_SENSOR_IMAGE}
+    profiles:
+      - bp_wh_kafka_mv3dt
+      - bp_wh_redis_mv3dt
+    user: "0:0"
+    runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      - NEED_RECORDING=false
+      - NEED_RTSPSERVER=false
+      - NEED_STORAGE=false
+      - NEED_STREAM_MONITORING=true
+      - HTTP_PORT=${SENSOR_HTTP_PORT:-30000}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - STREAM_PROCESSOR_MODULE_ENDPOINT=${STREAM_PROCESSOR_MODULE_ENDPOINT}
+    volumes:
+      - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
     network_mode: host
@@ -199,5 +253,10 @@ services:
         required: false
       sdr-streamprocessing:
         condition: service_started
+        required: false
       envoy-streamprocessing:
         condition: service_started
+        required: false
+      sdr-controller:
+        condition: service_started
+        required: false
