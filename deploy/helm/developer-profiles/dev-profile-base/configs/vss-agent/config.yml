@@ -73,6 +73,7 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    use_external_playback_url: false
 
   vst_snapshot:
     _type: vst.snapshot
