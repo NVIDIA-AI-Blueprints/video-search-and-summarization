@@ -30,6 +30,7 @@ from vss_agents.api.rtsp_ingest import register_rtsp_ingest_routes
 from vss_agents.api.video_delete import register_video_delete_routes
 from vss_agents.api.video_ingest import register_video_upload
 from vss_agents.api.video_ingest import register_video_upload_complete
+from vss_agents.api.video_search_ingest import register_video_search_ingest_routes
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,10 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
           chat-tab video upload (UI handshake step 1).
         - ``POST /api/v1/videos/{sensor_id}/complete`` — universal upload
           completion hook (self-skips RTVI-CV / embedding when unset).
+        - ``PUT /api/v1/videos-for-search/{filename}`` — *deprecated* compat
+          shim for the ``metromind/ci-vss-oss`` search-profile test fixture.
+          Registered with ``deprecated=True`` in OpenAPI; will be dropped
+          once the fixture migrates to the new three-step flow.
         - ``POST /api/v1/rtsp-streams/add`` and ``DELETE /.../delete/{name}``.
         - ``DELETE /api/v1/videos/{video_id}``.
 
@@ -110,6 +115,7 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
 
         register_video_upload(app, self.config)
         register_video_upload_complete(app, self.config)
+        register_video_search_ingest_routes(app, self.config)
         register_rtsp_ingest_routes(app, self.config)
         register_rtsp_delete_routes(app, self.config)
         register_video_delete_routes(app, self.config)
