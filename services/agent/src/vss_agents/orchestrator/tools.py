@@ -31,17 +31,20 @@ import asyncio
 from collections import OrderedDict
 from collections import deque
 from collections.abc import AsyncGenerator
+from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import ValuesView
 from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
+import functools
 import os
 from pathlib import Path
 import subprocess
 import threading
 import time
+from typing import Any
 from typing import Final
 from typing import Generic
 from typing import Literal
@@ -230,24 +233,26 @@ _COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S: Final[int] = 5
 class GenerateInput(BaseModel):
     """Input for the docker_generate tool."""
 
-    profile: str = Field(
+    profile: Literal["base", "search", "lvs", "alerts"] = Field(
         ...,
-        description="Deployment profile. Supported values: 'base', 'search', 'lvs', 'alerts'.",
+        description="Deployment profile.",
+        examples=["base"],
     )
     env_overrides: list[str] = Field(
         default=[],
         description=(
-            "Environment variable overrides as KEY=VALUE strings. "
-            "Example: ['HARDWARE_PROFILE=H100', 'LLM_MODE=local', 'HOST_IP=192.168.1.10']. "
+            "Environment variable overrides as KEY=VALUE strings (NOT a JSON object). "
             "Keys must be uppercase with only letters, digits, and underscores."
         ),
+        examples=[["HARDWARE_PROFILE=H100", "LLM_MODE=local", "HOST_IP=192.168.1.10"]],
     )
-    alerts_mode: str | None = Field(
+    alerts_mode: Literal["verification", "real-time"] | None = Field(
         default=None,
         description=(
-            "Optional high-level alerts mode. Supported values are configured in the orchestrator MCP YAML. "
-            "When provided for profile='alerts', the orchestrator maps it to the corresponding MODE value."
+            "High-level alerts mode; required when profile='alerts'. "
+            "'verification' maps to MODE=2d_cv, 'real-time' maps to MODE=2d_vlm."
         ),
+        examples=["verification"],
     )
 
 
@@ -350,16 +355,9 @@ class HardwareResolutionConfig(BaseModel):
     thor_profiles: tuple[str, ...]
 
 
-class LlmResolutionConfig(BaseModel):
-    """LLM name-to-slug resolution rules."""
-
-    supported_models: dict[str, str]
-
-
 class VlmResolutionConfig(BaseModel):
-    """VLM name-to-slug resolution rules and Thor base overrides."""
+    """VLM Thor overrides applied during docker_generate."""
 
-    supported_models: dict[str, str]
     thor_overrides: dict[str, str]
     thor_base_overrides: dict[str, str]
 
@@ -368,7 +366,6 @@ class ModelResolutionConfig(BaseModel):
     """Model/hardware resolution rules supplied via MCP YAML."""
 
     hardware: HardwareResolutionConfig
-    llm: LlmResolutionConfig
     vlm: VlmResolutionConfig
 
 
@@ -824,6 +821,64 @@ async def vss_orchestrator(
     # Tool: profiles
     # ---------------------------------------------------------------------------
     group = FunctionGroup(config=_config)
+
+    # Print one line per MCP tool call (name + payload + response) to the
+    # orchestrator stdout so operators can follow polling activity without
+    # expanding tool outputs in the openclaw UI. Wraps every `add_function`
+    # registration below.
+    _orig_add_function = group.add_function
+
+    def _wrap_with_call_log(
+        name: str,
+        fn: Callable[..., Awaitable[Any]],
+    ) -> Callable[..., Awaitable[Any]]:
+        # `nat`'s FunctionInfo.from_fn introspects the wrapper's signature
+        # via `inspect.signature` (and `typing.get_type_hints`) to discover
+        # input/return types. `functools.wraps` copies `__wrapped__` and
+        # `__annotations__` onto the wrapper, so `inspect.signature` follows
+        # back to the original `fn` and the type checks pass.
+        @functools.wraps(fn)
+        async def wrapped(input: Any) -> Any:
+            try:
+                payload = input.model_dump() if hasattr(input, "model_dump") else input
+            except Exception:
+                payload = repr(input)
+            print(f"[mcp:{name}] -> {payload}", flush=True)
+            try:
+                result = await fn(input)
+            except BaseException as exc:
+                print(f"[mcp:{name}] <- EXCEPTION {type(exc).__name__}: {exc}", flush=True)
+                raise
+            if isinstance(result, dict):
+                summary_keys = (
+                    "status",
+                    "running",
+                    "exit_code",
+                    "action",
+                    "docker_compose_id",
+                    "docker_compose_ops_id",
+                    "error",
+                )
+                preview: dict = {k: result[k] for k in summary_keys if k in result}
+                extras = [k for k in result if k not in summary_keys]
+                if extras:
+                    preview["..."] = f"+{len(extras)} more keys"
+                print(f"[mcp:{name}] <- {preview}", flush=True)
+            else:
+                print(f"[mcp:{name}] <- {result!r}", flush=True)
+            return result
+
+        return wrapped
+
+    def _logged_add_function(
+        *,
+        name: str,
+        fn: Callable[..., Awaitable[Any]],
+        description: str | None,
+    ) -> None:
+        _orig_add_function(name=name, fn=_wrap_with_call_log(name, fn), description=description)
+
+    group.add_function = _logged_add_function
 
     if "profiles" in _config.include:
 
