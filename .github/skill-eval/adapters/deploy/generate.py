@@ -565,8 +565,16 @@ def generate_task(
     skill_dir: Path | None,
     llm_remote: dict | None,
     vlm_remote: dict | None,
+    gpu_count_override: int | None = None,
 ) -> None:
-    """Write a single Harbor task directory for <profile>/<platform>-<mode>."""
+    """Write a single Harbor task directory for <profile>/<platform>-<mode>.
+
+    `gpu_count_override` (when not None) is written verbatim to task.toml's
+    `gpu_count` field, bypassing the mode-derived calculation
+    (`MODES[mode].gpus_needed + PROFILES[profile].local_extras`). Spec
+    authors use this to express "this profile needs an N-GPU box" without
+    leaking mode-selection vocabulary into the spec layer.
+    """
     platform_spec = PLATFORMS[platform]
     mode_spec = effective_mode_spec(platform, mode)
 
@@ -598,7 +606,11 @@ def generate_task(
         "# GPU requirements — BrevEnvironment checks these against the",
         "# instance's actual GPU capacity before the trial runs.",
         f'gpu_type = "{platform_spec["gpu_type"]}"',
-        f'gpu_count = {mode_spec["gpus_needed"] + profile_def.get("local_extras", 0)}',
+        (
+            f'gpu_count = {gpu_count_override}'
+            if gpu_count_override is not None
+            else f'gpu_count = {mode_spec["gpus_needed"] + profile_def.get("local_extras", 0)}'
+        ),
         f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
         f'brev_search = "{platform_spec["brev_search"]}"',
         "# Disk + driver requirements — BrevEnvironment validates both via",
@@ -694,11 +706,17 @@ def _mode_needs_local_nim(mode_spec: dict) -> bool:
     return mode_spec["llm_mode"] != "remote" or mode_spec["vlm_mode"] != "remote"
 
 
-def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[str]] | None:
+def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, dict] | None:
     """If the skill's `eval/<profile>.json` declares `resources.platforms`,
-    return {platform: [modes...]}. Else return None (adapter falls back to
-    PLATFORMS defaults below). Gives the spec author control over which
-    platforms/modes to exercise — e.g. `alerts_cv` only on 2-GPU hosts."""
+    return {platform: {"modes": [...], "gpu_count": int | None}}. Else
+    return None (adapter falls back to PLATFORMS defaults below).
+
+    Spec authors can:
+      - declare `modes: [...]` to enumerate LLM/VLM placements to test, or
+      - omit `modes` and declare `gpu_count: N` to test a single
+        platform-shape variant (the adapter picks an internal default mode;
+        only alerts profiles surface a `-m <variant>` flag via PROFILES).
+    """
     if skill_dir is None:
         return None
     spec_path = skill_dir / "eval" / f"{profile}.json"
@@ -711,7 +729,22 @@ def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[
     resources = (spec.get("resources") or {}).get("platforms")
     if not isinstance(resources, dict) or not resources:
         return None
-    return {p: list((v or {}).get("modes") or []) for p, v in resources.items()}
+    out: dict[str, dict] = {}
+    for p, v in resources.items():
+        v = v or {}
+        modes = list(v.get("modes") or [])
+        # No modes declared → single internal iteration. "remote-all" is the
+        # one mode every profile supports (LLM/VLM both remote) so it's the
+        # safe default; spec author isn't asserting LLM placement, they only
+        # care about platform × gpu_count.
+        if not modes:
+            modes = ["remote-all"]
+        gpu_count = v.get("gpu_count")
+        out[p] = {
+            "modes": modes,
+            "gpu_count": int(gpu_count) if gpu_count is not None else None,
+        }
+    return out
 
 
 def expand_matrix(
@@ -722,16 +755,18 @@ def expand_matrix(
     have_vlm_remote: bool,
     have_ngc_key: bool,
     skill_dir: Path | None = None,
-) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
+) -> tuple[list[tuple[str, str, str, int | None]], list[tuple[str, str, str, str]]]:
     """Return (included, skipped) where:
-        included = list of (profile, platform, mode) that will be generated
-        skipped  = list of (profile, platform, mode, reason)
+        included = list of (profile, platform, mode, gpu_count_override) tuples
+                   gpu_count_override is None unless the spec declared a value
+                   that should override the mode-derived calculation.
+        skipped  = list of (profile, platform, mode, reason) tuples
     For each profile, the platform × mode matrix comes from:
       - `spec.resources.platforms` if declared in `skills/deploy/eval/<profile>.json`
       - otherwise falls back to the full PLATFORMS × supported_modes defaults
     Also filters: --profile/--platform/--mode CLI, remote URL availability for
     modes that need them, and NGC_CLI_API_KEY for modes that pull local NIMs."""
-    included: list[tuple[str, str, str]] = []
+    included: list[tuple[str, str, str, int | None]] = []
     skipped: list[tuple[str, str, str, str]] = []
     for profile in PROFILES:
         if profile_filter and profile != profile_filter:
@@ -740,20 +775,21 @@ def expand_matrix(
         # Prefer the spec's own declaration; fall back to the adapter defaults.
         spec_matrix = _spec_platforms_for(profile, skill_dir)
         if spec_matrix is not None:
-            platform_modes = spec_matrix
+            platform_entries = spec_matrix
         else:
-            platform_modes = {
-                p: list(pspec["supported_modes"])
+            platform_entries = {
+                p: {"modes": list(pspec["supported_modes"]), "gpu_count": None}
                 for p, pspec in PLATFORMS.items()
             }
 
-        for platform, modes in platform_modes.items():
+        for platform, pinfo in platform_entries.items():
             if platform_filter and platform != platform_filter:
                 continue
             if platform not in PLATFORMS:
                 skipped.append((profile, platform, "-", f"unknown platform {platform!r}"))
                 continue
-            for mode in modes:
+            gpu_count_override = pinfo["gpu_count"]
+            for mode in pinfo["modes"]:
                 if mode_filter and mode != mode_filter:
                     continue
                 if mode not in MODES:
@@ -770,7 +806,7 @@ def expand_matrix(
                 if reason:
                     skipped.append((profile, platform, mode, reason))
                 else:
-                    included.append((profile, platform, mode))
+                    included.append((profile, platform, mode, gpu_count_override))
     return included, skipped
 
 
@@ -890,13 +926,15 @@ def main() -> None:
 
     # --- Generate ---
     print(f"=== Generating ({len(included)}) ===")
-    for profile, platform, mode in included:
+    for profile, platform, mode, gpu_count_override in included:
         task_id = make_task_id(platform, mode)
-        print(f"  GEN  {profile}/{task_id}")
+        suffix = f" (gpu_count={gpu_count_override} from spec)" if gpu_count_override is not None else ""
+        print(f"  GEN  {profile}/{task_id}{suffix}")
         generate_task(
             profile, platform, mode,
             PROFILES[profile], output_root, skill_dir,
             llm_remote, vlm_remote,
+            gpu_count_override=gpu_count_override,
         )
 
     print()
@@ -904,7 +942,7 @@ def main() -> None:
     print()
     print("Coverage:")
     by_profile: dict[str, list[str]] = {}
-    for p, plat, m in included:
+    for p, plat, m, _ in included:
         by_profile.setdefault(p, []).append(make_task_id(plat, m))
     for p, tasks in by_profile.items():
         print(f"  {p}: {', '.join(tasks)}")
