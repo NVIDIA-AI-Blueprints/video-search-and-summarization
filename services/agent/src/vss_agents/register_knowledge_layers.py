@@ -37,7 +37,7 @@ from vss_agents.tools.lvs_media_state import configured_media
 
 logger = logging.getLogger(__name__)
 
-BackendType = Literal["frag_api", "es_caption", "llama_index"]
+BackendType = Literal["frag_api", "es_caption", "llama_index", "langchain"]
 
 SUMMARIZE_SYSTEM_PROMPT = (
     "You are an analyst summarising retrieved knowledge-base excerpts. "
@@ -65,6 +65,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "Knowledge backend: 'frag_api' = HTTP to a deployed FRAG rag-server; "
             "'llama_index' = in-process LlamaIndex over a Chroma-backed vector store "
             "(requires the `vss-agents[llama_index]` extra); "
+            "'langchain' = in-process LangChain over a Chroma-backed vector store "
+            "(requires the `vss-agents[langchain]` extra); "
             "'es_caption' = BM25 over RT-VLM caption store in Elasticsearch."
         ),
     )

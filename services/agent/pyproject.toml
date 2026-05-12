@@ -124,6 +124,15 @@ llama_index = [
     "llama-index-embeddings-nvidia>=0.3",
 ]
 
+# In-process retrieval over a Chroma-backed vector store via LangChain —
+# pulled by the `langchain` knowledge_retrieval adapter. Opt-in only;
+# the default agent image stays small for `frag_api`-only deployments.
+langchain = [
+    "chromadb>=0.5",
+    "langchain-chroma>=0.1",
+    "langchain-nvidia-ai-endpoints>=0.3",
+]
+
 [dependency-groups]
 dev = [
     "ipdb>=0.13.13",
