@@ -24,7 +24,7 @@ Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base
 | LVS service | — | — | Long-video segmentation + summarization |
 | LVS Logstash | — | — | RTVI → Kafka → ES pipeline |
 | Elasticsearch + Kibana | mdx-elasticsearch-1, kibana | 9200, 5601 | Log/event storage |
-| Kafka | mdx-kafka-1 | 9092 | Message broker (raw VLM events topic: `raw-vlm-events-response`) |
+| Kafka | mdx-kafka-1 | 9092 | Message broker (raw VLM events topic: `mdx-vlm-captions`) |
 | Redis | mdx-redis-1 | 6379 | Cache |
 | Phoenix | mdx-phoenix-1 | 6006 | Observability |
 
@@ -200,6 +200,6 @@ deploy/docker/developer-profiles/dev-profile-lvs/.env
 
 - **`docker logs vss-rtvi-vlm`** — startup takes up to 20 min on first run (model download from NGC). Look for `Maximum concurrency for X tokens per GPU: Y x` to confirm vLLM is up and the KV-cache budget is what you set.
 - **`vss-lvs` returns `400 BadParameters: No such model '<id>'`** (summarization fails in the UI) — `VLM_NAME` doesn't match what RT-VLM advertises. Verify with `curl http://${HOST_IP}:8018/v1/models | jq`; the `id` field must equal `VLM_NAME` in `dev-profile-lvs/.env`. For the default integrated path that's `nim_nvidia_cosmos-reason2-8b_hf-1208` (NOT `nvidia/cosmos-reason2-8b`). Fix → `docker compose -f resolved.yml up -d --no-deps --force-recreate vss-lvs vss-agent`. If the same UI chat thread is stuck in the failed-tool loop, refresh or start a fresh prompt.
-- **VLM never produces summaries** — check that the topic `raw-vlm-events-response` is being written. `docker exec mdx-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic raw-vlm-events-response --max-messages 1`.
+- **VLM never produces summaries** — check that the topic `mdx-vlm-captions` is being written. `docker exec mdx-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic mdx-vlm-captions --max-messages 1`.
 - **Empty Kibana dashboards** — `lvs-logstash` may have failed to load the protobuf codec; `docker logs lvs-logstash` should show plugin install completion. After bumping `LOGSTASH_VERSION`, run `docker volume rm lvs-logstash-plugins` so the gem is re-installed.
 - **OOM in RT-VLM under load** — lower `RTVI_VLLM_GPU_MEMORY_UTILIZATION` by 0.05; if that doesn't help, drop `RTVI_VLM_MAX_MODEL_LEN` to `16384` and `RTVI_VLLM_MAX_NUM_SEQS` to `64`.

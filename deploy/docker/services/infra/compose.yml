@@ -146,8 +146,8 @@ services:
         {"name": "mdx-vlm"},
         {"name": "mdx-embed"},
         {"name": "mdx-embed-filtered"},
-        {"name": "raw-vlm-events-response"},
-        {"name": "structured-events-summary"}]'
+        {"name": "mdx-vlm-captions"},
+        {"name": "mdx-structured-events-summary"}]'
     depends_on:
       kafka:
         condition: service_healthy
@@ -254,8 +254,8 @@ services:
         {"name": "mdx-vlm"},
         {"name": "mdx-embed"},
         {"name": "mdx-embed-filtered"},
-        {"name": "raw-vlm-events-response"},
-        {"name": "structured-events-summary"}]'
+        {"name": "mdx-vlm-captions"},
+        {"name": "mdx-structured-events-summary"}]'
     container_name: vss-broker-health-check
     restart: "no"
 

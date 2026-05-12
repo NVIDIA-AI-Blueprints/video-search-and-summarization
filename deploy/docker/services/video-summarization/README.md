@@ -17,7 +17,7 @@ Create a `.env.lvs-server-standalone` file with your configuration:
 
 ```bash
 # Container Configuration
-CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-long-video-summarization:3.1.0
+CONTAINER_IMAGE=nvcr.io/nvstaging/blueprint/vss-video-summarization:3.2.0-rc8-47af24a
 GPU_DEVICES=2,3
 
 # Port Configuration
@@ -135,4 +135,3 @@ You can also use the legacy shell script instead of Docker Compose:
 ```
 
 This script provides the same functionality but uses `docker run` directly.
-

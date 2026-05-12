@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc7-8fd9f3d}
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/blueprint/vss-video-summarization:3.2.0-rc8-47af24a}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
@@ -82,7 +82,7 @@ services:
       # Kafka integration (consume captions / publish structured summaries)
       - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
       - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
-      - KAFKA_STRUCTURED_SUMMARY_TOPIC=structured-events-summary
+      - KAFKA_STRUCTURED_SUMMARY_TOPIC=mdx-structured-events-summary
 
       # Feature flags
       - DISABLE_CA_RAG=false
