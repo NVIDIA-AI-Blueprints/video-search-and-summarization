@@ -158,9 +158,9 @@ class TestStreamVideoToVstEndpoint:
 
     @pytest.mark.asyncio
     async def test_disable_audio_false_passes_to_storage(self):
-        """When the router is built with disable_audio=False,
-        the VST storage API request must carry disableAudio=false so the transcoded clip
-        keeps the audio track."""
+        """When the router is built with disable_audio=False, the VST storage
+        API request must carry disableAudio=false so the transcoded clip keeps
+        the audio track."""
         router = create_streaming_video_ingest_router(
             vst_internal_url="http://vst:8080",
             rtvi_embed_base_url="http://rtvi:8080",

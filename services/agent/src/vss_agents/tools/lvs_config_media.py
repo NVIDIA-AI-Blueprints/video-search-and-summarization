@@ -131,7 +131,12 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
     )
     enable_audio: bool = Field(
         default=False,
-        description="Enable audio processing",
+        description=(
+            "When True, forwards `enable_audio=true` in the LVS "
+            "`/v1/generate_captions` request body. Required for audio-capable VLMs "
+            "like Nemotron Nano Omni. Pairs with `streaming_ingest.enable_audio=True` "
+            "so VST keeps audio during upload transcoding."
+        ),
     )
     hitl_scenario_template: str = Field(..., description="HITL template for collecting media scenario.")
     hitl_events_template: str = Field(..., description="HITL template for collecting media events.")
