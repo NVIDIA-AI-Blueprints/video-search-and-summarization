@@ -25,6 +25,14 @@ data:
     pipeline.ordered: true
     pipeline.ecs_compatibility: disabled
     api.http.host: "0.0.0.0"
+  pipelines.yml: |
+    - pipeline.id: mdx-kafka
+      path.config: "/usr/share/logstash/pipeline/mdx-kafka-logstash.conf"
+
+    {{- if and (eq .Values.streamType "kafka") .Values.lvs.enabled }}
+    - pipeline.id: mdx-kafka-lvs
+      path.config: "/usr/share/logstash/pipeline/mdx-kafka-lvs-logstash.conf"
+    {{- end }}
   mdx-kafka-logstash.conf: |
     input {
       kafka {
@@ -411,3 +419,130 @@ data:
         }
       }
     }
+  {{- if and (eq .Values.streamType "kafka") .Values.lvs.enabled }}
+  mdx-kafka-lvs-logstash.conf: |
+    # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+    # SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+    #
+    # Streaming RTVI-VLM Kafka -> Elasticsearch pipeline.
+    #
+    # Decodes nv.VisionLLM protobuf messages from two topics
+    # (mdx-vlm-captions and mdx-structured-events-summary) and writes
+    # documents into Elasticsearch in the EXACT shape that
+    # via-ctx-rag's ElasticsearchDBTool.add_summary produces.
+
+    input {
+      kafka {
+        bootstrap_servers        => "{{ include "logstash.kafkaBootstrap" . }}"
+        topics                   => ["mdx-vlm-captions", "mdx-structured-events-summary"]
+        group_id                 => "${KAFKA_CONSUMER_GROUP:logstash-vlm-es-writer}"
+        client_id                => "logstash-visionllm-1"
+        auto_offset_reset        => "earliest"
+        enable_auto_commit       => true
+        decorate_events          => "basic"
+        key_deserializer_class   => "org.apache.kafka.common.serialization.StringDeserializer"
+        value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
+
+        codec => protobuf {
+          class_name              => "nv.VisionLLM"
+          class_file              => "/opt/logstash-data-libs/logstash/pb_definitions/schema_pb.rb"
+          protobuf_root_directory => "/opt/logstash-data-libs/logstash/pb_definitions"
+          protobuf_version        => 3
+          stop_on_error           => false
+        }
+      }
+    }
+
+    filter {
+      if [llm][queries] {
+        mutate {
+          add_field => { "text" => "%{[llm][queries][0][response]}" }
+        }
+      }
+
+      ruby {
+        init => '
+          require "digest"
+
+          def null_embedding(text, dim, seed)
+            digest_hex = Digest::SHA256.hexdigest(text.to_s)
+            text_seed  = digest_hex[0, 16].to_i(16)
+            rng        = Random.new(seed + text_seed)
+            Array.new(dim) { rng.rand }
+          end
+        '
+        code => '
+          info = event.get("info") || {}
+          cm   = info.dup
+
+          raw_sid = (cm["streamId"] || "unknown").to_s
+          safe_sid = raw_sid.gsub(/[-\/\\ ]/, "_")
+          coll = cm.delete("collection_name") || "default_#{safe_sid}"
+
+          cm["doc_type"] ||= "raw_events"
+          q = (event.get("[llm][queries]") || [])[0]
+          q_id = (q && q["id"]).to_s
+          cm["doc_i"] ||= (q_id =~ /\A\d+\z/ ? q_id : cm["chunkIdx"] || "")
+
+          cm["uuid"] ||= raw_sid
+
+          ts = event.get("timestamp")
+          if ts && !cm["start_ntp_float"]
+            cm["start_ntp_float"] = ts["seconds"].to_f + (ts["nanos"] || 0).to_f / 1_000_000_000.0
+          end
+          end_ts = event.get("end")
+          if end_ts && !cm["end_ntp_float"]
+            cm["end_ntp_float"] = end_ts["seconds"].to_f + (end_ts["nanos"] || 0).to_f / 1_000_000_000.0
+          end
+
+          source = cm.delete("source") || cm["file"] || "N/A"
+
+          cm.each_pair do |k, v|
+            cm[k] = nil if v == ""
+          end
+
+          event.set("[metadata][source]", source)
+          event.set("[metadata][content_metadata]", cm)
+          event.set("[@metadata][collection]", coll)
+          event.set("[@metadata][es_id]",
+            "#{coll}:#{cm["uuid"] || ""}:#{cm["doc_type"]}:" \
+            "#{cm["chunkIdx"] || cm["batch_i"] || cm["doc_i"] || ""}")
+
+          dim   = ENV.fetch("LVS_EMB_DIMENSIONS", "1024").to_i
+          seed  = ENV.fetch("LVS_EMB_SEED", "42").to_i
+          event.set("vector", null_embedding(event.get("text"), dim, seed))
+        '
+      }
+
+      mutate {
+        convert => {
+          "[metadata][content_metadata][doc_i]"           => "integer"
+          "[metadata][content_metadata][chunkIdx]"        => "integer"
+          "[metadata][content_metadata][batch_i]"         => "integer"
+          "[metadata][content_metadata][event_count]"     => "integer"
+          "[metadata][content_metadata][total_events]"    => "integer"
+          "[metadata][content_metadata][pts_offset_ns]"   => "integer"
+          "[metadata][content_metadata][start_pts]"       => "integer"
+          "[metadata][content_metadata][end_pts]"         => "integer"
+          "[metadata][content_metadata][start_ntp_float]" => "float"
+          "[metadata][content_metadata][end_ntp_float]"   => "float"
+          "[metadata][content_metadata][is_first]"        => "boolean"
+          "[metadata][content_metadata][is_last]"         => "boolean"
+        }
+      }
+
+      mutate {
+        remove_field => ["info", "llm", "@version", "event"]
+      }
+    }
+
+    output {
+      elasticsearch {
+        hosts           => "{{ include "logstash.elasticsearchUrl" . }}"
+        index           => "%{[@metadata][collection]}"
+        document_id     => "%{[@metadata][es_id]}"
+        action          => "index"
+        manage_template => false
+      }
+    }
+  {{- end }}
