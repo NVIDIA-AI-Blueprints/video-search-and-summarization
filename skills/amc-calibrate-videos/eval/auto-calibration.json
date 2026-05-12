@@ -1,0 +1,57 @@
+{
+  "skills": ["amc-calibrate-videos"],
+  "profile": "auto-calibration",
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["release-images"]
+      }
+    }
+  },
+  "env": "A GPU host with the **VSS auto-calibration profile** deployed (see `skills/deploy/references/auto-calibration.md`). Both `vss-auto-calibration` (MS) and `vss-auto-calibration-ui` containers running; `curl http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` returns `{\"code\":0,...}`. The test fixture provides `cam_00.mp4` … `cam_03.mp4` under `${VIDEO_DIR}` (defaults to `/data/videos/`), plus `alignment_data.json`, `layout.png`, and `GT.zip` under `/data/alignment/`. The `/amc-calibrate-videos` skill is responsible for the full upload + calibrate + poll workflow — this spec verifies the resulting project state.",
+  "expects": [
+    {
+      "query": "Calibrate my cameras. Videos are under /data/videos/ (cam_00.mp4 through cam_03.mp4), alignment_data.json and layout.png are at /data/alignment/. Microservice is at http://localhost:8010.",
+      "checks": [
+        "The skill issued a `POST /v1/create_project` and captured the returned `project_id`",
+        "The skill called `POST /v1/upload_video_files/<project_id>` exactly once with the 4 cam_*.mp4 files attached in sorted-by-name order",
+        "The skill called `POST /v1/upload_alignment/<project_id>` with `alignment_data.json` and `POST /v1/upload_layout/<project_id>` with `layout.png` before verifying",
+        "The skill called `POST /v1/verify_project/<project_id>` and confirmed the response `project_state == \"READY\"` before starting calibration",
+        "`docker exec vss-auto-calibration test -d server/projects/project_<project_id>/manual_adjustment` returns exit 0 with `alignment_data.json` and `layout.png` present",
+        "After polling, `GET /v1/get_project_info/<project_id>` returns `project_info.project_state == \"COMPLETED\"` (not stuck in RUNNING, not ERROR)",
+        "The skill output did NOT contain any literal NGC API key matching the pattern `nvapi-[A-Za-z0-9_\\-]{10,}` or bearer token matching `Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}`"
+      ]
+    },
+    {
+      "query": "Calibrate my cameras with ground truth. Videos at /data/videos/, alignment and layout at /data/alignment/, GT.zip at /data/GT.zip, focal lengths 1269.0 and 1099.5.",
+      "checks": [
+        "The skill called `POST /v1/upload_gt_file/<project_id>` with `GT.zip` before verifying the project",
+        "The skill called `POST /v1/upload_focal_length/<project_id>` with both focal length values (1269.0 and 1099.5)",
+        "After calibration COMPLETED, the skill called `GET /v1/result/<project_id>/evaluation_statistics` and the response included a non-empty `statistics` object",
+        "The reported `Average L2 distance(m)` parses as a float and is `< 1.5`",
+        "The reported `Average reprojection error 0(px)` parses as a float and is `< 10`",
+        "The skill did NOT echo the GT.zip contents or focal-length values to a logging endpoint outside the AMC microservice"
+      ]
+    },
+    {
+      "query": "Calibrate my cameras at /data/videos/. I have a settings file at /data/settings.json that pins detector_type to transformer. Microservice at http://localhost:8010.",
+      "checks": [
+        "The skill called `POST /v1/config/<project_id>` and posted the contents of `/data/settings.json` verbatim (Content-Type: application/json)",
+        "The skill parsed the settings file, detected `detector_type: transformer`, and used `transformer` as the `detector_type` in the subsequent `POST /v1/calibrate/<project_id>` call",
+        "The skill auto-resolved `alignment_data.json` and `layout.png` from `/data/` (the config file's parent directory) without prompting the user when both files were unambiguous",
+        "After calibration started, `GET /v1/get_project_info/<project_id>` shows `project_info.detector_type` (or equivalent) reflecting the `transformer` choice",
+        "The skill did NOT proceed with `detector_type: resnet` after the config file indicated transformer (no silent override)"
+      ]
+    },
+    {
+      "query": "Calibrate my cameras. Videos at /data/videos/. Microservice should be at http://localhost:8010 but I don't remember if I started it.",
+      "checks": [
+        "The skill probed `GET /v1/ready` on port 8010 (and optionally 8000-8009 fallback range) before issuing any upload calls",
+        "On detecting the MS is not running, the skill referenced the `auto-calibration` profile of the `/deploy` skill in its response",
+        "The skill did NOT call `POST /v1/create_project` against an unreachable endpoint (no `Connection refused`-suppressed silent failure)",
+        "The skill did NOT proceed to upload videos / start calibration while the MS readiness probe was failing",
+        "The skill output did NOT contain hardcoded credentials matching patterns like `password\\s*[:=]\\s*[\"'][^\"']+` or `secret[_\\-]?key\\s*[:=]\\s*[\"']?[A-Za-z0-9+/=_\\-]{20,}`"
+      ]
+    }
+  ]
+}

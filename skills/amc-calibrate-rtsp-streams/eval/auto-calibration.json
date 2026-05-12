@@ -1,0 +1,58 @@
+{
+  "skills": ["amc-calibrate-rtsp-streams"],
+  "profile": "auto-calibration",
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["release-images"]
+      }
+    }
+  },
+  "env": "A GPU host with the **VSS auto-calibration profile** deployed alongside a `bp_wh_*` warehouse blueprint (so VIOS/VST is also up). `vss-auto-calibration` MS responds at `http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready`; VIOS responds at `http://localhost:30888/vst/api/v1/sensor/list`; `VIOS_BASE_URL` is set in `deploy/docker/industry-profiles/warehouse-operations/.env` (auto-wired from `${VST_INTERNAL_URL}` under blueprint deployment). At least one RTSP source is reachable from the VIOS host. The `/amc-calibrate-rtsp-streams` skill drives the capture → ingest → calibrate workflow.",
+  "expects": [
+    {
+      "query": "Calibrate from 3 RTSP streams: rtsp://HOST:31554/cam_00, rtsp://HOST:31555/cam_01, rtsp://HOST:31556/cam_02. Record 180 seconds. Alignment JSON and layout PNG are at /data/alignment/.",
+      "checks": [
+        "The skill probed `GET /vst/api/v1/sensor/list` (default port 30888) and confirmed VIOS is reachable before any AMC API calls",
+        "The skill called `POST /v1/create_project` and captured the returned `project_id`",
+        "The skill called `POST /v1/rtsp/capture/<project_id>` with a `streams` array of exactly 3 entries and `duration_seconds: 180`",
+        "The skill polled `GET /v1/rtsp/capture/<project_id>/<session_id>` until the response `status` reached `COMPLETED` (handled the STARTING → RECORDING → COMPLETED progression)",
+        "The skill called `POST /v1/rtsp/capture/<project_id>/<session_id>/ingest` after the capture session completed (not before)",
+        "The skill uploaded `alignment_data.json` and `layout.png` via `POST /v1/upload_alignment/<project_id>` and `POST /v1/upload_layout/<project_id>` before verifying",
+        "After polling, `GET /v1/get_project_info/<project_id>` returns `project_info.project_state == \"COMPLETED\"`",
+        "The skill output did NOT contain bearer tokens matching `Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}` or vios_token values matching `vios_token=[A-Za-z0-9\\-._~+/]{10,}`"
+      ]
+    },
+    {
+      "query": "Calibrate from rtsp://HOST:31554/cam_00 and rtsp://HOST:31555/cam_01, 120 seconds. I don't have alignment or layout files.",
+      "checks": [
+        "The capture + ingest sequence completed successfully (session state reached COMPLETED, ingest returned 2xx)",
+        "The skill directed the user to open the AMC UI and complete UI Step 4 (alignment) for the newly created project",
+        "The skill waited for the user's confirmation before proceeding to `verify_project`",
+        "`docker exec vss-auto-calibration test -f server/projects/project_<project_id>/manual_adjustment/alignment_data.json` returns exit 0",
+        "`docker exec vss-auto-calibration test -f server/projects/project_<project_id>/manual_adjustment/layout.png` returns exit 0",
+        "The skill did NOT call `POST /v1/calibrate/<project_id>` before the manual alignment files were confirmed present on disk"
+      ]
+    },
+    {
+      "query": "Calibrate from rtsp://HOST:31554/cam_00. MS is up but VIOS is not.",
+      "checks": [
+        "The skill probed `GET /vst/api/v1/sensor/list` and detected VIOS is unreachable (connection refused or non-2xx)",
+        "The skill searched for a `vios` skill in `skills/` (or referenced the existing `/vios` skill) as the recovery path",
+        "The skill did NOT call `POST /v1/rtsp/capture/<project_id>` while VIOS was unreachable (no silent 503 swallow)",
+        "The skill did NOT fabricate a `session_id` or claim the capture succeeded",
+        "The skill output did NOT include a bearer token matching `Bearer\\s+[A-Za-z0-9\\-._~+/]{20,}`"
+      ]
+    },
+    {
+      "query": "Calibrate from rtsp://HOST:31554/cam_00 and rtsp://HOST:31555/cam_01 for 120s. I have a settings file at /data/calib/settings.json that includes detector: transformer. alignment_data.json and layout.png live in the same /data/calib/ directory.",
+      "checks": [
+        "The skill auto-resolved `alignment_data.json` and `layout.png` from `/data/calib/` (the same dir as the settings file) without prompting",
+        "The skill called `POST /v1/config/<project_id>` with the settings file contents verbatim",
+        "The skill parsed the settings file, detected `detector: transformer`, and used `transformer` in the subsequent `POST /v1/calibrate/<project_id>` (NOT the default `resnet`)",
+        "The capture + ingest + verify + calibrate + poll sequence executed in the correct order",
+        "After calibration COMPLETED, the skill did NOT echo the contents of `/data/calib/settings.json` back to the user (the file may contain proprietary tuning parameters)"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "skills": ["amc-calibrate-sample-dataset"],
+  "profile": "auto-calibration",
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["release-images"]
+      }
+    }
+  },
+  "env": "A GPU host with the **VSS auto-calibration profile** deployed (see `skills/deploy/references/auto-calibration.md`). Both `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` containers running; `curl http://localhost:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` returns `{\"code\":0,...}`. The bundled sample zip `sdg_08_2_sample_data_010926.zip` is present at `assets/` (4 synthetic warehouse cameras + ground truth). The `/amc-calibrate-sample-dataset` skill drives detection, extraction, upload, and evaluation; this spec verifies the project state and the reported metrics.",
+  "expects": [
+    {
+      "query": "Run the sample calibration test. The microservice is already running on port 8010.",
+      "checks": [
+        "The skill probed `GET /v1/ready` and confirmed `{\"code\":0,...}` before any other API calls",
+        "The skill extracted `sdg_08_2_sample_data_010926.zip` into `assets/.cache/sdg_08_2_sample_data_010926/` (idempotent — re-extraction skipped if cache exists)",
+        "The skill uploaded exactly 4 `cam_*.mp4` files (sample dataset has 4 cameras) sorted alphabetically — `len(videos) <= 16` upper bound was respected",
+        "The skill uploaded `alignment_data.json`, `layout.png`, and `GT.zip` from the sample's extracted contents (no manual UI fallback needed)",
+        "After polling, `GET /v1/get_project_info/<project_id>` returns `project_info.project_state == \"COMPLETED\"` within 30 min",
+        "`GET /v1/result/<project_id>/evaluation_statistics` returns HTTP 200 with a non-empty `statistics` object (GT was uploaded, so metrics are required)",
+        "Reported `Average L2 distance(m)` is `< 1.5` AND `Average reprojection error 0(px)` is `< 10`",
+        "No file named `run_sample_test.py` was written into the repo (the inline heredoc pattern was used; no .py file artifacts)"
+      ]
+    },
+    {
+      "query": "Launch AMC and run the sample calibration test end-to-end.",
+      "checks": [
+        "The skill scanned ports 8000-8009 and then 8010 for `/v1/ready`, found none responding, and delegated to the `auto-calibration` profile of the `/deploy` skill before attempting the sample test",
+        "After the deploy delegation returned, the skill re-probed `/v1/ready` and only proceeded once it responded with `{\"code\":0,...}`",
+        "Both `vss-auto-calibration` and `vss-auto-calibration-ui` are listed in `docker ps --format '{{.Names}}'` once the launch completes",
+        "The skill ran the sample-test sequence in the same response — did NOT stop after `/deploy` and require a second user prompt",
+        "Final response contains both an MS URL (`http://<HOST_IP>:8010`) and a UI URL (`http://<HOST_IP>:5000`) for manual inspection"
+      ]
+    },
+    {
+      "query": "I don't want to run Python. Walk me through the sample test using the Swagger UI instead.",
+      "checks": [
+        "The skill pointed at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_PORT:-8010}/docs` as the Swagger UI",
+        "The walkthrough listed the 9 endpoints in correct order: `create_project`, `upload_video_files`, `upload_alignment`, `upload_layout`, `upload_gt_file`, `verify_project`, `calibrate`, `get_project_info`, `result/evaluation_statistics`",
+        "The walkthrough explicitly instructed uploading videos sorted by name (camera indices are assigned by upload order)",
+        "The walkthrough did NOT skip the GT.zip upload (otherwise evaluation metrics will not be produced)",
+        "The skill did NOT also run the Python flow when the user explicitly asked for the manual path"
+      ]
+    },
+    {
+      "query": "Test the sample dataset. Nothing is running.",
+      "checks": [
+        "The skill scanned ports 8000-8009 and 8010, reported no backend responding, and surfaced the `auto-calibration` profile of the `/deploy` skill as the recovery path",
+        "The skill did NOT issue any `POST /v1/create_project` or other AMC API calls while the MS was unreachable",
+        "If `assets/sdg_08_2_sample_data_010926.zip` is missing, the skill surfaced that as a distinct blocker (separate from the backend-unreachable error)",
+        "The skill output did NOT contain hardcoded credentials matching `(?i)secret[_\\-]?key\\s*[:=]\\s*[\"']?[A-Za-z0-9+/=_\\-]{20,}` or `nvapi-[A-Za-z0-9_\\-]{10,}`"
+      ]
+    }
+  ]
+}
