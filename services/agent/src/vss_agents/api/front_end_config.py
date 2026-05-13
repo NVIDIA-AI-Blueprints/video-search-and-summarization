@@ -44,18 +44,13 @@ class StreamingIngestConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     vst_internal_url: str = Field(default="", description="Internal URL for VST service")
-
-    enable_videos_for_search: bool = Field(
-        default=False,
-        description="Register PUT/POST /api/v1/videos-for-search/* (search-only chunked upload)",
-    )
-    enable_rtsp_streams: bool = Field(
-        default=False,
-        description="Register POST /api/v1/rtsp-streams/add and DELETE /api/v1/rtsp-streams/delete/{name}",
-    )
-    enable_video_delete: bool = Field(
-        default=False,
-        description="Register DELETE /api/v1/videos/{video_id}",
+    vst_external_url: str = Field(
+        default="",
+        description=(
+            "Externally reachable URL for VST. Returned to the browser from "
+            "POST /api/v1/videos so chunks can be uploaded directly to VST. "
+            "Falls back to vst_internal_url when unset."
+        ),
     )
 
     delete_vst_storage_on_stream_remove: bool = Field(
