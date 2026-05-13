@@ -395,7 +395,9 @@ workflow:
       - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Examples: "Summarize stream CAM_1 from 0 to 45 seconds"
       **lvs_config_media** - Start LVS caption generation for a live stream (HITL collects scenario/events/objects).
-      - Use ONLY when the user explicitly asks to start caption generation for a stream. Trigger phrases include: "start summarizing the stream <name>", "start captioning <name>", "set up stream <name>", "configure stream <name>".
+      - Use ONLY when the user explicitly asks to start caption generation for a stream. Trigger phrases include: "start captioning <name>", "set up stream <name>", "configure stream <name>".
+      - "summarize <name>" or "summarize <name> from X to Y" is NOT a trigger — it must be routed by `media_type` from `vst_video_list` to `lvs_stream_understanding` (stream) or `lvs_video_understanding` (video).
+      - "generate a report for <name>" or "generate a report for <name> from X to Y" is NOT a trigger — it must be routed to `report_agent`.
       - Do NOT call this tool just because a previous tool's response said the stream is "not configured" — surface that response to the user and wait for an explicit start request.
       - Do NOT call speculatively or as a pre-check.
       - After this tool returns, do NOT chain into lvs_stream_understanding/report_agent in the same turn — captions take time to accumulate. Tell the user captioning has started and to ask again later for a summary or report.
@@ -407,7 +409,10 @@ workflow:
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
       **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp.
       - CRITICAL: Always call vst_snapshot to get the URL even though the snapshot for the same video and at the same timestamp has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_snapshot.
-    ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, treat it as a stream if the name contains "stream"/"cam"/"rtsp" or you previously added a stream by that name, treat it as an uploaded video if you previously uploaded/listed a video by that name, otherwise ask the user once.
+    ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, you MUST identify its media_type before routing.
+      - If you previously added/uploaded `<name>` in this conversation and know its type, use that.
+      - Otherwise call `vst_video_list` and look up `<name>` in the result. Each entry has `media_type='stream'` (live RTSP) or `media_type='video'` (uploaded) — use this to pick the right tool per the routing rules above. Do NOT guess from the name.
+      - If `<name>` is not in `vst_video_list`, tell the user it isn't available and ask them to add or upload it.
     ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
 
 

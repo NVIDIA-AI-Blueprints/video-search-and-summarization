@@ -143,10 +143,10 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://curl.se/docs/copyright.html
 
 
-12. gcr.io/cadvisor/cadvisor:v0.52.0
-    Image: gcr.io/cadvisor/cadvisor:v0.52.0
+12. ghcr.io/google/cadvisor:0.56.2
+    Image: ghcr.io/google/cadvisor:0.56.2
     License: Apache License 2.0
-    Registry: https://gcr.io/cadvisor/cadvisor
+    Registry: https://ghcr.io/google/cadvisor
     Source: https://github.com/google/cadvisor
     License URL: https://github.com/google/cadvisor/blob/master/LICENSE
     Description: Container resource usage and performance monitoring (cAdvisor).
@@ -220,8 +220,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://www.apache.org/licenses/LICENSE-2.0
 
 
-18. postgres:17.6-alpine
-    Image: postgres:17.6-alpine
+18. postgres:17.9-alpine
+    Image: postgres:17.9-alpine
     License: PostgreSQL License (BSD-style).
     Registry: https://hub.docker.com/_/postgres
     Source: https://github.com/docker-library/postgres
