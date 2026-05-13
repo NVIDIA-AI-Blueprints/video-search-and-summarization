@@ -12,23 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""In-process adapter using LlamaIndex over a ChromaDB-backed vector store.
+"""Retrieval-only LlamaIndex adapter over a ChromaDB persist dir.
 
-Scope: retrieval-only. The adapter loads a pre-built Chroma persist
-directory (or connects to a remote Chroma host), wraps it in a
-LlamaIndex `VectorStoreIndex`, and queries via the retriever surface.
-Ingestion is out of scope — populate Chroma out-of-band (LlamaIndex
-ingestion scripts, the upstream aiq tool, or any other Chroma writer).
-
-Summarization stays at the bridge layer (`summary_model` in
-`KnowledgeRetrievalConfig`), same as `frag_api` / `rag_lib` / `es_caption`,
-so behaviour is consistent across backends. We deliberately do NOT
-route through `index.as_query_engine(...)` — that would introduce a
-second, parallel summarization path with different prompting.
-
-Requires the optional dependency group `vss-agents[llama_index]`. The
-imports are deferred to adapter construction so the agent image stays
-small for `frag_api`-only deployments.
+Ingestion is out of scope; summarization stays at the bridge layer.
+Requires `vss-agents[llama_index]`; imports are deferred.
 """
 
 from __future__ import annotations
@@ -53,34 +40,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Cap on top_k; matches frag_api's vdb cap.
+MAX_TOP_K = 100
+# Widen candidate pool when a client-side predicate filter is supplied.
+FILTER_OVERFETCH_MULTIPLIER = 4
+
 
 class LlamaIndexConfig(BaseModel):
-    """Caller-supplied knobs for the LlamaIndex/Chroma adapter.
-
-    Embedded-mode only — matches aiq's `nvidia_nat_rag` assumption that
-    the ChromaDB persist directory lives on the same host as the agent.
-    For multi-host deployments, use `frag_api` (HTTP) or `rag_lib` (Milvus).
-    """
-
-    # ChromaDB persist directory — file-based, in-process.
     persist_dir: str = Field(
         default_factory=lambda: os.environ.get("VSS_CHROMA_DIR", "/tmp/chroma_data"),
-        description=(
-            "ChromaDB persist directory (embedded mode). Defaults to the "
-            "`VSS_CHROMA_DIR` env var, then `/tmp/chroma_data` if unset."
-        ),
+        description="ChromaDB persist directory. Defaults to `VSS_CHROMA_DIR`, then `/tmp/chroma_data`.",
     )
-
-    # Default Chroma collection name; used when the caller passes empty.
     collection_name: str = Field(
         default="default",
-        description="Default Chroma collection; substituted when the LLM omits `collection`.",
+        description="Default Chroma collection; used when the LLM omits `collection`.",
     )
-
-    # NVIDIA embedding NIM.
     embed_model: str = Field(
         default="nvidia/llama-nemotron-embed-vl-1b-v2",
-        description="NVIDIA embedding model name (passed to LlamaIndex's NVIDIAEmbedding).",
+        description="NVIDIA embedding model name.",
     )
     embed_base_url: str = Field(
         default="https://integrate.api.nvidia.com/v1",
@@ -88,15 +65,12 @@ class LlamaIndexConfig(BaseModel):
     )
     embed_api_key: str | None = Field(
         default=None,
-        description="NVIDIA API key for the embed NIM. Falls back to NVIDIA_API_KEY env if unset.",
+        description="NVIDIA API key; falls back to NVIDIA_API_KEY env.",
     )
 
 
 @register_adapter("llama_index", config_type=LlamaIndexConfig)
 class LlamaIndexAdapter(BackendAdapter):
-    # ChromaDB doesn't expose Milvus-style `filter_expr`; v1 doesn't push
-    # dict filters through to LlamaIndex's `MetadataFilters`. Predicate
-    # (callable) filters still work — applied client-side.
     tool_description_hint: ClassVar[str] = (
         "Filter pushdown is not yet supported for this backend. Pass only "
         "`query` and (optionally) `collection` and `top_k`."
@@ -104,7 +78,6 @@ class LlamaIndexAdapter(BackendAdapter):
 
     def __init__(self, config: LlamaIndexConfig) -> None:
         super().__init__(config)
-        # Deferred imports — keep llama-index/chromadb out of the default image.
         try:
             import chromadb
             from llama_index.core import StorageContext
@@ -119,14 +92,10 @@ class LlamaIndexAdapter(BackendAdapter):
                 "Or pick a different backend (`frag_api` / `rag_lib` / `es_caption`)."
             ) from e
 
-        # Build the embedded Chroma client. Persist dir is created if missing
-        # so the first retrieve() against an empty path returns chunks=[]
-        # rather than blowing up — operator can ingest later and we'll pick
-        # up the data on next retrieve.
+        # Auto-create so first retrieve() against empty path returns [] rather than crashing.
         os.makedirs(config.persist_dir, exist_ok=True)
         self._chroma_client = chromadb.PersistentClient(path=config.persist_dir)
 
-        # Build the NVIDIA embedder (lifts NVIDIA_API_KEY from env when not set on config).
         api_key = config.embed_api_key or os.environ.get("NVIDIA_API_KEY")
         self._embed_model = NVIDIAEmbedding(
             model=config.embed_model,
@@ -134,8 +103,6 @@ class LlamaIndexAdapter(BackendAdapter):
             nvidia_api_key=api_key,
         )
 
-        # Keep the building blocks; build per-collection indices lazily in `retrieve()`.
-        # (One adapter instance can serve multiple collections; we cache by name.)
         self._VectorStoreIndex = VectorStoreIndex
         self._ChromaVectorStore = ChromaVectorStore
         self._StorageContext = StorageContext
@@ -150,7 +117,6 @@ class LlamaIndexAdapter(BackendAdapter):
         )
 
     def _index_for_collection(self, collection_name: str) -> Any:
-        """Return the VectorStoreIndex for `collection_name`, building+caching on first use."""
         index = self._index_cache.get(collection_name)
         if index is not None:
             return index
@@ -173,11 +139,13 @@ class LlamaIndexAdapter(BackendAdapter):
         filters: Callable[[Chunk], bool] | dict[str, Any] | None = None,
     ) -> RetrievalResult:
         target_collection = collection_name or self.collection_name
+        effective_top_k = max(1, min(top_k, MAX_TOP_K))
+        # Over-fetch on predicate filter so post-filter result still ~= top_k.
+        fetch_k = min(effective_top_k * FILTER_OVERFETCH_MULTIPLIER, MAX_TOP_K) if callable(filters) else effective_top_k
         try:
             index = self._index_for_collection(target_collection)
-            retriever = index.as_retriever(similarity_top_k=top_k)
-            # NodeWithScore objects — sync API; LlamaIndex returns a list.
-            nodes = retriever.retrieve(query)
+            retriever = index.as_retriever(similarity_top_k=fetch_k)
+            nodes = await retriever.aretrieve(query)
         except Exception as e:
             logger.exception("llama_index retrieve failed")
             return _failure(query, self.backend_name, f"LlamaIndex retrieval failed: {str(e)[:100]}")
@@ -185,9 +153,9 @@ class LlamaIndexAdapter(BackendAdapter):
         chunks = [_node_to_chunk(n, idx=i) for i, n in enumerate(nodes)]
         chunks = [c for c in chunks if c is not None]
 
-        # Predicate filters always applied client-side.
         if callable(filters):
             chunks = [c for c in chunks if filters(c)]
+        chunks = chunks[:effective_top_k]
 
         return RetrievalResult(
             chunks=chunks,
@@ -198,7 +166,6 @@ class LlamaIndexAdapter(BackendAdapter):
         )
 
     async def health_check(self) -> bool:
-        # No native ping; successful construction + ability to list collections is the strongest signal.
         try:
             self._chroma_client.list_collections()
         except Exception as e:
@@ -219,21 +186,18 @@ def _failure(query: str, backend: str, message: str) -> RetrievalResult:
 
 
 def _node_to_chunk(node: Any, idx: int = 0) -> Chunk | None:
-    """Convert a LlamaIndex `NodeWithScore` to our `Chunk` schema.
-
-    Extracts file/page metadata when the upstream loader populated them
-    (SimpleDirectoryReader sets `file_name`, `page_label` on PDF nodes).
-    """
     try:
         inner = node.node
         content = inner.text or ""
-        score = float(getattr(node, "score", 0.0) or 0.0)
+        raw_score = float(getattr(node, "score", 0.0) or 0.0)
         meta = dict(inner.metadata or {})
     except AttributeError:
         return None
 
+    # Cosine distance → similarity; passthrough if outside distance range. Matches langchain.py.
+    score = 1.0 - raw_score if 0.0 <= raw_score <= 2.0 else raw_score
+
     file_name = meta.get("file_name") or meta.get("file_path") or "unknown"
-    # LlamaIndex's `page_label` is a 1-based string; coerce to int when sensible.
     page_label = meta.get("page_label")
     page_number: int | None = None
     if isinstance(page_label, int) and page_label > 0:

@@ -12,21 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""In-process adapter using LangChain over a ChromaDB-backed vector store.
+"""Retrieval-only LangChain adapter over a ChromaDB persist dir.
 
-Same shape as the `llama_index` adapter — retrieval-only, embedded
-Chroma persist dir, NVIDIA embedding NIM via LangChain's NVIDIA
-integration. The difference is the framework: LangChain's vector store
-abstraction (`langchain_chroma.Chroma`) and retriever surface
-(`vectorstore.as_retriever()`).
-
-Ingestion is out of scope — populate Chroma out-of-band. Summarization
-stays at the bridge layer (`summary_model` in `KnowledgeRetrievalConfig`),
-same as every other adapter.
-
-Requires the optional dependency group `vss-agents[langchain]`. Imports
-are deferred to adapter construction so the agent image stays small for
-deployments that don't use this backend.
+Goes direct to `Chroma.asimilarity_search_with_score` — the retriever
+surface drops the per-doc score we need. Requires `vss-agents[langchain]`;
+imports are deferred.
 """
 
 from __future__ import annotations
@@ -51,31 +41,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Cap on top_k; matches frag_api's vdb cap.
+MAX_TOP_K = 100
+# Widen candidate pool when a client-side predicate filter is supplied.
+FILTER_OVERFETCH_MULTIPLIER = 4
 
+
+# Mirrors LlamaIndexConfig field-for-field so operators can swap backends without config churn.
 class LangChainConfig(BaseModel):
-    """Caller-supplied knobs for the LangChain/Chroma adapter.
-
-    Mirrors `LlamaIndexConfig` field-for-field so operators can swap
-    `backend: llama_index` ↔ `backend: langchain` without changing the
-    rest of the config.
-    """
-
     persist_dir: str = Field(
         default_factory=lambda: os.environ.get("VSS_CHROMA_DIR", "/tmp/chroma_data"),
-        description=(
-            "ChromaDB persist directory (embedded mode). Defaults to the "
-            "`VSS_CHROMA_DIR` env var, then `/tmp/chroma_data` if unset."
-        ),
+        description="ChromaDB persist directory. Defaults to `VSS_CHROMA_DIR`, then `/tmp/chroma_data`.",
     )
-
     collection_name: str = Field(
         default="default",
-        description="Default Chroma collection; substituted when the LLM omits `collection`.",
+        description="Default Chroma collection; used when the LLM omits `collection`.",
     )
-
     embed_model: str = Field(
         default="nvidia/llama-nemotron-embed-vl-1b-v2",
-        description="NVIDIA embedding model name (passed to NVIDIAEmbeddings).",
+        description="NVIDIA embedding model name.",
     )
     embed_base_url: str = Field(
         default="https://integrate.api.nvidia.com/v1",
@@ -83,14 +67,12 @@ class LangChainConfig(BaseModel):
     )
     embed_api_key: str | None = Field(
         default=None,
-        description="NVIDIA API key. Falls back to NVIDIA_API_KEY env if unset.",
+        description="NVIDIA API key; falls back to NVIDIA_API_KEY env.",
     )
 
 
 @register_adapter("langchain", config_type=LangChainConfig)
 class LangChainAdapter(BackendAdapter):
-    # Same as the llama_index hint: Chroma doesn't expose Milvus-style
-    # filter_expr at this layer; v1 doesn't push filters through.
     tool_description_hint: ClassVar[str] = (
         "Filter pushdown is not yet supported for this backend. Pass only "
         "`query` and (optionally) `collection` and `top_k`."
@@ -98,7 +80,6 @@ class LangChainAdapter(BackendAdapter):
 
     def __init__(self, config: LangChainConfig) -> None:
         super().__init__(config)
-        # Deferred imports — keep langchain-chroma out of the default image.
         try:
             from langchain_chroma import Chroma
             from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
@@ -110,8 +91,7 @@ class LangChainAdapter(BackendAdapter):
                 "Or pick a different backend (`frag_api` / `llama_index` / `es_caption`)."
             ) from e
 
-        # Auto-create persist dir on first boot so a clean host doesn't
-        # crash before ingestion has happened.
+        # Auto-create so first retrieve() against empty path returns [] rather than crashing.
         os.makedirs(config.persist_dir, exist_ok=True)
 
         api_key = config.embed_api_key or os.environ.get("NVIDIA_API_KEY")
@@ -121,7 +101,6 @@ class LangChainAdapter(BackendAdapter):
             api_key=api_key,
         )
 
-        # Cache one Chroma vector store per collection (lazy build).
         self._Chroma = Chroma
         self._persist_dir: str = config.persist_dir
         self._vs_cache: dict[str, Any] = {}
@@ -135,7 +114,6 @@ class LangChainAdapter(BackendAdapter):
         )
 
     def _vectorstore_for_collection(self, collection_name: str) -> Any:
-        """Return a `langchain_chroma.Chroma` for the named collection, cached."""
         vs = self._vs_cache.get(collection_name)
         if vs is not None:
             return vs
@@ -155,12 +133,12 @@ class LangChainAdapter(BackendAdapter):
         filters: Callable[[Chunk], bool] | dict[str, Any] | None = None,
     ) -> RetrievalResult:
         target_collection = collection_name or self.collection_name
+        effective_top_k = max(1, min(top_k, MAX_TOP_K))
+        # Over-fetch on predicate filter so post-filter result still ~= top_k.
+        fetch_k = min(effective_top_k * FILTER_OVERFETCH_MULTIPLIER, MAX_TOP_K) if callable(filters) else effective_top_k
         try:
             vs = self._vectorstore_for_collection(target_collection)
-            # LangChain's similarity_search_with_score returns [(Document, score), ...]
-            # which is the shape we need to fill Chunk.score. .invoke() on the
-            # retriever drops the score, so we go direct to the vector store.
-            results = vs.similarity_search_with_score(query, k=top_k)
+            results = await vs.asimilarity_search_with_score(query, k=fetch_k)
         except Exception as e:
             logger.exception("langchain retrieve failed")
             return _failure(query, self.backend_name, f"LangChain retrieval failed: {str(e)[:100]}")
@@ -168,9 +146,9 @@ class LangChainAdapter(BackendAdapter):
         chunks = [_doc_to_chunk(doc, score, idx=i) for i, (doc, score) in enumerate(results)]
         chunks = [c for c in chunks if c is not None]
 
-        # Predicate filters always applied client-side.
         if callable(filters):
             chunks = [c for c in chunks if filters(c)]
+        chunks = chunks[:effective_top_k]
 
         return RetrievalResult(
             chunks=chunks,
@@ -181,10 +159,7 @@ class LangChainAdapter(BackendAdapter):
         )
 
     async def health_check(self) -> bool:
-        # No native ping; "can I open the persist dir?" is the strongest signal.
         try:
-            # Touching the Chroma class as a smoke test — instantiation already
-            # happened in __init__ for the default collection.
             return self._Chroma is not None and os.path.isdir(self._persist_dir)
         except Exception as e:
             logger.warning("langchain health check failed: %s", e)
@@ -203,24 +178,13 @@ def _failure(query: str, backend: str, message: str) -> RetrievalResult:
 
 
 def _doc_to_chunk(doc: Any, score: float, idx: int = 0) -> Chunk | None:
-    """Convert a LangChain `Document` + similarity score to our `Chunk` schema.
-
-    LangChain `Document` shape:
-        doc.page_content : str
-        doc.metadata     : dict (whatever the ingestor stamped)
-
-    Chroma reports distance, not similarity; for cosine distance,
-    similarity ≈ 1 - distance. Normalise so higher = better, matching
-    our other adapters.
-    """
     try:
         content = doc.page_content or ""
         meta = dict(doc.metadata or {})
     except AttributeError:
         return None
 
-    # Cosine distance → similarity. Other metrics would need different math;
-    # we treat anything > 1 as already-similarity and pass through.
+    # Cosine distance → similarity; passthrough if outside distance range. Matches llama_index.py.
     sim = float(1.0 - score) if 0.0 <= float(score) <= 2.0 else float(score)
 
     file_name = meta.get("file_name") or meta.get("source") or "unknown"
