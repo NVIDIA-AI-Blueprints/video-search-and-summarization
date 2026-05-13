@@ -23,6 +23,8 @@ general:
       vst_internal_url: ${VST_INTERNAL_URL}
       vst_external_url: ${VST_EXTERNAL_URL}
       rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
       # No RTVI-CV/Embed: lvs ingests RTSP streams to RTVI-VLM only. The
       # universal /api/v1/videos/{filename}/complete handler self-skips the
       # embedding/CV steps when their URLs are unset.
@@ -103,6 +105,8 @@ functions:
     num_frames_per_chunk: 20  # Sample 20 frames per chunk
     vlm_input_width: 1280
     vlm_input_height: 720
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
+    enable_audio: ${ENABLE_AUDIO:-false}
     # HITL Templates (shown each for each query to the user during interaction)
     hitl_scenario_template: |
       Scenario (REQUIRED):
@@ -156,6 +160,8 @@ functions:
     chunk_duration: 10
     vlm_input_width: 1280
     vlm_input_height: 720
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
+    enable_audio: ${ENABLE_AUDIO:-false}
     hitl_scenario_template: |
       Scenario (REQUIRED):
       Please provide a scenario description for the stream analysis.
