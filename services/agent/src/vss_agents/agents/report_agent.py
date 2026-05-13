@@ -754,7 +754,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 "For live streams (media_type='stream'): analyzes a configured stream over a "
                 "[start_time, end_time] window in seconds (use end_time=0 for 'until now'); requires a single "
                 "sensor_id (stream name). If the stream has no captions yet, the response will instruct the "
-                "user to confirm caption generation by saying 'start summarizing the stream <name>'. The "
+                "user to confirm caption generation by saying 'start captioning <name>'. The "
                 "caller MUST surface that message verbatim and STOP — do NOT auto-call lvs_config_media. "
                 "Returns AgentOutput with messages, side_effects (reports, URLs), and metadata."
             ),
