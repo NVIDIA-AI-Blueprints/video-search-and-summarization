@@ -1,0 +1,102 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs NV-BASE skills-check on the pull-request/<N> mirror branch whenever
+# the cumulative PR diff (PR base ↔ HEAD) touches anything under skills/ or
+# this harness. Mirrors the helm-sync pattern: no top-level `paths:` filter
+# (that evaluates per-push, not cumulative), uses dorny/paths-filter inside
+# the job against PR_BASE...HEAD.
+#
+# NV-BASE is the NVIDIA Tier 1 static-and-schema checker. It is not
+# distributed publicly, so this workflow targets a self-hosted runner
+# labelled `nv-base` where the binary is pre-installed into a venv at
+# /opt/nvbase-venv/. See .github/skills-nv-base/README.md for the
+# runner bootstrap procedure.
+#
+# Required-status-check note: `Skills NV-BASE / skills-check` must be
+# added as a required status check on `develop` (and `main`, once
+# synced) for the exit-1 to actually gate merging — without that, a
+# HIGH finding just shows a red X but doesn't prevent merge.
+
+name: Skills NV-BASE
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+permissions:
+  contents: read
+  pull-requests: write   # for future annotation/comment runs; harmless now
+
+concurrency:
+  group: skills-nv-base-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  skills-check:
+    name: skills-check
+    # Dedicated self-hosted runner — nv-base is pre-installed; the
+    # workflow does not install or refresh it at run time. See
+    # .github/skills-nv-base/README.md.
+    runs-on: [self-hosted, nv-base]
+
+    timeout-minutes: 20
+
+    if: startsWith(github.ref, 'refs/heads/pull-request/')
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract PR number + base
+        id: pr
+        run: |
+          REF="${{ github.ref_name }}"
+          PR="${REF##pull-request/}"
+          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Detect skills/ changes vs PR base
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          base: ${{ steps.pr.outputs.base }}
+          filters: |
+            relevant:
+              - 'skills/**'
+              - '.github/skills-nv-base/**'
+              - '.github/workflows/skills-nv-base.yml'
+
+      - name: Run NV-BASE skills-check
+        if: steps.changes.outputs.relevant == 'true'
+        env:
+          # Path to the pre-installed nv-base binary on the runner.
+          NVBASE_BIN: /opt/nvbase-venv/bin/nv-base
+          # Comma-separated NV-BASE check IDs to exclude from the gate.
+          # `author_missing` is template-omitted on purpose; we let it
+          # through here so the gate doesn't fire on every PR.
+          # Drop entries to tighten; add to widen.
+          NVBASE_ALLOW_HIGH: author_missing
+        run: |
+          python3 .github/skills-nv-base/run_check.py skills/
+
+      - name: Skip note when no skills/ changes
+        if: steps.changes.outputs.relevant != 'true'
+        run: |
+          echo "::notice::No skills/ changes in this PR; NV-BASE check skipped."
