@@ -132,20 +132,6 @@ services:
     extra_hosts:
       host.docker.internal: host-gateway
 
-    # Temporary: patch captions.py max_length at container start.
-    # Remove this wrapper once the RTVI VLM image ships with the desired default (replace image instead of sed here).
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -eu
-        if [ -f /opt/nvidia/rtvi/rtvi/api_models/captions.py ]; then
-          sed -i 's/max_length=5000,/max_length=10000,/g' /opt/nvidia/rtvi/rtvi/api_models/captions.py
-          echo "[patch] applied max_length=10000 to captions.py"
-        else
-          echo "[patch] WARNING: captions.py not found" >&2
-        fi
-        exec /opt/nvidia/rtvi/start_rtvi_vlm.sh
-
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
       interval: 30s
