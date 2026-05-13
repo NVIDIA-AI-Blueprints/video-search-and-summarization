@@ -22,8 +22,10 @@ import json
 from pydantic import ValidationError
 import pytest
 
+from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.search_agent import SearchAgentConfig
 from vss_agents.agents.search_agent import SearchAgentInput
+from vss_agents.agents.search_agent import _effective_search_runtime_options
 from vss_agents.agents.search_agent import _helper_markdown_bullet_list
 from vss_agents.agents.search_agent import _to_chat_response
 from vss_agents.agents.search_agent import _to_chat_response_chunk
@@ -105,6 +107,7 @@ class TestSearchAgentInput:
         assert input_data.top_k is None
         assert input_data.start_time is None
         assert input_data.end_time is None
+        assert input_data.request_options is None
 
     def test_all_fields(self):
         """Test input with all fields."""
@@ -186,6 +189,34 @@ class TestSearchAgentInput:
         )
         assert input_data.start_time is None
         assert input_data.end_time == "2025-01-01T12:00:00Z"
+
+    def test_request_options_field(self):
+        """Test request options accepted by the subagent input schema."""
+        input_data = SearchAgentInput(
+            query="test query",
+            request_options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+        )
+
+        assert input_data.request_options is not None
+        assert input_data.request_options.search_source_type == "rtsp"
+        assert input_data.request_options.use_critic is False
+
+    def test_effective_search_runtime_options_default_to_input_fields(self):
+        """Test runtime search options use explicit input fields when no request options are present."""
+        input_data = SearchAgentInput(query="test query", source_type="video_file", use_critic=True)
+
+        assert _effective_search_runtime_options(input_data) == ("video_file", True)
+
+    def test_effective_search_runtime_options_prefer_request_options(self):
+        """Test runtime request options override matching LLM/tool-call fields."""
+        input_data = SearchAgentInput(
+            query="test query",
+            source_type="video_file",
+            use_critic=True,
+            request_options=AgentRequestOptions(search_source_type="rtsp", use_critic=False),
+        )
+
+        assert _effective_search_runtime_options(input_data) == ("rtsp", False)
 
 
 class TestDecomposedQueryObjectIds:

@@ -21,12 +21,7 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      enable_video_delete: true
-    endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
+      vst_external_url: ${VST_EXTERNAL_URL}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -49,11 +44,6 @@ object_stores:
 
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
-
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm # e.g. nim_vlm, openai_vlm
