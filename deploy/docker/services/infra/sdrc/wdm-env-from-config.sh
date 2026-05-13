@@ -2,7 +2,7 @@
 # Reads compose/config.yml (mounted at /config.yml), writes /env/wdm.env for sdr-envoy-proxy
 # and wait-for-redis (WDM_WL_REDIS_* from first enable:true workload), and
 # /env/docker-workload-containers.txt for wait-for-docker-workloads (all docker-type workloads).
-# Also writes /env/config.yml: a copy of /config.yml with ${HOST_IP}/${NUM_STREAMS} expanded,
+# Also writes /env/config.yml: a copy of /config.yml with ${HOST_IP} expanded,
 # for sdr-controller to mount (sdr-mw-l does not expand env vars when loading YAML).
 set -e
 
@@ -17,8 +17,7 @@ fi
 
 # Expand only the variables we want (avoid clobbering literal $... in the YAML).
 : "${HOST_IP:?HOST_IP must be set}"
-: "${NUM_STREAMS:?NUM_STREAMS must be set}"
-EXPAND_VARS='${HOST_IP} ${NUM_STREAMS}'
+EXPAND_VARS='${HOST_IP}'
 envsubst "$EXPAND_VARS" < /config.yml > "$EXPANDED_CONFIG"
 
 ENABLED_LEN=$(yq '[. | to_entries[] | select(.value != null and (.value | tag) == "!!map" and .value.enable == true)] | length' /config.yml)

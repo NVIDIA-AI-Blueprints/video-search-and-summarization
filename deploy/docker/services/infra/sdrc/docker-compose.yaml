@@ -51,6 +51,7 @@ services:
     command:
       - |
         set -e
+        echo "render-config: HOST_IP=$${HOST_IP} NUM_STREAMS=$${NUM_STREAMS} NUM_SENSORS=$${NUM_SENSORS}"
         rendered=0
         for tmpl in /tmpl/*.tmpl; do
           [ -e "$$tmpl" ] || { echo "render-config: no *.tmpl files found in /tmpl"; exit 1; }
@@ -61,7 +62,8 @@ services:
         echo "render-config: rendered $$rendered template(s)"
     environment:
       HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
-      NUM_STREAMS: ${NUM_STREAMS:-}
+      NUM_STREAMS: ${NUM_STREAMS:-1}
+      NUM_SENSORS: ${NUM_SENSORS:-1}
     volumes:
       - ./render-config.sh:/render-config.sh:ro
       - ${SDR_CONTROLLER_CONFIG_PATH:?SDR_CONTROLLER_CONFIG_PATH must be set}/configs:/tmpl
@@ -77,7 +79,6 @@ services:
     command: ["/run.sh"]
     environment:
       HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
-      NUM_STREAMS: ${NUM_STREAMS:?NUM_STREAMS must be set in .env or shell before running compose}
     volumes:
       - ${SDR_CONTROLLER_CONFIG_PATH:?SDR_CONTROLLER_CONFIG_PATH must be set}/configs/config.yml:/config.yml:ro
       - ./wdm-env-from-config.sh:/run.sh:ro
@@ -127,7 +128,7 @@ services:
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
   sdr-controller:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_developer_alerts_2d_cv"]
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.0.0-rc.12}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.0.0-rc.13}
     container_name: sdr-controller
     network_mode: host
     restart: unless-stopped
@@ -138,8 +139,8 @@ services:
       OTEL_SDK_DISABLED: "true"
       WDM_CONTROLLER_PORT: ${HOST_IP}
       WDM_CONTROLLER_HOST: ${HOST_IP}
-      NUM_STREAMS: "${NUM_STREAMS}"
       WDM_SDRC_DIRECT_LISTENER_PORT: 8011
+      ENVOY_ADMIN_PORT: 9902
     volumes:
       - ./log:/logs
       - /var/run/docker.sock:/var/run/docker.sock
