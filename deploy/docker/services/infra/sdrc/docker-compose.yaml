@@ -50,6 +50,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        echo "render-config: NUM_STREAMS is ${NUM_STREAMS}"
+        echo "render-config: NUM_SENSORS is ${NUM_SENSORS}"
         set -e
         echo "render-config: HOST_IP=$${HOST_IP} NUM_STREAMS=$${NUM_STREAMS} NUM_SENSORS=$${NUM_SENSORS}"
         rendered=0
@@ -79,6 +81,8 @@ services:
     command: ["/run.sh"]
     environment:
       HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:-}
+      NUM_SENSORS: ${NUM_SENSORS:-}
     volumes:
       - ${SDR_CONTROLLER_CONFIG_PATH:?SDR_CONTROLLER_CONFIG_PATH must be set}/configs/config.yml:/config.yml:ro
       - ./wdm-env-from-config.sh:/run.sh:ro

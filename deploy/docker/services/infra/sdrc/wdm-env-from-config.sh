@@ -17,7 +17,14 @@ fi
 
 # Expand only the variables we want (avoid clobbering literal $... in the YAML).
 : "${HOST_IP:?HOST_IP must be set}"
-EXPAND_VARS='${HOST_IP}'
+if [ -z "${NUM_STREAMS:-}" ] && [ -z "${NUM_SENSORS:-}" ]; then
+  echo "NUM_STREAMS or NUM_SENSORS must be set" >&2
+  exit 1
+fi
+NUM_STREAMS="${NUM_STREAMS:-$NUM_SENSORS}"
+NUM_SENSORS="${NUM_SENSORS:-$NUM_STREAMS}"
+export NUM_STREAMS NUM_SENSORS
+EXPAND_VARS='${HOST_IP} ${NUM_STREAMS} ${NUM_SENSORS}'
 envsubst "$EXPAND_VARS" < /config.yml > "$EXPANDED_CONFIG"
 
 ENABLED_LEN=$(yq '[. | to_entries[] | select(.value != null and (.value | tag) == "!!map" and .value.enable == true)] | length' /config.yml)
