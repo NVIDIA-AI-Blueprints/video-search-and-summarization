@@ -220,8 +220,8 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     See: https://www.apache.org/licenses/LICENSE-2.0
 
 
-18. postgres:17.6-alpine
-    Image: postgres:17.6-alpine
+18. postgres:17.9-alpine
+    Image: postgres:17.9-alpine
     License: PostgreSQL License (BSD-style).
     Registry: https://hub.docker.com/_/postgres
     Source: https://github.com/docker-library/postgres

@@ -121,8 +121,6 @@ vios:
     # Empty: uses global.externalHost, then 127.0.0.1
     externallyAccessibleIp: ""
 
-  vss-vios-mcp:
-    enabled: true
 
 # Optional: HAProxy Kubernetes Ingress controller (upstream chart). Set haproxyingress.enabled true to deploy the controller.
 haproxyingress:
@@ -233,8 +231,6 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VST_INTERNAL_URL
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalUrl $vstHttp }}'
-      - name: VST_MCP_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-vios-mcp:8001" .Release.Name) "http://vss-vios-mcp:8001" $pfx }}{{ coalesce .Values.vstMcpUrl $def }}'
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
