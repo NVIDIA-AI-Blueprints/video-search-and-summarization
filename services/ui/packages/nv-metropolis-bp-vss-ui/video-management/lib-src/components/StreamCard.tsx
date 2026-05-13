@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
 import type { StreamInfo, ChatSidebarQueryContext } from '../types';
-import { getFileExtension, isRtspStream, fetchPictureWithQueue } from '../utils';
+import { getFileExtension, isRtspStream, fetchPictureWithQueue, getStreamType } from '../utils';
 import { createApiEndpoints } from '../api';
 import { copyToClipboard } from '@nemo-agent-toolkit/ui';
 import { IconCheck } from '@tabler/icons-react';
@@ -119,14 +119,18 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   };
 
   const handleCopyContext = useCallback(async () => {
-    const type = isRtspStream(stream) ? 'rtsp' : 'video';
-    const data = { sensorName: stream.name, streamId: stream.streamId };
+    const data = {
+      sensorName: stream.name,
+      streamId: stream.streamId,
+      mediaType: getStreamType(stream),
+    };
     const text = JSON.stringify(data, null, 2);
 
     onAddChatQueryContext?.({
       id: `video-mgmt-stream:${stream.streamId}`,
       label: stream.name,
-      type,
+      // contextType: UI-only (chip tooltip / future grouping); not sent to the backend — see Chat onSend.
+      contextType: 'media/video',
       data,
     });
 
