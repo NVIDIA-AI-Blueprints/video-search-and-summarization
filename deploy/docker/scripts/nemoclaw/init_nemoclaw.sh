@@ -221,6 +221,22 @@ configure_openshell_provider() {
   openshell inference get || true
 }
 
+# `nemoclaw onboard` creates the dashboard port-forward (default 18789) that exposes the in-pod
+# openclaw-gateway (and its /hooks endpoint) to the host. When the sandbox already exists we skip
+# onboard, and the forward can also die independently between runs — so refresh it unconditionally.
+ensure_dashboard_forward() {
+  local port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+  if ! have openshell; then
+    log "OpenShell not available yet; skipping dashboard port-forward refresh"
+    return
+  fi
+  log "Refreshing dashboard port-forward on ${port} for sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  openshell forward stop "$port" >/dev/null 2>&1 || true
+  if ! openshell forward start --background "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >/dev/null 2>&1; then
+    log "WARN: could not (re)start dashboard forward on ${port}; the OpenClaw UI and /hooks endpoint will be unreachable at http://127.0.0.1:${port}"
+  fi
+}
+
 update_openclaw_allowed_origin() {
   local script="${OPENCLAW_CONFIG_UPDATE_SCRIPT}"
 
@@ -401,6 +417,7 @@ main() {
 
   refresh_path
   configure_openshell_provider
+  ensure_dashboard_forward
   apply_vss_policy
   update_openclaw_allowed_origin
   install_vss_openclaw_plugin
