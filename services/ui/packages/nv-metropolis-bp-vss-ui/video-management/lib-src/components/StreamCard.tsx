@@ -119,13 +119,23 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   };
 
   const handleCopyContext = useCallback(async () => {
-    const data = { sensorName: stream.name, streamId: stream.streamId };
+    // Match the source_type vocabulary used by search_agent / report_agent:
+    // 'rtsp' for live streams, 'video_file' for uploaded MP4s. The agent's
+    // top_agent prompt routes off this `type` field, so emitting the wrong
+    // value sends report_agent into the wrong code path (NVBug 6171391).
+    const isRtsp = isRtspStream(stream);
+    const type = isRtsp ? 'rtsp' : 'video_file';
+    // streamId is VST-internal; only meaningful for live streams. Drop it for
+    // uploaded files where `sensorName` (== filename) is the report sensor_id.
+    const data: Record<string, string> = isRtsp
+      ? { sensorName: stream.name, streamId: stream.streamId }
+      : { sensorName: stream.name };
     const text = JSON.stringify(data, null, 2);
 
     onAddChatQueryContext?.({
       id: `video-mgmt-stream:${stream.streamId}`,
       label: stream.name,
-      type: 'video-stream',
+      type,
       data,
     });
 
@@ -140,7 +150,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
       setCopyState('idle');
       copyTimeoutRef.current = null;
     }, 2000);
-  }, [stream.name, stream.streamId, onAddChatQueryContext]);
+  }, [stream, onAddChatQueryContext]);
 
   return (
     <div

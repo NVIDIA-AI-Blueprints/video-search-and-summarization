@@ -54,8 +54,9 @@ class VSTVideoListOutput(BaseModel):
         ...,
         description=(
             "List of available media entries. Each entry has 'name' (str), "
-            "'media_type' ('stream' for live RTSP, 'video' for uploaded files), "
-            "and 'duration' (float seconds; 0 for streams with no captioned timeline yet)."
+            "'source_type' ('rtsp' for live RTSP, 'video_file' for uploaded files), "
+            "and 'duration' (float seconds; 0 for streams with no captioned timeline yet). "
+            "The source_type vocabulary matches search_agent and report_agent for end-to-end consistency."
         ),
     )
 
@@ -65,15 +66,15 @@ async def _vst_video_list(config: VSTVideoListConfig, _builder: Builder) -> Asyn
     async def _vst_video_list(vst_video_list_input: VSTVideoListInput) -> VSTVideoListOutput:  # noqa: ARG001
         """Get the list of available media (uploaded videos and live streams) from VST.
 
-        Each entry includes a `media_type` field: 'stream' for live RTSP sources,
-        'video' for uploaded files.
+        Each entry includes a `source_type` field: 'rtsp' for live RTSP sources,
+        'video_file' for uploaded files.
         """
         streams_info = await get_streams_info(config.vst_internal_url)
         output: list[dict[str, str | float]] = []
         for stream_id, info in streams_info.items():
             name = info.get("name", "")
             url = info.get("url", "")
-            media_type = "stream" if isinstance(url, str) and url.startswith("rtsp://") else "video"
+            source_type = "rtsp" if isinstance(url, str) and url.startswith("rtsp://") else "video_file"
             try:
                 start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)
                 duration = (
@@ -83,7 +84,7 @@ async def _vst_video_list(config: VSTVideoListConfig, _builder: Builder) -> Asyn
             except VSTError:
                 # Live streams without a captioned timeline yet have no duration to report.
                 duration = 0.0
-            output.append({"name": name, "media_type": media_type, "duration": duration})
+            output.append({"name": name, "source_type": source_type, "duration": duration})
         return VSTVideoListOutput(video_list=output)
 
     yield FunctionInfo.create(
