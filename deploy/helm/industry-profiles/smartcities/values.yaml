@@ -390,12 +390,12 @@ analytics:
     downloadResourcesFromNgcWaitSeconds: 300
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
-    ngcOrg: nv-metropolis-dev
+    ngcOrg: nvstaging
     ngcResourcesToDownload:
-      - resource: nv-metropolis-dev/met-smartcities/vss-smc-app-calibration-file:v3.2-montague-03122026
+      - resource: nvstaging/vss-smartcities/vss-smc-app-calibration-file:v3.2-montague-03122026
         sourcePath: vss-smc-app-calibration-file_vv3.2-montague-03122026/calibration.json
         destPath: calibration.json
-      - resource: nv-metropolis-dev/met-smartcities/vss-smc-app-road-network-file:v3.2-montague-03122026
+      - resource: nvstaging/vss-smartcities/vss-smc-app-road-network-file:v3.2-montague-03122026
         sourcePath: vss-smc-app-road-network-file_vv3.2-montague-03122026/road-network.json
         destPath: road-network.json
     resourcesPvc:
