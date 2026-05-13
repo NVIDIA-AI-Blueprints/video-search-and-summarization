@@ -1,31 +1,29 @@
 {
-    "server": {
-        "port": 8081,
-        "configs": [
+    "server":{
+        "port":8081,
+        "configs":[
             {
-                "name": "postBodySizeLimit",
-                "value": "50mb"
+                "name":"postBodySizeLimit",
+                "value":"50mb"
             },
             {
-                "name": "amrRetentionInSec",
-                "value": "3"
+                "name":"amrRetentionInSec",
+                "value":"3"
             },
             {
-                "name": "inSimulationMode",
-                "value": "false"
+                "name":"inSimulationMode",
+                "value":"false"
             }
         ]
     },
-    "elasticsearch": {
-        "node": "http://localhost:9200",
+    "elasticsearch":{
+        "node":"http://localhost:9200",
         "indexPrefix": "mdx-",
         "rawIndex": "mdx-raw-*",
         "retries": 15
     },
-    "kafka": {
-        "brokers": [
-            "localhost:9092"
-        ],
+    "kafka":{
+        "brokers": ["localhost:9092"],
         "retries": 15
     }
 }
