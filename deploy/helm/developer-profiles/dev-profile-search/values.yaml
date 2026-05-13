@@ -422,7 +422,6 @@ agent:
     evalLlmJudgeName: nvidia/nvidia-nemotron-nano-9b-v2
     evalLlmJudgeBaseUrl: ''
     phoenixEndpoint: ''
-    vstMcpUrl: ''
     vstExternalUrl: ''
     # VST_BASE_URL env: leave empty in Search unless you need an explicit VST public base. Otherwise set this (or vstExternalUrl) only.
     vstBaseUrl: ''
