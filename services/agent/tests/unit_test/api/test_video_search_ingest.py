@@ -152,6 +152,55 @@ class TestStreamVideoToVstEndpoint:
             assert response.chunks_processed == 5
             assert "successfully uploaded" in response.message
 
+            # Default disable_audio=True -> VST storage call should request audio-stripped transcode.
+            storage_call_kwargs = mock_client.get.call_args.kwargs
+            assert '"disableAudio": true' in storage_call_kwargs["params"]["configuration"]
+
+    @pytest.mark.asyncio
+    async def test_disable_audio_false_passes_to_storage(self):
+        """When the router is built with disable_audio=False, the VST storage
+        API request must carry disableAudio=false so the transcoded clip keeps
+        the audio track."""
+        router = create_streaming_video_ingest_router(
+            vst_internal_url="http://vst:8080",
+            rtvi_embed_base_url="http://rtvi:8080",
+            disable_audio=False,
+        )
+
+        mock_request = MagicMock()
+        mock_request.headers = {"content-type": "video/mp4", "content-length": "1024"}
+        mock_request.stream = AsyncMock(return_value=iter([b"test data"]))
+
+        with (
+            patch("vss_agents.api.video_search_ingest.httpx.AsyncClient") as mock_client_class,
+            patch("vss_agents.api.video_search_ingest.get_timeline", new_callable=AsyncMock) as mock_get_timeline,
+        ):
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_get_timeline.return_value = ("1000", "2000")
+
+            mock_vst_response = Mock()
+            mock_vst_response.status_code = 200
+            mock_vst_response.json = Mock(return_value={"sensorId": "sensor-123"})
+
+            mock_storage_response = Mock()
+            mock_storage_response.status_code = 200
+            mock_storage_response.json = Mock(return_value={"videoUrl": "http://vst/video.mp4"})
+
+            mock_embed_response = Mock()
+            mock_embed_response.status_code = 200
+            mock_embed_response.json = Mock(return_value={"usage": {"total_chunks_processed": 5}})
+
+            mock_client.put.return_value = mock_vst_response
+            mock_client.get.return_value = mock_storage_response
+            mock_client.post.return_value = mock_embed_response
+
+            endpoint = router.routes[0].endpoint
+            await endpoint(filename="test.mp4", request=mock_request)
+
+            storage_call_kwargs = mock_client.get.call_args.kwargs
+            assert '"disableAudio": false' in storage_call_kwargs["params"]["configuration"]
+
     @pytest.mark.asyncio
     async def test_missing_content_type(self):
         """Test error when Content-Type header is missing."""

@@ -175,7 +175,7 @@ services:
 
       # Feature flags
       - DISABLE_CA_RAG=false
-      - ENABLE_AUDIO=false
+      - ENABLE_AUDIO=${ENABLE_AUDIO:-false}
       - ENABLE_DENSE_CAPTION=false
       - LVS_ENABLE_MCP=true
       - VSS_LOG_LEVEL=INFO
