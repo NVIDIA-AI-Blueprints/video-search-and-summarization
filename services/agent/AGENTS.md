@@ -115,3 +115,5 @@ async def get(id, s, e):
 - **Always**: add type hints, add the license header, run `ruff check` + `ruff format --check` + `mypy` after changes, write or update unit tests for new code.
 - **Ask first**: adding new dependencies to `pyproject.toml`, modifying agent orchestration in `top_agent.py`, changing YAML config schema.
 - **Never**: commit secrets or API keys, modify files under `3rdparty/`, remove or skip failing tests, hardcode IPs/URLs (use `${ENV_VAR}` in configs).
+
+<!-- Rebuild trigger: vss-agent source subtree intentionally changed. -->
