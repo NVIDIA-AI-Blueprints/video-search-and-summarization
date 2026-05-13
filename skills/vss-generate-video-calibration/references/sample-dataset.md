@@ -11,7 +11,7 @@ The sample includes GT, so the run produces evaluation metrics (L2 distance, rep
 - **Sample zip present at `assets/sdg_08_2_sample_data_010926.zip`** — **the VSS repo does not ship this file.** See [Obtain the sample zip](#obtain-the-sample-zip) below.
 - **Python 3 with `requests` available** — or use the [Swagger UI walkthrough](#alternative-swagger-ui-walkthrough) below.
   - The inline run block self-heals: if `requests` is missing it creates a throwaway venv under `${TMPDIR:-/tmp}/amc-sample-test-venv` (nothing written to the repo).
-  - If `python3 -m venv` itself fails with `ensurepip not available`: `sudo apt install -y python3-venv python3-pip`.
+  - If `python3 -m venv` itself fails with `ensurepip not available`, the inline block falls back to [`uv`](https://astral.sh/uv) (sudo-free, installed via `curl -LsSf https://astral.sh/uv/install.sh | sh`). If neither path is available: `sudo apt install -y python3-venv python3-pip` as a last resort.
 
 The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-modes) section.
 
@@ -122,10 +122,24 @@ export BASE_URL="http://localhost:${MS_PORT}/v1"
 PY=python3
 "$PY" -c 'import requests' 2>/dev/null || {
   VENV="${TMPDIR:-/tmp}/amc-sample-test-venv"
-  python3 -m venv "$VENV" 2>/dev/null \
-    || { sudo apt install -y python3-venv python3-pip && python3 -m venv "$VENV"; }
-  "$VENV/bin/pip" install --quiet requests
-  PY="$VENV/bin/python3"
+  # Try the stdlib venv first.
+  if python3 -m venv "$VENV" 2>/dev/null; then
+    "$VENV/bin/pip" install --quiet requests
+    PY="$VENV/bin/python3"
+  # Fall back to uv (sudo-free, user-local install). Same fallback as the /deploy skill.
+  elif command -v uv >/dev/null 2>&1 \
+      || curl -LsSf https://astral.sh/uv/install.sh | sh; then
+    export PATH="$HOME/.local/bin:$PATH"
+    uv venv "$VENV"
+    uv pip install --python "$VENV/bin/python" --quiet requests
+    PY="$VENV/bin/python3"
+  # Last resort: stdlib venv via apt (requires sudo).
+  else
+    echo "Need python3-venv or uv. Try one of:" >&2
+    echo "  curl -LsSf https://astral.sh/uv/install.sh | sh   (no sudo)" >&2
+    echo "  sudo apt install -y python3-venv python3-pip" >&2
+    exit 1
+  fi
 }
 
 "$PY" - <<'PY'
@@ -334,7 +348,7 @@ docker logs -f vss-auto-calibration
 
 | Issue | Fix |
 |---|---|
-| `requests` not installed | Inside a venv: `python3 -m venv venv && ./venv/bin/pip install requests`. If `python3 -m venv` fails: `sudo apt install -y python3-venv python3-pip` first. |
+| `requests` not installed | Inside a venv: `python3 -m venv venv && ./venv/bin/pip install requests`. If `python3 -m venv` fails (no `python3-venv` package, no sudo): use `uv` instead — `curl -LsSf https://astral.sh/uv/install.sh \| sh` then `uv venv venv && uv pip install --python venv/bin/python requests`. The inline run block already does this fallback chain automatically. |
 | `[2] Uploaded N videos` where N >> 4 | `SAMPLE_DIR` resolved to the repo root (or another over-broad path) and `rglob("cam_*.mp4")` swept stale videos from `.cache/`, `projects/`, etc. Stop the run (`POST /v1/stop_calibration/{id}`), delete the project (`DELETE /v1/delete_project/{id}`), set `SAMPLE_DIR` explicitly to the extracted sample dir, re-run. The script anchors on `videos/` and asserts `len(videos) <= 16` to fail loud. |
 | `verify_project` returns state `!= READY` | Confirm all 4 videos + alignment + layout + GT uploaded; inspect `GET /v1/get_project_info/{id}` response. |
 | Sample zip not present at `assets/sdg_08_2_sample_data_010926.zip` | The VSS repo does not bundle it. Pull from GitHub LFS or a sibling AMC checkout — see [Obtain the sample zip](#obtain-the-sample-zip). |

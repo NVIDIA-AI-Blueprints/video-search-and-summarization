@@ -36,8 +36,8 @@ Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../deplo
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
 | `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` mode of `vss-generate-video-calibration`). Auto-set to `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
-| `VSS_APPS_DIR` | VSS application data root. MS bind-mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` for project state | inherited from VSS deploy env |
-| `VSS_DATA_DIR` | VSS data root. MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model | inherited from VSS deploy env |
+| `VSS_APPS_DIR` | **Absolute path to your repo's `deploy/docker/` directory** (compose-tree root) — NOT an arbitrary data dir. Compose uses it both for `env_file:` lookups (e.g. `${VSS_APPS_DIR}/services/vios/vst.env`) and for bind-mounts of in-repo configs + project state (AMC mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` here). The `.env` ships with a placeholder `/path/to/deploy/docker` — **you MUST replace it with the absolute path to your checkout's `deploy/docker`**, otherwise the dry-run fails with `couldn't find env file: …/services/vios/vst.env`. | (no default — must be set) |
+| `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. See [`deploy/references/data-directory.md`](../deploy/references/data-directory.md) for the full per-container layout + permission setup. | (no default — must be set) |
 
 ## Deployment flow
 
