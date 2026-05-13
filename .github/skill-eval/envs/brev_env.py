@@ -300,6 +300,14 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # Pin the eval's deploy step to the PR's actual head SHA on
+            # the actual source repo — the pre-deploy script reads these
+            # and resets $REPO to that SHA. Without them, the adapter's
+            # baked-in branch wins and warm-pool boxes drift from PR
+            # reality (NVBug 6154461 / PR #377 finding: spec asserted
+            # the renamed release/3.2.0 container names while the eval
+            # deployed feat/skills's old names).
+            "PR_HEAD_SHA", "PR_REPO",
         ):
             val = os.environ.get(key)
             if val:
