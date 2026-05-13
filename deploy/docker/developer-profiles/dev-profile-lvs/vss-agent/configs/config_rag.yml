@@ -22,7 +22,6 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       vst_external_url: ${VST_EXTERNAL_URL}
-      enable_video_delete: true
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
