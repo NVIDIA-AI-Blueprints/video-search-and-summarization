@@ -121,15 +121,3 @@ app.kubernetes.io/name: {{ include "agents.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: {{ .component }}
 {{- end }}
-
-{{/*
-Get VST MCP URL (internal service-to-service communication).
-Auto-wires to <release>-vss-vios-mcp:8001 when not explicitly set (flat .Values.vstMcpUrl).
-*/}}
-{{- define "agents.vstMcpUrl" -}}
-{{- if .Values.vstMcpUrl }}
-{{- .Values.vstMcpUrl }}
-{{- else }}
-{{- printf "http://%s:8001" (include "agents.k8sSvcHost" (dict "root" . "short" "vss-vios-mcp")) }}
-{{- end }}
-{{- end }}

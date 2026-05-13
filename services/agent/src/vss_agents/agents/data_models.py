@@ -49,6 +49,17 @@ class AgentMessageChunk(BaseModel):
     content: str = Field("", description="The content of the message chunk")
 
 
+class AgentRequestOptions(BaseModel):
+    """Per-request options passed from the UI/client through the agent pipeline."""
+
+    llm_reasoning: bool = Field(default=False, description="Enable LLM reasoning mode")
+    vlm_reasoning: bool | None = Field(default=None, description="Enable VLM reasoning mode (None = use tool default)")
+    search_source_type: Literal["video_file", "rtsp"] = Field(
+        default="video_file", description="Video source type for search: 'video_file' or 'rtsp'"
+    )
+    use_critic: bool = Field(default=True, description="Whether to verify search results with VLM critic agent")
+
+
 class AgentOutput(BaseModel):
     """
     Standardized output model for agents (report_agent, multi_report_agent, etc.).

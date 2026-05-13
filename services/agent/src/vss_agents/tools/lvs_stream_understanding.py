@@ -171,7 +171,7 @@ async def lvs_stream_understanding(config: LVSStreamUnderstandingConfig, _: Buil
         generating captions. The agent MUST surface that message verbatim to the user
         and STOP — do NOT auto-call `lvs_config_media`. Caption generation is only
         triggered when the user explicitly replies with
-        "start summarizing the stream <stream_name>".
+        "start captioning <stream_name>".
         """
         configured = configured_media("stream", lvs_input.stream_name)
         if configured is None:
@@ -182,7 +182,7 @@ async def lvs_stream_understanding(config: LVSStreamUnderstandingConfig, _: Buil
                 message=(
                     f"There are no captions stored for stream '{lvs_input.stream_name}'. "
                     "Do you want me to start generating captions for the stream? "
-                    f'If yes, please reply with: "start summarizing the stream {lvs_input.stream_name}".'
+                    f'If yes, please reply with: "start captioning {lvs_input.stream_name}".'
                 ),
             )
 

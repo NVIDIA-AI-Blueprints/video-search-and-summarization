@@ -45,7 +45,6 @@ data:
   SENSOR_MS_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-sensor") }}:7000"
   SDR_ENVOY_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-envoy-proxy") }}:10000"
   VST_INGRESS_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress") }}:8000"
-  VST_MCP_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-mcp") }}:8001"
   STREAMPROCESSING_HEADLESS: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-streamprocessing-headless") }}"
 
   # ── Search Pipeline ───────────────────────────────────────────────────────

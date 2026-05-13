@@ -48,9 +48,15 @@ With default **`values.yaml`** and typical overrides (both NIMs enabled, **`vss-
   - Install **after** the GPU Operator. See [NIM Operator installation](https://docs.nvidia.com/nim-operator/latest/install.html).
 
 - **Volume provisioner (e.g. local-path)**
-  - A **StorageClass** must exist on the cluster.
-  - **Bare-metal clusters:** Install **local-path** (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)). 
-  - **Cloud clusters:** use your provider’s block storage class instead of local-path.
+  - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class’s **`metadata.name`** (see [Prepare the values file](#1-prepare-the-values-file)).
+  - **Bare-metal clusters:** Install **local-path** (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)).
+  - **Default StorageClass:** If your class (for example **`local-path`**) is not already the default, set it as the default StorageClass:
+
+    ```bash
+    kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+    ```
+
+    Replace **`local-path`** with your StorageClass **`metadata.name`** if it differs.
 
 ### Chart / tooling
 
@@ -59,8 +65,7 @@ With default **`values.yaml`** and typical overrides (both NIMs enabled, **`vss-
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
-- **StorageClass** : Need a storageclass present on cluster for PVC creation
-- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles all **`vss-vios-*`** microservice charts as subcharts. Before **`helm install`** / **`helm package`**, run **`helm dependency build`** in this profile directory (uses **`Chart.lock`** to populate **`charts/*.tgz`**, which are gitignored). Use **`helm dependency update`** if **`Chart.lock`** is missing or you changed **`Chart.yaml`** dependencies. To validate charts locally, from **`deploy/helm/developer-profiles`** run **`helm dependency build`** and **`helm lint`** on each **`dev-profile-*`** directory you use; remove generated **`charts/*.tgz`** afterward if you do not want vendored tarballs in your working tree.
+- **StorageClass**: a StorageClass must exist on the cluster for PVC creation.
 
 
 ## Quick start
@@ -88,7 +93,7 @@ Create `values-base.yaml` and set the following (all are required for a typical 
 | File | Role |
 |------|------|
 | **`values-base.yaml`** | **Your** small override file: fill required keys (NGC, StorageClass, external host, NIM slugs and **`nims`** hardware—or **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** and **`nims.enabled: false`** for remote models) and anything else you change. Pass it with **`-f values-base.yaml`**. |
-| **`values.yaml`** | **Chart defaults** shipped with the profile (full value tree). You normally **do not** edit it; add only the keys you need to your override file ( values-base.yaml) and Helm merges your file on top of these defaults. |
+| **`values.yaml`** | **Chart defaults** shipped with the profile (full value tree). You normally **do not** edit it; add only the keys you need to your override file (**`values-base.yaml`**) and Helm merges your file on top of these defaults. |
 
 Use the table below when you want to change behavior beyond the minimal **`values-base.yaml`** fields. Defaults described here match the chart’s **`values.yaml`** in this repository.
 
@@ -137,7 +142,6 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vssIngress.vstIngressPort`** | `30888` | Backend **`Service`** port for **vss-vios-ingress** (**`/vst`**). |
 | **`vssIngress.phoenixHost`** | `""` | Second rule host for Phoenix. If empty, defaults to **`phoenix.<global.externalHost or vssIngress.host>`**. |
 | **`vssIngress.phoenixPort`** | `6006` | Backend **`Service`** port for Phoenix when the Phoenix subchart is enabled. |
-| **`vios.vss-vios-mcp.enabled`** | `true` | Set **`false`** to disable VST MCP dev. |
 | **`agent.enabled`** | `true` | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
 | **`agent.vss-agent.enabled`** | `true` | Set **`false`** to disable the **vss-agent** deployment only. |
 | **`agent.vss-agent.mountConfigEdge`** / **`mountEvalOutput`** | `true` / `true` | Parent **ConfigMap** includes **`config_edge.yml`** when the file exists; **`/vss-agent/eval-output`** emptyDir when **`mountEvalOutput`** is **`true`**. Agent YAML lives at **`configs/vss-agent/config.yml`** (flat path, no profile subfolders). |
@@ -188,10 +192,10 @@ helm upgrade --install <RELEASE NAME> ./dev-profile-base \
   -f dev-profile-base/values-base.yaml \
   -n <NAMESPACE> --create-namespace
 
-# For Example: 
+# For example:
 helm upgrade --install vss-base ./dev-profile-base \
   -f dev-profile-base/values-base.yaml \
-  -n vss-base --create-namespace \
+  -n vss-base --create-namespace
 
 # OR
 # Set the minimum required values inline to install the chart
@@ -314,4 +318,3 @@ Note: PVCs and any cluster-scoped resources (nimcache) are not removed by `helm 
 kubectl delete nimcache --all -n <NAMESPACE>
 kubectl delete pvc --all -n <NAMESPACE>
 ```
-
