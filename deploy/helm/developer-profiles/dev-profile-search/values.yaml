@@ -246,7 +246,7 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-      tag: "3.2.0-26.04.2"
+      tag: "3.2.0-26.05.2"
       pullPolicy: IfNotPresent
     port: 8000
     service:
