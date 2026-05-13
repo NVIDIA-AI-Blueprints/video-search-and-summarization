@@ -895,6 +895,14 @@ export const Chat = () => {
 
   const handleSend = useCallback(
     async (message: Message, deleteCount = 0, retry = false) => {
+      if (
+        message.hidden &&
+        selectedConversation &&
+        selectedConversationRef.current?.id !== selectedConversation.id
+      ) {
+        return;
+      }
+
       // DON'T mutate the original message - create a new one with a new ID
       const messageWithNewId = {
         ...message,
