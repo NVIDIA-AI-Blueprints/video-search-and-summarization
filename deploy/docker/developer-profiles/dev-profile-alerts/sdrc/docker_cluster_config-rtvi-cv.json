@@ -1,5 +1,5 @@
 {
-  "mdx-ds-01": {
+  "vss-rtvi-cv": {
     "provisioning_address": "localhost:9010",
     "process_type": "docker"
   }
