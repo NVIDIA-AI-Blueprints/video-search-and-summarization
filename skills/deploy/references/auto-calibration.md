@@ -1,8 +1,8 @@
-# VSS auto-calibration Profile — Reference
+# vss-auto-calibration Service — Reference
 
-Profile: `auto-calibration` (compose flag `auto-calib`) | Service: `vss-auto-calibration` | Industry profile: `warehouse-operations`
+Service: `vss-auto-calibration` (compose flag `auto-calib`) | Part of: `warehouse-operations` industry profile | Compose tree: [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/)
 
-Launch the AutoMagicCalib (AMC) microservice and web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC is enabled by the `auto-calib` compose profile (also auto-enabled by any `bp_wh_*` warehouse blueprint).
+Launch the AutoMagicCalib (AMC) microservice and web UI from pre-built release images. AMC is a service inside the `warehouse-operations` industry profile — auto-enabled by any `bp_wh_*` blueprint, or deployable standalone via the `auto-calib` compose flag.
 
 ## What's different from `base`
 

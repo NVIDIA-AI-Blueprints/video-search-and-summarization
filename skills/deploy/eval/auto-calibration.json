@@ -4,22 +4,15 @@
   ],
   "resources": {
     "platforms": {
-      "L40S": {
-        "modes": [
-          "release-images"
-        ]
-      },
-      "A100": {
-        "modes": [
-          "release-images"
-        ]
+      "RTXPRO6000BW": {
+        "gpu_count": 1
       }
     }
   },
-  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. The `auto-calibration` profile (compose flag `auto-calib`, also auto-enabled by `bp_wh_*` blueprints) brings up `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` (UI on `${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`) from `nvcr.io/nvstaging/vss-core/`. Env file is `deploy/docker/industry-profiles/warehouse-operations/.env`. Project state mounts from `$VSS_APPS_DIR/services/auto-calibration/projects`; optional VGGT model mounts from `$VSS_DATA_DIR/auto-calib/vggt`. The `/deploy` skill drives the full deploy workflow — this spec verifies the resulting state by probing the live stack.",
+  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. The `vss-auto-calibration` service (part of the `warehouse-operations` industry profile, enabled by the `auto-calib` compose flag or any `bp_wh_*` blueprint) brings up `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` (UI on `${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`) from `nvcr.io/nvstaging/vss-core/`. Env file is `deploy/docker/industry-profiles/warehouse-operations/.env`. Project state mounts from `$VSS_APPS_DIR/services/auto-calibration/projects`; optional VGGT model mounts from `$VSS_DATA_DIR/auto-calib/vggt`. The `/deploy` skill drives the full deploy workflow — this spec verifies the resulting state by probing the live stack.",
   "expects": [
     {
-      "query": "Deploy the VSS **auto-calibration** profile on {{platform}} in {{mode}} mode, using the `/deploy` skill end-to-end and autonomously.",
+      "query": "Deploy the VSS **auto-calibration** profile on {{platform}}, using the `/deploy` skill end-to-end and autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/v1/ready` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/v1/ready` body matches `\"code\":0`",
