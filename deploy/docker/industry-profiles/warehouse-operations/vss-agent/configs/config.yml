@@ -21,6 +21,7 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      vst_external_url: ${VST_EXTERNAL_URL}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']

@@ -185,8 +185,14 @@ export {
   copyToClipboard,
   formatTimestamp,
   getUploadUrl,
-  uploadFile,
+  chunkedUpload,
+  uploadFileChunked,
+  notifyGenericUploadComplete,
+  CHUNK_SIZE_BYTES,
+  MAX_CHUNK_RETRIES,
   type FileUploadResult,
+  type ChunkedUploadOptions,
+  type ChunkedUploadResponse,
 } from '@aiqtoolkit-ui/common';
 
 // Re-export next-i18next config

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { uploadFileChunked, notifyUploadComplete } from '../lib-src/chunkedUpload';
+import { chunkedUpload, notifyUploadComplete } from '../lib-src/chunkedUpload';
 
 // Minimal XMLHttpRequest double that the test drives explicitly. Each `new
 // MockXHR()` instance is captured via the `send` spy so tests can inspect
@@ -80,12 +80,12 @@ const flushAndFinish = async (status: number, responseBody: string) => {
   throw new Error('flushAndFinish: no pending XHR found');
 };
 
-describe('uploadFileChunked', () => {
+describe('chunkedUpload', () => {
   beforeEach(installMockXHR);
 
   it('single-chunk upload: sets nvstreamer headers and returns parsed response', async () => {
     const file = new File(['x'.repeat(1024)], 'small.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({
+    const promise = chunkedUpload({
       file,
       uploadUrl: 'http://vst/storage/file',
       chunkSize: 10 * 1024 * 1024, // way larger than the file
@@ -110,7 +110,7 @@ describe('uploadFileChunked', () => {
   it('multi-chunk: sends total-chunks, marks last chunk, reuses identifier', async () => {
     // 25-byte file, chunkSize=10 → 3 chunks (10, 10, 5)
     const file = new File(['x'.repeat(25)], 'multi.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
+    const promise = chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
 
     for (let i = 1; i <= 3; i++) {
       await flushAndFinish(200, JSON.stringify(i === 3 ? { sensorId: 'sensor-xyz' } : { chunkCount: String(i) }));
@@ -130,7 +130,7 @@ describe('uploadFileChunked', () => {
   it('retries a failed chunk up to maxRetries and succeeds on retry', async () => {
     jest.useFakeTimers();
     const file = new File(['y'.repeat(10)], 'retry.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10, maxRetries: 2 });
+    const promise = chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10, maxRetries: 2 });
 
     // First attempt fails with a network error
     await Promise.resolve();
@@ -148,7 +148,7 @@ describe('uploadFileChunked', () => {
 
   it('throws when final-chunk response lacks sensorId (runtime guard)', async () => {
     const file = new File(['z'.repeat(10)], 'nosensor.mp4', { type: 'video/mp4' });
-    const promise = uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
+    const promise = chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10 });
 
     await flushAndFinish(200, JSON.stringify({ chunkCount: '1' /* no sensorId */ }));
 
@@ -161,7 +161,7 @@ describe('uploadFileChunked', () => {
     ctrl.abort();
 
     await expect(
-      uploadFileChunked({ file, uploadUrl: 'http://vst/u', chunkSize: 10, abortSignal: ctrl.signal })
+      chunkedUpload({ file, uploadUrl: 'http://vst/u', chunkSize: 10, abortSignal: ctrl.signal })
     ).rejects.toThrow(/cancelled/i);
   });
 });
@@ -178,45 +178,33 @@ describe('notifyUploadComplete', () => {
     global.fetch = fetchMock;
   });
 
-  // Minimal valid upload response shape for tests that don't care about the body content
+  // Minimal valid upload response — sensorId becomes the {sensor_id} path param
   const uploadResponse = { sensorId: 's1' } as any;
 
-  it('POSTs to videos-for-search/{basename}/complete forwarding the full upload response', async () => {
-    const response = { sensorId: 'sensor-123', filename: 'my clip', bytes: 100 } as any;
+  it('POSTs to videos/{sensorId}/complete with filename + the full upload response in the body', async () => {
+    const response = { sensorId: 'sensor-123', bytes: 100 } as any;
     await notifyUploadComplete('https://agent.example.com/api/v1', 'my clip.mp4', response);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      'https://agent.example.com/api/v1/videos-for-search/my%20clip/complete',
-    );
+    expect(url).toBe('https://agent.example.com/api/v1/videos/sensor-123/complete');
     expect(init?.method).toBe('POST');
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(init?.body as string)).toEqual(response);
+    expect(JSON.parse(init?.body as string)).toEqual({ ...response, filename: 'my clip.mp4' });
   });
 
   it('strips trailing slash from agentApiUrl before appending path', async () => {
     await notifyUploadComplete('https://agent.example.com/api/v1/', 'video.mp4', uploadResponse);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/api/v1/videos-for-search/video/complete',
+      'https://agent.example.com/api/v1/videos/s1/complete',
     );
   });
 
-  it('uses full filename when there is no extension (no dot)', async () => {
-    await notifyUploadComplete('https://agent.example.com', 'README', uploadResponse);
-
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/videos-for-search/README/complete',
-    );
-  });
-
-  it('uses basename before last dot for multi-dot names', async () => {
-    await notifyUploadComplete('https://agent.example.com', 'a.b.c.mp4', uploadResponse);
-
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://agent.example.com/videos-for-search/a.b.c/complete',
-    );
+  it('throws if the upload response is missing sensorId', async () => {
+    await expect(
+      notifyUploadComplete('https://agent.example.com', 'f.mp4', {} as any),
+    ).rejects.toThrow(/sensorId/);
   });
 
   it('forwards AbortSignal to fetch when provided', async () => {
@@ -233,8 +221,8 @@ describe('notifyUploadComplete', () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.custom_params).toEqual(formData);
-    // Upload response fields are still present at the top level
     expect(body.sensorId).toBe('s1');
+    expect(body.filename).toBe('f.mp4');
   });
 
   it('omits custom_params entirely when formData is empty or undefined', async () => {
