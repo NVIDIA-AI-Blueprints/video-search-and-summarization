@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- $modeRaw := .Values.mode | default "verification" | toString | lower | trim }}
+{{- $isRealtime := or (eq $modeRaw "real-time") (eq $modeRaw "realtime") }}
+{{- $modeDisplay := ternary "real-time" "verification" $isRealtime }}
+{{- $vssIngress := .Values.vssIngress | default dict }}
+{{- $global := .Values.global | default dict }}
+{{- $ingressEnabled := default false (index $vssIngress "enabled") }}
+{{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
+{{- $kibanaHost := coalesce (index $vssIngress "kibanaHost") (ternary (printf "kibana.%s" $mainHost) "" (ne $mainHost "")) }}
+{{- $phoenixHost := index $vssIngress "phoenixHost" | default "" | trim }}
+{{- $streamerHost := coalesce (index $vssIngress "streamerHost") (ternary (printf "streamer.%s" $mainHost) "" (ne $mainHost "")) }}
+{{- $calibrationEnabled := default false (index (index .Values "calibration-toolkit" | default dict) "enabled") }}
+{{- $analyticsVals := index .Values "analytics" | default dict }}
+{{- $videoAnalyticsUiEnabled := default false (index (index $analyticsVals "video-analytics-ui" | default dict) "enabled") }}
+
+=====================================================================
+  NVIDIA Metropolis Smart Cities Profile
+=====================================================================
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+Profile Mode: {{ $modeDisplay }}
+
+=====================================================================
+  ACCESS
+=====================================================================
+{{- if $ingressEnabled }}
+{{- if ne $mainHost "" }}
+  Ingress is ENABLED. Services are exposed via host-based routing:
+
+  VSS UI (Smart Cities): http://{{ $mainHost }}
+  VSS Agent API:         http://{{ $mainHost }}/api
+  VST API:               http://{{ $mainHost }}/vst/api
+{{- if ne $kibanaHost "" }}
+  Kibana Dashboards:     http://{{ $kibanaHost }}
+{{- end }}
+  Phoenix Tracing Path:  http://{{ $mainHost }}/phoenix
+{{- if ne $phoenixHost "" }}
+  Phoenix Tracing Host:  http://{{ $phoenixHost }}
+{{- end }}
+{{- if ne $streamerHost "" }}
+  NVStreamer HTTP:        http://{{ $streamerHost }}
+{{- end }}
+{{- if not $isRealtime }}
+  Alerts API:            http://{{ $mainHost }}/alert-bridge
+  Video Analytics API:   http://{{ $mainHost }}/video-analytics-api
+{{- end }}
+{{- if $calibrationEnabled }}
+  Calibration Toolkit:   http://{{ $mainHost }}/calibration
+{{- end }}
+{{- if $videoAnalyticsUiEnabled }}
+  Video Analytics UI:    http://{{ $mainHost }}/analytics-ui
+{{- end }}
+{{- else }}
+  Ingress is ENABLED, but no host is configured.
+  Set one of:
+    --set vssIngress.host=<HOST>
+    --set global.externalHost=<HOST>
+{{- end }}
+{{- else }}
+  Ingress is DISABLED. Use kubectl port-forward to access services:
+
+  kubectl port-forward svc/{{ include "vss.smc.serviceShort" (dict "root" . "short" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "vss.smc.serviceShort" (dict "root" . "short" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "vss.smc.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 30888:30888 -n {{ .Release.Namespace }}
+{{- if not $isRealtime }}
+  kubectl port-forward svc/{{ include "vss.smc.serviceShort" (dict "root" . "short" "vss-alert-bridge") }} 9080:9080 -n {{ .Release.Namespace }}
+{{- else }}
+  kubectl port-forward svc/{{ include "vss.smc.serviceShort" (dict "root" . "short" "vss-rtvi-vlm") }} 8000:8000 -n {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
+
+=====================================================================
