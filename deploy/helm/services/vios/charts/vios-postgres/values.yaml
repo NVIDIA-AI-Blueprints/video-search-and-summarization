@@ -18,7 +18,7 @@ enabled: false
 global: {}
 image:
   repository: postgres
-  tag: 17.6-alpine
+  tag: 17.9-alpine
   pullPolicy: IfNotPresent
 replicas: 1
 # Args for postgres process (config file and socket dir)

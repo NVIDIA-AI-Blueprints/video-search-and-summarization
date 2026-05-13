@@ -44,10 +44,6 @@ dependencies:
     version: 26.04.2
     repository: "file://./charts/vios-ingress"
     condition: vss-vios-ingress.enabled
-  - name: vss-vios-mcp
-    version: 26.04.2
-    repository: "file://./charts/vios-mcp"
-    condition: vss-vios-mcp.enabled
   - name: vss-vios-nvstreamer
     version: 26.04.2
     repository: "file://./charts/vios-nvstreamer"

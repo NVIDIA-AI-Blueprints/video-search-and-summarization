@@ -17,9 +17,6 @@ dependencies:
 - name: vss-vios-ingress
   repository: file://./charts/vios-ingress
   version: 26.04.2
-- name: vss-vios-mcp
-  repository: file://./charts/vios-mcp
-  version: 26.04.2
 - name: vss-vios-nvstreamer
   repository: file://./charts/vios-nvstreamer
   version: 26.04.2
