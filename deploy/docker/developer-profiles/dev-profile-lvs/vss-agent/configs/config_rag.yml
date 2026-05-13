@@ -24,6 +24,8 @@ general:
       rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
       enable_rtsp_streams: true
       enable_video_delete: true
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
       enable_videos_for_search: true
       # `disabled` is a non-empty placeholder that satisfies the boot-time must be set guard.
       rtvi_embed_base_url: disabled
@@ -113,6 +115,8 @@ functions:
     # Video processing parameters for better event detection
     chunk_duration: 10  # Split video into 10-second chunks (0 = entire video in one request)
     num_frames_per_chunk: 20  # Sample 20 frames per chunk
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
+    enable_audio: ${ENABLE_AUDIO:-false}
     vlm_input_width: 1280
     vlm_input_height: 720
     # HITL Templates (shown each for each query to the user during interaction)
