@@ -21,6 +21,7 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      vst_external_url: ${VST_EXTERNAL_URL}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -57,8 +58,6 @@ functions:
     reasoning: false
     video_url_tool: vst_video_url
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${HOST_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
 
   vst_video_url:

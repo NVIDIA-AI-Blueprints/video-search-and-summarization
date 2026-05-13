@@ -189,8 +189,11 @@ function get_env_value() {
   local _val
   if [[ -f "${_env_file}" ]]; then
     _val="$(grep "^${_var_name}=" "${_env_file}" 2>/dev/null | cut -d'=' -f2- | head -1)"
-    _val="${_val#[\'\"]}"
-    _val="${_val%[\'\"]}"
+    # Strip a matching pair of single or double quotes. Per-quote strips avoid a
+    # bash bracket-expression quirk where `[\'\"]` fails to match single quotes
+    # on some shells.
+    _val="${_val#\"}"; _val="${_val%\"}"
+    _val="${_val#\'}"; _val="${_val%\'}"
     echo "${_val}"
   fi
 }
@@ -1019,8 +1022,8 @@ function state_up() {
   }
 
   # Set the required environment variables
-  set_env_var "MDX_SAMPLE_APPS_DIR" "${deployment_directory}"
-  set_env_var "MDX_DATA_DIR" "${data_directory}"
+  set_env_var "VSS_APPS_DIR" "${deployment_directory}"
+  set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
   if [[ -n "${external_ip}" ]]; then
     set_env_var "EXTERNAL_IP" "${external_ip}"
@@ -1121,8 +1124,10 @@ function state_up() {
   fi
   if [[ -n "${vlm_base_url}" ]]; then
     set_env_var "VLM_BASE_URL" "${vlm_base_url}"
-    set_env_var "RTVI_VLM_ENDPOINT" "${vlm_base_url}/v1"
-    set_env_var "RTVI_VLM_MODEL_PATH" "none"
+    if [[ "${vlm_mode}" == "remote" ]]; then
+      set_env_var "RTVI_VLM_ENDPOINT" "${vlm_base_url}/v1"
+      set_env_var "RTVI_VLM_MODEL_PATH" "none"
+    fi
   fi
   if [[ "${vlm_mode}" == "remote" ]]; then
     local _vlm_type="${vlm_model_type:-$(get_env_value "${_source_env}" "VLM_MODEL_TYPE")}"
@@ -1134,12 +1139,12 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Alerts + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason2 is only valid when the
-  # local rtvi-vlm container is serving the model).
-  # The rtvi-vlm container (not deployed when remote) defaults to 8018 for local alerts;
+  # local rtvi-vlm container is serving the integrated checkpoint).
+  # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if [[ "${profile}" == "alerts" ]] && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
   fi
@@ -1185,17 +1190,14 @@ function state_up() {
     set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
     set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
   fi
-  # Alerts profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if  ([[ "${profile}" == "alerts" ]]); then
+  # Alerts/LVS profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
+  if  ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
-    # Local VLM only: rtvi-vlm serves cosmos-reason2 locally on port 8018, so fix
-    # VLM_NAME / VLM_BASE_URL / RTVI_VLM_MODEL_PATH to the NIM-packaged cosmos-reason2 model.
-    # RTVI_VLM_MODEL_TO_USE and RTVI_VLM_ENDPOINT come from the profile .env defaults for local
-    # (see dev-profile-alerts/.env). Remote VLM overrides these in the block above via VLM_BASE_URL/vlm.
+    # Local VLM only: rtvi-vlm serves the VLM locally on port 8018. VLM_BASE_URL
+    # needs runtime host_ip injection (source .env has it empty). VLM_NAME and
+    # RTVI_VLM_MODEL_PATH should come straight from the source .env.
     if [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
       set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
-      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
     fi
     # RTVI_VLLM_GPU_MEMORY_UTILIZATION: mirrors NIM NIM_KVCACHE_PERCENT hw-*.env pattern.
     # IGX-THOR/AGX-THOR have no NIM hw env file → ignored here, handled in the hw sub-block below.

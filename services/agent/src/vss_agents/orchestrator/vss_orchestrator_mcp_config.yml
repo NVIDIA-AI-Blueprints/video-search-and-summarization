@@ -45,7 +45,7 @@ function_groups:
     source_compose_yaml: "/home/ubuntu/video-search-and-summarization/deploy/docker/compose.yml"
     # Absolute source profile env path. Supports {profile}.
     source_env: "/home/ubuntu/video-search-and-summarization/deploy/docker/developer-profiles/dev-profile-{profile}/.env"
-    # MDX_DATA_DIR base directory used by orchestrator (profile .env MDX_DATA_DIR is ignored).
+    # VSS_DATA_DIR base directory used by orchestrator (profile .env VSS_DATA_DIR is ignored).
     mdx_data_directories:
     - data_log/analytics_cache
     - data_log/calibration_toolkit
@@ -111,18 +111,7 @@ function_groups:
         thor_profiles:
         - IGX-THOR
         - AGX-THOR
-      llm:
-        supported_models:
-          nvidia/nvidia-nemotron-nano-9b-v2: nvidia-nemotron-nano-9b-v2
-          nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8: nvidia-nemotron-nano-9b-v2-fp8
-          nvidia/nemotron-3-nano: nemotron-3-nano
-          nvidia/llama-3.3-nemotron-super-49b-v1.5: llama-3.3-nemotron-super-49b-v1.5
-          openai/gpt-oss-20b: gpt-oss-20b
       vlm:
-        supported_models:
-          nvidia/cosmos-reason1-7b: cosmos-reason1-7b
-          nvidia/cosmos-reason2-8b: cosmos-reason2-8b
-          Qwen/Qwen3-VL-8B-Instruct: qwen3-vl-8b-instruct
         thor_overrides:
           VLM_NAME_SLUG: none
           VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208

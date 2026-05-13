@@ -21,12 +21,9 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      enable_video_delete: true
-    endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
+      vst_external_url: ${VST_EXTERNAL_URL}
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -48,11 +45,6 @@ object_stores:
     _type: in_memory
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
-
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
@@ -64,8 +56,6 @@ functions:
     video_url_tool: vst_video_clip
     time_format: offset
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${HOST_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
     system_prompt: |
       You are a monitoring system analyzing video footage.
@@ -102,9 +92,6 @@ functions:
     lvs_backend_url: ${LVS_BACKEND_URL}
     model: ${VLM_NAME}
     video_url_tool: vst_video_clip
-    vlm_mode: ${VLM_MODE}
-    internal_ip: ${HOST_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
     # Connection and timeout configuration
     conn_timeout_ms: 5000
@@ -112,6 +99,8 @@ functions:
     # Video processing parameters for better event detection
     chunk_duration: 10  # Split video into 10-second chunks (0 = entire video in one request)
     num_frames_per_chunk: 20  # Sample 20 frames per chunk
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
+    enable_audio: ${ENABLE_AUDIO:-false}
     # HITL Templates (shown each for each query to the user during interaction)
     hitl_scenario_template: |
       Scenario (REQUIRED):
@@ -276,7 +265,7 @@ llms:
 
   rtvi_vlm:
     _type: openai
-    model_name: nvidia/cosmos-reason2-8b
+    model_name: ${VLM_NAME}
     base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:

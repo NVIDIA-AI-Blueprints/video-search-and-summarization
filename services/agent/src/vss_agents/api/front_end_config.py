@@ -44,18 +44,13 @@ class StreamingIngestConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     vst_internal_url: str = Field(default="", description="Internal URL for VST service")
-
-    enable_videos_for_search: bool = Field(
-        default=False,
-        description="Register PUT/POST /api/v1/videos-for-search/* (search-only chunked upload)",
-    )
-    enable_rtsp_streams: bool = Field(
-        default=False,
-        description="Register POST /api/v1/rtsp-streams/add and DELETE /api/v1/rtsp-streams/delete/{name}",
-    )
-    enable_video_delete: bool = Field(
-        default=False,
-        description="Register DELETE /api/v1/videos/{video_id}",
+    vst_external_url: str = Field(
+        default="",
+        description=(
+            "Externally reachable URL for VST. Returned to the browser from "
+            "POST /api/v1/videos so chunks can be uploaded directly to VST. "
+            "Falls back to vst_internal_url when unset."
+        ),
     )
 
     delete_vst_storage_on_stream_remove: bool = Field(
@@ -71,6 +66,14 @@ class StreamingIngestConfig(BaseModel):
     rtvi_embed_model: str = Field(default="cosmos-embed1-448p", description="Embedding model name")
     rtvi_embed_chunk_duration: int = Field(default=5, description="Chunk duration in seconds for embedding")
     rtvi_cv_base_url: str = Field(default="", description="Base URL for RTVI CV service")
+    enable_audio: bool = Field(
+        default=False,
+        description=(
+            "When True, post-upload processing tells VST to keep the audio track during "
+            "upload transcoding. Set True for audio-capable VLMs (e.g. Nemotron Nano Omni). "
+            "Wired to the `disableAudio` flag on the VST storage API."
+        ),
+    )
     rtvi_vlm_base_url: str = Field(
         default="",
         description=(
@@ -80,10 +83,6 @@ class StreamingIngestConfig(BaseModel):
     )
     elasticsearch_url: str = Field(default="", description="Elasticsearch endpoint URL")
     rtvi_embed_es_index: str = Field(default="", description="Elasticsearch index for embeddings")
-
-    vlm_mode: str = Field(default="", description="VLM mode (remote/local/local_shared)")
-    internal_ip: str = Field(default="", description="Internal IP address of the host")
-    external_ip: str = Field(default="", description="External IP address for public-facing URLs")
 
 
 class VSSFastApiFrontEndConfig(FastApiFrontEndConfig, name="vss_fastapi"):  # type: ignore[call-arg]
