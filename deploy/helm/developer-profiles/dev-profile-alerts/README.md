@@ -165,7 +165,6 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port. |
 | **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port. |
 | **`vssIngress.streamerPort`** | **`31000`** | **NVStreamer** **Service** port when **`vios.vss-vios-nvstreamer.enabled`** is **`true`**. |
-| **`vios.vss-vios-mcp.enabled`** | **`true`** | Set **`false`** to disable VST MCP dev. |
 | **`agent.enabled`** | **`true`** | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**: **vss-agent** and optional **vss-va-mcp**). |
 | **`agent.vss-agent.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent** deployment only. |
 | **`agent.vss-agent.profile`** | **`alerts`** | Passed to the **vss-agent** subchart so it mounts **report-templates** and sets template env for the **alerts** UX. ConfigMap data is read from **`configs/vss-agent/config.yml`** (and **`incident_report_template.md`**) in this chart — flat paths, no profile subfolders. |
