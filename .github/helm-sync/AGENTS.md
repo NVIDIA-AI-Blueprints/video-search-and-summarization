@@ -84,8 +84,9 @@ repo evolves.
 
    Ignore deltas under `.github/helm-sync/**` (the harness itself —
    they don't imply chart drift). If nothing else changed under
-   `deploy/`, emit `BLOCKED: no deploy/ changes` and exit. No PR
-   comment.
+   `deploy/`, emit `DONE: no deploy/ changes` and exit. No PR
+   comment. (Vacuously in sync — nothing to drift against, so the
+   check passes.)
 
 2. **Classify each changed `deploy/` file.** Walk the diff and bucket
    each path:
@@ -334,14 +335,16 @@ repo evolves.
 - The driver (`helm_sync_agent.py`) parses your **final line** to
   decide the workflow exit code. It must be exactly one of:
   - `DONE: in sync` — no drift, exit 0, source PR gets no comment.
+  - `DONE: no deploy/ changes` — only the harness changed (or no
+    in-scope `deploy/` paths after filtering); nothing to check.
+    Exit 0, no PR comment.
   - `BLOCKED: helm drift for PR #<N>; branch=helm-sync-bot/pr-<N>; confidence=<N>/5`
     — drift detected, bot branch pushed, source PR commented.
     Driver exits 1; the helm-sync check fails; source PR stays
     blocked until the merge lands and the next mirror push reports
     `DONE: in sync`.
   - `BLOCKED: <short reason>` — anything else (no helm counterpart,
-    fork PR, no `deploy/` changes after filtering, etc.). Driver
-    exits 1.
+    fork PR, etc.). Driver exits 1.
 - Whenever the final line is `BLOCKED:` with drift, the marker
   MUST include the `confidence=<N>/5` field — the driver records
   it for telemetry / future reporting.

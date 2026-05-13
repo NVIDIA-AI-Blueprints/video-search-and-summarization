@@ -23,11 +23,12 @@ Env (set by the workflow step):
     GH_TOKEN         PAT for bot PR creation + comment posting
 
 Exit codes:
-    0 - DONE: in sync (no drift)
+    0 - DONE: in sync (no drift), OR DONE: no deploy/ changes (only
+        the harness changed — nothing to check, vacuously in sync).
     1 - BLOCKED: ... (drift detected, bot branch pushed + source PR
-        commented; OR setup error / no helm counterpart / fork PR /
-        any other agent-emitted blocker). The workflow check fails
-        either way, blocking the source PR until parity returns.
+        commented; OR no helm counterpart / fork PR / any other
+        agent-emitted blocker). The workflow check fails, blocking
+        the source PR until parity returns.
     2 - agent crashed
     3 - agent hit max_turns without finishing (treated as blocked)
 """
@@ -184,6 +185,7 @@ async def run_agent() -> int:
     # Decide the workflow exit code from the agent's final marker line.
     # AGENTS.md mandates the last meaningful line is one of:
     #   DONE: in sync                                            → exit 0
+    #   DONE: no deploy/ changes                                 → exit 0
     #   BLOCKED: helm drift for PR #N; branch=...; confidence=N/5 → exit 1
     #   BLOCKED: <other reason>                                   → exit 1
     # Anything else (the agent didn't emit a marker) is treated as a
@@ -198,7 +200,7 @@ async def run_agent() -> int:
         if marker:
             break
 
-    if marker.startswith("DONE: in sync"):
+    if marker.startswith("DONE:"):
         print(f"[agent] verdict: {marker}", flush=True)
         return 0
     if marker.startswith("BLOCKED:"):
