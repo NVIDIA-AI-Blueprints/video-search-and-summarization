@@ -278,10 +278,10 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
         Set up a live stream for LVS caption generation.
 
         Trigger: call this tool ONLY when the user explicitly asks to start caption
-        generation for a stream (e.g. "start summarizing the stream <name>",
-        "start captioning <name>", "set up stream <name>"). Do NOT call this tool
-        speculatively or in response to another tool's "not_configured" message —
-        the user must confirm first.
+        generation for a stream (e.g. "start captioning <name>", "set up stream <name>",
+        "configure stream <name>"). Do NOT call this tool speculatively
+        or in response to another tool's "not_configured" message — the user must
+        confirm first.
 
         For streams, this tool resolves the stream in VST, collects scenario,
         events, and objects_of_interest through HITL, calls LVS
