@@ -13,23 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: v2
-name: analytics
-description: VSS analytics stack (behavior analytics, video analytics API) for developer-profile umbrella charts
-type: application
-version: 26.04.2
-appVersion: "1.0"
-dependencies:
-  - name: vss-behavior-analytics
-    version: 26.04.2
-    repository: "file://./charts/behavior-analytics"
-    condition: vss-behavior-analytics.enabled
-  - name: vss-video-analytics-api
-    version: 26.04.2
-    repository: "file://./charts/video-analytics-api"
-    condition: vss-video-analytics-api.enabled
-  - name: video-analytics-ui
-    version: 26.04.2
-    repository: "file://./charts/video-analytics-ui"
-    condition: video-analytics-ui.enabled
-maintainers: []
+{{- if and .Values.enabled .Values.downloadResourcesFromNgc }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vss-behavior-analytics.fullname" . }}-resources
+  labels:
+    {{- include "vss-behavior-analytics.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.resourcesPvc.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ include "vss-behavior-analytics.effectiveResourcesStorage" . }}
+  {{- $g := .Values.global | default dict }}
+  {{- $sc := .Values.resourcesPvc.storageClass | default (index $g "storageClass") }}
+  {{- with $sc }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
