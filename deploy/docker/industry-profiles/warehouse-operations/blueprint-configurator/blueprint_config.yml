@@ -95,10 +95,6 @@ commons:
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
-      # # HARDWARE_PROFILE can only be "H100", "L40S", "L40","L4", "RTXA6000", "RTXA6000ADA", "RTXPRO6000BW", "IGX-THOR", "DGX-SPARK"
-      # - variable: HARDWARE_PROFILE
-      #   allowed_values: ["H100", "L40S", "L40","L4", "RTXA6000", "RTXA6000ADA", "RTXPRO6000BW", "IGX-THOR", "DGX-SPARK"]
-
       - variable: BP_PROFILE
         allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis"]
 
@@ -193,8 +189,6 @@ commons:
         required: false
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
-
-      # HARDWARE_PROFILE is intentionally not restricted here: undeclared hardware profiles use commons-only configuration.
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
       - variable: BP_PROFILE
