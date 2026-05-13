@@ -67,10 +67,12 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      # sdr-streamprocessing:
-      #   condition: service_started
-      # envoy-streamprocessing:
-      #   condition: service_started
+      sdr-streamprocessing:
+        condition: service_started
+        required: false
+      envoy-streamprocessing:
+        condition: service_started
+        required: false
       sdr-controller:
         condition: service_started
         required: false
@@ -114,12 +116,12 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      sdr-streamprocessing:
-        condition: service_started
-        required: false
-      envoy-streamprocessing:
-        condition: service_started
-        required: false
+      # sdr-streamprocessing:
+      #   condition: service_started
+      #   required: false
+      # envoy-streamprocessing:
+      #   condition: service_started
+      #   required: false
       sdr-controller:
         condition: service_started
         required: false
