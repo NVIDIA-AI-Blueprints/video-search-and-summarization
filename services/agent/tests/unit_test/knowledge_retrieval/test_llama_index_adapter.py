@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 from types import ModuleType
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
 import pytest
@@ -44,7 +45,7 @@ def fake_llama_index(monkeypatch):
     # llama_index.core: VectorStoreIndex + StorageContext
     core_mod = ModuleType("llama_index.core")
     retriever = MagicMock(name="retriever")
-    retriever.retrieve = MagicMock(return_value=[])
+    retriever.aretrieve = AsyncMock(return_value=[])
 
     vsi_instance = MagicMock(name="VectorStoreIndex_instance")
     vsi_instance.as_retriever = MagicMock(return_value=retriever)
@@ -186,7 +187,7 @@ class TestLlamaIndexRetrieve:
     async def test_uses_top_k_and_collection(self, fake_llama_index):
         adapter = self._make_adapter(fake_llama_index, collection_name="default_coll")
         # `retrieve()` returns no nodes — we just verify the wiring.
-        fake_llama_index.retriever.retrieve.return_value = []
+        fake_llama_index.retriever.aretrieve.return_value = []
 
         await adapter.retrieve(query="what is x", collection_name="docs", top_k=7)
 
@@ -197,12 +198,12 @@ class TestLlamaIndexRetrieve:
             similarity_top_k=7
         )
         # Query string forwarded verbatim.
-        fake_llama_index.retriever.retrieve.assert_called_once_with("what is x")
+        fake_llama_index.retriever.aretrieve.assert_called_once_with("what is x")
 
     @pytest.mark.asyncio
     async def test_empty_collection_falls_back_to_config_default(self, fake_llama_index):
         adapter = self._make_adapter(fake_llama_index, collection_name="my_default")
-        fake_llama_index.retriever.retrieve.return_value = []
+        fake_llama_index.retriever.aretrieve.return_value = []
 
         await adapter.retrieve(query="q", collection_name="")
 
@@ -220,7 +221,7 @@ class TestLlamaIndexRetrieve:
         node = MagicMock()
         node.node = inner
         node.score = 0.87
-        fake_llama_index.retriever.retrieve.return_value = [node]
+        fake_llama_index.retriever.aretrieve.return_value = [node]
 
         result = await adapter.retrieve(query="q", collection_name="c", top_k=5)
 
@@ -228,7 +229,8 @@ class TestLlamaIndexRetrieve:
         assert len(result.chunks) == 1
         chunk = result.chunks[0]
         assert chunk.content == "this is the chunk content"
-        assert chunk.score == 0.87
+        # node.score=0.87 is a cosine distance in [0, 2] -> normalised to 1 - 0.87 = 0.13.
+        assert chunk.score == pytest.approx(0.13)
         assert chunk.chunk_id == "node-001"
         assert chunk.metadata["file_name"] == "Manual.pdf"
         assert chunk.metadata["page_number"] == 3
@@ -237,7 +239,7 @@ class TestLlamaIndexRetrieve:
     @pytest.mark.asyncio
     async def test_retrieve_exception_maps_to_failure(self, fake_llama_index):
         adapter = self._make_adapter(fake_llama_index)
-        fake_llama_index.retriever.retrieve.side_effect = RuntimeError("chroma down")
+        fake_llama_index.retriever.aretrieve.side_effect = RuntimeError("chroma down")
 
         result = await adapter.retrieve(query="q", collection_name="c")
 
@@ -259,7 +261,7 @@ class TestLlamaIndexRetrieve:
             node.score = 0.5
             return node
 
-        fake_llama_index.retriever.retrieve.return_value = [
+        fake_llama_index.retriever.aretrieve.return_value = [
             _make_node("keep.pdf", "keep"),
             _make_node("drop.pdf", "drop"),
         ]
@@ -271,6 +273,68 @@ class TestLlamaIndexRetrieve:
         )
 
         assert [c.metadata["file_name"] for c in result.chunks] == ["keep.pdf"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("input_top_k", "expected_k", "with_filter"),
+        [
+            (10_000, 100, False),  # over MAX_TOP_K -> clamp
+            (0, 1, False),         # under floor -> 1
+            (5, 20, True),         # filter triggers 4x overfetch
+            (80, 100, True),       # overfetch would exceed MAX -> clamp
+        ],
+    )
+    async def test_top_k_resolution(self, fake_llama_index, input_top_k, expected_k, with_filter):
+        adapter = self._make_adapter(fake_llama_index)
+        fake_llama_index.retriever.aretrieve.return_value = []
+        filters = (lambda _c: True) if with_filter else None
+
+        await adapter.retrieve(query="q", collection_name="c", top_k=input_top_k, filters=filters)
+
+        fake_llama_index.vector_store_index_cls.from_vector_store.return_value.as_retriever.assert_called_with(
+            similarity_top_k=expected_k
+        )
+
+    @pytest.mark.asyncio
+    async def test_filter_result_trimmed_to_top_k(self, fake_llama_index):
+        adapter = self._make_adapter(fake_llama_index)
+
+        def _make_node(name: str):
+            inner = MagicMock()
+            inner.text = "x"
+            inner.node_id = name
+            inner.metadata = {"file_name": name, "page_label": "1"}
+            node = MagicMock()
+            node.node = inner
+            node.score = 0.5
+            return node
+
+        # 6 candidates pass the filter; top_k=2 -> trimmed to 2.
+        fake_llama_index.retriever.aretrieve.return_value = [_make_node(f"d{i}.pdf") for i in range(6)]
+
+        result = await adapter.retrieve(
+            query="q",
+            collection_name="c",
+            top_k=2,
+            filters=lambda _c: True,
+        )
+
+        assert len(result.chunks) == 2
+
+    def test_score_passthrough_when_outside_distance_range(self):
+        # raw_score > 2 is treated as already-similarity; no 1 - x normalization.
+        from lib.knowledge.adapters.llama_index import _node_to_chunk
+
+        inner = MagicMock()
+        inner.text = "x"
+        inner.node_id = "n"
+        inner.metadata = {"file_name": "a.pdf"}
+        node = MagicMock()
+        node.node = inner
+        node.score = 5.7
+        chunk = _node_to_chunk(node)
+        assert chunk is not None
+        assert chunk.score == pytest.approx(5.7)
 
 
 class TestLlamaIndexHealth:

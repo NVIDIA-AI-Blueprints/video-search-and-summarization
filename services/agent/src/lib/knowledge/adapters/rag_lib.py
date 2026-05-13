@@ -12,18 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""In-process adapter using the `nvidia-rag` library (vs. `frag_api` which
-talks HTTP to a deployed rag-server).
+"""In-process adapter using the `nvidia-rag` library.
 
-Both backends target Milvus and accept the same caller-side `filter_expr`
-shape, so from the LLM's POV they're interchangeable. Choose `rag_lib` when
-you want the full RAG Blueprint pipeline (rerank, query rewrite, reflection,
-guardrails) running inside the agent process; choose `frag_api` when you'd
-rather hit a separately deployed rag-server over HTTP.
-
-Requires the optional dependency `nvidia-rag>=2.4.0` — install via the
-`vss-agents[rag_lib]` extra. The import is deferred to adapter
-construction so the agent image stays small for `frag_api`-only deployments.
+Milvus-backed; same `filter_expr` shape as `frag_api`. Choose `rag_lib` to
+run the full RAG Blueprint pipeline in-process. Requires `vss-agents[rag_lib]`;
+imports are deferred.
 """
 
 from __future__ import annotations
@@ -86,7 +79,6 @@ class RagLibAdapter(BackendAdapter):
 
     def __init__(self, config: RagLibConfig) -> None:
         super().__init__(config)
-        # Deferred import — keeps `nvidia-rag` out of the default image.
         try:
             from nvidia_rag.rag_server.main import NvidiaRAG
             from nvidia_rag.utils.configuration import NvidiaRAGConfig

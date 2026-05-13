@@ -13,6 +13,7 @@ from __future__ import annotations
 import sys
 from types import ModuleType
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
 import pytest
@@ -33,7 +34,7 @@ def fake_langchain(monkeypatch):
     """
     chroma_mod = ModuleType("langchain_chroma")
     chroma_instance = MagicMock(name="chroma_instance")
-    chroma_instance.similarity_search_with_score = MagicMock(return_value=[])
+    chroma_instance.asimilarity_search_with_score = AsyncMock(return_value=[])
     chroma_cls = MagicMock(name="Chroma_cls", return_value=chroma_instance)
     chroma_mod.Chroma = chroma_cls
 
@@ -142,7 +143,7 @@ class TestLangChainRetrieve:
     @pytest.mark.asyncio
     async def test_uses_top_k_and_collection(self, fake_langchain):
         adapter = self._make_adapter(fake_langchain, collection_name="default_coll")
-        fake_langchain.chroma_instance.similarity_search_with_score.return_value = []
+        fake_langchain.chroma_instance.asimilarity_search_with_score.return_value = []
 
         await adapter.retrieve(query="what is x", collection_name="docs", top_k=7)
 
@@ -150,13 +151,13 @@ class TestLangChainRetrieve:
         kwargs = fake_langchain.chroma_cls.call_args.kwargs
         assert kwargs["collection_name"] == "docs"
         assert kwargs["persist_directory"] == "/tmp/chroma"
-        # Right top_k passed through similarity_search_with_score.
-        fake_langchain.chroma_instance.similarity_search_with_score.assert_called_once_with("what is x", k=7)
+        # Right top_k passed through asimilarity_search_with_score.
+        fake_langchain.chroma_instance.asimilarity_search_with_score.assert_called_once_with("what is x", k=7)
 
     @pytest.mark.asyncio
     async def test_empty_collection_falls_back_to_config_default(self, fake_langchain):
         adapter = self._make_adapter(fake_langchain, collection_name="my_default")
-        fake_langchain.chroma_instance.similarity_search_with_score.return_value = []
+        fake_langchain.chroma_instance.asimilarity_search_with_score.return_value = []
 
         await adapter.retrieve(query="q", collection_name="")
 
@@ -166,7 +167,7 @@ class TestLangChainRetrieve:
     @pytest.mark.asyncio
     async def test_vectorstore_cached_per_collection(self, fake_langchain):
         adapter = self._make_adapter(fake_langchain, collection_name="default_coll")
-        fake_langchain.chroma_instance.similarity_search_with_score.return_value = []
+        fake_langchain.chroma_instance.asimilarity_search_with_score.return_value = []
 
         await adapter.retrieve(query="q1", collection_name="docs")
         await adapter.retrieve(query="q2", collection_name="docs")
@@ -182,7 +183,7 @@ class TestLangChainRetrieve:
         doc = MagicMock()
         doc.page_content = "this is the chunk content"
         doc.metadata = {"file_name": "Manual.pdf", "page": 3, "id": "node-001"}
-        fake_langchain.chroma_instance.similarity_search_with_score.return_value = [(doc, 0.13)]
+        fake_langchain.chroma_instance.asimilarity_search_with_score.return_value = [(doc, 0.13)]
 
         result = await adapter.retrieve(query="q", collection_name="c", top_k=5)
 
@@ -200,7 +201,7 @@ class TestLangChainRetrieve:
     @pytest.mark.asyncio
     async def test_retrieve_exception_maps_to_failure(self, fake_langchain):
         adapter = self._make_adapter(fake_langchain)
-        fake_langchain.chroma_instance.similarity_search_with_score.side_effect = RuntimeError("chroma down")
+        fake_langchain.chroma_instance.asimilarity_search_with_score.side_effect = RuntimeError("chroma down")
 
         result = await adapter.retrieve(query="q", collection_name="c")
 
@@ -218,7 +219,7 @@ class TestLangChainRetrieve:
             doc.metadata = {"file_name": name, "page": 1}
             return doc
 
-        fake_langchain.chroma_instance.similarity_search_with_score.return_value = [
+        fake_langchain.chroma_instance.asimilarity_search_with_score.return_value = [
             (_make_doc("keep.pdf", "keep"), 0.2),
             (_make_doc("drop.pdf", "drop"), 0.2),
         ]
@@ -230,6 +231,60 @@ class TestLangChainRetrieve:
         )
 
         assert [c.metadata["file_name"] for c in result.chunks] == ["keep.pdf"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("input_top_k", "expected_k", "with_filter"),
+        [
+            (10_000, 100, False),  # over MAX_TOP_K -> clamp
+            (0, 1, False),         # under floor -> 1
+            (5, 20, True),         # filter triggers 4x overfetch
+            (80, 100, True),       # overfetch would exceed MAX -> clamp
+        ],
+    )
+    async def test_top_k_resolution(self, fake_langchain, input_top_k, expected_k, with_filter):
+        adapter = self._make_adapter(fake_langchain)
+        fake_langchain.chroma_instance.asimilarity_search_with_score.return_value = []
+        filters = (lambda _c: True) if with_filter else None
+
+        await adapter.retrieve(query="q", collection_name="c", top_k=input_top_k, filters=filters)
+
+        fake_langchain.chroma_instance.asimilarity_search_with_score.assert_called_once_with("q", k=expected_k)
+
+    @pytest.mark.asyncio
+    async def test_filter_result_trimmed_to_top_k(self, fake_langchain):
+        adapter = self._make_adapter(fake_langchain)
+
+        def _make_doc(name: str):
+            doc = MagicMock()
+            doc.page_content = "x"
+            doc.metadata = {"file_name": name, "page": 1}
+            return doc
+
+        # 6 candidates pass the filter; top_k=2 -> trimmed to 2.
+        fake_langchain.chroma_instance.asimilarity_search_with_score.return_value = [
+            (_make_doc(f"d{i}.pdf"), 0.1) for i in range(6)
+        ]
+
+        result = await adapter.retrieve(
+            query="q",
+            collection_name="c",
+            top_k=2,
+            filters=lambda _c: True,
+        )
+
+        assert len(result.chunks) == 2
+
+    def test_score_passthrough_when_outside_distance_range(self):
+        # raw_score > 2 is treated as already-similarity; no 1 - x normalization.
+        from lib.knowledge.adapters.langchain import _doc_to_chunk
+
+        doc = MagicMock()
+        doc.page_content = "x"
+        doc.metadata = {"file_name": "a.pdf"}
+        chunk = _doc_to_chunk(doc, score=5.7)
+        assert chunk is not None
+        assert chunk.score == pytest.approx(5.7)
 
 
 class TestLangChainHealth:
