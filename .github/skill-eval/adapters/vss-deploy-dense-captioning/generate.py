@@ -107,7 +107,7 @@ def _instruction_intro(spec: dict) -> str:
 
     return (
         "Use `/vss-deploy-dense-captioning` only. Deploy RT-VLM as a standalone compose service from "
-        "`deployments/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; do not use "
+        "`deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; do not use "
         "`/vss-deploy-profile`, `scripts/dev-profile.sh`, or a full VSS profile. The Docker "
         f"Compose profile that activates the service is `{COMPOSE_PROFILE}`."
     )
@@ -224,7 +224,7 @@ def generate_task(
                 )
             meta_lines.insert(
                 meta_lines.index(f'platform = "{platform}"'),
-                f'prerequisite_deploy_mode = "{mode}"',
+                f'prerequisite_deploy_mode = "{spec.get("deploy_mode") or mode}"',
             )
         else:
             meta_lines.insert(meta_lines.index(f'platform = "{platform}"'), f'compose_profile = "{COMPOSE_PROFILE}"')

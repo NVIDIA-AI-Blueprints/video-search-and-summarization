@@ -8,6 +8,7 @@ Skills for working with NVIDIA Video Search & Summarization (VSS). Each subdirec
 |---|---|
 | [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
 | [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
+| [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Skill for deploying and calling the RT-VLM dense captioning microservice API. |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
 | [vss-query-analytics](vss-query-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
 | [vss-search-archive](vss-search-archive/SKILL.md) | Skills for searching video archives using natural language, multi-embedding fusion, and VLM critique. |

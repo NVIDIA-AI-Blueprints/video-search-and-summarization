@@ -1,6 +1,6 @@
 # VSS Skills Eval
 
-Evaluate VSS skills (vss-deploy-profile, vss-manage-alerts, vss-manage-video-io-storage, vss-query-analytics, vss-search-archive, vss-summarize-video, vss-ask-video, vss-generate-video-report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
+Evaluate VSS skills (vss-deploy-profile, vss-deploy-dense-captioning, vss-manage-alerts, vss-manage-video-io-storage, vss-query-analytics, vss-search-archive, vss-summarize-video, vss-ask-video, vss-generate-video-report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
 
 Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
@@ -59,6 +59,8 @@ Fallback chains and matrix constraints live in [`AGENTS.md § Platform topology`
 ├── skills_eval_agent.py   ← the CI entrypoint (spawns the agent)
 ├── adapters/              ← per-skill dataset generators
 │   ├── vss-deploy-profile/            ← profile × platform × mode matrix
+│   │   └── generate.py
+│   ├── vss-deploy-dense-captioning/   ← RT-VLM standalone/profile API checks
 │   │   └── generate.py
 │   ├── vss-manage-video-io-storage/   ← single-platform, step-chained
 │   │   └── generate.py
