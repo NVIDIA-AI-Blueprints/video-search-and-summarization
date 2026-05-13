@@ -12,9 +12,9 @@ Two related problems with the pre-deploy hook added to
 **(1) Stale-marker silent skip.** Markers were per-(profile, mode) flag
 files (`/tmp/skill-eval/deployed-<profile>-<mode>.flag`) that accumulated
 as a deploy log instead of tracking what is currently running. Sequence:
-`deploy/base` writes `deployed-base-remote-all.flag`, then `deploy/search`
+`vss-deploy-profile/base` writes `deployed-base-remote-all.flag`, then `vss-deploy-profile/search`
 tears down base + brings up search but the base flag stays on disk. A
-subsequent `vios` trial requiring base sees the stale flag, skips
+subsequent `vss-manage-video-io-storage` trial requiring base sees the stale flag, skips
 pre-deploy, and runs against search — silent wrong answer. The invariant
 we wanted but didn't enforce: *the marker is what is currently RUNNING on
 this box, not what has at any point been deployed here.*
@@ -47,9 +47,9 @@ instance** at `/tmp/skill-eval/active-deploy.txt`. Holds the literal
 `<profile>-<mode>` of what is currently RUNNING on the box. Writes are
 **overwrite, never append**. Empty / missing means "nothing is up."
 
-Single owner: whoever last successfully ran `/deploy` on the box. Two
+Single owner: whoever last successfully ran `/vss-deploy-profile` on the box. Two
 write paths in practice — the harness pre-deploy hook (when called) and
-the deploy/* trial's `test.sh` (its scored task IS running /deploy) —
+the deploy/* trial's `test.sh` (its scored task IS running /vss-deploy-profile) —
 both overwrite the same file with `<profile>-<mode>`. Equivalent
 semantics; pick one or both, just never `touch` per-flag.
 
@@ -61,8 +61,8 @@ In `BrevEnvironment._ensure_prerequisite_deployed`:
    box.
 2. If `stdout.strip() == f"{profile}-{deploy_mode}"` → skip pre-deploy.
    Box is hot.
-3. Else → run `/deploy -p <profile> -m <mode>` via
-   `claude --print --dangerously-skip-permissions`; the deploy skill's
+3. Else → run `/vss-deploy-profile -p <profile> -m <mode>` via
+   `claude --print --dangerously-skip-permissions`; the vss-deploy-profile skill's
    own step-0 teardown handles any prior stack. On success, **overwrite**
    `active-deploy.txt` with `<profile>-<mode>`. On failure, leave the
    marker alone — next trial re-evaluates.
@@ -110,7 +110,7 @@ validates the chosen box.
 
 - Each box's `active-deploy.txt` is on its own /tmp; no shared state.
 - Per-box flock prevents two workers from running trials on the same
-  box simultaneously, even within /deploy.
+  box simultaneously, even within /vss-deploy-profile.
 - The `started-by-<run_id>.txt` cleanup marker (used by
   `cleanup_instances`) is already per-run — workers don't step on each
   other at teardown.
@@ -141,15 +141,15 @@ up to N parallel.
 ## Verification
 
 1. **Stale-flag regression test.** Reproduce the run 24969145586 pattern:
-   `deploy/lvs` → `deploy/search` → `vios step-1`. Confirm `vios` now
+   `vss-deploy-profile/lvs` → `vss-deploy-profile/search` → `vss-manage-video-io-storage step-1`. Confirm `vss-manage-video-io-storage` now
    redeploys base (marker reads `search-remote-all`, not
    `base-remote-all`) instead of skipping on a stale flag.
-2. **Same-profile reuse.** `deploy/base` → `vios step-1` → `vios step-2`
-   → `vios step-3`. Three vios trials share the marker set by
-   `deploy/base`; pre-deploy hook fires zero times.
-3. **Profile transition.** `deploy/base` → `vios step-1` →
-   `deploy/search` → `video-search step-1`. Each transition triggers
-   exactly one /deploy.
+2. **Same-profile reuse.** `vss-deploy-profile/base` → `vss-manage-video-io-storage step-1` → `vss-manage-video-io-storage step-2`
+   → `vss-manage-video-io-storage step-3`. Three `vss-manage-video-io-storage` trials share the marker set by
+   `vss-deploy-profile/base`; pre-deploy hook fires zero times.
+3. **Profile transition.** `vss-deploy-profile/base` → `vss-manage-video-io-storage step-1` →
+   `vss-deploy-profile/search` → `vss-search-archive step-1`. Each transition triggers
+   exactly one /vss-deploy-profile.
 4. **Fleet=1 baseline.** With one `vss-eval-l40s`, behaviour is
    indistinguishable from today.
 5. **Fleet>1 concurrency smoke test.** Manually `brev create

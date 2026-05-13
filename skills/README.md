@@ -6,14 +6,14 @@ Skills for working with NVIDIA Video Search & Summarization (VSS). Each subdirec
 
 | Skill | Description |
 |---|---|
-| [alerts](alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
-| [deploy](deploy/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
-| [report](report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
-| [video-analytics](video-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
-| [video-search](video-search/SKILL.md) | Skills for searching video archives using natural language, multi-embedding fusion, and VLM critique. |
-| [video-summarization](video-summarization/SKILL.md) | Skill for summarizing a video through chunking, dense captioning, and aggregation functions using the Long Video Summarization (LVS) microservice. |
-| [video-understanding](video-understanding/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
-| [vios](vios/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
+| [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
+| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
+| [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
+| [vss-query-analytics](vss-query-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
+| [vss-search-archive](vss-search-archive/SKILL.md) | Skills for searching video archives using natural language, multi-embedding fusion, and VLM critique. |
+| [vss-summarize-video](vss-summarize-video/SKILL.md) | Skill for summarizing a video through chunking, dense captioning, and aggregation functions using the Long Video Summarization (LVS) microservice. |
+| [vss-ask-video](vss-ask-video/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
+| [vss-manage-video-io-storage](vss-manage-video-io-storage/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
 
 Skills with `eval/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**` — see [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 

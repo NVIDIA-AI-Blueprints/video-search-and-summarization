@@ -338,7 +338,7 @@ class BrevEnvironment(BaseEnvironment):
 
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
         """If task.toml [metadata] declares both `profile` and
-        `prerequisite_deploy_mode`, ensure /deploy has run on the Brev
+        `prerequisite_deploy_mode`, ensure /vss-deploy-profile has run on the Brev
         box for that profile-mode pair. Reads a single canonical
         marker that records what is currently RUNNING on the box —
         not a deploy log. See specs/stale-marker.spec.
@@ -346,7 +346,7 @@ class BrevEnvironment(BaseEnvironment):
         Algorithm:
           1. cat /tmp/skill-eval/active-deploy.txt on the box.
           2. If contents == f"{profile}-{deploy_mode}" → no-op (hot).
-          3. Else → run /deploy via claude --print; the deploy skill's
+          3. Else → run /vss-deploy-profile via claude --print; the vss-deploy-profile skill's
              own step-0 teardown handles any prior stack. On success
              OVERWRITE the marker. On failure leave it alone — next
              trial re-evaluates.
@@ -405,8 +405,8 @@ class BrevEnvironment(BaseEnvironment):
             env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
         env_prefix = " ".join(env_prefix_parts)
 
-        prompt = f"/deploy -p {profile} -m {deploy_mode}"
-        # Overwrite (>) the canonical marker on /deploy success — the
+        prompt = f"/vss-deploy-profile -p {profile} -m {deploy_mode}"
+        # Overwrite (>) the canonical marker on /vss-deploy-profile success — the
         # marker reflects what is currently running, not a deploy log.
         # PATH prepend: brev exec runs a non-interactive shell that does
         # not source ~/.bashrc, where harbor writes
@@ -432,7 +432,7 @@ class BrevEnvironment(BaseEnvironment):
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
-                f"pre-deploy /deploy -p {profile} -m {deploy_mode} failed "
+                f"pre-deploy /vss-deploy-profile -p {profile} -m {deploy_mode} failed "
                 f"on {self._instance_name}: exit {result.return_code}; "
                 f"output tail: {tail!r}"
             )

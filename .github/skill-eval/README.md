@@ -1,6 +1,6 @@
 # VSS Skills Eval
 
-Evaluate VSS skills (deploy, alerts, vios, video-analytics, video-search, video-summarization, incident-report, report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
+Evaluate VSS skills (vss-deploy-profile, vss-manage-alerts, vss-manage-video-io-storage, vss-query-analytics, vss-search-archive, vss-summarize-video, vss-ask-video, vss-generate-video-report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
 
 Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
@@ -58,9 +58,9 @@ Fallback chains and matrix constraints live in [`AGENTS.md § Platform topology`
 ├── AGENTS.md              ← skills-eval agent's system prompt
 ├── skills_eval_agent.py   ← the CI entrypoint (spawns the agent)
 ├── adapters/              ← per-skill dataset generators
-│   ├── deploy/            ← profile × platform × mode matrix
+│   ├── vss-deploy-profile/            ← profile × platform × mode matrix
 │   │   └── generate.py
-│   ├── vios/              ← single-platform, step-chained
+│   ├── vss-manage-video-io-storage/   ← single-platform, step-chained
 │   │   └── generate.py
 │   └── <skill>/           ← the agent creates one if missing
 │       └── generate.py
@@ -111,9 +111,9 @@ Schema:
 | `expects[].query` | `string` | What the agent is asked to do at this step, in plain English. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl` / `docker` / `grep` commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
 
-### Eval-profile vs deploy-profile (deploy adapter only)
+### Eval-profile vs deploy-profile (vss-deploy-profile adapter only)
 
-The `deploy` adapter exposes a small `PROFILES` dict that maps **eval-profile names** to the underlying `/deploy` invocation:
+The `vss-deploy-profile` adapter exposes a small `PROFILES` dict that maps **eval-profile names** to the underlying `/vss-deploy-profile` invocation:
 
 ```python
 PROFILES = {
@@ -125,17 +125,17 @@ PROFILES = {
 }
 ```
 
-An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/deploy -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
+An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/vss-deploy-profile -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
 
-### Worked example — `skills/vios/eval/base_profile_ops.json`
+### Worked example — `skills/vss-manage-video-io-storage/eval/base_profile_ops.json`
 
 Three-step thread against a deployed VSS base: upload video → snapshot URL → clip URL. Produces 3 chained tasks on the targeted platform.
 
 ```json
 {
-  "skills": ["vios"],
+  "skills": ["vss-manage-video-io-storage"],
   "resources": {"platforms": {"L40S": {"modes": ["remote-all"]}}},
-  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — the vios skill exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — the vss-manage-video-io-storage skill exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 77770). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
   "expects": [
     {
       "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
@@ -165,12 +165,12 @@ Three-step thread against a deployed VSS base: upload video → snapshot URL →
 }
 ```
 
-Source: [`skills/vios/eval/base_profile_ops.json`](../../skills/vios/eval/base_profile_ops.json)
+Source: [`skills/vss-manage-video-io-storage/eval/base_profile_ops.json`](../../skills/vss-manage-video-io-storage/eval/base_profile_ops.json)
 
 What the agent derives from this spec:
-- `env` says **"full-remote deployed VSS base profile"** → inject a `deploy` task with `mode=remote-all` + `profile=base` ahead of the vios tasks.
+- `env` says **"full-remote deployed VSS base profile"** → inject a `vss-deploy-profile` task with `mode=remote-all` + `profile=base` ahead of the `vss-manage-video-io-storage` tasks.
 - `resources.platforms` is `{L40S: [remote-all]}` → one dataset, one platform. No fan-out.
-- `expects[]` has 3 entries → 3 chained vios tasks, each gated on `requires_previous_passed`.
+- `expects[]` has 3 entries → 3 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
 - `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.
 
 ## Running a trial by hand
@@ -181,9 +181,9 @@ For debugging an adapter or verifier locally, outside CI:
 set -a && source /home/ubuntu/eval-coordinator/.env && set +a
 
 # 1. Generate the dataset for one spec.
-python3 .github/skill-eval/adapters/vios/generate.py \
-  --output-dir /tmp/skill-eval/datasets/vios \
-  --skill-dir skills/vios \
+python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
+  --output-dir /tmp/skill-eval/datasets/vss-manage-video-io-storage \
+  --skill-dir skills/vss-manage-video-io-storage \
   --platform L40S
 
 # 2. Make sure you have a Brev instance for the target platform
@@ -196,7 +196,7 @@ export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p /tmp/skill-eval/datasets/vios/base_profile_ops \
+  -p /tmp/skill-eval/datasets/vss-manage-video-io-storage/base_profile_ops \
   --include-task-name "l40s-remote-all" \
   -a claude-code \
   --model "$ANTHROPIC_MODEL" \
