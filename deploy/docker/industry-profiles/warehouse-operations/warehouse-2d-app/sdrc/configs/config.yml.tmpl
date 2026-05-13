@@ -1,37 +1,3 @@
-# Template for config.yml. Placeholders written as $$VAR (which envsubst leaves
-# as $VAR in the output, see render-config.sh) are substituted at render time.
-# Supported variables (allowlisted in ../render-config.sh):
-#   HOST_IP      - host IP for Redis / Kafka / headerless endpoints (required)
-#   NUM_STREAMS  - optional, propagated through if referenced
-#
-# Regenerate config.yml after editing this file:
-#   HOST_IP=10.57.202.234 ../render-config.sh
-
-# docker-workload-testapp:
-#   wl_obj_name: wdm-python-testapp-1
-#   port: 4500
-#   enable: true
-#   WDM_CONSUMER_GRP_ID: consumer-grp-id-workload-w
-#   WDM_REDIS_CACHE_OBJECT: wdm-python-testapp-1-data
-#   WDM_TARGET_PORT_MAPPING: '{"default": 6000}'
-#   WDM_XDS_USE_POD_DNS: false
-#   WDM_XDS_USE_IP_ADDRESS: true
-# #  WDM_REAPPLY_ON_WL_RESTART: true
-#   WDM_CLUSTER_TYPE: docker
-#   WDM_CLUSTER_CONTAINER_NAMES: '["wdm-python-testapp-1"]'
-#   WDM_KFK_BOOTSTRAP_URL: "10.111.52.130:29092"
-#   WDM_WL_REDIS_PORT: 6379
-#   WDM_WL_REDIS_SERVER: 10.111.52.130
-#   WDM_INITIALIZE_FROM_VST: false
-#   WDM_WL_ADD_URL: /add
-#   WDM_WL_CHANGE_ID_ADD: camera_add
-#   WDM_WL_DELETE_URL: /delete
-#   WDM_WL_THRESHOLD: 3
-#   WDM_CONTROLLER_REPROVISION: true
-#   WDM_RESET_ON_WLOBJ_CRASH: false
-#   WDM_MS_LISTENER_PORT: 10001
-#   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config.json
-
 docker-workload-streamprocessing:
   wl_obj_name: vss-vios-streamprocessing
   port: 4005
