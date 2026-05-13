@@ -12,21 +12,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-enabled: false
-global: {}
 
-image:
-  repository: docker.io/library/alpine
-  tag: "3.23.2"
-  pullPolicy: IfNotPresent
-
-videoAnalyticsApiUrl: ""
-
-resourcesPvcName: ""
-downloadResourcesWaitSeconds: 300
-ngcResourcesToDownload: []
-
-resources: {}
-nodeSelector: {}
-tolerations: []
+{{- if and .Values.enabled .Values.downloadResourcesFromNgc }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vss-behavior-analytics.fullname" . }}-resources
+  labels:
+    {{- include "vss-behavior-analytics.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ include "vss-behavior-analytics.effectiveResourcesStorage" . }}
+  {{- $g := .Values.global | default dict }}
+  {{- $sc := .Values.resourcesPvc.storageClass | default (index $g "storageClass") }}
+  {{- with $sc }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}

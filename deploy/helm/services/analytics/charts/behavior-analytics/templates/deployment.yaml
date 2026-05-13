@@ -49,6 +49,42 @@ spec:
       imagePullSecrets:
         {{- toYaml (index $g "imagePullSecrets") | nindent 8 }}
       {{- end }}
+      {{- if .Values.downloadResourcesFromNgc }}
+      initContainers:
+        - name: wait-for-resources
+          image: "{{ .Values.ngcDownload.image.repository }}:{{ .Values.ngcDownload.image.tag }}"
+          imagePullPolicy: {{ .Values.ngcDownload.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              RESOURCES_ROOT="/resources-data"
+              TIMEOUT={{ .Values.downloadResourcesFromNgcWaitSeconds | default 300 }}
+              ELAPSED=0
+              while true; do
+                READY=true
+                {{- range .Values.ngcResourcesToDownload }}
+                if [ ! -e "${RESOURCES_ROOT}/{{ .destPath }}" ]; then
+                  READY=false
+                fi
+                {{- end }}
+                if [ "${READY}" = "true" ]; then
+                  break
+                fi
+                if [ ${ELAPSED} -ge ${TIMEOUT} ]; then
+                  echo "[ERROR] Timeout waiting for NGC resource files (${TIMEOUT}s)"
+                  exit 1
+                fi
+                echo "[INFO] Waiting for resource files... (${ELAPSED}s / ${TIMEOUT}s)"
+                sleep 10
+                ELAPSED=$((ELAPSED + 10))
+              done
+              echo "[INFO] Resource files present, proceeding."
+          volumeMounts:
+            - name: vss-behavior-analytics-resources
+              mountPath: /resources-data
+      {{- end }}
       containers:
         - name: vss-behavior-analytics
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -86,7 +122,12 @@ spec:
             name: {{ include "vss-behavior-analytics.fullname" . }}-config
         {{- if or .Values.resourceFiles.calibration.enabled .Values.resourceFiles.roadNetwork.enabled }}
         - name: vss-behavior-analytics-resources
+          {{- if .Values.downloadResourcesFromNgc }}
+          persistentVolumeClaim:
+            claimName: {{ include "vss-behavior-analytics.fullname" . }}-resources
+          {{- else }}
           configMap:
             name: {{ include "vss-behavior-analytics.fullname" . }}-resources
+          {{- end }}
         {{- end }}
 {{- end }}

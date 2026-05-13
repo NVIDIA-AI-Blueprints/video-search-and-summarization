@@ -386,6 +386,21 @@ analytics:
       roadNetwork:
         enabled: true
         mountPath: /resources/road-network.json
+    downloadResourcesFromNgc: true
+    downloadResourcesFromNgcWaitSeconds: 600
+    ngcApiKeySecretName: ngc-api
+    ngcApiKeySecretKey: NGC_CLI_API_KEY
+    ngcOrg: nv-metropolis-dev
+    ngcResourcesToDownload:
+      - resource: nv-metropolis-dev/met-smartcities/vss-smc-app-calibration-file:v3.2-montague-03122026
+        sourcePath: vss-smc-app-calibration-file_vv3.2-montague-03122026/calibration.json
+        destPath: calibration.json
+      - resource: nv-metropolis-dev/met-smartcities/vss-smc-app-road-network-file:v3.2-montague-03122026
+        sourcePath: vss-smc-app-road-network-file_vv3.2-montague-03122026/road-network.json
+        destPath: road-network.json
+    resourcesPvc:
+      size: 1Gi
+      storageClass: ""
     config:
       kafkaConfigJson: |
         {
@@ -557,6 +572,11 @@ calibration-toolkit:
 import-calibration:
   enabled: true
   videoAnalyticsApiUrl: ""
+  resourcesPvcName: vss-behavior-analytics-resources
+  downloadResourcesWaitSeconds: 600
+  ngcResourcesToDownload:
+    - destPath: calibration.json
+    - destPath: road-network.json
 
 # Ingress
 vssIngress:

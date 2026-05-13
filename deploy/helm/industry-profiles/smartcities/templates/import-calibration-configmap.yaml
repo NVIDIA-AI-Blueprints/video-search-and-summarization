@@ -31,10 +31,6 @@ metadata:
     "helm.sh/hook-weight": "5"
     "helm.sh/hook-delete-policy": before-hook-creation
 data:
-  calibration.json: |
-{{ .Files.Get "configs/behavior-analytics/calibration.json" | indent 4 }}
-  road-network.json: |
-{{ .Files.Get "configs/behavior-analytics/road-network.json" | indent 4 }}
   calibration-import.sh: |
     #!/bin/bash
     set -e
@@ -57,11 +53,11 @@ data:
 
     echo "Importing calibration..."
     curl -f -X POST "${API_URL}/config/upload-file/calibration" \
-      --form configFiles=@"/data/calibration.json" || { echo "Calibration import failed"; exit 1; }
+      --form configFiles=@"/resources/calibration.json" || { echo "Calibration import failed"; exit 1; }
 
     echo "Importing road network..."
     curl -f -X POST "${API_URL}/config/upload-file/road-network" \
-      --form configFiles=@"/data/road-network.json" || { echo "Road-network import failed"; exit 1; }
+      --form configFiles=@"/resources/road-network.json" || { echo "Road-network import failed"; exit 1; }
 
     sleep 2
     echo "Done"

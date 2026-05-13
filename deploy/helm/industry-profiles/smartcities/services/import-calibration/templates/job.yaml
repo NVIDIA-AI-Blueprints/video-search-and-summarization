@@ -36,6 +36,42 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       restartPolicy: OnFailure
+      {{- if .Values.resourcesPvcName }}
+      initContainers:
+        - name: wait-for-resources
+          image: {{ include "import-calibration.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              RESOURCES_ROOT="/resources"
+              TIMEOUT={{ .Values.downloadResourcesWaitSeconds | default 300 }}
+              ELAPSED=0
+              while true; do
+                READY=true
+                {{- range .Values.ngcResourcesToDownload }}
+                if [ ! -e "${RESOURCES_ROOT}/{{ .destPath }}" ]; then
+                  READY=false
+                fi
+                {{- end }}
+                if [ "${READY}" = "true" ]; then
+                  break
+                fi
+                if [ ${ELAPSED} -ge ${TIMEOUT} ]; then
+                  echo "[ERROR] Timeout waiting for NGC resource files (${TIMEOUT}s)"
+                  exit 1
+                fi
+                echo "[INFO] Waiting for resource files... (${ELAPSED}s / ${TIMEOUT}s)"
+                sleep 10
+                ELAPSED=$((ELAPSED + 10))
+              done
+              echo "[INFO] Resource files present, proceeding."
+          volumeMounts:
+            - name: resources
+              mountPath: /resources
+              readOnly: true
+      {{- end }}
       containers:
         - name: import-calibration
           image: {{ include "import-calibration.image" . }}
@@ -48,6 +84,11 @@ spec:
             - name: data
               mountPath: /data
               readOnly: true
+            {{- if .Values.resourcesPvcName }}
+            - name: resources
+              mountPath: /resources
+              readOnly: true
+            {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -57,6 +98,11 @@ spec:
           configMap:
             name: {{ include "import-calibration.fullname" . }}-data
             defaultMode: 493
+        {{- if .Values.resourcesPvcName }}
+        - name: resources
+          persistentVolumeClaim:
+            claimName: {{ .Values.resourcesPvcName }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

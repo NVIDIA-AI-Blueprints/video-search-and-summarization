@@ -23,5 +23,5 @@ dependencies:
 - name: video-analytics-ui
   repository: file://./charts/video-analytics-ui
   version: 26.04.2
-digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-generated: "2026-05-07T10:28:00.000000+00:00"
+digest: sha256:6a00a5bd1bdc08a993e8e60d000d078ea15e4b1628d866b857e9f232d82f1d25
+generated: "2026-05-12T09:13:33.438931182Z"
