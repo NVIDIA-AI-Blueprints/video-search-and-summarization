@@ -48,11 +48,11 @@ services:
     container_name: elasticsearch
     restart: always
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?local=false&wait_for_status=yellow&wait_for_events=normal&timeout=5s' | grep -q '\"timed_out\"[[:space:]]*:[[:space:]]*false'"]
       interval: 10s
       timeout: 10s
       retries: 60
-      start_period: 30s
+      start_period: 60s
 
   elasticsearch-init-container:
     build:
@@ -76,6 +76,7 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+    restart: "on-failure:5"
 
   kafka:
     image: confluentinc/cp-kafka:8.2.0

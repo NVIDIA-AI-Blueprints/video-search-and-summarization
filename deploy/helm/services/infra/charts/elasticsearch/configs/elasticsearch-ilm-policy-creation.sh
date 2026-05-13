@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,16 +15,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/bin/bash
 set -euo pipefail
 
-# ES CONNECTION VARIABLES
-ES_CONNECTION_RETRY_ATTEMPTS=0
-ES_CONNECTION_MAX_ATTEMPTS=10
-ES_URL="${ELASTICSEARCH_URL:-http://localhost:9200}"
+# ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
+ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"
+ELASTICSEARCH_CONNECTION_RETRY_INTERVAL="${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL:-5}"
+ELASTICSEARCH_HEALTH_TIMEOUT="${ELASTICSEARCH_HEALTH_TIMEOUT:-5s}"
+ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-${ES_URL:-http://localhost:9200}}"
 
 # ILM policy retention period (default: 4h)
 ELASTICSEARCH_ILM_MIN_AGE="${ELASTICSEARCH_ILM_MIN_AGE:-4h}"
+ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS="${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS:-12}"
+ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL="${ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL:-10}"
+
+is_retryable_http_code() {
+    [[ "$1" =~ ^(000|408|429|502|503|504)$ ]]
+}
 
 #################################
 ## function: check_ES_status
@@ -30,31 +38,91 @@ ELASTICSEARCH_ILM_MIN_AGE="${ELASTICSEARCH_ILM_MIN_AGE:-4h}"
 check_ES_status(){
     echo "Attempting to connect to the Elasticsearch server for ILM policy creation."
 
-    # Wait for ES to come up
-    until curl --output /dev/null --silent --head --fail -XGET "$ES_URL"; do
-        if [ ${ES_CONNECTION_RETRY_ATTEMPTS} -eq ${ES_CONNECTION_MAX_ATTEMPTS} ];then
-            exit_with_msg "Max attempts to connect to ES reached."
+    local attempt=1
+    local response
+    local health_url="${ELASTICSEARCH_URL}/_cluster/health?local=false&wait_for_status=yellow&wait_for_events=normal&timeout=${ELASTICSEARCH_HEALTH_TIMEOUT}"
+
+    while [ "${attempt}" -le "${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS}" ]; do
+        if response=$(curl -fsS "${health_url}" 2>&1); then
+            if echo "${response}" | grep -Eq '"timed_out"[[:space:]]*:[[:space:]]*false'; then
+                echo "Elasticsearch cluster health is ready for ILM policy creation."
+                return
+            fi
+
+            echo "Elasticsearch cluster health check timed out waiting for a ready master."
+        else
+            echo "Unable to connect to ES: ${response}"
         fi
 
-        ES_CONNECTION_RETRY_ATTEMPTS=$(($ES_CONNECTION_RETRY_ATTEMPTS+1))
-        echo "Unable to connect to ES. Trying to reconnect - (attempt $ES_CONNECTION_RETRY_ATTEMPTS/$ES_CONNECTION_MAX_ATTEMPTS)"
-        sleep 5
+        echo "Trying to reconnect - (attempt ${attempt}/${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS})"
+        attempt=$((attempt+1))
+        sleep "${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL}"
     done
+
+    exit_with_msg "Max attempts to connect to a ready Elasticsearch cluster reached."
+}
+
+put_json_with_retry() {
+    local description="$1"
+    local path="$2"
+    local payload="$3"
+    local success_codes="${4:-200}"
+    local attempt=1
+    local response
+    local curl_exit_code
+    local http_code
+    local response_body
+
+    while [ "${attempt}" -le "${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS}" ]; do
+        curl_exit_code=0
+        response=$(curl -sS -w "\\n%{http_code}" "${ELASTICSEARCH_URL}${path}" \
+          -X 'PUT' \
+          -H 'Content-Type: application/json' \
+          --data-raw "${payload}" \
+          --compressed \
+          --insecure 2>&1) || curl_exit_code=$?
+
+        http_code=$(printf '%s\n' "${response}" | tail -n1)
+        if [[ "${http_code}" =~ ^[0-9]{3}$ ]]; then
+            response_body=$(printf '%s\n' "${response}" | sed '$d')
+        else
+            http_code="000"
+            response_body="${response}"
+        fi
+
+        echo "HTTP code: ${http_code}"
+        if [[ " ${success_codes} " == *" ${http_code} "* ]]; then
+            echo "Successfully completed ${description}."
+            return
+        fi
+
+        if is_retryable_http_code "${http_code}" && [ "${attempt}" -lt "${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS}" ]; then
+            if [ "${curl_exit_code}" -ne 0 ]; then
+                echo "Curl exited with code ${curl_exit_code} while processing ${description}."
+            fi
+            echo "Elasticsearch is not ready to process ${description}; retrying in ${ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL}s (attempt ${attempt}/${ELASTICSEARCH_ILM_CREATE_MAX_ATTEMPTS})."
+            attempt=$((attempt+1))
+            sleep "${ELASTICSEARCH_ILM_CREATE_RETRY_INTERVAL}"
+            continue
+        fi
+
+        echo "Error response from Elasticsearch:" >&2
+        echo "${response_body}" >&2
+        exit_with_msg "Curl command for ${description} failed with HTTP status ${http_code}."
+    done
+
+    exit_with_msg "Exceeded max attempts for ${description}."
 }
 
 configure_ilm_settings(){
     echo "Configuring ILM settings for faster execution."
     
     # Set ILM poll interval to 30 seconds instead of default 10 minutes
-    curl -X PUT "$ES_URL/_cluster/settings" \
-      -H 'Content-Type: application/json' \
-      --data-raw '{
+    put_json_with_retry "ILM poll interval configuration" "/_cluster/settings" '{
         "persistent": {
           "indices.lifecycle.poll_interval": "30s"
         }
-      }' \
-      --compressed \
-      --insecure || exit_with_msg "Failed to configure ILM poll interval."
+      }'
     
     echo "ILM poll interval set to 30 seconds."
 }
@@ -67,22 +135,7 @@ create_ilm_policy() {
     local policy_config="$2"
     
     echo "Creating ILM policy: ${policy_name}"
-    response=$(curl -s -w "\\n%{http_code}" "${ES_URL}/_ilm/policy/${policy_name}" \
-      -X 'PUT' \
-      -H 'Content-Type: application/json' \
-      --data-raw "${policy_config}" \
-      --compressed \
-      --insecure)
-    
-    http_code=$(echo "$response" | tail -n1)
-    response_body=$(echo "$response" | sed '$d')
-    echo "HTTP code: ${http_code}"
-    if [ "${http_code}" -ne 200 ]; then
-        echo "Error response from Elasticsearch:" >&2
-        echo "${response_body}" >&2
-        exit_with_msg "Curl command to create ${policy_name} in Elasticsearch failed with HTTP status ${http_code}."
-    fi
-    echo "Successfully created ${policy_name}."
+    put_json_with_retry "ILM policy ${policy_name}" "/_ilm/policy/${policy_name}" "${policy_config}"
 }
 
 create_ilm_policies(){
