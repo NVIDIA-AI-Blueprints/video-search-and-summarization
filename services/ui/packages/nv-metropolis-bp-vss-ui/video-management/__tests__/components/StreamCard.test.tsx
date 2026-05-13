@@ -176,7 +176,7 @@ describe('StreamCard — copy and chat context', () => {
     });
   });
 
-  it('emits type="video" for uploaded videos (NVBug 6171391)', async () => {
+  it('emits type="video" for uploaded videos', async () => {
     const onAddChatQueryContext = jest.fn();
     renderStreamCard({ onAddChatQueryContext });
 

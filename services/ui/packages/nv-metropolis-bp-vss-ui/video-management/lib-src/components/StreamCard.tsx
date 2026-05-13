@@ -119,11 +119,6 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   };
 
   const handleCopyContext = useCallback(async () => {
-    // Match the media_type vocabulary used by report_agent / vst_video_list:
-    // 'rtsp' for live streams, 'video' for uploaded files. Previously this was
-    // hardcoded to 'video-stream' for everything, which biased the LLM into
-    // calling report_agent(media_type='rtsp', sensor_id=streamId) for uploaded
-    // MP4s and failing validation on base profile (NVBug 6171391).
     const type = isRtspStream(stream) ? 'rtsp' : 'video';
     const data = { sensorName: stream.name, streamId: stream.streamId };
     const text = JSON.stringify(data, null, 2);
