@@ -119,17 +119,13 @@ export const StreamCard: React.FC<StreamCardProps> = ({
   };
 
   const handleCopyContext = useCallback(async () => {
-    // Match the source_type vocabulary used by search_agent / report_agent:
-    // 'rtsp' for live streams, 'video_file' for uploaded MP4s. The agent's
-    // top_agent prompt routes off this `type` field, so emitting the wrong
-    // value sends report_agent into the wrong code path (NVBug 6171391).
-    const isRtsp = isRtspStream(stream);
-    const type = isRtsp ? 'rtsp' : 'video_file';
-    // streamId is VST-internal; only meaningful for live streams. Drop it for
-    // uploaded files where `sensorName` (== filename) is the report sensor_id.
-    const data: Record<string, string> = isRtsp
-      ? { sensorName: stream.name, streamId: stream.streamId }
-      : { sensorName: stream.name };
+    // Match the media_type vocabulary used by report_agent / vst_video_list:
+    // 'rtsp' for live streams, 'video' for uploaded files. Previously this was
+    // hardcoded to 'video-stream' for everything, which biased the LLM into
+    // calling report_agent(media_type='rtsp', sensor_id=streamId) for uploaded
+    // MP4s and failing validation on base profile (NVBug 6171391).
+    const type = isRtspStream(stream) ? 'rtsp' : 'video';
+    const data = { sensorName: stream.name, streamId: stream.streamId };
     const text = JSON.stringify(data, null, 2);
 
     onAddChatQueryContext?.({

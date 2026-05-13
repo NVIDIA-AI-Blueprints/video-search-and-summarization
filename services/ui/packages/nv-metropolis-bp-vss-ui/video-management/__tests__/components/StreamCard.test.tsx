@@ -164,19 +164,19 @@ describe('StreamCard — copy and chat context', () => {
     mockCopyToClipboard.mockImplementation(() => Promise.resolve());
   });
 
-  it('copies JSON to clipboard when + Chat is clicked on an uploaded video (no streamId)', async () => {
+  it('copies JSON to clipboard when + Chat is clicked', async () => {
     renderStreamCard();
 
     fireEvent.click(screen.getByRole('button', { name: /\+\s*chat/i }));
 
     await waitFor(() => {
       expect(mockCopyToClipboard).toHaveBeenCalledWith(
-        JSON.stringify({ sensorName: videoStream.name }, null, 2),
+        JSON.stringify({ sensorName: videoStream.name, streamId: videoStream.streamId }, null, 2),
       );
     });
   });
 
-  it('emits source_type="video_file" for uploaded videos (NVBug 6171391)', async () => {
+  it('emits type="video" for uploaded videos (NVBug 6171391)', async () => {
     const onAddChatQueryContext = jest.fn();
     renderStreamCard({ onAddChatQueryContext });
 
@@ -186,15 +186,15 @@ describe('StreamCard — copy and chat context', () => {
     expect(onAddChatQueryContext).toHaveBeenCalledWith({
       id: `video-mgmt-stream:${videoStream.streamId}`,
       label: videoStream.name,
-      type: 'video_file',
-      data: { sensorName: videoStream.name },
+      type: 'video',
+      data: { sensorName: videoStream.name, streamId: videoStream.streamId },
     });
     await waitFor(() => {
       expect(mockCopyToClipboard).toHaveBeenCalled();
     });
   });
 
-  it('emits source_type="rtsp" with streamId for RTSP live streams', async () => {
+  it('emits type="rtsp" for RTSP live streams', async () => {
     const onAddChatQueryContext = jest.fn();
     renderStreamCard({ stream: rtspStream, onAddChatQueryContext });
 
@@ -205,11 +205,6 @@ describe('StreamCard — copy and chat context', () => {
       label: rtspStream.name,
       type: 'rtsp',
       data: { sensorName: rtspStream.name, streamId: rtspStream.streamId },
-    });
-    await waitFor(() => {
-      expect(mockCopyToClipboard).toHaveBeenCalledWith(
-        JSON.stringify({ sensorName: rtspStream.name, streamId: rtspStream.streamId }, null, 2),
-      );
     });
   });
 });

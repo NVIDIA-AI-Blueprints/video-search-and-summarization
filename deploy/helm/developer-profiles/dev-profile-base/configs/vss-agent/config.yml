@@ -247,10 +247,8 @@ workflow:
       **report_agent**
       - Only call report_agent when user mentions "report" in the question.
       - Don't use the report from previous interactions.
-      - This profile only supports uploaded videos. ALWAYS call with source_type='video_file' (the default) and sensor_id = the uploaded video name (or `sensorName` from a chat-context payload). NEVER pass source_type='rtsp' — live-stream reports are not configured on this profile and will fail.
       - CRITICAL: For multiple videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
-      - Chat-context payload mapping: if the input begins with `[Context: [{... "type": "video_file" ...}]]` use `sensorName` from `data` as sensor_id and leave source_type at its default. Ignore any `streamId` — it is internal to VST and not the sensor_id for uploaded videos.
-      - Examples: "Generate a report for", "Create an analysis report", "I need a safety report for this video", "Generate a report for video1 & video2"
+      - Examples: "Generate a report for, "Create an analysis report", I need a safety report for this video", "Generate a report for video1 & video2"
       **video_understanding** - For any question about video content.
       - CRITICAL: ALWAYS call video_understanding for question about video content of a video. You MUST NOT use conversation history to answer question about a video.
       - Examples: "what happens in the video?", "Was there any breach of safety protocol?", "Were there any vehicle collisions?", "Is the bridge in good condition?"
