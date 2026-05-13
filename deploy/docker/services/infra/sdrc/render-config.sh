@@ -9,6 +9,7 @@
 # Usage (host):
 #   HOST_IP=10.57.202.234 ./render-config.sh
 #   HOST_IP=10.57.202.234 NUM_STREAMS=8 ./render-config.sh path/to/tmpl path/to/out
+#   HOST_IP=10.57.202.234 NUM_SENSORS=8 ./render-config.sh path/to/tmpl path/to/out
 #
 # Usage (init container):
 #   sh /render-config.sh /tmpl/config.yml.tmpl /out/config.yml
@@ -24,7 +25,7 @@ OUT="${2:-$SCRIPT_DIR/configs/config.yml}"
 
 # Allowlist of variables to expand. Add new placeholders here when the
 # template starts referencing additional variables.
-ALLOWED_VARS='${HOST_IP} ${NUM_STREAMS}'
+ALLOWED_VARS='${HOST_IP} ${NUM_STREAMS} ${NUM_SENSORS}'
 
 if [ ! -f "$TMPL" ]; then
   echo "render-config.sh: template not found: $TMPL" >&2
@@ -32,6 +33,13 @@ if [ ! -f "$TMPL" ]; then
 fi
 
 : "${HOST_IP:?HOST_IP must be set (export it or pass it inline: HOST_IP=1.2.3.4 $0)}"
+if [ -z "${NUM_STREAMS:-}" ] && [ -z "${NUM_SENSORS:-}" ]; then
+  echo "render-config.sh: NUM_STREAMS or NUM_SENSORS must be set" >&2
+  exit 1
+fi
+NUM_STREAMS="${NUM_STREAMS:-$NUM_SENSORS}"
+NUM_SENSORS="${NUM_SENSORS:-$NUM_STREAMS}"
+export NUM_STREAMS NUM_SENSORS
 
 if ! command -v envsubst >/dev/null 2>&1; then
   if command -v apk >/dev/null 2>&1; then
