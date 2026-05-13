@@ -208,9 +208,6 @@ services:
         condition: service_completed_successfully
       elasticsearch-init-container:
         condition: service_completed_successfully
-      lvs-server:
-        condition: service_healthy
-        required: false
     command: >
       bash -c "
         echo 'Installing gems for mdx-apps.. This may take sometime to install plugins...' &&
