@@ -387,7 +387,7 @@ analytics:
         enabled: true
         mountPath: /resources/road-network.json
     downloadResourcesFromNgc: true
-    downloadResourcesFromNgcWaitSeconds: 600
+    downloadResourcesFromNgcWaitSeconds: 300
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
     ngcOrg: nv-metropolis-dev
@@ -573,7 +573,7 @@ import-calibration:
   enabled: true
   videoAnalyticsApiUrl: ""
   resourcesPvcName: vss-behavior-analytics-resources
-  downloadResourcesWaitSeconds: 600
+  downloadResourcesWaitSeconds: 300
   ngcResourcesToDownload:
     - destPath: calibration.json
     - destPath: road-network.json

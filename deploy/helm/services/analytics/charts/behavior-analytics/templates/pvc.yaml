@@ -22,7 +22,7 @@ metadata:
     {{- include "vss-behavior-analytics.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - ReadWriteOnce
+    - {{ .Values.resourcesPvc.accessMode | default "ReadWriteOnce" }}
   resources:
     requests:
       storage: {{ include "vss-behavior-analytics.effectiveResourcesStorage" . }}

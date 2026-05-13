@@ -62,6 +62,7 @@ forceResourcesStorageFromValues: false
 resourcesPvc:
   size: 1Gi
   storageClass: ""
+  accessMode: ReadWriteOnce
 
 imagePullSecrets: []
 
