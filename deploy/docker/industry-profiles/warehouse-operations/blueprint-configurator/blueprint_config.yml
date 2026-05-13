@@ -102,6 +102,14 @@ commons:
       - variable: BP_PROFILE
         allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis"]
 
+      # bp_wh 2d profile is not supported on IGX-THOR or DGX-SPARK
+      - variable: HARDWARE_PROFILE
+        condition:
+          variable: BP_PROFILE
+          equals: "bp_wh"
+        disallowed_values: ["IGX-THOR", "DGX-SPARK"]
+        error_message: "BP_PROFILE=bp_wh in 2d mode is not supported on IGX-THOR or DGX-SPARK"
+
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
         allowed_values: ["kafka", "redis"]
