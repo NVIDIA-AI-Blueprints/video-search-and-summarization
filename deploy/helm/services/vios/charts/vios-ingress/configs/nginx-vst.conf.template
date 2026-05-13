@@ -74,6 +74,8 @@ http {
     # - EXTERNAL_IP on ports 30888 and 3000: full CORS with pre-flight
     # - INTERNAL_IP on any port: CORS for server-side calls
     # - localhost on any port: CORS for local development
+    # - External host domain and subdomains (for ingress-based access)
+{{- $extHost := index ($g) "externalHost" | default "" | trim }}
     map $http_origin $cors_origin {
         default "0";  # Use "0" instead of empty string for clearer logic
         
@@ -87,16 +89,28 @@ http {
         # Localhost - any port (for local development)
         "~^https?://localhost:\d+$" $http_origin;
         "~^https?://127.0.0.1:\d+$" $http_origin;
+{{- if ne $extHost "" }}
+
+        # External host domain and subdomains (with or without port)
+        "~^https?://{{ $extHost | replace "." "\\." }}(:\\d+)?$" $http_origin;
+        "~^https?://[^.]+\\.{{ $extHost | replace "." "\\." }}(:\\d+)?$" $http_origin;
+{{- end }}
     }
 
     # Single map for pre-flight: combines origin + method check (avoids nested ifs)
     # Only for EXTERNAL_IP on ports 30888, 3000 + OPTIONS method
+    # + external host domain and subdomains
     map "$http_origin:$request_method" $is_preflight {
         default 0;
         
         # External IP - specific ports - OPTIONS requests only
         "~^https?://__EXTERNAL_IP__:30888:OPTIONS$" 1;
         "~^https?://__EXTERNAL_IP__:3000:OPTIONS$" 1;
+{{- if ne $extHost "" }}
+
+        # External host domain and subdomains - OPTIONS requests only
+        "~^https?://(([^.]+\\.)?{{ $extHost | replace "." "\\." }})(:\\d+)?:OPTIONS$" 1;
+{{- end }}
     }
 
     server {
