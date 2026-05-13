@@ -1,8 +1,11 @@
 ---
 name: deploy
-description: Load when the user says "configure vss", "deploy vss", "deploy <profile>", "debug deploy", "verify deployment", or "why is my vss deploy broken".
-version: "3.2.0"
-license: "Apache License 2.0"
+description: Load when the user says "configure vss", "deploy vss", "deploy `profile`", "debug deploy", "verify deployment", or "why is my vss deploy broken".
+license: Apache-2.0
+metadata:
+  version: "3.2.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint deployment"
 ---
 
 # VSS Deploy

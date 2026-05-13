@@ -23,7 +23,7 @@ jest.mock('@nemo-agent-toolkit/ui', () => ({
 }));
 
 jest.mock('../../lib-src/chunkedUpload', () => ({
-  uploadFileChunked: jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' }),
+  chunkedUpload: jest.fn().mockResolvedValue({ sensorId: 'mock-sensor' }),
   notifyUploadComplete: jest.fn().mockResolvedValue(undefined),
 }));
 

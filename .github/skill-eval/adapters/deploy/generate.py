@@ -47,8 +47,13 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 # Constants
 # ---------------------------------------------------------------------------
 
-VSS_REPO_URL = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
-VSS_BRANCH = "feat/skills"
+# Fallback only — when the harness can't tell what to sync to (no
+# PR_HEAD_SHA forwarded, e.g. a local dev run outside CI), fall back
+# to develop. In CI, brev_env.py forwards PR_HEAD_SHA + PR_REPO from
+# the workflow step into ~/.eval_env on the instance, and the
+# pre-deploy script below resets the working tree to that exact SHA.
+VSS_REPO_URL_DEFAULT = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
+VSS_BRANCH_FALLBACK = "develop"
 
 # ---------------------------------------------------------------------------
 # Platform / GPU specs
@@ -209,6 +214,13 @@ def effective_mode_spec(platform: str, mode: str) -> dict:
 #                        `-p alerts -m verification`). Empty or absent means
 #                        the dict key is itself the deploy profile.
 #   - deploy_mode      → value of `/deploy -m ...` for this eval variant
+#   - local_extras     → additional **always-local** GPUs this profile needs
+#                        beyond LLM/VLM placement. alerts runs RT-CV locally in
+#                        every mode; search runs Cosmos Embed1 locally in every
+#                        mode. Added on top of MODES[mode]["gpus_needed"] when
+#                        computing task-file `gpu_count`. See
+#                        skills/deploy/SKILL.md § Platform × Mode table and
+#                        skills/deploy/references/{alerts,search}.md.
 # Everything else (platforms, modes, checks) lives in the spec.
 PROFILES: dict[str, dict] = {
     "base": {
@@ -220,18 +232,21 @@ PROFILES: dict[str, dict] = {
                        "RT-CV generates candidate alerts, VLM reviews each",
         "profile": "alerts",
         "deploy_mode": "verification",
+        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "alerts_vlm": {
         "description": "VSS alerts profile, VLM mode (`deploy -m real-time`) — "
                        "VLM continuously processes live video",
         "profile": "alerts",
         "deploy_mode": "real-time",
+        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
     },
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
+        "local_extras": 1,  # RTVI-Embed (Cosmos Embed1) GPU (always local)
     },
 }
 
@@ -300,6 +315,17 @@ def _query_hint(mode_spec: dict, llm_remote: dict | None,
     return ""
 
 
+# Prepended to every instruction.md so the skill's own HITL bypass
+# clause fires. Skills default to "ask the user" before /deploy; in CI
+# there's no user, so without this preamble the agent stalls.
+PREAMBLE = (
+    "You are running inside a non-interactive evaluation harness. "
+    "You are pre-authorized to deploy prerequisites autonomously — "
+    "do not pause to ask for confirmation on `/deploy` or any other "
+    "setup action the trial requires."
+)
+
+
 def generate_instruction(
     profile: str,
     platform: str,
@@ -330,6 +356,8 @@ def generate_instruction(
     verb_phrase += " autonomously — do not ask for confirmation before running."
 
     body = [
+        PREAMBLE,
+        "",
         verb_phrase,
         "",
         "Use the `/deploy` skill.",
@@ -398,10 +426,18 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
     return _sub(spec)
 
 
-def generate_test_script(spec_name: str) -> str:
+def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
-    /logs/verifier/reward.txt."""
+    /logs/verifier/reward.txt.
+
+    On a full-pass (reward == 1.0), OVERWRITES the canonical active
+    marker `/tmp/skill-eval/active-deploy.txt` with this trial's
+    `<underlying_profile>-<mode>` so dependent trials (vios, video-*)
+    reading the marker via `BrevEnvironment._ensure_prerequisite_deployed`
+    see what is currently RUNNING on the box rather than a per-flag
+    deploy log. See specs/stale-marker.spec for why per-flag was wrong."""
+    underlying_profile = deploy_profile(profile)
     return (
         "#!/bin/bash\n"
         "# deploy verifier: delegates to the generic LLM-as-judge\n"
@@ -415,6 +451,17 @@ def generate_test_script(spec_name: str) -> str:
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+        "\n"
+        "# On full pass, overwrite the canonical active-deploy marker so\n"
+        "# downstream trials (vios/video-*) reuse the running deployment\n"
+        "# instead of re-running /deploy. Overwrite, never append — the\n"
+        "# marker is what is currently RUNNING, not a deploy log.\n"
+        'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
+        f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
+        f'  mkdir -p /tmp/skill-eval && '
+        f"printf '%s\\n' '{underlying_profile}-{mode}' "
+        f"> /tmp/skill-eval/active-deploy.txt\n"
+        "fi\n"
         "exit 0\n"
     )
 
@@ -480,10 +527,40 @@ def generate_solve_script(
         "    docker login nvcr.io -u '\\$oauthtoken' -p \"$NGC_CLI_API_KEY\" 2>/dev/null || true",
         "fi",
         "",
-        "# --- Clone repo ---",
-        'if [ ! -d "$REPO" ]; then',
-        "    git clone --branch " + VSS_BRANCH + " " + VSS_REPO_URL + ' "$REPO"',
+        "# --- Sync repo to PR head ---",
+        "# PR_HEAD_SHA + PR_REPO are forwarded from the workflow step",
+        "# by brev_env.py. On a warm-pool box, $REPO usually already",
+        "# exists from a prior trial — fetch + reset to the PR SHA",
+        "# instead of re-cloning so the deploy step always validates",
+        "# the PR's actual code, never a stale checkout from a previous",
+        "# trial or the adapter's baked-in fallback branch.",
+        "PR_REPO=\"${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}\"",
+        "PR_HEAD_SHA=\"${PR_HEAD_SHA:-}\"",
+        "VSS_REPO_URL=\"https://github.com/${PR_REPO}.git\"",
+        "if [ ! -d \"$REPO/.git\" ]; then",
+        "    # Cold instance: clone shallow at fallback branch; we'll",
+        "    # fetch the exact SHA next.",
+        "    git clone --no-checkout --depth=1 --branch " + VSS_BRANCH_FALLBACK + " \"$VSS_REPO_URL\" \"$REPO\"",
         "fi",
+        "cd \"$REPO\"",
+        "# Make sure the origin URL matches the source PR's repo (handles",
+        "# the case where a prior trial cloned from a different fork).",
+        "git remote set-url origin \"$VSS_REPO_URL\"",
+        "if [ -n \"$PR_HEAD_SHA\" ]; then",
+        "    git fetch --depth=1 origin \"$PR_HEAD_SHA\"",
+        "    git -c advice.detachedHead=false checkout --force \"$PR_HEAD_SHA\"",
+        "    git reset --hard \"$PR_HEAD_SHA\"",
+        "else",
+        "    # Local / dev: no PR SHA forwarded — sync to the fallback",
+        "    # branch tip so we at least get something current.",
+        "    git fetch --depth=1 origin " + VSS_BRANCH_FALLBACK,
+        "    git -c advice.detachedHead=false checkout --force FETCH_HEAD",
+        "    git reset --hard FETCH_HEAD",
+        "fi",
+        "# Wipe any leftover working-tree state from a prior trial, but",
+        "# keep data/ (sample-data extract — slow to re-pull from NGC).",
+        "git clean -fdx -e data/ -e .env",
+        "cd - > /dev/null",
         'mkdir -p "$REPO/data"',
         "",
         "# --- Configure .env ---",
@@ -523,8 +600,16 @@ def generate_task(
     skill_dir: Path | None,
     llm_remote: dict | None,
     vlm_remote: dict | None,
+    gpu_count_override: int | None = None,
 ) -> None:
-    """Write a single Harbor task directory for <profile>/<platform>-<mode>."""
+    """Write a single Harbor task directory for <profile>/<platform>-<mode>.
+
+    `gpu_count_override` (when not None) is written verbatim to task.toml's
+    `gpu_count` field, bypassing the mode-derived calculation
+    (`MODES[mode].gpus_needed + PROFILES[profile].local_extras`). Spec
+    authors use this to express "this profile needs an N-GPU box" without
+    leaking mode-selection vocabulary into the spec layer.
+    """
     platform_spec = PLATFORMS[platform]
     mode_spec = effective_mode_spec(platform, mode)
 
@@ -556,7 +641,11 @@ def generate_task(
         "# GPU requirements — BrevEnvironment checks these against the",
         "# instance's actual GPU capacity before the trial runs.",
         f'gpu_type = "{platform_spec["gpu_type"]}"',
-        f'gpu_count = {mode_spec["gpus_needed"]}',
+        (
+            f'gpu_count = {gpu_count_override}'
+            if gpu_count_override is not None
+            else f'gpu_count = {mode_spec["gpus_needed"] + profile_def.get("local_extras", 0)}'
+        ),
         f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
         f'brev_search = "{platform_spec["brev_search"]}"',
         "# Disk + driver requirements — BrevEnvironment validates both via",
@@ -580,7 +669,12 @@ def generate_task(
         "[verifier.env]",
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        'JUDGE_MODEL = "${JUDGE_MODEL:-claude-haiku-4-5}"',
+        # ANTHROPIC_MODEL gives the verifier's judge model cascade
+        # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
+        # fallback when JUDGE_MODEL is unset. Forwarding a literal
+        # default for JUDGE_MODEL would bake it in and short-circuit
+        # the cascade — the proxy 401s the literal default outright.
+        'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
         "",
     ]
     (task_dir / "task.toml").write_text("\n".join(meta_lines))
@@ -604,7 +698,7 @@ def generate_task(
         )
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
-        (tests_dir / "test.sh").write_text(generate_test_script(spec_name))
+        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile, mode))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
     else:
@@ -612,7 +706,7 @@ def generate_task(
         # reports a clear failure instead of silently passing.
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
-            f"echo 'FAIL: no eval spec at skills/deploy/eval/{underlying}.json' >&2\n"
+            f"echo 'FAIL: no eval spec at skills/deploy/eval/{profile}.json' >&2\n"
             "mkdir -p /logs/verifier\n"
             "echo 0 > /logs/verifier/reward.txt\n"
             "exit 0\n"
@@ -647,11 +741,17 @@ def _mode_needs_local_nim(mode_spec: dict) -> bool:
     return mode_spec["llm_mode"] != "remote" or mode_spec["vlm_mode"] != "remote"
 
 
-def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[str]] | None:
+def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, dict] | None:
     """If the skill's `eval/<profile>.json` declares `resources.platforms`,
-    return {platform: [modes...]}. Else return None (adapter falls back to
-    PLATFORMS defaults below). Gives the spec author control over which
-    platforms/modes to exercise — e.g. `alerts_cv` only on 2-GPU hosts."""
+    return {platform: {"modes": [...], "gpu_count": int | None}}. Else
+    return None (adapter falls back to PLATFORMS defaults below).
+
+    Spec authors can:
+      - declare `modes: [...]` to enumerate LLM/VLM placements to test, or
+      - omit `modes` and declare `gpu_count: N` to test a single
+        platform-shape variant (the adapter picks an internal default mode;
+        only alerts profiles surface a `-m <variant>` flag via PROFILES).
+    """
     if skill_dir is None:
         return None
     spec_path = skill_dir / "eval" / f"{profile}.json"
@@ -664,7 +764,22 @@ def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[
     resources = (spec.get("resources") or {}).get("platforms")
     if not isinstance(resources, dict) or not resources:
         return None
-    return {p: list((v or {}).get("modes") or []) for p, v in resources.items()}
+    out: dict[str, dict] = {}
+    for p, v in resources.items():
+        v = v or {}
+        modes = list(v.get("modes") or [])
+        # No modes declared → single internal iteration. "remote-all" is the
+        # one mode every profile supports (LLM/VLM both remote) so it's the
+        # safe default; spec author isn't asserting LLM placement, they only
+        # care about platform × gpu_count.
+        if not modes:
+            modes = ["remote-all"]
+        gpu_count = v.get("gpu_count")
+        out[p] = {
+            "modes": modes,
+            "gpu_count": int(gpu_count) if gpu_count is not None else None,
+        }
+    return out
 
 
 def expand_matrix(
@@ -675,16 +790,18 @@ def expand_matrix(
     have_vlm_remote: bool,
     have_ngc_key: bool,
     skill_dir: Path | None = None,
-) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
+) -> tuple[list[tuple[str, str, str, int | None]], list[tuple[str, str, str, str]]]:
     """Return (included, skipped) where:
-        included = list of (profile, platform, mode) that will be generated
-        skipped  = list of (profile, platform, mode, reason)
+        included = list of (profile, platform, mode, gpu_count_override) tuples
+                   gpu_count_override is None unless the spec declared a value
+                   that should override the mode-derived calculation.
+        skipped  = list of (profile, platform, mode, reason) tuples
     For each profile, the platform × mode matrix comes from:
       - `spec.resources.platforms` if declared in `skills/deploy/eval/<profile>.json`
       - otherwise falls back to the full PLATFORMS × supported_modes defaults
     Also filters: --profile/--platform/--mode CLI, remote URL availability for
     modes that need them, and NGC_CLI_API_KEY for modes that pull local NIMs."""
-    included: list[tuple[str, str, str]] = []
+    included: list[tuple[str, str, str, int | None]] = []
     skipped: list[tuple[str, str, str, str]] = []
     for profile in PROFILES:
         if profile_filter and profile != profile_filter:
@@ -693,20 +810,21 @@ def expand_matrix(
         # Prefer the spec's own declaration; fall back to the adapter defaults.
         spec_matrix = _spec_platforms_for(profile, skill_dir)
         if spec_matrix is not None:
-            platform_modes = spec_matrix
+            platform_entries = spec_matrix
         else:
-            platform_modes = {
-                p: list(pspec["supported_modes"])
+            platform_entries = {
+                p: {"modes": list(pspec["supported_modes"]), "gpu_count": None}
                 for p, pspec in PLATFORMS.items()
             }
 
-        for platform, modes in platform_modes.items():
+        for platform, pinfo in platform_entries.items():
             if platform_filter and platform != platform_filter:
                 continue
             if platform not in PLATFORMS:
                 skipped.append((profile, platform, "-", f"unknown platform {platform!r}"))
                 continue
-            for mode in modes:
+            gpu_count_override = pinfo["gpu_count"]
+            for mode in pinfo["modes"]:
                 if mode_filter and mode != mode_filter:
                     continue
                 if mode not in MODES:
@@ -723,7 +841,7 @@ def expand_matrix(
                 if reason:
                     skipped.append((profile, platform, mode, reason))
                 else:
-                    included.append((profile, platform, mode))
+                    included.append((profile, platform, mode, gpu_count_override))
     return included, skipped
 
 
@@ -843,13 +961,15 @@ def main() -> None:
 
     # --- Generate ---
     print(f"=== Generating ({len(included)}) ===")
-    for profile, platform, mode in included:
+    for profile, platform, mode, gpu_count_override in included:
         task_id = make_task_id(platform, mode)
-        print(f"  GEN  {profile}/{task_id}")
+        suffix = f" (gpu_count={gpu_count_override} from spec)" if gpu_count_override is not None else ""
+        print(f"  GEN  {profile}/{task_id}{suffix}")
         generate_task(
             profile, platform, mode,
             PROFILES[profile], output_root, skill_dir,
             llm_remote, vlm_remote,
+            gpu_count_override=gpu_count_override,
         )
 
     print()
@@ -857,7 +977,7 @@ def main() -> None:
     print()
     print("Coverage:")
     by_profile: dict[str, list[str]] = {}
-    for p, plat, m in included:
+    for p, plat, m, _ in included:
         by_profile.setdefault(p, []).append(make_task_id(plat, m))
     for p, tasks in by_profile.items():
         print(f"  {p}: {', '.join(tasks)}")

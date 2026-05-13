@@ -104,7 +104,7 @@ services:
     restart: unless-stopped
 
   lvs-server:
-    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc6-eec0a57}
+    image: ${CONTAINER_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization:3.2.0-rc9-10bde8d}
     container_name: vss-lvs
 
     profiles: ["bp_developer_lvs_2d"]
@@ -175,7 +175,7 @@ services:
 
       # Feature flags
       - DISABLE_CA_RAG=false
-      - ENABLE_AUDIO=false
+      - ENABLE_AUDIO=${ENABLE_AUDIO:-false}
       - ENABLE_DENSE_CAPTION=false
       - LVS_ENABLE_MCP=true
       - VSS_LOG_LEVEL=INFO
