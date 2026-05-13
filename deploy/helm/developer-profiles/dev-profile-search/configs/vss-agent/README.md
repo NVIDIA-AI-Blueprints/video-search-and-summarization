@@ -20,6 +20,4 @@ See the License for the specific language governing permissions and limitations 
 Search-profile agent files packaged with this chart (`templates/vss-agent-configmap.yaml`):
 
 - **config.yml** — required; passed through **`tpl`** with the chart root as context.
-- Any extra key named in **`vss-agent.template.name`** — optional file at **`configs/vss-agent/<name>`** when present.
-
-Video analytics MCP is not bundled in **vss-agent**; deploy the standalone **vss-va-mcp** chart (see **dev-profile-alerts**) and set **`vss-agent.videoAnalysisMcpUrl`** / **`VIDEO_ANALYSIS_MCP_URL`** as needed.
+- Any extra key named in **`agent.vss-agent.template.name`** — optional file at **`configs/vss-agent/<name>`** when present.
