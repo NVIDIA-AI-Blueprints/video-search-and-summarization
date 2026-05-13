@@ -407,7 +407,10 @@ workflow:
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
       **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp.
       - CRITICAL: Always call vst_snapshot to get the URL even though the snapshot for the same video and at the same timestamp has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_snapshot.
-    ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, treat it as a stream if the name contains "stream"/"cam"/"rtsp" or you previously added a stream by that name, treat it as an uploaded video if you previously uploaded/listed a video by that name, otherwise ask the user once.
+    ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, you MUST identify its media_type before routing.
+      - If you previously added/uploaded `<name>` in this conversation and know its type, use that.
+      - Otherwise call `vst_video_list` and look up `<name>` in the result. Each entry has `media_type='stream'` (live RTSP — route to lvs_stream_understanding / lvs_config_media) or `media_type='video'` (uploaded — route to lvs_video_understanding). Do NOT guess from the name; `sample_warehouse` etc. can be either.
+      - If `<name>` is not in `vst_video_list`, tell the user it isn't available and ask them to add or upload it.
     ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
 
 
