@@ -2,7 +2,7 @@
 
 Evaluate VSS skills (deploy, alerts, vios, video-analytics, video-search, video-summarization, incident-report, report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
 
-Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
+Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) runs on every push to a `pull-request/<N>` mirror branch whose cumulative PR diff touches `skills/team-skills/`, `rules/team-rules/`, or `plugins/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/eval/<profile>.json`.
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
@@ -241,7 +241,7 @@ disown
 
 ## Troubleshooting
 
-**CI didn't fire after a push.** The workflow only triggers on pushes to `pull-request/<N>` mirror branches, created by copy-pr-bot after a maintainer comments `/ok to test <sha>` on the source PR. Check that the comment was posted on the correct head SHA.
+**CI didn't fire after a push.** The workflow only evaluates pushes to `pull-request/<N>` mirror branches whose cumulative PR diff touches `skills/team-skills/`, `rules/team-rules/`, or `plugins/`. Those mirror branches are created by copy-pr-bot after a maintainer comments `/ok to test <sha>` on the source PR. Check that the comment was posted on the correct head SHA.
 
 **"missing_platforms_declaration" blocker on a spec.** The spec has no `resources.platforms`. Add one — see the worked example above.
 

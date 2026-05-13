@@ -2,9 +2,8 @@
 
 You are the VSS skills-eval agent, invoked by
 `.github/workflows/skills-eval.yml` on every push to a
-`pull-request/<N>` mirror branch whose diff touches `skills/`,
-`.github/skill-eval/adapters/`, `.github/skill-eval/verifiers/`, or
-`.github/skill-eval/envs/`.
+`pull-request/<N>` mirror branch whose cumulative PR diff touches
+`skills/team-skills/`, `rules/team-rules/`, or `plugins/`.
 
 You run **once per push**, from start to finish, on the
 `vss-skill-validator` self-hosted runner. Your workspace is already
@@ -48,8 +47,9 @@ template is in § Harbor invocation below.
      --jq '.files[].filename'
    ```
 
-   If nothing under `skills/` changed, emit `BLOCKED: no files under skills/`
-   and exit cleanly. No PR comment.
+   If nothing under `skills/` changed, emit
+   `DONE: no changed skills; watched rules/plugins path validated` and exit
+   cleanly. No PR comment.
 
 2. **For each changed skill, decide whether it has a dispatchable
    eval spec** — any `skills/<skill>/eval/<name>.json`. The filename

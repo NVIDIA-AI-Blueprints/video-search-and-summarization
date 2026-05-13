@@ -4,7 +4,8 @@
 """Skills eval agent — single-shot CI-driven runner.
 
 Called by .github/workflows/skills-eval.yml on push to `pull-request/<N>`
-when files under `skills/` (or the harness itself) change. Spawns one
+when files under `skills/team-skills/`, `rules/team-rules/`, or `plugins/`
+change. Spawns one
 `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md` as its
 system prompt and lets it drive the eval end-to-end: diff →
 adapter/dataset → Brev lock → harbor run → results comment → cleanup.
@@ -121,7 +122,7 @@ async def run_agent() -> int:
     system_prompt = AGENTS_MD.read_text()
 
     user_prompt = f"""
-PR #{pr_number} just pushed new commits touching `skills/` (or eval harness code).
+PR #{pr_number} just pushed new commits touching team skills, team rules, or plugins.
 
 Context:
   repo          = {pr_repo}
@@ -141,8 +142,9 @@ post ONE comment per (PR, spec) batch → release the lock → stop/delete any B
 instance you brought online.
 
 When done, emit a one-line final summary starting with `DONE:` so the workflow
-can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
-line starting with `BLOCKED:` followed by the reason.
+can grep for it. On blocker (missing_probe, env issue), emit a line starting
+with `BLOCKED:` followed by the reason. For rules/plugins-only smoke changes
+with no changed skills, emit `DONE: no changed skills; watched path validated`.
 """
 
     model = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-6"

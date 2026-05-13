@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Runs the skills eval agent (.github/skill-eval/skills_eval_agent.py) on
-# every push to a pull-request/<N> mirror branch that touches anything
-# under skills/ or the eval harness. See .github/skill-eval/AGENTS.md
+# every push to a pull-request/<N> mirror branch whose cumulative PR diff
+# touches team skills, team rules, or plugins. See .github/skill-eval/AGENTS.md
 # for the agent's system prompt and behaviour.
 
 name: Skills Eval
@@ -13,7 +13,7 @@ on:
   # diff of the *pushed commits*, not the cumulative PR diff against
   # base. That silently skipped the workflow when CPR-bot updated a
   # mirror branch with a merge commit that didn't itself touch
-  # skills/** (observed on PR #188: 16 skills/ files in the PR, but
+  # watched paths (observed on PR #188: 16 skills/ files in the PR, but
   # the latest mirror push was a develop-merge carrying only 2 RTVI
   # files). The path gate is now done inside the job by
   # `dorny/paths-filter`, which diffs the cumulative head...base range.
@@ -33,13 +33,17 @@ concurrency:
   group: skills-eval-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: read
+
 defaults:
   run:
     shell: bash
 
 jobs:
   eval:
-    name: Eval changed skills against PR
+    name: Eval changed team content against PR
     runs-on: [self-hosted, vss-eval]
 
     # 8-hour hard cap on the whole job. A full PR touching every skill
@@ -85,9 +89,9 @@ jobs:
           base: ${{ steps.pr.outputs.base }}
           filters: |
             relevant:
-              - 'skills/**'
-              - '.github/skill-eval/**'
-              - '.github/workflows/skills-eval.yml'
+              - 'skills/team-skills/**'
+              - 'rules/team-rules/**'
+              - 'plugins/**'
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         if: steps.changes.outputs.relevant == 'true'
