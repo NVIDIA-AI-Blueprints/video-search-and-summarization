@@ -19,7 +19,7 @@ FROM alpine:3.23.4
 WORKDIR /opt/mdx/
 
 # Copy the init scripts into the working directory
-COPY ./elk/init-scripts ./init-scripts
+COPY ./elk/elasticsearch/init-scripts ./init-scripts
 
 # Make scripts executable
 RUN chmod +x ./init-scripts/*.sh
