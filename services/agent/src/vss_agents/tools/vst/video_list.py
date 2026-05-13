@@ -26,7 +26,8 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from vss_agents.tools.vst.timeline import get_timeline
-from vss_agents.tools.vst.utils import get_name_to_stream_id_map
+from vss_agents.tools.vst.utils import VSTError
+from vss_agents.tools.vst.utils import get_streams_info
 
 logger = logging.getLogger(__name__)
 
@@ -51,23 +52,38 @@ class VSTVideoListOutput(BaseModel):
 
     video_list: list[dict[str, str | float]] = Field(
         ...,
-        description="List of available video names and their durations",
+        description=(
+            "List of available media entries. Each entry has 'name' (str), "
+            "'media_type' ('stream' for live RTSP, 'video' for uploaded files), "
+            "and 'duration' (float seconds; 0 for streams with no captioned timeline yet)."
+        ),
     )
 
 
 @register_function(config_type=VSTVideoListConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def _vst_video_list(config: VSTVideoListConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
     async def _vst_video_list(vst_video_list_input: VSTVideoListInput) -> VSTVideoListOutput:  # noqa: ARG001
-        """Get the list of available video names from VST."""
-        name_to_stream_id = await get_name_to_stream_id_map(config.vst_internal_url)
+        """Get the list of available media (uploaded videos and live streams) from VST.
+
+        Each entry includes a `media_type` field: 'stream' for live RTSP sources,
+        'video' for uploaded files.
+        """
+        streams_info = await get_streams_info(config.vst_internal_url)
         output: list[dict[str, str | float]] = []
-        for name, stream_id in name_to_stream_id.items():
-            start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)
-            duration = (
-                datetime.datetime.fromisoformat(end_timestamp.replace("Z", "+00:00"))
-                - datetime.datetime.fromisoformat(start_timestamp.replace("Z", "+00:00"))
-            ).total_seconds()
-            output.append({"name": name, "duration": duration})
+        for stream_id, info in streams_info.items():
+            name = info.get("name", "")
+            url = info.get("url", "")
+            media_type = "stream" if isinstance(url, str) and url.startswith("rtsp://") else "video"
+            try:
+                start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)
+                duration = (
+                    datetime.datetime.fromisoformat(end_timestamp.replace("Z", "+00:00"))
+                    - datetime.datetime.fromisoformat(start_timestamp.replace("Z", "+00:00"))
+                ).total_seconds()
+            except VSTError:
+                # Live streams without a captioned timeline yet have no duration to report.
+                duration = 0.0
+            output.append({"name": name, "media_type": media_type, "duration": duration})
         return VSTVideoListOutput(video_list=output)
 
     yield FunctionInfo.create(
