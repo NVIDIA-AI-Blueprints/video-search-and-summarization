@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-calibration
-description: Calibrate a multi-camera dataset with AutoMagicCalib — from local MP4s, live RTSP streams, or the bundled sample dataset. Use when the user says "calibrate my videos", "run AMC on these videos", "calibrate from video files", "calibrate RTSP streams", "calibrate from live cameras", "run AMC on RTSP", "test sample dataset", "run sample calibration", "verify AMC install", "launch and test", or provides RTSP URLs / local cam_*.mp4 files. Routes to the videos / rtsp / sample-dataset workflow based on the input the user provides. Requires a running AMC microservice (auto-calibration profile of /deploy).
+description: Calibrate a multi-camera dataset with AutoMagicCalib — from local MP4s, live RTSP streams, or the bundled sample dataset. Use when the user says "calibrate my videos", "run AMC on these videos", "calibrate from video files", "calibrate RTSP streams", "calibrate from live cameras", "run AMC on RTSP", "test sample dataset", "run sample calibration", "verify AMC install", "launch and test", or provides RTSP URLs / local cam_*.mp4 files. Routes to the videos / rtsp / sample-dataset workflow based on the input the user provides. Requires a running AMC microservice (deploy via /vss-deploy-auto-calibration).
 version: "3.2.0"
 license: "Apache License 2.0"
 ---
@@ -23,7 +23,7 @@ Match the user's request to a mode, then load that mode's reference for input co
 
 ## Prerequisites (shared across modes)
 
-- AMC microservice + UI running. Deploy via the [`/deploy`](../deploy/SKILL.md) skill with the `auto-calibration` profile — see [`references/auto-calibration.md`](../deploy/references/auto-calibration.md).
+- AMC microservice + UI running. Deploy via the [`/vss-deploy-auto-calibration`](../vss-deploy-auto-calibration/SKILL.md) skill.
 - Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_PORT:-8010}/v1/ready` → `{"code":0,...}`.
 - Python 3 with `requests` installed (each input-mode reference includes a self-healing venv fallback for direct runs).
 
@@ -85,7 +85,7 @@ Evaluation response includes `Average L2 distance(m)` and `Average reprojection 
 
 ### Step E — (Optional) VGGT Refinement
 
-Only if `vggt_state == "READY"` in project info (VGGT model must be staged — see the [`auto-calibration` profile reference](../deploy/references/auto-calibration.md) Step 2):
+Only if `vggt_state == "READY"` in project info (VGGT model must be staged — see [`/vss-deploy-auto-calibration`](../vss-deploy-auto-calibration/SKILL.md) Step 2):
 
 ```
 POST /v1/vggt/calibrate/<project_id>
@@ -165,9 +165,9 @@ Mode-specific issues live in each reference's own troubleshooting table.
 | Calibration stuck `RUNNING` > 90 min | `GET /v1/amc/calibrate/<id>/log` — usually insufficient tracklets (scene too static). See "Custom Dataset" guidelines in root `README.md`. |
 | Immediate `ERROR` state | Check video naming: must be `cam_00.mp4`, `cam_01.mp4`, … contiguous (videos mode) / camera_name labels (RTSP mode). |
 | Low L2 but high reprojection | Provide explicit `focal_length` override during input upload (see videos / rtsp references). |
-| VGGT `INIT`, never `READY` | VGGT model not loaded — see the [`auto-calibration` profile reference](../deploy/references/auto-calibration.md) Step 2. |
+| VGGT `INIT`, never `READY` | VGGT model not loaded — see [`/vss-deploy-auto-calibration`](../vss-deploy-auto-calibration/SKILL.md) Step 2. |
 | Upload timeout | Large videos — bump `timeout=300` to e.g. `600` in the per-mode Python script. |
-| Port scan finds no backend | Backend not running — run the [`/deploy`](../deploy/SKILL.md) skill with the `auto-calibration` profile. |
+| Port scan finds no backend | Backend not running — run the [`/vss-deploy-auto-calibration`](../vss-deploy-auto-calibration/SKILL.md) skill. |
 
 ## For Downstream Skills — MV3DT Export
 
@@ -193,7 +193,7 @@ Downstream skill flow:
 
 ## Related Skills
 
-- [`/deploy`](../deploy/SKILL.md) with the `auto-calibration` profile — start MS + UI first ([reference](../deploy/references/auto-calibration.md)).
+- [`/vss-deploy-auto-calibration`](../vss-deploy-auto-calibration/SKILL.md) — start MS + UI first.
 - [`vios`](../vios/SKILL.md) — required if using the `rtsp` mode.
 
 Root `README.md` "Custom Dataset" and "Calibration Workflow (UI)" sections document input-video guidelines and the UI-driven alternative to this API flow.

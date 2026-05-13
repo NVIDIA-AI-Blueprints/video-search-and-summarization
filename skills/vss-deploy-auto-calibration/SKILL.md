@@ -1,14 +1,19 @@
-# vss-auto-calibration Service — Reference
+---
+name: vss-deploy-auto-calibration
+description: Deploy the AutoMagicCalib (AMC) microservice and web UI from pre-built NGC release images. AMC is the `vss-auto-calibration` service inside the `warehouse-operations` industry profile (compose tree at `deploy/docker/services/auto-calibration/`, env at `deploy/docker/industry-profiles/warehouse-operations/.env`). Use when the user says "launch AMC", "launch auto calibration", "deploy AMC", "deploy auto-calibration", "set up auto-magic-calib", or "start AMC microservice". After the stack is healthy, the user typically follows up with `/vss-generate-video-calibration` to run a calibration.
+version: "3.2.0"
+license: "Apache License 2.0"
+---
 
-Service: `vss-auto-calibration` (compose flag `auto-calib`) | Part of: `warehouse-operations` industry profile | Compose tree: [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/)
+# VSS Deploy Auto-Calibration
 
-Launch the AutoMagicCalib (AMC) microservice and web UI from pre-built release images. AMC is a service inside the `warehouse-operations` industry profile — auto-enabled by any `bp_wh_*` blueprint, or deployable standalone via the `auto-calib` compose flag.
+Deploy the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../deploy/docker/services/auto-calibration/), and AMC is enabled by the `auto-calib` compose profile (also auto-enabled by any `bp_wh_*` warehouse blueprint). AMC is a service inside the `warehouse-operations` industry profile — env vars live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../deploy/docker/industry-profiles/warehouse-operations/.env).
 
-## What's different from `base`
+## What's different from base VSS
 
-- **Standalone microservice — not part of the VSS agent stack.** AMC ships its own MS + UI containers. The VSS agent, NIMs, VST, RTVI, etc. are **not** brought up by this profile — only the AMC backend and its web UI.
-- **AMC piggybacks on the `warehouse-operations` industry profile.** Env vars live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env). Any `bp_wh_*` blueprint loads them automatically; running `auto-calib` standalone requires the same env to be present.
-- **Default ports**: MS at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**, not 8000); UI at `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`). MS uses `network_mode: host`, so 8010 is also the host port.
+- **Standalone microservice — not part of the VSS agent stack.** AMC ships its own MS + UI containers. The VSS agent, NIMs, VST, RTVI, etc. are **not** brought up by this skill — only the AMC backend and its web UI.
+- **AMC piggybacks on the `warehouse-operations` industry profile.** Any `bp_wh_*` blueprint loads the env automatically; running `auto-calib` standalone requires the same env to be present.
+- **Default ports**: MS at `${VSS_AUTO_CALIBRATION_PORT}` (default **8010**); UI at `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`). MS uses `network_mode: host`, so 8010 is also the host port.
 - **VIOS auto-wired.** When deployed alongside a `bp_wh_*` blueprint, `VIOS_BASE_URL` is fetched from `${VST_INTERNAL_URL}`. No manual VIOS config needed if VST is running in the same compose.
 - **Optional VGGT model.** AMC works without VGGT, but model-based refinement needs `vggt_1B_commercial.pt` at `$VSS_DATA_DIR/auto-calib/vggt/` (the path the MS container mounts read-only). Skip this step unless the user explicitly wants VGGT.
 
@@ -21,7 +26,7 @@ Launch the AutoMagicCalib (AMC) microservice and web UI from pre-built release i
 
 ## Env recipe
 
-Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env) (the values below are the in-repo defaults):
+Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../deploy/docker/industry-profiles/warehouse-operations/.env) (the values below are the in-repo defaults):
 
 | Variable | Purpose | Default |
 |---|---|---|
@@ -36,11 +41,11 @@ Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../de
 
 ## Deployment flow
 
-Follow the cross-profile flow in [`../SKILL.md`](../SKILL.md) (env overrides → `docker compose --env-file .env config` dry-run → review → `docker compose up`). AMC-specific bits below.
+Standard compose-centric workflow: env overrides → `docker compose --env-file .env config` dry-run → review → `docker compose up`.
 
-### Step 1 — NGC login (cross-profile)
+### Step 1 — NGC login
 
-AMC pulls from `nvcr.io/nvstaging/vss-core/`. NGC login is the same as every other VSS profile — see [`ngc.md`](ngc.md).
+AMC pulls from `nvcr.io/nvstaging/vss-core/`. The user must have access to the `vss-core` namespace.
 
 ```bash
 echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
@@ -171,7 +176,7 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
 | VGGT model not found in MS logs | MS log shows `VGGT model not found at /tmp/vggt_model/vggt_1B_commercial.pt` | Either download VGGT (Step 2) or ignore — AMC works without it. The warning is benign for non-VGGT runs. |
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |
-| VIOS_BASE_URL empty (RTSP capture returns 503) | `vss-generate-video-calibration` (rtsp mode) reports the MS rejects capture with "VIOS not configured" | Either deploy this profile alongside a `bp_wh_*` blueprint (which sets `VIOS_BASE_URL=${VST_INTERNAL_URL}`), or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
+| VIOS_BASE_URL empty (RTSP capture returns 503) | `vss-generate-video-calibration` (rtsp mode) reports the MS rejects capture with "VIOS not configured" | Either deploy this service alongside a `bp_wh_*` blueprint (which sets `VIOS_BASE_URL=${VST_INTERNAL_URL}`), or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
 | Container exits immediately | `docker ps` shows `vss-auto-calibration` as `Exited` | Check logs: `docker logs vss-auto-calibration`. Often a GPU device-ID mismatch or VGGT path typo. |
 
 ## Stopping the services
@@ -186,8 +191,10 @@ COMPOSE_PROFILES=bp_wh_2d_remote-all docker compose --env-file industry-profiles
 
 ## What comes next
 
-Once the AMC stack is up and healthy, run [`vss-generate-video-calibration`](../../vss-generate-video-calibration/SKILL.md) against it. The skill routes to one of three input modes:
+Once the AMC stack is up and healthy, the user typically runs [`vss-generate-video-calibration`](../vss-generate-video-calibration/SKILL.md) to actually calibrate cameras. That skill routes to one of three input modes based on what the user has:
 
-- [`references/sample-dataset.md`](../../vss-generate-video-calibration/references/sample-dataset.md) — bundled sample (recommended first run; sanity-checks the install).
-- [`references/videos.md`](../../vss-generate-video-calibration/references/videos.md) — your own pre-recorded MP4s.
-- [`references/rtsp.md`](../../vss-generate-video-calibration/references/rtsp.md) — live RTSP streams (requires VIOS).
+- [`references/sample-dataset.md`](../vss-generate-video-calibration/references/sample-dataset.md) — bundled sample (recommended first run; sanity-checks the install).
+- [`references/videos.md`](../vss-generate-video-calibration/references/videos.md) — your own pre-recorded MP4s.
+- [`references/rtsp.md`](../vss-generate-video-calibration/references/rtsp.md) — live RTSP streams (requires VIOS).
+
+**Agent behavior**: if the user's original prompt asked to both deploy AND calibrate (e.g. *"launch AMC and test the sample dataset"*, *"set up auto-magic-calib and calibrate my videos at /data/videos/"*), proceed immediately to `/vss-generate-video-calibration` once the readiness probe passes — don't stop at "deploy succeeded" and wait for re-prompt. If the user only asked to deploy, surface the URLs (MS + UI) and the three calibration options above so they can pick.

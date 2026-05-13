@@ -19,7 +19,7 @@ The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SK
 
 **"launch AMC and test sample dataset" (or similar):**
 
-1. Run the [`/deploy`](../../deploy/SKILL.md) skill with the `auto-calibration` profile first.
+1. Run the [`/vss-deploy-auto-calibration`](../../vss-deploy-auto-calibration/SKILL.md) skill first.
 2. Wait for `/v1/ready` to return OK.
 3. Extract sample data (snippet below) — idempotent, safe to re-run.
 4. Run the inline block in [Run Inline (No File Written)](#run-inline-no-file-written). Do **not** save it as a `.py` file — pipe via heredoc so the user's repo stays clean.
@@ -28,7 +28,7 @@ The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SK
 **"test sample dataset" (MS already running):**
 
 1. Detect backend: scan ports 8000–8009 (and 8010) for a `/v1/ready` response.
-2. If none → point to the [`/deploy`](../../deploy/SKILL.md) skill with the `auto-calibration` profile.
+2. If none → point to the [`/vss-deploy-auto-calibration`](../../vss-deploy-auto-calibration/SKILL.md) skill.
 3. Extract sample data if not already cached.
 4. Run the inline block (heredoc-piped Python — no file written).
 5. Report metrics.
@@ -45,7 +45,7 @@ done
 if [ -z "$MS_PORT" ] && curl -s "http://localhost:8010/v1/ready" | grep -q '"code":0'; then
   MS_PORT=8010
 fi
-[ -z "$MS_PORT" ] && { echo "No running backend. Run the deploy skill with the auto-calibration profile first."; exit 1; }
+[ -z "$MS_PORT" ] && { echo "No running backend. Run the /vss-deploy-auto-calibration skill first."; exit 1; }
 echo "Backend on port $MS_PORT"
 ```
 
@@ -341,6 +341,6 @@ docker logs -f vss-auto-calibration
 | Sample not extracted | `unzip <repo_root>/assets/sdg_08_2_sample_data_010926.zip -d <repo_root>/assets/.cache/sdg_08_2_sample_data_010926/` |
 | `cam_*.mp4` glob finds 0 files | Check wrapper-folder depth: `find <sample_dir> -name "cam_*.mp4"`. |
 | Upload returns 413 | Raise server upload limit, or split files (sample files are <200 MB total so this is unusual). |
-| Port scan finds no backend | Backend not running — run the [`/deploy`](../../deploy/SKILL.md) skill with the `auto-calibration` profile. |
+| Port scan finds no backend | Backend not running — run the [`/vss-deploy-auto-calibration`](../../vss-deploy-auto-calibration/SKILL.md) skill. |
 
 See the [Cross-cutting Troubleshooting](../SKILL.md#cross-cutting-troubleshooting) table in SKILL.md for issues that span all modes.

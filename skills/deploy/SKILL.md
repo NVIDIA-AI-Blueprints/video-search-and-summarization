@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Load when the user says "configure vss", "deploy vss", "deploy `profile`", "debug deploy", "verify deployment", "why is my vss deploy broken", "launch auto calibration", "launch AMC", "deploy auto-calibration", or "set up auto-magic-calib".
+description: Load when the user says "configure vss", "deploy vss", "deploy `profile`", "debug deploy", "verify deployment", or "why is my vss deploy broken".
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -24,14 +24,6 @@ Match the user's request to a profile, then load that profile's reference for si
 | "deploy alerts" / "alert verification" / "real-time alerts" / "deploy for incident report" | `alerts` | [`references/alerts.md`](references/alerts.md) |
 | "deploy lvs" / "video summarization" | `lvs` | [`references/lvs.md`](references/lvs.md) |
 | "deploy search" / "video search" | `search` | [`references/search.md`](references/search.md) |
-
-## Industry Profiles
-
-End-to-end opinionated deployments for specific verticals. These layer additional services (e.g. AMC, VIOS) on top of a dev-profile foundation, configured by an industry-specific `.env` file under [`deploy/docker/industry-profiles/`](../../deploy/docker/industry-profiles/).
-
-| User says | Industry profile | Component / reference |
-|---|---|---|
-| "launch auto calibration" / "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib" | `warehouse-operations` (env file: [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../deploy/docker/industry-profiles/warehouse-operations/.env)) | `vss-auto-calibration` service — see [`references/auto-calibration.md`](references/auto-calibration.md) |
 
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md) for the 4B-LLM recipe (`config_edge.yml` + standalone vLLM on port 30081). Edge platforms share a single unified-memory GPU between LLM and VLM, so the Nemotron Edge 4B is the default and the Nemotron Nano 9B v2 FP8 is an option when memory allows.
 

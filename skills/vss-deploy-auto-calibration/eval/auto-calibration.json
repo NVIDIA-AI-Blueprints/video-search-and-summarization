@@ -1,6 +1,6 @@
 {
   "skills": [
-    "deploy"
+    "vss-deploy-auto-calibration"
   ],
   "resources": {
     "platforms": {
@@ -9,10 +9,10 @@
       }
     }
   },
-  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. The `vss-auto-calibration` service (part of the `warehouse-operations` industry profile, enabled by the `auto-calib` compose flag or any `bp_wh_*` blueprint) brings up `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` (UI on `${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`) from `nvcr.io/nvstaging/vss-core/`. Env file is `deploy/docker/industry-profiles/warehouse-operations/.env`. Project state mounts from `$VSS_APPS_DIR/services/auto-calibration/projects`; optional VGGT model mounts from `$VSS_DATA_DIR/auto-calib/vggt`. The `/deploy` skill drives the full deploy workflow — this spec verifies the resulting state by probing the live stack.",
+  "env": "A GPU host matching `{{platform}}` with Docker + NVIDIA container toolkit + `NGC_CLI_API_KEY`. The `/vss-deploy-auto-calibration` skill brings up `vss-auto-calibration` (MS, host-networked on `${VSS_AUTO_CALIBRATION_PORT:-8010}`) and `vss-auto-calibration-ui` (UI on `${VSS_AUTO_CALIBRATION_UI_PORT:-5000}`) from `nvcr.io/nvstaging/vss-core/`. AMC is a service inside the `warehouse-operations` industry profile (env file: `deploy/docker/industry-profiles/warehouse-operations/.env`, enabled by the `auto-calib` compose flag or any `bp_wh_*` blueprint). Project state mounts from `$VSS_APPS_DIR/services/auto-calibration/projects`; optional VGGT model mounts from `$VSS_DATA_DIR/auto-calib/vggt`. This spec verifies the resulting state by probing the live stack.",
   "expects": [
     {
-      "query": "Deploy the VSS **auto-calibration** profile on {{platform}}, using the `/deploy` skill end-to-end and autonomously.",
+      "query": "Deploy AMC on {{platform}}, using the `/vss-deploy-auto-calibration` skill end-to-end and autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/v1/ready` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/v1/ready` body matches `\"code\":0`",
@@ -23,7 +23,7 @@
       ]
     },
     {
-      "query": "Deploy the VSS **auto-calibration** profile on {{platform}} with VGGT model refinement enabled. The user has provided a HuggingFace token and accepted the VGGT license.",
+      "query": "Deploy AMC on {{platform}} with VGGT model refinement enabled. The user has provided a HuggingFace token and accepted the VGGT license.",
       "checks": [
         "`test -f $VSS_DATA_DIR/auto-calib/vggt/vggt_1B_commercial.pt` returns exit 0",
         "`docker exec vss-auto-calibration test -f /tmp/vggt_model/vggt_1B_commercial.pt` returns exit 0 (VGGT is mounted read-only into the MS container)",
@@ -32,7 +32,7 @@
       ]
     },
     {
-      "query": "Verify a running auto-calibration deployment on {{platform}}. The user thinks AMC is already up but wants to confirm both containers + endpoints before running calibration.",
+      "query": "Verify a running AMC deployment on {{platform}}. The user thinks AMC is already up but wants to confirm both containers + endpoints before running calibration.",
       "checks": [
         "`docker ps --filter 'name=vss-auto-calibration' --filter 'status=running' --format '{{.Names}}' | sort -u | wc -l` returns `2`",
         "`curl -sf --max-time 15 http://localhost:$(grep ^VSS_AUTO_CALIBRATION_PORT $REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2)/docs` returns exit 0 (Swagger UI responsive)",
@@ -41,7 +41,7 @@
       ]
     },
     {
-      "query": "Deploy the VSS auto-calibration profile, but `NGC_CLI_API_KEY` is not set and the user provides no value when prompted.",
+      "query": "Deploy AMC on {{platform}}, but `NGC_CLI_API_KEY` is not set and the user provides no value when prompted.",
       "checks": [
         "Skill detects the missing NGC credentials before running `docker compose up`",
         "Skill does NOT attempt `docker compose up` (no `vss-auto-calibration` / `vss-auto-calibration-ui` containers created)",
