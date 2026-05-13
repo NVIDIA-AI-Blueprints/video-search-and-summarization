@@ -9,8 +9,8 @@ Isolate the problem with the critic agent then iterate to resolve it. Examples o
 The endpoint is not registered in the currently-running profile.
 
 - The dedicated `/api/v1/critic` route is only wired in profiles whose `config.yml` explicitly lists it under `endpoints`. The `dev-profile-search` profile includes it. The base, LVS, and alerts profiles do not.
-- Confirm which profile is deployed with the `deploy` skill.
-- If the wrong profile is running, ask user if they want to redeploy it as a search profile with the `deploy` skill.
+- Confirm which profile is deployed with the `vss-deploy-profile` skill.
+- If the wrong profile is running, ask user if they want to redeploy it as a search profile with the `vss-deploy-profile` skill.
 
 ---
 
@@ -36,13 +36,13 @@ curl -s -X POST http://${HOST_IP}:30082/v1/chat/completions \
   }' | jq .
 ```
 
-If the VLM does not respond, identify the VLM service with the `deploy` skill. Check its logs to find root cause. If needed, restart it ONLY after asking user permission.
+If the VLM does not respond, identify the VLM service with the `vss-deploy-profile` skill. Check its logs to find root cause. If needed, restart it ONLY after asking user permission.
 Then re-run the critic call.
 
 2. The VLM is not able to pull the video URLs or video frames to analyze them.
 
 This often happens, if the VLM runs on a different machine than the one running VST which stores the videos. 
-Understand what video URLs are submitted to the VLM in the VSS agent logs (identify the container with `deploy` skill), and cross-check available videos in VST with `vios` skill. Ensure those URLs are reachable from the VLM machine.
+Understand what video URLs are submitted to the VLM in the VSS agent logs (identify the container with `vss-deploy-profile` skill), and cross-check available videos in VST with `vss-manage-video-io-storage` skill. Ensure those URLs are reachable from the VLM machine.
 
 If the VLM runs as a cloud service, it may not be able to retrieve the videos on a private server with the video URLs. Investigate this with the user, the VSS agent may need to use base64 or video frames to pass data to the VLM. 
 
@@ -60,7 +60,7 @@ The critic requires **ISO 8601 UTC** timestamps (e.g. `"2025-08-25T03:05:55Z"`).
 
 ## Symptom: `sensor_id` not found / empty results from VLM
 
-The `sensor_id` must be the VST UUID, not a friendly camera name. Use the `vios` skill to list sensors and get their UUIDs.
+The `sensor_id` must be the VST UUID, not a friendly camera name. Use the `vss-manage-video-io-storage` skill to list sensors and get their UUIDs.
 Match the camera name the user mentioned to the correct UUID, then retry the critic call with the correct `sensor_id`.
 
 ---

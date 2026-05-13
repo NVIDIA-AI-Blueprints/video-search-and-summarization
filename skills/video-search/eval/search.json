@@ -47,6 +47,18 @@
       ]
     },
     {
+      "query": "Find a person driving a forklift in the sample warehouse video. Agent backend is on localhost. You are pre-authorized to run the critic Verification Step autonomously, without asking for confirmation.",
+      "checks": [
+        "The agent issued exactly one `POST http://localhost:8000/generate` call AND no parallel calls with separate underlying embed / attribute endpoints",
+        "The POST /generate request body contained an `input_message` field whose value paraphrases or contains both `forklift` AND `moving boxes` — not a different user query, not a paraphrase that dropped either half",
+        "The /generate response returned HTTP 200 with a body that contains a non-empty array of search hits (each hit has similarity score and timestamped clip metadata)",
+        "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers — not a raw JSON dump, not a chat-style bullet list",
+        "The agent did NOT pause to re-ask the user for consent before running the critic Verification Step — the query pre-authorized it, so the agent proceeded autonomously to invoke the `critic` skill instead of re-offering the step as an opt-in",
+        "The trajectory shows the agent loading the `critic` skill (e.g. reading skills/critic/SKILL.md) and invoking it against the hits returned by /generate — it did NOT skip the critic step or substitute it with its own ad-hoc judgement based on similarity scores alone",
+        "The agent's final report contains a `Verification Step` section that surfaces the critic skill's output per hit (a verdict / confidence grounded in the critic's actual response) verbatim or faithfully summarized — not fabricated, not just the original /generate similarity scores re-echoed as a verdict"
+      ]
+    },
+    {
       "query": "Find a neon-pink monster truck in the ingested sample warehouse video. Agent backend is on localhost.",
       "checks": [
         "The agent issued a `POST http://localhost:8000/generate` call with `input_message` containing `neon-pink monster truck` (or an equivalent paraphrase) — it did NOT refuse the query up front",

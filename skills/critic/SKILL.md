@@ -1,5 +1,5 @@
 ---
-name: critic
+name: vss-critic
 description: Verify video clips against a search query using VLM critique — score clips as confirmed/rejected/unverified, get per-criterion breakdowns. Use when asked to verify search results, score clips against a query, check if a video matches a description, validate a search finding, or run critic verification on clips. Requires the search profile to be deployed.
 version: "3.1.0"
 license: "Apache License 2.0"
@@ -37,7 +37,7 @@ The critic is **subject-anchored**: it only confirms a criterion if the *same sp
 - **Profile requirement**: the `/api/v1/critic` endpoint is only registered in deployments whose `config.yml` includes it (e.g., `dev-profile-search`). Base, LVS, and alerts profiles do NOT expose it by default. If 404 is received, see [troubleshooting.md](references/troubleshooting.md).
 - **VLM dependency**: `unverified` verdicts almost always mean the VLM is unreachable or overloaded, not that the clip is bad. Check VLM health before concluding results are poor.
 - **Timestamps must be ISO 8601 UTC** — e.g. `"2025-08-25T03:05:55Z"`. The critic rejects or silently fails on other formats.
-- **`sensor_id` must be a VST UUID** — not a friendly camera name. Use the `vios` skill to list sensors and map names to IDs.
+- **`sensor_id` must be a VST UUID** — not a friendly camera name. Use the `vss-manage-video-io-storage` skill to list sensors and map names to IDs.
 - **Subject anchoring means relational failures are strict** — if a different person (not the described subject) carries boxes, the criterion is `false`. This is by design.
 - **`criteria_met` may be empty for `unverified` results** — always check `result` first, then inspect `criteria_met`.
 - ALWAYS step into [troubleshooting.md](references/troubleshooting.md) if all results are `unverified` or `critique_result` is null across all items.
@@ -67,7 +67,7 @@ Infer these inputs from the conversation or user query. If any cannot be inferre
 - **`$HOST_IP`** *(always required)*: hostname or IP where the VSS agent backend runs (port 8000).
 - **`query`** *(always required)*: the original search query used to find the clips — this becomes the critic's decomposition target.
 - **`videos`** *(always required)*: list of clips to evaluate, each needing:
-  - `sensor_id`: the VST sensor UUID. ALWAYS use the `vios` skill to list sensors if only a name is known.
+  - `sensor_id`: the VST sensor UUID. ALWAYS use the `vss-manage-video-io-storage` skill to list sensors if only a name is known.
   - `start_timestamp`: ISO 8601 UTC (e.g., `"2025-08-25T03:05:55Z"`)
   - `end_timestamp`: ISO 8601 UTC
   These are typically taken directly from search result hits (the `sensor_id`, `start_timestamp`, `end_timestamp` fields).
