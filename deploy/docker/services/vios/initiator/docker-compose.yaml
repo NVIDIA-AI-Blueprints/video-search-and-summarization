@@ -69,8 +69,10 @@ services:
         required: false
       sdr-streamprocessing:
         condition: service_started
+        required: false
       envoy-streamprocessing:
         condition: service_started
+        required: false
 
   sensor-ms-2d:
     image: ${VST_SENSOR_IMAGE}
@@ -111,12 +113,15 @@ services:
       sensor-bp-wait-bp-configurator:
         condition: service_completed_successfully
         required: false
-      # sdr-streamprocessing:
-      #   condition: service_started
-      # envoy-streamprocessing:
-      #   condition: service_started
+      sdr-streamprocessing:
+        condition: service_started
+        required: false
+      envoy-streamprocessing:
+        condition: service_started
+        required: false
       sdr-controller:
         condition: service_started
+        required: false
 
   sensor-ms-3d:
     image: ${VST_SENSOR_IMAGE}
@@ -158,5 +163,7 @@ services:
         required: false
       sdr-streamprocessing:
         condition: service_started
+        required: false
       envoy-streamprocessing:
         condition: service_started
+        required: false

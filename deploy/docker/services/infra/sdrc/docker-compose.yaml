@@ -1,27 +1,17 @@
-# sdr-mw + Envoy (Redis from config.yml). Run ./set-host-ip.sh to replace 10.127.22.222 first.
-# Run from this directory:
-#   docker compose up -d
-# Or from anywhere:
-#   docker compose -f deploy/docker/services/infra/sdrc/docker-compose.yaml up -d
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 #
-# Required env (export or put in .env beside this file):
-#   HOST_IP, NUM_STREAMS, SDR_CONTROLLER_CONFIG_PATH (absolute path to the
-#   directory containing the configs/ subfolder with config.yml.tmpl etc.).
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Redis: WDM_WL_REDIS_SERVER and WDM_WL_REDIS_PORT on the first enable:true workload in config.yml.
-# Pass KUBERNETES_HOST / KUBERNETES_PORT for sdr-mw.
+# http://www.apache.org/licenses/LICENSE-2.0
 #
-# wdm-env-from-config writes .wdm-env/wdm.env (Redis + WDM_DIRECT_* / WDM_XDS_*) and
-# docker-workload-containers.txt (names from every enable:true workload with WDM_CLUSTER_TYPE: docker).
-# wait-for-redis / wait-for-docker-workloads run after that (parallel). sdr-* start only when both succeed.
-# REDIS_WAIT_TIMEOUT_SECONDS (default 120). DOCKER_WORKLOAD_WAIT_SECONDS (default 300).
-# ENVOY_LISTENER_PORT / ENVOY_ADMIN_PORT: see envoy_config_xds_test.yaml.
-#
-# Out-of-cluster Kubernetes + Docker (matches kubernetes/t2 docker run):
-#   export KUBERNETES_JWT_TOKEN=...   # required; e.g. kubectl create token or create-sa-and-token.sh
-#   docker compose --profile k8s-listener up -d
-# Optional: KUBERNETES_HOST, KUBERNETES_PORT, KUBE_CA_PATH, WDM_WL_REDIS_*, WDM_CONTROLLER_*,
-#   ROUTER_PORT, KUBERNETS_NAMESPACE, SDR_MW_L_IMAGE.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 services:
   # Init container: ensure bind-mount dirs exist and are writable by the host
@@ -135,7 +125,6 @@ services:
 
   # sdr-mw-l: host network, Kubernetes API + CA, Docker socket, docker_cluster_config.json (mixed docker/k8s).
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
-  #working one - sdr-mw-l:3.0.0-rc.6
   sdr-controller:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_developer_alerts_2d_cv"]
     image: ${SDR_MW_L_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.0.0-rc.12}
@@ -163,61 +152,3 @@ services:
         condition: service_completed_successfully
       render-config:
         condition: service_completed_successfully
-
-
-#  sdr-envoy-proxy:
-#    image: ${ENVOY_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-envoy-proxy:3.2.0-mw-rc.3}
-#    ports:
-#      - "${TEST_PORT:-19000}:${ENVOY_LISTENER_PORT:-9000}"
-#      - "${ADMIN_PORT:-19001}:${ENVOY_ADMIN_PORT:-9901}"
-#    volumes:
-#      - ./envoy_config_xds_test.yaml:/etc/envoy/envoy.yaml.template:ro
-#      - ./envoy-entrypoint.sh:/envoy-entrypoint.sh:ro
-#      - ./.wdm-env:/wdm-env:ro
-#    environment:
-#      ENVOY_ROUTE_HEADER: ${ENVOY_ROUTE_HEADER:-id}
-#      ENVOY_LISTENER_PORT: ${ENVOY_LISTENER_PORT:-9000}
-#      ENVOY_ADMIN_PORT: ${ENVOY_ADMIN_PORT:-9901}
-#    entrypoint: ["/bin/sh", "/envoy-entrypoint.sh"]
-#    depends_on:
-#      wait-for-redis:
-#        condition: service_completed_successfully
-#      wait-for-docker-workloads:
-#        condition: service_completed_successfully
-#    # extra_hosts:
-#    #   - "host.docker.internal:host-gateway"
-
-#  sdr-mw:
-#    build:
-#      context: ..
-#      dockerfile: DockerFile-mw.bin
-#    image: sdr-mw:local
-#    working_dir: /
-#    network_mode: host
-#    depends_on:
-#      wait-for-redis:
-#        condition: service_completed_successfully
-#      wait-for-docker-workloads:
-#        condition: service_completed_successfully
-#    environment:
-#      WDM_WORKLOADS_CONFIG: /config.yml
-#      WDM_ENVOY_DASHBOARD_UPSTREAM_HOST: 10.127.22.222
-#      WDM_ENVOY_DASHBOARD_UPSTREAM_PORT: 5005
-#      WDM_ENVOY_DIRECT_PORT: 5005
-#      WDM_ENVOY_XDS_PORT: 5005
-#      ROUTER_PORT: 5005
-#      OTEL_SDK_DISABLED: true
- # uncomment to use use with kubernetes
- #     SSL_CERTS: /etc/kubernetes/pki/ca.crt
- #     KUBERNETES_HOST: ${KUBERNETES_HOST}
- #     KUBERNETES_PORT: ${KUBERNETES_PORT}
-#    volumes:
-#      - ./config.yml:/config.yml:ro
-#      - ./docker_cluster_config-a.json:/docker_cluster_config-a.json:ro
-#      - ./docker_cluster_config-b.json:/docker_cluster_config-b.json:ro
-#      - ./log:/logs
-#      - /var/run/docker.sock:/var/run/docker.sock
-# uncomment to use use with kubernetes
-#      - /etc/kubernetes/pki/ca.crt:/etc/kubernetes/pki/ca.crt
-#    command: ["/sdr-mw"]
-
