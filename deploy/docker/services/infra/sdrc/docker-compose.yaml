@@ -35,6 +35,7 @@ services:
     image: alpine:3
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
+    container_name: sdrc-init-dirs
     command:
       - |
         set -e
@@ -75,6 +76,7 @@ services:
       - ./render-config.sh:/render-config.sh:ro
       - ${SDR_CONTROLLER_CONFIG_PATH:?SDR_CONTROLLER_CONFIG_PATH must be set}/configs:/tmpl
     restart: "no"
+    container_name: sdrc-render-config
 
   wdm-env-from-config:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d"]
@@ -96,6 +98,7 @@ services:
       render-config:
         condition: service_completed_successfully
     restart: "no"
+    container_name: sdrc-wdm-env-from-config
 
   wait-for-redis:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d"]
@@ -112,10 +115,8 @@ services:
       - ./wait-for-redis.sh:/wait-for-redis.sh:ro
       - ./.wdm-env:/wdm-env:ro
     entrypoint: ["/bin/sh", "/wait-for-redis.sh"]
-    # If WDM_WL_REDIS_SERVER is host.docker.internal, uncomment on Linux:
-    # extra_hosts:
-    #   - "host.docker.internal:host-gateway"
-
+    container_name: sdrc-wait-for-redis
+    
   wait-for-docker-workloads:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d"]
     image: docker:27-cli
@@ -137,7 +138,7 @@ services:
   #working one - sdr-mw-l:3.0.0-rc.6
   sdr-controller:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d"]
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.0.0-rc.test.headerless-2}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l:3.0.0-rc.12}
     container_name: sdr-controller
     network_mode: host
     restart: unless-stopped
@@ -162,7 +163,6 @@ services:
         condition: service_completed_successfully
       render-config:
         condition: service_completed_successfully
-
 
 
 #  sdr-envoy-proxy:
