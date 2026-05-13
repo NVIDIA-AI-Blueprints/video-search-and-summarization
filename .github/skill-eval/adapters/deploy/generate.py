@@ -47,8 +47,13 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 # Constants
 # ---------------------------------------------------------------------------
 
-VSS_REPO_URL = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
-VSS_BRANCH = "feat/skills"
+# Fallback only — when the harness can't tell what to sync to (no
+# PR_HEAD_SHA forwarded, e.g. a local dev run outside CI), fall back
+# to develop. In CI, brev_env.py forwards PR_HEAD_SHA + PR_REPO from
+# the workflow step into ~/.eval_env on the instance, and the
+# pre-deploy script below resets the working tree to that exact SHA.
+VSS_REPO_URL_DEFAULT = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
+VSS_BRANCH_FALLBACK = "develop"
 
 # ---------------------------------------------------------------------------
 # Platform / GPU specs
@@ -522,10 +527,40 @@ def generate_solve_script(
         "    docker login nvcr.io -u '\\$oauthtoken' -p \"$NGC_CLI_API_KEY\" 2>/dev/null || true",
         "fi",
         "",
-        "# --- Clone repo ---",
-        'if [ ! -d "$REPO" ]; then',
-        "    git clone --branch " + VSS_BRANCH + " " + VSS_REPO_URL + ' "$REPO"',
+        "# --- Sync repo to PR head ---",
+        "# PR_HEAD_SHA + PR_REPO are forwarded from the workflow step",
+        "# by brev_env.py. On a warm-pool box, $REPO usually already",
+        "# exists from a prior trial — fetch + reset to the PR SHA",
+        "# instead of re-cloning so the deploy step always validates",
+        "# the PR's actual code, never a stale checkout from a previous",
+        "# trial or the adapter's baked-in fallback branch.",
+        "PR_REPO=\"${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}\"",
+        "PR_HEAD_SHA=\"${PR_HEAD_SHA:-}\"",
+        "VSS_REPO_URL=\"https://github.com/${PR_REPO}.git\"",
+        "if [ ! -d \"$REPO/.git\" ]; then",
+        "    # Cold instance: clone shallow at fallback branch; we'll",
+        "    # fetch the exact SHA next.",
+        "    git clone --no-checkout --depth=1 --branch " + VSS_BRANCH_FALLBACK + " \"$VSS_REPO_URL\" \"$REPO\"",
         "fi",
+        "cd \"$REPO\"",
+        "# Make sure the origin URL matches the source PR's repo (handles",
+        "# the case where a prior trial cloned from a different fork).",
+        "git remote set-url origin \"$VSS_REPO_URL\"",
+        "if [ -n \"$PR_HEAD_SHA\" ]; then",
+        "    git fetch --depth=1 origin \"$PR_HEAD_SHA\"",
+        "    git -c advice.detachedHead=false checkout --force \"$PR_HEAD_SHA\"",
+        "    git reset --hard \"$PR_HEAD_SHA\"",
+        "else",
+        "    # Local / dev: no PR SHA forwarded — sync to the fallback",
+        "    # branch tip so we at least get something current.",
+        "    git fetch --depth=1 origin " + VSS_BRANCH_FALLBACK,
+        "    git -c advice.detachedHead=false checkout --force FETCH_HEAD",
+        "    git reset --hard FETCH_HEAD",
+        "fi",
+        "# Wipe any leftover working-tree state from a prior trial, but",
+        "# keep data/ (sample-data extract — slow to re-pull from NGC).",
+        "git clean -fdx -e data/ -e .env",
+        "cd - > /dev/null",
         'mkdir -p "$REPO/data"',
         "",
         "# --- Configure .env ---",
