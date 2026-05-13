@@ -38,6 +38,32 @@ command: []
 config:
   kafkaConfigJson: ""
 
+resourceFiles:
+  calibration:
+    enabled: false
+    mountPath: /resources/calibration.json
+  roadNetwork:
+    enabled: false
+    mountPath: /resources/road-network.json
+
+downloadResourcesFromNgc: false
+downloadResourcesFromNgcWaitSeconds: 300
+ngcApiKeySecretName: "ngc-api"
+ngcApiKeySecretKey: "NGC_CLI_API_KEY"
+ngcOrg: "nvidia"
+ngcDownload:
+  image:
+    repository: docker.io/library/ubuntu
+    tag: "22.04"
+    pullPolicy: IfNotPresent
+ngcResourcesToDownload: []
+
+forceResourcesStorageFromValues: false
+resourcesPvc:
+  size: 1Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
 imagePullSecrets: []
 
 resources: {}

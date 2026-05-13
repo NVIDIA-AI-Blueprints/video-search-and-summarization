@@ -12,12 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
-{{- define "vss-behavior-analytics.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{- define "vss-behavior-analytics.fullname" -}}
+{{- define "calibration-toolkit.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -32,30 +29,12 @@
 {{- end }}
 {{- end }}
 
-{{- define "vss-behavior-analytics.labels" -}}
-helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
-app.kubernetes.io/name: {{ include "vss-behavior-analytics.name" . }}
+{{- define "calibration-toolkit.labels" -}}
+app.kubernetes.io/name: {{ include "calibration-toolkit.fullname" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{- define "vss-behavior-analytics.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "vss-behavior-analytics.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
-
-{{- define "vss-behavior-analytics.effectiveResourcesStorage" -}}
-{{- $claim := printf "%s-resources" (include "vss-behavior-analytics.fullname" .) }}
-{{- $default := .Values.resourcesPvc.size | default "1Gi" }}
-{{- if .Values.forceResourcesStorageFromValues }}
-{{- print $default }}
-{{- else }}
-{{- $pvc := lookup "v1" "PersistentVolumeClaim" .Release.Namespace $claim }}
-{{- $got := dig "spec" "resources" "requests" "storage" "" $pvc }}
-{{- if $got }}
-{{- print $got }}
-{{- else }}
-{{- print $default }}
-{{- end }}
-{{- end }}
+{{- define "calibration-toolkit.selectorLabels" -}}
+app: {{ include "calibration-toolkit.fullname" . }}
 {{- end }}
