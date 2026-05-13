@@ -58,4 +58,3 @@ property:
   strongly-typed: 1
   warmup-engine: 1
   custom-lib-path: /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so
-  
