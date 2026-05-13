@@ -12,24 +12,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
-apiVersion: v2
-name: analytics
-description: VSS analytics stack (behavior analytics, video analytics API) for developer-profile umbrella charts
-type: application
-version: 26.04.2
-appVersion: "1.0"
-dependencies:
-  - name: vss-behavior-analytics
-    version: 26.04.2
-    repository: "file://./charts/behavior-analytics"
-    condition: vss-behavior-analytics.enabled
-  - name: vss-video-analytics-api
-    version: 26.04.2
-    repository: "file://./charts/video-analytics-api"
-    condition: vss-video-analytics-api.enabled
-  - name: video-analytics-ui
-    version: 26.04.2
-    repository: "file://./charts/video-analytics-ui"
-    condition: video-analytics-ui.enabled
-maintainers: []
+{{- define "import-calibration.fullname" -}}{{ printf "%s-import-calibration" .Release.Name | trunc 63 | trimSuffix "-" }}{{- end -}}
+{{- define "import-calibration.image" -}}{{ printf "%s:%s" .Values.image.repository .Values.image.tag }}{{- end -}}
+{{- define "import-calibration.vaApiService" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) -}}
+{{- ternary (printf "%s-vss-video-analytics-api" .Release.Name) "vss-video-analytics-api" $pfx -}}
+{{- end -}}
