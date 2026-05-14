@@ -50,6 +50,7 @@ tolerations:
 env:
   PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
   NIM_KVCACHE_PERCENT: ""
+  NIM_GPU_MEM_FRACTION: ""
   NIM_MAX_NUM_SEQS: ""
   NIM_MAX_MODEL_LEN: ""
   NIM_LOW_MEMORY_MODE: ""

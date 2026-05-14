@@ -49,6 +49,12 @@ spec:
           name: {{ include "nemotron.fullname" . }}-nim-env
           key: NIM_KVCACHE_PERCENT
           optional: true
+    - name: NIM_GPU_MEM_FRACTION
+      valueFrom:
+        configMapKeyRef:
+          name: {{ include "nemotron.fullname" . }}-nim-env
+          key: NIM_GPU_MEM_FRACTION
+          optional: true
     - name: NIM_MAX_NUM_SEQS
       valueFrom:
         configMapKeyRef:
