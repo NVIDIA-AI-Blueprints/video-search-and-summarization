@@ -63,24 +63,31 @@ the deploy/* trial's `test.sh` (its scored task IS running /deploy) —
 both overwrite the same file with the same token. Equivalent semantics;
 pick one or both, just never `touch` per-flag.
 
-### 2. Pre-deploy hook reads canonical marker, compares contents
+### 2. Pre-deploy hook reconciles box state with task metadata
 
 In `BrevEnvironment._ensure_prerequisite_deployed`, the desired marker
-is constructed from `task.toml [metadata]`:
+is derived from `task.toml [metadata]`:
 
-- `profile` is required (skills with no `profile` metadata don't need
-  a deployed stack and the hook returns early).
-- `prerequisite_deploy_mode` is optional — set only when a downstream
-  trial requires a specific alerts variant.
-- `desired = f"{profile}-{prerequisite_deploy_mode}" if
-  prerequisite_deploy_mode else profile`.
+- `profile` set, `prerequisite_deploy_mode` set →
+  `desired = "<profile>-<deploy_mode>"` (alerts variants today).
+- `profile` set, no `prerequisite_deploy_mode` →
+  `desired = "<profile>"` (base / lvs / search).
+- `profile` absent → `desired = ""` (trial wants a clean box, no VSS
+  containers running).
 
 Algorithm:
 
 1. `cat /tmp/skill-eval/active-deploy.txt 2>/dev/null || echo ""` on the
-   box.
-2. If `stdout.strip() == desired` → skip pre-deploy. Box is hot.
-3. Else → run `/deploy -p <profile>` (plus `-m <mode>` when alerts
+   box. Strip whitespace.
+2. If `stdout == desired` → no-op. Box already matches.
+3. Else if `desired == ""` → tear down all containers
+   (`docker ps -aq | xargs -r docker rm -f && docker network prune -f`)
+   and write the marker as empty. Does NOT invoke `/deploy down` —
+   stays out of skill code and avoids paying for an LLM call to do
+   the cleanup. Preserves docker image cache, repo clone, and
+   sample-data extract (the slow things) so the next deploy trial on
+   this box is warm.
+4. Else → run `/deploy -p <profile>` (plus `-m <mode>` when an alerts
    variant is requested) via
    `claude --print --dangerously-skip-permissions`; the deploy skill's
    own step-0 teardown handles any prior stack. On success, **overwrite**

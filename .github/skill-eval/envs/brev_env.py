@@ -345,45 +345,47 @@ class BrevEnvironment(BaseEnvironment):
         logger.info("Brev instance %s is reachable", self._instance_name)
 
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
-        """If task.toml [metadata] declares a `profile`, ensure /deploy
-        has run on the Brev box for it. Reads a single canonical marker
-        that records what is currently RUNNING on the box — not a
-        deploy log. See specs/stale-marker.spec.
+        """Reconcile the Brev box's deployment state with what this
+        trial's task.toml [metadata] declares. Reads a single canonical
+        marker that records what is currently RUNNING on the box — not
+        a deploy log. See specs/stale-marker.spec.
 
-        Algorithm:
-          1. cat /tmp/skill-eval/active-deploy.txt on the box.
-          2. If contents == desired → no-op (hot).
-          3. Else → run /deploy via claude --print; the deploy skill's
-             own step-0 teardown handles any prior stack. On success
-             OVERWRITE the marker. On failure leave it alone — next
-             trial re-evaluates.
+        Three regimes, derived from `profile` + `prerequisite_deploy_mode`:
 
-        Marker format (matches what deploy/test.sh writes):
-          - `base`, `lvs`, `search` → profile name only
-          - `alerts-verification`, `alerts-real-time` → alerts variants
+        1. `profile` set (downstream needs a deployed VSS stack):
+            desired = `<profile>` (e.g. `base`, `lvs`, `search`),
+                  or `<profile>-<deploy_mode>` for alerts variants
+                  (`alerts-verification`, `alerts-real-time`).
+            If marker == desired → hot, no-op.
+            Else → run `/deploy -p <profile> [-m <mode>]` via
+                  `claude --print`. On success OVERWRITE marker.
 
-        Downstream adapters declare the prerequisite as:
-          - `profile = "<name>"` (always) and
-          - `prerequisite_deploy_mode = "<m>"` (alerts-only; selects
-            which alerts stack the trial needs)
+        2. `profile` absent (trial needs a clean box, no VSS running):
+            desired = `""` (empty marker).
+            If marker == `""` → already clean, no-op.
+            Else → tear down all containers (`docker rm -f $(docker
+                  ps -aq)`) + prune networks; OVERWRITE marker to empty.
+                  Preserves docker image cache, repo clone, and
+                  sample-data extract — the slow caches that make warm
+                  reuse valuable for the next deploy trial.
 
-        Trials with NO `profile` (skills that don't need a deployed
-        VSS) skip this entirely. Deploy/* trials set `profile` but
-        don't set `prerequisite_deploy_mode` (they ARE the deploy);
-        the early-return on missing-profile path doesn't fire for
-        them because their `_ensure_prerequisite_deployed` is never
-        called — the deploy adapter doesn't request a prereq.
+        Deploy/* trials themselves set `profile` but don't request a
+        prereq — their test.sh writes the marker on reward=1.0. They
+        never call this hook.
 
         claude-code is expected on the box from a prior deploy/* trial's
         harbor agent setup; persists across trials on the reused
         vss-eval-* instance. Override the wall clock via
         PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
         profile = meta.get("profile")
-        if not profile:
-            return
         deploy_mode = meta.get("prerequisite_deploy_mode")
+        if profile and deploy_mode:
+            desired = f"{profile}-{deploy_mode}"
+        elif profile:
+            desired = profile
+        else:
+            desired = ""
 
-        desired = f"{profile}-{deploy_mode}" if deploy_mode else profile
         marker_path = "/tmp/skill-eval/active-deploy.txt"
         probe = await _run_brev_exec(
             self._instance_name,
@@ -392,15 +394,40 @@ class BrevEnvironment(BaseEnvironment):
         )
         current = (probe.stdout or "").strip()
         if current == desired:
+            state = desired or "<clean>"
             logger.info(
-                "prerequisite %s already running on %s; skipping pre-deploy",
-                desired, self._instance_name,
+                "prerequisite %s already current on %s; skipping reconcile",
+                state, self._instance_name,
             )
             return
         logger.info(
-            "prerequisite mismatch on %s (active=%r, desired=%r); pre-deploying",
-            self._instance_name, current or "<empty>", desired,
+            "prerequisite mismatch on %s (active=%r, desired=%r); reconciling",
+            self._instance_name, current or "<empty>", desired or "<clean>",
         )
+
+        if not desired:
+            # Profile-less trial wants a clean box. Tear down all
+            # containers without touching the deploy skill; keeps the
+            # docker image cache, repo clone, and sample-data extract
+            # warm for the next deploy trial. Container teardown is
+            # fast (<10s typically) so the timeout is short.
+            cmd = (
+                "mkdir -p /tmp/skill-eval && "
+                "(docker ps -aq | xargs -r docker rm -f >/dev/null 2>&1 || true) && "
+                "(docker network prune -f >/dev/null 2>&1 || true) && "
+                f"printf '' > {shlex.quote(marker_path)}"
+            )
+            logger.info(
+                "Cleaning box %s (no profile required)", self._instance_name,
+            )
+            result = await _run_brev_exec(self._instance_name, cmd, timeout=120)
+            if result.return_code != 0:
+                tail = (result.stderr or result.stdout or "")[-500:]
+                raise RuntimeError(
+                    f"box-clean failed on {self._instance_name}: "
+                    f"exit {result.return_code}; tail:\n{tail}"
+                )
+            return
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
