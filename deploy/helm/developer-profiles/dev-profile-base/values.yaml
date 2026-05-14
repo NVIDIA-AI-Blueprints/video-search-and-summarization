@@ -181,6 +181,9 @@ agent:
         value: '0.0.0.0'
       - name: VSS_AGENT_PORT
         value: '8000'
+      # Nemotron Nano Omni: set to "true" with Omni model + HF_TOKEN.
+      - name: ENABLE_AUDIO
+        value: '{{ .Values.enableAudio | default "false" }}'
       - name: LLM_MODE
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
       - name: VLM_MODE
