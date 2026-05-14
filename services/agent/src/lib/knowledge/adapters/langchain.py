@@ -184,7 +184,9 @@ def _doc_to_chunk(doc: Any, score: float, idx: int = 0) -> Chunk | None:
     except AttributeError:
         return None
 
-    # Cosine distance → similarity; passthrough if outside distance range. Matches llama_index.py.
+    # Chroma here exposes raw distance via `asimilarity_search_with_score`, so we invert
+    # to similarity. (LI's ChromaVectorStore already returns a similarity-like score
+    # so its adapter passes through — different upstream contracts, hence different code.)
     sim = float(1.0 - score) if 0.0 <= float(score) <= 2.0 else float(score)
 
     file_name = meta.get("file_name") or meta.get("source") or "unknown"

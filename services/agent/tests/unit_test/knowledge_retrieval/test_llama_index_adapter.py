@@ -97,6 +97,8 @@ class TestLlamaIndexImport:
     """ImportError when the extra isn't installed surfaces a clear, actionable hint."""
 
     def test_missing_packages_raises_clear_error(self, monkeypatch):
+        # Setting sys.modules[mod] = None makes `import mod` raise ModuleNotFoundError,
+        # independent of whether the package is actually installed in the venv.
         for mod in (
             "chromadb",
             "llama_index",
@@ -106,7 +108,7 @@ class TestLlamaIndexImport:
             "llama_index.vector_stores",
             "llama_index.vector_stores.chroma",
         ):
-            monkeypatch.delitem(sys.modules, mod, raising=False)
+            monkeypatch.setitem(sys.modules, mod, None)
 
         from lib.knowledge.adapters.llama_index import LlamaIndexAdapter
         from lib.knowledge.adapters.llama_index import LlamaIndexConfig
@@ -229,8 +231,8 @@ class TestLlamaIndexRetrieve:
         assert len(result.chunks) == 1
         chunk = result.chunks[0]
         assert chunk.content == "this is the chunk content"
-        # node.score=0.87 is a cosine distance in [0, 2] -> normalised to 1 - 0.87 = 0.13.
-        assert chunk.score == pytest.approx(0.13)
+        # LI's ChromaVectorStore already returns a similarity-like score, so we passthrough.
+        assert chunk.score == pytest.approx(0.87)
         assert chunk.chunk_id == "node-001"
         assert chunk.metadata["file_name"] == "Manual.pdf"
         assert chunk.metadata["page_number"] == 3
@@ -321,8 +323,8 @@ class TestLlamaIndexRetrieve:
 
         assert len(result.chunks) == 2
 
-    def test_score_passthrough_when_outside_distance_range(self):
-        # raw_score > 2 is treated as already-similarity; no 1 - x normalization.
+    def test_score_passthrough(self):
+        # LI returns similarity already; we never invert.
         from lib.knowledge.adapters.llama_index import _node_to_chunk
 
         inner = MagicMock()
@@ -331,10 +333,10 @@ class TestLlamaIndexRetrieve:
         inner.metadata = {"file_name": "a.pdf"}
         node = MagicMock()
         node.node = inner
-        node.score = 5.7
+        node.score = 0.42
         chunk = _node_to_chunk(node)
         assert chunk is not None
-        assert chunk.score == pytest.approx(5.7)
+        assert chunk.score == pytest.approx(0.42)
 
 
 class TestLlamaIndexHealth:

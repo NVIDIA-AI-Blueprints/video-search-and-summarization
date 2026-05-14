@@ -61,8 +61,10 @@ class TestLangChainImport:
     """ImportError when the extra isn't installed surfaces a clear, actionable hint."""
 
     def test_missing_packages_raises_clear_error(self, monkeypatch):
+        # Setting sys.modules[mod] = None makes `import mod` raise ModuleNotFoundError,
+        # independent of whether the package is actually installed in the venv.
         for mod in ("langchain_chroma", "langchain_nvidia_ai_endpoints"):
-            monkeypatch.delitem(sys.modules, mod, raising=False)
+            monkeypatch.setitem(sys.modules, mod, None)
 
         from lib.knowledge.adapters.langchain import LangChainAdapter
         from lib.knowledge.adapters.langchain import LangChainConfig

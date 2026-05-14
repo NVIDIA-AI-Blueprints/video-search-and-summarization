@@ -189,13 +189,13 @@ def _node_to_chunk(node: Any, idx: int = 0) -> Chunk | None:
     try:
         inner = node.node
         content = inner.text or ""
-        raw_score = float(getattr(node, "score", 0.0) or 0.0)
+        # LlamaIndex's ChromaVectorStore returns a similarity-like score
+        # (exp(-distance) for cosine), so we passthrough — no `1 - x` flip.
+        # LC's path needs inversion because Chroma exposes raw distance there.
+        score = float(getattr(node, "score", 0.0) or 0.0)
         meta = dict(inner.metadata or {})
     except AttributeError:
         return None
-
-    # Cosine distance → similarity; passthrough if outside distance range. Matches langchain.py.
-    score = 1.0 - raw_score if 0.0 <= raw_score <= 2.0 else raw_score
 
     file_name = meta.get("file_name") or meta.get("file_path") or "unknown"
     page_label = meta.get("page_label")
