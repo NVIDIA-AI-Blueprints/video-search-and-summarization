@@ -52,22 +52,26 @@ gpuProfiles:
     nemotron:
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
       NIM_KVCACHE_PERCENT: "0.8"
+      NIM_GPU_MEM_FRACTION: "0.8"
       NIM_LOW_MEMORY_MODE: "1"
       NIM_MAX_MODEL_LEN: "128000"
       NIM_MAX_NUM_SEQS: "4"
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
+      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
 
   L40S:
     nemotron:
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
       NIM_KVCACHE_PERCENT: "0.8"
+      NIM_GPU_MEM_FRACTION: "0.8"
       NIM_MAX_NUM_SEQS: "4"
       NIM_MAX_MODEL_LEN: "128000"
       NIM_LOW_MEMORY_MODE: "1"
     cosmos:
       NIM_KVCACHE_PERCENT: "0.8"
+      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.8"
       NIM_MAX_MODEL_LEN: "32768"
       NIM_MAX_NUM_SEQS: "4"
       MAX_JOBS: "4"
@@ -77,11 +81,13 @@ gpuProfiles:
     nemotron:
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
       NIM_KVCACHE_PERCENT: "0.4"
+      NIM_GPU_MEM_FRACTION: "0.4"
       NIM_LOW_MEMORY_MODE: "1"
       NIM_MAX_MODEL_LEN: "128000"
       NIM_MAX_NUM_SEQS: "4"
     cosmos:
       NIM_KVCACHE_PERCENT: "0.7"
+      NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
 
 # ---------------------------------------------------------------------------
@@ -171,11 +177,13 @@ cosmos:
   env:
     CUDA_VISIBLE_DEVICES: "1"
     NIM_KVCACHE_PERCENT: "0.75"
+    NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.75"
     NIM_MAX_MODEL_LEN: "16384"
     NIM_LOW_MEMORY_MODE: "1"
   # Imported from <cosmos-fullname>-nim-env ConfigMap into NIMService.spec.env.
   # Missing keys are ignored (optional: true).
   envConfigMapKeys:
     - NIM_KVCACHE_PERCENT
+    - NIM_PASSTHROUGH_ARGS
     - NIM_DISABLE_MM_PREPROCESSOR_CACHE
   

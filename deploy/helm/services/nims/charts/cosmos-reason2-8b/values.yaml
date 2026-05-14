@@ -53,6 +53,7 @@ tolerations:
 # RTXPRO6000BW: NIM_KVCACHE_PERCENT=0.7
 env:
   NIM_KVCACHE_PERCENT: "0.7"
+  NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
   NIM_MAX_MODEL_LEN: ""
   NIM_MAX_NUM_SEQS: ""
   MAX_JOBS: ""
@@ -60,6 +61,7 @@ env:
 # Missing keys are skipped due to optional: true.
 envConfigMapKeys:
   - NIM_KVCACHE_PERCENT
+  - NIM_PASSTHROUGH_ARGS
   - NIM_DISABLE_MM_PREPROCESSOR_CACHE
 
 global:
