@@ -917,7 +917,7 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
 
 # --- Remote: model name from mock API (Python mock server) ---
 gen_env_mock="$(generated_env_path "base")"
-if command -v python3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1; then
   port_file="$(mktemp)"
   cd "${REPO_ROOT}"
   python3 "${REPO_ROOT}/deploy/docker/test-scripts/mock_v1_models_server.py" 0 "mock-llm-from-api" > "${port_file}" 2>/dev/null &
@@ -974,7 +974,7 @@ if command -v python3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   fi
   rm -f "${port_file}"
 else
-  echo "SKIP: generated.env from remote API (python3 or jq not found)"
+  echo "SKIP: generated.env from remote API (python3 not found)"
 fi
 
 # --- Brev: HAProxy + VSS_PUBLIC_HOST in generated.env (agent_ui uses HAPROXY_* / VSS_PUBLIC_HOST only; no BREV_* compose vars) ---

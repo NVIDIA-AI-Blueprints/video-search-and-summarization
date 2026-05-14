@@ -72,14 +72,82 @@ function get_vlm_slug() {
   esac
 }
 
-# Gets model name from remote API endpoint (works for both LLM and VLM)
+# Gets model name from remote API endpoint (works for both LLM and VLM).
+# Auto-select is only safe when the endpoint serves exactly one model. Aggregate
+# endpoints can list many models, so require the caller to pass --llm/--vlm.
+# Arguments:
+#   $1 base_url       e.g. http://localhost:30082 or https://integrate.api.nvidia.com
+#   $2 expected_type  "llm" or "vlm" - used to suggest the right --llm/--vlm flag
 function get_remote_model_name() {
   local _base_url="${1}"
-  local _model_name _curl_exit_code
-  _model_name="$(curl -s -f "${_base_url}/v1/models" 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null)"
+  local _expected_type="${2:-llm}"
+  local _response _model_count _model_name _curl_exit_code _model_list _parsed_response _parse_exit_code
+  _response="$(curl -s -f "${_base_url}/v1/models" 2>/dev/null)"
   _curl_exit_code=$?
-  if [[ ${_curl_exit_code} -ne 0 ]] || [[ -z "${_model_name}" ]]; then
-    echo "[WARNING] Failed to retrieve model name from ${_base_url}/v1/models" >&2
+  if [[ ${_curl_exit_code} -ne 0 ]] || [[ -z "${_response}" ]]; then
+    echo "[WARNING] Failed to retrieve model list from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "[WARNING] python3 is required to parse ${_base_url}/v1/models. Pass --${_expected_type} <model-name> to override." >&2
+    echo ""
+    return 1
+  fi
+
+  _parsed_response="$(printf '%s' "${_response}" | python3 -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+data = payload.get("data") if isinstance(payload, dict) else None
+if not isinstance(data, list):
+    sys.exit(1)
+
+print(len(data))
+for item in data:
+    if not isinstance(item, dict):
+        print("")
+        continue
+    model_id = item.get("id")
+    print(model_id if isinstance(model_id, str) else "")
+' 2>/dev/null)"
+  _parse_exit_code=$?
+  if [[ ${_parse_exit_code} -ne 0 ]]; then
+    echo "[WARNING] Could not parse model list from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+
+  _model_count="$(printf '%s\n' "${_parsed_response}" | sed -n '1p')"
+  if [[ -z "${_model_count}" ]] || [[ ! "${_model_count}" =~ ^[0-9]+$ ]]; then
+    echo "[WARNING] Could not parse model list from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+  if [[ "${_model_count}" == "0" ]]; then
+    echo "[WARNING] No models returned from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+
+  if [[ "${_model_count}" -gt 1 ]]; then
+    _model_list="$(printf '%s\n' "${_parsed_response}" | sed -n '2,$p' | sed 's/^/    /')"
+    echo "[ERROR] ${_base_url}/v1/models returns ${_model_count} models; auto-select is unsafe." >&2
+    echo "[ERROR] Pass --${_expected_type} <model-name> to pick one explicitly. Available models at this endpoint:" >&2
+    echo "${_model_list}" >&2
+    echo ""
+    return 1
+  fi
+
+  _model_name="$(printf '%s\n' "${_parsed_response}" | sed -n '2p')"
+  if [[ -z "${_model_name}" ]]; then
+    echo "[WARNING] Could not extract model id from ${_base_url}/v1/models" >&2
     echo ""
     return 1
   fi
@@ -633,7 +701,7 @@ function state_up() {
       if [[ -n "${llm}" ]]; then
         _llm_name="${llm}"
       else
-        _llm_name="$(get_remote_model_name "${llm_base_url}")"
+        _llm_name="$(get_remote_model_name "${llm_base_url}" "llm")"
         if [[ -z "${_llm_name}" ]]; then
           echo "[ERROR] Could not get LLM model name from ${llm_base_url}/v1/models. Pass --llm <model-name> to override."
           exit 1
@@ -650,7 +718,7 @@ function state_up() {
       if [[ -n "${vlm}" ]]; then
         _vlm_name="${vlm}"
       else
-        _vlm_name="$(get_remote_model_name "${vlm_base_url}")"
+        _vlm_name="$(get_remote_model_name "${vlm_base_url}" "vlm")"
         if [[ -z "${_vlm_name}" ]]; then
           echo "[ERROR] Could not get VLM model name from ${vlm_base_url}/v1/models. Pass --vlm <model-name> to override."
           exit 1
