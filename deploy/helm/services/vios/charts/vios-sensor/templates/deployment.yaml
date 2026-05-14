@@ -75,7 +75,7 @@ spec:
                   key: CENTRALIZE_DB_PASSWORD
             {{- end }}
             - name: STREAM_PROCESSOR_MODULE_ENDPOINT
-              value: {{ or .Values.streamProcessorEndpoint (printf "http://%s:10000" (include "vss-vios-sensor.peerHost" (dict "root" . "short" (default "vss-vios-envoy-proxy" .Values.streamProcessorService)))) | quote }}
+              value: {{ or .Values.streamProcessorEndpoint (printf "http://%s:10000" (include "vss-vios-sensor.peerHost" (dict "root" . "short" (default "sdrc" .Values.streamProcessorService)))) | quote }}
             - name: VST_INGRESS_ENDPOINT
               value: {{ include "vss-vios-sensor.vstIngressEndpointUrl" . | quote }}
           volumeMounts:

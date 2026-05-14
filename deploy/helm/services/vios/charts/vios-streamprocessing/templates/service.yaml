@@ -14,7 +14,7 @@
 # limitations under the License.
 
 {{- if .Values.enabled }}
-# Headless service for SDR discovery (k8sHeadlessBaseDomain). Selects Deployment pods; name must match vss-vios-sdr.k8sHeadlessBaseDomain.
+# Headless service for SDRC/WDM discovery (k8sHeadlessBaseDomain). Selects Deployment pods; name must match sdrc workload discovery settings.
 ---
 apiVersion: v1
 kind: Service

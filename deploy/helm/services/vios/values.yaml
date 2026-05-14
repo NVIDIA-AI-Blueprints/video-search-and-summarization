@@ -36,10 +36,6 @@ vstStorage:
 # `vios.<chart>.*` merges on top. NVStreamer defaults off unless a profile sets it true (e.g. alerts).
 vss-vios-postgres:
   enabled: true
-vss-vios-envoy-proxy:
-  enabled: true
-vss-vios-sdr:
-  enabled: true
 vss-vios-sensor:
   enabled: true
 vss-vios-streamprocessing:

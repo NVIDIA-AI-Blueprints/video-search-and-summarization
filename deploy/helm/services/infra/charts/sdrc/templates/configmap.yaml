@@ -1,0 +1,12 @@
+{{- if .Values.enabled }}
+{{- $configYml := .Values.config.configYml | default (.Files.Get "configs/config.yml") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sdrc.configMapName" . }}
+  labels:
+    {{- include "sdrc.labels" . | nindent 4 }}
+data:
+  {{ include "sdrc.configKey" . }}: |
+{{ required "config.configYml or configs/config.yml is required when sdrc.enabled=true" $configYml | nindent 4 }}
+{{- end }}

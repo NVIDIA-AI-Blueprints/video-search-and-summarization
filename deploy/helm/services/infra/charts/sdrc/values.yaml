@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+enabled: false
+global: {}
+
+image:
+  repository: nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l
+  tag: 3.0.0-rc.14
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicas: 1
+
+service:
+  controller:
+    type: NodePort
+    port: 5002
+    nodePort: 30010
+  sdrcDirectListener:
+    type: ClusterIP
+    port: 8011
+  envoyAdmin:
+    type: ClusterIP
+    port: 9902
+
+config:
+  name: ""
+  key: config.yml
+  mountPath: /config.yml
+  configYml: ""
+
+runtimeEnv:
+  WDM_WL_REDIS_SERVER: redis
+  WDM_WL_REDIS_PORT: "6379"
+  OTEL_SDK_DISABLED: "true"
+  KUBERNETES_HOST: kubernetes.default.svc
+  KUBERNETES_PORT: "443"
+  WDM_CONTROLLER_HOST: "127.0.0.1"
+  HOST_IP: "127.0.0.1" # TODO
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true

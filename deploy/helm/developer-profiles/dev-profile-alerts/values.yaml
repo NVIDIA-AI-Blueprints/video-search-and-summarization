@@ -81,6 +81,8 @@ infra:
       - "--loadmodule"
       - "/usr/local/lib/redis/modules/redistimeseries.so"
       - "/config/redis.conf"
+  sdrc:
+    enabled: true
   elasticsearch:
     enabled: true
     persistence:
@@ -170,11 +172,11 @@ vios:
   vss-vios-postgres:
     enabled: true
 
-  vss-vios-envoy-proxy:
-    enabled: true
+  # vss-vios-envoy-proxy:
+  #   enabled: false
 
-  vss-vios-sdr:
-    enabled: true
+  # vss-vios-sdr:
+  #   enabled: false
 
   vss-vios-sensor:
     enabled: true
@@ -427,7 +429,7 @@ rtvi:
         sourcePath: mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx
         destPath: gdino/mgdino_mask_head_pruned_dynamic_batch.onnx
   vss-rtvi-cv-sdr:
-    enabled: true
+    enabled: false
     perceptionProvisioningAddress: ""
     vstStatusEndpoint: ""
     vstStreamsEndpoint: ""
