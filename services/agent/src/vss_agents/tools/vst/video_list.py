@@ -54,8 +54,8 @@ class VSTVideoListOutput(BaseModel):
         ...,
         description=(
             "List of available media entries. Each entry has 'name' (str), "
-            "'media_type' ('stream' for live RTSP, 'video' for uploaded files), "
-            "and 'duration' (float seconds; 0 for streams with no captioned timeline yet)."
+            "'media_type' ('rtsp' for live RTSP, 'video' for uploaded files), "
+            "and 'duration' (float seconds; 0 for RTSP streams with no captioned timeline yet)."
         ),
     )
 
@@ -65,7 +65,7 @@ async def _vst_video_list(config: VSTVideoListConfig, _builder: Builder) -> Asyn
     async def _vst_video_list(vst_video_list_input: VSTVideoListInput) -> VSTVideoListOutput:  # noqa: ARG001
         """Get the list of available media (uploaded videos and live streams) from VST.
 
-        Each entry includes a `media_type` field: 'stream' for live RTSP sources,
+        Each entry includes a `media_type` field: 'rtsp' for live RTSP sources,
         'video' for uploaded files.
         """
         streams_info = await get_streams_info(config.vst_internal_url)
@@ -73,7 +73,7 @@ async def _vst_video_list(config: VSTVideoListConfig, _builder: Builder) -> Asyn
         for stream_id, info in streams_info.items():
             name = info.get("name", "")
             url = info.get("url", "")
-            media_type = "stream" if isinstance(url, str) and url.startswith("rtsp://") else "video"
+            media_type = "rtsp" if isinstance(url, str) and url.startswith("rtsp://") else "video"
             try:
                 start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)
                 duration = (
