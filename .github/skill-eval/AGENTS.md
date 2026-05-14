@@ -193,13 +193,27 @@ template is in § Harbor invocation below.
          updates). Don't open a duplicate PR.
 
    When cloning the vios template for a new skill, the `[metadata]`
-   block's `profile` and `prerequisite_deploy_mode` fields **must be
-   read from the spec JSON**, not hardcoded:
-   `spec.get("profile", "base")`,
-   `spec.get("prerequisite_deploy_mode", "remote-all")`. Hardcoding
-   breaks the `/deploy -p <profile>` chain for skills like
-   `video-search` (profile: `search`) and `video-summarization`
-   (profile: `lvs`) that share the vios shape but not its profile.
+   block's `profile` field **must be read from the spec JSON**, not
+   hardcoded: `spec.get("profile", "base")`. Hardcoding breaks the
+   `/deploy -p <profile>` chain for skills like `video-search`
+   (profile: `search`) and `video-summarization` (profile: `lvs`)
+   that share the vios shape but not its profile.
+
+   The `prerequisite_deploy_mode` field is **alerts-only** today —
+   placement (`remote-all` / `dedicated` / etc.) is no longer a
+   marker dimension; `/deploy` picks placement from env at runtime.
+   Emit `prerequisite_deploy_mode` **only when the spec declares
+   it**, so the consumer's `desired = profile` branch fires for
+   base/lvs/search (marker = `<profile>`, not `<profile>-remote-all`):
+
+   ```python
+   *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"']
+     if spec.get("prerequisite_deploy_mode") else []),
+   ```
+
+   Defaulting to `"remote-all"` here re-introduces the bug fixed by
+   PR #427 — consumer looks for `<profile>-remote-all`, producer
+   writes `<profile>`, warm reuse breaks silently.
 
    Every `instruction.md` the adapter writes **must begin with the
    `PREAMBLE` constant** defined in `adapters/vios/generate.py` and

@@ -365,9 +365,15 @@ class BrevEnvironment(BaseEnvironment):
             If marker == `""` → already clean, no-op.
             Else → tear down all containers (`docker rm -f $(docker
                   ps -aq)`) + prune networks; OVERWRITE marker to empty.
-                  Preserves docker image cache, repo clone, and
-                  sample-data extract — the slow caches that make warm
-                  reuse valuable for the next deploy trial.
+                  Preserves anything `docker rm -f` doesn't touch:
+                  docker image cache, named volumes (postgres / ES /
+                  kafka data), repo clone, and sample-data extract —
+                  the slow caches that make warm reuse valuable for
+                  the next deploy trial. Cleanup failures fail loud:
+                  if either docker command exits non-zero the marker
+                  is NOT overwritten, so the next trial re-attempts
+                  the reconcile instead of running against a
+                  partially-dirty box that pretends to be clean.
 
         Deploy/* trials themselves set `profile` but don't request a
         prereq — their test.sh writes the marker on reward=1.0. They
@@ -408,13 +414,22 @@ class BrevEnvironment(BaseEnvironment):
         if not desired:
             # Profile-less trial wants a clean box. Tear down all
             # containers without touching the deploy skill; keeps the
-            # docker image cache, repo clone, and sample-data extract
-            # warm for the next deploy trial. Container teardown is
-            # fast (<10s typically) so the timeout is short.
+            # docker image cache, named volumes (postgres / ES / kafka
+            # data), repo clone, and sample-data extract warm for the
+            # next deploy trial. Container teardown is fast (<10s
+            # typically) so the timeout is short.
+            #
+            # No `|| true` on the docker commands by design — if either
+            # exits non-zero (stuck container, daemon transient error)
+            # the `&&` chain short-circuits and the marker is left as
+            # it was, so the next trial re-runs the reconcile rather
+            # than silently treating a partially-dirty box as clean.
+            # `xargs -r` already handles the "no containers to remove"
+            # case (skips invoking docker rm at all, exit 0).
             cmd = (
                 "mkdir -p /tmp/skill-eval && "
-                "(docker ps -aq | xargs -r docker rm -f >/dev/null 2>&1 || true) && "
-                "(docker network prune -f >/dev/null 2>&1 || true) && "
+                "docker ps -aq | xargs -r docker rm -f >/dev/null && "
+                "docker network prune -f >/dev/null && "
                 f"printf '' > {shlex.quote(marker_path)}"
             )
             logger.info(

@@ -169,8 +169,8 @@ up to N parallel.
 
 1. **Stale-flag regression test.** Reproduce the run 24969145586 pattern:
    `deploy/lvs` → `deploy/search` → `vios step-1`. Confirm `vios` now
-   redeploys base (marker reads `search-remote-all`, not
-   `base-remote-all`) instead of skipping on a stale flag.
+   redeploys base (marker reads `search`, not `base`) instead of
+   skipping on a stale flag.
 2. **Same-profile reuse.** `deploy/base` → `vios step-1` → `vios step-2`
    → `vios step-3`. Three vios trials share the marker set by
    `deploy/base`; pre-deploy hook fires zero times.
