@@ -25,6 +25,7 @@ from tenacity import retry_if_exception_type
 from tenacity import stop_after_attempt
 from tenacity import wait_none
 
+from vss_agents.api.rtsp_ingest import VST_STREAM_REUSED
 from vss_agents.api.rtsp_ingest import AddStreamRequest
 from vss_agents.api.rtsp_ingest import AddStreamResponse
 from vss_agents.api.rtsp_ingest import ServiceConfig
@@ -178,6 +179,40 @@ class TestAddToVst:
         assert success is False
         assert "500" in msg
         assert sensor_id is None
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.vst_get_stream_info_by_name")
+    @patch("vss_agents.api.rtsp_ingest.vst_add_sensor")
+    async def test_vst_duplicate_reuses_existing_stream(self, mock_add_sensor, mock_get_stream_info):
+        config = ServiceConfig(vst_internal_url="http://vst:30888")
+        request = AddStreamRequest(sensor_url="rtsp://camera:554/stream", name="camera-1")
+
+        mock_add_sensor.return_value = (False, "VST error: User given name is invalid or already exists", None)
+        mock_get_stream_info.return_value = ("sensor-123", "rtsp://vst:554/sensor-123")
+
+        success, msg, sensor_id, rtsp_url = await add_to_vst(config, request)
+
+        assert success is True
+        assert msg == VST_STREAM_REUSED
+        assert sensor_id == "sensor-123"
+        assert rtsp_url == "rtsp://vst:554/sensor-123"
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.vst_get_stream_info_by_name")
+    @patch("vss_agents.api.rtsp_ingest.vst_add_sensor")
+    async def test_vst_duplicate_requires_lookup_match(self, mock_add_sensor, mock_get_stream_info):
+        config = ServiceConfig(vst_internal_url="http://vst:30888")
+        request = AddStreamRequest(sensor_url="rtsp://camera:554/stream", name="camera-1")
+
+        mock_add_sensor.return_value = (False, "VST error: User given name is invalid or already exists", None)
+        mock_get_stream_info.return_value = (None, None)
+
+        success, msg, sensor_id, rtsp_url = await add_to_vst(config, request)
+
+        assert success is False
+        assert "already exists" in msg
+        assert sensor_id is None
+        assert rtsp_url is None
 
     @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_ingest.vst_add_sensor")
@@ -802,6 +837,134 @@ class TestAddStreamEndpoint:
         assert "RTVI-VLM" in response.message
         mock_cleanup_sensor.assert_called_once()
         mock_cleanup_storage.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.cleanup_vst_storage")
+    @patch("vss_agents.api.rtsp_ingest.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_ingest.add_to_rtvi_vlm")
+    @patch("vss_agents.api.rtsp_ingest.add_to_vst")
+    @patch("vss_agents.api.rtsp_ingest.httpx.AsyncClient")
+    async def test_rtvi_vlm_failure_does_not_delete_reused_vst_stream(
+        self, mock_client_class, mock_add_vst, mock_add_rtvi_vlm, mock_cleanup_sensor, mock_cleanup_storage
+    ):
+        router = create_rtsp_ingest_router(
+            ServiceConfig(
+                vst_internal_url="http://vst:30888",
+                rtvi_vlm_base_url="http://rtvi-vlm:8018",
+            )
+        )
+
+        mock_client = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_add_vst.return_value = (True, VST_STREAM_REUSED, "sensor-123", "rtsp://vst:554/sensor-123")
+        mock_add_rtvi_vlm.return_value = (False, "RTVI-VLM error", None)
+
+        endpoint = router.routes[0].endpoint
+        request = AddStreamRequest(sensor_url="rtsp://camera:554/stream", name="camera-1")
+        response = await endpoint(request)
+
+        assert response.status == "failure"
+        assert "RTVI-VLM" in response.message
+        mock_cleanup_sensor.assert_not_called()
+        mock_cleanup_storage.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.cleanup_vst_storage")
+    @patch("vss_agents.api.rtsp_ingest.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_ingest.cleanup_rtvi_cv")
+    @patch("vss_agents.api.rtsp_ingest.add_to_rtvi_embed")
+    @patch("vss_agents.api.rtsp_ingest.add_to_rtvi_cv")
+    @patch("vss_agents.api.rtsp_ingest.add_to_vst")
+    @patch("vss_agents.api.rtsp_ingest.httpx.AsyncClient")
+    async def test_rtvi_embed_failure_cleans_rtvi_cv_but_not_reused_vst_stream(
+        self,
+        mock_client_class,
+        mock_add_vst,
+        mock_add_rtvi_cv,
+        mock_add_rtvi_embed,
+        mock_cleanup_rtvi_cv,
+        mock_cleanup_sensor,
+        mock_cleanup_storage,
+    ):
+        config = ServiceConfig(
+            vst_internal_url="http://vst:30888",
+            rtvi_cv_base_url="http://rtvi-cv:9000",
+            rtvi_embed_base_url="http://rtvi-embed:8017",
+        )
+        router = create_rtsp_ingest_router(config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_add_vst.return_value = (True, VST_STREAM_REUSED, "sensor-123", "rtsp://vst:554/sensor-123")
+        mock_add_rtvi_cv.return_value = (True, "OK")
+        mock_add_rtvi_embed.return_value = (False, "RTVI-embed error", None)
+
+        endpoint = router.routes[0].endpoint
+        request = AddStreamRequest(sensor_url="rtsp://camera:554/stream", name="camera-1")
+        response = await endpoint(request)
+
+        assert response.status == "failure"
+        assert "RTVI-embed" in response.message
+        mock_cleanup_rtvi_cv.assert_called_once_with(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+        mock_cleanup_sensor.assert_not_called()
+        mock_cleanup_storage.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.cleanup_vst_storage")
+    @patch("vss_agents.api.rtsp_ingest.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_ingest.cleanup_rtvi_cv")
+    @patch("vss_agents.api.rtsp_ingest.cleanup_rtvi_embed_stream")
+    @patch("vss_agents.api.rtsp_ingest.start_embedding_generation")
+    @patch("vss_agents.api.rtsp_ingest.add_to_rtvi_embed")
+    @patch("vss_agents.api.rtsp_ingest.add_to_rtvi_cv")
+    @patch("vss_agents.api.rtsp_ingest.add_to_vst")
+    @patch("vss_agents.api.rtsp_ingest.httpx.AsyncClient")
+    async def test_embedding_failure_cleans_rtvi_resources_but_not_reused_vst_stream(
+        self,
+        mock_client_class,
+        mock_add_vst,
+        mock_add_rtvi_cv,
+        mock_add_rtvi_embed,
+        mock_start_embed,
+        mock_cleanup_rtvi_embed,
+        mock_cleanup_rtvi_cv,
+        mock_cleanup_sensor,
+        mock_cleanup_storage,
+    ):
+        config = ServiceConfig(
+            vst_internal_url="http://vst:30888",
+            rtvi_cv_base_url="http://rtvi-cv:9000",
+            rtvi_embed_base_url="http://rtvi-embed:8017",
+        )
+        router = create_rtsp_ingest_router(config)
+
+        mock_client = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_add_vst.return_value = (True, VST_STREAM_REUSED, "sensor-123", "rtsp://vst:554/sensor-123")
+        mock_add_rtvi_cv.return_value = (True, "OK")
+        mock_add_rtvi_embed.return_value = (True, "OK", "rtvi-stream-123")
+        mock_start_embed.return_value = (False, "embedding error")
+
+        endpoint = router.routes[0].endpoint
+        request = AddStreamRequest(sensor_url="rtsp://camera:554/stream", name="camera-1")
+        response = await endpoint(request)
+
+        assert response.status == "failure"
+        assert "embedding generation" in response.message
+        mock_cleanup_rtvi_embed.assert_called_once_with(mock_client, config, "rtvi-stream-123")
+        mock_cleanup_rtvi_cv.assert_called_once_with(
+            mock_client, config, "sensor-123", "camera-1", "rtsp://vst:554/sensor-123"
+        )
+        mock_cleanup_sensor.assert_not_called()
+        mock_cleanup_storage.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_ingest.add_to_vst")

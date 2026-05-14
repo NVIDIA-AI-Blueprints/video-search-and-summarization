@@ -46,6 +46,13 @@ from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)
 
+VST_STREAM_REUSED = "Stream already exists in VST"
+
+
+def _is_already_exists_error(message: str) -> bool:
+    return "already exists" in message.lower()
+
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -153,6 +160,14 @@ async def add_to_vst(config: ServiceConfig, request: AddStreamRequest) -> tuple[
         vst_internal_url=config.vst_url,
     )
     if not success:
+        if _is_already_exists_error(msg):
+            existing_success, _existing_msg, existing_sensor_id, existing_rtsp_url = await get_stream_info_by_name(
+                config, request.name
+            )
+            if existing_success and existing_sensor_id and existing_rtsp_url:
+                logger.info("VST stream already exists; reusing existing sensor")
+                return True, VST_STREAM_REUSED, existing_sensor_id, existing_rtsp_url
+            logger.warning("VST reported duplicate stream, but lookup did not find a reusable stream")
         return False, msg, None, None
 
     assert sensor_id is not None, "sensor_id should be set after successful VST add"
@@ -566,6 +581,7 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                 message=f"Failed at VST: {msg}",
                 error=msg,
             )
+        vst_sensor_created = msg != VST_STREAM_REUSED
         logger.info(f"Added RTSP to VST: {sensor_id} {rtsp_url} successfully")
         # After successful VST add, sensor_id and rtsp_url are guaranteed to be set
         assert sensor_id is not None, "sensor_id should be set after successful VST add"
@@ -583,8 +599,9 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                         client, config, sensor_id, request.name, rtsp_url
                     )
                 if not success:
-                    await cleanup_vst_sensor(config, sensor_id)
-                    await cleanup_vst_storage(config, sensor_id)
+                    if vst_sensor_created:
+                        await cleanup_vst_sensor(config, sensor_id)
+                        await cleanup_vst_storage(config, sensor_id)
                     return AddStreamResponse(
                         status="failure",
                         message=f"Failed at RTVI-VLM: {msg}",
@@ -602,8 +619,9 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                 success, msg = await add_to_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
             if not success:
                 # Rollback: cleanup VST sensor and storage
-                await cleanup_vst_sensor(config, sensor_id)
-                await cleanup_vst_storage(config, sensor_id)
+                if vst_sensor_created:
+                    await cleanup_vst_sensor(config, sensor_id)
+                    await cleanup_vst_storage(config, sensor_id)
                 return AddStreamResponse(
                     status="failure",
                     message=f"Failed at RTVI-CV: {msg}",
@@ -620,8 +638,9 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                 # Rollback: cleanup RTVI-CV and VST (sensor + storage)
                 if rtvi_cv_added:
                     await cleanup_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
-                await cleanup_vst_sensor(config, sensor_id)
-                await cleanup_vst_storage(config, sensor_id)
+                if vst_sensor_created:
+                    await cleanup_vst_sensor(config, sensor_id)
+                    await cleanup_vst_storage(config, sensor_id)
                 return AddStreamResponse(
                     status="failure",
                     message=f"Failed at RTVI-embed: {msg}",
@@ -640,8 +659,9 @@ def create_rtsp_ingest_router(config: ServiceConfig) -> APIRouter:
                     await cleanup_rtvi_embed_stream(client, config, rtvi_embed_stream_id)
                 if rtvi_cv_added:
                     await cleanup_rtvi_cv(client, config, sensor_id, request.name, rtsp_url)
-                await cleanup_vst_sensor(config, sensor_id)
-                await cleanup_vst_storage(config, sensor_id)
+                if vst_sensor_created:
+                    await cleanup_vst_sensor(config, sensor_id)
+                    await cleanup_vst_storage(config, sensor_id)
                 return AddStreamResponse(
                     status="failure",
                     message=f"Failed at embedding generation: {msg}",
