@@ -27,6 +27,7 @@ import {
   IconLoader2,
   IconCheck,
   IconX,
+  IconRefresh,
 } from '@tabler/icons-react';
 import { AlertRulesType, RealtimeAlertRuleDraft, RealtimeAlertRule } from '../types';
 import { useRealtimeAlertRules } from '../hooks/useRealtimeAlertRules';
@@ -207,9 +208,8 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   readOnlyCellClass,
   thClass,
 }) => {
-  const { rules, loading, error, createRule, deleteRule, refetch } = useRealtimeAlertRules({
-    alertsApiUrl,
-  });
+  const { rules, loading, error, lastRefreshedAt, createRule, deleteRule, refetch } =
+    useRealtimeAlertRules({ alertsApiUrl });
 
   const [drafts, setDrafts] = useState<RealtimeAlertRuleDraft[]>([]);
   const [streamFilter, setStreamFilter] = useState('');
@@ -426,16 +426,35 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
           </div>
 
           <div className="ml-auto flex items-center gap-3 text-xs">
+            {lastRefreshedAt && (
+              <span
+                data-testid="realtime-alerts-last-refreshed"
+                aria-live="polite"
+                className={isDark ? 'text-neutral-400' : 'text-gray-500'}
+              >
+                Last refreshed: {lastRefreshedAt.toLocaleTimeString()}
+              </span>
+            )}
             <button
               type="button"
-              onClick={() => refetch()}
-              className={`px-3 py-1 rounded border text-sm transition-colors ${
+              onClick={() => refetch({ minLoadingMs: 1500 })}
+              disabled={loading}
+              aria-busy={loading}
+              aria-label={loading ? 'Refreshing alert rules' : 'Refresh alert rules'}
+              title={loading ? 'Refreshing…' : 'Refresh alert rules'}
+              data-testid="realtime-alerts-refresh"
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded border text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                 isDark
                   ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800'
                   : 'border-gray-300 text-gray-700 hover:bg-gray-100'
               }`}
             >
-              Refresh
+              <IconRefresh
+                className={`w-3.5 h-3.5 ${
+                  loading ? 'animate-spin [animation-direction:reverse]' : ''
+                }`}
+              />
+              {loading ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>

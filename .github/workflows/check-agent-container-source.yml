@@ -33,5 +33,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch sibling branches so image-tag SHAs resolve
+        # `fetch-depth: 0` above pulls the full history of the PR's own
+        # branch — but image tags carry SHAs built from `release/*`,
+        # `develop`, or `main` (different branches). Without these refs
+        # in the local object DB, `git cat-file -e <sha>` in the check
+        # script fails and every PR is red. `|| true` keeps the step
+        # green if a branch happens not to exist yet (e.g. very early
+        # in repo history); the next check step still runs and reports
+        # specifically which SHA it can't resolve.
+        run: |
+          git fetch --no-tags --quiet origin \
+            '+refs/heads/release/*:refs/remotes/origin/release/*' \
+            develop main \
+            || true
+
       - name: Check vss-agent tag matches services/agent
         run: python3 .github/scripts/check_container_tag_source.py --image-name vss-agent
