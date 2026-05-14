@@ -19,7 +19,7 @@ spec pins this in `resources.platforms`.
 
 ## Directory layout
 
-    datasets/vss-search-archive/<profile>/<platform>/step-<k>/
+    .github/skill-eval/datasets/vss-search-archive/<profile>/<platform>/step-<k>/
         task.toml
         instruction.md
         tests/test.sh
@@ -36,11 +36,12 @@ spec pins this in `resources.platforms`.
 1-based index into `expects[]`; single-step specs collapse the step
 subdir.
 
-Usage:
-    python3 generate.py --output-dir ../../datasets/vss-search-archive \\
-        --skill-dir ../../../../../skills/vss-search-archive \\
-        --deploy-skill-dir ../../../../../skills/vss-deploy-profile \\
-        --video-io-skill-dir ../../../../../skills/vss-manage-video-io-storage
+Usage from the repository root:
+    python3 .github/skill-eval/adapters/vss-search-archive/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-search-archive \\
+        --skill-dir skills/vss-search-archive \\
+        --deploy-skill-dir skills/vss-deploy-profile \\
+        --video-io-skill-dir skills/vss-manage-video-io-storage
 """
 from __future__ import annotations
 

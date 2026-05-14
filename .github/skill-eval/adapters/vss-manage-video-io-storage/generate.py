@@ -35,7 +35,7 @@ validator can refuse to dispatch it in isolation.
 
 ## Directory layout
 
-    datasets/vss-manage-video-io-storage/base/<platform>/
+    .github/skill-eval/datasets/vss-manage-video-io-storage/base/<platform>/
         task.toml
         instruction.md
         tests/test.sh
@@ -48,10 +48,11 @@ One task per platform. All platforms share the same verifier — only
 the `gpu_type` / `brev_search` / resource hints in task.toml differ,
 matching the deploy-adapter convention.
 
-Usage:
-    python3 generate.py --output-dir ../../datasets/vss-manage-video-io-storage \\
-        --skill-dir ../../../../../skills/vss-manage-video-io-storage \\
-        --deploy-skill-dir ../../../../../skills/vss-deploy-profile \\
+Usage from the repository root:
+    python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-manage-video-io-storage \\
+        --skill-dir skills/vss-manage-video-io-storage \\
+        --deploy-skill-dir skills/vss-deploy-profile \\
         --video-url https://videos.pexels.com/video-files/6079421/6079421-sd_640_360_24fps.mp4
 """
 from __future__ import annotations
@@ -107,7 +108,7 @@ def generate_test_script(step: int, spec_name: str) -> str:
     return (
         "#!/bin/bash\n"
         f"# vss-manage-video-io-storage verifier (step {step}): delegates to the generic\n"
-        "# LLM-as-judge (tools/eval/harbor/verifiers/generic_judge.py).\n"
+        "# LLM-as-judge (.github/skill-eval/verifiers/generic_judge.py).\n"
         "set -uo pipefail\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
@@ -274,7 +275,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", required=True,
-                        help="Dataset output root (e.g. tools/eval/harbor/datasets/vss-manage-video-io-storage)")
+                        help="Dataset output root (e.g. .github/skill-eval/datasets/vss-manage-video-io-storage)")
     parser.add_argument("--skill-dir", required=True,
                         help="Path to skills/vss-manage-video-io-storage")
     parser.add_argument("--deploy-skill-dir", default=None,
@@ -333,7 +334,7 @@ def main() -> None:
     print(f"Generated {len(platforms)} task(s) under {output_root}/base/")
     print()
     print("Note: these tasks assume VSS base is already deployed on the target")
-    print("Brev instance. The coordinator (see tools/eval/harbor/AGENTS.md) is")
+    print("Brev instance. The coordinator (see .github/skill-eval/AGENTS.md) is")
     print("responsible for injecting a matching deploy task ahead of each")
     print("vss-manage-video-io-storage task in the same subagent queue.")
 

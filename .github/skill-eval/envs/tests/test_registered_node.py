@@ -7,9 +7,9 @@ These tests don't need an actual Brev instance — they monkeypatch the
 module-level `_registered_nodes_cache` and stub asyncio subprocess calls.
 
 Run manually:
-    python3 -m pytest tools/eval/harbor/envs/tests/test_registered_node.py -v
+    python3 -m pytest .github/skill-eval/envs/tests/test_registered_node.py -v
 Or directly:
-    python3 tools/eval/harbor/envs/tests/test_registered_node.py
+    python3 .github/skill-eval/envs/tests/test_registered_node.py
 """
 from __future__ import annotations
 

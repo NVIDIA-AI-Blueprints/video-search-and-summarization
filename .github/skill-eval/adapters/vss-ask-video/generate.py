@@ -17,7 +17,7 @@ by default (L40S — cheapest available host).  Override with ``--platform``.
 
 ## Directory layout
 
-    datasets/vss-ask-video/<profile>/<platform>/   (multi-step spec)
+    .github/skill-eval/datasets/vss-ask-video/<profile>/<platform>/   (multi-step spec)
         step-1/
             task.toml, instruction.md, tests/, solution/, skills/, environment/
         step-2/
@@ -27,12 +27,13 @@ by default (L40S — cheapest available host).  Override with ``--platform``.
 
 ``<profile>`` comes from ``spec.profile`` (here: ``base``).
 
-Usage:
-    python3 generate.py --output-dir ../../datasets/vss-ask-video \\
-        --skill-dir ../../../../../skills/vss-ask-video \\
-        --deploy-skill-dir ../../../../../skills/vss-deploy-profile \\
-        --video-io-skill-dir ../../../../../skills/vss-manage-video-io-storage \\
-        --spec ../../../../../skills/vss-ask-video/eval/base_profile_video_understanding.json
+Usage from the repository root:
+    python3 .github/skill-eval/adapters/vss-ask-video/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-ask-video \\
+        --skill-dir skills/vss-ask-video \\
+        --deploy-skill-dir skills/vss-deploy-profile \\
+        --video-io-skill-dir skills/vss-manage-video-io-storage \\
+        --spec skills/vss-ask-video/eval/base_profile_video_understanding.json
 """
 from __future__ import annotations
 

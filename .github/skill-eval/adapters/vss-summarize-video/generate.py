@@ -17,7 +17,7 @@ this in `resources.platforms`.
 
 ## Directory layout
 
-    datasets/vss-summarize-video/<profile>/<platform>/step-<k>/
+    .github/skill-eval/datasets/vss-summarize-video/<profile>/<platform>/step-<k>/
         task.toml
         instruction.md
         tests/test.sh
@@ -34,11 +34,12 @@ this in `resources.platforms`.
 1-based index into `expects[]`; single-step specs collapse the step
 subdir.
 
-Usage:
-    python3 generate.py --output-dir ../../datasets/vss-summarize-video \\
-        --skill-dir ../../../../../skills/vss-summarize-video \\
-        --deploy-skill-dir ../../../../../skills/vss-deploy-profile \\
-        --video-io-skill-dir ../../../../../skills/vss-manage-video-io-storage
+Usage from the repository root:
+    python3 .github/skill-eval/adapters/vss-summarize-video/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-summarize-video \\
+        --skill-dir skills/vss-summarize-video \\
+        --deploy-skill-dir skills/vss-deploy-profile \\
+        --video-io-skill-dir skills/vss-manage-video-io-storage
 """
 from __future__ import annotations
 

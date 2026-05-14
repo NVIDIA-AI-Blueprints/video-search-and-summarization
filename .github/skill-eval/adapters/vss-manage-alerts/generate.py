@@ -21,7 +21,7 @@ but RT-CV / `rtvi-vlm` is always local on the alerts profile.
 
 Directory layout (one platform × mode per directory):
 
-    datasets/vss-manage-alerts/<spec_stem>/<platform_short>-<mode>/
+    <output-dir>/<spec_stem>/<platform_short>-<mode>/
         step-1/
             instruction.md, task.toml, tests/, solution/, skills/, environment/
         step-2/
@@ -31,8 +31,8 @@ Directory layout (one platform × mode per directory):
         step-4/
             ...
 
-Usage:
-    python3 generate.py \\
+Usage from the repository root:
+    python3 .github/skill-eval/adapters/vss-manage-alerts/generate.py \\
         --output-dir /tmp/skill-eval/datasets/vss-manage-alerts \\
         --skill-dir   skills/vss-manage-alerts \\
         --deploy-skill-dir skills/vss-deploy-profile \\

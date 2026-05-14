@@ -21,22 +21,29 @@ Matrix:
                (each spec declares which platforms it runs on)
 
 Directory layout:
-    datasets/vss-deploy-profile/<profile>/<platform_short>/
+    .github/skill-eval/datasets/vss-deploy-profile/<profile>/<platform_short>/
         instruction.md, task.toml, tests/, solution/, skills/, environment/
 
-Usage:
+Usage from the repository root:
     # Generate every (profile, platform) the specs declare
-    python generate.py --output-dir ../../datasets/vss-deploy-profile
+    python3 .github/skill-eval/adapters/vss-deploy-profile/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-deploy-profile \\
+        --skill-dir skills/vss-deploy-profile
 
     # One profile
-    python generate.py --output-dir ../../datasets/vss-deploy-profile --profile base
+    python3 .github/skill-eval/adapters/vss-deploy-profile/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-deploy-profile \\
+        --skill-dir skills/vss-deploy-profile --profile base
 
     # One platform
-    python generate.py --output-dir ../../datasets/vss-deploy-profile --platform L40S
+    python3 .github/skill-eval/adapters/vss-deploy-profile/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-deploy-profile \\
+        --skill-dir skills/vss-deploy-profile --platform RTXPRO6000BW
 
 Run with Harbor:
-    harbor run --env "tools.eval.harbor.envs.brev_env:BrevEnvironment" \\
-        -p tools/eval/harbor/datasets/vss-deploy-profile/base -a claude-code -n 1
+    export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
+    uvx harbor run --environment-import-path "envs.brev_env:BrevEnvironment" \\
+        -p .github/skill-eval/datasets/vss-deploy-profile/base -a claude-code -n 1
 """
 
 from __future__ import annotations
@@ -291,7 +298,7 @@ def generate_test_script(spec_name: str, profile: str) -> str:
     return (
         "#!/bin/bash\n"
         "# vss-deploy-profile verifier: delegates to the generic LLM-as-judge\n"
-        "# (tools/eval/harbor/verifiers/generic_judge.py). Shell-wrapped\n"
+        "# (.github/skill-eval/verifiers/generic_judge.py). Shell-wrapped\n"
         "# checks (curl/docker/grep) never call the LLM — only\n"
         "# trajectory/response-style checks pay the LLM cost.\n"
         "set -uo pipefail\n"
@@ -617,7 +624,8 @@ def expand_matrix(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", required=True, help="Dataset output root")
     parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-profile")
     parser.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
@@ -670,8 +678,11 @@ def main() -> None:
     print()
     print("Run a profile's tasks with:")
     first_profile = list(by_profile.keys())[0]
-    print(f"  harbor run --env 'tools.eval.harbor.envs.brev_env:BrevEnvironment' \\")
-    print(f"    -p {output_root}/{first_profile} -a claude-code -n 1")
+    skill_eval_root = Path(__file__).resolve().parents[2]
+    first_profile_root = (output_root / first_profile).resolve()
+    print(f'  export PYTHONPATH="{skill_eval_root}:${{PYTHONPATH:-}}"')
+    print(f"  uvx harbor run --environment-import-path 'envs.brev_env:BrevEnvironment' \\")
+    print(f"    -p {first_profile_root} -a claude-code -n 1")
 
 
 if __name__ == "__main__":

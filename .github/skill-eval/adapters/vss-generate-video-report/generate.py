@@ -17,7 +17,7 @@ by default (L40S — cheapest available host).  Override with ``--platform``.
 
 ## Directory layout
 
-    datasets/vss-generate-video-report/<profile>/<platform>/           (single-step spec)
+    .github/skill-eval/datasets/vss-generate-video-report/<profile>/<platform>/           (single-step spec)
         task.toml
         instruction.md
         tests/test.sh
@@ -31,12 +31,13 @@ by default (L40S — cheapest available host).  Override with ``--platform``.
 
 ``<profile>`` comes from ``spec.profile`` (here: ``base``).
 
-Usage:
-    python3 generate.py --output-dir ../../datasets/vss-generate-video-report \\
-        --skill-dir ../../../../../skills/vss-generate-video-report \\
-        --deploy-skill-dir ../../../../../skills/vss-deploy-profile \\
-        --video-io-skill-dir ../../../../../skills/vss-manage-video-io-storage \\
-        --spec ../../../../../skills/vss-generate-video-report/eval/base_profile_report.json
+Usage from the repository root:
+    python3 .github/skill-eval/adapters/vss-generate-video-report/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-generate-video-report \\
+        --skill-dir skills/vss-generate-video-report \\
+        --deploy-skill-dir skills/vss-deploy-profile \\
+        --video-io-skill-dir skills/vss-manage-video-io-storage \\
+        --spec skills/vss-generate-video-report/eval/base_profile_report.json
 """
 from __future__ import annotations
 
