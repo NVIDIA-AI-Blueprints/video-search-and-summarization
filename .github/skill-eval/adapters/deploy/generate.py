@@ -59,7 +59,9 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 # to develop. In CI, brev_env.py forwards PR_HEAD_SHA + PR_REPO from
 # the workflow step into ~/.eval_env on the instance, and the
 # pre-deploy script below resets the working tree to that exact SHA.
-VSS_REPO_URL_DEFAULT = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
+# The fallback repo URL is derived from $PR_REPO at script-runtime
+# (defaulting to NVIDIA-AI-Blueprints/video-search-and-summarization
+# when PR_REPO is unset).
 VSS_BRANCH_FALLBACK = "develop"
 
 # ---------------------------------------------------------------------------
@@ -160,6 +162,16 @@ def deploy_profile(eval_profile: str) -> str:
 
 _DEFAULT_MIN_ROOT_DISK_GB = 220        # base stack ~80GB + 2 local NIMs ~70GB each
 _DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
+# Caveats — both defaults are enforced unconditionally by
+# `envs/brev_env.py::_check_live_resources` / `_find_cheapest_matching_type`:
+# - The disk default would reject otherwise-eligible smaller-root
+#   providers (e.g. some launchpad boxes) for trials that end up
+#   running fully remote and would actually fit on <220GB. Acceptable
+#   today because every `vss-eval-*` pool member has ≥220GB.
+# - The driver default is skipped when `nvidia-smi` is absent (the
+#   resource check warns instead of erroring), so CPU-only boxes still
+#   pass; don't tighten that branch to a hard error without revisiting
+#   this default.
 
 
 # ---------------------------------------------------------------------------
@@ -252,10 +264,26 @@ def generate_test_script(spec_name: str, profile: str) -> str:
 
     On a full-pass (reward == 1.0), OVERWRITES the canonical active
     marker `/tmp/skill-eval/active-deploy.txt` with this trial's
-    `<underlying_profile>` so dependent trials (vios, video-*) reading the
-    marker via `BrevEnvironment._ensure_prerequisite_deployed` see what is
-    currently RUNNING on the box. See specs/stale-marker.spec."""
+    `<underlying_profile>-<deploy_mode>` so dependent trials (vios,
+    video-*) reading the marker via
+    `BrevEnvironment._ensure_prerequisite_deployed` see what is currently
+    RUNNING on the box. See specs/stale-marker.spec.
+
+    The marker format `<profile>-<mode>` is the producer↔consumer contract
+    shared with `envs/brev_env.py::_ensure_prerequisite_deployed` and
+    every non-deploy adapter's `prerequisite_deploy_mode` field. After
+    placement modes were dropped from the deploy adapter, non-alerts
+    profiles get the default token `remote-all` (which every downstream
+    adapter still writes as its `prerequisite_deploy_mode`), so the
+    contract stays intact without forcing downstream changes. Changing
+    the token here means updating every downstream adapter + the
+    consumer at the same time."""
     underlying_profile = deploy_profile(profile)
+    # Alerts splits on /deploy -m verification|real-time; every other
+    # profile defaults to "remote-all" to match what downstream adapters
+    # pass via `prerequisite_deploy_mode` in their task.toml.
+    deploy_mode_token = PROFILES[profile].get("deploy_mode") or "remote-all"
+    marker_token = f"{underlying_profile}-{deploy_mode_token}"
     return (
         "#!/bin/bash\n"
         "# deploy verifier: delegates to the generic LLM-as-judge\n"
@@ -277,7 +305,7 @@ def generate_test_script(spec_name: str, profile: str) -> str:
         'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
         f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
         f'  mkdir -p /tmp/skill-eval && '
-        f"printf '%s\\n' '{underlying_profile}' "
+        f"printf '%s\\n' '{marker_token}' "
         f"> /tmp/skill-eval/active-deploy.txt\n"
         "fi\n"
         "exit 0\n"

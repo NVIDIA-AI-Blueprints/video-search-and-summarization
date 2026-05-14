@@ -448,12 +448,12 @@ wait-for-pool path in § 5a — never `brev create` one yourself.
 Match rules enforced by `envs/brev_env.py::_check_instance_matches`
 (applied **after** the name-prefix filter):
 
-- `gpu_count == 0` (`base`/`lvs` in `remote-all`): GPU-type check
-  is skipped — any RUNNING+READY `vss-eval-*` box works, even
-  CPU-only. Reuse freely.
-- `gpu_count >= 1` (every other profile, including
-  `alerts_*`/`search` in `remote-all` because RT-CV / Embed1 run
-  locally): **match `gpu_type` exactly.** The check is a
+- `gpu_count == 0`: GPU-type check is skipped — any RUNNING+READY
+  `vss-eval-*` box works, even CPU-only. Reuse freely. (No current
+  in-tree spec declares this; defensive code path kept for CPU-only
+  re-introduction.)
+- `gpu_count >= 1` (every spec in-tree today): **match `gpu_type`
+  exactly.** The check is a
   token-subset — `L4` does NOT satisfy an `L40S` task, the trial
   errors out before the agent starts with `gpu_type: want tokens
   of 'L40S' in 'L4'`. Treat the candidate as not eligible and wait
