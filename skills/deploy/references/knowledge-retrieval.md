@@ -119,11 +119,19 @@ Three `doc_type` values are written per streamed video — `raw_events` (per VLM
 
 ## Additional backends (`rag_lib`, `langchain`, `llama_index`)
 
-Three more backends are available behind opt-in Python packages (`vss-agents[rag_lib]`, `vss-agents[langchain]`, `vss-agents[llama_index]`). Enabling one is a one-time agent image rebuild that adds the package.
+Three more backends are available behind opt-in Python packages (`vss-agents[rag_lib]`, `vss-agents[langchain]`, `vss-agents[llama_index]`). These are experimental — their transitive deps are **not** pinned in the shipped `uv.lock`, so enabling one requires the build to re-resolve from PyPI.
 
 ### Enabling one
 
-1. Add `--extra <backend>` (e.g. `--extra rag_lib`) to the `uv sync` line in `services/agent/docker/Dockerfile`, then rebuild the agent image with the same tag your deploy already uses.
+1. In `services/agent/docker/Dockerfile`, replace `--frozen` with `--extra <backend>` on the `uv sync` line. For example, the default line:
+   ```
+   uv sync --frozen --no-dev --no-editable --link-mode copy
+   ```
+   becomes (for `rag_lib`):
+   ```
+   uv sync --no-dev --no-editable --link-mode copy --extra rag_lib
+   ```
+   Dropping `--frozen` lets uv resolve the extra's transitive deps from PyPI at build time. Then rebuild the agent image with the same tag your deploy already uses.
 
 2. Add a `config_<backend>.yml` to your profile's configs directory and set `VSS_AGENT_CONFIG_FILE` to point at it.
 

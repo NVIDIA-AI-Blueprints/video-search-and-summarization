@@ -72,7 +72,8 @@ class TestRagLibImport:
     """The adapter raises a friendly ImportError when nvidia-rag isn't installed."""
 
     def test_missing_package_raises_clear_error(self, monkeypatch):
-        # Ensure no fake injection — these modules must NOT be in sys.modules.
+        # Setting sys.modules[mod] = None makes `import mod` raise ModuleNotFoundError,
+        # independent of whether the package is actually installed in the venv.
         for mod in (
             "nvidia_rag",
             "nvidia_rag.rag_server",
@@ -80,7 +81,7 @@ class TestRagLibImport:
             "nvidia_rag.utils",
             "nvidia_rag.utils.configuration",
         ):
-            monkeypatch.delitem(sys.modules, mod, raising=False)
+            monkeypatch.setitem(sys.modules, mod, None)
 
         from lib.knowledge.adapters.rag_lib import RagLibAdapter
         from lib.knowledge.adapters.rag_lib import RagLibConfig
