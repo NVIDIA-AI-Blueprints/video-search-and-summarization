@@ -90,7 +90,7 @@ template is in § Harbor invocation below.
          `tests/`, `instruction.md`, `task.toml`, `solution/solve.sh`,
          or any platform listed in `spec.resources.platforms`.
        - **Spec drift**: the rendered `instruction.md` references an
-         old skill name, the `[metadata]` profile/mode is hardcoded
+         old skill name, the `[metadata]` profile is hardcoded
          instead of read from the spec, or the spec needs a placeholder
          the adapter doesn't substitute.
 
@@ -216,9 +216,9 @@ template is in § Harbor invocation below.
    default, which produces false negatives on steps that need a
    deployed profile.
 
-4. **Regenerate the dataset** for each `(skill, spec, platform,
-   mode)` the spec's `resources.platforms` enumerates. Datasets land
-   at `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>-<mode>/`,
+4. **Regenerate the dataset** for each `(skill, spec, platform)` the
+   spec's `resources.platforms` enumerates. Datasets land at
+   `/tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/`,
    where `<spec_stem>` is the spec filename with `.json` dropped.
    **Gate**: only run this step for skills that did NOT trigger 3c/3d
    in this run. A skill with an open bot PR is parked until the
@@ -242,7 +242,7 @@ template is in § Harbor invocation below.
       brev ls --json > /tmp/skill-eval/brev-snapshot.txt
       # For each candidate read /tmp/skill-eval/active-deploy.txt
       # via `brev exec <name> -- cat ...`. Score:
-      #   1. marker == "<profile>-<mode>" desired by trial   (warm)
+      #   1. marker == "<profile>" desired by trial   (warm)
       #   2. lock free (try flock -n)                        (free)
       #   3. instance name asc                               (tiebreak)
       # Pick the first candidate that scores best AND whose flock -n
@@ -259,7 +259,7 @@ template is in § Harbor invocation below.
 
       Selection priority is **hardware-hard, software-soft**:
       the candidate's `gpu_type` MUST match the platform (hard); the
-      `active-deploy.txt` marker matching `<profile>-<mode>` is
+      `active-deploy.txt` marker matching `<profile>` is
       preferred but not required (soft — a marker miss just costs a
       redeploy, which the trial absorbs).
 
@@ -321,11 +321,11 @@ template is in § Harbor invocation below.
       already-completed trial logs instead.
    d. After each trial, parse
       `/tmp/skill-eval/results/<run_id>/<date>/<trial>/verifier/reward.txt`
-      and `test-stdout.txt`. Record `(spec, platform, mode, reward,
+      and `test-stdout.txt`. Record `(spec, platform, reward,
       checks_passed/total, duration_s, trace_url)` for the comment.
 
 6. **Post ONE results comment per `(PR, eval_spec)` batch** when every
-   `(platform, mode)` tuple in that spec's matrix has a result. Format
+   `(platform)` tuple in that spec's matrix has a result. Format
    per § Result comment format below. Use `gh pr comment $PR_NUMBER
    --body-file …`. Do NOT post a planning / "refresh" comment up
    front — comments carry results, not intent.
@@ -410,9 +410,9 @@ invocation). Without the export, BrevEnvironment auto-provisions a
 fresh `harbor-*` per trial regardless of what the snapshot showed.
 
 The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
-records the box's *deployment state* — what VSS profile/mode is
+records the box's *deployment state* — what VSS profile is
 currently up and live on that box. It is NOT an occupancy
-signal — a marker can read `base-remote-all` whether or not a
+signal — a marker can read `base` whether or not a
 trial is currently driving traffic against the stack. Occupancy
 (is some other worker using this box right now?) is the
 runner-side **flock** on `/tmp/brev/<INSTANCE_NAME>.lock`,
@@ -451,7 +451,7 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
 - `gpu_count == 0` (`base`/`lvs` in `remote-all`): GPU-type check
   is skipped — any RUNNING+READY `vss-eval-*` box works, even
   CPU-only. Reuse freely.
-- `gpu_count >= 1` (every other profile × mode combo, including
+- `gpu_count >= 1` (every other profile, including
   `alerts_*`/`search` in `remote-all` because RT-CV / Embed1 run
   locally): **match `gpu_type` exactly.** The check is a
   token-subset — `L4` does NOT satisfy an `L40S` task, the trial
@@ -490,7 +490,7 @@ export BREV_INSTANCE="$INSTANCE_NAME"
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
   -p /tmp/skill-eval/datasets/<skill>/<spec_stem> \
-  --include-task-name "<platform>-<mode>" \
+  --include-task-name "<platform>" \
   -a claude-code \
   --model "$ANTHROPIC_MODEL" \
   --ak api_base="$ANTHROPIC_BASE_URL/v1" \
@@ -504,15 +504,15 @@ uvx harbor run \
 
 Notes that have burned prior runs:
 - `--include-task-name` takes the full trial task name as emitted by
-  the adapter (usually `<platform>-<mode>`, e.g. `l40s-remote-all`).
+  the adapter (usually `<platform>`, e.g. `l40s`).
   `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - For multi-step specs (e.g. `vios`, `video-search`,
   `video-summarization`), `-p` points at the **platform directory**
-  (`.../<spec_stem>/<platform>-<mode>/`) and harbor auto-discovers
+  (`.../<spec_stem>/<platform>/`) and harbor auto-discovers
   the `step-1/ step-2/ ...` subdirs beneath it, each as its own
   task. To run a specific step, pass
-  `--include-task-name "<platform>-<mode>-step-<N>"`. Do NOT point
+  `--include-task-name "<platform>-step-<N>"`. Do NOT point
   `-p` at a single `step-N/` dir — harbor then can't see sibling
   steps and chaining breaks. This matches how
   `adapters/vios/generate.py` lays out step dirs.
@@ -682,23 +682,23 @@ lives entirely in our `BrevEnvironment` code.
 ## Result comment format
 
 One comment per `(PR, eval_spec)` batch, posted only after every
-(platform, mode) tuple in the spec's matrix has a recorded result.
+(platform) tuple in the spec's matrix has a recorded result.
 
 ```markdown
 ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
 
-Head: `<short-sha>` · N platforms × M modes · spec `<spec-sha>`
+Head: `<short-sha>` · N platforms · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
 
-| Platform | Mode | Result | Reward | Duration | Trace |
-|---|---|---|---|---|---|
-| L40S | remote-all | ✅ 1.0 (7/7) | 1.0 | 9m 40s | [trace](…) |
-| L40S | dedicated | ❌ 0.57 (4/7) | 0.571 | 14m 42s | [trace](…) |
-| …    | …          | …     | …    | … | … |
+| Platform | Result | Reward | Duration | Trace |
+|---|---|---|---|---|
+| L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | [trace](…) |
+| RTXPRO6000BW | ❌ 0.57 (4/7) | 0.571 | 14m 42s | [trace](…) |
+| …    | …     | …    | … | … |
 
 ### Failing checks
 
-- **L40S / dedicated** — `grep -E '^HARDWARE_PROFILE=L40S$' $HOME/…/.env` returned Permission denied (see [trace](…))
+- **RTXPRO6000BW** — `grep -E '^HARDWARE_PROFILE=L40S$' $HOME/…/.env` returned Permission denied (see [trace](…))
 
 ### Suggestions
 
