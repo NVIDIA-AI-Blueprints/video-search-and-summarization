@@ -31,6 +31,7 @@ tools:
       host: !ENV ${ES_HOST}
       port: !ENV ${ES_PORT}
       kafka_consumer_settle_secs: 5.0
+      collection_name: lvs-events
     tools:
       embedding: nvidia_embedding
 
