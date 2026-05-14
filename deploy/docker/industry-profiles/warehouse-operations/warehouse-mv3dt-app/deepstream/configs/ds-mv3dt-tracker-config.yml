@@ -97,5 +97,5 @@ PoseEstimator:
   netScaleFactor: 0.00392156
   onnxFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx
   modelEngineFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx_b1_gpu0_fp16.engine
-  poseInferenceInterval: 30
+  poseInferenceInterval: -1
 

@@ -337,6 +337,20 @@ commons:
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_mv3dt,*"
 
+      - variable: SAMPLE_VIDEO_DATASET
+        when_equals: "nv-warehouse-4cams"
+        validate_conditions:
+          and:
+            - variable: MODE
+              equals: "mv3dt"
+            - variable: NUM_STREAMS
+              equals: "4"
+            - or:
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_kafka_3d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_redis_3d,*"
+
   variables:
     2d:
       - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'

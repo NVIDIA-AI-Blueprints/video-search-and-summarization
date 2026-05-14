@@ -180,8 +180,8 @@ services:
     volumes:
       - ${VST_CONFIG_PATH:-${MDX_SAMPLE_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
-      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
-      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
+      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json:/home/vst/vst_release/configs/calibration.json
+      - ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/images/Top.png:/home/vst/vst_release/configs/Top.png
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
