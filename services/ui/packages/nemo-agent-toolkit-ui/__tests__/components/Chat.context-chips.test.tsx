@@ -6,7 +6,8 @@
  * 2. Removing an item calls the onRemoveQueryContext callback
  * 3. Placeholder text is hidden when items are present
  * 4. Items are deduplicated by id
- * 5. Item data is correctly sent as query_context in the request body
+ * 5. Chat serializes attached context for the agent as `[Context: …]` with `data` fields only
+ *    (no id, label, or contextType)
  */
 
 import React from 'react';
@@ -100,8 +101,8 @@ function renderChatInput(props: Record<string, any> = {}) {
 describe('ChatInput – query context item rendering', () => {
   it('renders item badges when queryContextItems are provided', () => {
     const items = [
-      { id: 'item-1', label: 'Cam-North', type: 'sensor-clip', data: { sensorName: 'Cam-North', startTime: '09:00', endTime: '09:05' } },
-      { id: 'item-2', label: 'Cam-South', type: 'sensor-clip', data: { sensorName: 'Cam-South', startTime: '10:00', endTime: '10:05' } },
+      { id: 'item-1', label: 'Cam-North', contextType: 'media/video', data: { sensorName: 'Cam-North', startTime: '09:00', endTime: '09:05', mediaType: 'sensor-clip' } },
+      { id: 'item-2', label: 'Cam-South', contextType: 'media/video', data: { sensorName: 'Cam-South', startTime: '10:00', endTime: '10:05', mediaType: 'sensor-clip' } },
     ];
 
     renderChatInput({ queryContextItems: items });
@@ -110,21 +111,21 @@ describe('ChatInput – query context item rendering', () => {
     expect(screen.getByText('Cam-South')).toBeTruthy();
   });
 
-  it('shows tooltip-style title with label and type', () => {
+  it('shows tooltip-style title with label and contextType', () => {
     const items = [
-      { id: 'item-1', label: 'Lobby', type: 'sensor-clip', data: { sensorName: 'Lobby', startTime: '08:30', endTime: '08:45' } },
+      { id: 'item-1', label: 'Lobby', contextType: 'media/video', data: { sensorName: 'Lobby', startTime: '08:30', endTime: '08:45', mediaType: 'sensor-clip' } },
     ];
 
     const { container } = renderChatInput({ queryContextItems: items });
     const itemEl = container.querySelector('[title*="Lobby"]');
     expect(itemEl?.getAttribute('title')).toContain('Lobby');
-    expect(itemEl?.getAttribute('title')).toContain('sensor-clip');
+    expect(itemEl?.getAttribute('title')).toContain('media/video');
   });
 
   it('calls onRemoveQueryContext with item id when remove button is clicked', () => {
     const onRemove = jest.fn();
     const items = [
-      { id: 'abc-123', label: 'Parking', type: 'sensor-clip', data: { sensorName: 'Parking', startTime: '12:00', endTime: '12:10' } },
+      { id: 'abc-123', label: 'Parking', contextType: 'media/video', data: { sensorName: 'Parking', startTime: '12:00', endTime: '12:10', mediaType: 'sensor-clip' } },
     ];
 
     renderChatInput({ queryContextItems: items, onRemoveQueryContext: onRemove });
@@ -142,7 +143,7 @@ describe('ChatInput – query context item rendering', () => {
 
   it('hides placeholder text when items are present', () => {
     const items = [
-      { id: 'item-1', label: 'Gate', type: 'sensor-clip', data: { sensorName: 'Gate', startTime: '07:00', endTime: '07:15' } },
+      { id: 'item-1', label: 'Gate', contextType: 'media/video', data: { sensorName: 'Gate', startTime: '07:00', endTime: '07:15', mediaType: 'sensor-clip' } },
     ];
 
     const { container } = renderChatInput({ queryContextItems: items });
@@ -159,52 +160,59 @@ describe('ChatInput – query context item rendering', () => {
 
 describe('Query context item deduplication logic', () => {
   it('prevents duplicate items by id', () => {
-    const items: Array<{ id: string; label: string; type: string; data: Record<string, unknown> }> = [];
+    const items: Array<{ id: string; label: string; contextType: string; data: Record<string, unknown> }> = [];
 
     const addItem = (item: typeof items[0]) => {
       if (items.some((c) => c.id === item.id)) return;
       items.push(item);
     };
 
-    addItem({ id: 'x', label: 'Cam-1', type: 'sensor-clip', data: { sensorName: 'Cam-1' } });
-    addItem({ id: 'x', label: 'Cam-1', type: 'sensor-clip', data: { sensorName: 'Cam-1' } });
-    addItem({ id: 'y', label: 'Cam-2', type: 'sensor-clip', data: { sensorName: 'Cam-2' } });
+    addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip' } });
+    addItem({ id: 'x', label: 'Cam-1', contextType: 'media/video', data: { sensorName: 'Cam-1', mediaType: 'sensor-clip' } });
+    addItem({ id: 'y', label: 'Cam-2', contextType: 'media/video', data: { sensorName: 'Cam-2', mediaType: 'sensor-clip' } });
 
     expect(items).toHaveLength(2);
     expect(items.map((c) => c.id)).toEqual(['x', 'y']);
   });
 });
 
-describe('Query context serialization for request body', () => {
-  it('serializes items to query_context field in the request body', () => {
+describe('Query context serialization (matches Chat onSend)', () => {
+  it('embeds data fields only — no id, label, or contextType', () => {
     const items = [
-      { id: 'id1', label: 'Cam-A', type: 'sensor-clip', data: { sensorName: 'Cam-A', startTime: '2024-01-15T09:00:00', endTime: '2024-01-15T09:05:00' } },
-      { id: 'id2', label: 'Cam-B', type: 'sensor-clip', data: { sensorName: 'Cam-B', startTime: '2024-01-15T10:00:00', endTime: '2024-01-15T10:05:00' } },
+      { id: 'id1', label: 'Cam-A', contextType: 'media/video', data: { sensorName: 'Cam-A', startTime: '2024-01-15T09:00:00', endTime: '2024-01-15T09:05:00', mediaType: 'sensor-clip' } },
+      { id: 'id2', label: 'Cam-B', contextType: 'media/video', data: { sensorName: 'Cam-B', startTime: '2024-01-15T10:00:00', endTime: '2024-01-15T10:05:00', mediaType: 'sensor-clip' } },
     ];
 
-    const requestBody = {
-      messages: [{ role: 'user', content: 'What happened here?' }],
-      query_context: items,
-    };
+    const contextPayload = items.map(({ data }) => {
+      const { contextType: _omitUiContextType, ...payload } = { ...(data as Record<string, unknown>) };
+      return payload;
+    });
+    expect(contextPayload).toEqual([
+      { sensorName: 'Cam-A', startTime: '2024-01-15T09:00:00', endTime: '2024-01-15T09:05:00', mediaType: 'sensor-clip' },
+      { sensorName: 'Cam-B', startTime: '2024-01-15T10:00:00', endTime: '2024-01-15T10:05:00', mediaType: 'sensor-clip' },
+    ]);
 
-    expect(requestBody.query_context).toHaveLength(2);
-    expect(requestBody.query_context[0].label).toBe('Cam-A');
-    expect(requestBody.query_context[0].type).toBe('sensor-clip');
-    expect(requestBody.query_context[0].data).toEqual({ sensorName: 'Cam-A', startTime: '2024-01-15T09:00:00', endTime: '2024-01-15T09:05:00' });
-    expect(requestBody.query_context[1].label).toBe('Cam-B');
-
-    const serialized = JSON.stringify(requestBody);
-    expect(serialized).toContain('"query_context"');
-    expect(serialized).not.toContain('[Context:');
+    const prefix = `[Context: ${JSON.stringify(contextPayload)}]`;
+    expect(prefix).toContain('[Context:');
+    expect(prefix).not.toContain('contextType');
+    expect(prefix).not.toContain('id1');
+    expect(contextPayload[0]).not.toHaveProperty('label');
+    expect(contextPayload[0]).not.toHaveProperty('id');
   });
 
-  it('omits query_context when no items are present', () => {
-    const items: any[] = [];
-    const requestBody: Record<string, any> = {
-      messages: [{ role: 'user', content: 'Hello' }],
-      ...(items.length > 0 ? { query_context: items } : {}),
-    };
-
-    expect(requestBody).not.toHaveProperty('query_context');
+  it('drops contextType from data if present (UI-only field must not reach backend payload)', () => {
+    const items = [
+      {
+        id: 'id1',
+        label: 'Cam-A',
+        contextType: 'media/video',
+        data: { sensorName: 'Cam-A', contextType: 'should-not-leak', mediaType: 'sensor-clip' },
+      },
+    ];
+    const contextPayload = items.map(({ data }) => {
+      const { contextType: _omitUiContextType, ...payload } = { ...(data as Record<string, unknown>) };
+      return payload;
+    });
+    expect(contextPayload[0]).toEqual({ sensorName: 'Cam-A', mediaType: 'sensor-clip' });
   });
 });
