@@ -158,9 +158,58 @@ services:
       redis:
         condition: service_started
 
+  streamprocessing-ms-mv3dt:
+    image: ${VST_STREAM_PROCESSOR_IMAGE}
+    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt"]
+    container_name: vss-vios-streamprocessing
+    network_mode: host
+    runtime: nvidia
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c", "if [ \"${VST_INSTALL_ADDITIONAL_PACKAGES}\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
+    environment:
+      - VST_INSTALL_ADDITIONAL_PACKAGES=${VST_INSTALL_ADDITIONAL_PACKAGES}
+      - CONTAINER_NAME=vss-vios-streamprocessing
+      - ADAPTOR=${VST_ADAPTOR:-vst_rtsp}
+      - HTTP_PORT=${STREAM_PROCESSOR_HTTP_PORT:-30001}
+      - RTSP_SERVER_PORT=${RTSP_SERVER_PORT}
+      - CENTRALIZE_DB_NAME=${CENTRALIZE_DB_NAME}
+      - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
+      - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
+      - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
+      - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
+    volumes:
+      - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
+      - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
+      - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
+      - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
+      - ${VST_TEMP_FILES_PATH}:/home/vst/vst_release/webroot/temp_files
+      - ${VSS_APPS_DIR}/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 8192
+    restart: unless-stopped
+    deploy:
+      restart_policy:
+        condition: always
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/${HTTP_PORT:-30001}'"]
+      interval: 20s
+      timeout: 10s
+      retries: 75
+      start_period: 20s
+    depends_on:
+      centralizedb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
   sdr-streamprocessing:
     image: ${SDR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
     user: "0:0"
     network_mode: "host"
     logging:
@@ -235,10 +284,13 @@ services:
       streamprocessing-ms-3d:
         condition: service_healthy
         required: false
+      streamprocessing-ms-mv3dt:
+        condition: service_healthy
+        required: false
 
   envoy-streamprocessing:
     image: ${ENVOY_PROXY_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
     user: "0:0"
     command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
     network_mode: "host"
@@ -264,5 +316,8 @@ services:
         condition: service_healthy
         required: false
       streamprocessing-ms-3d:
+        condition: service_healthy
+        required: false
+      streamprocessing-ms-mv3dt:
         condition: service_healthy
         required: false

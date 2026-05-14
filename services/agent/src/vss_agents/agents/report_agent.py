@@ -117,12 +117,12 @@ class ReportAgentInput(BaseModel):
 
 class VideoReportAgentInput(BaseModel):
     """
-    Input for the Video(uploaded) / Stream Report Agent (Mode 3).
+    Input for the Video(uploaded) / RTSP Stream Report Agent (Mode 3).
 
     This mode works without Video Analytics MCP - directly analyzes uploaded videos
     or configured live streams from VST. No incident database required.
     Supports parallel processing of multiple videos when using LVS (Long Video Summarization).
-    Streams (media_type='stream') require a single sensor_id and a start_time/end_time window.
+    RTSP streams (media_type='rtsp') require a single sensor_id and a start_time/end_time window.
     """
 
     sensor_id: str | list[str] = Field(
@@ -130,7 +130,7 @@ class VideoReportAgentInput(BaseModel):
         description=(
             "For media_type='video': VST sensor ID(s) (filename(s) of uploaded video). "
             "Can be a single string or a list of sensor_ids for parallel processing with LVS. "
-            "For media_type='stream': VST stream/camera name (must be a single string)."
+            "For media_type='rtsp': VST stream/camera name (must be a single string)."
         ),
     )
     user_query: str = Field(
@@ -139,20 +139,20 @@ class VideoReportAgentInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default. Ignored for streams.",
+        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default. Ignored for RTSP streams.",
     )
-    media_type: Literal["video", "stream"] = Field(
+    media_type: Literal["video", "rtsp"] = Field(
         default="video",
         description=(
             "Type of source: 'video' (default; uploaded VST file, supports multi-video batch) or "
-            "'stream' (configured live stream; requires start_time/end_time and a single sensor_id)."
+            "'rtsp' (configured live/camera stream; requires start_time/end_time and a single sensor_id)."
         ),
     )
     start_time: float | None = Field(
         default=None,
         ge=0,
         description=(
-            "Start time in seconds (offset from stream start). Required when media_type='stream'. "
+            "Start time in seconds (offset from stream start). Required when media_type='rtsp'. "
             "Ignored when media_type='video'."
         ),
     )
@@ -160,7 +160,7 @@ class VideoReportAgentInput(BaseModel):
         default=None,
         ge=0,
         description=(
-            "End time in seconds (offset from stream start). Required when media_type='stream'; "
+            "End time in seconds (offset from stream start). Required when media_type='rtsp'; "
             "use 0 for 'no upper bound (until now)'. Ignored when media_type='video'."
         ),
     )
@@ -319,21 +319,21 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             sensor_id: str | list[str],
             user_query: str,
             vlm_reasoning: bool | None = None,
-            media_type: Literal["video", "stream"] = "video",
+            media_type: Literal["video", "rtsp"] = "video",
             start_time: float | None = None,
             end_time: float | None = None,
         ) -> AsyncGenerator[AgentMessageChunk]:
             """
-            Execute Video(uploaded) / Stream Report generation (no Video Analytics MCP).
+            Execute Video(uploaded) / RTSP Stream Report generation (no Video Analytics MCP).
 
             Args:
                 sensor_id: VST sensor ID(s) (filename(s) of uploaded video(s)) for media_type='video',
-                    or VST stream/camera name (single string) for media_type='stream'.
+                    or VST stream/camera name (single string) for media_type='rtsp'.
                 user_query: The user's question or analysis request.
                 vlm_reasoning: Optional VLM reasoning toggle (uploaded videos only).
-                media_type: 'video' (default) or 'stream'.
-                start_time: Stream window start (seconds). Required for streams.
-                end_time: Stream window end (seconds, 0 means until now). Required for streams.
+                media_type: 'video' (default) or 'rtsp'.
+                start_time: Stream window start (seconds). Required for RTSP streams.
+                end_time: Stream window end (seconds, 0 means until now). Required for RTSP streams.
 
             Returns:
                 AgentMessageChunk objects for tool calls and final result
@@ -585,9 +585,9 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             else video_report_input.sensor_id
         )
 
-        if video_report_input.media_type == "stream":
+        if video_report_input.media_type == "rtsp":
             logger.info(
-                "Stream Report mode: Analyzing stream '%s' from %s to %s",
+                "RTSP Stream Report mode: Analyzing stream '%s' from %s to %s",
                 sensor_ids[0],
                 video_report_input.start_time,
                 video_report_input.end_time,
@@ -600,7 +600,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         try:
             # Call the Video/Stream Report generation tool. The tool handles parallel
             # processing internally for multi-video LVS, and dispatches to the stream
-            # path when media_type='stream'.
+            # path when media_type='rtsp'.
             tool_input: dict[str, Any] = {
                 "sensor_id": video_report_input.sensor_id,
                 "user_query": video_report_input.user_query,
@@ -751,7 +751,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 "an incident database. "
                 "For uploaded videos (media_type='video', default): analyzes full videos directly from VST "
                 "based on sensor_id (filename); supports parallel processing of multiple videos via LVS. "
-                "For live streams (media_type='stream'): analyzes a configured stream over a "
+                "For live RTSP streams (media_type='rtsp'): analyzes a configured stream over a "
                 "[start_time, end_time] window in seconds (use end_time=0 for 'until now'); requires a single "
                 "sensor_id (stream name). If the stream has no captions yet, the response will instruct the "
                 "user to confirm caption generation by saying 'start captioning <name>'. The "

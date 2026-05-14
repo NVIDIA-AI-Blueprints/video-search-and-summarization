@@ -18,7 +18,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer
-  tag: "2.1.0-26.04.1"
+  tag: "2.1.0-26.05.1"
   pullPolicy: IfNotPresent
 replicas: 1
 
