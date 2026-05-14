@@ -1162,7 +1162,7 @@ def _stream_events_to_offsets(content: dict[str, Any], anchor_iso: str) -> dict[
     return new_content
 
 
-def _format_lvs_response(lvs_response: Any) -> str:
+def _format_lvs_response(lvs_response: Any, min_event_duration_seconds: float = 2.0) -> str:
     """
     Format the LVS video understanding tool response into a readable markdown template.
 
@@ -1183,6 +1183,9 @@ def _format_lvs_response(lvs_response: Any) -> str:
 
     Args:
         lvs_response: ``LVSVideoUnderstandingOutput`` instance, dict, or JSON string.
+        min_event_duration_seconds: Drop events shorter than this. LVS stream events
+            are typically sub-second, so the stream path passes ``0.0`` to disable
+            the filter; the uploaded-video path keeps the default 2.0s threshold.
     """
     lvs_data = _lvs_result_to_dict(lvs_response)
     try:
@@ -1210,8 +1213,12 @@ def _format_lvs_response(lvs_response: Any) -> str:
             )
 
         if events:
-            # Filter out events that are less than 2 seconds in duration
-            filtered_events = _filter_short_events(events, min_duration_seconds=2.0)
+            # Filter out events shorter than the configured minimum duration.
+            filtered_events = (
+                _filter_short_events(events, min_duration_seconds=min_event_duration_seconds)
+                if min_event_duration_seconds > 0
+                else list(events)
+            )
 
             if filtered_events:
                 event_count = len(filtered_events)
@@ -2054,7 +2061,10 @@ Enter your choice or press Submit to keep current value:"""
             logger.warning("Stream report: could not resolve VST timeline for '%s': %s", stream_name, e)
             content_for_render = content
 
-        vlm_content = _format_lvs_response(content_for_render)
+        # Stream events from LVS are typically sub-second, so disable the
+        # uploaded-video short-event filter; otherwise the entire event list
+        # collapses to "No events detected".
+        vlm_content = _format_lvs_response(content_for_render, min_event_duration_seconds=0.0)
 
         report_metadata = await _generate_single_report(
             sensor_id=stream_name,

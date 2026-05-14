@@ -446,6 +446,44 @@ class TestStreamEventsToOffsets:
         assert "Zs" not in rendered
         assert "[3.0s - 8.0s]" in rendered
 
+    def test_subsecond_stream_events_kept_when_filter_disabled(self):
+        """Stream path passes min_event_duration_seconds=0 so sub-second LVS
+        events survive — otherwise the renderer collapses to 'No events detected'."""
+        anchor = "2026-05-13T10:09:50.000Z"
+        content = {
+            "video_summary": "summary",
+            "events": [
+                {
+                    "start_time": "2026-05-13T10:09:53.032Z",
+                    "end_time": "2026-05-13T10:09:53.064Z",
+                    "description": "fall",
+                },
+                {
+                    "start_time": "2026-05-13T10:09:55.000Z",
+                    "end_time": "2026-05-13T10:09:55.500Z",
+                    "description": "PPE",
+                },
+            ],
+        }
+        converted = _stream_events_to_offsets(content, anchor)
+        rendered = _format_lvs_response(converted, min_event_duration_seconds=0.0)
+        assert "No events detected" not in rendered
+        assert "fall" in rendered
+        assert "PPE" in rendered
+
+    def test_default_filter_drops_subsecond_events(self):
+        """Default min_event_duration_seconds=2.0 still trims short events for the uploaded-video path."""
+        content = {
+            "video_summary": "",
+            "events": [
+                {"start_time": 0.0, "end_time": 0.5, "description": "blip"},
+                {"start_time": 10.0, "end_time": 15.0, "description": "long"},
+            ],
+        }
+        rendered = _format_lvs_response(content)
+        assert "blip" not in rendered
+        assert "long" in rendered
+
     def test_unparseable_timestamps_are_left_alone(self):
         anchor = "2026-05-13T10:09:50.000Z"
         content = {"events": [{"start_time": "not-a-timestamp", "end_time": 5.0, "description": "x"}]}
