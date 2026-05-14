@@ -284,7 +284,7 @@ commons:
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh_kafka", "bp_wh_redis", "auto_calib"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE

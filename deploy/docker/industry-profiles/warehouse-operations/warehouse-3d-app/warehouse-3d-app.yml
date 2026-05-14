@@ -68,12 +68,10 @@ services:
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
-      broker-health-check:
+      streams-health-check-3d:
         condition: service_completed_successfully
-        required: false
       bp-configurator-3d:
-        condition: service_healthy 
-
+        condition: service_healthy
 
   perception-sdr-3d:
     extends:
@@ -97,10 +95,10 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  bp-configurator-3d-init:
+  streams-health-check-3d:
     image: alpine:3.23.4
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "auto_calib_3d"]
-    container_name: vss-configurator-init
+    container_name: vss-streams-health-check-3d
     network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
@@ -163,7 +161,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      bp-configurator-3d-init:
+      streams-health-check-3d:
         condition: service_completed_successfully
     healthcheck:
       test:

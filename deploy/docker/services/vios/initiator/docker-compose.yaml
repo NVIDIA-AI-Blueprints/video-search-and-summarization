@@ -16,7 +16,7 @@
 services:
   sensor-bp-wait-bp-configurator:
     image: busybox:1.37.0
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_2d","auto_calib_3d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_2d","auto_calib_3d","auto_calib_mv3dt"]
     network_mode: host
     container_name: sensor-bp-wait-bp-configurator
     restart: "no"
@@ -168,6 +168,7 @@ services:
     profiles:
       - bp_wh_kafka_mv3dt
       - bp_wh_redis_mv3dt
+      - auto_calib_mv3dt
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]

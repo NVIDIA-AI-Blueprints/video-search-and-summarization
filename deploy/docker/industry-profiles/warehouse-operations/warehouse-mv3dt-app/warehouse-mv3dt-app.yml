@@ -43,7 +43,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "auto_calib_mv3dt"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -67,16 +67,32 @@ services:
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
-      broker-health-check:
+      streams-health-check-mv3dt:
         condition: service_completed_successfully
       bp-configurator-mv3dt:
         condition: service_healthy
+
+  streams-health-check-mv3dt:
+    image: alpine:3.23.4
+    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "auto_calib_mv3dt"]
+    container_name: vss-streams-health-check-mv3dt
+    network_mode: "host"
+    environment:
+      BP_PROFILE: $BP_PROFILE
+      STREAM_TYPE: $STREAM_TYPE
+    volumes:
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/init-scripts/broker-health-check.sh:/opt/broker-health-check.sh:ro
+    command: ["sh", "/opt/broker-health-check.sh"]
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
 
   bp-configurator-mv3dt:
     image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.04
     container_name: vss-configurator-mv3dt
     network_mode: "host"
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "auto_calib_mv3dt"]
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
@@ -120,7 +136,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      broker-health-check:
+      streams-health-check-mv3dt:
         condition: service_completed_successfully
     healthcheck:
       test:
