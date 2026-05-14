@@ -198,9 +198,9 @@ rtvi:
     ngcApiKeySecretKey: NGC_API_KEY
     ngcOrg: nvstaging
     ngcModelsToDownload:
-      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1
-        sourcePath: rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx
-        destPath: rtdetr_warehouse_v1.0.1.fp16.onnx
+      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
         destPath: siglip2_v1.1.onnx
@@ -220,8 +220,8 @@ rtvi:
           org: nvstaging
           team: tao
           model: rtdetr_2d_warehouse
-          version: deployable_efficientvit_l2_v1.0.1
-        onnxFile: rtdetr_warehouse_v1.0.1.fp16.onnx
+          version: deployable_rn50_v1.0.2
+        onnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
         inferDims: 3;640;640
       visionEncoder:
         ngc:
