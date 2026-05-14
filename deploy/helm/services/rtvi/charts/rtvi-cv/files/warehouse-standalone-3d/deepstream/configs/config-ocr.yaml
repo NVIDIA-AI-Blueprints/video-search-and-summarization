@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Debugging Properties
+# Display debug information on console
+debug_info: false
+# Display latency on console
+display_latency: false
+# Display OCR bounding boxes on frames
+display_ocr_bbox: false
+
+# Postprocess OCR metadata to correct recognition errors
+post_process_ocr_meta: true
+
+# OCR Tracking Properties
+# Skip inference threshold for skipping inference
+skip_inference_threshold: 0.80
+# Maximum number of frames to retain tracking information
+tracking_retention_frames: 100
+
+# Input data format configuration
+# Options: NCHW, NHWC
+input_data_format: NHWC
+
+# OCDNet (Text Detection) Configuration
+ocdnet:
+  # Path to the ONNX model file for OCDNet
+  onnx_model_path: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/ocdnet.onnx"
+
+  # Path to the TensorRT engine file for OCDNet
+  trt_engine_path: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/ocdnet.engine"
+
+  # Input shape for OCDNet inference [channels, height, width]
+  infer_input_shape: [3, 224, 224]
+
+  # Batch size for OCDNet inference
+  batch_size: 100
+
+  # Binarization threshold for text detection (0.0 - 1.0)
+  # Lower = more sensitive, detects fainter text
+  # Increased for better detection of scaled-down larger objects
+  binarize_threshold: 0.1
+
+  # Polygon threshold for text region extraction (0.0 - 1.0)
+  # Lower = detects more text regions
+  # Reduced to capture text in larger scaled objects
+  polygon_threshold: 0.3
+
+  # Maximum number of text candidates to detect
+  # Increased to handle more text regions
+  max_candidate: 1
+
+  # Unclip ratio for expanding detected text regions
+  # Higher values expand detection boxes more
+  # Increased to better capture text boundaries in scaled objects
+  unclip_ratio: 1.5
+
+# Text Rectifier Configuration
+rectifier:
+  # Whether to handle upside-down text
+  upsidedown: false
+
+# OCRNet (Text Recognition) Configuration
+ocrnet:
+  # Path to the ONNX model file for OCRNet
+  onnx_model_path: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/ocrnet.onnx"
+
+  # Path to the TensorRT engine file for OCRNet
+  trt_engine_path: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/ocrnet.engine"
+
+  # Path to the dictionary file containing character set
+  dict_file: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/character_list.txt"
+
+  # Input shape for OCRNet inference [channels, height, width]
+  infer_input_shape: [1, 32, 100]
+
+  # Batch size for OCRNet inference
+  batch_size: 32
+
+  # Decoding method
+  # Options: CTC, Attention, Transformer
+  decode: CTC
+
+  # Confidence threshold for filtering OCR recognition results (0.0 - 1.0)
+  # Lower = more permissive, accepts lower confidence text recognition
+  # Only recognized text with confidence >= threshold will be included in results
+  text_region_threshold: 0.3

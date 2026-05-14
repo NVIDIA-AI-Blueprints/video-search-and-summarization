@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# DeepStream configs for profileMode standalone-3d (warehouse 3D + file sources).
+
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-3d") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-3d
+data:
+{{- range $path, $_ := .Files.Glob "files/warehouse-standalone-3d/deepstream/configs/*" }}
+{{- $base := base $path }}
+{{- $content := $.Files.Get $path }}
+  {{ $base }}: |
+{{ $content | nindent 4 }}
+{{- end }}
+{{- end }}

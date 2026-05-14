@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Downloads NGC registry *resource* (videos + models bundle) into the shared -models PVC.
+
+{{- if and .Values.enabled .Values.downloadNgcAppData (or (eq .Values.profileMode "standalone-2d") (eq .Values.profileMode "standalone-3d")) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-download-ngc-app-data
+  labels:
+    app.kubernetes.io/name: vss-rtvi-cv
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      {{- $ips := .Values.imagePullSecrets | default .Values.global.imagePullSecrets }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: download-ngc-app-data
+          image: {{ .Values.ngcDownload.image.repository }}:{{ .Values.ngcDownload.image.tag }}
+          imagePullPolicy: {{ .Values.ngcDownload.image.pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ngcApiKeySecretName | default "ngc-api" }}
+                  key: {{ .Values.ngcApiKeySecretKey | default "NGC_CLI_API_KEY" }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              echo "[INFO] Installing NGC CLI..."
+              apt-get update -qq && apt-get install -y -qq wget unzip > /dev/null
+              cd /tmp
+              wget -q https://ngc.nvidia.com/downloads/ngccli_linux.zip -O ngccli_linux.zip
+              unzip -q ngccli_linux.zip && chmod +x ngc-cli/ngc
+              export PATH="/tmp/ngc-cli:$PATH"
+              ngc --version
+              DEST="/data"
+              MARKER="${DEST}/vss-warehouse-app-data/.ngc-extracted"
+              if [[ -f "${MARKER}" ]]; then
+                echo "[INFO] NGC app data already extracted; skipping download."
+                exit 0
+              fi
+              echo "[INFO] Downloading NGC resource {{ .Values.ngcAppDataResourceVersion | quote }} ..."
+              rm -rf "${DEST}/ngc-download-tmp"
+              mkdir -p "${DEST}/ngc-download-tmp"
+              ngc registry resource download-version {{ .Values.ngcAppDataResourceVersion | quote }} \
+                --dest "${DEST}/ngc-download-tmp" \
+                --org {{ .Values.ngcAppDataOrg | default "nvstaging" | quote }}
+              echo "[INFO] Extracting tarball..."
+              TAR="$(find "${DEST}/ngc-download-tmp" -name '*.tar.gz' -type f | head -1)"
+              if [[ -z "${TAR}" ]]; then
+                echo "[ERROR] No .tar.gz found under ${DEST}/ngc-download-tmp"
+                find "${DEST}/ngc-download-tmp" -type f | head -50 || true
+                exit 1
+              fi
+              echo "[INFO] Using archive: ${TAR}"
+              tar -xzf "${TAR}" -C "${DEST}"
+              rm -rf "${DEST}/ngc-download-tmp"
+              touch "${MARKER}"
+              # Writable by any UID in the workload pod (NGC tarball often ships restrictive modes).
+              chmod -R 777 "${DEST}/vss-warehouse-app-data" || true
+              echo "[INFO] NGC warehouse app data ready under ${DEST}/vss-warehouse-app-data"
+          volumeMounts:
+            - name: models
+              mountPath: /data
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+{{- end }}

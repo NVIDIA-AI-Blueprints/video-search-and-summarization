@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# DeepStream configs for profileMode standalone-2d (warehouse 2D + file sources).
+
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-2d") }}
+{{- $bundle := "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-2d
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-2d
+data:
+{{- range $path, $_ := .Files.Glob "files/warehouse-standalone-2d/deepstream/configs/*" }}
+{{- $base := base $path }}
+{{- $content := $.Files.Get $path }}
+{{- if ne $base "ds-main-config.txt" }}
+  {{ $base }}: |
+{{ $content | nindent 4 }}
+{{- else }}
+  ds-main-config.txt: |
+{{- $c := replace "ll-config-file=ds-nvdcf-accuracy-tracker-config.yml" (printf "ll-config-file=%s/ds-nvdcf-accuracy-tracker-config.yml" $bundle) $content }}
+{{- $c = replace "msg-broker-config=ds-kafka-config.txt" (printf "msg-broker-config=%s/ds-kafka-config.txt" $bundle) $c }}
+{{- $c = replace "config-file=ds-pgie-config.yml" (printf "config-file=%s/ds-pgie-config.yml" $bundle) $c }}
+{{ $c | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

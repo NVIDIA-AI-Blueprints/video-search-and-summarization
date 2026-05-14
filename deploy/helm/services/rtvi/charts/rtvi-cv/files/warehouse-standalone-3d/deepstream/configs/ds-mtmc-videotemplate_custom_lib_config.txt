@@ -13,11 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: v2
-name: vss-rtvi-cv
-description: Shared DeepStream perception chart for alerts, search, and warehouse standalone (2D/3D) profiles
-type: application
-version: 26.04.2
-appVersion: "3.1.0"
-maintainers:
-  - name: NVIDIA
+gpu-id=0
+customlib-name=/opt/nvidia/deepstream/deepstream/lib/libnvdsgst_sparse4d.so
