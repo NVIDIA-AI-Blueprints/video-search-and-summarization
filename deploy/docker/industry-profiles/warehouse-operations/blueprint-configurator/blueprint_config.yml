@@ -278,10 +278,6 @@ commons:
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
-      # HARDWARE_PROFILE can only be "H100", "L40S", "L40","L4", "RTXA6000", "RTXA6000ADA", "RTXPRO6000BW", "IGX-THOR", "DGX-SPARK"
-      - variable: HARDWARE_PROFILE
-        allowed_values: ["H100", "L40S", "L40","L4", "RTXA6000", "RTXA6000ADA", "RTXPRO6000BW", "IGX-THOR", "DGX-SPARK"]
-
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
       - variable: BP_PROFILE
         allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
@@ -376,7 +372,8 @@ commons:
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
     mv3dt:
-      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+      - effective_max_streams_supported: 'int("${max_streams_supported}") if "${max_streams_supported}" != "$" + "{max_streams_supported}" and "${max_streams_supported}" != "" else ${NUM_STREAMS}'
+      - final_stream_count: "min(${NUM_STREAMS}, ${effective_max_streams_supported})"
       - msg-broker-conn-str: '"localhost;6379;" if "${STREAM_TYPE}" == "redis" else "localhost;9092;mdx-bev"'
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
@@ -554,7 +551,7 @@ commons:
         backup: true
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
-          onvif.max_devices_supported: ${max_streams_supported}
+          onvif.max_devices_supported: ${effective_max_streams_supported}
 
       # Update VST config
       - operation_type: "json_update"
@@ -562,7 +559,7 @@ commons:
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
-          onvif.max_devices_supported: ${max_streams_supported}
+          onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
 
       # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
