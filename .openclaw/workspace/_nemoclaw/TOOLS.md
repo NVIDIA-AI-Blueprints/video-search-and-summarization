@@ -10,27 +10,41 @@ the MCP server inherits them from the host environment.
 
 If host-side setup is missing (NGC CLI, Docker login to `nvcr.io`, or
 `uv sync` of `services/agent/`), tell the user to run the matching cell in
-`deploy/docker/scripts/deploy_nemoclaw_vss.ipynb` (the notebook lives on the host, not in the sandbox — do not try to read, list, find, or open it from inside the sandbox; just tell the user). That notebook owns host-side setup; do not try to fix it
-yourself.
+`deploy/docker/scripts/deploy_nemoclaw_vss.ipynb` (the notebook lives on the host,
+not in the sandbox — do not try to read, list, find, or open it from inside the
+sandbox; just tell the user). That notebook owns host-side setup; do not try to
+fix it yourself.
 
-The orchestrator exposes tools for: listing supported profiles, running
-prerequisite checks, generating compose artifacts, bringing deployments up
-or down, polling compose status, and inspecting running services. Discover
-the exact names and argument schemas via `tools/list` — do not assume.
+## Calling MCP tools
 
-## Calling MCP tools — REQUIRED format
+Openclaw's built-in MCP client cannot fully handshake with the orchestrator's
+`nat mcp serve` transport (a known protocol mismatch: openclaw opens the SSE
+GET before establishing a session). As a result, **only**
+`vss_orchestrator__docker_list` reliably registers as a native tool — every
+other orchestrator tool must be invoked via `curl` from the `exec` tool.
+
+- If `vss_orchestrator__docker_list` is in your tool roster, **prefer it
+  natively** — saves a curl round-trip and keeps context small.
+- For every other orchestrator tool (`prereqs`, `docker_generate`,
+  `docker_up`, `docker_down`, `docker_status`, `docker_logs`, `docker_read`,
+  `profiles`), use the curl handshake below.
+- **Ignore `react_agent`** — it's the workflow's entry function, not a
+  deployment tool.
+
+### Required curl format
 
 Always use the `exec` tool with the heredocs below. **Never hand-write JSON
 inline** — the brackets always end up wrong. Responses come back SSE-framed
 (`event: message\n\ndata: {...}\n\n`); strip the `data: ` prefix before
 parsing the JSON.
 
-The MCP handshake is **three** messages, not two: `initialize` (request),
+The MCP handshake is **three** messages: `initialize` (request),
 `notifications/initialized` (notification — no `id`, no response body), then
-any `tools/list` / `tools/call` request. Skipping the notification triggers
-"Received request before initialization was complete" warnings on the server.
+any `tools/call` request. Skipping the notification triggers "Received
+request before initialization was complete" warnings on the server.
 
-### One-time per session: handshake + discover tool names
+### One-time per session: handshake
+
 ```bash
 # 1. initialize, capture the session id from the response header
 SID=$(curl -sN -D /tmp/h.txt -X POST http://host.openshell.internal:9902/mcp \
@@ -48,90 +62,82 @@ curl -s -X POST http://host.openshell.internal:9902/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-
-# 3. discover tool names and input schemas — DO NOT hardcode them
-curl -s -X POST http://host.openshell.internal:9902/mcp \
-  -H "Mcp-Session-Id: $SID" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
-Read tool names and `inputSchema` from the `tools/list` result and use them
-verbatim. **Ignore `react_agent`** — it's the workflow's entry function, not
-a deployment tool.
+You do **not** need to call `tools/list` — the tool names are documented
+above, and the schemas are stable. Skipping `tools/list` saves ~5 KB of
+context per session.
 
 ### Calling a tool
+
 ```bash
 curl -s -X POST http://host.openshell.internal:9902/mcp \
   -H "Mcp-Session-Id: $SID" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data @- <<'EOF'
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"<NAME_FROM_tools/list>","arguments":{...}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"vss_orchestrator__<tool>","arguments":{...}}}
 EOF
 ```
 
-## Long-running deploys — handshake recovery
+## Long-running deploys
 
-`docker_up` and `docker_down` are **fire-and-return**: they spawn a background
-thread on the orchestrator and respond within milliseconds with a
-`docker_compose_ops_id`. The actual `docker compose up -d --build` may run for
-10+ minutes (image pulls). Progress is read by polling `docker_status` with
-the saved `docker_compose_ops_id`.
-
-The `docker_compose_ops_id` lives in a module-level registry on the
-orchestrator — it is **independent of the MCP session**. So if the MCP
-session/SID drops mid-deploy, you can re-handshake and resume polling the
-same ops_id without restarting anything.
+`vss_orchestrator__docker_up` and `vss_orchestrator__docker_down` are
+**fire-and-return**: they spawn a background thread on the orchestrator and
+return a `docker_compose_ops_id` within milliseconds. The underlying
+`docker compose up -d --build` may run for 10+ minutes. Track progress with
+`vss_orchestrator__docker_status` using the saved `docker_compose_ops_id`.
 
 ### Rules
 
 1. **The moment `docker_up` returns, write the `docker_compose_ops_id` to
-   `memory/YYYY-MM-DD.md`** (and keep the `docker_compose_id` too). Do this
-   before any further reasoning — if the session drops next, you need it on
-   disk to recover.
-2. **Poll `docker_status` every 60 seconds** with the saved ops_id until
-   `running: false`. A steady cadence also keeps the MCP session warm and
-   reduces the chance of idle eviction. Ignore the server's
-   `recommended_poll_interval_s` hint — 60s is the configured cadence here.
-3. **Always pass `"tail_lines": 5` on heartbeat polls.** The server's
-   default of 80 returns tens of KB of `docker compose --build` output per
-   call; piling that into the LLM context every 60s bloats inference, makes
-   the openclaw UI flash while rendering huge tool-result panels, and can
-   freeze the session before the next tick. Only request a larger tail (up
-   to 1000) **once**, after the op finishes, or when you need to diagnose
-   an error.
-4. **On any session error** (HTTP 4xx mentioning session id, "Bad Request",
-   silent hang past ~60s on what should be a fast call, or `tools/call`
-   returning nothing): re-run handshake steps 1 and 2 above to mint a fresh
-   `SID`, then immediately call `docker_status` with the saved ops_id and
-   continue polling. Do **not** re-fire `docker_up` — the orchestrator will
-   reject it with "Compose operation already running for docker_compose_id
-   '<id>'", and you'd lose visibility into the in-flight deploy.
-5. **Deploy is done when** `docker_status` returns `running: false` with
-   `status: "success"` (exit_code 0). On `status: "error"`, fetch the tail
-   log (`tail_lines: 200`) and surface it. On `status: "cancelled"`, the op
-   was preempted by a `docker_down`.
+   `memory/YYYY-MM-DD.md`** (and keep the `docker_compose_id` too) so a
+   future turn can recover it if the session drops.
+2. **Poll `docker_status` at most every 60 seconds** until `running: false`.
+3. **Always pass `"tail_lines": 5` on every poll.** Never raise it. The
+   server default of 80 returns tens of KB of `docker compose --build`
+   output per poll, which piles into your context and pushes you over the
+   LLM's input-token cap. For per-service detail on a failure, use
+   `docker_logs` with a specific `container_name` and `tail ≤ 50`.
+4. **Deploy is done when** `docker_status` returns `running:false` with
+   `status:"success"` (exit_code 0). On `status:"error"`, call `docker_logs`
+   for the failing service. On `status:"cancelled"`, the op was preempted
+   by a `docker_down`.
 
-### Heartbeat poll (use this every 60s, and on error too)
+### When `docker_status` returns `Unknown docker_compose_ops_id`
 
-Always pass `"tail_lines": 5`. Never raise it — the agent's LLM context is
-capped at ~32k tokens, and a larger tail across many polls is what pushes it
-over and freezes the session. If you need more detail on a failure, fetch
-container logs via the separate `docker_logs` tool by container name (not by
-re-querying `docker_status` with a bigger tail).
+The orchestrator keeps ops state in process memory (LRU ~200 entries, not
+persisted). If the orchestrator was restarted — or the id was mistyped from
+`memory/YYYY-MM-DD.md` — the call returns
+`{"status":"error","error":"Unknown docker_compose_ops_id '<id>'."}` in
+~100 ms. It does **not** hang.
 
-```bash
-OPS_ID="<paste from memory/YYYY-MM-DD.md>"
-curl -s -X POST http://host.openshell.internal:9902/mcp \
-  -H "Mcp-Session-Id: $SID" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data @- <<EOF
-{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"docker_status","arguments":{"docker_compose_ops_id":"$OPS_ID","tail_lines":5}}}
-EOF
-```
+**Stop-retrying rule. Do not loop on the same id:**
+
+1. First Unknown → re-read the id from `memory/YYYY-MM-DD.md` once and
+   call `docker_status` exactly **one** more time (handles fat-finger).
+2. Second Unknown for the same id → the id is dead for the rest of this
+   session:
+   - **Delete the id** from `memory/YYYY-MM-DD.md`.
+   - **Tell the user** the orchestrator state was lost (likely a restart)
+     and switch to `docker_list` / `docker_logs` for verification.
+   - **Never call `docker_status` with that id again** — even on heartbeat.
+
+### After a deploy completes — stop using `docker_status`
+
+Once a deploy is `running:false` with `status:"success"`, the ops_id has no
+further value. Delete it from `memory/YYYY-MM-DD.md` and use these instead
+for any "is it healthy?" check:
+
+- **`docker_list`** — cheap; returns just container names. Pass
+  `{"all_containers": false}` to see only what's currently up. Prefer the
+  native `vss_orchestrator__docker_list` tool when it's in your roster.
+- **`docker_logs`** — targeted; pass a `container_name` and a small `tail`
+  (≤ 50). Cheaper than `docker_status` and gives the actual service-level
+  output, not compose orchestration noise.
+
+This pattern is also robust to orchestrator restarts — container state
+lives in Docker, not in the orchestrator's process memory.
 
 ## Skills
 
