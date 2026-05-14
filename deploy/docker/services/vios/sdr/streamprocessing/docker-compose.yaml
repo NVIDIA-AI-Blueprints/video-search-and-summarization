@@ -16,7 +16,7 @@
 services:
   streamprocessing-ms:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm","bp_smartcities_2d_cv","bp_smartcities_2d_vlm"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -209,7 +209,7 @@ services:
 
   sdr-streamprocessing:
     image: ${SDR_IMAGE}
-    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d"]
+    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_smartcities_2d_cv","bp_smartcities_2d_vlm"]
     user: "0:0"
     network_mode: "host"
     logging:
@@ -320,7 +320,7 @@ services:
   #       required: false
   envoy-streamprocessing:
     image: ${ENVOY_PROXY_IMAGE}
-    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d"]
+    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_smartcities_2d_cv","bp_smartcities_2d_vlm"]
     user: "0:0"
     command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
     network_mode: "host"
