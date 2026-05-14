@@ -1,13 +1,12 @@
 ---
 name: vss-deploy-dense-captioning
 description: >
-  Use this skill when working with the RTVI VLM or RT-VLM microservice API on VSS 3.2.
-  Generate dense captions and alerts for stored video files and live RTSP streams via
-  `/v1/generate_captions`; upload media via `/v1/files`; add and remove live
-  streams with `/v1/streams/add` and `/v1/streams/delete/{stream_id}`; call
-  OpenAI-compatible `/v1/chat/completions`; consume Kafka caption, incident, and error
-  topics; or debug rtvi-vlm responses. For deployment, read
-  `references/deploy-rt-vlm-service.md` first.
+  Deploy and call the VSS 3.2 RT-VLM dense captioning microservice. Use this skill
+  to deploy standalone RT-VLM when needed, generate dense captions and alerts for
+  stored video files and live RTSP streams via `/v1/generate_captions`, upload media
+  via `/v1/files`, add and remove live streams with `/v1/streams/add` and
+  `/v1/streams/delete/{stream_id}`, call OpenAI-compatible `/v1/chat/completions`,
+  consume Kafka caption, incident, and error topics, or debug rtvi-vlm responses.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -15,21 +14,23 @@ metadata:
   tags: "nvidia blueprint operational deployment"
 ---
 
-# RTVI VLM Usage API (VSS 3.2)
+# Deploy and Use RT-VLM Dense Captioning (VSS 3.2)
 
-RTVI VLM is NVIDIA's real-time vision-language microservice: decode video (file or
-RTSP) → segment into chunks → run a VLM (`cosmos-reason1`, `cosmos-reason2`, or any
-OpenAI-compatible model) → stream dense captions back over SSE/HTTP and publish
-captions + incident alerts + errors to Kafka. Use this skill whenever you need to hit
-any `/v1/...` endpoint on the VSS 3.2 rtvi-vlm microservice: caption generation, file
-upload, live-stream management, health checks, NIM-compatible chat completions,
-Prometheus metrics. API reference: <https://docs.nvidia.com/vss/latest/real-time-vlm-api.html>.
+RT-VLM is NVIDIA's real-time vision-language microservice: decode video (file or
+RTSP), segment it into chunks, run a VLM (`cosmos-reason1`, `cosmos-reason2`, or any
+OpenAI-compatible model), stream dense captions back over SSE/HTTP, and publish
+captions, incident alerts, and errors to Kafka. Use this skill to deploy the
+standalone RT-VLM service when a full VSS profile is not already running, then call
+its `/v1/...` API for caption generation, file upload, live-stream management, health
+checks, NIM-compatible chat completions, or Prometheus metrics. API reference:
+<https://docs.nvidia.com/vss/latest/real-time-vlm-api.html>.
 
 ## Setup
 
 ```bash
-export BASE_URL="http://localhost:8000"     # RTVI VLM host:port — matches $RTVI_VLM_PORT in compose
-export API_KEY="$NGC_API_KEY"               # Bearer token (NGC key works if the service was deployed with NGC auth)
+export BASE_URL="http://localhost:${RTVI_VLM_PORT:-8018}"  # host-side RT-VLM port
+export API_KEY="${NGC_CLI_API_KEY:-${RTVI_VLM_API_KEY:-}}" # bearer token used by host-side curl commands
+: "${API_KEY:?Set NGC_CLI_API_KEY or RTVI_VLM_API_KEY before calling authenticated endpoints}"
 ```
 
 Every request below uses `Authorization: Bearer $API_KEY`. Health endpoints

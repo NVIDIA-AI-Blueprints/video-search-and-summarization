@@ -2,6 +2,23 @@
 
 Skills for working with NVIDIA Video Search & Summarization (VSS). Each subdirectory under `skills/` is a self-contained skill following the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter.
 
+## Renamed in GA
+
+The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
+
+| Pre-GA command | VSS 3.2 GA command |
+|---|---|
+| `/alerts` | `/vss-manage-alerts` |
+| `/deploy` | `/vss-deploy-profile` |
+| `/report` | `/vss-generate-video-report` |
+| `/rt-vlm` | `/vss-deploy-dense-captioning` |
+| `/video-analytics` | `/vss-query-analytics` |
+| `/video-search` | `/vss-search-archive` |
+| `/video-summarization` | `/vss-summarize-video` |
+| `/video-understanding` | `/vss-ask-video` |
+| `/vios` | `/vss-manage-video-io-storage` |
+| `/vss-frag` | Not shipped in this branch; replaced by `/vss-generate-video-calibration` in the separate calibration skill PR. |
+
 ## Catalog
 
 | Skill | Description |

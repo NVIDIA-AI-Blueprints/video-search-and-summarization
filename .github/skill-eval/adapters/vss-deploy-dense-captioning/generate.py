@@ -35,9 +35,8 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
-    "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "You are pre-authorized to run required setup actions autonomously — "
+    "do not pause to ask for confirmation on setup actions the trial requires."
 )
 
 
@@ -99,10 +98,11 @@ def _instruction_intro(spec: dict) -> str:
         profile = spec.get("profile")
         deploy_mode = spec.get("deploy_mode")
         return (
-            "Use `/vss-deploy-profile` first, then `/vss-deploy-dense-captioning`. Deploy the full VSS "
+            "Use `/vss-deploy-dense-captioning` against the already-deployed full VSS "
             f"`{profile}` profile"
             + (f" in `{deploy_mode}` mode" if deploy_mode else "")
-            + ", then test the RT-VLM microservice directly."
+            + ". The eval harness predeploys that prerequisite before this task starts; do not "
+            + "invoke `/vss-deploy-profile`, `scripts/dev-profile.sh`, or redeploy the stack."
         )
 
     return (

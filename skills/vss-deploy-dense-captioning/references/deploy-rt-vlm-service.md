@@ -308,8 +308,9 @@ Generic VLM workflow → `bp_developer_alerts_2d_vlm`.
 ```bash
 # 0. Fetch compose (if not in a met-blueprints checkout)
 mkdir -p /work/rtvi_deploy && cd /work/rtvi_deploy
+VSS_RELEASE_REF="d64e6c5b96c56f1d11809905fe6463ffbffd9b42" # upstream release/3.2.0
 wget -q -O rtvi-vlm-docker-compose.yml \
-  "https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/refs/heads/develop/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
+  "https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/${VSS_RELEASE_REF}/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
 
 # 0a. Detect platform → select correct image tag
 #     x86_64 and Tegra-based Jetson/AGX/IGX Thor use the multiarch image.
@@ -602,4 +603,4 @@ docker compose -f rtvi-vlm-docker-compose.yml down --rmi local
 - **API docs**: <https://docs.nvidia.com/vss/latest/real-time-vlm-api.html>
   (landing page only — see `/openapi.json` on the running service for specifics)
 - **Compose (met-blueprints checkout)**: `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
-- **Compose (raw, develop)**: `https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/refs/heads/develop/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
+- **Compose (raw, VSS 3.2 release SHA)**: `https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/d64e6c5b96c56f1d11809905fe6463ffbffd9b42/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`

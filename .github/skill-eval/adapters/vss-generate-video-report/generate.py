@@ -138,7 +138,7 @@ def generate_task(
     output_root: Path,
     skill_dir: Path,
     deploy_skill_dir: Path | None,
-    vios_skill_dir: Path | None,
+    video_io_skill_dir: Path | None,
 ) -> None:
     """Emit one Harbor task directory per entry in spec['expects'] — i.e.
     step-<k>/ subdirs under ``<profile>/<platform_short>/`` per AGENTS.md § 4.
@@ -250,7 +250,7 @@ def generate_task(
         copies = [
             (skill_dir,        "vss-generate-video-report"),
             (deploy_skill_dir, "vss-deploy-profile"),
-            (vios_skill_dir,   "vss-manage-video-io-storage"),
+            (video_io_skill_dir,   "vss-manage-video-io-storage"),
         ]
         for src, name in copies:
             if src and src.exists():
@@ -282,10 +282,12 @@ def main() -> None:
         help="Path to skills/vss-deploy-profile (optional — included for agent diagnosis)",
     )
     parser.add_argument(
-        "--video-io-skill-dir", dest="vios_skill_dir", default=None,
+        "--video-io-skill-dir", dest="video_io_skill_dir", default=None,
         help="Path to skills/vss-manage-video-io-storage (optional — spec env references VIOS video upload)",
     )
-    parser.add_argument("--vios-skill-dir", dest="vios_skill_dir", help=argparse.SUPPRESS)
+    parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
+    if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
+        print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument(
         "--spec", default=None,
         help="Path to spec JSON (default: <skill-dir>/eval/base_profile_report.json)",
@@ -300,7 +302,7 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    vios_skill_dir = Path(args.vios_skill_dir) if args.vios_skill_dir else None
+    video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
     spec_path = (
         Path(args.spec)
         if args.spec
@@ -330,7 +332,7 @@ def main() -> None:
         print(f"  GEN  vss-generate-video-report/{profile}/{task_id}")
         generate_task(
             platform, profile, spec, output_root, skill_dir,
-            deploy_skill_dir, vios_skill_dir,
+            deploy_skill_dir, video_io_skill_dir,
         )
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")

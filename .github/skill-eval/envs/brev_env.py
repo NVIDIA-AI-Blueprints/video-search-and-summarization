@@ -376,9 +376,10 @@ class BrevEnvironment(BaseEnvironment):
 
         2. `profile` absent (trial needs a clean box, no VSS running):
             desired = `""` (empty marker).
-            If marker == `""` → already clean, no-op.
-            Else → tear down all containers (`docker rm -f $(docker
+            Always tear down all containers (`docker rm -f $(docker
                   ps -aq)`) + prune networks; OVERWRITE marker to empty.
+                  An empty marker does not prove a prior standalone
+                  profile-less trial cleaned up every container it started.
                   Preserves anything `docker rm -f` doesn't touch:
                   docker image cache, named volumes (postgres / ES /
                   kafka data), repo clone, and sample-data extract —
@@ -413,7 +414,7 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
         current = (probe.stdout or "").strip()
-        if current == desired:
+        if current == desired and desired:
             state = desired or "<clean>"
             logger.info(
                 "prerequisite %s already current on %s; skipping reconcile",

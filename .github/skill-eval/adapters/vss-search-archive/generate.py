@@ -130,7 +130,7 @@ def _platforms_from_spec(spec: dict) -> list[str]:
 
 def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
                   skill_dir: Path, deploy_skill_dir: Path | None,
-                  vios_skill_dir: Path | None) -> None:
+                  video_io_skill_dir: Path | None) -> None:
     pspec = PLATFORMS[platform]
     platform_short = pspec["short_name"]
     expects = spec.get("expects") or []
@@ -228,7 +228,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         # (search spec's first checks reference VIOS for source-list lookup).
         copies = [(skill_dir, "vss-search-archive"),
                   (deploy_skill_dir, "vss-deploy-profile"),
-                  (vios_skill_dir, "vss-manage-video-io-storage")]
+                  (video_io_skill_dir, "vss-manage-video-io-storage")]
         for src, name in copies:
             if src and src.exists():
                 dst = step_dir / "skills" / name
@@ -250,9 +250,11 @@ def main() -> None:
                         help="Path to skills/vss-search-archive")
     parser.add_argument("--deploy-skill-dir", default=None,
                         help="Path to skills/vss-deploy-profile (optional — included for agent debug)")
-    parser.add_argument("--video-io-skill-dir", dest="vios_skill_dir", default=None,
+    parser.add_argument("--video-io-skill-dir", dest="video_io_skill_dir", default=None,
                         help="Path to skills/vss-manage-video-io-storage (optional — referenced by the spec for source-list lookup)")
-    parser.add_argument("--vios-skill-dir", dest="vios_skill_dir", help=argparse.SUPPRESS)
+    parser.add_argument("--vios-skill-dir", dest="video_io_skill_dir", help=argparse.SUPPRESS)
+    if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
+        print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument("--spec", default=None,
                         help="Path to search.json (default: <skill-dir>/eval/search.json)")
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()),
@@ -262,7 +264,7 @@ def main() -> None:
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
-    vios_skill_dir = Path(args.vios_skill_dir) if args.vios_skill_dir else None
+    video_io_skill_dir = Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
     spec_path = Path(args.spec) if args.spec else (skill_dir / "eval" / "search.json")
 
     if not spec_path.exists():
@@ -287,7 +289,7 @@ def main() -> None:
         task_id = PLATFORMS[platform]["short_name"]
         print(f"  GEN  vss-search-archive/{profile}/{task_id}")
         generate_task(platform, profile, spec, output_root, skill_dir,
-                      deploy_skill_dir, vios_skill_dir)
+                      deploy_skill_dir, video_io_skill_dir)
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
 
