@@ -23,8 +23,6 @@ image:
   tag: "3.2.0-26.05.2"
   pullPolicy: IfNotPresent
 
-gpuDeviceId: "all"
-
 # Model source and implementation paths
 modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"

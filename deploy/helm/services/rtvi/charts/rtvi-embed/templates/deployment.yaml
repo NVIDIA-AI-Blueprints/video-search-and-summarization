@@ -135,8 +135,6 @@ spec:
               containerPort: {{ .Values.port }}
               protocol: TCP
           env:
-            - name: NVIDIA_VISIBLE_DEVICES
-              value: {{ .Values.gpuDeviceId | default "all" | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
             - name: MODEL_IMPLEMENTATION_PATH

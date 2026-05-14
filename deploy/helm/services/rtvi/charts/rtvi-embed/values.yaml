@@ -36,7 +36,6 @@ service:
 streamAffinity:
   enabled: true
   hashHeader: x-stream-id
-gpuDeviceId: "2"
 dshm:
   enabled: true
   sizeLimit: "16Gi"
