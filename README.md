@@ -11,6 +11,7 @@
 - [Prerequisites](#prerequisites)
 - [Hardware Requirements](#hardware-requirements)
 - [Quickstart Guide](#quickstart-guide)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Overview
@@ -115,6 +116,10 @@ Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/clou
 - NGC CLI: 4.10.0+
 
 Please refer to [Prerequisites section here for installation details](https://docs.nvidia.com/vss/3.1.0/prerequisites.html).
+
+
+## Contributing
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branch naming convention, and PR guidelines.
 
 
 ## License
