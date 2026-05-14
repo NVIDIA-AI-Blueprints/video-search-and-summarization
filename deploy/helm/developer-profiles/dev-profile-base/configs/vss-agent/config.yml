@@ -25,6 +25,8 @@ general:
       # No RTVI: base profile doesn't ingest to RTVI-CV/Embed. The universal
       # /api/v1/videos/{filename}/complete handler self-skips those steps
       # when the URLs are unset.
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -74,6 +76,8 @@ functions:
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
     use_external_playback_url: false
+    # VST disableAudio=false so audio-capable VLMs receive audio in video_understanding / UI clips.
+    disable_audio: true
 
   vst_snapshot:
     _type: vst.snapshot
@@ -93,6 +97,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    disable_audio: true
     # yamllint disable rule:line-length
     vlm_prompt: |
       Describe in detail what is happening in this video,
