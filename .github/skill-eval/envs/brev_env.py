@@ -336,6 +336,20 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
+        # Sync ~/video-search-and-summarization on the box to the PR's
+        # actual head SHA before any deploy/agent step reads it.
+        #
+        # Without this, every trial runs against whatever happened to be
+        # checked out on the box from a prior session — often a stale
+        # tarball-style checkout (no `.git`) with an obsolete directory
+        # layout (`deployments/` instead of `deploy/docker/`) and the
+        # pre-rename container names. The pre-deploy script generated
+        # by `adapters/deploy/generate.py::generate_solve_script` only
+        # syncs on the *gold-solution* path; the trial's agent invokes
+        # `/deploy` directly against `$REPO`, so without this step the
+        # PR_HEAD_SHA forwarded above never actually lands on disk.
+        await self._sync_repo_to_pr_head()
+
         # Pre-deploy any prerequisite profile declared in task.toml [metadata].
         # Idempotent via marker file on the box, so dependent trials reuse the
         # deployment without re-running it.
@@ -501,6 +515,79 @@ class BrevEnvironment(BaseEnvironment):
         logger.info(
             "Pre-deploy %s succeeded on %s; active marker overwritten",
             desired, self._instance_name,
+        )
+
+    async def _sync_repo_to_pr_head(self) -> None:
+        """Reset `~/video-search-and-summarization` on the Brev box to the
+        PR's actual head SHA. Runs once per trial, before any deploy or
+        agent step reads `$REPO`.
+
+        Why this is in the env provider (not the deploy adapter): the
+        deploy adapter's solve.sh syncs the repo on the *gold-solution*
+        path, but the trial's claude-code agent invokes `/deploy`
+        directly against whatever's on disk. Without this sync, the
+        forwarded `PR_HEAD_SHA` env var has no effect on the actual
+        compose/skill files the agent reads.
+
+        Handles three pre-states:
+
+        - **Empty / missing dir** — fresh clone.
+        - **Stale non-git checkout** (tarball-style, no `.git` dir) —
+          this is the load-bearing fix: prior versions of the dir
+          shipped from before the repo was renamed and the layout
+          changed (`deployments/` not `deploy/docker/`). Nuke and
+          re-clone; never silently fall through to `git fetch` on
+          a non-git dir.
+        - **Existing git checkout** — `git remote set-url` (handles
+          cross-fork PRs) + `git fetch <PR_HEAD_SHA>` + hard reset.
+
+        Preserves `data/` (NGC sample bundle) and `.env` (active trial
+        overrides) on `git clean`. Fails loud — `set -euo pipefail` so
+        any sync error short-circuits start() before the agent runs.
+        """
+        # PR_HEAD_SHA + PR_REPO come from the workflow step's env and are
+        # forwarded into ~/.eval_env on the instance by the loop above.
+        # When unset (local dev / smoke test), fall back to develop.
+        cmd = r"""set -euo pipefail
+PR_REPO="${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
+PR_HEAD_SHA="${PR_HEAD_SHA:-}"
+REPO="$HOME/video-search-and-summarization"
+VSS_REPO_URL="https://github.com/${PR_REPO}.git"
+
+# Case 1: dir exists but isn't a git repo (stale tarball checkout) — nuke
+#         and re-clone. Case 2: dir doesn't exist — clone fresh.
+if [ ! -d "$REPO/.git" ]; then
+  rm -rf "$REPO"
+  git clone --no-checkout --depth=1 --branch develop "$VSS_REPO_URL" "$REPO"
+fi
+cd "$REPO"
+git remote set-url origin "$VSS_REPO_URL"
+if [ -n "$PR_HEAD_SHA" ]; then
+  git fetch --depth=1 origin "$PR_HEAD_SHA"
+  git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
+  git reset --hard "$PR_HEAD_SHA"
+else
+  git fetch --depth=1 origin develop
+  git -c advice.detachedHead=false checkout --force FETCH_HEAD
+  git reset --hard FETCH_HEAD
+fi
+# Drop leftover working-tree state from a prior trial, but keep data/
+# (sample-data extract — slow to re-pull from NGC) and any .env tweaks
+# the active trial may have placed.
+git clean -fdx -e data/ -e .env
+echo "synced $REPO to $(git rev-parse --short HEAD)"
+"""
+        logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"repo sync failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Repo sync on %s: %s",
+            self._instance_name, (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
     async def stop(self, delete: bool) -> None:
