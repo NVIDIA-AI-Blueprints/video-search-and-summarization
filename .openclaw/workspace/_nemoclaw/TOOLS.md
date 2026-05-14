@@ -95,11 +95,15 @@ Rules:
 1. **Save the `docker_compose_ops_id`** (and `docker_compose_id`) to
    `memory/YYYY-MM-DD.md` the moment `docker_up` returns, so a future turn
    can recover if the session drops.
-2. **Poll `docker_status` at most every 60 seconds** with `"tail_lines": 5`
-   until `running: false`. Never raise the tail — the server default of 80
-   returns tens of KB of compose output per poll and will push you over the
-   LLM input-token cap. For per-service detail on a failure, use
-   `docker_logs` with a specific `container_name` and `tail ≤ 50`.
+2. **Poll `docker_status` with `"tail_lines": 10`** until `running: false`,
+   at the cadence the server tells you in the `docker_up` / `docker_down`
+   response's `recommended_poll_interval_s`:
+   - `up` ops: **every 60 seconds** (long pulls/builds).
+   - `down` ops: **every 10 seconds** (typically finishes in seconds).
+   Never raise the tail — the server default of 80 returns tens of KB of
+   compose output per poll and will push you over the LLM input-token cap.
+   For per-service detail on a failure, use `docker_logs` with a specific
+   `container_name` and `tail ≤ 50`.
 3. **Done** = `running:false` + `status:"success"` (`exit_code:0`).
    `status:"error"` → call `docker_logs` for the failing service.
    `status:"cancelled"` → the op was preempted by a `docker_down`.

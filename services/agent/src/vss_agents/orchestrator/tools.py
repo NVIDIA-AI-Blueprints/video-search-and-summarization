@@ -80,6 +80,9 @@ _COMPOSE_SPECS_LOCK = threading.Lock()
 _MAX_OPERATION_LOG_LINES = 4000
 _MAX_RETAINED_COMPOSE_OPERATIONS = 200
 _MAX_RETAINED_COMPOSE_SPECS = 500
+_COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
+_COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
+_MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 
 
 @dataclass
@@ -104,6 +107,13 @@ class PreComposeCheck:
     name: str
     profile: str
     run: Callable[[], object]
+
+
+@dataclass(frozen=True)
+class IntFieldBounds:
+    minimum: int
+    default: int
+    maximum: int
 
 
 RegistryKeyT = TypeVar("RegistryKeyT")
@@ -176,6 +186,16 @@ class ComposeAction(StrEnum):
     DOWN = "down"
 
 
+_COMPOSE_POLL_INTERVAL_BY_ACTION: Final[dict[str, int]] = {
+    ComposeAction.UP.value: _COMPOSE_UP_POLL_INTERVAL_S,
+    ComposeAction.DOWN.value: _COMPOSE_DOWN_POLL_INTERVAL_S,
+}
+
+
+_COMPOSE_STATUS_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=5, maximum=20)
+_CONTAINER_LOG_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=20, maximum=200)
+
+
 class ComposeStatus(StrEnum):
     ERROR = "error"
     IGNORED = "ignored"
@@ -186,20 +206,8 @@ class ComposeStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-@dataclass(frozen=True)
-class IntFieldBounds:
-    minimum: int
-    default: int
-    maximum: int
-
-
 _SUPPORTED_COMPOSE_ACTIONS: Final[frozenset[str]] = frozenset(action.value for action in ComposeAction)
 _ALL_KNOWN_STATUSES: Final[frozenset[str]] = frozenset(status.value for status in ComposeStatus)
-
-# Input bounds and defaults
-_COMPOSE_STATUS_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=80, maximum=1000)
-_CONTAINER_LOG_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=100, maximum=10000)
-_MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 
 
 def _reject_option_like_docker_positional(arg_name: str, value: str) -> str:
@@ -224,10 +232,6 @@ def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
 
     prefix = encoded[:prefix_budget].decode("utf-8", errors="ignore")
     return prefix + suffix
-
-
-# Polling behavior
-_COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S: Final[int] = 5
 
 
 class GenerateInput(BaseModel):
@@ -265,9 +269,6 @@ class OrchestratorRuntimeSettings(BaseSettings):
     nvidia_api_key: str = Field(default="", validation_alias="NVIDIA_API_KEY")
     hardware_profile: str = Field(default="", validation_alias="HARDWARE_PROFILE")
     external_ip: str = Field(default="", validation_alias="EXTERNAL_IP")
-    # Remote-LLM forwards: mirror what `dev-profile.sh up --use-remote-llm --llm-model-type ... --llm ...`
-    # writes into generated.env, so deploy_base_qwen3_cr2.sh-style setups can be driven from the MCP
-    # path without restating these on every docker_generate call.
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
     llm_endpoint_url: str = Field(default="", validation_alias="LLM_ENDPOINT_URL")
     llm_model_type: str = Field(default="", validation_alias="LLM_MODEL_TYPE")
@@ -847,7 +848,7 @@ async def vss_orchestrator(
             "command": f"docker compose {action} {' '.join(action_args)}".strip(),
             "poll_tool": "docker_status",
             "status_hint": "Poll docker_status with docker_compose_ops_id for progress/completion.",
-            "recommended_poll_interval_s": _COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S,
+            "recommended_poll_interval_s": _COMPOSE_POLL_INTERVAL_BY_ACTION[action],
             "pid": -1,
         }
 
@@ -856,10 +857,7 @@ async def vss_orchestrator(
     # ---------------------------------------------------------------------------
     group = FunctionGroup(config=_config)
 
-    # Print one line per MCP tool call (name + payload + response) to the
-    # orchestrator stdout so operators can follow polling activity without
-    # expanding tool outputs in the openclaw UI. Wraps every `add_function`
-    # registration below.
+    # Print one line per MCP tool call (name + payload + response) to the orchestrator stdout
     _orig_add_function = group.add_function
 
     def _wrap_with_call_log(
