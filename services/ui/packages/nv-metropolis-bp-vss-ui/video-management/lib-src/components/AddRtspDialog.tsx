@@ -145,24 +145,6 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
                 onValueChange={(val: string) => handleRtspUrlChange(val)}
                 placeholder="rtsp://cam-warehouse.example.com:554/warehouse/cam01"
               />
-              {/* Info icon */}
-              <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                <svg
-                  className="text-gray-400 dark:text-gray-500"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="16" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12.01" y2="8" />
-                </svg>
-              </div>
             </div>
             <p
               className="text-xs flex items-center gap-2 mt-3 text-gray-500"
