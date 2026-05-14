@@ -1,0 +1,31 @@
+{
+    "version": "1.0",
+    "alerts": [
+      {
+        "alert_type": "collision",
+        "output_verdict_description": {
+          "confirmed": "Collision detected",
+          "rejected": "No collision detected"
+        },
+        "prompts": {
+          "system": "You are a helpful assistant.",
+          "user": "Focus on vehicles {info.primaryObjectId} and vehicle list {objectIds}. Identify if there is a moment in the video where both vehicles occupy the same space simultaneously, indicating physical contact. Did vehicles {info.primaryObjectId} and vehicle from the list {objectIds} collide? Your final answer should be either Yes or No."
+        }
+      },
+      {
+        "alert_type": "Stop Anomaly Module",
+        "prompts": {
+          "system": "You are a helpful assistant.",
+          "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal stopping behavior or a stop anomaly.\n\n- Normal Stop: A worker, vehicle, or machinery stops briefly as part of expected operational behavior.\n- Stop Anomaly: A worker, vehicle, or machinery stops unexpectedly, in an unsafe location, or for an abnormal duration.\n\nIs there a stop anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
+        }
+      },
+      {
+        "alert_type": "Movement Anomaly Module",
+        "prompts": {
+          "system": "You are a helpful assistant.",
+          "user": "The video is surveillance footage. Your task is to determine whether the video depicts normal movement or an abnormal movement anomaly.\n\n- Normal Movement: Movement follows expected speed, direction, and path patterns.\n- Movement Anomaly: Sudden or unusual motion patterns such as abrupt speed spikes, sharp direction changes, or deviations from usual routes.\n\nIs there a movement anomaly in the video? Your final answer should be either Yes or No.\n\nAnswer the question using the following format:\n\n<think>\nYour reasoning.\n</think>\n\nWrite your final answer immediately after the </think> tag."
+        }
+      }
+    ]
+  }
+  

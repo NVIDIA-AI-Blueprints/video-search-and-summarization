@@ -24,6 +24,8 @@ services:
     - bp_wh_2d
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
+    - bp_smartcities_2d_cv
+    - bp_smartcities_2d_vlm
     volumes:
     - ${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro
     environment:
@@ -71,6 +73,8 @@ services:
     - bp_developer_lvs_2d
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
+    - bp_smartcities_2d_cv
+    - bp_smartcities_2d_vlm
     environment:
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
