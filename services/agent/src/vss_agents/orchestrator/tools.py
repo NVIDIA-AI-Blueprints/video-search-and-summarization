@@ -264,8 +264,31 @@ class OrchestratorRuntimeSettings(BaseSettings):
     ngc_cli_api_key: str = Field(default="", validation_alias="NGC_CLI_API_KEY")
     nvidia_api_key: str = Field(default="", validation_alias="NVIDIA_API_KEY")
     hardware_profile: str = Field(default="", validation_alias="HARDWARE_PROFILE")
+    external_ip: str = Field(default="", validation_alias="EXTERNAL_IP")
+    # Remote-LLM forwards: mirror what `dev-profile.sh up --use-remote-llm --llm-model-type ... --llm ...`
+    # writes into generated.env, so deploy_base_qwen3_cr2.sh-style setups can be driven from the MCP
+    # path without restating these on every docker_generate call.
+    openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
+    llm_endpoint_url: str = Field(default="", validation_alias="LLM_ENDPOINT_URL")
+    llm_model_type: str = Field(default="", validation_alias="LLM_MODEL_TYPE")
+    llm_name: str = Field(default="", validation_alias="LLM_NAME")
+    vlm_name: str = Field(default="", validation_alias="VLM_NAME")
+    vlm_endpoint_url: str = Field(default="", validation_alias="VLM_ENDPOINT_URL")
+    vlm_model_type: str = Field(default="", validation_alias="VLM_MODEL_TYPE")
 
-    @field_validator("ngc_cli_api_key", "nvidia_api_key", "hardware_profile")
+    @field_validator(
+        "ngc_cli_api_key",
+        "nvidia_api_key",
+        "hardware_profile",
+        "external_ip",
+        "openai_api_key",
+        "llm_endpoint_url",
+        "llm_model_type",
+        "llm_name",
+        "vlm_name",
+        "vlm_endpoint_url",
+        "vlm_model_type",
+    )
     @classmethod
     def _strip_value(cls, value: str) -> str:
         return value.strip()
@@ -504,6 +527,12 @@ async def vss_orchestrator(
         raise RuntimeError(f"Startup directory bootstrap failed for mdx_data_dir '{mdx_data_dir}': {exc}") from exc
 
     print(f"[vss_orchestrator] startup directory bootstrap succeeded for mdx_data_dir: {mdx_data_dir}", flush=True)
+
+    _missing_creds = [
+        name for name in ("NGC_CLI_API_KEY", "NVIDIA_API_KEY") if not (os.environ.get(name) or "").strip()
+    ]
+    if _missing_creds:
+        print(f"[vss_orchestrator] WARNING: {', '.join(_missing_creds)} not set in MCP server env — ", flush=True)
 
     try:
         runtime_settings = OrchestratorRuntimeSettings()
@@ -954,6 +983,14 @@ async def vss_orchestrator(
                     ngc_cli_api_key=runtime_settings.ngc_cli_api_key,
                     nvidia_api_key=runtime_settings.nvidia_api_key,
                     hardware_profile=runtime_settings.hardware_profile,
+                    external_ip=runtime_settings.external_ip,
+                    openai_api_key=runtime_settings.openai_api_key,
+                    llm_endpoint_url=runtime_settings.llm_endpoint_url,
+                    llm_model_type=runtime_settings.llm_model_type,
+                    llm_name=runtime_settings.llm_name,
+                    vlm_name=runtime_settings.vlm_name,
+                    vlm_endpoint_url=runtime_settings.vlm_endpoint_url,
+                    vlm_model_type=runtime_settings.vlm_model_type,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),

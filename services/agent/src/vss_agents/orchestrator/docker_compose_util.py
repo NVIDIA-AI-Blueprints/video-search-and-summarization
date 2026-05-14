@@ -118,6 +118,14 @@ class DryRunRecipe:
     ngc_cli_api_key: str | None
     nvidia_api_key: str | None
     hardware_profile: str | None
+    external_ip: str | None
+    openai_api_key: str | None
+    llm_endpoint_url: str | None
+    llm_model_type: str | None
+    llm_name: str | None
+    vlm_name: str | None
+    vlm_endpoint_url: str | None
+    vlm_model_type: str | None
     output_env_file: Path
     output_compose_file: Path
     deployments_dir: Path
@@ -141,6 +149,14 @@ def create_dry_run_recipe(
     ngc_cli_api_key: str | None = None,
     nvidia_api_key: str | None = None,
     hardware_profile: str | None = None,
+    external_ip: str | None = None,
+    openai_api_key: str | None = None,
+    llm_endpoint_url: str | None = None,
+    llm_model_type: str | None = None,
+    llm_name: str | None = None,
+    vlm_name: str | None = None,
+    vlm_endpoint_url: str | None = None,
+    vlm_model_type: str | None = None,
     model_resolution: Any,
     output_env_file: str,
     output_compose_file: str,
@@ -187,6 +203,14 @@ def create_dry_run_recipe(
         ngc_cli_api_key=(ngc_cli_api_key or "").strip() or None,
         nvidia_api_key=(nvidia_api_key or "").strip() or None,
         hardware_profile=(hardware_profile or "").strip() or None,
+        external_ip=(external_ip or "").strip() or None,
+        openai_api_key=(openai_api_key or "").strip() or None,
+        llm_endpoint_url=(llm_endpoint_url or "").strip() or None,
+        llm_model_type=(llm_model_type or "").strip() or None,
+        llm_name=(llm_name or "").strip() or None,
+        vlm_name=(vlm_name or "").strip() or None,
+        vlm_endpoint_url=(vlm_endpoint_url or "").strip() or None,
+        vlm_model_type=(vlm_model_type or "").strip() or None,
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
         deployments_dir=deployments_path,
@@ -315,6 +339,23 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key:
         merged["NVIDIA_API_KEY"] = config.nvidia_api_key
+    if config.llm_endpoint_url:
+        merged["LLM_BASE_URL"] = config.llm_endpoint_url
+        merged["LLM_MODE"] = "remote"
+    if config.llm_model_type:
+        merged["LLM_MODEL_TYPE"] = config.llm_model_type
+    if config.llm_name:
+        merged["LLM_NAME"] = config.llm_name
+    if config.openai_api_key:
+        merged["OPENAI_API_KEY"] = config.openai_api_key
+    if config.vlm_name:
+        merged["VLM_NAME"] = config.vlm_name
+    # Mirror dev-profile.sh `--use-remote-vlm`: VLM_ENDPOINT_URL → VLM_BASE_URL + VLM_MODE=remote.
+    if config.vlm_endpoint_url:
+        merged["VLM_BASE_URL"] = config.vlm_endpoint_url
+        merged["VLM_MODE"] = "remote"
+    if config.vlm_model_type:
+        merged["VLM_MODEL_TYPE"] = config.vlm_model_type
     merged.update(config.env_overrides)
 
     host_ip = (
@@ -330,6 +371,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
                 config.env_overrides.get("EXTERNALLY_ACCESSIBLE_IP", ""),
                 merged.get("EXTERNAL_IP", ""),
                 merged.get("EXTERNALLY_ACCESSIBLE_IP", ""),
+                config.external_ip or "",
             ]
         )
         or detect_external_ip()
