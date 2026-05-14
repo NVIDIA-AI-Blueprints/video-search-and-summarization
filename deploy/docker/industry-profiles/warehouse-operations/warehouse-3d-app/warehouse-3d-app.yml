@@ -71,8 +71,6 @@ services:
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
-      streams-health-check-3d:
-        condition: service_completed_successfully
       bp-configurator-3d:
         condition: service_healthy
 
@@ -98,10 +96,10 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  streams-health-check-3d:
+  bp-configurator-3d-init:
     image: alpine:3.23.4
     profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "auto_calib_3d"]
-    container_name: vss-streams-health-check-3d
+    container_name: vss-bp-configurator-3d-init
     network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
@@ -126,7 +124,6 @@ services:
       ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
       ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
-      SEND_CONFIG_TO_SDR: ${SEND_CONFIG_TO_SDR:-true}
       CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
       HARDWARE_PROFILE: $HARDWARE_PROFILE
@@ -158,13 +155,24 @@ services:
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: true
     env_file: ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
+    command:
+      - python
+      - -c
+      - |
+        import os
+        import sys
+
+        os.environ["SEND_CONFIG_TO_SDR"] = (
+            "false" if os.environ.get("BP_PROFILE") == "auto_calib" else "true"
+        )
+        os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
       - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      streams-health-check-3d:
+      bp-configurator-3d-init:
         condition: service_completed_successfully
     healthcheck:
       test:

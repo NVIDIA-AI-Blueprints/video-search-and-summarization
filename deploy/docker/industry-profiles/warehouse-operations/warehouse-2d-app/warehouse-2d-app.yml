@@ -72,8 +72,6 @@ services:
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
-      streams-health-check-2d:
-        condition: service_completed_successfully
       bp-configurator-2d:
         condition: service_healthy
 
@@ -101,10 +99,10 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  streams-health-check-2d:
+  bp-configurator-2d-init:
     image: alpine:3.23.4
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "auto_calib_2d"]
-    container_name: vss-streams-health-check-2d
+    container_name: vss-bp-configurator-2d-init
     network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
@@ -169,13 +167,24 @@ services:
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false
     env_file: ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
+    command:
+      - python
+      - -c
+      - |
+        import os
+        import sys
+
+        os.environ["SEND_CONFIG_TO_SDR"] = (
+            "false" if os.environ.get("BP_PROFILE") == "auto_calib" else "true"
+        )
+        os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
       - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      streams-health-check-2d:
+      bp-configurator-2d-init:
         condition: service_completed_successfully
     healthcheck:
       test:
