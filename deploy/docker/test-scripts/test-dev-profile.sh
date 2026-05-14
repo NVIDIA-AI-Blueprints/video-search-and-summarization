@@ -682,11 +682,11 @@ rm -f "${_out_alerts}"
 # Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvstaging TAO).
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.1.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
+if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
   echo "PASS: search dry-run output includes NGC model download steps"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.1.fp16.onnx, --org nvstaging, ngc registry model)"
+  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvstaging, ngc registry model)"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
