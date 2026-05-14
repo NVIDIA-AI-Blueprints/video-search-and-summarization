@@ -2,51 +2,42 @@
 
 ## Deployment
 
-Deployment is delegated to the VSS Orchestrator MCP server running on the host
-at `http://host.openshell.internal:9902/mcp`. Do **not** invoke
-`deploy/docker/scripts/dev-profile.sh` directly, do **not** scan for repo paths,
-and do **not** prompt the user for `HARDWARE_PROFILE` or `NGC_CLI_API_KEY` —
-the MCP server inherits them from the host environment.
+Deployment is delegated to the VSS Orchestrator MCP server at
+`http://host.openshell.internal:9902/mcp`. Do **not** invoke
+`deploy/docker/scripts/dev-profile.sh`, scan for repo paths, or prompt the
+user for `HARDWARE_PROFILE` / `NGC_CLI_API_KEY` — the MCP server inherits
+them from the host environment.
 
 If host-side setup is missing (NGC CLI, Docker login to `nvcr.io`, or
 `uv sync` of `services/agent/`), tell the user to run the matching cell in
-`deploy/docker/scripts/deploy_nemoclaw_vss.ipynb` (the notebook lives on the host,
-not in the sandbox — do not try to read, list, find, or open it from inside the
-sandbox; just tell the user). That notebook owns host-side setup; do not try to
-fix it yourself.
+`deploy/docker/scripts/deploy_nemoclaw_vss.ipynb`. The notebook lives on the
+host, not in the sandbox — do not try to read, list, find, or open it from
+inside the sandbox.
 
 ## Calling MCP tools
 
-Openclaw's built-in MCP client cannot fully handshake with the orchestrator's
-`nat mcp serve` transport (a known protocol mismatch: openclaw opens the SSE
-GET before establishing a session). As a result, **only**
-`vss_orchestrator__docker_list` reliably registers as a native tool — every
-other orchestrator tool must be invoked via `curl` from the `exec` tool.
+Openclaw's built-in MCP client can't fully handshake with the orchestrator's
+`nat mcp serve` (protocol mismatch: openclaw opens the SSE GET before
+establishing a session). Only **`vss_orchestrator__docker_list`** reliably
+registers as a native tool. Prefer it natively when present. Every other
+orchestrator tool (`prereqs`, `docker_generate`, `docker_up`, `docker_down`,
+`docker_status`, `docker_logs`, `docker_read`, `profiles`) must be invoked
+via `curl` from the `exec` tool. Ignore `react_agent` — it's the workflow's
+entry function, not a deployment tool.
 
-- If `vss_orchestrator__docker_list` is in your tool roster, **prefer it
-  natively** — saves a curl round-trip and keeps context small.
-- For every other orchestrator tool (`prereqs`, `docker_generate`,
-  `docker_up`, `docker_down`, `docker_status`, `docker_logs`, `docker_read`,
-  `profiles`), use the curl handshake below.
-- **Ignore `react_agent`** — it's the workflow's entry function, not a
-  deployment tool.
+### Handshake (once per session)
 
-### Required curl format
-
-Always use the `exec` tool with the heredocs below. **Never hand-write JSON
-inline** — the brackets always end up wrong. Responses come back SSE-framed
-(`event: message\n\ndata: {...}\n\n`); strip the `data: ` prefix before
-parsing the JSON.
-
-The MCP handshake is **three** messages: `initialize` (request),
-`notifications/initialized` (notification — no `id`, no response body), then
-any `tools/call` request. Skipping the notification triggers "Received
-request before initialization was complete" warnings on the server.
-
-### One-time per session: handshake
+Always use heredocs from the `exec` tool — never hand-write inline JSON.
+Responses are SSE-framed (`event: message\n\ndata: {...}\n\n`); strip the
+`data: ` prefix before parsing. The handshake is **three** messages:
+`initialize`, then `notifications/initialized` (no `id`, no response body),
+then your `tools/call` requests. Skipping the notification triggers
+"Received request before initialization was complete" on the server. Do
+**not** call `tools/list` — the tool names below are stable and the schema
+blob costs ~5 KB of context per session.
 
 ```bash
-# 1. initialize, capture the session id from the response header
+# 1. initialize, capture the session id
 SID=$(curl -sN -D /tmp/h.txt -X POST http://host.openshell.internal:9902/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
@@ -54,19 +45,14 @@ SID=$(curl -sN -D /tmp/h.txt -X POST http://host.openshell.internal:9902/mcp \
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"vss-assistant","version":"0.1.0"}}}
 EOF
   grep -i '^mcp-session-id:' /tmp/h.txt | awk '{print $2}' | tr -d '\r')
-echo "MCP_SID=$SID"
 
-# 2. send the initialized notification (no id; expect HTTP 202, empty body)
+# 2. send initialized notification (no id; expect HTTP 202, empty body)
 curl -s -X POST http://host.openshell.internal:9902/mcp \
   -H "Mcp-Session-Id: $SID" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 ```
-
-You do **not** need to call `tools/list` — the tool names are documented
-above, and the schemas are stable. Skipping `tools/list` saves ~5 KB of
-context per session.
 
 ### Calling a tool
 
@@ -80,72 +66,80 @@ curl -s -X POST http://host.openshell.internal:9902/mcp \
 EOF
 ```
 
+## Mapping user intent to tool chains
+
+Read the user's verb and stop at the boundary they asked for. Do not chain
+past it. If phrasing is ambiguous between "generate" and "deploy", **ask
+once** — recovering from an unwanted compose-up is far worse than a
+clarifying question.
+
+| User says | Tool chain | Do NOT also run |
+|---|---|---|
+| "generate artifacts for `<profile>`" | `docker_generate` → return `docker_compose_id` | `docker_up`, polling |
+| "read artifacts for `<id>`" | `docker_read` | — |
+| "deploy `<profile>`" / "bring up" / "start" | `docker_generate` → `docker_up` → poll `docker_status` | — |
+| "up `<id>`" (id already exists) | `docker_up` → poll `docker_status` | re-run `docker_generate` |
+| "stop `<profile>`" / "tear down" | `docker_down` → poll `docker_status` | — |
+| "check status" (in-flight ops_id known) | `docker_status` (`tail_lines: 5`) | — |
+| "what's running" / "is everything healthy" | `docker_list` (+ `docker_logs` per container) | `docker_status` |
+
 ## Long-running deploys
 
-`vss_orchestrator__docker_up` and `vss_orchestrator__docker_down` are
-**fire-and-return**: they spawn a background thread on the orchestrator and
-return a `docker_compose_ops_id` within milliseconds. The underlying
-`docker compose up -d --build` may run for 10+ minutes. Track progress with
-`vss_orchestrator__docker_status` using the saved `docker_compose_ops_id`.
+`docker_up` and `docker_down` are **fire-and-return**: they spawn a
+background thread and return a `docker_compose_ops_id` within milliseconds.
+The underlying `docker compose up -d --build` may run for 10+ minutes —
+track progress by polling `docker_status` with that ops_id.
 
-### Rules
+Rules:
 
-1. **The moment `docker_up` returns, write the `docker_compose_ops_id` to
-   `memory/YYYY-MM-DD.md`** (and keep the `docker_compose_id` too) so a
-   future turn can recover it if the session drops.
-2. **Poll `docker_status` at most every 60 seconds** until `running: false`.
-3. **Always pass `"tail_lines": 5` on every poll.** Never raise it. The
-   server default of 80 returns tens of KB of `docker compose --build`
-   output per poll, which piles into your context and pushes you over the
-   LLM's input-token cap. For per-service detail on a failure, use
+1. **Save the `docker_compose_ops_id`** (and `docker_compose_id`) to
+   `memory/YYYY-MM-DD.md` the moment `docker_up` returns, so a future turn
+   can recover if the session drops.
+2. **Poll `docker_status` at most every 60 seconds** with `"tail_lines": 5`
+   until `running: false`. Never raise the tail — the server default of 80
+   returns tens of KB of compose output per poll and will push you over the
+   LLM input-token cap. For per-service detail on a failure, use
    `docker_logs` with a specific `container_name` and `tail ≤ 50`.
-4. **Deploy is done when** `docker_status` returns `running:false` with
-   `status:"success"` (exit_code 0). On `status:"error"`, call `docker_logs`
-   for the failing service. On `status:"cancelled"`, the op was preempted
-   by a `docker_down`.
+3. **Done** = `running:false` + `status:"success"` (`exit_code:0`).
+   `status:"error"` → call `docker_logs` for the failing service.
+   `status:"cancelled"` → the op was preempted by a `docker_down`.
 
-### When `docker_status` returns `Unknown docker_compose_ops_id`
+### Unknown `docker_compose_ops_id`
 
 The orchestrator keeps ops state in process memory (LRU ~200 entries, not
-persisted). If the orchestrator was restarted — or the id was mistyped from
-`memory/YYYY-MM-DD.md` — the call returns
-`{"status":"error","error":"Unknown docker_compose_ops_id '<id>'."}` in
-~100 ms. It does **not** hang.
+persisted). After a restart — or with a mistyped id — `docker_status`
+returns `{"status":"error","error":"Unknown docker_compose_ops_id '<id>'."}`
+in ~100 ms. It does **not** hang.
 
-**Stop-retrying rule. Do not loop on the same id:**
+**Stop-retrying rule:**
 
-1. First Unknown → re-read the id from `memory/YYYY-MM-DD.md` once and
-   call `docker_status` exactly **one** more time (handles fat-finger).
-2. Second Unknown for the same id → the id is dead for the rest of this
-   session:
-   - **Delete the id** from `memory/YYYY-MM-DD.md`.
-   - **Tell the user** the orchestrator state was lost (likely a restart)
-     and switch to `docker_list` / `docker_logs` for verification.
-   - **Never call `docker_status` with that id again** — even on heartbeat.
+1. First Unknown → re-read the id from `memory/YYYY-MM-DD.md` and retry
+   exactly **one** more time (handles fat-finger).
+2. Second Unknown for the same id → the id is dead. Delete it from
+   `memory/YYYY-MM-DD.md`, tell the user the orchestrator state was lost
+   (likely a restart), and switch to `docker_list` / `docker_logs`. Never
+   call `docker_status` with that id again.
 
-### After a deploy completes — stop using `docker_status`
+### After a deploy completes
 
-Once a deploy is `running:false` with `status:"success"`, the ops_id has no
-further value. Delete it from `memory/YYYY-MM-DD.md` and use these instead
-for any "is it healthy?" check:
+Once `running:false` with `status:"success"`, the ops_id has no further
+value. Delete it from `memory/YYYY-MM-DD.md`. For any subsequent "is it
+healthy?" check, use:
 
-- **`docker_list`** — cheap; returns just container names. Pass
-  `{"all_containers": false}` to see only what's currently up. Prefer the
-  native `vss_orchestrator__docker_list` tool when it's in your roster.
-- **`docker_logs`** — targeted; pass a `container_name` and a small `tail`
-  (≤ 50). Cheaper than `docker_status` and gives the actual service-level
-  output, not compose orchestration noise.
+- **`docker_list`** — cheap, just container names. `{"all_containers": false}`
+  for currently-up only. Prefer the native `vss_orchestrator__docker_list`
+  tool if it's in your roster.
+- **`docker_logs`** — targeted, per-container, small `tail` (≤ 50).
 
-This pattern is also robust to orchestrator restarts — container state
-lives in Docker, not in the orchestrator's process memory.
+These are also robust to orchestrator restarts since container state lives
+in Docker, not in the orchestrator's process memory.
 
 ## Skills
 
-Skill files (`SKILL.md`) are managed by OpenClaw — discover and invoke skills
-through `openclaw skills` commands (e.g. `openclaw skills list`,
-`openclaw skills <name>`). Do **not** try to `read` / `cat` / `find` `SKILL.md`
-paths directly; in particular, paths under
-`/usr/local/lib/node_modules/openclaw/skills/` belong to OpenClaw's bundled
-core skills (1password, github, etc.) and do **not** contain VSS skills like
-`deploy`, `alerts`, or `video-search`. Those live under the plugin install dir
-and are reached only via the `openclaw skills` CLI.
+Skills are managed by OpenClaw — discover and invoke them via the
+`openclaw skills` CLI (e.g. `openclaw skills list`, `openclaw skills <name>`).
+Do **not** `read` / `cat` / `find` `SKILL.md` paths directly. Paths under
+`/usr/local/lib/node_modules/openclaw/skills/` are OpenClaw's bundled core
+skills (1password, github, etc.) and do not contain VSS skills like
+`deploy`, `alerts`, or `video-search` — those live under the plugin install
+dir and are reachable only via the CLI.
