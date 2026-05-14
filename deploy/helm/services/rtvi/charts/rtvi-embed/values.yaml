@@ -24,6 +24,18 @@ image:
 port: 8000
 service:
   type: ClusterIP
+
+# Stream-affinity routing via HAProxy consistent-hash on an HTTP header.
+# When enabled, the rendered Service carries haproxy.org/* annotations
+# scoped to this backend only, so a HAProxy Ingress in front of it routes
+# every request with the same hashHeader value to the same vss-rtvi-embed
+# replica (Karger's consistent hash). Required for replica count > 1 so
+# the Cosmos-Embed1 model session stays coherent for the stream.
+# Requires the HAProxy Technologies kubernetes-ingress controller in the
+# cluster — this toggle does not create an Ingress, only the annotations.
+streamAffinity:
+  enabled: false
+  hashHeader: x-stream-id
 gpuDeviceId: "2"
 dshm:
   enabled: true

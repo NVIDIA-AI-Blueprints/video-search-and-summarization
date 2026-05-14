@@ -20,6 +20,13 @@ metadata:
   labels:
     {{- include "vss-rtvi-embed.labels" . | nindent 4 }}
     app.kubernetes.io/component: vss-rtvi-embed
+  {{- if .Values.streamAffinity.enabled }}
+  annotations:
+    haproxy.org/load-balance: {{ printf "hdr(%s)" .Values.streamAffinity.hashHeader | quote }}
+    haproxy.org/hash-type: "consistent"
+    haproxy.org/backend-config-snippet: |
+      http-request set-header {{ .Values.streamAffinity.hashHeader }} %[uuid()] if !{ req.hdr({{ .Values.streamAffinity.hashHeader }}) -m found }
+  {{- end }}
 spec:
   type: {{ .Values.service.type | default "ClusterIP" }}
   ports:
