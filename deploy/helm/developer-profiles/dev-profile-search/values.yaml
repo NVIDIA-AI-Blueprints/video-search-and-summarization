@@ -198,9 +198,9 @@ rtvi:
     ngcApiKeySecretKey: NGC_API_KEY
     ngcOrg: nvstaging
     ngcModelsToDownload:
-      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1
-        sourcePath: rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx
-        destPath: rtdetr_warehouse_v1.0.1.fp16.onnx
+      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
         sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
         destPath: siglip2_v1.1.onnx
@@ -220,8 +220,8 @@ rtvi:
           org: nvstaging
           team: tao
           model: rtdetr_2d_warehouse
-          version: deployable_efficientvit_l2_v1.0.1
-        onnxFile: rtdetr_warehouse_v1.0.1.fp16.onnx
+          version: deployable_rn50_v1.0.2
+        onnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
         inferDims: 3;640;640
       visionEncoder:
         ngc:
@@ -437,7 +437,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.2-460c70e75641
+    vssAgentVersion: 3.2.0-26.05.2-2b9b7127c0bb
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -534,7 +534,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-460c70e75641" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-2b9b7127c0bb" }}'
 
 vss-agent-ui:
   enabled: true
@@ -546,7 +546,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.05.2-460c70e75641"
+    tag: "3.2.0-26.05.2-2b9b7127c0bb"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
