@@ -279,6 +279,7 @@ class OrchestratorRuntimeSettings(BaseSettings):
     llm_enable_thinking: str = Field(default="", validation_alias="LLM_ENABLE_THINKING")
     # Outer/profile-level knob; hw-*.env files bridge this to NIM-internal NIM_KVCACHE_PERCENT.
     nim_kvcache_percent: str = Field(default="", validation_alias="VLM_NIM_KVCACHE_PERCENT")
+    rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
 
     @field_validator(
         "ngc_cli_api_key",
@@ -294,6 +295,7 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "vlm_model_type",
         "llm_enable_thinking",
         "nim_kvcache_percent",
+        "rtvi_vllm_gpu_memory_utilization",
     )
     @classmethod
     def _strip_value(cls, value: str) -> str:
@@ -996,6 +998,7 @@ async def vss_orchestrator(
                     vlm_model_type=runtime_settings.vlm_model_type,
                     llm_enable_thinking=runtime_settings.llm_enable_thinking,
                     nim_kvcache_percent=runtime_settings.nim_kvcache_percent,
+                    rtvi_vllm_gpu_memory_utilization=runtime_settings.rtvi_vllm_gpu_memory_utilization,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),

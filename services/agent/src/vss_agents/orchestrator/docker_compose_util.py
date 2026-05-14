@@ -130,6 +130,7 @@ class DryRunRecipe:
     vlm_model_type: str | None
     llm_enable_thinking: str | None
     nim_kvcache_percent: str | None
+    rtvi_vllm_gpu_memory_utilization: str | None
     output_env_file: Path
     output_compose_file: Path
     deployments_dir: Path
@@ -163,6 +164,7 @@ def create_dry_run_recipe(
     vlm_model_type: str | None = None,
     llm_enable_thinking: str | None = None,
     nim_kvcache_percent: str | None = None,
+    rtvi_vllm_gpu_memory_utilization: str | None = None,
     model_resolution: Any,
     output_env_file: str,
     output_compose_file: str,
@@ -219,6 +221,7 @@ def create_dry_run_recipe(
         vlm_model_type=(vlm_model_type or "").strip() or None,
         llm_enable_thinking=(llm_enable_thinking or "").strip() or None,
         nim_kvcache_percent=(nim_kvcache_percent or "").strip() or None,
+        rtvi_vllm_gpu_memory_utilization=(rtvi_vllm_gpu_memory_utilization or "").strip() or None,
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
         deployments_dir=deployments_path,
@@ -291,9 +294,8 @@ def first_non_placeholder(values: Iterable[str]) -> str:
 def _set_env_line(lines: list[str], key: str, value: str) -> None:
     value = _validate_env_value(key, value)
     exact = re.compile(rf"^{re.escape(key)}=.*$")
-    commented = re.compile(rf"^#[ \t]*{re.escape(key)}=.*$")
     for i, line in enumerate(lines):
-        if exact.match(line) or commented.match(line):
+        if exact.match(line):
             lines[i] = f"{key}={value}"
             return
     lines.append(f"{key}={value}")
@@ -371,6 +373,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if config.nim_kvcache_percent:
         # Outer/profile-level knob; hw-*.env files interpolate this into NIM_KVCACHE_PERCENT.
         merged["VLM_NIM_KVCACHE_PERCENT"] = config.nim_kvcache_percent
+    if config.rtvi_vllm_gpu_memory_utilization:
+        merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
     merged.update(config.env_overrides)
 
     host_ip = (
