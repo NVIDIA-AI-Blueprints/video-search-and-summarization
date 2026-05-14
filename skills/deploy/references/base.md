@@ -92,7 +92,7 @@ fraction       = (this_num_params / total_num_params) × 0.85
 
 `NIM_KVCACHE_PERCENT` is a fraction (0.0–1.0) of **total GPU VRAM** the NIM container is allowed to consume (weights + KV cache + activations all included). For vLLM containers, the same fraction is `--gpu-memory-utilization`.
 
-> **NIM v1.x → v2.x rename.** NIM 2.x renamed the env var to `NIM_GPU_MEM_FRACTION`. The semantics and value range are identical. The in-tree `hw-*.env` files set **both** names to the same value so a deploy works on either NIM major version — when authoring a new `hw-*.env` or tuning, mirror the value into both, e.g. `NIM_KVCACHE_PERCENT=0.4` *and* `NIM_GPU_MEM_FRACTION=0.4`. The rest of this doc continues to refer to the knob as `NIM_KVCACHE_PERCENT` for brevity; everything written here applies equally to `NIM_GPU_MEM_FRACTION`.
+> **LLM NIM v1.x → v2.x — set both names.** The LLM NIM 2.x release accepts `NIM_GPU_MEM_FRACTION` alongside the older `NIM_KVCACHE_PERCENT`. Semantics and value range are identical. The in-tree `hw-*.env` files for **LLM** NIMs (`nemotron-3-nano`, `nvidia-nemotron-nano-9b-v2`, …) set **both** so a deploy works on either NIM major version — when authoring a new LLM `hw-*.env` or tuning, mirror the value into both, e.g. `NIM_KVCACHE_PERCENT=0.4` *and* `NIM_GPU_MEM_FRACTION=0.4`. **VLM NIMs** (`cosmos-reason1-7b`, `cosmos-reason2-8b`) are *not* covered by this dual-name pattern — the latest VLM NIM docs don't expose `NIM_GPU_MEM_FRACTION` as an env var; keep `NIM_KVCACHE_PERCENT` only (and use `NIM_PASSTHROUGH_ARGS="--gpu-memory-utilization <v>"` if a 2.x VLM ever needs an explicit override). The rest of this doc refers to the knob as `NIM_KVCACHE_PERCENT` for brevity; the dual-name guidance applies equally to `NIM_GPU_MEM_FRACTION` on LLM NIMs.
 
 | Fraction | H100 / A100-80 (80 GB) | H200 (141 GB) | RTX PRO 6000 (96 GB) | GB10 / Thor (128 GB) | L40S (48 GB) |
 |---|---|---|---|---|---|
@@ -170,7 +170,7 @@ Wait for the user to pick. **Don't silently substitute a different local model**
 
 1. **Compute** the start fraction from [Sizing math](#sizing-math). Round to 2 decimal places.
 2. **Write** it into the env file the resolved compose will load. The path is `deploy/docker/services/nim/<model-slug>/hw-<HARDWARE_PROFILE>(-shared).env` — pick or create whichever `HARDWARE_PROFILE` label fits (use the host's actual profile for documentation value, or `OTHER` if none matches and you're not contributing back).
-   - NIM: `NIM_KVCACHE_PERCENT=<value>` **and** `NIM_GPU_MEM_FRACTION=<same value>` (NIM v2.x renamed the var — set both for cross-version compatibility). Also set `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` if you need to constrain context/concurrency.
+   - **LLM NIM**: `NIM_KVCACHE_PERCENT=<value>` **and** `NIM_GPU_MEM_FRACTION=<same value>` (LLM NIM v2.x accepts the new name — set both for cross-version compatibility). **VLM NIM**: `NIM_KVCACHE_PERCENT=<value>` only. Also set `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` if you need to constrain context/concurrency.
    - vLLM: edit the model's `compose.yml` to set `--gpu-memory-utilization <value>` (or pass through an env var if the compose supports it)
 3. **Re-resolve and deploy**: `docker compose --env-file <env> config > resolved.yml && docker compose -f resolved.yml up -d`. Before running `up -d`, verify `resolved.yml` includes the right LLM/VLM service for your `LLM_NAME_SLUG` / `VLM_NAME_SLUG` and that the sizing values you wrote are visible in its `environment:` block.
 4. **Watch container logs** for the KV-cache report on startup (NIM logs `KV cache size: X GB` once it boots; vLLM logs `Maximum concurrency for X tokens per GPU: Y x`):
@@ -214,7 +214,7 @@ If yes (NGC catalog has an `nvcr.io/nim/<org>/<model>:<tag>` image): create a ne
 1. Create `deploy/docker/services/nim/<your-slug>/compose.yml` modeled on `cosmos-reason2-8b/compose.yml`. Two services:
    - `<your-slug>` with `profiles: [llm_local_<slug>]` (or `vlm_local_<slug>`) and the dedicated-GPU device assignment.
    - `<your-slug>-shared-gpu` with `profiles: [llm_local_shared_<slug>]` (or `vlm_local_shared_<slug>`) and `device_ids: ["${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"]`.
-2. Add `hw-<HARDWARE_PROFILE>.env` and `hw-<HARDWARE_PROFILE>-shared.env` files. Compute the starting fraction from the formula in [Sizing math](#sizing-math) and write it into **both** `NIM_KVCACHE_PERCENT=<value>` and `NIM_GPU_MEM_FRACTION=<value>` (NIM v1.x vs v2.x — set both for cross-version compatibility). Add `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` per the model's documented limits.
+2. Add `hw-<HARDWARE_PROFILE>.env` and `hw-<HARDWARE_PROFILE>-shared.env` files. Compute the starting fraction from the formula in [Sizing math](#sizing-math). For an **LLM** NIM write it into **both** `NIM_KVCACHE_PERCENT=<value>` and `NIM_GPU_MEM_FRACTION=<value>` for v1.x↔v2.x compatibility; for a **VLM** NIM use `NIM_KVCACHE_PERCENT=<value>` only. Add `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` per the model's documented limits.
 3. Add the new compose file to the `include:` list in `deploy/docker/services/nim/compose.yml`.
 4. Edit `dev-profile-base/.env` to set `LLM_NAME` / `LLM_NAME_SLUG` (or VLM equivalents).
 5. Run the [Tuning workflow](#tuning-workflow) above.
