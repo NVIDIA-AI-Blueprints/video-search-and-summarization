@@ -27,15 +27,15 @@ This repository implements the blueprint and powers the [NVIDIA build experience
 The NVIDIA AI Blueprint for Video Search and Summarization addresses the challenge of deploying visual agents capable of interacting with large volumes of video data, both stored and streamed. This can be used to create vision AI agents, that can be applied to a multitude of use cases such as monitoring smart spaces, warehouse automation, and SOP validation. This is important where quick and accurate video analysis can lead to better decision-making and enhanced operational efficiency.
 
 ## Agent Workflows
-We provide multiple reference [Agent Workflows](https://docs.nvidia.com/vss/3.1.0/adding-workflows.html) which demonstrate how the individual components can be leveraged by an agent:
+We provide multiple reference [Agent Workflows](https://docs.nvidia.com/vss/latest/adding-workflows.html) which demonstrate how the individual components can be leveraged by an agent:
 
 | Workflow | Description |
 |----------|-------------|
-| [Q&A and Report Generation (Quickstart)](https://docs.nvidia.com/vss/3.1.0/quickstart.html) | Video retrieval, VLM-based Q&A, and report generation on short video clips |
-| [Alert Verification](https://docs.nvidia.com/vss/3.1.0/agent-workflow-alert-verification.html) | Realtime processing of videos using perception (object detection, tracking) and behavior analytics to generate alerts, which are subsequently verified with VLM to reduce false positives |
-| [Real-Time Alerts](https://docs.nvidia.com/vss/3.1.0/agent-workflow-rt-alert.html) | Continuous processing of video streams through VLM for anomaly detection |
-| [Video Search](https://docs.nvidia.com/vss/3.1.0/agent-workflow-search.html) | Natural language search across video archives using video embeddings (alpha) |
-| [Long Video Summarization](https://docs.nvidia.com/vss/3.1.0/agent-workflow-lvs.html) | Analysis and summarization of extended video recordings through chunking and aggregation of dense captions |
+| [Q&A and Report Generation (Quickstart)](https://docs.nvidia.com/vss/latest/quickstart.html) | Video retrieval, VLM-based Q&A, and report generation on short video clips |
+| [Alert Verification](https://docs.nvidia.com/vss/latest/agent-workflow-alert-verification.html) | Realtime processing of videos using perception (object detection, tracking) and behavior analytics to generate alerts, which are subsequently verified with VLM to reduce false positives |
+| [Real-Time Alerts](https://docs.nvidia.com/vss/latest/agent-workflow-rt-alert.html) | Continuous processing of video streams through VLM for anomaly detection |
+| [Video Search](https://docs.nvidia.com/vss/latest/agent-workflow-search.html) | Natural language search across video archives using video embeddings (alpha) |
+| [Long Video Summarization](https://docs.nvidia.com/vss/latest/agent-workflow-lvs.html) | Analysis and summarization of extended video recordings through chunking and aggregation of dense captions |
 
 ## Software Components
 <div align="center">
@@ -71,7 +71,7 @@ This blueprint is designed for ease of setup with extensive configuration option
 
 ## Documentation
 
-For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/3.1.0/index.html).
+For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/latest/index.html).
 
 ## Prerequisites
 
@@ -83,7 +83,7 @@ For detailed instructions and additional information about this blueprint, pleas
 
 ## Hardware Requirements
 
-The platform requirement can vary depending on the configuration and deployment topology used for VSS and dependencies like VLM, LLM, etc. For a list of validated GPU topologies and what configuration to use, see the [GPU requirements](https://docs.nvidia.com/vss/3.1.0/prerequisites.html#development-profile-gpu-requirements).
+The platform requirement can vary depending on the configuration and deployment topology used for VSS and dependencies like VLM, LLM, etc. For a list of validated GPU topologies and what configuration to use, see the [GPU requirements](https://docs.nvidia.com/vss/latest/prerequisites.html#development-profile-gpu-requirements).
 
 ## Quickstart Guide
 
@@ -91,7 +91,7 @@ The platform requirement can vary depending on the configuration and deployment 
 
 **Ideal for:** Quickly getting started with your own videos without worrying about hardware and software requirements.
 
-Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/cloud-brev.html) and notebook in [deploy/docker/scripts](deploy/docker/scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
+Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/cloud-brev.html) and notebook in [deploy/docker/scripts](deploy/docker/scripts/) directory to complete all pre-requisites and deploy the blueprint using Brev Launchable in a 2xRTX PRO 6000 SE AWS instance.
 - [deploy/docker/scripts/deploy_vss_launchable.ipynb](deploy/docker/scripts/deploy_vss_launchable.ipynb): This notebook is tailored specifically for the AWS CSP which uses Ephemeral storage.
 
 ### Docker Compose Deployment
@@ -115,7 +115,7 @@ Follow the steps from the [documentation](https://docs.nvidia.com/vss/3.1.0/clou
 - Docker Compose: v2.29.0+
 - NGC CLI: 4.10.0+
 
-Please refer to [Prerequisites section here for installation details](https://docs.nvidia.com/vss/3.1.0/prerequisites.html).
+Please refer to [Prerequisites section here for installation details](https://docs.nvidia.com/vss/latest/prerequisites.html).
 
 
 ## Contributing
