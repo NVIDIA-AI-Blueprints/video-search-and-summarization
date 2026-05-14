@@ -365,7 +365,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if config.llm_enable_thinking:
         merged["LLM_ENABLE_THINKING"] = config.llm_enable_thinking
     if config.nim_kvcache_percent:
-        merged["NIM_KVCACHE_PERCENT"] = config.nim_kvcache_percent
+        # Outer/profile-level knob; hw-*.env files interpolate this into NIM_KVCACHE_PERCENT.
+        merged["VLM_NIM_KVCACHE_PERCENT"] = config.nim_kvcache_percent
     merged.update(config.env_overrides)
 
     host_ip = (

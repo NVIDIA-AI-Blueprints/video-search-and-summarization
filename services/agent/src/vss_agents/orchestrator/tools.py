@@ -276,7 +276,8 @@ class OrchestratorRuntimeSettings(BaseSettings):
     vlm_endpoint_url: str = Field(default="", validation_alias="VLM_ENDPOINT_URL")
     vlm_model_type: str = Field(default="", validation_alias="VLM_MODEL_TYPE")
     llm_enable_thinking: str = Field(default="", validation_alias="LLM_ENABLE_THINKING")
-    nim_kvcache_percent: str = Field(default="", validation_alias="NIM_KVCACHE_PERCENT")
+    # Outer/profile-level knob; hw-*.env files bridge this to NIM-internal NIM_KVCACHE_PERCENT.
+    nim_kvcache_percent: str = Field(default="", validation_alias="VLM_NIM_KVCACHE_PERCENT")
 
     @field_validator(
         "ngc_cli_api_key",
