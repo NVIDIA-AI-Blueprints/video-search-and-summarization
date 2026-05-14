@@ -43,29 +43,56 @@ concurrency rework — it stays serial.
 ### 1. Single canonical "active marker" per instance — overwrite-only
 
 Replace the per-profile flag fan-out with **one canonical file per Brev
-instance** at `/tmp/skill-eval/active-deploy.txt`. Holds the literal
-`<profile>-<mode>` of what is currently RUNNING on the box. Writes are
-**overwrite, never append**. Empty / missing means "nothing is up."
+instance** at `/tmp/skill-eval/active-deploy.txt`. Holds what is
+currently RUNNING on the box. Writes are **overwrite, never append**.
+Empty / missing means "nothing is up."
+
+Marker format:
+- `base`, `lvs`, `search` — profile name only. Placement (LLM/VLM
+  local vs remote) is decided at deploy time from the env the
+  `/vss-deploy-profile` skill sees; it is NOT part of the marker.
+- `alerts-verification`, `alerts-real-time` — alerts has two distinct
+  stacks (`/vss-deploy-profile -m verification` runs CV + VLM-verifier; `-m
+  real-time` runs continuous-VLM). Downstream trials that need a
+  specific variant cannot share a box running the other one, so the
+  alerts mode is part of the marker.
 
 Single owner: whoever last successfully ran `/vss-deploy-profile` on the box. Two
 write paths in practice — the harness pre-deploy hook (when called) and
-the deploy/* trial's `test.sh` (its scored task IS running /vss-deploy-profile) —
-both overwrite the same file with `<profile>-<mode>`. Equivalent
-semantics; pick one or both, just never `touch` per-flag.
+the vss-deploy-profile/* trial's `test.sh` (its scored task IS running /vss-deploy-profile) —
+both overwrite the same file with the same token. Equivalent semantics;
+pick one or both, just never `touch` per-flag.
 
-### 2. Pre-deploy hook reads canonical marker, compares contents
+### 2. Pre-deploy hook reconciles box state with task metadata
 
-In `BrevEnvironment._ensure_prerequisite_deployed`:
+In `BrevEnvironment._ensure_prerequisite_deployed`, the desired marker
+is derived from `task.toml [metadata]`:
+
+- `profile` set, `prerequisite_deploy_mode` set →
+  `desired = "<profile>-<deploy_mode>"` (alerts variants today).
+- `profile` set, no `prerequisite_deploy_mode` →
+  `desired = "<profile>"` (base / lvs / search).
+- `profile` absent → `desired = ""` (trial wants a clean box, no VSS
+  containers running).
+
+Algorithm:
 
 1. `cat /tmp/skill-eval/active-deploy.txt 2>/dev/null || echo ""` on the
-   box.
-2. If `stdout.strip() == f"{profile}-{deploy_mode}"` → skip pre-deploy.
-   Box is hot.
-3. Else → run `/vss-deploy-profile -p <profile> -m <mode>` via
+   box. Strip whitespace.
+2. If `stdout == desired` → no-op. Box already matches.
+3. Else if `desired == ""` → tear down all containers
+   (`docker ps -aq | xargs -r docker rm -f && docker network prune -f`)
+   and write the marker as empty. Does NOT invoke `/vss-deploy-profile down` —
+   stays out of skill code and avoids paying for an LLM call to do
+   the cleanup. Preserves docker image cache, repo clone, and
+   sample-data extract (the slow things) so the next deploy trial on
+   this box is warm.
+4. Else → run `/vss-deploy-profile -p <profile>` (plus `-m <mode>` when an alerts
+   variant is requested) via
    `claude --print --dangerously-skip-permissions`; the vss-deploy-profile skill's
    own step-0 teardown handles any prior stack. On success, **overwrite**
-   `active-deploy.txt` with `<profile>-<mode>`. On failure, leave the
-   marker alone — next trial re-evaluates.
+   `active-deploy.txt` with `desired`. On failure, leave the marker
+   alone — next trial re-evaluates.
 
 After the trial: do not teardown, do not clear the marker. Same-profile
 back-to-back trials hit the marker hot.
@@ -142,10 +169,10 @@ up to N parallel.
 
 1. **Stale-flag regression test.** Reproduce the run 24969145586 pattern:
    `vss-deploy-profile/lvs` → `vss-deploy-profile/search` → `vss-manage-video-io-storage step-1`. Confirm `vss-manage-video-io-storage` now
-   redeploys base (marker reads `search-remote-all`, not
-   `base-remote-all`) instead of skipping on a stale flag.
+   redeploys base (marker reads `search`, not `base`) instead of
+   skipping on a stale flag.
 2. **Same-profile reuse.** `vss-deploy-profile/base` → `vss-manage-video-io-storage step-1` → `vss-manage-video-io-storage step-2`
-   → `vss-manage-video-io-storage step-3`. Three `vss-manage-video-io-storage` trials share the marker set by
+   → `vss-manage-video-io-storage step-3`. Three vss-manage-video-io-storage trials share the marker set by
    `vss-deploy-profile/base`; pre-deploy hook fires zero times.
 3. **Profile transition.** `vss-deploy-profile/base` → `vss-manage-video-io-storage step-1` →
    `vss-deploy-profile/search` → `vss-search-archive step-1`. Each transition triggers
@@ -156,9 +183,11 @@ up to N parallel.
    vss-eval-l40s-2`. Trigger two PRs simultaneously. Confirm the two
    workflow runs land on different boxes and complete in parallel.
 6. **Marker file shape.** After any run, `cat
-   /tmp/skill-eval/active-deploy.txt` returns one profile-mode token;
-   no `deployed-*.flag` files exist (or they're harmless leftovers
-   from before the migration).
+   /tmp/skill-eval/active-deploy.txt` returns one token — either
+   a bare profile name (`base`, `lvs`, `search`) or an alerts variant
+   (`alerts-verification`, `alerts-real-time`); no `deployed-*.flag`
+   files exist (or they're harmless leftovers from before the
+   migration).
 
 ## Out of scope
 

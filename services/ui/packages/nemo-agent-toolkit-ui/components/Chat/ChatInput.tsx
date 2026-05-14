@@ -1,6 +1,7 @@
 import {
   IconArrowDown,
   IconBolt,
+  IconFile,
   IconPaperclip,
   IconPhoto,
   IconPlayerStop,
@@ -12,6 +13,7 @@ import {
   IconMicrophone2,
   IconUpload,
   IconBrain,
+  IconVideo,
   IconX,
 } from '@tabler/icons-react';
 import {
@@ -43,6 +45,24 @@ import {
   useInitialParamFields,
   fieldsToParams,
 } from './CustomAgentParams';
+
+const QUERY_CONTEXT_ICON_SIZE = 12;
+
+/** Leading icon for context chips; driven by UI-only `contextType` (not sent to the backend). */
+function QueryContextChipIcon({ contextType }: { contextType: string }) {
+  const cn = 'flex-shrink-0 opacity-90';
+  switch (contextType) {
+    case 'media/video':
+      return <IconVideo size={QUERY_CONTEXT_ICON_SIZE} className={cn} aria-hidden />;
+    case 'media/image':
+      return <IconPhoto size={QUERY_CONTEXT_ICON_SIZE} className={cn} aria-hidden />;
+    case 'network-file':
+      // Tabler has no single "cloud + file" glyph; IconFile fits remote/network file chips. Alternatives: IconCloudDownload, IconFileImport.
+      return <IconFile size={QUERY_CONTEXT_ICON_SIZE} className={cn} aria-hidden />;
+    default:
+      return <IconPaperclip size={QUERY_CONTEXT_ICON_SIZE} className={cn} aria-hidden />;
+  }
+}
 
 interface Props {
   onSend: (message: Message, customParams?: CustomAgentParamsValues) => void;
@@ -443,6 +463,7 @@ export const ChatInput = ({
         <div className="relative mx-2 flex w-full flex-grow flex-col rounded-md border border-black/10 bg-white shadow-[0_0_10px_rgba(0,0,0,0.10)] dark:border-neutral-700 dark:bg-black dark:text-white dark:shadow-[0_0_15px_rgba(0,0,0,0.10)] sm:mx-4">
           {!content && !isRecording && queryContextItems.length === 0 && (
             <div
+              data-testid="chat-input-placeholder"
               className={`pointer-events-none absolute inset-0 flex items-center py-2 text-gray-500 dark:text-gray-400 md:py-3 ${leftPaddingClass} ${paramFields.length > 0 ? 'pr-20' : 'pr-12'}`}
               aria-hidden
             >
@@ -460,9 +481,10 @@ export const ChatInput = ({
               {queryContextItems.map((item) => (
                 <span
                   key={item.id}
-                  className="inline-flex items-center gap-1 rounded-md bg-gray-100 dark:bg-gray-600 text-xs text-gray-700 dark:text-gray-200 pl-2 pr-1 py-1 max-w-[200px]"
-                  title={`${item.label} (${item.type})`}
+                  className="inline-flex items-center gap-1 rounded-md bg-gray-100 dark:bg-gray-600 text-xs text-gray-700 dark:text-gray-200 pl-1.5 pr-1 py-1 max-w-[200px]"
+                  title={`${item.label} (${item.contextType})`}
                 >
+                  <QueryContextChipIcon contextType={item.contextType} />
                   <span className="truncate">{item.label}</span>
                   <button
                     type="button"

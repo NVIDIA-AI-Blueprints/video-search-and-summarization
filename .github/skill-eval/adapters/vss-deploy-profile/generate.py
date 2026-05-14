@@ -3,28 +3,35 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for VSS vss-deploy-profile skill evaluation.
 
-For each profile × platform × mode combination, generates a task that
-asks the agent to deploy the profile using local LLM/VLM NIMs.
+One task per (profile × platform). The adapter does **not** pick LLM/VLM
+placement — the `/vss-deploy-profile` skill reads `LLM_REMOTE_URL`/`VLM_REMOTE_URL`
+(forwarded by `brev_env.py`) plus what's locally available and decides at
+runtime. Specs declare `gpu_count` per platform; that's the only
+trial-level resource hint.
+
+The only `mode` concept that survives is the **alerts deploy mode**
+(`verification` vs `real-time`), which is a real `/vss-deploy-profile -m <mode>`
+argument. It lives on `PROFILES["alerts_cv"]` / `PROFILES["alerts_vlm"]`
+as a `deploy_mode` field and is passed through to the instruction —
+NOT a per-trial placement dimension.
 
 Matrix:
-    Profiles: base, alerts, lvs, search
-    Platforms: H100 (80GB), L40S (48GB), RTXPRO6000BW (48GB)
-    Modes:
-        shared     — LLM + VLM share a single GPU (local_shared)
-        dedicated  — LLM on device 0, VLM on device 1 (two GPUs)
+    Profiles : base, alerts_cv, alerts_vlm, lvs, search
+    Platforms: H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR
+               (each spec declares which platforms it runs on)
 
 Directory layout:
-    datasets/vss-deploy-profile/<profile>/<platform>-<mode>/
+    datasets/vss-deploy-profile/<profile>/<platform_short>/
         instruction.md, task.toml, tests/, solution/, skills/, environment/
 
 Usage:
-    # Generate all profiles × platforms × modes
+    # Generate every (profile, platform) the specs declare
     python generate.py --output-dir ../../datasets/vss-deploy-profile
 
-    # Single profile
+    # One profile
     python generate.py --output-dir ../../datasets/vss-deploy-profile --profile base
 
-    # Single platform
+    # One platform
     python generate.py --output-dir ../../datasets/vss-deploy-profile --platform L40S
 
 Run with Harbor:
@@ -47,15 +54,19 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 # Constants
 # ---------------------------------------------------------------------------
 
-VSS_REPO_URL = "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git"
-VSS_BRANCH = "feat/skills"
+# Fallback only — when the harness can't tell what to sync to (no
+# PR_HEAD_SHA forwarded, e.g. a local dev run outside CI), fall back
+# to develop. In CI, brev_env.py forwards PR_HEAD_SHA + PR_REPO from
+# the workflow step into ~/.eval_env on the instance, and the
+# pre-deploy script below resets the working tree to that exact SHA.
+# The fallback repo URL is derived from $PR_REPO at script-runtime
+# (defaulting to NVIDIA-AI-Blueprints/video-search-and-summarization
+# when PR_REPO is unset).
+VSS_BRANCH_FALLBACK = "develop"
 
 # ---------------------------------------------------------------------------
-# Platform / GPU specs
+# Platform specs
 # ---------------------------------------------------------------------------
-#
-# min_vram_per_gpu: minimum VRAM per GPU in GB required to run VSS NIMs
-# brev_search:      substring to match in `brev search --json` gpu_name field
 
 PLATFORMS: dict[str, dict] = {
     "H100": {
@@ -63,256 +74,110 @@ PLATFORMS: dict[str, dict] = {
         "gpu_type": "H100",
         "min_vram_per_gpu": 80,
         "brev_search": "H100",
-        "supported_modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"],
-        "default_mode": None,
     },
     "L40S": {
         "short_name": "l40s",
         "gpu_type": "L40S",
         "min_vram_per_gpu": 48,
         "brev_search": "L40S",
-        # 48 GB is not enough for LLM + VLM on the same GPU → no shared
-        "supported_modes": ["dedicated", "remote-all", "remote-llm", "remote-vlm"],
-        "default_mode": None,
     },
     "RTXPRO6000BW": {
         "short_name": "rtxpro6000bw",
         "gpu_type": "RTX PRO 6000",
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
-        "supported_modes": ["shared", "dedicated", "remote-all", "remote-llm", "remote-vlm"],
-        "default_mode": None,
     },
-    # Edge platforms — single GPU; default config offloads the LLM.
     "DGX-SPARK": {
         "short_name": "spark",
         "gpu_type": "GB10",
-        "min_vram_per_gpu": 96,   # unified memory on GB10
+        "min_vram_per_gpu": 96,
         "brev_search": "GB10",
-        "supported_modes": ["shared", "remote-llm"],
-        "default_mode": "remote-llm",  # bare "spark" task id
     },
     "IGX-THOR": {
         "short_name": "thor",
         "gpu_type": "Thor",
         "min_vram_per_gpu": 64,
         "brev_search": "Thor",
-        "supported_modes": ["shared", "remote-llm"],
-        "default_mode": "remote-llm",  # bare "thor" task id
     },
 }
-
-# ---------------------------------------------------------------------------
-# Modes
-# ---------------------------------------------------------------------------
-
-MODES: dict[str, dict] = {
-    "shared": {
-        "llm_mode": "local_shared",
-        "vlm_mode": "local_shared",
-        "gpus_needed": 1,
-        "description": "LLM and VLM share a single GPU",
-    },
-    "dedicated": {
-        "llm_mode": "local",
-        "vlm_mode": "local",
-        "gpus_needed": 2,
-        "description": "LLM on GPU 0, VLM on GPU 1",
-    },
-    "remote-all": {
-        "llm_mode": "remote",
-        "vlm_mode": "remote",
-        "gpus_needed": 0,
-        "description": "Both LLM and VLM via remote endpoints (no local GPU used)",
-    },
-    "remote-llm": {
-        "llm_mode": "remote",
-        "vlm_mode": "local_shared",
-        "gpus_needed": 1,
-        "description": "Remote LLM, local VLM on a single GPU",
-    },
-    "remote-vlm": {
-        "llm_mode": "local_shared",
-        "vlm_mode": "remote",
-        "gpus_needed": 1,
-        "description": "Local LLM on a single GPU, remote VLM",
-    },
-}
-
-# ---------------------------------------------------------------------------
-# Resource estimates
-# ---------------------------------------------------------------------------
-#
-# VSS base stack (agent, UI, VST, phoenix, redis, kafka, centralizedb) is
-# ~60 GB of image pulls.  Each local NIM image is ~60-70 GB.  Add 20 GB
-# docker metadata + buffer.
-#
-# min_gpu_driver_version is keyed to the default NIM image tags shipped
-# with the skill: cosmos-reason2-8b:1.6.0 requires driver 580.95+.  If the
-# mode uses only remote inference (remote-all), there is no local driver
-# requirement.
-
-_BASE_STACK_GB = 80
-_PER_LOCAL_NIM_GB = 70
-_LOCAL_NIM_MIN_DRIVER = "580.95"
-
-
-def _min_root_disk_gb(mode_spec: dict) -> int:
-    """Estimated root disk (GB) needed for this mode's docker workload."""
-    n = int(mode_spec["llm_mode"] != "remote") + int(mode_spec["vlm_mode"] != "remote")
-    return _BASE_STACK_GB + _PER_LOCAL_NIM_GB * n
-
-
-def _min_gpu_driver_version(mode_spec: dict) -> str | None:
-    """Minimum NVIDIA driver version. None if no local NIMs."""
-    if mode_spec["llm_mode"] == "remote" and mode_spec["vlm_mode"] == "remote":
-        return None
-    return _LOCAL_NIM_MIN_DRIVER
-
-
-# Edge platforms that don't have an arm64 NIM for the Nano 9B LLM —
-# shared mode on these must use the Edge 4B model via a standalone vLLM
-# container, which the blueprint deploys with LLM_MODE=remote. See
-# skills/vss-deploy-profile/references/edge.md.
-_EDGE_PLATFORMS_WITHOUT_LOCAL_LLM_NIM = ("DGX-SPARK", "IGX-THOR", "AGX-THOR")
-
-
-def effective_mode_spec(platform: str, mode: str) -> dict:
-    """Return the mode spec with platform-specific overrides applied.
-
-    On edge platforms (DGX-SPARK / IGX-THOR / AGX-THOR), `shared` mode
-    maps to llm_mode=remote (Edge 4B runs as a standalone vLLM on
-    localhost:30081 — blueprint treats it as a remote endpoint) +
-    vlm_mode=local_shared (VLM NIM still deploys locally). Other modes
-    and other platforms pass through unchanged.
-    """
-    spec = dict(MODES[mode])
-    if mode == "shared" and platform in _EDGE_PLATFORMS_WITHOUT_LOCAL_LLM_NIM:
-        spec["llm_mode"] = "remote"
-        spec["vlm_mode"] = "local_shared"
-        spec["description"] = (
-            "Edge shared mode: Edge 4B LLM via standalone vLLM on port "
-            "30081 (LLM_MODE=remote), VLM NIM shares the same GPU"
-        )
-        spec["_edge_override"] = True
-    return spec
 
 # ---------------------------------------------------------------------------
 # Profile definitions
 # ---------------------------------------------------------------------------
+#
+# Eval-profile key (the dict key) is the spec/dataset name. Profile-level
+# fields:
+#   - description      → human label for task.toml
+#   - profile          → underlying `/vss-deploy-profile -p <profile>` arg (default:
+#                        the dict key itself when this field is omitted)
+#   - deploy_mode      → value of `/vss-deploy-profile -m <mode>` for this eval variant
+#                        (only the alerts profile splits this way today)
+#
+# `gpu_count` is owned by the spec — it's the trial's total GPU need. The
+# spec author knows their profile's always-local GPUs (RT-CV for alerts,
+# Cosmos Embed1 for search) and writes the total.
 
-# Per-(eval-)profile verification lives in `skills/vss-deploy-profile/eval/<profile>.json`
-# (loaded + templated at task-generation time). Keep this dict narrow:
-#   - description      → task.toml metadata
-#   - profile          → real `/vss-deploy-profile -p <profile>` argument when the eval key
-#                        differs (e.g. eval profile `alerts_cv` deploys
-#                        `-p alerts -m verification`). Empty or absent means
-#                        the dict key is itself the deploy profile.
-#   - deploy_mode      → value of `/vss-deploy-profile -m ...` for this eval variant
-#   - local_extras     → additional **always-local** GPUs this profile needs
-#                        beyond LLM/VLM placement. alerts runs RT-CV locally in
-#                        every mode; search runs Cosmos Embed1 locally in every
-#                        mode. Added on top of MODES[mode]["gpus_needed"] when
-#                        computing task-file `gpu_count`. See
-#                        skills/vss-deploy-profile/SKILL.md § Platform × Mode table and
-#                        skills/vss-deploy-profile/references/{alerts,search}.md.
-# Everything else (platforms, modes, checks) lives in the spec.
 PROFILES: dict[str, dict] = {
     "base": {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
-        # "profile" omitted → the dict key ("base") is also the deploy profile
     },
     "alerts_cv": {
-        "description": "VSS alerts profile, CV mode (`deploy -m verification`) — "
-                       "RT-CV generates candidate alerts, VLM reviews each",
+        "description": "VSS alerts profile, CV mode (`vss-deploy-profile -m verification`)",
         "profile": "alerts",
         "deploy_mode": "verification",
-        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "alerts_vlm": {
-        "description": "VSS alerts profile, VLM mode (`deploy -m real-time`) — "
-                       "VLM continuously processes live video",
+        "description": "VSS alerts profile, VLM mode (`vss-deploy-profile -m real-time`)",
         "profile": "alerts",
         "deploy_mode": "real-time",
-        "local_extras": 1,  # RT-CV perception GPU (always local)
     },
     "lvs": {
         "description": "VSS LVS profile — long video summarization",
     },
     "search": {
         "description": "VSS search profile — Cosmos Embed1 semantic search",
-        "local_extras": 1,  # RTVI-Embed (Cosmos Embed1) GPU (always local)
     },
 }
 
 
 def deploy_profile(eval_profile: str) -> str:
-    """Real `/vss-deploy-profile` profile name for an eval-profile entry.
-
-    Eval keys like `alerts_cv` map to the underlying `-p alerts` argument
-    of `/vss-deploy-profile`; plain keys like `base` map to themselves. Respects the
-    optional `profile` field in PROFILES (empty/absent ⇒ key is the profile)."""
+    """Resolve the eval-profile key to its actual `/vss-deploy-profile -p <profile>`
+    argument. Eval keys like `alerts_cv` map to `-p alerts`; plain keys
+    like `base` map to themselves."""
     override = PROFILES.get(eval_profile, {}).get("profile")
     return override or eval_profile
 
+
 # ---------------------------------------------------------------------------
-# Instruction generation
+# Resource estimates (worst-case)
+# ---------------------------------------------------------------------------
+#
+# Without a fixed placement at task-generation time, we always reserve disk
+# and require a current driver. Reasoning: a deploy that ends up using
+# remote LLM + remote VLM has zero local-NIM footprint, but the eval pool
+# instances already have headroom for these defaults, and trying to
+# negotiate dynamically would just leak the placement decision back into
+# the adapter. Cost of over-reserving disk on a stoppable instance is
+# negligible compared to a failed pull.
+
+_DEFAULT_MIN_ROOT_DISK_GB = 220        # base stack ~80GB + 2 local NIMs ~70GB each
+_DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
+# Caveats — both defaults are enforced unconditionally by
+# `envs/brev_env.py::_check_live_resources` / `_find_cheapest_matching_type`:
+# - The disk default would reject otherwise-eligible smaller-root
+#   providers (e.g. some launchpad boxes) for trials that end up
+#   running fully remote and would actually fit on <220GB. Acceptable
+#   today because every `vss-eval-*` pool member has ≥220GB.
+# - The driver default is skipped when `nvidia-smi` is absent (the
+#   resource check warns instead of erroring), so CPU-only boxes still
+#   pass; don't tighten that branch to a hard error without revisiting
+#   this default.
+
+
+# ---------------------------------------------------------------------------
+# Instruction template
 # ---------------------------------------------------------------------------
 
-def _describe_model(role: str, mode: str, remote: dict | None,
-                    edge_override: bool = False) -> str:
-    """One-line description of the LLM/VLM configuration for the instruction."""
-    if mode == "remote" and edge_override and role == "LLM":
-        # Edge shared mode: LLM is Edge 4B running locally in a vLLM
-        # container on port 30081, NOT the launchpad remote endpoint.
-        return (
-            "- LLM: Edge 4B via **local** vLLM container on "
-            "`http://localhost:30081` "
-            "(model `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8`). "
-            "The blueprint treats this as `LLM_MODE=remote` because the "
-            "agent reaches it via `LLM_BASE_URL`, but the vLLM container "
-            "runs on this same host. Do NOT use a launchpad URL."
-        )
-    if mode == "remote" and remote:
-        url = remote.get("url", "")
-        model = remote.get("model", "")
-        return f"- {role}: remote, endpoint `{url}` (model `{model}`)"
-    if mode == "local_shared":
-        return f"- {role}: local NIM, mode `local_shared` (shares GPU)"
-    if mode == "local":
-        return f"- {role}: local NIM, mode `local` (dedicated GPU)"
-    return f"- {role}: mode `{mode}`"
-
-
-def _query_hint(mode_spec: dict, llm_remote: dict | None,
-                vlm_remote: dict | None) -> str:
-    """One-line English suffix describing the eval target for this mode.
-
-    Intentionally minimal — no feasibility advice, no GPU counts, no mode
-    names. The `/vss-deploy-profile` skill reads the host's real hardware + env vars and
-    decides the actual compose configuration. See `skills/vss-deploy-profile/SKILL.md`
-    and the VSS prerequisites page for the decision table."""
-    llm = mode_spec["llm_mode"]
-    vlm = mode_spec["vlm_mode"]
-    llm_url = (llm_remote or {}).get("url") or "$LLM_REMOTE_URL"
-    vlm_url = (vlm_remote or {}).get("url") or "$VLM_REMOTE_URL"
-
-    if llm == "remote" and vlm == "remote":
-        return f"with a remote LLM at {llm_url} and a remote VLM at {vlm_url}"
-    if llm == "remote":
-        return f"with a remote LLM at {llm_url}"
-    if vlm == "remote":
-        return f"with a remote VLM at {vlm_url}"
-    if llm == "local_shared" and vlm == "local_shared":
-        return "on a single GPU"
-    if llm == "local" and vlm == "local":
-        return "on dedicated GPUs"
-    return ""
-
-
-# Prepended to every instruction.md so the skill's own HITL bypass
-# clause fires. Skills default to "ask the user" before /vss-deploy-profile; in CI
-# there's no user, so without this preamble the agent stalls.
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
@@ -321,80 +186,47 @@ PREAMBLE = (
 )
 
 
-def generate_instruction(
-    profile: str,
-    platform: str,
-    mode: str,
-    llm_remote: dict | None,
-    vlm_remote: dict | None,
-) -> str:
-    """Short, query-style instruction. The agent + `/vss-deploy-profile` skill pick
-    the right compose configuration from the available hardware and env.
+def generate_instruction(profile: str, platform: str) -> str:
+    """Short, query-style instruction. The `/vss-deploy-profile` skill reads the host
+    and env vars and picks the actual LLM/VLM placement.
 
-    Shape: "Deploy the <profile> profile <hint>."  No step-by-step recipe,
-    no feasibility rules — the skill owns that decision (SKILL.md cites the
-    VSS prerequisites doc). If the host can't support the target, the
-    skill reports the blocker.
+    Shape: "Deploy the <profile> profile (on <platform>) [in <mode> mode]
+    autonomously — do not ask for confirmation before running."
     """
     profile_def = PROFILES[profile]
-    is_debug = bool(profile_def.get("debug"))
     underlying = deploy_profile(profile)
     deploy_flag_m = profile_def.get("deploy_mode")
-    mode_spec = effective_mode_spec(platform, mode)
-    hint = _query_hint(mode_spec, llm_remote, vlm_remote)
 
     verb_phrase = f"Deploy the **{underlying}** profile"
     if deploy_flag_m:
         verb_phrase += f" in **{deploy_flag_m}** mode"
-    if hint:
-        verb_phrase += f" {hint}"
-    verb_phrase += " autonomously — do not ask for confirmation before running."
+    verb_phrase += f" on {platform} autonomously — do not ask for confirmation before running."
 
-    body = [
+    return "\n".join([
         PREAMBLE,
         "",
         verb_phrase,
         "",
         "Use the `/vss-deploy-profile` skill.",
-    ]
-    if is_debug:
-        body.append(
-            "After the stack is up, also run the skill's debug workflow "
-            "to verify the video path end-to-end."
-        )
-    return "\n".join(body) + "\n"
+    ]) + "\n"
 
 
 # ---------------------------------------------------------------------------
-# Test script generation
+# Spec rendering
 # ---------------------------------------------------------------------------
 
-def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
-                      mode_spec: dict, llm_remote: dict | None,
-                      vlm_remote: dict | None) -> dict:
-    """Substitute {{platform}}, {{mode}}, {{llm_mode}}, {{vlm_mode}}, and the
-    remote-endpoint placeholders into every string field of the spec. Returns
-    a fully-resolved spec ready to ship to the task's tests/ dir.
+def _render_eval_spec(spec: dict, profile: str, platform: str) -> dict:
+    """Substitute `{{platform}}`, `{{profile}}`, and `{{repo_root}}` into
+    every string field of the spec. Returns a fully-resolved spec ready to
+    ship to the task's tests/ dir.
 
-    `{{mode}}` is the short trial-mode token (e.g. "shared", "remote-all").
-    `{{mode_description}}` is the prose form ("LLM and VLM share a single GPU").
     `{{repo_root}}` is `$HOME/video-search-and-summarization` — a shell-
     expansion that matches whichever default user the Brev provider assigns
-    (Crusoe → `ubuntu`, Massed Compute → `shadeform`, etc.). The vss-deploy-profile skill
-    clones into `$HOME`, so checks should reference `{{repo_root}}`, not a
-    hardcoded `/home/ubuntu/...` path.
+    (Crusoe → `ubuntu`, Massed Compute → `shadeform`, etc.).
     """
     substitutions = {
         "profile": profile,
         "platform": platform,
-        "mode": mode,
-        "mode_description": mode_spec.get("description", "") or "",
-        "llm_mode": mode_spec["llm_mode"],
-        "vlm_mode": mode_spec["vlm_mode"],
-        "llm_remote_url":   (llm_remote or {}).get("url", ""),
-        "llm_remote_model": (llm_remote or {}).get("model", ""),
-        "vlm_remote_url":   (vlm_remote or {}).get("url", ""),
-        "vlm_remote_model": (vlm_remote or {}).get("model", ""),
         "repo_root": "$HOME/video-search-and-summarization",
     }
     import re as _re
@@ -421,18 +253,41 @@ def _render_eval_spec(spec: dict, profile: str, platform: str, mode: str,
     return _sub(spec)
 
 
-def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
+# ---------------------------------------------------------------------------
+# Test script generation
+# ---------------------------------------------------------------------------
+
+def generate_test_script(spec_name: str, profile: str) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
     /logs/verifier/reward.txt.
 
     On a full-pass (reward == 1.0), OVERWRITES the canonical active
     marker `/tmp/skill-eval/active-deploy.txt` with this trial's
-    `<underlying_profile>-<mode>` so dependent trials (VIOS, video-*)
-    reading the marker via `BrevEnvironment._ensure_prerequisite_deployed`
-    see what is currently RUNNING on the box rather than a per-flag
-    deploy log. See specs/stale-marker.spec for why per-flag was wrong."""
+    `<underlying_profile>` (plus `-<deploy_mode>` only for alerts) so
+    dependent trials (vss-manage-video-io-storage, video-*) reading the marker via
+    `BrevEnvironment._ensure_prerequisite_deployed` see what is currently
+    RUNNING on the box. See specs/stale-marker.spec.
+
+    Marker format:
+      - `base`, `lvs`, `search` — profile name only (placement is
+        env-driven, not a marker dimension).
+      - `alerts-verification`, `alerts-real-time` — alerts has two
+        distinct stacks (`/vss-deploy-profile -m verification` vs `-m real-time`)
+        so the mode is part of the marker.
+
+    Consumer (`_ensure_prerequisite_deployed`) builds its desired
+    marker the same way: `profile + ("-" + prerequisite_deploy_mode if
+    set else "")`. Non-alerts downstream adapters declare just
+    `profile`; the alerts downstream case additionally declares
+    `prerequisite_deploy_mode`."""
     underlying_profile = deploy_profile(profile)
+    deploy_mode_token = PROFILES[profile].get("deploy_mode")
+    marker_token = (
+        f"{underlying_profile}-{deploy_mode_token}"
+        if deploy_mode_token
+        else underlying_profile
+    )
     return (
         "#!/bin/bash\n"
         "# vss-deploy-profile verifier: delegates to the generic LLM-as-judge\n"
@@ -448,13 +303,13 @@ def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
         f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
         "\n"
         "# On full pass, overwrite the canonical active-deploy marker so\n"
-        "# downstream trials (VIOS/video-*) reuse the running deployment\n"
+        "# downstream trials (vss-manage-video-io-storage/vss-*) reuse the running deployment\n"
         "# instead of re-running /vss-deploy-profile. Overwrite, never append — the\n"
         "# marker is what is currently RUNNING, not a deploy log.\n"
         'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
         f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
         f'  mkdir -p /tmp/skill-eval && '
-        f"printf '%s\\n' '{underlying_profile}-{mode}' "
+        f"printf '%s\\n' '{marker_token}' "
         f"> /tmp/skill-eval/active-deploy.txt\n"
         "fi\n"
         "exit 0\n"
@@ -465,46 +320,35 @@ def generate_test_script(spec_name: str, profile: str, mode: str) -> str:
 # Solution script generation
 # ---------------------------------------------------------------------------
 
-def generate_solve_script(
-    profile: str,
-    platform: str,
-    mode: str,
-    llm_remote: dict | None,
-    vlm_remote: dict | None,
-) -> str:
-    """Gold solution: configure .env + deploy."""
-    mode_spec = effective_mode_spec(platform, mode)
+def generate_solve_script(profile: str, platform: str) -> str:
+    """Gold solution: sync repo to PR head, configure profile .env, deploy.
+
+    No `LLM_MODE`/`VLM_MODE`/`LLM_BASE_URL`/`VLM_BASE_URL` overrides —
+    the agent's `/vss-deploy-profile` skill reads the forwarded env vars
+    (`LLM_REMOTE_URL`, `VLM_REMOTE_URL`, `NGC_CLI_API_KEY`) and picks
+    placement itself.
+    """
     env_profile = deploy_profile(profile)
+    deploy_flag_m = PROFILES[profile].get("deploy_mode")
 
     overrides: dict[str, str] = {
         "HARDWARE_PROFILE": platform,
         "VSS_APPS_DIR": "$REPO/deployments",
         "VSS_DATA_DIR": "$REPO/data",
         "HOST_IP": "$(hostname -I | awk '{print $1}')",
-        "LLM_MODE": mode_spec["llm_mode"],
-        "VLM_MODE": mode_spec["vlm_mode"],
     }
-    if mode == "dedicated":
-        overrides["LLM_DEVICE_ID"] = "0"
-        overrides["VLM_DEVICE_ID"] = "1"
-
-    # Remote endpoints: URL is stored without trailing /v1 — config.yml
-    # appends /v1 automatically via `base_url: ${LLM_BASE_URL}/v1`.
-    if mode_spec["llm_mode"] == "remote" and llm_remote:
-        overrides["LLM_BASE_URL"] = llm_remote["url"].rstrip("/").removesuffix("/v1")
-        overrides["LLM_NAME"] = llm_remote["model"]
-    if mode_spec["vlm_mode"] == "remote" and vlm_remote:
-        overrides["VLM_BASE_URL"] = vlm_remote["url"].rstrip("/").removesuffix("/v1")
-        overrides["VLM_NAME"] = vlm_remote["model"]
-
     sed_lines = "\n".join(
         'sed -i "s|^' + k + "=.*|" + k + "=" + v + '|" "$ENV_FILE"'
         for k, v in overrides.items()
     )
 
+    deploy_args = f"-p {env_profile}"
+    if deploy_flag_m:
+        deploy_args += f" -m {deploy_flag_m}"
+
     lines = [
         "#!/bin/bash",
-        "# Gold solution: vss-deploy-profile " + profile + " on " + platform + "/" + mode,
+        f"# Gold solution: deploy {profile} on {platform}",
         "set -euo pipefail",
         "",
         'REPO="$HOME/video-search-and-summarization"',
@@ -522,15 +366,36 @@ def generate_solve_script(
         "    docker login nvcr.io -u '\\$oauthtoken' -p \"$NGC_CLI_API_KEY\" 2>/dev/null || true",
         "fi",
         "",
-        "# --- Clone repo ---",
-        'if [ ! -d "$REPO" ]; then',
-        "    git clone --branch " + VSS_BRANCH + " " + VSS_REPO_URL + ' "$REPO"',
+        "# --- Sync repo to PR head ---",
+        "# PR_HEAD_SHA + PR_REPO are forwarded from the workflow step by",
+        "# brev_env.py. On a warm-pool box, $REPO usually already exists",
+        "# from a prior trial — fetch + reset to the PR SHA instead of",
+        "# re-cloning so the deploy step always validates the PR's actual",
+        "# code, never a stale checkout from a previous trial.",
+        'PR_REPO="${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}"',
+        'PR_HEAD_SHA="${PR_HEAD_SHA:-}"',
+        'VSS_REPO_URL="https://github.com/${PR_REPO}.git"',
+        'if [ ! -d "$REPO/.git" ]; then',
+        "    git clone --no-checkout --depth=1 --branch " + VSS_BRANCH_FALLBACK + ' "$VSS_REPO_URL" "$REPO"',
         "fi",
+        'cd "$REPO"',
+        'git remote set-url origin "$VSS_REPO_URL"',
+        'if [ -n "$PR_HEAD_SHA" ]; then',
+        '    git fetch --depth=1 origin "$PR_HEAD_SHA"',
+        '    git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"',
+        '    git reset --hard "$PR_HEAD_SHA"',
+        "else",
+        "    git fetch --depth=1 origin " + VSS_BRANCH_FALLBACK,
+        "    git -c advice.detachedHead=false checkout --force FETCH_HEAD",
+        "    git reset --hard FETCH_HEAD",
+        "fi",
+        "git clean -fdx -e data/ -e .env",
+        "cd - > /dev/null",
         'mkdir -p "$REPO/data"',
         "",
         "# --- Configure .env ---",
-        "PROFILE=" + env_profile,
-        "ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env",
+        f"PROFILE={env_profile}",
+        'ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env',
         "",
         sed_lines,
         "",
@@ -538,7 +403,7 @@ def generate_solve_script(
         '    sed -i "s|^NGC_CLI_API_KEY=.*|NGC_CLI_API_KEY=$NGC_CLI_API_KEY|" "$ENV_FILE"',
         "fi",
         "",
-        "# --- Deploy ---",
+        f"# --- Deploy ({deploy_args}) ---",
         "cd $REPO/deployments",
         "docker compose --env-file $ENV_FILE config 2>/dev/null > resolved.yml",
         "docker compose -f resolved.yml up -d",
@@ -559,32 +424,32 @@ def generate_solve_script(
 def generate_task(
     profile: str,
     platform: str,
-    mode: str,
     profile_def: dict,
     output_root: Path,
     skill_dir: Path | None,
-    llm_remote: dict | None,
-    vlm_remote: dict | None,
+    gpu_count: int,
 ) -> None:
-    """Write a single Harbor task directory for <profile>/<platform>-<mode>."""
-    platform_spec = PLATFORMS[platform]
-    mode_spec = effective_mode_spec(platform, mode)
+    """Write one Harbor task directory for `<profile>/<platform_short>`.
 
-    task_id = make_task_id(platform, mode)
+    `gpu_count` is the spec-declared per-platform GPU count plus the
+    profile's `local_extras` (RT-CV / Cosmos Embed1 always-local GPUs).
+    """
+    platform_spec = PLATFORMS[platform]
+    task_id = platform_spec["short_name"]
     task_dir = output_root / profile / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
     # -- instruction.md --
     (task_dir / "instruction.md").write_text(
-        generate_instruction(profile, platform, mode, llm_remote, vlm_remote),
+        generate_instruction(profile, platform),
     )
 
     # -- task.toml --
     meta_lines = [
         "[task]",
         f'name = "nvidia-vss/vss-deploy-profile-{profile}-{task_id}"',
-        f'description = "{profile_def["description"]} on {platform}/{mode}"',
-        f'keywords = ["vss-deploy-profile", "{profile}", "{platform}", "{mode}"]',
+        f'description = "{profile_def["description"]} on {platform}"',
+        f'keywords = ["vss-deploy-profile", "{profile}", "{platform}"]',
         "",
         "[environment]",
         '# Harbor copies this into $CLAUDE_CONFIG_DIR/skills so the agent',
@@ -594,39 +459,30 @@ def generate_task(
         "[metadata]",
         f'profile = "{profile}"',
         f'platform = "{platform}"',
-        f'mode = "{mode}"',
+    ]
+    deploy_flag_m = profile_def.get("deploy_mode")
+    if deploy_flag_m:
+        meta_lines.append(f'deploy_mode = "{deploy_flag_m}"')
+    meta_lines += [
         "# GPU requirements — BrevEnvironment checks these against the",
         "# instance's actual GPU capacity before the trial runs.",
         f'gpu_type = "{platform_spec["gpu_type"]}"',
-        f'gpu_count = {mode_spec["gpus_needed"] + profile_def.get("local_extras", 0)}',
+        f'gpu_count = {gpu_count}',
         f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
         f'brev_search = "{platform_spec["brev_search"]}"',
-        "# Disk + driver requirements — BrevEnvironment validates both via",
-        "# `df -BG /` and `nvidia-smi --query-gpu=driver_version` after the",
-        "# instance is reachable; a mismatch raises and the trial is aborted.",
-        f'min_root_disk_gb = {_min_root_disk_gb(mode_spec)}',
-    ]
-    min_driver = _min_gpu_driver_version(mode_spec)
-    if min_driver:
-        meta_lines.append(f'min_gpu_driver_version = "{min_driver}"')
-    if mode_spec["llm_mode"] == "remote" and llm_remote:
-        meta_lines.append(f'llm_remote_url = "{llm_remote["url"]}"')
-        meta_lines.append(f'llm_remote_model = "{llm_remote["model"]}"')
-    if mode_spec["vlm_mode"] == "remote" and vlm_remote:
-        meta_lines.append(f'vlm_remote_url = "{vlm_remote["url"]}"')
-        meta_lines.append(f'vlm_remote_model = "{vlm_remote["model"]}"')
-    # Forward Anthropic credentials + judge model to the verifier so the
-    # LLM-as-judge in tests/generic_judge.py can call Claude.
-    meta_lines += [
+        "# Disk + driver requirements — worst-case (covers a deploy with",
+        "# both LLM and VLM running as local NIMs). The /vss-deploy-profile skill",
+        "# decides actual placement from forwarded env (LLM_REMOTE_URL,",
+        "# VLM_REMOTE_URL); we don't try to second-guess it here.",
+        f'min_root_disk_gb = {_DEFAULT_MIN_ROOT_DISK_GB}',
+        f'min_gpu_driver_version = "{_DEFAULT_MIN_DRIVER_VERSION}"',
         "",
         "[verifier.env]",
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
         # ANTHROPIC_MODEL gives the verifier's judge model cascade
         # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
-        # fallback when JUDGE_MODEL is unset. Forwarding a literal
-        # default for JUDGE_MODEL would bake it in and short-circuit
-        # the cascade — the proxy 401s the literal default outright.
+        # fallback when JUDGE_MODEL is unset.
         'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
         "",
     ]
@@ -640,23 +496,16 @@ def generate_task(
     # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    # The spec file is keyed on the EVAL-profile name (e.g. alerts_cv.json),
-    # not the underlying deploy-profile — different modes of the same deploy
-    # profile can ship distinct spec files (alerts_cv.json vs alerts_vlm.json).
     spec_path = skill_dir / "eval" / f"{profile}.json" if skill_dir else None
     if spec_path and spec_path.exists():
         raw_spec = json.loads(spec_path.read_text())
-        rendered = _render_eval_spec(
-            raw_spec, profile, platform, mode, mode_spec, llm_remote, vlm_remote,
-        )
+        rendered = _render_eval_spec(raw_spec, profile, platform)
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
-        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile, mode))
+        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
     else:
-        # No spec yet for this profile — emit a no-op verifier that
-        # reports a clear failure instead of silently passing.
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
             f"echo 'FAIL: no eval spec at skills/vss-deploy-profile/eval/{profile}.json' >&2\n"
@@ -669,7 +518,7 @@ def generate_task(
     solution_dir = task_dir / "solution"
     solution_dir.mkdir(exist_ok=True)
     (solution_dir / "solve.sh").write_text(
-        generate_solve_script(profile, platform, mode, llm_remote, vlm_remote),
+        generate_solve_script(profile, platform),
     )
 
     # -- skills/vss-deploy-profile/ --
@@ -680,25 +529,19 @@ def generate_task(
         shutil.copytree(skill_dir, skill_dest)
 
 
-def make_task_id(platform: str, mode: str) -> str:
-    """Task directory name.  Equal to the platform short name when the
-    mode is this platform's default, otherwise '<short>-<mode>'."""
-    pspec = PLATFORMS[platform]
-    if mode == pspec.get("default_mode"):
-        return pspec["short_name"]
-    return f"{pspec['short_name']}-{mode}"
+# ---------------------------------------------------------------------------
+# Spec → matrix
+# ---------------------------------------------------------------------------
 
+def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] | None:
+    """Read `eval/<profile>.json` and return `{platform: gpu_count}`.
+    Return None if the spec doesn't declare `resources.platforms` (the
+    spec is required to ship a `gpu_count` per platform — there is no
+    adapter-side fallback matrix any more).
 
-def _mode_needs_local_nim(mode_spec: dict) -> bool:
-    """True if the mode deploys at least one local NIM (needs NGC to pull)."""
-    return mode_spec["llm_mode"] != "remote" or mode_spec["vlm_mode"] != "remote"
-
-
-def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[str]] | None:
-    """If the skill's `eval/<profile>.json` declares `resources.platforms`,
-    return {platform: [modes...]}. Else return None (adapter falls back to
-    PLATFORMS defaults below). Gives the spec author control over which
-    platforms/modes to exercise — e.g. `alerts_cv` only on 2-GPU hosts."""
+    Legacy specs that still carry a `modes` array are accepted: the
+    array is ignored and a one-shot trial runs per declared platform.
+    A warning is printed so authors notice the dead field."""
     if skill_dir is None:
         return None
     spec_path = skill_dir / "eval" / f"{profile}.json"
@@ -706,71 +549,60 @@ def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, list[
         return None
     try:
         spec = json.loads(spec_path.read_text())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARN: failed to parse {spec_path}: {exc}", file=sys.stderr)
         return None
     resources = (spec.get("resources") or {}).get("platforms")
     if not isinstance(resources, dict) or not resources:
         return None
-    return {p: list((v or {}).get("modes") or []) for p, v in resources.items()}
+    out: dict[str, int] = {}
+    for p, v in resources.items():
+        v = v or {}
+        if "modes" in v:
+            print(
+                f"WARN: {spec_path.name} platform {p!r} declares 'modes' — "
+                "the placement-mode matrix was removed; the field is ignored. "
+                "Drop it from the spec.",
+                file=sys.stderr,
+            )
+        gpu_count = v.get("gpu_count")
+        if gpu_count is None:
+            print(
+                f"WARN: {spec_path.name} platform {p!r} is missing 'gpu_count' — "
+                "defaulting to 1. Declare it explicitly to silence this warning.",
+                file=sys.stderr,
+            )
+            gpu_count = 1
+        out[p] = int(gpu_count)
+    return out
 
 
 def expand_matrix(
     profile_filter: str | None,
     platform_filter: str | None,
-    mode_filter: str | None,
-    have_llm_remote: bool,
-    have_vlm_remote: bool,
-    have_ngc_key: bool,
     skill_dir: Path | None = None,
-) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
+) -> tuple[list[tuple[str, str, int]], list[tuple[str, str, str]]]:
     """Return (included, skipped) where:
-        included = list of (profile, platform, mode) that will be generated
-        skipped  = list of (profile, platform, mode, reason)
-    For each profile, the platform × mode matrix comes from:
-      - `spec.resources.platforms` if declared in `skills/vss-deploy-profile/eval/<profile>.json`
-      - otherwise falls back to the full PLATFORMS × supported_modes defaults
-    Also filters: --profile/--platform/--mode CLI, remote URL availability for
-    modes that need them, and NGC_CLI_API_KEY for modes that pull local NIMs."""
-    included: list[tuple[str, str, str]] = []
-    skipped: list[tuple[str, str, str, str]] = []
-    for profile in PROFILES:
+        included = list of (profile, platform, gpu_count) tuples
+        skipped  = list of (profile, platform, reason) tuples
+    """
+    included: list[tuple[str, str, int]] = []
+    skipped: list[tuple[str, str, str]] = []
+    for profile, profile_def in PROFILES.items():
         if profile_filter and profile != profile_filter:
             continue
-
-        # Prefer the spec's own declaration; fall back to the adapter defaults.
         spec_matrix = _spec_platforms_for(profile, skill_dir)
-        if spec_matrix is not None:
-            platform_modes = spec_matrix
-        else:
-            platform_modes = {
-                p: list(pspec["supported_modes"])
-                for p, pspec in PLATFORMS.items()
-            }
-
-        for platform, modes in platform_modes.items():
+        if spec_matrix is None:
+            skipped.append((profile, "-", "no spec at skills/vss-deploy-profile/eval/"
+                                          f"{profile}.json with resources.platforms"))
+            continue
+        for platform, spec_gpu_count in spec_matrix.items():
             if platform_filter and platform != platform_filter:
                 continue
             if platform not in PLATFORMS:
-                skipped.append((profile, platform, "-", f"unknown platform {platform!r}"))
+                skipped.append((profile, platform, f"unknown platform {platform!r}"))
                 continue
-            for mode in modes:
-                if mode_filter and mode != mode_filter:
-                    continue
-                if mode not in MODES:
-                    skipped.append((profile, platform, mode, f"unknown mode {mode!r}"))
-                    continue
-                mspec = MODES[mode]
-                reason = None
-                if mspec["llm_mode"] == "remote" and not have_llm_remote:
-                    reason = "LLM_REMOTE_URL/MODEL not set"
-                elif mspec["vlm_mode"] == "remote" and not have_vlm_remote:
-                    reason = "VLM_REMOTE_URL/MODEL not set"
-                elif _mode_needs_local_nim(mspec) and not have_ngc_key:
-                    reason = "NGC_CLI_API_KEY not set (needed to pull local NIMs)"
-                if reason:
-                    skipped.append((profile, platform, mode, reason))
-                else:
-                    included.append((profile, platform, mode))
+            included.append((profile, platform, spec_gpu_count))
     return included, skipped
 
 
@@ -784,119 +616,40 @@ def main() -> None:
     parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-profile")
     parser.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()))
-    parser.add_argument("--mode", default=None, choices=list(MODES.keys()))
-    parser.add_argument(
-        "--llm-remote-url", default=None,
-        help="Remote LLM endpoint (no trailing /v1). Enables remote-* modes for LLM.",
-    )
-    parser.add_argument(
-        "--llm-remote-model", default=None,
-        help="Model ID served at --llm-remote-url (e.g. nvidia/nvidia-nemotron-nano-9b-v2)",
-    )
-    parser.add_argument(
-        "--vlm-remote-url", default=None,
-        help="Remote VLM endpoint (no trailing /v1). Enables remote-* modes for VLM.",
-    )
-    parser.add_argument(
-        "--vlm-remote-model", default=None,
-        help="Model ID served at --vlm-remote-url",
-    )
-    parser.add_argument(
-        "--assume-ngc-key", action="store_true",
-        help="Pretend NGC_CLI_API_KEY is available even if env doesn't have it",
-    )
     args = parser.parse_args()
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir) if args.skill_dir else None
 
-    # Resolve remote endpoints (URL + model must be paired). CLI args take
-    # priority; fall back to the standard env vars so `source .env; python3
-    # generate.py` Just Works without re-passing every flag.
-    llm_url   = args.llm_remote_url   or os.environ.get("LLM_REMOTE_URL")
-    llm_model = args.llm_remote_model or os.environ.get("LLM_REMOTE_MODEL")
-    vlm_url   = args.vlm_remote_url   or os.environ.get("VLM_REMOTE_URL")
-    vlm_model = args.vlm_remote_model or os.environ.get("VLM_REMOTE_MODEL")
-
-    llm_remote: dict | None = None
-    if llm_url:
-        if not llm_model:
-            print(
-                "LLM_REMOTE_URL set but LLM_REMOTE_MODEL is empty — "
-                "set both or neither (pass --llm-remote-url/--llm-remote-model "
-                "or define LLM_REMOTE_URL/LLM_REMOTE_MODEL in .env).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        llm_remote = {"url": llm_url, "model": llm_model}
-
-    vlm_remote: dict | None = None
-    if vlm_url:
-        if not vlm_model:
-            print(
-                "VLM_REMOTE_URL set but VLM_REMOTE_MODEL is empty — "
-                "set both or neither.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        vlm_remote = {"url": vlm_url, "model": vlm_model}
-
-    have_ngc_key = args.assume_ngc_key or bool(os.environ.get("NGC_CLI_API_KEY"))
-
-    # --- Inputs summary ---
     print("=== Inputs ===")
     print(f"  output_dir       : {output_root}")
     print(f"  skill_dir        : {skill_dir or '(none)'}")
     print(f"  filter profile   : {args.profile or '(all)'}")
     print(f"  filter platform  : {args.platform or '(all)'}")
-    print(f"  filter mode      : {args.mode or '(all)'}")
-    if llm_remote:
-        llm_src = "CLI" if args.llm_remote_url else "env"
-        print(f"  LLM remote       : {llm_remote['url']}  ({llm_remote['model']}) [{llm_src}]")
-    else:
-        print(f"  LLM remote       : (not set — pass --llm-remote-url or export LLM_REMOTE_URL; remote-* modes needing LLM will be skipped)")
-    if vlm_remote:
-        vlm_src = "CLI" if args.vlm_remote_url else "env"
-        print(f"  VLM remote       : {vlm_remote['url']}  ({vlm_remote['model']}) [{vlm_src}]")
-    else:
-        print(f"  VLM remote       : (not set — pass --vlm-remote-url or export VLM_REMOTE_URL; remote-* modes needing VLM will be skipped)")
-    if have_ngc_key:
-        source = "--assume-ngc-key" if args.assume_ngc_key else "NGC_CLI_API_KEY env"
-        print(f"  NGC key          : available ({source})")
-    else:
-        print(f"  NGC key          : (not set — modes with local NIMs will be skipped)")
     print()
 
     included, skipped = expand_matrix(
-        args.profile, args.platform, args.mode,
-        have_llm_remote=llm_remote is not None,
-        have_vlm_remote=vlm_remote is not None,
-        have_ngc_key=have_ngc_key,
-        skill_dir=skill_dir,
+        args.profile, args.platform, skill_dir=skill_dir,
     )
 
-    # --- Print skip decisions ---
     if skipped:
         print(f"=== Skipped ({len(skipped)}) ===")
-        for profile, platform, mode, reason in skipped:
-            task_id = make_task_id(platform, mode)
-            print(f"  SKIP {profile}/{task_id}   reason: {reason}")
+        for profile, platform, reason in skipped:
+            print(f"  SKIP {profile}/{platform}   reason: {reason}")
         print()
 
     if not included:
-        print("No (profile, platform, mode) combinations match filters "
-              "with the provided env.", file=sys.stderr)
+        print("No (profile, platform) combinations match filters.", file=sys.stderr)
         sys.exit(1)
 
-    # --- Generate ---
     print(f"=== Generating ({len(included)}) ===")
-    for profile, platform, mode in included:
-        task_id = make_task_id(platform, mode)
-        print(f"  GEN  {profile}/{task_id}")
+    for profile, platform, gpu_count in included:
+        task_id = PLATFORMS[platform]["short_name"]
+        print(f"  GEN  {profile}/{task_id}   gpu_count={gpu_count}")
         generate_task(
-            profile, platform, mode,
+            profile, platform,
             PROFILES[profile], output_root, skill_dir,
-            llm_remote, vlm_remote,
+            gpu_count=gpu_count,
         )
 
     print()
@@ -904,8 +657,8 @@ def main() -> None:
     print()
     print("Coverage:")
     by_profile: dict[str, list[str]] = {}
-    for p, plat, m in included:
-        by_profile.setdefault(p, []).append(make_task_id(plat, m))
+    for p, plat, _ in included:
+        by_profile.setdefault(p, []).append(PLATFORMS[plat]["short_name"])
     for p, tasks in by_profile.items():
         print(f"  {p}: {', '.join(tasks)}")
     print()

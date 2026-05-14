@@ -29,7 +29,11 @@ data:
 {{ tpl (.Files.Get "configs/config.yml") . | indent 4 }}
 {{- end }}
   alert_type_config.json: |
+{{- if .Values.alertTypeConfigJson }}
+{{ .Values.alertTypeConfigJson | indent 4 }}
+{{- else }}
 {{ .Files.Get "configs/alert_type_config.json" | indent 4 }}
+{{- end }}
   realtime-config.yml: |
 {{- if .Values.realtimeConfig }}
 {{ .Values.realtimeConfig | indent 4 }}

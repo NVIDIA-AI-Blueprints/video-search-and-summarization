@@ -5,7 +5,7 @@ Isolate the problem encountered in vss-search-archive then iterate to resolve it
 ## Gotchas
 
 - ALWAYS use the method to list video sources with VST first with `vss-manage-video-io-storage`, before making curl requests to check Elasticsearch embeddings.
-- If the video source is not ingested yet, NEVER use the VST upload APIs because they will not generate embeddings. Use the `videos-for-search` endpoint described below for video files (or `rtsp-streams/add` for RTSP streams), and use the term "ingest" instead of "upload" to avoid confusions
+- If the video source is not ingested yet, NEVER use VST-only upload APIs because they will not generate embeddings. Use the agent video ingest handshake described below for video files (or `rtsp-streams/add` for RTSP streams), and use the term "ingest" instead of "upload" to avoid confusion.
 - NEVER try to guess the URL or VST API to check what is available in the system. Use the `vss-manage-video-io-storage` skill instead to list video sources and manage streams feeding into the search pipeline
 ```bash
 # NEVER guess commands like
@@ -30,7 +30,7 @@ If further investigation is required, refer to the full components from the `vss
 ### Externally accessible
 
 - Ensure VST is running and ensure video source(s) of interest were ingested by listing them in VST via the `vss-manage-video-io-storage` skill.
-  If not, offer the user the option to ingest them via the full pipeline API `videos-for-search` below if they are video files (or `rtsp-streams/add` for RTSP streams)
+  If not, offer the user the option to ingest them via the full pipeline video ingest handshake below if they are video files (or `rtsp-streams/add` for RTSP streams).
 
 - If a video source in the system has no embeddings, it means it has not been ingested through the full pipeline. STOP and ask user if video can be re-ingested and if user can provide video source. If yes, carefully follow:
     - First delete it (avoid two copies) with indexes cleanup:
@@ -42,13 +42,34 @@ curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/videos/<video_id>" | jq .
 # For RTSP streams
 curl -s -X DELETE "http://${HOST_IP}:8000/api/v1/rtsp-streams/delete/<name>" | jq .
 ```
-    - Then ingest video source again with the ingestion API:
+    - Then ingest video source again with the agent video ingest handshake:
 ```bash
 # :8000 designate the VSS agent backend
 # For video files
-curl -X PUT http://${HOST_IP}:8000/api/v1/videos-for-search/<filename.mp4> \
--H "Content-Type: video/mp4" \
---data-binary @/path/to/video.mp4
+FILENAME="<filename.mp4>"
+FILE_PATH="/path/to/${FILENAME}"
+
+UPLOAD_URL=$(curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos" \
+  -H "Content-Type: application/json" \
+  -d "{\"filename\":\"${FILENAME}\"}" | jq -r .url)
+
+IDENTIFIER=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
+UPLOAD_RESPONSE=$(curl -s -X POST "${UPLOAD_URL}" \
+  -H "nvstreamer-chunk-number: 1" \
+  -H "nvstreamer-total-chunks: 1" \
+  -H "nvstreamer-is-last-chunk: true" \
+  -H "nvstreamer-identifier: ${IDENTIFIER}" \
+  -H "nvstreamer-file-name: ${FILENAME}" \
+  -F "mediaFile=@${FILE_PATH};filename=${FILENAME}" \
+  -F "filename=${FILENAME}" \
+  -F 'metadata={"timestamp":"2025-01-01T00:00:00"}')
+
+VIDEO_ID=$(printf '%s' "${UPLOAD_RESPONSE}" | jq -r .sensorId)
+printf '%s' "${UPLOAD_RESPONSE}" \
+  | jq --arg filename "${FILENAME}" '. + {filename: $filename}' \
+  | curl -s -X POST "http://${HOST_IP}:8000/api/v1/videos/${VIDEO_ID}/complete" \
+      -H "Content-Type: application/json" \
+      -d @- | jq .
 
 # For RTSP stream (no credentials)
 curl -s -X POST http://${HOST_IP}:8000/api/v1/rtsp-streams/add \

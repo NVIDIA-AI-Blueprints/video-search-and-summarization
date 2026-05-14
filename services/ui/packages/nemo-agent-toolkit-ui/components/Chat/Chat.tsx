@@ -895,6 +895,14 @@ export const Chat = () => {
 
   const handleSend = useCallback(
     async (message: Message, deleteCount = 0, retry = false) => {
+      if (
+        message.hidden &&
+        selectedConversation &&
+        selectedConversationRef.current?.id !== selectedConversation.id
+      ) {
+        return;
+      }
+
       // DON'T mutate the original message - create a new one with a new ID
       const messageWithNewId = {
         ...message,
@@ -1793,7 +1801,16 @@ export const Chat = () => {
           onSend={(message, customParams) => {
             const items = queryContextRef.current;
             if (items.length > 0) {
-              const contextJson = JSON.stringify(items.map(({ label, type, data }) => ({ label, type, ...data })));
+              // id, label, and contextType live on QueryDataContext for UI only (keys, chips, tooltips).
+              // Never send contextType to the backend — omit it even if mistakenly duplicated inside `data`.
+              const contextJson = JSON.stringify(
+                items.map(({ data }) => {
+                  const { contextType: _omitUiContextType, ...payload } = {
+                    ...(data as Record<string, unknown>),
+                  };
+                  return payload;
+                }),
+              );
               const prefix = `[Context: ${contextJson}]`;
               message = { ...message, content: message.content ? `${prefix}\n\n${message.content}` : prefix };
               setQueryContextItems([]);

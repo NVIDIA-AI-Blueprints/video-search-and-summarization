@@ -129,6 +129,15 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
         default=None,
         description="Optional VLM input frame height (pixels). When set, forwarded to LVS to bound the visual-token count.",
     )
+    enable_audio: bool = Field(
+        default=False,
+        description=(
+            "When True, forwards `enable_audio=true` in the LVS "
+            "`/v1/generate_captions` request body. Required for audio-capable VLMs "
+            "like Nemotron Nano Omni. Pairs with `streaming_ingest.enable_audio=True` "
+            "so VST keeps audio during upload transcoding."
+        ),
+    )
     hitl_scenario_template: str = Field(..., description="HITL template for collecting media scenario.")
     hitl_events_template: str = Field(..., description="HITL template for collecting media events.")
     hitl_objects_template: str = Field(..., description="HITL template for collecting objects of interest.")
@@ -269,10 +278,10 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
         Set up a live stream for LVS caption generation.
 
         Trigger: call this tool ONLY when the user explicitly asks to start caption
-        generation for a stream (e.g. "start summarizing the stream <name>",
-        "start captioning <name>", "set up stream <name>"). Do NOT call this tool
-        speculatively or in response to another tool's "not_configured" message —
-        the user must confirm first.
+        generation for a stream (e.g. "start captioning <name>", "set up stream <name>",
+        "configure stream <name>"). Do NOT call this tool speculatively
+        or in response to another tool's "not_configured" message — the user must
+        confirm first.
 
         For streams, this tool resolves the stream in VST, collects scenario,
         events, and objects_of_interest through HITL, calls LVS
@@ -341,6 +350,8 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
             payload["vlm_input_width"] = config.vlm_input_width
         if config.vlm_input_height is not None:
             payload["vlm_input_height"] = config.vlm_input_height
+        if config.enable_audio:
+            payload["enable_audio"] = True
         request_url = f"{config.lvs_backend_url.rstrip('/')}{GENERATE_CAPTIONS_ENDPOINT}"
         logger.info(
             "LVS %s request: media=%r media_id=%s url=%s payload=%s",

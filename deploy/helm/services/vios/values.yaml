@@ -46,8 +46,6 @@ vss-vios-streamprocessing:
   enabled: true
 vss-vios-ingress:
   enabled: true
-vss-vios-mcp:
-  enabled: true
 vss-vios-nvstreamer:
   enabled: false
 

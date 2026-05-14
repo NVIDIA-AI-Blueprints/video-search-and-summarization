@@ -143,7 +143,7 @@ class TestLVSStreamUnderstandingInner:
         # start caption generation. The agent prompt requires this phrasing
         # so it surfaces verbatim and does NOT auto-call lvs_config_media.
         assert "no captions stored" in result.message.lower()
-        assert "start summarizing the stream CAM_1" in result.message
+        assert "start captioning CAM_1" in result.message
 
     @pytest.mark.asyncio
     async def test_configured_stream_calls_stream_summarize(self):

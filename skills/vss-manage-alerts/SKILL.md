@@ -10,7 +10,7 @@ metadata:
 
 # VSS Alert Management
 
-The alerts profile is deployed in **one** of two modes at a time. The mode is chosen at `deploy -p alerts -m {verification,real-time}` and is static until you tear down and redeploy. Which mode is running determines which flow to use — this skill does not route per-request.
+The alerts profile is deployed in **one** of two modes at a time. The mode is chosen at `/vss-deploy-profile -p alerts -m {verification,real-time}` and is static until you tear down and redeploy. Which mode is running determines which flow to use — this skill does not route per-request.
 
 ## When to Use
 
