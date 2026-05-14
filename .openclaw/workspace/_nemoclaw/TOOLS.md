@@ -72,6 +72,55 @@ curl -s -X POST http://host.openshell.internal:9902/mcp \
 EOF
 ```
 
+## Long-running deploys — handshake recovery
+
+`docker_up` and `docker_down` are **fire-and-return**: they spawn a background
+thread on the orchestrator and respond within milliseconds with a
+`docker_compose_ops_id`. The actual `docker compose up -d --build` may run for
+10+ minutes (image pulls). Progress is read by polling `docker_status` with
+the saved `docker_compose_ops_id`.
+
+The `docker_compose_ops_id` lives in a module-level registry on the
+orchestrator — it is **independent of the MCP session**. So if the MCP
+session/SID drops mid-deploy, you can re-handshake and resume polling the
+same ops_id without restarting anything.
+
+### Rules
+
+1. **The moment `docker_up` returns, write the `docker_compose_ops_id` to
+   `memory/YYYY-MM-DD.md`** (and keep the `docker_compose_id` too). Do this
+   before any further reasoning — if the session drops next, you need it on
+   disk to recover.
+2. **Poll `docker_status` every 30 seconds** with the saved ops_id until
+   `running: false`. A steady cadence also keeps the MCP session warm and
+   reduces the chance of idle eviction. Ignore the server's
+   `recommended_poll_interval_s` hint — 30s is the configured cadence here.
+3. **On any session error** (HTTP 4xx mentioning session id, "Bad Request",
+   silent hang past ~60s on what should be a fast call, or `tools/call`
+   returning nothing): re-run handshake steps 1 and 2 above to mint a fresh
+   `SID`, then immediately call `docker_status` with the saved ops_id and
+   continue polling. Do **not** re-fire `docker_up` — the orchestrator will
+   reject it with "Compose operation already running for docker_compose_id
+   '<id>'", and you'd lose visibility into the in-flight deploy.
+4. **Deploy is done when** `docker_status` returns `running: false` with
+   `status: "success"` (exit_code 0). On `status: "error"`, fetch the tail
+   log and surface it. On `status: "cancelled"`, the op was preempted by a
+   `docker_down`.
+
+### Recovery snippet
+
+```bash
+# After a suspected drop, re-handshake (steps 1+2 above), then:
+OPS_ID="<paste from memory/YYYY-MM-DD.md>"
+curl -s -X POST http://host.openshell.internal:9902/mcp \
+  -H "Mcp-Session-Id: $SID" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  --data @- <<EOF
+{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"docker_status","arguments":{"docker_compose_ops_id":"$OPS_ID","tail_lines":80}}}
+EOF
+```
+
 ## Skills
 
 Skill files (`SKILL.md`) are managed by OpenClaw — discover and invoke skills
