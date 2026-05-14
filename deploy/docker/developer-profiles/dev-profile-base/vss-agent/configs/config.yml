@@ -25,6 +25,8 @@ general:
       # No RTVI: base profile doesn't ingest to RTVI-CV/Embed. The universal
       # /api/v1/videos/{filename}/complete handler self-skips those steps
       # when the URLs are unset.
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -73,6 +75,9 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    use_external_playback_url: false
+    # VST disableAudio=false so audio-capable VLMs receive audio in video_understanding / UI clips.
+    disable_audio: true
 
   vst_snapshot:
     _type: vst.snapshot
@@ -92,6 +97,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    disable_audio: true
     # yamllint disable rule:line-length
     vlm_prompt: |
       Describe in detail what is happening in this video,
@@ -204,8 +210,8 @@ llms:
 
   rtvi_vlm:
     _type: openai
-    model_name: nvidia/cosmos-reason2-8b
-    base_url: ${RTVI_VLM_BASE_URL}/v1
+    model_name: nim_nvidia_cosmos-reason2-8b_hf-1208
+    base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
       extra_body:
@@ -280,7 +286,7 @@ workflow:
     - [url_validator]
     validators:
       url_validator:
-        internal_ip: ${HOST_IP}
+        internal_ip: ${EXTERNAL_IP}
         timeout: 10.0
         # Template variable: {issues} - list of failed URLs
         feedback_template: |
@@ -478,7 +484,7 @@ eval:
     report_evaluator:
       _type: report_evaluator
       eval_metrics_config_path: ${EVAL_DIR}/report_eval_metrics.yaml
-      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR}
+      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR:-${EVAL_DIR}}/gt
       evaluation_method_id: report
       object_store: local_object_store
       report_url_pattern: 'http://[^\s)]+/(vss_report_(?:[^/\s)]+_)?\d{8}_\d{6}\.md)'
