@@ -96,7 +96,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Runtime stage - using NVIDIA distroless production image (supports AMD64 and ARM64)
-FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.3 AS runtime
+FROM nvcr.io/nvidia/distroless/python:3.13-v3.1.7 AS runtime
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG TARGETPLATFORM
