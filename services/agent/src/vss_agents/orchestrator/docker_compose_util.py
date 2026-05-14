@@ -91,6 +91,8 @@ class ValidationError(ValueError):
 class EdgeDeviceIdsInput(BaseModel):
     llm: str
     vlm: str
+    rt_vlm: str
+    rt_cv: str
 
 
 class HardwareResolutionInput(BaseModel):
@@ -230,6 +232,8 @@ def create_dry_run_recipe(
             {
                 "llm": model_resolution.hardware.edge_device_ids.llm,
                 "vlm": model_resolution.hardware.edge_device_ids.vlm,
+                "rt_vlm": model_resolution.hardware.edge_device_ids.rt_vlm,
+                "rt_cv": model_resolution.hardware.edge_device_ids.rt_cv,
             }
         ),
         thor_profiles=frozenset(model_resolution.hardware.thor_profiles),
@@ -438,6 +442,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
         merged["LLM_DEVICE_ID"] = config.edge_device_ids["llm"]
         merged["VLM_DEVICE_ID"] = config.edge_device_ids["vlm"]
+        merged["RT_VLM_DEVICE_ID"] = config.edge_device_ids["rt_vlm"]
+        merged["RT_CV_DEVICE_ID"] = config.edge_device_ids["rt_cv"]
 
     if merged.get("HARDWARE_PROFILE", "") in config.thor_profiles and config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
         merged.update(config.thor_vlm_overrides)

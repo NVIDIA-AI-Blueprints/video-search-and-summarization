@@ -108,6 +108,8 @@ function_groups:
         edge_device_ids:
           llm: "0"
           vlm: "0"
+          rt_vlm: "0"
+          rt_cv: "0"
         thor_profiles:
         - IGX-THOR
         - AGX-THOR
