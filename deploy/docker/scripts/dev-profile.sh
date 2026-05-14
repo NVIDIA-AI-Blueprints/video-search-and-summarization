@@ -262,20 +262,106 @@ function mask_secret() {
   fi
 }
 
+function path_has_access() {
+  local _path="${1}"
+  local _access="${2:-write}"
+  local _check_path="${_path}"
+
+  while [[ ! -e "${_check_path}" && "${_check_path}" != "/" ]]; do
+    _check_path="$(dirname "${_check_path}")"
+  done
+
+  case "${_access}" in
+    read)
+      [[ -r "${_check_path}" ]] && { [[ ! -d "${_check_path}" ]] || [[ -x "${_check_path}" ]]; }
+      ;;
+    write)
+      [[ -w "${_check_path}" ]] && { [[ ! -d "${_check_path}" ]] || [[ -x "${_check_path}" ]]; }
+      ;;
+    *)
+      echo "[ERROR] Unsupported access check: ${_access}" >&2
+      return 1
+      ;;
+  esac
+}
+
+function optional_sudo_prefix_for_path() {
+  local _path="${1}"
+  local _access="${2:-write}"
+
+  if [[ "$(id -u)" -eq 0 ]] || ! command -v sudo >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if path_has_access "${_path}" "${_access}"; then
+    return 0
+  fi
+
+  echo "sudo"
+}
+
+function run_with_optional_sudo_for_path() {
+  local _path="${1}"
+  local _access="${2:-write}"
+  shift 2
+
+  local _sudo
+  _sudo="$(optional_sudo_prefix_for_path "${_path}" "${_access}")"
+  if [[ -n "${_sudo}" ]]; then
+    sudo "$@"
+  else
+    "$@"
+    local _status=$?
+    if [[ ${_status} -ne 0 ]] && [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+      sudo "$@"
+      return $?
+    fi
+    return ${_status}
+  fi
+}
+
+function dry_run_optional_sudo_prefix_for_path() {
+  local _sudo
+  _sudo="$(optional_sudo_prefix_for_path "${1}" "${2:-write}")"
+  [[ -n "${_sudo}" ]] && printf '%s ' "${_sudo}"
+}
+
 
 # Apply VSS kernel settings (IPv6 disable, TCP buffer sizes). Persistent across reboots via /etc/sysctl.d/99-vss.conf.
 function set_vss_linux_kernel_settings() {
-  sudo mkdir -p /etc/sysctl.d
-  sudo bash -c "printf '%s\n' \
+  local _sysctl_conf="/etc/sysctl.d/99-vss.conf"
+  local _tmp_conf
+
+  if ! run_with_optional_sudo_for_path "/etc/sysctl.d" "write" mkdir -p /etc/sysctl.d; then
+    echo "[WARN] Unable to create /etc/sysctl.d; skipping VSS Linux kernel settings"
+    return 0
+  fi
+
+  _tmp_conf="$(mktemp)"
+  if [[ -z "${_tmp_conf}" ]]; then
+    echo "[WARN] Unable to create temporary sysctl config; skipping VSS Linux kernel settings"
+    return 0
+  fi
+
+  printf '%s\n' \
     'net.ipv6.conf.all.disable_ipv6 = 1' \
     'net.ipv6.conf.default.disable_ipv6 = 1' \
     'net.ipv6.conf.lo.disable_ipv6 = 1' \
     'net.core.rmem_max = 5242880' \
     'net.core.wmem_max = 5242880' \
     'net.ipv4.tcp_rmem = 4096 87380 16777216' \
-    'net.ipv4.tcp_wmem = 4096 65536 16777216' \
-    > /etc/sysctl.d/99-vss.conf"
-  sudo sysctl --system
+    'net.ipv4.tcp_wmem = 4096 65536 16777216' > "${_tmp_conf}"
+
+  if ! run_with_optional_sudo_for_path "${_sysctl_conf}" "write" install -m 0644 "${_tmp_conf}" "${_sysctl_conf}"; then
+    rm -f "${_tmp_conf}"
+    echo "[WARN] Unable to write ${_sysctl_conf}; skipping VSS Linux kernel settings"
+    return 0
+  fi
+  rm -f "${_tmp_conf}"
+
+  if ! run_with_optional_sudo_for_path "/proc/sys" "write" sysctl --system; then
+    echo "[WARN] Unable to apply VSS Linux kernel settings with sysctl --system"
+  fi
 }
 
 function usage() {
@@ -1483,16 +1569,11 @@ function state_down() {
   fi
 
   echo "[INFO] Deleting data directory: ${data_directory}..."
-  # Use sudo only when not already root (CI containers run as root without sudo installed).
-  local _sudo=""
-  if [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
-    _sudo="sudo"
-  fi
   if [[ "${dry_run}" == "true" ]]; then
-    echo "[DRY-RUN] ${_sudo:+sudo }rm -rf ${data_directory}"
+    echo "[DRY-RUN] $(dry_run_optional_sudo_prefix_for_path "${data_directory}" "write")rm -rf ${data_directory}"
   else
     if [[ -d "${data_directory}" ]]; then
-      $_sudo rm -rf "${data_directory}"
+      run_with_optional_sudo_for_path "${data_directory}" "write" rm -rf "${data_directory}"
       echo "[INFO] Data directory deleted"
     else
       echo "[INFO] Data directory does not exist, skipping"
