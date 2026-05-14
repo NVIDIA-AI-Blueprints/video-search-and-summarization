@@ -180,36 +180,151 @@ class ImageManifestLabels:
     image_name: str | None
 
 
+_OCI_INDEX_MEDIA_TYPES = (
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+)
+
+
+def _parse_image_ref(image_ref: str) -> tuple[str, str, str] | None:
+    """Split ``registry/name:tag`` (or ``registry/name@digest``).
+
+    Returns ``(registry, name, reference)`` or ``None`` if the ref doesn't have
+    a recognizable host prefix and tag/digest. The reference is either a
+    ``sha256:...`` digest or a tag string.
+    """
+    # Digest form
+    if "@" in image_ref:
+        repo_part, _, digest = image_ref.partition("@")
+        if "/" not in repo_part or not digest.startswith("sha256:"):
+            return None
+        registry, _, name = repo_part.partition("/")
+        return registry, name, digest
+
+    # Tag form
+    slash = image_ref.find("/")
+    colon = image_ref.rfind(":")
+    if slash < 0 or colon < slash:
+        return None
+    registry = image_ref[:slash]
+    name = image_ref[slash + 1 : colon]
+    tag = image_ref[colon + 1 :]
+    return registry, name, tag
+
+
+def _fetch_bearer_token(registry: str, name: str, ngc_key: str | None) -> tuple[str | None, str | None]:
+    """Resolve a registry pull token via the ``WWW-Authenticate`` challenge flow.
+
+    Some registries (Docker Hub, GHCR) accept anonymous tokens for public
+    repos; nvcr.io requires Basic-auth with ``$oauthtoken`` + the NGC API key.
+    Returns ``(token, None)`` or ``(None, error_message)``.
+    """
+    import base64
+    import urllib.error
+    import urllib.request
+
+    challenge_url = f"https://{registry}/v2/"
+    try:
+        with urllib.request.urlopen(challenge_url, timeout=20):
+            return None, None  # registry doesn't require auth at all
+    except urllib.error.HTTPError as exc:
+        if exc.code != 401:
+            return None, f"unexpected status {exc.code} from {challenge_url}"
+        www_auth = exc.headers.get("WWW-Authenticate", "")
+    except urllib.error.URLError as exc:
+        return None, f"network error reaching {challenge_url}: {exc}"
+
+    if not www_auth.lower().startswith("bearer "):
+        return None, f"registry returned non-Bearer auth challenge: {www_auth!r}"
+
+    # Parse Bearer params: realm="...",service="...",scope="..."
+    params: dict[str, str] = {}
+    for piece in www_auth[len("bearer ") :].split(","):
+        if "=" not in piece:
+            continue
+        k, v = piece.split("=", 1)
+        params[k.strip()] = v.strip().strip('"')
+
+    realm = params.get("realm")
+    if not realm:
+        return None, f"Bearer challenge missing realm: {www_auth!r}"
+
+    # Force scope to this repo's pull scope so we get a usable token even if
+    # the original challenge didn't include it.
+    scope = f"repository:{name}:pull"
+    token_url = f"{realm}?service={urllib.parse.quote(params.get('service', ''))}&scope={urllib.parse.quote(scope)}"
+
+    req = urllib.request.Request(token_url)
+    if ngc_key:
+        basic = base64.b64encode(f"$oauthtoken:{ngc_key}".encode()).decode()
+        req.add_header("Authorization", f"Basic {basic}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        return None, f"token endpoint returned {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return None, f"network error fetching token: {exc}"
+
+    try:
+        token_payload = json.loads(body)
+    except json.JSONDecodeError:
+        return None, "token response was not valid JSON"
+    token = token_payload.get("token") or token_payload.get("access_token")
+    if not token:
+        return None, "token response missing 'token'/'access_token'"
+    return token, None
+
+
 def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | None, str | None]:
     """Read ``com.nvidia.vss.*`` annotations from the image's OCI manifest index.
 
-    Uses ``docker buildx imagetools inspect --raw`` (available on the GitHub-
-    hosted ``ubuntu-latest`` runner) to fetch the raw manifest JSON, then reads
-    the top-level ``annotations`` map. Returns ``(labels, None)`` on success, or
-    ``(None, reason)`` if the manifest can't be fetched or the annotation is
-    absent — caller will fall back to git-SHA resolution in that case.
+    Pulls the manifest directly via the OCI Distribution HTTP API with an
+    explicit ``Accept: application/vnd.oci.image.index.v1+json`` header so
+    annotation-preserving OCI format is requested deterministically. Going
+    via ``docker buildx imagetools inspect --raw`` works locally but on
+    ``ubuntu-24.04`` runners the bundled docker negotiated a Docker manifest
+    list (no annotations) — the HTTP path is independent of the local
+    docker version.
+
+    Returns ``(labels, None)`` on success, ``(None, reason)`` otherwise.
+    Caller will fall back to git-SHA resolution when this returns ``None``.
 
     The annotation is stamped at build time by ci-vss-oss
     ``ci/tools/create_manifest.py`` and survives the artifacts-promotion copy
-    to ``nvstaging/vss-core`` (OCI annotations are part of the content-addressed
-    manifest, so they're preserved by any spec-compliant copy).
+    to ``nvstaging/vss-core`` (OCI annotations are part of the content-
+    addressed manifest, so they're preserved by any spec-compliant copy).
     """
-    if not shutil_which("docker"):
-        return None, "docker CLI not available on this runner"
+    import urllib.error
+    import urllib.parse
+    import urllib.request
 
-    result = subprocess.run(
-        ["docker", "buildx", "imagetools", "inspect", "--raw", image_ref],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip().splitlines()
-        first_err = stderr[0] if stderr else f"exit {result.returncode}"
-        return None, f"docker buildx imagetools inspect failed: {first_err}"
+    parsed = _parse_image_ref(image_ref)
+    if parsed is None:
+        return None, f"could not parse image ref: {image_ref}"
+    registry, name, reference = parsed
+
+    ngc_key = os.environ.get("NGC_CLI_API_KEY") or os.environ.get("NGC_API_KEY")
+    token, token_err = _fetch_bearer_token(registry, name, ngc_key)
+    if token_err:
+        return None, token_err
+
+    manifest_url = f"https://{registry}/v2/{name}/manifests/{urllib.parse.quote(reference, safe=':')}"
+    req = urllib.request.Request(manifest_url)
+    req.add_header("Accept", ", ".join(_OCI_INDEX_MEDIA_TYPES))
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
 
     try:
-        manifest = json.loads(result.stdout)
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        return None, f"manifest fetch {manifest_url} returned {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return None, f"network error fetching manifest: {exc}"
+
+    try:
+        manifest = json.loads(body)
     except json.JSONDecodeError as exc:
         return None, f"manifest is not valid JSON: {exc}"
 
@@ -226,12 +341,6 @@ def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | No
         ),
         None,
     )
-
-
-def shutil_which(name: str) -> str | None:
-    # Inlined to avoid an extra import at module load when docker is absent.
-    import shutil
-    return shutil.which(name)
 
 
 def discover_compose_files(repo_root: Path) -> list[Path]:
