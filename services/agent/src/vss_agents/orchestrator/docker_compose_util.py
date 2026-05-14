@@ -126,6 +126,8 @@ class DryRunRecipe:
     vlm_name: str | None
     vlm_endpoint_url: str | None
     vlm_model_type: str | None
+    llm_enable_thinking: str | None
+    nim_kvcache_percent: str | None
     output_env_file: Path
     output_compose_file: Path
     deployments_dir: Path
@@ -157,6 +159,8 @@ def create_dry_run_recipe(
     vlm_name: str | None = None,
     vlm_endpoint_url: str | None = None,
     vlm_model_type: str | None = None,
+    llm_enable_thinking: str | None = None,
+    nim_kvcache_percent: str | None = None,
     model_resolution: Any,
     output_env_file: str,
     output_compose_file: str,
@@ -211,6 +215,8 @@ def create_dry_run_recipe(
         vlm_name=(vlm_name or "").strip() or None,
         vlm_endpoint_url=(vlm_endpoint_url or "").strip() or None,
         vlm_model_type=(vlm_model_type or "").strip() or None,
+        llm_enable_thinking=(llm_enable_thinking or "").strip() or None,
+        nim_kvcache_percent=(nim_kvcache_percent or "").strip() or None,
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
         deployments_dir=deployments_path,
@@ -356,6 +362,10 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["VLM_MODE"] = "remote"
     if config.vlm_model_type:
         merged["VLM_MODEL_TYPE"] = config.vlm_model_type
+    if config.llm_enable_thinking:
+        merged["LLM_ENABLE_THINKING"] = config.llm_enable_thinking
+    if config.nim_kvcache_percent:
+        merged["NIM_KVCACHE_PERCENT"] = config.nim_kvcache_percent
     merged.update(config.env_overrides)
 
     host_ip = (

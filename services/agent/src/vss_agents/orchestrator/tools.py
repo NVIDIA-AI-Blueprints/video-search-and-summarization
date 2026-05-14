@@ -275,6 +275,8 @@ class OrchestratorRuntimeSettings(BaseSettings):
     vlm_name: str = Field(default="", validation_alias="VLM_NAME")
     vlm_endpoint_url: str = Field(default="", validation_alias="VLM_ENDPOINT_URL")
     vlm_model_type: str = Field(default="", validation_alias="VLM_MODEL_TYPE")
+    llm_enable_thinking: str = Field(default="", validation_alias="LLM_ENABLE_THINKING")
+    nim_kvcache_percent: str = Field(default="", validation_alias="NIM_KVCACHE_PERCENT")
 
     @field_validator(
         "ngc_cli_api_key",
@@ -288,6 +290,8 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "vlm_name",
         "vlm_endpoint_url",
         "vlm_model_type",
+        "llm_enable_thinking",
+        "nim_kvcache_percent",
     )
     @classmethod
     def _strip_value(cls, value: str) -> str:
@@ -991,6 +995,8 @@ async def vss_orchestrator(
                     vlm_name=runtime_settings.vlm_name,
                     vlm_endpoint_url=runtime_settings.vlm_endpoint_url,
                     vlm_model_type=runtime_settings.vlm_model_type,
+                    llm_enable_thinking=runtime_settings.llm_enable_thinking,
+                    nim_kvcache_percent=runtime_settings.nim_kvcache_percent,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),
