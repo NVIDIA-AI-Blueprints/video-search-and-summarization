@@ -119,27 +119,15 @@ Three `doc_type` values are written per streamed video — `raw_events` (per VLM
 
 ## Additional backends (`rag_lib`, `langchain`, `llama_index`)
 
-Three more backends are available behind opt-in dependencies (`vss-agents[rag_lib]`, `vss-agents[langchain]`, `vss-agents[llama_index]`). They are not bundled into the default agent image, so enabling them needs a one-time agent image rebuild.
+Three more backends are available behind opt-in Python packages (`vss-agents[rag_lib]`, `vss-agents[langchain]`, `vss-agents[llama_index]`). Enabling one is a one-time agent image rebuild that adds the package.
 
 ### Enabling one
 
-1. Edit `services/agent/docker/Dockerfile`. Find the line:
-   ```dockerfile
-   uv sync --frozen --no-dev --no-editable --link-mode copy
-   ```
-   Append the extra(s) you want (comma to add more, e.g. `--extra langchain --extra llama_index`):
-   ```dockerfile
-   uv sync --frozen --no-dev --no-editable --link-mode copy --extra rag_lib
-   ```
-2. Rebuild the agent image and tag it locally:
-   ```bash
-   docker build -f services/agent/docker/Dockerfile -t vss-agent:<tag>-rag services
-   ```
-3. Point your profile's `.env` at the new tag:
-   ```
-   VSS_AGENT_IMAGE=vss-agent:<tag>-rag
-   ```
-4. `docker compose up` as normal. The shipped `docker-compose.yml` does not change.
+1. Add `--extra <backend>` (e.g. `--extra rag_lib`) to the `uv sync` line in `services/agent/docker/Dockerfile`, then rebuild the agent image with the same tag your deploy already uses.
+
+2. Add a `config_<backend>.yml` to your profile's configs directory and set `VSS_AGENT_CONFIG_FILE` to point at it.
+
+3. Bring the deployment up as usual.
 
 ### `rag_lib`
 
@@ -189,7 +177,7 @@ Same storage + ingestion model as `langchain` — embedded ChromaDB persist dire
 | `embed_base_url` | Embedding NIM base URL | `https://integrate.api.nvidia.com/v1` |
 | `embed_api_key` | NVIDIA API key | env `NVIDIA_API_KEY` |
 
-**Per-query `filters`** — filter pushdown is not supported; pass only `query`, `collection`, and `top_k`. Predicate (callable) filters are still applied client-side.
+**Per-query `filters`** — filter pushdown is not supported; pass only `query`, `collection`, and `top_k`.
 
 ## Revert
 
