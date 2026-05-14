@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Tests for lib.knowledge.adapters.langchain.
 
 The `langchain-chroma` / `langchain-nvidia-ai-endpoints` packages are an
