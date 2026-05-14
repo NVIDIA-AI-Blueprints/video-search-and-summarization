@@ -17,7 +17,7 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | `/video-summarization` | `/vss-summarize-video` |
 | `/video-understanding` | `/vss-ask-video` |
 | `/vios` | `/vss-manage-video-io-storage` |
-| `/vss-frag` | Not shipped in this branch; replaced by `/vss-generate-video-calibration` in the separate calibration skill PR. |
+| `/vss-frag` | `/vss-generate-video-report-rag` |
 
 ## Catalog
 
@@ -27,6 +27,7 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
 | [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Skill for deploying and calling the RT-VLM dense captioning microservice API. |
 | [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
+| [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Skill to generate video summary reports with Enterprise RAG using the VSS frag/RAG pipeline. |
 | [vss-query-analytics](vss-query-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
 | [vss-search-archive](vss-search-archive/SKILL.md) | Skills for searching video archives using natural language, multi-embedding fusion, and VLM critique. |
 | [vss-summarize-video](vss-summarize-video/SKILL.md) | Skill for summarizing a video through chunking, dense captioning, and aggregation functions using the Long Video Summarization (LVS) microservice. |
