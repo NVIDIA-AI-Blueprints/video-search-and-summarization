@@ -79,7 +79,7 @@ commons:
       - operation_type: "file_management"
         enabled: false
         target_directories:
-          - "${MDX_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
           action: "file_count"       # Count files matching pattern
           parameters:
@@ -261,14 +261,14 @@ commons:
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
-      - variable: MDX_SAMPLE_APPS_DIR
+      - variable: VSS_APPS_DIR
         required: true
         disallowed_values: ["", "/path/to/deployments"]
-        error_message: "MDX_SAMPLE_APPS_DIR must be set to a valid deployment path and must not be empty or the placeholder '/path/to/deployments'"
-      - variable: MDX_DATA_DIR
+        error_message: "VSS_APPS_DIR must be set to a valid deployment path and must not be empty or the placeholder '/path/to/deployments'"
+      - variable: VSS_DATA_DIR
         required: true
         disallowed_values: ["", "/path/to/vss-warehouse-app-data"]
-        error_message: "MDX_DATA_DIR must be set to a valid data path and must not be empty or the placeholder '/path/to/vss-warehouse-app-data'"
+        error_message: "VSS_DATA_DIR must be set to a valid data path and must not be empty or the placeholder '/path/to/vss-warehouse-app-data'"
       - variable: HOST_IP
         required: true
         disallowed_values: ["", "<HOST_IP>"]
@@ -533,7 +533,7 @@ commons:
 
       # Update NVStreamer configs
       - operation_type: "json_update"
-        target_file: ${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-config.json
+        target_file: ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/nvstreamer/configs/vst-config.json
         backup: true
         updates:
           data.nv_streamer_sync_file_count: ${final_stream_count}
@@ -541,7 +541,7 @@ commons:
 
       # Update VST config
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
@@ -550,7 +550,7 @@ commons:
 
       # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
         array_kv_updates:
           - list_key: app
@@ -563,16 +563,16 @@ commons:
                 set_key: value
                 set_value: "${spatial_analytics_source_sink_type}"
 
-      # vss-video-analytics-api (compose mounts MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/...)
+      # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
+        target_file: "${VSS_APPS_DIR}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
         backup: true
         updates:
           kafka.brokers: "${vss_video_analytics_kafka_brokers}"
 
       - operation_type: "file_management"
         target_directories:
-          - "${MDX_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
         file_management:
           action: "keep_count" # Keep only the last ${final_stream_count} videos in the directory
           parameters:
@@ -688,7 +688,7 @@ IGX-THOR:
 
       # Update VST config
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
@@ -739,7 +739,7 @@ DGX-SPARK:
 
       # Update VST config
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
         backup: true
         updates:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
