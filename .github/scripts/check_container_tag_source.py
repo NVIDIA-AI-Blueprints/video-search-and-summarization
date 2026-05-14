@@ -3,13 +3,25 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check that a deploy image tag points at the current source subtree.
 
-This mirrors the ci-vss-oss rebuild decision: resolve the image tag from the
-deploy compose files, extract the source commit suffix from the tag, and compare
-that commit's subtree hash with the current checkout's source subtree hash.
+For every ``vss-agent`` / ``vss-agent-ui`` image referenced from ``deploy/docker``
+compose + ``.env`` files, fetch the image's OCI index annotations from the
+registry and compare ``com.nvidia.vss.source_tree_sha`` to the current
+checkout's tree SHA for the corresponding source folder.
+
+The ``ci-vss-oss`` build pipeline (``ci/tools/create_manifest.py``) stamps that
+annotation at build time via ``docker buildx imagetools create --annotation
+index:com.nvidia.vss.source_tree_sha=…``. Reading it directly from the manifest
+sidesteps the brittle commit-SHA-in-tag lookup that breaks whenever a PR is
+squash- or rebase-merged (the build commit gets orphaned even though the source
+content survives unchanged on the merge target).
+
+A git-based fallback remains for images that lack the annotation (older builds
+predating the manifest-annotation rollout).
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -17,6 +29,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+
+SOURCE_TREE_SHA_LABEL = "com.nvidia.vss.source_tree_sha"
+SOURCE_PATH_LABEL = "com.nvidia.vss.source_path"
+IMAGE_NAME_LABEL = "com.nvidia.vss.image_name"
 
 TAG_COMMIT_RE = re.compile(r"(?:^|[-_/])(?P<sha>[0-9a-f]{7,40})(?:$|[+._-])", re.IGNORECASE)
 IMAGE_LINE_RE = re.compile(r"^\s*image:\s*(?P<ref>\S+)\s*(?:#.*)?$")
@@ -157,6 +173,67 @@ def tree_sha(repo: Path, commit: str, source_path: Path) -> str | None:
     return result.stdout.strip()
 
 
+@dataclass(frozen=True)
+class ImageManifestLabels:
+    source_tree_sha: str
+    source_path: str | None
+    image_name: str | None
+
+
+def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | None, str | None]:
+    """Read ``com.nvidia.vss.*`` annotations from the image's OCI manifest index.
+
+    Uses ``docker buildx imagetools inspect --raw`` (available on the GitHub-
+    hosted ``ubuntu-latest`` runner) to fetch the raw manifest JSON, then reads
+    the top-level ``annotations`` map. Returns ``(labels, None)`` on success, or
+    ``(None, reason)`` if the manifest can't be fetched or the annotation is
+    absent — caller will fall back to git-SHA resolution in that case.
+
+    The annotation is stamped at build time by ci-vss-oss
+    ``ci/tools/create_manifest.py`` and survives the artifacts-promotion copy
+    to ``nvstaging/vss-core`` (OCI annotations are part of the content-addressed
+    manifest, so they're preserved by any spec-compliant copy).
+    """
+    if not shutil_which("docker"):
+        return None, "docker CLI not available on this runner"
+
+    result = subprocess.run(
+        ["docker", "buildx", "imagetools", "inspect", "--raw", image_ref],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip().splitlines()
+        first_err = stderr[0] if stderr else f"exit {result.returncode}"
+        return None, f"docker buildx imagetools inspect failed: {first_err}"
+
+    try:
+        manifest = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        return None, f"manifest is not valid JSON: {exc}"
+
+    annotations = manifest.get("annotations") or {}
+    tree = annotations.get(SOURCE_TREE_SHA_LABEL)
+    if not tree:
+        return None, f"manifest has no {SOURCE_TREE_SHA_LABEL} annotation"
+
+    return (
+        ImageManifestLabels(
+            source_tree_sha=tree,
+            source_path=annotations.get(SOURCE_PATH_LABEL),
+            image_name=annotations.get(IMAGE_NAME_LABEL),
+        ),
+        None,
+    )
+
+
+def shutil_which(name: str) -> str | None:
+    # Inlined to avoid an extra import at module load when docker is absent.
+    import shutil
+    return shutil.which(name)
+
+
 def discover_compose_files(repo_root: Path) -> list[Path]:
     deploy = repo_root / DEPLOY_DIR
     files: set[Path] = set()
@@ -248,8 +325,49 @@ def check_resolved_image(
         print(f"    - {compose_rel}{suffix}")
 
     tag = image_tag(item.resolved_ref)
-    prefix = commit_prefix_from_tag(tag)
     print(f"  tag:           {tag or '<missing>'}")
+
+    # Primary path: read the build-time tree SHA from the image's OCI manifest
+    # annotations. This is the authoritative source of truth (set by
+    # ci-vss-oss ci/tools/create_manifest.py) and works regardless of whether
+    # the original build commit still exists in any git branch — which is the
+    # common case after a squash- or rebase-merge orphans the PR-head SHA.
+    labels, oci_reason = read_image_manifest_labels(item.resolved_ref)
+    if labels:
+        if labels.image_name and labels.image_name != config.image_name:
+            print(
+                f"  [FAIL] manifest {IMAGE_NAME_LABEL}={labels.image_name!r}, "
+                f"expected {config.image_name!r}"
+            )
+            return False
+        if labels.source_path and labels.source_path != src:
+            print(
+                f"  [FAIL] manifest {SOURCE_PATH_LABEL}={labels.source_path!r}, "
+                f"expected {src!r}"
+            )
+            return False
+        print(f"  manifest:      {SOURCE_TREE_SHA_LABEL}={labels.source_tree_sha}")
+        print(f"  comparing {src}/:")
+        print(f"    at HEAD ({current_commit[:12]}):  {current_tree}")
+        print(f"    in image manifest:              {labels.source_tree_sha}")
+        if labels.source_tree_sha == current_tree:
+            print("    → identical")
+            print("  [PASS]")
+            return True
+        print("    → DIFFERENT")
+        print(f"  [FAIL] {config.image_name} container does NOT match the current {src}/ source.")
+        print(f"         Image's source tree SHA at build time: {labels.source_tree_sha}")
+        print(f"         Current {src}/ tree SHA:               {current_tree}")
+        _print_fix_hint(config)
+        return False
+
+    # Fallback: pre-annotation images (predate the manifest-annotation rollout
+    # in ci-vss-oss). Resolve the commit SHA encoded in the tag suffix and
+    # compute the tree SHA at that commit locally.
+    print(f"  manifest:      <no {SOURCE_TREE_SHA_LABEL} annotation> ({oci_reason})")
+    print("  falling back to git-SHA resolution …")
+
+    prefix = commit_prefix_from_tag(tag)
     if not prefix:
         print("  [FAIL] tag does not contain a git commit SHA suffix; cannot verify source.")
         return False
@@ -257,7 +375,13 @@ def check_resolved_image(
     tag_commit = resolve_commit(repo_root, prefix)
     if not tag_commit:
         print(f"  built from:    {prefix}  (NOT found in this checkout)")
-        print("  [FAIL] could not resolve this SHA locally. Try: git fetch --no-tags origin <branch>")
+        print(
+            "  [FAIL] could not resolve this SHA locally and the image has no "
+            f"{SOURCE_TREE_SHA_LABEL} annotation. This usually happens after a "
+            "squash/rebase-merge orphaned the build commit. Re-promote the "
+            "image with a manifest annotation, or pin a tag whose suffix is a "
+            "develop-resident SHA."
+        )
         return False
     print(f"  built from:    {tag_commit}")
 
@@ -276,6 +400,11 @@ def check_resolved_image(
     print("    → DIFFERENT")
     print(f"  [FAIL] {config.image_name} container does NOT match the current {src}/ source.")
     print(f"         See the diff:  git diff {tag_commit[:12]} HEAD -- {src}")
+    _print_fix_hint(config)
+    return False
+
+
+def _print_fix_hint(config: ImageConfig) -> None:
     print()
     print("  How to fix:")
     print("    1. Find the 'Trigger Downstream Pipeline' job on this PR's CI run.")
@@ -286,7 +415,6 @@ def check_resolved_image(
     print(f"    3. Update the {config.image_name} tag in the (compose, env)")
     print("       combination(s) listed above so they reference the new tag,")
     print("       commit, and push.")
-    return False
 
 
 def verify(repo_root: Path, config: ImageConfig) -> int:
