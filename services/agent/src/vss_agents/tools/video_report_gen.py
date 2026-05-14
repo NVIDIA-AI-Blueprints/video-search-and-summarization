@@ -861,6 +861,14 @@ def _mmss_to_iso(time_str: str, ref_timestamp: str) -> str:
     return datetime_to_iso8601(result_dt)
 
 
+# Minimum clip duration handed to VST. VST aligns clips to video keyframes
+# (I-frames), which are typically 2-3 s apart. A range shorter than this can land
+# entirely between two I-frames and produce an unplayable clip — observed for
+# sub-second LVS stream events. Expand short ranges symmetrically around their
+# midpoint so VST is guaranteed at least one I-frame inside the window.
+_MIN_CLIP_DURATION_SECONDS = 4.0
+
+
 async def _inject_video_clips(
     content: str,
     sensor_id: str,
@@ -872,8 +880,10 @@ async def _inject_video_clips(
 
     For each timestamp range [Xs-Ys] found:
     1. Parse start and end times
-    2. Generate video clip URL using VST
-    3. Inject [Watch Clip] link right after the timestamp
+    2. Expand sub-``_MIN_CLIP_DURATION_SECONDS`` ranges around their midpoint
+       so VST has a keyframe inside the window
+    3. Generate video clip URL using VST
+    4. Inject [Watch Clip] link right after the (original) timestamp
 
     Args:
         content: Markdown content with timestamps in [Xs-Ys] format
@@ -919,12 +929,26 @@ async def _inject_video_clips(
         start_time = float(match.group(2))
         end_time = float(match.group(3))
 
+        # Expand short ranges so VST has a keyframe inside the requested window.
+        clip_start, clip_end = start_time, end_time
+        if clip_end - clip_start < _MIN_CLIP_DURATION_SECONDS:
+            midpoint = (clip_start + clip_end) / 2
+            half = _MIN_CLIP_DURATION_SECONDS / 2
+            clip_start = max(0.0, midpoint - half)
+            clip_end = clip_start + _MIN_CLIP_DURATION_SECONDS
+
         try:
-            logger.info(f"Generating video clip URL for [{start_time}s-{end_time}s]")
+            logger.info(
+                "Generating video clip URL for event [%ss-%ss] (requesting %.2fs-%.2fs)",
+                start_time,
+                end_time,
+                clip_start,
+                clip_end,
+            )
             clip_url = await get_video_url(
                 stream_id=stream_id,
-                start_time=start_time,
-                end_time=end_time,
+                start_time=clip_start,
+                end_time=clip_end,
                 vst_internal_url=vst_internal_url,
             )
             # Replace internal URL with external URL for client access
@@ -935,7 +959,14 @@ async def _inject_video_clips(
             insert_pos = match.end()
             result_content = result_content[:insert_pos] + video_clip_link + result_content[insert_pos:]
         except Exception as e:
-            logger.warning(f"Failed to generate video clip URL for [{start_time}s-{end_time}s]: {e}")
+            logger.warning(
+                "Failed to generate video clip URL for event [%ss-%ss] (requested %.2fs-%.2fs): %s",
+                start_time,
+                end_time,
+                clip_start,
+                clip_end,
+                e,
+            )
             continue
 
     return result_content
