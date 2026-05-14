@@ -25,6 +25,13 @@ data:
     pipeline.ordered: true
     pipeline.ecs_compatibility: disabled
     api.http.host: "0.0.0.0"
+  pipelines.yml: |
+    - pipeline.id: mdx-kafka
+      path.config: "/usr/share/logstash/pipeline/mdx-kafka-logstash.conf"
+{{- if .Values.lvsPipeline.enabled }}
+    - pipeline.id: mdx-lvs
+      path.config: "/usr/share/logstash/pipeline/mdx-lvs-logstash.conf"
+{{- end }}
   mdx-kafka-logstash.conf: |
     input {
       kafka {
@@ -411,3 +418,7 @@ data:
         }
       }
     }
+{{- if .Values.lvsPipeline.enabled }}
+  mdx-lvs-logstash.conf: |
+{{ tpl (.Files.Get "files/mdx-lvs-logstash.conf") . | indent 4 }}
+{{- end }}

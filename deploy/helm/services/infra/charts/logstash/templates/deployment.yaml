@@ -99,9 +99,19 @@ spec:
               subPath: logstash.yml
               readOnly: true
             - name: logstash-config
-              mountPath: /usr/share/logstash/pipeline/logstash.conf
+              mountPath: /usr/share/logstash/config/pipelines.yml
+              subPath: pipelines.yml
+              readOnly: true
+            - name: logstash-config
+              mountPath: /usr/share/logstash/pipeline/mdx-kafka-logstash.conf
               subPath: mdx-kafka-logstash.conf
               readOnly: true
+            {{- if .Values.lvsPipeline.enabled }}
+            - name: logstash-config
+              mountPath: /usr/share/logstash/pipeline/mdx-lvs-logstash.conf
+              subPath: mdx-lvs-logstash.conf
+              readOnly: true
+            {{- end }}
             - name: logstash-libs
               mountPath: /opt/logstash-data-libs
             - name: pb-definitions

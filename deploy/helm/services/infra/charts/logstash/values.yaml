@@ -24,6 +24,8 @@ kafka:
   bootstrapServers: ""
 elasticsearch:
   host: ""
+lvsPipeline:
+  enabled: false
 service:
   port: 5044
 persistence:
