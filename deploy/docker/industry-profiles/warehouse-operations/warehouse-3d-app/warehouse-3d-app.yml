@@ -124,7 +124,7 @@ services:
       ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
       SEND_CONFIG_TO_SDR: ${SEND_CONFIG_TO_SDR:-true}
-      CALL_SENSOR_ADD_API: ${CALL_SENSOR_ADD_API:-true}
+      CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
       HARDWARE_PROFILE: $HARDWARE_PROFILE
       NUM_STREAMS: ${NUM_STREAMS:-4}
