@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,13 +15,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include:
-  - path: ./warehouse-2d-app/warehouse-2d-app.yml
-  - path: ./warehouse-3d-app/warehouse-3d-app.yml
-  - path: ./warehouse-mv3dt-app/warehouse-mv3dt-app.yml
+set -euo pipefail
 
-  # Warehouse Configuration - includes 2D, 3D (Sparse4D), and MV3DT apps
+############################
+## function: exit_with_msg
+############################
+exit_with_msg(){
+    echo -e "$1 \nExiting Script."
+    exit 1
+}
 
-  # Services are differentiated by -2d, -3d, and -mv3dt suffixes
-  # Use profiles: bp_wh_2d, bp_wh_kafka_2d, bp_wh_redis_2d (2D)
-  # bp_wh_kafka_3d, bp_wh_redis_3d (3D (Sparse4D)), bp_wh_kafka_mv3dt, bp_wh_redis_mv3dt (MV3DT)
+##############################
+## function: import_dashboard
+##############################
+import_dashboard(){
+    echo -e "Importing Dashboards"
+    curl -X POST localhost:5601/kibana/api/saved_objects/_import?overwrite=true \
+    -H "kbn-xsrf: true" \
+    --form file=@"/opt/vss/kibana-objects.ndjson" || exit_with_msg "Curl command to import kibana dashboard failed with error code $?."
+}
+
+######################
+## Main
+######################
+main(){
+    import_dashboard
+}
+main
