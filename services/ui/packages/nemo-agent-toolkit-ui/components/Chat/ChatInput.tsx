@@ -461,7 +461,7 @@ export const ChatInput = ({
                 <span
                   key={item.id}
                   className="inline-flex items-center gap-1 rounded-md bg-gray-100 dark:bg-gray-600 text-xs text-gray-700 dark:text-gray-200 pl-2 pr-1 py-1 max-w-[200px]"
-                  title={`${item.label} (${item.type})`}
+                  title={`${item.label} (${item.contextType})`}
                 >
                   <span className="truncate">{item.label}</span>
                   <button
