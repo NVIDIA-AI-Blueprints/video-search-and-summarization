@@ -171,13 +171,7 @@ vios:
       storageClass: ""
   vss-vios-postgres:
     enabled: true
-
-  # vss-vios-envoy-proxy:
-  #   enabled: false
-
-  # vss-vios-sdr:
-  #   enabled: false
-
+    
   vss-vios-sensor:
     enabled: true
     persistence:
