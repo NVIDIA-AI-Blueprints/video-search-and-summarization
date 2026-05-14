@@ -345,35 +345,45 @@ class BrevEnvironment(BaseEnvironment):
         logger.info("Brev instance %s is reachable", self._instance_name)
 
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
-        """If task.toml [metadata] declares both `profile` and
-        `prerequisite_deploy_mode`, ensure /deploy has run on the Brev
-        box for that profile-mode pair. Reads a single canonical
-        marker that records what is currently RUNNING on the box —
-        not a deploy log. See specs/stale-marker.spec.
+        """If task.toml [metadata] declares a `profile`, ensure /deploy
+        has run on the Brev box for it. Reads a single canonical marker
+        that records what is currently RUNNING on the box — not a
+        deploy log. See specs/stale-marker.spec.
 
         Algorithm:
           1. cat /tmp/skill-eval/active-deploy.txt on the box.
-          2. If contents == f"{profile}-{deploy_mode}" → no-op (hot).
+          2. If contents == desired → no-op (hot).
           3. Else → run /deploy via claude --print; the deploy skill's
              own step-0 teardown handles any prior stack. On success
              OVERWRITE the marker. On failure leave it alone — next
              trial re-evaluates.
 
+        Marker format (matches what deploy/test.sh writes):
+          - `base`, `lvs`, `search` → profile name only
+          - `alerts-verification`, `alerts-real-time` → alerts variants
+
+        Downstream adapters declare the prerequisite as:
+          - `profile = "<name>"` (always) and
+          - `prerequisite_deploy_mode = "<m>"` (alerts-only; selects
+            which alerts stack the trial needs)
+
         Trials with NO `profile` (skills that don't need a deployed
-        VSS) skip this entirely. Deploy/* trials set `profile` but NOT
-        `prerequisite_deploy_mode` (they ARE the deploy), so they also
-        early-return; their test.sh writes the marker on reward=1.0.
+        VSS) skip this entirely. Deploy/* trials set `profile` but
+        don't set `prerequisite_deploy_mode` (they ARE the deploy);
+        the early-return on missing-profile path doesn't fire for
+        them because their `_ensure_prerequisite_deployed` is never
+        called — the deploy adapter doesn't request a prereq.
 
         claude-code is expected on the box from a prior deploy/* trial's
         harbor agent setup; persists across trials on the reused
         vss-eval-* instance. Override the wall clock via
         PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
         profile = meta.get("profile")
-        deploy_mode = meta.get("prerequisite_deploy_mode")
-        if not profile or not deploy_mode:
+        if not profile:
             return
+        deploy_mode = meta.get("prerequisite_deploy_mode")
 
-        desired = f"{profile}-{deploy_mode}"
+        desired = f"{profile}-{deploy_mode}" if deploy_mode else profile
         marker_path = "/tmp/skill-eval/active-deploy.txt"
         probe = await _run_brev_exec(
             self._instance_name,
@@ -413,7 +423,9 @@ class BrevEnvironment(BaseEnvironment):
             env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
         env_prefix = " ".join(env_prefix_parts)
 
-        prompt = f"/deploy -p {profile} -m {deploy_mode}"
+        prompt = f"/deploy -p {profile}"
+        if deploy_mode:
+            prompt += f" -m {deploy_mode}"
         # Overwrite (>) the canonical marker on /deploy success — the
         # marker reflects what is currently running, not a deploy log.
         # PATH prepend: brev exec runs a non-interactive shell that does

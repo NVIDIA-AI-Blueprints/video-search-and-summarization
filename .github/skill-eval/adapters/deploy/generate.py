@@ -264,26 +264,30 @@ def generate_test_script(spec_name: str, profile: str) -> str:
 
     On a full-pass (reward == 1.0), OVERWRITES the canonical active
     marker `/tmp/skill-eval/active-deploy.txt` with this trial's
-    `<underlying_profile>-<deploy_mode>` so dependent trials (vios,
-    video-*) reading the marker via
+    `<underlying_profile>` (plus `-<deploy_mode>` only for alerts) so
+    dependent trials (vios, video-*) reading the marker via
     `BrevEnvironment._ensure_prerequisite_deployed` see what is currently
     RUNNING on the box. See specs/stale-marker.spec.
 
-    The marker format `<profile>-<mode>` is the producer↔consumer contract
-    shared with `envs/brev_env.py::_ensure_prerequisite_deployed` and
-    every non-deploy adapter's `prerequisite_deploy_mode` field. After
-    placement modes were dropped from the deploy adapter, non-alerts
-    profiles get the default token `remote-all` (which every downstream
-    adapter still writes as its `prerequisite_deploy_mode`), so the
-    contract stays intact without forcing downstream changes. Changing
-    the token here means updating every downstream adapter + the
-    consumer at the same time."""
+    Marker format:
+      - `base`, `lvs`, `search` — profile name only (placement is
+        env-driven, not a marker dimension).
+      - `alerts-verification`, `alerts-real-time` — alerts has two
+        distinct stacks (`/deploy -m verification` vs `-m real-time`)
+        so the mode is part of the marker.
+
+    Consumer (`_ensure_prerequisite_deployed`) builds its desired
+    marker the same way: `profile + ("-" + prerequisite_deploy_mode if
+    set else "")`. Non-alerts downstream adapters declare just
+    `profile`; the alerts downstream case additionally declares
+    `prerequisite_deploy_mode`."""
     underlying_profile = deploy_profile(profile)
-    # Alerts splits on /deploy -m verification|real-time; every other
-    # profile defaults to "remote-all" to match what downstream adapters
-    # pass via `prerequisite_deploy_mode` in their task.toml.
-    deploy_mode_token = PROFILES[profile].get("deploy_mode") or "remote-all"
-    marker_token = f"{underlying_profile}-{deploy_mode_token}"
+    deploy_mode_token = PROFILES[profile].get("deploy_mode")
+    marker_token = (
+        f"{underlying_profile}-{deploy_mode_token}"
+        if deploy_mode_token
+        else underlying_profile
+    )
     return (
         "#!/bin/bash\n"
         "# deploy verifier: delegates to the generic LLM-as-judge\n"
