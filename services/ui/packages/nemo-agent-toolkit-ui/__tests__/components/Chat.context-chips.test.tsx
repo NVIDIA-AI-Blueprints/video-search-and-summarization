@@ -147,14 +147,12 @@ describe('ChatInput – query context item rendering', () => {
     ];
 
     const { container } = renderChatInput({ queryContextItems: items });
-    const placeholder = container.querySelector('[aria-hidden="true"]');
-    expect(placeholder).toBeNull();
+    expect(container.querySelector('[data-testid="chat-input-placeholder"]')).toBeNull();
   });
 
   it('shows placeholder text when no items and no content', () => {
     const { container } = renderChatInput({ queryContextItems: [] });
-    const placeholder = container.querySelector('[aria-hidden]');
-    expect(placeholder).toBeTruthy();
+    expect(container.querySelector('[data-testid="chat-input-placeholder"]')).toBeTruthy();
   });
 });
 
