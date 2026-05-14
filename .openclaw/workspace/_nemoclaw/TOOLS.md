@@ -91,33 +91,45 @@ same ops_id without restarting anything.
    `memory/YYYY-MM-DD.md`** (and keep the `docker_compose_id` too). Do this
    before any further reasoning — if the session drops next, you need it on
    disk to recover.
-2. **Poll `docker_status` every 30 seconds** with the saved ops_id until
+2. **Poll `docker_status` every 60 seconds** with the saved ops_id until
    `running: false`. A steady cadence also keeps the MCP session warm and
    reduces the chance of idle eviction. Ignore the server's
-   `recommended_poll_interval_s` hint — 30s is the configured cadence here.
-3. **On any session error** (HTTP 4xx mentioning session id, "Bad Request",
+   `recommended_poll_interval_s` hint — 60s is the configured cadence here.
+3. **Always pass `"tail_lines": 5` on heartbeat polls.** The server's
+   default of 80 returns tens of KB of `docker compose --build` output per
+   call; piling that into the LLM context every 60s bloats inference, makes
+   the openclaw UI flash while rendering huge tool-result panels, and can
+   freeze the session before the next tick. Only request a larger tail (up
+   to 1000) **once**, after the op finishes, or when you need to diagnose
+   an error.
+4. **On any session error** (HTTP 4xx mentioning session id, "Bad Request",
    silent hang past ~60s on what should be a fast call, or `tools/call`
    returning nothing): re-run handshake steps 1 and 2 above to mint a fresh
    `SID`, then immediately call `docker_status` with the saved ops_id and
    continue polling. Do **not** re-fire `docker_up` — the orchestrator will
    reject it with "Compose operation already running for docker_compose_id
    '<id>'", and you'd lose visibility into the in-flight deploy.
-4. **Deploy is done when** `docker_status` returns `running: false` with
+5. **Deploy is done when** `docker_status` returns `running: false` with
    `status: "success"` (exit_code 0). On `status: "error"`, fetch the tail
-   log and surface it. On `status: "cancelled"`, the op was preempted by a
-   `docker_down`.
+   log (`tail_lines: 200`) and surface it. On `status: "cancelled"`, the op
+   was preempted by a `docker_down`.
 
-### Recovery snippet
+### Heartbeat poll (use this every 60s, and on error too)
+
+Always pass `"tail_lines": 5`. Never raise it — the agent's LLM context is
+capped at ~32k tokens, and a larger tail across many polls is what pushes it
+over and freezes the session. If you need more detail on a failure, fetch
+container logs via the separate `docker_logs` tool by container name (not by
+re-querying `docker_status` with a bigger tail).
 
 ```bash
-# After a suspected drop, re-handshake (steps 1+2 above), then:
 OPS_ID="<paste from memory/YYYY-MM-DD.md>"
 curl -s -X POST http://host.openshell.internal:9902/mcp \
   -H "Mcp-Session-Id: $SID" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data @- <<EOF
-{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"docker_status","arguments":{"docker_compose_ops_id":"$OPS_ID","tail_lines":80}}}
+{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"docker_status","arguments":{"docker_compose_ops_id":"$OPS_ID","tail_lines":5}}}
 EOF
 ```
 
