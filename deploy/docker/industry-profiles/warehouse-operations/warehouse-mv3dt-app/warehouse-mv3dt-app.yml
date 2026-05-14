@@ -237,12 +237,12 @@ services:
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
     command: ["bash", "-c", "./ds-start-mv3dt.sh"]
     depends_on:
-      sdr-streamprocessing:
-        condition: service_started  
-        required: false
-      sdr-controller:
-        condition: service_started
-        required: false
+      # sdr-streamprocessing:
+      #   condition: service_started
+      #   required: false
+      # sdr-controller:
+      #   condition: service_started
+      #   required: false
       sensor-ms-mv3dt:
         condition: service_started
       broker-health-check:
