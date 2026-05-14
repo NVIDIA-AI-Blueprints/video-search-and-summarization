@@ -3,7 +3,7 @@ name: vss-deploy-dense-captioning
 description: >
   Use this skill when working with the RTVI VLM or RT-VLM microservice API on VSS 3.2.
   Generate dense captions and alerts for stored video files and live RTSP streams via
-  `/v1/generate_captions_alerts`; upload media via `/v1/files`; add and remove live
+  `/v1/generate_captions`; upload media via `/v1/files`; add and remove live
   streams with `/v1/streams/add` and `/v1/streams/delete/{stream_id}`; call
   OpenAI-compatible `/v1/chat/completions`; consume Kafka caption, incident, and error
   topics; or debug rtvi-vlm responses. For deployment, read
@@ -51,7 +51,7 @@ FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
   -F "media_type=video" | jq -r '.id')
 
 # 2. Generate captions + alerts (SSE stream of chunked responses)
-curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
@@ -68,7 +68,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
 ### Captions
 > Generate VLM captions and alerts for videos and live streams.
 
-#### `POST /v1/generate_captions_alerts` — Generate VLM captions (and alerts) for video/stream
+#### `POST /v1/generate_captions` — Generate VLM captions (and alerts) for video/stream
 
 **Required:**
 | Field | Type | Description |
@@ -95,7 +95,7 @@ curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
 | `mm_processor_kwargs` | object | — | Extra kwargs for the multimodal processor (e.g. size, shortest/longest edge) |
 
 ```bash
-curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -111,17 +111,19 @@ curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
 `content`, and a terminal `{"status": "completed"}` event.
 **Response (200, non-stream):** `{ "id", "object": "caption", "choices": [{...}], "usage": {...} }`.
 
-#### `DELETE /v1/generate_captions_alerts/{stream_id}` — Stop caption generation for a live stream
+#### `DELETE /v1/generate_captions/{stream_id}` — Stop caption generation for a live stream, if exposed
 
-Stops inference while leaving the stream registered. Pair with
-`DELETE /v1/streams/delete/{stream_id}` to also un-register the RTSP source.
+Some deployments expose this companion stop endpoint. Check the live OpenAPI
+(`curl -fsS "$BASE_URL/openapi.json" | jq '.paths | keys[]'`) before using it.
+Always pair live-stream cleanup with `DELETE /v1/streams/delete/{stream_id}` to
+un-register the RTSP source.
 
 ```bash
-curl -X DELETE "$BASE_URL/v1/generate_captions_alerts/$STREAM_ID" -H "Authorization: Bearer $API_KEY"
+curl -X DELETE "$BASE_URL/v1/generate_captions/$STREAM_ID" -H "Authorization: Bearer $API_KEY"
 ```
 
 ### Files
-> Upload and manage media files consumed by `/v1/generate_captions_alerts`.
+> Upload and manage media files consumed by `/v1/generate_captions`.
 
 #### `POST /v1/files` — Upload a media file (multipart)
 ```bash
@@ -191,7 +193,7 @@ FILE_ID=$(curl -fsS -X POST "$BASE_URL/v1/files" \
   -H "Authorization: Bearer $API_KEY" \
   -F "file=@warehouse.mp4" -F "purpose=vision" -F "media_type=video" | jq -r '.id')
 
-curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$FILE_ID\",
@@ -214,8 +216,8 @@ STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
   | jq -r '.results[0].id')
 
-# Start continuous caption generation (runs until stream stops or DELETE)
-curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
+# Start continuous caption generation
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$STREAM_ID\",
@@ -227,8 +229,8 @@ curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
     \"stream\": true
   }" &
 
-# Tear down when finished:
-curl -X DELETE "$BASE_URL/v1/generate_captions_alerts/$STREAM_ID" -H "Authorization: Bearer $API_KEY"
+# Tear down when finished. If the live OpenAPI exposes
+# DELETE /v1/generate_captions/{stream_id}, call it before unregistering.
 curl -X DELETE "$BASE_URL/v1/streams/delete/$STREAM_ID"  -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -247,7 +249,7 @@ STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -d '{"streams":[{"liveStreamUrl":"rtsp://10.0.0.5:8554/warehouse","description":"warehouse cam"}]}' \
   | jq -r '.results[0].id')
 
-curl -N -X POST "$BASE_URL/v1/generate_captions_alerts" \
+curl -N -X POST "$BASE_URL/v1/generate_captions" \
   -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
   -d "{
     \"id\": \"$STREAM_ID\",
@@ -318,7 +320,7 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 
 ## Gotchas
 
-- **Use `/v1/generate_captions_alerts`, not `/v1/generate_captions`, unless the deployed service docs say otherwise.** `https://docs.nvidia.com/vss/latest/real-time-vlm-api.html` is the canonical reference.
+- **Use the live OpenAPI as the source of truth.** For VSS 3.2, the caption-generation endpoint is `/v1/generate_captions`. Some older references and images used `/v1/generate_captions_alerts`; do not assume that path exists unless `GET /openapi.json` shows it.
 - **URL-based input support depends on the deployed service version.** If the live schema does not expose `url`/`media_type`/`creation_time`, upload via `POST /v1/files` first and pass the returned `id`.
 - **Alert trigger = the tokens `"yes"` or `"true"` in the VLM response (case-insensitive)**. There is no per-request alert flag. Design prompts with an explicit `Anomaly Detected: Yes/No` line and set `system_prompt` to constrain the model to Yes/No answers (per the VSS docs). Every chunk is published to `KAFKA_TOPIC`; matched chunks additionally go to `KAFKA_INCIDENT_TOPIC` with `isAnomaly=true`, `info["triggerPhrase"]` set to the matched tokens, and `info["verdict"]="confirmed"`.
 - **`alert_category` support depends on the deployed service version.** If the live OpenAPI schema does not expose it, Kafka incidents default `incident.category = "vlm-alert"`.
@@ -329,4 +331,4 @@ Dense captioning with alerts on an RTSP stream and the HTTP-vs-Kafka response mo
 - **`enable_reasoning` requires a Cosmos Reason model.** Passing it with Qwen3-VL or other non-reasoning models is a no-op.
 - **`/v1/metrics` requires auth**, unlike `/v1/health/*`. Prometheus scrapers need the Bearer token.
 - **File upload is multipart, not JSON.** Use `-F file=@path -F purpose=vision -F media_type=video`; a `-d` body returns 422.
-- **Live-stream lifecycle requires two deletes to fully tear down:** `DELETE /v1/generate_captions_alerts/{stream_id}` stops inference; `DELETE /v1/streams/delete/{stream_id}` un-registers the stream. Skipping the second leaks RTSP connection resources.
+- **Live-stream lifecycle cleanup must unregister the stream:** `DELETE /v1/streams/delete/{stream_id}` removes the RTSP source. If the live schema also exposes `DELETE /v1/generate_captions/{stream_id}`, call it first to stop inference explicitly.

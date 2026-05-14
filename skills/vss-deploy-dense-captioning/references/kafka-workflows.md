@@ -2,7 +2,7 @@
 
 ### 3. Dense captions with alerts from an RTSP stream (Kafka incidents)
 
-The same `/v1/generate_captions_alerts` endpoint emits alerts — there is no
+The same `/v1/generate_captions` endpoint emits alerts — there is no
 per-request alert flag. Alerts are driven by **prompt design + server-side phrase
 detection**: the server lower-cases each chunk's VLM response and checks for the tokens
 **`"yes"` or `"true"`**. If either appears, the server builds an incident protobuf
@@ -22,7 +22,7 @@ Pair it with `system_prompt` that constrains the model to answer Yes/No.
 When `KAFKA_ENABLED=true`, the same request produces both outputs: an HTTP
 response to the caller and Kafka records for downstream message-bus consumers.
 
-**HTTP response** from `POST /v1/generate_captions_alerts`:
+**HTTP response** from `POST /v1/generate_captions`:
 - **`stream=true`** — Server-Sent Events. One SSE event per chunk containing the
   `VlmCaptionResponse` fields (`start_ts`, `end_ts`, `content`, `chunk_id` when
   supported). Terminated by `[DONE]` per OpenAI-style SSE convention.

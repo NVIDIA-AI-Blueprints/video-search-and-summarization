@@ -18,7 +18,7 @@ host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
 ## 2. Related Skill
 
 The top-level `skills/vss-deploy-dense-captioning/SKILL.md` file covers the VSS 3.2 API
-(`/v1/generate_captions_alerts`, `/v1/files`, `/v1/streams/add`,
+(`/v1/generate_captions`, `/v1/files`, `/v1/streams/add`,
 `/v1/chat/completions`, Kafka topics, and the four standard workflows). This
 reference answers "how do I deploy / debug rtvi-vlm?"; the top-level skill
 answers "how do I call rtvi-vlm?". Hit `http://localhost:${RTVI_VLM_PORT}/docs`
