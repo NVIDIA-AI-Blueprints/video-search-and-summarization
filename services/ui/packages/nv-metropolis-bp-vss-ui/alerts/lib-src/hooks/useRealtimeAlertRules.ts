@@ -49,16 +49,21 @@ export const useRealtimeAlertRules = ({
   const [rules, setRules] = useState<RealtimeAlertRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
 
   const fetchRules = useCallback(
-    async (signal?: AbortSignal): Promise<RealtimeAlertRule[]> => {
+    async (
+      signal?: AbortSignal,
+      options?: { minLoadingMs?: number },
+    ): Promise<RealtimeAlertRule[]> => {
       if (!alertsApiUrl) {
         setError('Alerts API URL is not configured');
         return [];
       }
       setLoading(true);
       setError(null);
+      const startedAt = Date.now();
       try {
         const response = await fetch(
           `${buildBase(alertsApiUrl)}${REALTIME_PATH}`,
@@ -71,6 +76,7 @@ export const useRealtimeAlertRules = ({
         const list: RealtimeAlertRule[] = Array.isArray(body?.rules) ? body.rules : [];
         if (signal?.aborted) return [];
         setRules(list);
+        setLastRefreshedAt(new Date());
         return list;
       } catch (err) {
         // Swallow aborts silently — they fire intentionally on unmount.
@@ -81,12 +87,33 @@ export const useRealtimeAlertRules = ({
         setError(message);
         return [];
       } finally {
+        const minLoadingMs = options?.minLoadingMs ?? 0;
+        if (minLoadingMs > 0 && !signal?.aborted) {
+          const remaining = minLoadingMs - (Date.now() - startedAt);
+          if (remaining > 0) {
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, remaining);
+              signal?.addEventListener('abort', () => {
+                clearTimeout(timer);
+                resolve();
+              });
+            });
+          }
+        }
         if (!signal?.aborted) {
           setLoading(false);
         }
       }
     },
     [alertsApiUrl],
+  );
+
+  // Public-facing refresh: hides the internal AbortSignal from callers and
+  // forwards only the UI-relevant `minLoadingMs` knob. Internal callers
+  // (useEffect, createRule) still use `fetchRules` directly.
+  const refetch = useCallback(
+    (options?: { minLoadingMs?: number }) => fetchRules(undefined, options),
+    [fetchRules],
   );
 
   const createRule = useCallback(
@@ -150,5 +177,13 @@ export const useRealtimeAlertRules = ({
     };
   }, [fetchRules]);
 
-  return { rules, loading, error, refetch: fetchRules, createRule, deleteRule };
+  return {
+    rules,
+    loading,
+    error,
+    lastRefreshedAt,
+    refetch,
+    createRule,
+    deleteRule,
+  };
 };
