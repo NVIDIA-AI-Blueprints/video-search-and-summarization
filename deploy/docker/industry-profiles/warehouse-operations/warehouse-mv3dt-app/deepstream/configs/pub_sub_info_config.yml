@@ -1,0 +1,22 @@
+pubBrokerTopicStr:
+  Camera: localhost:1883;/trck/Camera
+  Camera_01: localhost:1883;/trck/Camera_01
+  Camera_02: localhost:1883;/trck/Camera_02
+  Camera_03: localhost:1883;/trck/Camera_03
+subPeerBrokerTopicStrs:
+  Camera:
+  - localhost:1883;/trck/Camera_01
+  - localhost:1883;/trck/Camera_02
+  - localhost:1883;/trck/Camera_03
+  Camera_01:
+  - localhost:1883;/trck/Camera
+  - localhost:1883;/trck/Camera_02
+  - localhost:1883;/trck/Camera_03
+  Camera_02:
+  - localhost:1883;/trck/Camera
+  - localhost:1883;/trck/Camera_01
+  - localhost:1883;/trck/Camera_03
+  Camera_03:
+  - localhost:1883;/trck/Camera
+  - localhost:1883;/trck/Camera_01
+  - localhost:1883;/trck/Camera_02

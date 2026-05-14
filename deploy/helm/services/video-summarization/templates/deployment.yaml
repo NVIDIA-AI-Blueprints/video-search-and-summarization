@@ -43,6 +43,8 @@ spec:
       {{- $esHost := .Values.elasticsearchHost | default (ternary (printf "%s-elasticsearch" $release) "elasticsearch" $pfx) }}
       {{- $esPort := .Values.elasticsearchPort | default "9200" }}
       {{- $esTransportPort := .Values.elasticsearchTransportPort | default "9300" }}
+      {{- $kafkaHost := ternary (printf "%s-kafka-kafka" $release) "kafka-kafka" $pfx }}
+      {{- $kafkaBootstrap := .Values.kafkaBootstrapServers | default (printf "%s:9092" $kafkaHost) }}
       {{- $llmSvc := .Values.llmService | default "nvidia-nemotron-nano-9b-v2" }}
       {{- $vlmSvc := .Values.vlmService | default "nvidia-cosmos-reason2-8b" }}
       {{- /* Same base URL as vss-agent (global / subchart); LVS OpenAI paths need /v1 — append when missing */}}
@@ -111,6 +113,8 @@ spec:
             - name: {{ .name }}
               value: {{ .value | quote }}
             {{- end }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ $kafkaBootstrap | quote }}
             - name: ES_HOST
               value: {{ $esHost | quote }}
             - name: ES_PORT
