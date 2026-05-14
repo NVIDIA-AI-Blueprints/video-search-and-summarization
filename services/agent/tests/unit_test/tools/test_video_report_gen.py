@@ -24,8 +24,10 @@ from vss_agents.tools.video_report_gen import VideoReportGenInput
 from vss_agents.tools.video_report_gen import VideoReportGenOutput
 from vss_agents.tools.video_report_gen import _convert_markdown_to_pdf
 from vss_agents.tools.video_report_gen import _divide_video_into_chunks
+from vss_agents.tools.video_report_gen import _format_lvs_response
 from vss_agents.tools.video_report_gen import _normalize_chunk_timestamps
 from vss_agents.tools.video_report_gen import _parse_timestamps
+from vss_agents.tools.video_report_gen import _stream_events_to_offsets
 from vss_agents.tools.video_understanding import VideoUnderstandingInput
 from vss_agents.tools.video_understanding import VideoUnderstandingOffsetInput
 
@@ -413,3 +415,50 @@ class TestResourcesSectionFormatting:
                 # PDF was generated successfully - the CSS is valid
                 assert os.path.exists(pdf_path), "PDF file should be created"
                 assert os.path.getsize(pdf_path) > 0, "PDF file should not be empty"
+
+
+class TestStreamEventsToOffsets:
+    """Test conversion of ISO 8601 stream-event timestamps to float-second offsets."""
+
+    def test_iso_event_timestamps_become_offsets(self):
+        anchor = "2026-05-13T10:09:50.000Z"
+        content = {
+            "video_summary": "narrative",
+            "events": [
+                {"start_time": "2026-05-13T10:09:53.000Z", "end_time": "2026-05-13T10:09:58.000Z", "description": "a"},
+                {"start_time": "2026-05-13T10:10:00.500Z", "end_time": "2026-05-13T10:10:05.500Z", "description": "b"},
+            ],
+        }
+        converted = _stream_events_to_offsets(content, anchor)
+        assert [e["start_time"] for e in converted["events"]] == [3.0, 10.5]
+        assert [e["end_time"] for e in converted["events"]] == [8.0, 15.5]
+
+    def test_format_renders_offsets_not_iso(self):
+        """After conversion the renderer must emit `[Xs - Ys]`, not the `Zs` token."""
+        anchor = "2026-05-13T10:09:50.000Z"
+        content = {
+            "video_summary": "",
+            "events": [
+                {"start_time": "2026-05-13T10:09:53.000Z", "end_time": "2026-05-13T10:09:58.000Z", "description": "x"},
+            ],
+        }
+        rendered = _format_lvs_response(_stream_events_to_offsets(content, anchor))
+        assert "Zs" not in rendered
+        assert "[3.0s - 8.0s]" in rendered
+
+    def test_unparseable_timestamps_are_left_alone(self):
+        anchor = "2026-05-13T10:09:50.000Z"
+        content = {"events": [{"start_time": "not-a-timestamp", "end_time": 5.0, "description": "x"}]}
+        converted = _stream_events_to_offsets(content, anchor)
+        assert converted["events"][0]["start_time"] == "not-a-timestamp"
+        assert converted["events"][0]["end_time"] == 5.0
+
+    def test_bad_anchor_returns_input_unchanged(self):
+        content = {"events": [{"start_time": "2026-05-13T10:09:53.000Z", "end_time": "2026-05-13T10:09:58.000Z"}]}
+        assert _stream_events_to_offsets(content, "not-iso") is content
+
+    def test_non_dict_events_pass_through(self):
+        anchor = "2026-05-13T10:09:50.000Z"
+        content = {"events": ["raw string event", 42]}
+        converted = _stream_events_to_offsets(content, anchor)
+        assert converted["events"] == ["raw string event", 42]

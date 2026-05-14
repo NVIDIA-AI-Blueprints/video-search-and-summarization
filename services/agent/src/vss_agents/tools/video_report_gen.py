@@ -23,6 +23,7 @@ Handles VLM prompt sanitization, video analysis, and report formatting.
 import asyncio
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
+import contextlib
 from datetime import datetime
 from datetime import timedelta
 import json
@@ -1119,6 +1120,48 @@ def _lvs_result_to_dict(lvs_response: Any) -> dict[str, Any] | None:
     return None
 
 
+def _stream_events_to_offsets(content: dict[str, Any], anchor_iso: str) -> dict[str, Any]:
+    """Rewrite ISO 8601 event timestamps in an LVS stream response as float-second offsets.
+
+    The LVS stream backend returns events with wall-clock ISO 8601 ``start_time`` /
+    ``end_time`` (anchored to the VST stream timeline). The report renderer and the
+    ``_inject_video_clips`` / ``_inject_snapshots`` injectors all expect offset
+    seconds (``[Xs - Ys]``). This helper converts each event in-place-style (returns
+    a new dict) so the rest of the pipeline can stay offset-based and shared with
+    the uploaded-video path.
+
+    Events whose timestamps fail to parse are left unchanged so the renderer still
+    has something to show — better than dropping the event entirely.
+    """
+    try:
+        anchor = iso8601_to_datetime(anchor_iso)
+    except (ValueError, TypeError) as e:
+        logger.warning("Stream report: could not parse timeline anchor %r: %s", anchor_iso, e)
+        return content
+
+    events = content.get("events")
+    if not isinstance(events, list):
+        return content
+
+    converted: list[Any] = []
+    for event in events:
+        if not isinstance(event, dict):
+            converted.append(event)
+            continue
+        new_event = dict(event)
+        for key in ("start_time", "end_time"):
+            value = new_event.get(key)
+            if isinstance(value, str):
+                # Leave unparseable timestamps alone; the renderer will emit them as-is.
+                with contextlib.suppress(ValueError, TypeError):
+                    new_event[key] = (iso8601_to_datetime(value) - anchor).total_seconds()
+        converted.append(new_event)
+
+    new_content = dict(content)
+    new_content["events"] = converted
+    return new_content
+
+
 def _format_lvs_response(lvs_response: Any) -> str:
     """
     Format the LVS video understanding tool response into a readable markdown template.
@@ -1914,8 +1957,12 @@ Enter your choice or press Submit to keep current value:"""
         """Generate an LVS stream report for a configured live stream over a time range.
 
         Calls ``lvs_stream_understanding`` for the narrative + events, then reuses
-        the standard report header / markdown / PDF pipeline. Skips snapshot and
-        video-clip injection because streams are live (no historical clips/frames).
+        the standard report header / markdown / PDF pipeline (snapshot injection,
+        video-clip injection, and Resources playback URL), giving stream reports the
+        same structural richness as uploaded-video reports. The LVS stream backend
+        returns events with ISO 8601 wall-clock timestamps; we convert those to
+        seconds offsets anchored at the VST stream timeline start so the existing
+        offset-based renderer and injectors work uniformly.
 
         ``report_input.sensor_id`` is the VST stream/camera name; the stream must
         already be configured for LVS via ``lvs_config_media``. ``start_time`` /
@@ -1994,33 +2041,42 @@ Enter your choice or press Submit to keep current value:"""
                 "objects_of_interest": list(configured.objects_of_interest),
             }
 
-        vlm_content = _format_lvs_response(content)
+        # The LVS stream backend returns events with ISO 8601 timestamps anchored at
+        # the VST stream timeline start. Convert them to seconds offsets so the
+        # shared offset-based renderer and clip/snapshot injectors apply uniformly.
+        # If the timeline lookup fails we fall back to the raw content; the renderer
+        # will still produce something, just without injected clips/snapshots.
+        stream_id = configured.media_id if configured is not None else stream_name
+        try:
+            timeline_start, _ = await get_timeline(stream_id, config.vst_internal_url)
+            content_for_render = _stream_events_to_offsets(content, timeline_start)
+        except Exception as e:
+            logger.warning("Stream report: could not resolve VST timeline for '%s': %s", stream_name, e)
+            content_for_render = content
 
-        report_header = _create_report_header(stream_name, report_input.user_query, hitl_prompts=hitl_prompts)
-        markdown_content = report_header + vlm_content
+        vlm_content = _format_lvs_response(content_for_render)
 
-        # Streams are live; no historical playback URL or snapshot/clip injection.
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_stream_name = stream_name.replace("/", "_").replace(" ", "_").replace(":", "_")
-        filename = f"vss_report_{safe_stream_name}_{timestamp_str}.md"
-        pdf_filename = filename.replace(".md", ".pdf")
-
-        http_url, file_size = await _save_markdown_to_object_store(markdown_content, filename, object_store, config)
-        pdf_url, pdf_file_size = await _save_pdf_to_object_store(
-            markdown_content, filename, pdf_filename, object_store, config
+        report_metadata = await _generate_single_report(
+            sensor_id=stream_name,
+            vlm_content=vlm_content,
+            user_query=report_input.user_query,
+            hitl_prompts=hitl_prompts,
+            video_url_tool=video_url_tool,
+            picture_url_tool=picture_url_tool,
+            object_store=object_store,
         )
 
-        logger.info("Stream report generated for '%s': %s", stream_name, http_url)
+        logger.info("Stream report generated for '%s': %s", stream_name, report_metadata["http_url"])
 
         return VideoReportGenOutput(
-            http_url=http_url,
-            pdf_url=pdf_url,
+            http_url=report_metadata["http_url"],
+            pdf_url=report_metadata["pdf_url"],
             object_store_key=None,
             summary=f"Stream report generated for '{stream_name}'.",
-            file_size=file_size,
-            pdf_file_size=pdf_file_size,
+            file_size=report_metadata["file_size"],
+            pdf_file_size=report_metadata["pdf_file_size"],
             content=None,
-            video_url=None,
+            video_url=report_metadata["video_url"],
             hitl_prompts=hitl_prompts,
         )
 
