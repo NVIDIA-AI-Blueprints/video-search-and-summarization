@@ -521,15 +521,63 @@ Notes that have burned prior runs:
   the adapter (usually `<platform>`, e.g. `l40s`).
   `-i` / `--include` is a different flag and will silently match
   nothing or everything.
-- For multi-step specs (e.g. `vss-manage-video-io-storage`, `vss-search-archive`,
-  `vss-summarize-video`), `-p` points at the **platform directory**
-  (`.../<spec_stem>/<platform>/`) and harbor auto-discovers
-  the `step-1/ step-2/ ...` subdirs beneath it, each as its own
-  task. To run a specific step, pass
-  `--include-task-name "<platform>-step-<N>"`. Do NOT point
-  `-p` at a single `step-N/` dir — harbor then can't see sibling
-  steps and chaining breaks. This matches how
-  `adapters/vss-manage-video-io-storage/generate.py` lays out step dirs.
+- **Multi-step specs MUST be dispatched one step at a time, in
+  order, with skip-on-prior-fail.** Harbor's default scheduler
+  treats every `step-*/` subdir as an independent task and runs them
+  unordered (observed on PR #440: alerts ran step-1 → step-4 → step-2,
+  step-3 never dispatched at all). Spec checks for step N assume
+  the state established by step N-1; running them out of order
+  silently produces bogus failures. Use this dispatch loop instead
+  of a single `harbor run -p <platform_dir>` invocation:
+
+  ```bash
+  # Pre-condition: the spec lays out step_count subdirs under
+  # /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/ named
+  # step-1, step-2, ..., step-<step_count>. Read step_count from
+  # any step's task.toml [metadata] (it's the same on every step).
+  STEP_COUNT=$(grep -oP '^step_count\s*=\s*\K\d+' \
+    /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform>/step-1/task.toml)
+  RESULTS=/tmp/skill-eval/results/"$GITHUB_RUN_ID"
+
+  for STEP in $(seq 1 "$STEP_COUNT"); do
+    uvx harbor run \
+      --environment-import-path "envs.brev_env:BrevEnvironment" \
+      -p /tmp/skill-eval/datasets/<skill>/<spec_stem>/<platform> \
+      --include-task-name "<platform>-step-${STEP}" \
+      -a claude-code \
+      --model "$ANTHROPIC_MODEL" \
+      --ak api_base="$ANTHROPIC_BASE_URL/v1" \
+      --ae CLAUDE_CODE_DISABLE_THINKING=1 \
+      --environment-build-timeout-multiplier 3.0 \
+      --agent-timeout-multiplier 3.0 \
+      --verifier-timeout-multiplier 3.0 \
+      --max-retries 0 -n 1 --yes \
+      -o "$RESULTS"
+
+    # Read the just-completed step's reward. The trial dir is
+    # named step-<N>__<rand6>, so glob it.
+    REWARD=$(cat "$RESULTS"/*/*/step-${STEP}__*/verifier/reward.txt \
+      2>/dev/null | tail -n 1)
+    REWARD="${REWARD:-0}"
+
+    # Skip-on-prior-fail: if this step didn't fully pass, do not
+    # dispatch the remaining steps. Their checks assume this step's
+    # state was set up; running them produces noise, not signal.
+    # Record "skipped (prior-step fail)" in the result table.
+    awk -v r="$REWARD" 'BEGIN { exit !(r+0 < 1.0) }' && {
+      for SKIP in $(seq $((STEP + 1)) "$STEP_COUNT"); do
+        printf '%s\n' "skipped (prior-step fail, step=$STEP reward=$REWARD)" \
+          > /tmp/skill-eval/skipped-<spec_stem>-<platform>-step-${SKIP}.txt
+      done
+      break
+    }
+  done
+  ```
+
+  Single-step specs (most `vss-deploy-profile/*` specs) skip this loop entirely
+  and use the simpler one-shot invocation pattern. Detect by
+  reading `step_count` from `task.toml`: if 1, dispatch once
+  with `--include-task-name "<platform>"`; if N, use the loop.
 - `--environment-import-path` is a **Python module spec**
   (`envs.brev_env:BrevEnvironment`), not a filesystem path. Do not
   prepend `.github.skill-eval.` — `.github` isn't a valid Python
@@ -709,6 +757,21 @@ First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
 | L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | [trace](…) |
 | RTXPRO6000BW | ❌ 0.57 (4/7) | 0.571 | 14m 42s | [trace](…) |
 | …    | …     | …    | … | … |
+
+For multi-step specs, render one row per step and mark
+prior-fail-skips explicitly:
+
+| Platform | Step | Query | Result | Reward | Trace |
+|---|---|---|---|---|---|
+| L40S | step-1 | Deploy alerts (VLM real-time) | ✅ 1.0 (6/6) | 1.0 | [trace](…) |
+| L40S | step-2 | Add warehouse_sample via NVStreamer | ❌ 0.2 (1/5) | 0.2 | [trace](…) |
+| L40S | step-3 | Query incidents | ⏭️ skipped (prior-step fail, step-2 reward=0.2) | — | — |
+| L40S | step-4 | … | ⏭️ skipped | — | — |
+
+A `⏭️ skipped` row means the dispatch loop short-circuited after
+the previous step's reward < 1.0. The step was not run — its
+checks would have asserted state that was never set up. Read the
+prior step's trace to see the actual failure.
 
 ### Failing checks
 
