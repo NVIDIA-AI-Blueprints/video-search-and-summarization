@@ -22,7 +22,7 @@
     },
     "overrides": {
         "preact": "10.27.3",
-        "next": "15.5.15",
+        "next": "15.5.16",
         "@tootallnate/once": "3.0.1",
         "file-type": "21.3.2",
         "lodash": "4.18.1",
