@@ -180,9 +180,18 @@ class ImageManifestLabels:
     image_name: str | None
 
 
-_OCI_INDEX_MEDIA_TYPES = (
+_INDEX_ACCEPT = (
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
+)
+_MANIFEST_ACCEPT = (
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+)
+_CONFIG_ACCEPT = (
+    "application/vnd.oci.image.config.v1+json",
+    "application/vnd.docker.container.image.v1+json",
+    "application/json",
 )
 
 
@@ -276,29 +285,82 @@ def _fetch_bearer_token(registry: str, name: str, ngc_key: str | None) -> tuple[
     return token, None
 
 
-def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | None, str | None]:
-    """Read ``com.nvidia.vss.*`` annotations from the image's OCI manifest index.
+def _registry_get_json(
+    registry: str, name: str, reference: str, token: str | None, accept: tuple[str, ...]
+) -> tuple[dict | None, str | None]:
+    """GET a manifest or blob from the OCI Distribution API and parse JSON.
 
-    Pulls the manifest directly via the OCI Distribution HTTP API with an
-    explicit ``Accept: application/vnd.oci.image.index.v1+json`` header so
-    annotation-preserving OCI format is requested deterministically. Going
-    via ``docker buildx imagetools inspect --raw`` works locally but on
-    ``ubuntu-24.04`` runners the bundled docker negotiated a Docker manifest
-    list (no annotations) — the HTTP path is independent of the local
-    docker version.
-
-    Returns ``(labels, None)`` on success, ``(None, reason)`` otherwise.
-    Caller will fall back to git-SHA resolution when this returns ``None``.
-
-    The annotation is stamped at build time by ci-vss-oss
-    ``ci/tools/create_manifest.py`` and survives the artifacts-promotion copy
-    to ``nvstaging/vss-core`` (OCI annotations are part of the content-
-    addressed manifest, so they're preserved by any spec-compliant copy).
+    ``reference`` is either a tag string or a ``sha256:...`` digest.
     """
     import urllib.error
     import urllib.parse
     import urllib.request
 
+    url = f"https://{registry}/v2/{name}/manifests/{urllib.parse.quote(reference, safe=':')}"
+    if reference.startswith("sha256:") and "blobs" in accept[0]:
+        # Heuristic: image config is served from the blobs endpoint, not manifests.
+        # We pivot below for clarity instead.
+        url = f"https://{registry}/v2/{name}/blobs/{reference}"
+    req = urllib.request.Request(url)
+    req.add_header("Accept", ", ".join(accept))
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        return None, f"GET {url} returned {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return None, f"network error fetching {url}: {exc}"
+    try:
+        return json.loads(body), None
+    except json.JSONDecodeError as exc:
+        return None, f"response from {url} is not valid JSON: {exc}"
+
+
+def _registry_get_blob(
+    registry: str, name: str, digest: str, token: str | None, accept: tuple[str, ...]
+) -> tuple[dict | None, str | None]:
+    """GET an image config blob from the OCI ``blobs`` endpoint and parse JSON."""
+    import urllib.error
+    import urllib.request
+
+    url = f"https://{registry}/v2/{name}/blobs/{digest}"
+    req = urllib.request.Request(url)
+    req.add_header("Accept", ", ".join(accept))
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        return None, f"GET {url} returned {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return None, f"network error fetching {url}: {exc}"
+    try:
+        return json.loads(body), None
+    except json.JSONDecodeError as exc:
+        return None, f"response from {url} is not valid JSON: {exc}"
+
+
+def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | None, str | None]:
+    """Read ``com.nvidia.vss.*`` metadata from the image's config blob labels.
+
+    Both the agent and the UI Dockerfiles emit ``LABEL com.nvidia.vss.*`` lines
+    (or the multiarch-builder stamps them via ``--label``), so the resulting
+    image **config blob** carries the source-tree-SHA label regardless of
+    whether the manifest is stored as an OCI image index or a Docker manifest
+    list. Reading the label from the config blob is therefore strictly more
+    portable than reading manifest-index annotations — both formats survive
+    the round-trip through nvcr.io and the artifacts-promotion copy.
+
+    Chain: top-level index/list → first platform manifest → config blob → ``Labels``.
+
+    Returns ``(labels, None)`` on success, or ``(None, reason)`` if the
+    registry rejects auth, no platform manifests are present, the config blob
+    can't be fetched, or the label is absent. Caller falls back to git-SHA
+    resolution in any of those cases.
+    """
     parsed = _parse_image_ref(image_ref)
     if parsed is None:
         return None, f"could not parse image ref: {image_ref}"
@@ -309,35 +371,57 @@ def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | No
     if token_err:
         return None, token_err
 
-    manifest_url = f"https://{registry}/v2/{name}/manifests/{urllib.parse.quote(reference, safe=':')}"
-    req = urllib.request.Request(manifest_url)
-    req.add_header("Accept", ", ".join(_OCI_INDEX_MEDIA_TYPES))
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
+    # 1. Fetch the top-level index/list.
+    index, err = _registry_get_json(registry, name, reference, token, _INDEX_ACCEPT)
+    if err:
+        return None, f"index fetch failed: {err}"
+    if index is None:
+        return None, "registry returned empty index"
 
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            body = resp.read().decode()
-    except urllib.error.HTTPError as exc:
-        return None, f"manifest fetch {manifest_url} returned {exc.code}: {exc.reason}"
-    except urllib.error.URLError as exc:
-        return None, f"network error fetching manifest: {exc}"
+    # 2. Pick a platform-bearing manifest entry (skip attestation manifests).
+    manifests = index.get("manifests") or []
+    if not manifests:
+        # Single-arch image: the response IS the platform manifest.
+        platform_manifest = index
+    else:
+        platform_manifest = None
+        for entry in manifests:
+            platform = entry.get("platform") or {}
+            if platform.get("architecture") in ("unknown", None):
+                continue
+            digest = entry.get("digest")
+            if not digest:
+                continue
+            platform_manifest_resp, err = _registry_get_json(
+                registry, name, digest, token, _MANIFEST_ACCEPT
+            )
+            if err:
+                continue
+            platform_manifest = platform_manifest_resp
+            break
+        if platform_manifest is None:
+            return None, "no usable platform manifest in index"
 
-    try:
-        manifest = json.loads(body)
-    except json.JSONDecodeError as exc:
-        return None, f"manifest is not valid JSON: {exc}"
+    # 3. Follow config.digest to the config blob, read its Labels.
+    config_ref = (platform_manifest.get("config") or {}).get("digest")
+    if not config_ref:
+        return None, "platform manifest has no config.digest"
+    config, err = _registry_get_blob(registry, name, config_ref, token, _CONFIG_ACCEPT)
+    if err:
+        return None, f"config blob fetch failed: {err}"
+    if config is None:
+        return None, "registry returned empty config blob"
 
-    annotations = manifest.get("annotations") or {}
-    tree = annotations.get(SOURCE_TREE_SHA_LABEL)
+    labels = (config.get("config") or {}).get("Labels") or {}
+    tree = labels.get(SOURCE_TREE_SHA_LABEL)
     if not tree:
-        return None, f"manifest has no {SOURCE_TREE_SHA_LABEL} annotation"
+        return None, f"image config has no {SOURCE_TREE_SHA_LABEL} label"
 
     return (
         ImageManifestLabels(
             source_tree_sha=tree,
-            source_path=annotations.get(SOURCE_PATH_LABEL),
-            image_name=annotations.get(IMAGE_NAME_LABEL),
+            source_path=labels.get(SOURCE_PATH_LABEL),
+            image_name=labels.get(IMAGE_NAME_LABEL),
         ),
         None,
     )
