@@ -78,15 +78,18 @@ infra:
     init:
       enabled: true
       objectsBundle: lvs
+  logstash:
+    enabled: true
+    lvsPipeline:
+      enabled: true
   kafka:
     enabled: true
     topicJob:
       enabled: true
-    # Compose parity: deploy/docker/services/video-summarization/compose.yml
-    # `lvs-kafka-topic-init` creates `raw-vlm-events-response` (rtvi-vlm →
-    # lvs-logstash) and `structured-events-summary` (vss-summarization
-    # publishes structured summaries). Kept the kafka subchart defaults so
-    # Kibana dashboards + rtvi-vlm incident topics continue to exist.
+    # Shared Logstash consumes the LVS RTVI caption and structured-summary
+    # topics through its optional LVS pipeline. Kept the kafka subchart
+    # defaults so Kibana dashboards + rtvi-vlm incident topics continue to
+    # exist.
     topics:
       - name: mdx-raw
       - name: mdx-bev
@@ -108,9 +111,8 @@ infra:
       - name: mdx-vlm
       - name: mdx-embed
       - name: mdx-embed-filtered
-      # LVS streams support (PR #196)
-      - name: raw-vlm-events-response
-      - name: structured-events-summary
+      - name: mdx-vlm-captions
+      - name: mdx-structured-events-summary
     persistence:
       size: 10Gi
       storageClass: ''
@@ -194,7 +196,7 @@ agent:
     vstInternalUrl: ""
     vstInternalIp: ""
     vssAgentExternalUrl: ""
-    vssAgentVersion: "3.2.0-26.05.2-460c70e75641"
+    vssAgentVersion: "3.2.0-26.05.2-2b9b7127c0bb"
     evalLlmJudgeName: ""
     evalLlmJudgeBaseUrl: ""
     reportsBaseUrl: ""
@@ -276,7 +278,7 @@ agent:
       - name: AGENT_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-460c70e75641" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-2b9b7127c0bb" }}'
       # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).
       # Set ENABLE_AUDIO=true for Nemotron Nano Omni audio-aware VLM.
       - name: ENABLE_AUDIO
@@ -451,6 +453,9 @@ rtvi:
     # Wait for the LVS Kafka broker and RTVI topics created by infra.kafka.topicJob.
     waitForKafka:
       enabled: true
+      topics:
+        - mdx-vlm-captions
+        - mdx-vlm-incidents
     # Docker parity: shape from services/rtvi/charts/rtvi-vlm/values.yaml.
     # Full list is required because the subchart replaces `env` rather than merging.
     env:
@@ -466,11 +471,10 @@ rtvi:
         value: "cosmos-reason2"
       - name: KAFKA_ENABLED
         value: "true"
-      # Raw VLM event topic produced by rtvi-vlm; consumed by lvs-logstash.
-      # Compose parity: RTVI_VLM_KAFKA_TOPIC in dev-profile-lvs/.env. The
-      # previous value `mdx-vlm` had no consumer in the LVS profile.
+      # Raw VLM event topic produced by rtvi-vlm; consumed by the shared
+      # Logstash LVS pipeline.
       - name: KAFKA_TOPIC
-        value: "raw-vlm-events-response"
+        value: "mdx-vlm-captions"
       - name: KAFKA_INCIDENT_TOPIC
         value: "mdx-vlm-incidents"
       - name: ERROR_MESSAGE_TOPIC
