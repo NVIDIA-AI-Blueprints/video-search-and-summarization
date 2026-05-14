@@ -100,22 +100,49 @@ services:
         condition: service_completed_successfully
 
   bp-configurator-2d-init:
-    image: alpine:3.23.4
+    extends:
+      file: ${VSS_APPS_DIR}/services/infra/compose.yml
+      service: broker-health-check
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "auto_calib_2d"]
-    container_name: vss-bp-configurator-2d-init
+    container_name: vss-configurator-2d-init
     network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
       STREAM_TYPE: $STREAM_TYPE
       MAX_RETRIES: 60
-      RETRY_INTERVAL: 5
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/init-scripts/broker-health-check.sh:/opt/broker-health-check.sh:ro
-    command: ["sh", "/opt/broker-health-check.sh"]
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-        required: false
+      RETRY_INTERVAL: 2
+      BOOTSTRAP_HOST: localhost
+      KAFKA_PORT: 9092
+      REDIS_PORT: 6379
+      KAFKA_TOPICS: '[{"name": "mdx-raw"},
+        {"name": "mdx-bev"},
+        {"name": "mdx-space-utilization"},
+        {"name": "mdx-alerts"},
+        {"name": "mdx-behavior"},
+        {"name": "mdx-behavior-plus"},
+        {"name": "mdx-frames"},
+        {"name": "mdx-mtmc"},
+        {"name": "mdx-rtls"},
+        {"name": "mdx-rtls-region-1"},
+        {"name": "mdx-amr"},
+        {"name": "mdx-vlm-alerts"},
+        {"name": "mdx-notification"},
+        {"name": "mdx-events"},
+        {"name": "mdx-incidents"},
+        {"name": "mdx-vlm-incidents"},
+        {"name": "mdx-vlm"},
+        {"name": "mdx-vlm-captions"},
+        {"name": "mdx-structured-events-summary"},
+        {"name": "mdx-embed"},
+        {"name": "mdx-embed-filtered"}]'
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ "$${BP_PROFILE}" = "auto_calib" ]; then
+          echo "BP_PROFILE is auto_calib. Broker health check is not required"
+        else
+          exec /scripts/check-$${STREAM_TYPE}-health.sh
+        fi
 
   bp-configurator-2d:
     image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
@@ -129,7 +156,6 @@ services:
       ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
       ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
-      SEND_CONFIG_TO_SDR: ${SEND_CONFIG_TO_SDR:-true}
       CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/$CONFIGURATOR_CONFIG_FILE
       HARDWARE_PROFILE: $HARDWARE_PROFILE
