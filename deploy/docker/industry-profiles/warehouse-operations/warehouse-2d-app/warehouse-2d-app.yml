@@ -99,6 +99,24 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
+  bp-configurator-2d-init:
+    image: alpine:3.23.4
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "auto_calib_2d"]
+    container_name: vss-configurator-init
+    network_mode: "host"
+    environment:
+      BP_PROFILE: $BP_PROFILE
+      STREAM_TYPE: $STREAM_TYPE
+      MAX_RETRIES: 60
+      RETRY_INTERVAL: 5
+    volumes:
+      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/init-scripts/broker-health-check.sh:/opt/broker-health-check.sh:ro
+    command: ["sh", "/opt/broker-health-check.sh"]
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+        required: false
+
   bp-configurator-2d:
     image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "auto_calib_2d"]
@@ -155,9 +173,8 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      broker-health-check:
+      bp-configurator-2d-init:
         condition: service_completed_successfully
-        required: false
     healthcheck:
       test:
         [
