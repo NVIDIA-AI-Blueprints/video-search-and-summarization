@@ -163,22 +163,54 @@ function set_alerts_ui_subtitle_from_mode() {
   esac
 }
 
-# Gets model name from remote API endpoint (works for both LLM and VLM)
-# Arguments: base_url (e.g., http://localhost:30082/v1)
-# Returns: model name from the /models endpoint, or empty string on error
+# Gets model name from remote API endpoint (works for both LLM and VLM).
+# Auto-select is only safe when the endpoint serves exactly one model
+# (e.g., a deployed NIM). For aggregate endpoints like
+# https://integrate.api.nvidia.com/v1/models that list every NIM, the first
+# entry is not a meaningful default (it has historically been a deprecated
+# model such as 01-ai/yi-large), so we require the caller to pass --llm /
+# --vlm explicitly and surface the available models.
+# Arguments:
+#   $1 base_url       e.g. http://localhost:30082 or https://integrate.api.nvidia.com
+#   $2 expected_type  "llm" or "vlm" — used to suggest the right --llm/--vlm flag
+# Returns: model name from the /models endpoint on stdout, or non-zero on error
 function get_remote_model_name() {
   local _base_url="${1}"
-  local _model_name _curl_exit_code
-  
-  _model_name="$(curl -s -f "${_base_url}/v1/models" 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null)"
+  local _expected_type="${2:-llm}"
+  local _response _model_count _model_name _curl_exit_code _model_list
+
+  _response="$(curl -s -f "${_base_url}/v1/models" 2>/dev/null)"
   _curl_exit_code=$?
-  
-  if [[ ${_curl_exit_code} -ne 0 ]] || [[ -z "${_model_name}" ]]; then
-    echo "[WARNING] Failed to retrieve model name from ${_base_url}/v1/models" >&2
+
+  if [[ ${_curl_exit_code} -ne 0 ]] || [[ -z "${_response}" ]]; then
+    echo "[WARNING] Failed to retrieve model list from ${_base_url}/v1/models" >&2
     echo ""
     return 1
   fi
-  
+
+  _model_count="$(echo "${_response}" | jq -r '.data | length' 2>/dev/null)"
+  if [[ -z "${_model_count}" ]] || [[ "${_model_count}" == "0" ]] || [[ "${_model_count}" == "null" ]]; then
+    echo "[WARNING] No models returned from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+
+  if [[ "${_model_count}" -gt 1 ]]; then
+    _model_list="$(echo "${_response}" | jq -r '.data[].id' 2>/dev/null | sed 's/^/    /')"
+    echo "[ERROR] ${_base_url}/v1/models returns ${_model_count} models — auto-select is unsafe (aggregate endpoints list every NIM and the first entry may be deprecated)." >&2
+    echo "[ERROR] Pass --${_expected_type} <model-name> to pick one explicitly. Available models at this endpoint:" >&2
+    echo "${_model_list}" >&2
+    echo ""
+    return 1
+  fi
+
+  _model_name="$(echo "${_response}" | jq -r '.data[0].id // empty' 2>/dev/null)"
+  if [[ -z "${_model_name}" ]]; then
+    echo "[WARNING] Could not extract model id from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+
   echo "${_model_name}"
   return 0
 }
@@ -903,7 +935,7 @@ function print_args() {
       if [[ -n "${llm}" ]]; then
         _llm_model="${llm}"
       else
-        _llm_model="$(get_remote_model_name "${llm_base_url}")"
+        _llm_model="$(get_remote_model_name "${llm_base_url}" "llm")"
       fi
     else
       _llm_model="${llm:-$(get_env_value "${_env_file}" "LLM_NAME")}"
@@ -931,7 +963,7 @@ function print_args() {
       if [[ -n "${vlm}" ]]; then
         _vlm_model="${vlm}"
       else
-        _vlm_model="$(get_remote_model_name "${vlm_base_url}")"
+        _vlm_model="$(get_remote_model_name "${vlm_base_url}" "vlm")"
       fi
     else
       _vlm_model="${vlm:-$(get_env_value "${_env_file}" "VLM_NAME")}"
@@ -1060,7 +1092,7 @@ function state_up() {
     if [[ -n "${llm}" ]]; then
       _llm_name="${llm}"
     else
-      _llm_name="$(get_remote_model_name "${llm_base_url}")"
+      _llm_name="$(get_remote_model_name "${llm_base_url}" "llm")"
       if [[ -z "${_llm_name}" ]]; then
         echo "[ERROR] Could not get LLM model name from ${llm_base_url}/v1/models. Pass --llm <model-name> to override."
         exit 1
@@ -1107,7 +1139,7 @@ function state_up() {
     if [[ -n "${vlm}" ]]; then
       _vlm_name="${vlm}"
     else
-      _vlm_name="$(get_remote_model_name "${vlm_base_url}")"
+      _vlm_name="$(get_remote_model_name "${vlm_base_url}" "vlm")"
       if [[ -z "${_vlm_name}" ]]; then
         echo "[ERROR] Could not get VLM model name from ${vlm_base_url}/v1/models. Pass --vlm <model-name> to override."
         exit 1
@@ -1350,9 +1382,9 @@ function state_up() {
 
     if [[ "${dry_run}" == "true" ]]; then
       echo "[DRY-RUN] mkdir -p ${data_directory}/models"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1 --org nvstaging"
-      echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
-      echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1"
+      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvstaging"
+      echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
+      echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2"
       echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
     else
       mkdir -p "${data_directory}/models"
@@ -1361,12 +1393,12 @@ function state_up() {
         registry \
         model \
         download-version \
-        nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1 \
+        nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
         --org nvstaging
 
-      mv rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
+      mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 
-      rm -rf rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1
+      rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
 
       chmod -R 777 "${data_directory}/models"
       echo "[INFO] RT-DETR model downloaded and installed to ${data_directory}/models"
