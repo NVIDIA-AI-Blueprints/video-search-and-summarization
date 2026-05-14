@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
-import { IconInbox, IconMessagePlus, IconCheck } from '@tabler/icons-react';
+import { IconInbox, IconCheck } from '@tabler/icons-react';
 import { Whisper, Tooltip } from 'rsuite';
 import { SearchData, QueryDataContext } from '../types';
 import { formatTime, parseDateAsLocal } from '../utils/Formatter';
@@ -45,16 +45,16 @@ const AddContextButton: React.FC<{ item: SearchData; onAddContext?: (ctx: QueryD
       size="small"
       onClick={handleClick}
       disabled={!onAddContext}
-      title="Add to Chat"
+      title="Add sensor context to chat"
     >
       {addedState === 'success' ? (
-        <IconCheck className="w-2.5 h-2.5" style={{ color: 'inherit' }} />
+        <>
+          <IconCheck className="w-2.5 h-2.5 shrink-0" style={{ color: 'inherit' }} />
+          <span className="text-xs">Added</span>
+        </>
       ) : (
-        <IconMessagePlus className="w-2.5 h-2.5" style={{ color: 'inherit' }} />
+        <span className="text-xs">+ Chat</span>
       )}
-      <span className="text-xs">
-        {addedState === 'success' ? 'Added' : 'Add to Chat'}
-      </span>
     </Button>
   );
 };
