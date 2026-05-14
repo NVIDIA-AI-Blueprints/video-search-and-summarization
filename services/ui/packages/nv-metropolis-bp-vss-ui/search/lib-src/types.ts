@@ -10,7 +10,16 @@
 export interface QueryDataContext {
   id: string;
   label: string;
-  type: string;
+  /**
+   * UI-only chip / grouping (e.g. tooltips). Not used by the backend — omitted from Chat `onSend`
+   * `[Context:…]` payload, which forwards only `data` fields.
+   *
+   * Possible types for futuristic use could be:
+   * - media/video
+   * - media/image
+   * - network-file
+   */
+  contextType: string;
   data: Record<string, unknown>;
 }
 

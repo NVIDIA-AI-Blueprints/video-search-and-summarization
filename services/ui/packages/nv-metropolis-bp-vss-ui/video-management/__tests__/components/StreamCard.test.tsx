@@ -12,6 +12,8 @@ jest.mock('../../lib-src/utils', () => ({
   },
   isRtspStream: (stream: StreamInfo) =>
     (stream.url ?? '').toLowerCase().startsWith('rtsp://'),
+  getStreamType: (stream: StreamInfo) =>
+    (stream.url ?? '').toLowerCase().startsWith('rtsp://') ? 'rtsp' : 'video',
   fetchPictureWithQueue: jest.fn(() => Promise.reject(new Error('no thumbnail in test'))),
 }));
 
@@ -171,12 +173,16 @@ describe('StreamCard — copy and chat context', () => {
 
     await waitFor(() => {
       expect(mockCopyToClipboard).toHaveBeenCalledWith(
-        JSON.stringify({ sensorName: videoStream.name, streamId: videoStream.streamId }, null, 2),
+        JSON.stringify(
+          { sensorName: videoStream.name, streamId: videoStream.streamId, mediaType: 'video' },
+          null,
+          2,
+        ),
       );
     });
   });
 
-  it('calls onAddChatQueryContext when + Chat is clicked', async () => {
+  it('emits contextType media/video for uploaded videos', async () => {
     const onAddChatQueryContext = jest.fn();
     renderStreamCard({ onAddChatQueryContext });
 
@@ -186,11 +192,25 @@ describe('StreamCard — copy and chat context', () => {
     expect(onAddChatQueryContext).toHaveBeenCalledWith({
       id: `video-mgmt-stream:${videoStream.streamId}`,
       label: videoStream.name,
-      type: 'video-stream',
-      data: { sensorName: videoStream.name, streamId: videoStream.streamId },
+      contextType: 'media/video',
+      data: { sensorName: videoStream.name, streamId: videoStream.streamId, mediaType: 'video' },
     });
     await waitFor(() => {
       expect(mockCopyToClipboard).toHaveBeenCalled();
+    });
+  });
+
+  it('emits contextType media/video for RTSP live streams', async () => {
+    const onAddChatQueryContext = jest.fn();
+    renderStreamCard({ stream: rtspStream, onAddChatQueryContext });
+
+    fireEvent.click(screen.getByRole('button', { name: /\+\s*chat/i }));
+
+    expect(onAddChatQueryContext).toHaveBeenCalledWith({
+      id: `video-mgmt-stream:${rtspStream.streamId}`,
+      label: rtspStream.name,
+      contextType: 'media/video',
+      data: { sensorName: rtspStream.name, streamId: rtspStream.streamId, mediaType: 'rtsp' },
     });
   });
 });

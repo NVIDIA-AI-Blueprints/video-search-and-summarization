@@ -50,13 +50,13 @@ class TestVSTVideoListOutput:
             video_list=[
                 {"name": "video1.mp4", "media_type": "video", "duration": 60.0},
                 {"name": "video2.mp4", "media_type": "video", "duration": 120.0},
-                {"name": "warehouse_cam", "media_type": "stream", "duration": 0.0},
+                {"name": "warehouse_cam", "media_type": "rtsp", "duration": 0.0},
             ]
         )
         assert len(output.video_list) == 3
         assert output.video_list[0]["name"] == "video1.mp4"
         assert output.video_list[0]["media_type"] == "video"
-        assert output.video_list[2]["media_type"] == "stream"
+        assert output.video_list[2]["media_type"] == "rtsp"
 
     def test_empty_list(self):
         output = VSTVideoListOutput(video_list=[])
