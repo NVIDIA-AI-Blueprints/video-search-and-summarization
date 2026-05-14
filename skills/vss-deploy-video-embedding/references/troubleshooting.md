@@ -1,0 +1,50 @@
+# Troubleshooting: Video Embedding (RT-Embed)
+
+This reference collects the failure modes most often seen when bringing up or operating the Video Embedding service. Pair it with the deployment reference; the items below are operational diagnostics rather than schema-level requirements.
+
+## Startup
+
+| Symptom | What to check | Resolution |
+|---|---|---|
+| `docker compose up` fails immediately with a complaint about `RTVI_EMBED_PORT`. | The `ports:` mapping uses `${RTVI_EMBED_PORT?}`, which is a required-substitution. | Set `RTVI_EMBED_PORT` in the host environment or in the `.env` file alongside the Compose file. |
+| Compose parser fails on the conditional `volumes:` entries. | The compose file uses the `${VAR:+value}` substitution for `ASSET_STORAGE_DIR` and `RTVI_EMBED_LOG_DIR`. | Upgrade the Docker Compose plugin to a version that supports conditional substitution. |
+| Container exits during the first 30 seconds with permission errors on `/tmp/huggingface`, `/opt/nvidia/rtvi/.rtvi/ngc_model_cache`, or `/tmp/triton_model_repo`. | The host directories bound to those paths are not writable by UID/GID `1001:1001`. | `chown -R 1001:1001 <host-path>` or switch back to the named volumes (`rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo`) which are provisioned with the correct ownership. |
+| Container is healthy for several minutes, then flips to unhealthy. | Health check `start_period` was shortened below the model warmup. | Restore `start_period: 1200s` (20 minutes) for first boots. Subsequent boots can be reduced once the caches are warm. |
+| `/v1/ready` returns 503 indefinitely even after warmup. | A peer service (Redis, Kafka) is enabled but unreachable, or the model failed to download. | Inspect `docker compose logs -f rtvi-embed` for model-download errors or `connection refused` against Redis/Kafka; disable the feature flag or fix the peer. |
+
+## Model And Cache Issues
+
+| Symptom | What to check | Resolution |
+|---|---|---|
+| Model download stops at 401/403 from Hugging Face. | `HF_TOKEN` is empty or does not authorize `nvidia/Cosmos-Embed1-448p`. | Set `HF_TOKEN` to a token with access. As a fallback, pre-populate `rtvi-hf-cache` (or the host-bound `RTVI_EMBED_HF_CACHE`). |
+| Model download stops at 401/403 from NGC. | `NGC_API_KEY` is empty or invalid; `docker login nvcr.io` was never run on the host. | Set `NGC_API_KEY` to a valid key and ensure the host is logged in to `nvcr.io`. |
+| First boot is dramatically faster than expected and `/v1/ready` returns 200 unexpectedly. | A stale or partial Triton model repository in `rtvi-triton-model-repo` was reused. | Stop the service, `docker volume rm rtvi-triton-model-repo`, and bring the service back up to force a clean rebuild. |
+| Disk fills up under `/var/lib/docker/volumes/`. | The named caches accumulate model weights and Triton artifacts. | Confirm volume sizes with `docker system df -v`; prune old caches when switching model versions. |
+
+## Runtime
+
+| Symptom | What to check | Resolution |
+|---|---|---|
+| `POST /v1/generate_video_embeddings` returns 503 with "Server is busy processing another file or text". | The service is already handling a request. | Retry with exponential backoff; consider sharding work across multiple instances if sustained 503 is observed. |
+| `POST /v1/generate_video_embeddings` returns 422 with a message about `url`. | The `url` scheme is unsupported, or `file://` is used without `FILE_URL_ALLOWED_DIRS` configured. | Use `http(s)://`, `s3://`, an allowed `file://` path, or a `data:` URI, or upload first via `POST /v1/files`. |
+| Embedding requests succeed but downstream consumers see no Kafka messages. | `KAFKA_ENABLED` is `false` or `HOST_IP` is unset, so `KAFKA_BOOTSTRAP_SERVERS` resolves to `:9092`. | Set `KAFKA_ENABLED=true` and `HOST_IP` to the broker-reachable host IP. |
+| RTSP streams keep reconnecting. | `RTVI_RTSP_RECONNECTION_INTERVAL`/`WINDOW`/`MAX_ATTEMPTS` are too aggressive for the network. | Tune the reconnection envelope; raise `RTVI_RTSP_TIMEOUT` if the upstream stream has high latency. |
+| GPU disappears from `nvidia-smi` inside the container. | NVIDIA Container Toolkit misconfiguration or driver mismatch. | Reinstall NVIDIA Container Toolkit, ensure the default runtime is `nvidia`, and confirm the host driver matches the CUDA stack baked into the image. |
+
+## Observability
+
+- Tail logs: `docker compose logs -f rtvi-embed`.
+- Scrape Prometheus metrics: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/metrics"`.
+- Detailed component status: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/ready?detailed=true"`.
+- Asset storage stats: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/assets/stats"`.
+- OTLP traces and metrics: enable `ENABLE_OTEL_MONITORING=true` and point `OTEL_EXPORTER_OTLP_ENDPOINT` at a reachable collector.
+
+## When To Wipe State
+
+`docker compose down -v` destroys the named volumes:
+
+- `rtvi-hf-cache`
+- `rtvi-ngc-model-cache`
+- `rtvi-triton-model-repo`
+
+Only do this when you need a clean rebuild or when migrating to a new model. After a destructive teardown, the next start performs a full model download and Triton repo rebuild, which can take 20+ minutes.
