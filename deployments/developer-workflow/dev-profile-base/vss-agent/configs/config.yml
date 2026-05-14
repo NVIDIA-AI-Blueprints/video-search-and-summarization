@@ -19,6 +19,10 @@ general:
     _type: fastapi
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
+    streaming_ingest:
+      vst_internal_url: ${VST_INTERNAL_URL}
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     endpoints:
     - path: /api/v1/videos
       method: POST
@@ -57,7 +61,7 @@ functions:
     # OpenAI vision API allows at most 8 images per request (frame mode).
     # Until agent image includes frame_select truncation fix, keep <=7 so discrete
     # sampling never exceeds 8 JPEGs (see video_understanding._build_vlm_messages).
-    max_frames: 7
+    max_frames: 30
     max_fps: 2  # for CR1, max fps is 2
     min_pixels: 3136
     max_pixels: 8388608
@@ -84,6 +88,8 @@ functions:
     vst_external_url: ${VST_EXTERNAL_URL}
     # Internal URL only: external Brev/proxy links require Cloudflare Access; server-side clip download cannot authenticate.
     use_external_playback_url: false
+    # VST disableAudio=false so audio-capable VLMs receive audio in video_understanding / UI clips.
+    disable_audio: true
 
   vst_snapshot:
     _type: vst.snapshot
@@ -103,6 +109,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    disable_audio: true
     # yamllint disable rule:line-length
     vlm_prompt: |
       Describe in detail what is happening in this video,
@@ -114,7 +121,7 @@ functions:
       [0.0s-4.0s] <description of the first event>
       [4.0s-12.0s] <description of the second event>
     # HITL Configuration - prompts user to confirm/edit VLM prompt before report generation
-    hitl_enabled: false
+    hitl_enabled: true
     hitl_prompt_llm: ${LLM_MODEL_TYPE:-nim}_llm  # LLM for AI-assisted prompt generation e.g. nim_llm, openai_llm
     hitl_vlm_prompt_template: |
       **VLM Prompt for Report Generation**
