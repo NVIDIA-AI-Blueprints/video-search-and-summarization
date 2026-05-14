@@ -33,15 +33,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fetch sibling branches so image-tag SHAs resolve
-        # See identical step in check-agent-container-source.yml for the
-        # full explanation. TL;DR: `fetch-depth: 0` only pulls the PR's
-        # branch; image-tag SHAs live on release/*, develop, or main.
-        run: |
-          git fetch --no-tags --quiet origin \
-            '+refs/heads/release/*:refs/remotes/origin/release/*' \
-            develop main \
-            || true
-
+      # Primary path reads com.nvidia.vss.source_tree_sha from the image's
+      # OCI manifest annotations (stamped by ci-vss-oss at build time) via the
+      # OCI Distribution HTTP API. NGC_CLI_API_KEY is needed to pull the
+      # manifest from nvcr.io/nvstaging; without it the registry returns 401
+      # and the script falls back to git-SHA resolution.
       - name: Check vss-agent-ui tag matches services/ui
+        env:
+          NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
         run: python3 .github/scripts/check_container_tag_source.py --image-name vss-agent-ui
