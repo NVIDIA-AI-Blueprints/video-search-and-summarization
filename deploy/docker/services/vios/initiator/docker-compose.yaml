@@ -211,5 +211,10 @@ services:
         required: false
       sdr-streamprocessing:
         condition: service_started
+        required: false
       envoy-streamprocessing:
         condition: service_started
+        required: false
+      sdr-controller:
+        condition: service_started
+        required: false

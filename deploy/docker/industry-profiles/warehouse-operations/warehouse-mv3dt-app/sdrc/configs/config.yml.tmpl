@@ -44,20 +44,20 @@ docker-workload-streamprocessing:
   WDM_MSG_KEY: vst_events
   WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-streamprocessing.json
 
-docker-workload-rtvi-cv:
-  wl_obj_name: vss-rtvi-cv
+docker-workload-rtvi-cv-mv3dt:
+  wl_obj_name: vss-rtvi-cv-mv3dt
   port: 4004
   enable: true
-  WDM_WL_OBJECT_NAME: vss-rtvi-cv
-  WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-cg
-  WDM_REDIS_CACHE_OBJECT: rtvi-cv-data
+  WDM_WL_OBJECT_NAME: vss-rtvi-cv-mv3dt
+  WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-mv3dt-cg
+  WDM_REDIS_CACHE_OBJECT: rtvi-cv-mv3dt-data
   WDM_XDS_USE_POD_DNS: false
   WDM_XDS_USE_IP_ADDRESS: true
   WDM_REDIS_MSG_KEY: vst.event
   REDIS_MSG_KEY: vst.event
   WDM_CLUSTER_TYPE: docker
-  WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
-  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-rtvi-cv.json
+  WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv-mv3dt"]'
+  WDM_CLUSTER_CONFIG_FILE: /configs/docker_cluster_config-rtvi-cv-mv3dt.json
   WDM_WL_REDIS_PORT: 6379
   WDM_WL_REDIS_SERVER: ${HOST_IP}
   WDM_MS_LISTENER_PORT: 10001
@@ -70,4 +70,6 @@ docker-workload-rtvi-cv:
   WDM_CONFIG_PORT: 9003
   WDM_KAFKA_MSG_KEY: vst.event
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 5000
+  WDM_INITIALIZE_FROM_VST: false
+  WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv-mv3dt"]'
   WDM_REAPPLY_ON_WL_RESTART: true
