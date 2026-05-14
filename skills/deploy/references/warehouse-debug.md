@@ -27,10 +27,10 @@ VST (VIOS) stack — independent of perception, feeds RTSP into it:
   vss-vios-postgres → vss-vios-sensor / vss-vios-streamprocessing
                     → vss-vios-sdr / vss-vios-mcp / vss-vios-ingress / vss-vios-envoy
 
-elasticsearch — required for mdx-bev index (3D), bounding-box overlays (2D extended), and vss-agent storage
+elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), OR kafka/redis with MINIMAL_PROFILE="" (extended; ELK + bounding-box overlays + analytics API; 2D or 3D).
+NOTE: 3D minimal does NOT deploy ES — so the mdx-bev index isn't persisted and Phase 5 BEV-sync check has no data to read.
 
 bp_wh-only stack (RTVI VLM + agent):
-  vss-rtvi-embed
   vss-rtvi-vlm                                  (always local — no remote/none option)
   vss-alert-bridge ← depends on vss-rtvi-vlm
   LLM NIM (varies — see below)
@@ -38,7 +38,8 @@ bp_wh-only stack (RTVI VLM + agent):
   vss-agent-ui ← depends on vss-agent
   vss-va-mcp
   phoenix
-  vss-haproxy-ingress                           (front-door for the VSS UI on HAPROXY_PORT)
+
+vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_PORT)
 ```
 
 ## Full Container List by Profile
@@ -64,23 +65,23 @@ bp_wh-only stack (RTVI VLM + agent):
 
 | Container | Role |
 |---|---|
-| `elasticsearch` | Search / analytics store (also required for 3D BEV) |
 | `logstash` | Log ingestion pipeline |
 | `kibana` | Dashboard UI |
 | `vss-video-analytics-api` | REST API for analytics data |
+
+`elasticsearch`, `kibana`, `logstash`, `vss-video-analytics-api` are also deployed for `BP_PROFILE=bp_wh` (always — independent of `MINIMAL_PROFILE`). See [Phase 1](#phase-1-stack-snapshot) for the consolidated trigger table.
 
 ### `bp_wh` only — adds
 
 | Container | Role |
 |---|---|
 | `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**, no mode toggle |
-| `vss-rtvi-embed` | RTVI embedding service |
 | `vss-alert-bridge` | Drives realtime VLM alerts (POST/DELETE `/api/v1/realtime`) |
 | LLM NIM (container name = `LLM_NAME_SLUG`, e.g. `nvidia-nemotron-nano-9b-v2`) | LLM inference — only when `LLM_MODE=local` / `local_shared` |
 | `vss-agent` | Orchestrator |
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
-| `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`) |
+| `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies VST + kibana + analytics API there) |
 | `phoenix` | Telemetry / observability |
 
 > **No `vlm-nim` container.** The warehouse blueprint runs **only `vss-rtvi-vlm`** for vision-language inference, and it is always local. Do not search for a VLM NIM container — it does not exist in this stack.
@@ -158,7 +159,7 @@ docker exec redis redis-cli XREVRANGE mdx-raw + - COUNT 3
 
 | Role | `.env` variable | Default device | Notes |
 |---|---|---|---|
-| RT-CV perception (RT-DETR / Sparse4D) | `RT_CV_DEVICE_ID` | `0` | Always local |
+| RT-CV perception (RT-DETR for 2D, Sparse4D for 3D) | `RT_CV_DEVICE_ID` | `0` | Always local |
 | RTVI VLM | `RT_VLM_DEVICE_ID` | `1` | Always local; `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local` |
 | LLM NIM colocated with RTVI VLM | `SHARED_LLM_VLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local_shared` |
@@ -176,16 +177,17 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 
 | Service | URL | Available in |
 |---|---|---|
-| **VSS UI (via HAProxy ingress)** | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` (default `7777`) | `bp_wh` |
+| **VSS UI (via HAProxy ingress)** | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` (default `7777`) | `bp_wh` (UI backend `vss-agent-ui` is `bp_wh`-only) |
+| HAProxy ingress (proxying VST/kibana/analytics) | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` | `bp_wh`, or kafka/redis extended (2D or 3D) |
 | VSS Agent API | `http://<HOST_IP>:8000` | `bp_wh` |
 | VST / VIOS UI | `http://<HOST_IP>:30888/vst` | All |
 | VST MCP | `http://<HOST_IP>:8001` | All |
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
 | Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
-| Elasticsearch API | `http://localhost:9200` | Extended / 3D |
+| Elasticsearch API | `http://localhost:9200` | `bp_wh`, or kafka/redis extended (2D or 3D) |
 | Phoenix telemetry | `http://<HOST_IP>:6006` | `bp_wh` |
-| Kibana | `http://<HOST_IP>:5601` | Extended only |
-| Video Analytics API | `http://<HOST_IP>:3002` | Extended only |
+| Kibana | `http://<HOST_IP>:5601` | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| Video Analytics API | `http://<HOST_IP>:8081` (`MDX_PORT`) | `bp_wh`, or kafka/redis extended (2D or 3D) |
 
 ## BEV Sync Thresholds
 
@@ -210,18 +212,18 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 
 Before starting, collect two pieces of information (ask if unknown):
 
-1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose / cleanup commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env`.
-2. **`MODE`** — `2d` or `3d`. Detect automatically:
+1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose / cleanup commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env`. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
+2. **`MODE`** — `2d` or `3d`. Detect from the running perception container:
 
 ```bash
-docker inspect --format '{{.Name}} {{range .Config.Env}}{{println .}}{{end}}' \
-  $(docker ps -q vss-rtvi-cv 2>/dev/null) 2>/dev/null | grep -i "^MODE=" | head -1
+docker inspect vss-rtvi-cv --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+  | grep -i "^MODE="
 ```
 
-If that returns nothing, fall back to reading `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`:
+If that returns nothing (container not running or named differently), fall back to reading the env file:
 
 ```bash
-grep "^MODE=" <repo>/deploy/docker/industry-profiles/warehouse-operations/.env
+grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/.env
 ```
 
 `vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone.
@@ -245,10 +247,12 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 
 | Profile | Required containers |
 |---|---|
-| All warehouse profiles | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, the `vss-vios-*` VST stack |
-| 3D extra | `vss-rtvi-cv-config-adaptor`, `elasticsearch` |
-| Extended | `elasticsearch`, `logstash`, `kibana`, `vss-video-analytics-api` |
-| `bp_wh` extra | `vss-rtvi-vlm`, `vss-rtvi-embed`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) |
+| All warehouse profiles | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, the `vss-vios-*` VST stack |
+| 3D extra | `vss-rtvi-cv-config-adaptor` |
+| `bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared` |
+| Extended (kafka/redis 2D or 3D) extra | `logstash`, `kibana`, `vss-video-analytics-api` |
+| `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, **or** kafka/redis extended (2D or 3D) |
+| `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, 2D or 3D). **3D minimal does NOT deploy ES** |
 
 Record which containers are **Down**, **Restarting**, or have a non-zero exit code — these are the primary suspects.
 
@@ -351,7 +355,7 @@ docker logs --tail 50 vss-agent        2>&1 | grep -E "ERROR|error|fail"      | 
 docker logs --tail 50 vss-agent-ui     2>&1 | grep -E "ERROR|error|fail"      | tail -20
 docker logs --tail 50 vss-haproxy-ingress 2>&1 | grep -E "ERROR|error|fail"   | tail -20
 # LLM NIM container name = LLM_NAME_SLUG from .env (e.g. nvidia-nemotron-nano-9b-v2)
-LLM_SLUG=$(grep '^LLM_NAME_SLUG=' <repo>/deploy/docker/industry-profiles/warehouse-operations/.env | cut -d= -f2 | tr -d '"')
+LLM_SLUG=$(grep '^LLM_NAME_SLUG=' "$REPO/deploy/docker/industry-profiles/warehouse-operations/.env" | cut -d= -f2 | tr -d '"')
 docker logs --tail 50 "$LLM_SLUG" 2>&1 | grep -E "ERROR|error|fail|CUDA" | tail -20
 ```
 
@@ -387,9 +391,9 @@ df -h / /tmp 2>/dev/null
 
 ---
 
-## Phase 5 (3D only): BEV Camera Timestamp Sync
+## Phase 5 (3D extended only): BEV Camera Timestamp Sync
 
-For `MODE=3d`, check that all cameras contributing to the BEV frame are synchronized.
+For `MODE=3d` **with `MINIMAL_PROFILE=""` (extended)**, check that all cameras contributing to the BEV frame are synchronized. Skip this phase in 3D minimal: `elasticsearch` is not deployed there, so `mdx-bev` is never persisted and the query below will fail with a connection error.
 
 ```bash
 curl -s "http://localhost:9200/mdx-bev/_search?size=1" \

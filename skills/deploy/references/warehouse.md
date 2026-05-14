@@ -1,6 +1,6 @@
 # Warehouse Blueprint Reference
 
-Blueprint: VSS Warehouse — RT-DETR perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using `industry-profiles/warehouse-operations/.env`.
+Blueprint: VSS Warehouse — RT-DETR (2D) / Sparse4D (3D) perception + behavior analytics over multi-camera warehouse streams. Distinct from the core VSS profiles (`base`, `alerts`, `lvs`, `search`): it lives under `<repo>/deploy/docker/industry-profiles/warehouse-operations/` and is deployed from `<repo>/deploy/docker/` using `industry-profiles/warehouse-operations/.env`.
 
 The compose files ship **in-tree** in the `video-search-and-summarization` repo — no NGC compose bundle to download. App data (videos and models) is the only artifact you may need to acquire; see [App Data](#app-data).
 
@@ -10,13 +10,13 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 
 ## Profile Variants
 
-| Profile Name | MODE | BP_PROFILE | SAMPLE_VIDEO_DATASET | NUM_STREAMS | LLM/VLM |
-|---|---|---|---|---|---|
-| 2D Vision AI Profile | `2d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-loading-dock-3cams-synthetic` | 3 | none |
-| 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | local / remote |
-| 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none |
+| Profile Name | MODE | BP_PROFILE | SAMPLE_VIDEO_DATASET | NUM_STREAMS | LLM | RTVI VLM |
+|---|---|---|---|---|---|---|
+| 2D Vision AI Profile | `2d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-loading-dock-3cams-synthetic` | 3 | none | none |
+| 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `local_shared` / `remote` / `none` | **always local** |
+| 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
 
-`COMPOSE_PROFILES` is computed automatically: `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}`. No `vlm_*` slice — `rtvi-vlm` is always deployed for `bp_wh` and there is no VLM NIM.
+`COMPOSE_PROFILES` is computed automatically: `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}`. No `vlm_*` slice — `vss-rtvi-vlm` is always deployed for `bp_wh` and there is no VLM NIM.
 
 ## Minimal vs Extended Profile
 
@@ -24,67 +24,75 @@ Applies to `bp_wh_kafka` and `bp_wh_redis` only.
 
 | Feature | Minimal (`MINIMAL_PROFILE="true"`) | Extended (`MINIMAL_PROFILE=""`) |
 |---|---|---|
-| RT-DETR Perception | ✅ | ✅ |
+| Perception (RT-DETR 2D / Sparse4D 3D) | ✅ | ✅ |
 | Behavior Analytics | ✅ | ✅ |
 | VST / NvStreamer | ✅ | ✅ |
 | Auto-Calibration | ✅ | ✅ |
 | ELK (Elasticsearch/Logstash/Kibana) | ❌ | ✅ |
-| Video Analytics API | ❌ | ✅ |
-| Video Analytics UI | ❌ | ✅ |
+| Video Analytics API (`vss-video-analytics-api`, `MDX_PORT` 8081) | ❌ | ✅ |
 | Monitoring | ❌ | ✅ |
 | Bounding box overlays in VST | ❌ | ✅ (requires Elasticsearch) |
 
 ## Services Deployed
 
-The warehouse blueprint now boots the **full VSS stack** (agent + UI + VST + RTVI behind HAProxy) on top of the warehouse CV pipeline. Service set varies by `BP_PROFILE` and `MODE`.
+The warehouse blueprint boots the **full VSS stack** (agent + UI + VST + RTVI behind HAProxy) on top of the warehouse CV pipeline. Service set varies by `BP_PROFILE` and `MODE`. Perception, behavior analytics, configurator, and nvstreamer use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
 
-### Warehouse CV core (all profiles)
+### Warehouse CV core (all warehouse profiles)
 
-| Service | Purpose |
+| Container | Purpose |
 |---|---|
-| NvStreamer | Streams sample video files via RTSP |
-| VIOS (VST) + VST MCP | Video ingestion, recording, stream management |
-| perception-2d / -3d | RT-DETR DeepStream container — 2D object detection / 3D perception |
-| perception-sdr-2d / -3d | Stream data router — manages DeepStream lifecycle |
-| bp-configurator-2d / -3d | Blueprint configurator — sets up stream and hardware configs |
-| ds-configurator-2d / -3d | DeepStream config adaptor |
-| vss-behavior-analytics-2d / -3d | Behavior analytics — ROI, tripwire, proximity events |
-| Kafka or Redis (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
-| broker-health-check | Waits for broker readiness before starting dependent services |
-| vss-auto-calibration (+ UI) | Camera auto-calibration |
+| `vss-vios-nvstreamer` | Streams sample video files via RTSP |
+| VST stack: `vss-vios-postgres`, `-sensor`, `-streamprocessing`, `-sdr`, `-mcp`, `-ingress`, `-envoy` | Video ingestion, recording, stream management |
+| `vss-rtvi-cv` | DeepStream perception (RT-DETR for 2D, Sparse4D for 3D) |
+| `vss-rtvi-cv-sdr` | Stream data router — manages DeepStream lifecycle |
+| `vss-rtvi-cv-config-adaptor` | DeepStream config adaptor (3D only) |
+| `vss-configurator` | Blueprint configurator — stream and hardware configs |
+| `vss-behavior-analytics` | Behavior analytics — ROI, tripwire, proximity events |
+| `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
+| `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
+| `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
-### Agent + UI + ingress (all profiles)
+### Agent + UI + ingress (`bp_wh` only)
 
-| Service | Container | Port |
+| Container | Port |
+|---|---|
+| `vss-haproxy-ingress` | `HAPROXY_PORT` (default `7777`) |
+| `vss-agent-ui` (Next.js) | 3000 |
+| `vss-agent` | `VSS_AGENT_PORT` (default `8000`) |
+| `vss-va-mcp` | `VSS_VA_MCP_PORT` (default `9901`) |
+| `phoenix` (telemetry) | 6006 |
+
+### Storage / observability (conditional)
+
+| Container | Port | Deployed when |
 |---|---|---|
-| HAProxy ingress | mdx-haproxy-1 | `HAPROXY_PORT` (default `7777`) |
-| VSS UI (Next.js) | mdx-vss-ui-1 | 3000 |
-| VSS Agent | mdx-vss-agent-1 | `VSS_AGENT_PORT` (default `8000`) |
-| VSS VA MCP | mdx-vss-va-mcp-1 | `VSS_VA_MCP_PORT` (default `9901`) |
-| Elasticsearch | mdx-elasticsearch-1 | `VSS_ES_PORT` (default `9200`) |
-| Phoenix (telemetry) | mdx-phoenix-1 | 6006 |
+| `elasticsearch` | `VSS_ES_PORT` (default `9200`) | `BP_PROFILE=bp_wh` (always — vss-agent storage), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, 2D **or** 3D — for `mdx-bev`, ELK, overlays, analytics API) |
+| `kibana` / `logstash` / `vss-video-analytics-api` | various | Same condition as `elasticsearch` |
+
+> **3D `mdx-bev` index requires Elasticsearch — and ES is only deployed for kafka/redis 3D in extended mode** (`MINIMAL_PROFILE=""`). In 3D minimal, the BEV-sync check (debug Phase 5) cannot run because the index is never persisted.
 
 ### LLM + RTVI VLM (`bp_wh` only)
 
-| Service | Container | Port | When |
-|---|---|---|---|
-| LLM NIM | mdx-nim-llm-1 | `LLM_PORT` (default `30081`) | `LLM_MODE=local` or `local_shared` |
-| RTVI VLM (real-time) | rtvi-vlm | 8018 | **Always** deployed for `bp_wh` — no remote / none option |
-| Alert Bridge | alert-bridge | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
+| Container | Port | When |
+|---|---|---|
+| LLM NIM — container name = `LLM_NAME_SLUG` (e.g. `nvidia-nemotron-nano-9b-v2`) | `LLM_PORT` (default `30081`) | `LLM_MODE=local` or `local_shared` |
+| `vss-rtvi-vlm` (real-time VLM) | 8018 | **Always** deployed for `bp_wh` — no remote / none option |
+| `vss-alert-bridge` | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
-> No VLM NIM. The warehouse blueprint runs **only `rtvi-vlm`** for vision-language inference, and `rtvi-vlm` is **always local** — there is no `VLM_MODE` / no remote-VLM endpoint, the same way perception is always local.
+> **No VLM NIM container.** The warehouse blueprint runs **only `vss-rtvi-vlm`** for vision-language inference, and it is **always local** — there is no `VLM_MODE`, no remote-VLM endpoint, the same way perception is always local.
 
 ## Perception Model
 
-- **Model:** RT-DETR with EfficientViT/L2 backbone
+- **2D model:** RT-DETR with EfficientViT/L2 backbone
+- **3D model:** Sparse4D (depth-aware perception, requires 4-camera dataset)
 - **Detects:** People, humanoid robots, forklifts, autonomous vehicles, warehouse equipment
-- **Output:** 2D bounding boxes with tracked object IDs via Kafka/Redis `mdx-raw` topic
+- **Output:** 2D bounding boxes (or 3D BEV frames) with tracked object IDs via Kafka/Redis `mdx-raw` topic; 3D BEV frames also land in the `mdx-bev` Elasticsearch index
 
 ## GPU Layout
 
 | Role | Device | Used by |
 |---|---|---|
-| RT-CV perception (RT-DETR DeepStream) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse profiles |
+| RT-CV perception (DeepStream — RT-DETR for 2D, Sparse4D for 3D) — always local | `RT_CV_DEVICE_ID` (default: `0`) | All warehouse profiles |
 | RTVI VLM — always local | `RT_VLM_DEVICE_ID` (default: `1`) | `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local` |
 | LLM NIM sharing the RTVI VLM device | `SHARED_LLM_VLM_DEVICE_ID` (default: `2`) | `bp_wh` with `LLM_MODE=local_shared` |
@@ -101,15 +109,17 @@ RTVI VLM has no equivalent setting — like perception, it is always deployed lo
 
 | Service | URL | Profile |
 |---|---|---|
-| **VSS UI (via HAProxy ingress)** | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` (defaults `7777`) | All |
-| VSS Agent API | `http://<HOST_IP>:8000` | All |
+| **VSS UI (via HAProxy ingress)** | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` (defaults `7777`) | `bp_wh` (UI backend `vss-agent-ui` is `bp_wh`-only) |
+| HAProxy ingress (proxying VST/kibana/analytics) | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| VSS Agent API | `http://<HOST_IP>:8000` | `bp_wh` |
+| Phoenix telemetry | `http://<HOST_IP>:6006` | `bp_wh` |
 | VST / VIOS UI | `http://<HOST_IP>:30888/vst` | All |
 | VST MCP | `http://<HOST_IP>:8001` | All |
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
 | Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
-| Phoenix telemetry | `http://<HOST_IP>:6006` | All |
-| Kibana | `http://<HOST_IP>:5601` | Extended only |
-| Video Analytics UI | `http://<HOST_IP>:3002` | Extended only |
+| Elasticsearch API | `http://localhost:9200` | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| Kibana | `http://<HOST_IP>:5601` | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| Video Analytics API | `http://<HOST_IP>:8081` (`MDX_PORT`) | `bp_wh`, or kafka/redis extended (2D or 3D) |
 
 `EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, follow the same secure-link pattern as the other VSS profiles (`SKILL.md` Step 1c).
 
@@ -209,16 +219,18 @@ tail -20 "$LOG"
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 ```
 
-**Stack is ready when these show `Up`:**
+**Stack is ready when these show `Up`** (same container names in 2D and 3D):
 
-- 2D: `mdx-nvstreamer-2d`, `perception-2d`, `vss-behavior-analytics-2d`, `bp-configurator-2d`, `perception-sdr-2d`
-- 3D: `mdx-nvstreamer-3d`, `perception-3d`, `vss-behavior-analytics-3d`, `bp-configurator-3d`, `perception-sdr-3d`
+- All warehouse profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
+- 3D extra: `vss-rtvi-cv-config-adaptor`
+- `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
+- Extended extra (kafka/redis, 2D or 3D): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api`
+- `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, 2D or 3D)
 
-Check FPS:
+Check FPS (same container regardless of `MODE`):
 
 ```bash
-docker logs -f perception-2d 2>&1 | grep -i fps | head -5   # 2d
-docker logs -f perception-3d 2>&1 | grep -i fps | head -5   # 3d
+docker logs -f vss-rtvi-cv 2>&1 | grep -i fps | head -5
 ```
 
 ---
@@ -537,8 +549,8 @@ df -h /  # 500 GB+ SSD
 #### Q1 — Deployment Mode
 
 > "Which mode?
-> - **2d** — 2D detection/tracking (RT-DETR), no depth
-> - **3d** — 3D perception with depth, requires 4-camera dataset"
+> - **2d** — 2D detection/tracking with **RT-DETR**, no depth
+> - **3d** — 3D perception with depth using **Sparse4D**, requires 4-camera dataset"
 
 #### Q2 — Blueprint Profile
 
@@ -576,7 +588,7 @@ BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams
 #### Q4 — Deployment Profile
 
 > "Which profile?
-> - **minimal** — excludes ELK, Video Analytics API/UI, monitoring. Recommended for IGX-THOR.
+> - **minimal** — excludes ELK, Video Analytics API, monitoring. Recommended for IGX-THOR.
 > - **extended** — full deployment."
 
 ```bash
@@ -662,9 +674,7 @@ NVIDIA_API_KEY=''                              # required for build.nvidia.com r
 OPENAI_API_KEY=''                              # required for OpenAI remote endpoints
 ```
 
-> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variables. Comment the default `PERCEPTION_TAG="3.2.0-26.05.1"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa-26.05.1"`. Same pattern for `RTVI_VLM_IMAGE_TAG`.
-
-> DGX-SPARK (SBSA): also uncomment `-sbsa` tagged image variables for `PERCEPTION_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG`.
+> **DGX-SPARK (SBSA):** swap to the `-sbsa`-tagged image variants. Comment the default `PERCEPTION_TAG="3.2.0-26.05.1"` and uncomment `PERCEPTION_TAG="3.2.0-sbsa-26.05.1"`. Apply the same pattern to `RTVI_VLM_IMAGE_TAG`, `VST_*_IMAGE_TAG`, and `NVSTREAMER_IMAGE_TAG`.
 
 ---
 
@@ -721,9 +731,9 @@ See [Access Points](#access-points) for service URLs.
 | `Missing org` NGC error | Run `ngc config set`, match org to API key |
 | NGC auth / `docker login nvcr.io` fails | Re-export `NGC_CLI_API_KEY` and retry |
 | `unknown or invalid runtime name: nvidia` | Install NVIDIA Container Toolkit — Phase 2.3 |
-| Streams not appearing in VST | `docker logs mdx-nvstreamer-2d` (or `-3d`) |
-| Perception not starting | `docker logs perception-2d` — verify models in `$MDX_DATA_DIR/models/mtmc/` |
-| `bp-configurator` health check failing | Wait 60s and recheck (60s start period) |
+| Streams not appearing in VST | `docker logs vss-vios-nvstreamer` |
+| Perception not starting | `docker logs vss-rtvi-cv` — verify models in `$VSS_DATA_DIR/models/` |
+| `vss-configurator` health check failing | Wait 60s and recheck (60s start period) |
 | Low FPS | GPU oversaturated — reduce `NUM_STREAMS` and redeploy |
 | Dataset/mode mismatch | `nv-warehouse-4cams` → `bp_wh` + `MODE=2d`; `warehouse-4cams-20mx20m-synthetic` → `MODE=3d` |
 | Redeploy / reset without reinstall | [Redeploy](#redeploy) |
