@@ -239,9 +239,9 @@ class TestLangChainRetrieve:
         ("input_top_k", "expected_k", "with_filter"),
         [
             (10_000, 100, False),  # over MAX_TOP_K -> clamp
-            (0, 1, False),         # under floor -> 1
-            (5, 20, True),         # filter triggers 4x overfetch
-            (80, 100, True),       # overfetch would exceed MAX -> clamp
+            (0, 1, False),  # under floor -> 1
+            (5, 20, True),  # filter triggers 4x overfetch
+            (80, 100, True),  # overfetch would exceed MAX -> clamp
         ],
     )
     async def test_top_k_resolution(self, fake_langchain, input_top_k, expected_k, with_filter):

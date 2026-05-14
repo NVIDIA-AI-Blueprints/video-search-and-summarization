@@ -135,7 +135,9 @@ class LangChainAdapter(BackendAdapter):
         target_collection = collection_name or self.collection_name
         effective_top_k = max(1, min(top_k, MAX_TOP_K))
         # Over-fetch on predicate filter so post-filter result still ~= top_k.
-        fetch_k = min(effective_top_k * FILTER_OVERFETCH_MULTIPLIER, MAX_TOP_K) if callable(filters) else effective_top_k
+        fetch_k = (
+            min(effective_top_k * FILTER_OVERFETCH_MULTIPLIER, MAX_TOP_K) if callable(filters) else effective_top_k
+        )
         try:
             vs = self._vectorstore_for_collection(target_collection)
             results = await vs.asimilarity_search_with_score(query, k=fetch_k)

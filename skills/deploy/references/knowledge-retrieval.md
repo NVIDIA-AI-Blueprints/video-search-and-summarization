@@ -5,7 +5,7 @@ description: Configure, swap, or wire in the VSS agent's pluggable knowledge ret
 
 # Knowledge Retrieval — Configure, Swap, Wire In
 
-The agent has a pluggable retrieval surface registered as `_type: knowledge_retrieval`. A single Python tool, two backends (`frag_api` for documents, `es_caption` for LVS captions), and any number of named instances per deployment. Today the repo ships two named instances:
+The agent has a pluggable retrieval surface registered as `_type: knowledge_retrieval`. A single Python tool, five backends — `frag_api` (HTTP rag-server), `es_caption` (Elasticsearch captions), `rag_lib` (in-process Milvus), `langchain` (embedded Chroma via LangChain), `llama_index` (embedded Chroma via LlamaIndex) — and any number of named instances per deployment. Today the repo ships two named instances:
 
 | Tool name in YAML | `_type` | `backend` | Mainly for |
 |---|---|---|---|
@@ -116,6 +116,80 @@ Three `doc_type` values are written per streamed video — `raw_events` (per VLM
 | `es_query` | Full ES query body — escape hatch that replaces the constructed query. |
 
 **`collection_name`** — pass the stream's friendly name (or its `stream_id` / UUID). If omitted, the search runs across all streams in the configured index pattern.
+
+## Additional backends (`rag_lib`, `langchain`, `llama_index`)
+
+Three more backends are available behind opt-in dependencies (`vss-agents[rag_lib]`, `vss-agents[langchain]`, `vss-agents[llama_index]`). They are not bundled into the default agent image, so enabling them needs a one-time agent image rebuild.
+
+### Enabling one
+
+1. Edit `services/agent/docker/Dockerfile`. Find the line:
+   ```dockerfile
+   uv sync --frozen --no-dev --no-editable --link-mode copy
+   ```
+   Append the extra(s) you want (comma to add more, e.g. `--extra langchain --extra llama_index`):
+   ```dockerfile
+   uv sync --frozen --no-dev --no-editable --link-mode copy --extra rag_lib
+   ```
+2. Rebuild the agent image and tag it locally:
+   ```bash
+   docker build -f services/agent/docker/Dockerfile -t vss-agent:<tag>-rag services
+   ```
+3. Point your profile's `.env` at the new tag:
+   ```
+   VSS_AGENT_IMAGE=vss-agent:<tag>-rag
+   ```
+4. `docker compose up` as normal. The shipped `docker-compose.yml` does not change.
+
+### `rag_lib`
+
+In-process equivalent of `frag_api`. Runs the full NVIDIA RAG Blueprint pipeline (retrieve → rerank → optional guardrails) inside the agent against a Milvus you supply. Same `filter_expr` shape as `frag_api`, so the LLM-facing contract is interchangeable.
+
+| Field | Purpose | Default |
+|---|---|---|
+| `milvus_uri` | Milvus URI for the vector store | `nvidia-rag` default (`http://localhost:19530`) |
+| `collection_name` | Default Milvus collection (used when caller passes empty) | `default` |
+| `llm_base_url` | LLM NIM `server_url` override | unset (uses `nvidia-rag` default) |
+| `llm_model_name` | LLM model name override | unset |
+| `embedder_base_url` | Embedder NIM `server_url` override | unset |
+| `embedder_model_name` | Embedder model name override | unset |
+| `enable_citations` | Return citation metadata with each chunk | `true` |
+| `enable_guardrails` | Run guardrails on the response | `false` |
+| `reranker_top_k` | Default reranker top_k when caller doesn't override | `10` |
+
+**Per-query `filters`** — same shape as `frag_api`:
+
+```python
+filters = {"filter_expr": 'content_metadata["filename"] == "<exact name>"'}
+```
+
+### `langchain`
+
+In-process retrieval over an embedded ChromaDB persist directory, via LangChain's `langchain_chroma` + NVIDIA embedding NIM. The persist directory must be pre-built (no in-adapter ingestion); mount it into the agent container at a known path.
+
+| Field | Purpose | Default |
+|---|---|---|
+| `persist_dir` | Path to the Chroma persist directory inside the container | env `VSS_CHROMA_DIR`, then `/tmp/chroma_data` |
+| `collection_name` | Default Chroma collection (used when caller passes empty) | `default` |
+| `embed_model` | NVIDIA embedding model name | `nvidia/llama-nemotron-embed-vl-1b-v2` |
+| `embed_base_url` | Embedding NIM base URL | `https://integrate.api.nvidia.com/v1` |
+| `embed_api_key` | NVIDIA API key | env `NVIDIA_API_KEY` |
+
+**Per-query `filters`** — filter pushdown is not supported; pass only `query`, `collection`, and `top_k`.
+
+### `llama_index`
+
+Same storage + ingestion model as `langchain` — embedded ChromaDB persist directory — but routed through the LlamaIndex framework (`llama-index-vector-stores-chroma` + `llama-index-embeddings-nvidia`). Field set mirrors `langchain`.
+
+| Field | Purpose | Default |
+|---|---|---|
+| `persist_dir` | Path to the Chroma persist directory inside the container | env `VSS_CHROMA_DIR`, then `/tmp/chroma_data` |
+| `collection_name` | Default Chroma collection (used when caller passes empty) | `default` |
+| `embed_model` | NVIDIA embedding model name | `nvidia/llama-nemotron-embed-vl-1b-v2` |
+| `embed_base_url` | Embedding NIM base URL | `https://integrate.api.nvidia.com/v1` |
+| `embed_api_key` | NVIDIA API key | env `NVIDIA_API_KEY` |
+
+**Per-query `filters`** — filter pushdown is not supported; pass only `query`, `collection`, and `top_k`. Predicate (callable) filters are still applied client-side.
 
 ## Revert
 
