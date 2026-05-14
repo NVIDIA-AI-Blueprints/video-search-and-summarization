@@ -16,7 +16,7 @@
 imagePullSecrets:
   - name: ngc-docker-reg-secret
 
-replicas: 1
+replicas: 2
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
   tag: "3.2.0-26.05.2"
@@ -34,7 +34,7 @@ service:
 # Requires the HAProxy Technologies kubernetes-ingress controller in the
 # cluster — this toggle does not create an Ingress, only the annotations.
 streamAffinity:
-  enabled: false
+  enabled: true
   hashHeader: x-stream-id
 gpuDeviceId: "2"
 dshm:

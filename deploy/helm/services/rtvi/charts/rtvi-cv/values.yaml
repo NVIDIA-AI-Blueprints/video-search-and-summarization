@@ -48,7 +48,7 @@ httpPort: 9000
 # Requires the HAProxy Technologies kubernetes-ingress controller in the
 # cluster — this toggle does not create an Ingress, only the annotations.
 streamAffinity:
-  enabled: false
+  enabled: true
   hashHeader: x-stream-id
 
 streamType: "kafka"
