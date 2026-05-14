@@ -173,7 +173,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   }, [loading]);
 
   // Only clear results when an agent-mode search query was submitted (via submitChatMessage),
-  // not when the user sends a regular chat message (e.g. "Add to Chat" + question).
+  // not when the user sends a regular chat message (e.g. "+ Chat" + question).
   const agentSearchSubmittedRef = React.useRef(false);
   const wrappedSubmitChatMessage = React.useMemo(() => {
     if (!submitChatMessage) return undefined;
