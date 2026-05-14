@@ -217,7 +217,13 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             "requires_deployed_vss = true",
             "# Deploy mode is FULL-REMOTE (LLM + VLM both remote) — vios",
             "# exercises VIOS/VST only, so there's no benefit to running local NIMs.",
-            f'prerequisite_deploy_mode = "{spec.get("prerequisite_deploy_mode", "remote-all")}"',
+            # prerequisite_deploy_mode is alerts-only — the deploy marker
+            # is profile-name only for base/lvs/search; the consumer
+            # (envs/brev_env.py::_ensure_prerequisite_deployed) matches
+            # on profile alone when this field is absent. Set it only if
+            # this spec needs a specific alerts stack (verification vs
+            # real-time).
+            *([f'prerequisite_deploy_mode = "{spec["prerequisite_deploy_mode"]}"'] if spec.get("prerequisite_deploy_mode") else []),
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",

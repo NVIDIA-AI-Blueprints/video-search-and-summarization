@@ -4,7 +4,7 @@
   "resources": {
     "platforms": {
       "L40S": {
-        "modes": ["remote-all"]
+        "gpu_count": 1
       }
     }
   },
