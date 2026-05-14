@@ -114,10 +114,8 @@ services:
         required: false
       sdr-streamprocessing:
         condition: service_started
-        required: false
       envoy-streamprocessing:
         condition: service_started
-        required: false
 
   sensor-ms-3d:
     image: ${VST_SENSOR_IMAGE}
@@ -204,7 +202,5 @@ services:
         required: false
       sdr-streamprocessing:
         condition: service_started
-        required: false
       envoy-streamprocessing:
         condition: service_started
-        required: false
