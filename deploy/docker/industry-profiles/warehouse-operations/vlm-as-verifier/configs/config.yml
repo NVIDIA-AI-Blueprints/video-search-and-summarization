@@ -28,7 +28,7 @@ vst_config:
   # Base URL for general VST APIs already used elsewhere in the codebase
   base_url: "http://localhost:30888"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
-  add_overlay: true
+  add_overlay: false
   segment_duration_seconds: 15
   segment_anchor: "end"
   timeout: 30 #timeout in seconds to get the video url from vst
@@ -63,12 +63,10 @@ vlm:
   max_tokens: 4096
   response_format: "json"
   # Beware that these parameters need to be set in accordance with the VLM max context window
-  min_pixels: 1568
-  max_pixels: 345600
   enable_sampling: true
-  sampling_fps: 30
-  max_retries: 3
-  request_timeout: 25
+  sampling_fps: 4
+  max_retries: 1
+  request_timeout: 30
   temperature: 0.0
   do_resize: false
 

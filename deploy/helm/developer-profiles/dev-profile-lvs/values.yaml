@@ -178,6 +178,11 @@ vss-summarization:
       value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "vss-rtvi-vlm" }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
     - name: RTVI_VLM_URL_PASSTHROUGH
       value: "true"
+    # Compose parity: dev-profile-lvs/.env sets LVS_ENABLE_LLM_MERGING=true.
+    # Subchart default is "false"; this override re-enables LLM-based merging
+    # of overlapping/duplicate events for the LVS profile.
+    - name: LVS_ENABLE_LLM_MERGING
+      value: "true"
 
 agent:
   enabled: true

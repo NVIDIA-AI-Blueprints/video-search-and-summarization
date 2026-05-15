@@ -585,27 +585,27 @@ commons:
 
 H100:
   2d:
-    max_streams_supported: 17
+    max_streams_supported: 76
   3d:
-    max_streams_supported: 13
+    max_streams_supported: 16
   mv3dt:
     max_streams_supported: 13
-
-L40S:
-  2d:
-    max_streams_supported: 7
-  3d:
-    max_streams_supported: 7
-  mv3dt:
-    max_streams_supported: 7
 
 L4:
   2d:
-    max_streams_supported: 2
+    max_streams_supported: 9
   3d:
     max_streams_supported: 2
   mv3dt:
     max_streams_supported: 2
+
+L40S:
+  2d:
+    max_streams_supported: 29
+  3d:
+    max_streams_supported: 6
+  mv3dt:
+    max_streams_supported: 7
 
 RTXA6000:
   2d:
@@ -617,7 +617,7 @@ RTXA6000:
 
 RTXA6000ADA:
   2d:
-    max_streams_supported: 8
+    max_streams_supported: 28
   3d:
     max_streams_supported: 6
   mv3dt:
@@ -625,15 +625,15 @@ RTXA6000ADA:
 
 RTXPRO6000BW:
   2d:
-    max_streams_supported: 30
+    max_streams_supported: 49
   3d:
-    max_streams_supported: 18
+    max_streams_supported: 19
   mv3dt:
     max_streams_supported: 18
 
 IGX-THOR:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 9
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -653,7 +653,7 @@ IGX-THOR:
           VisualTracker.vpiBackend4DcfTracker: 1
 
   3d:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -697,7 +697,7 @@ IGX-THOR:
 
 DGX-SPARK:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -706,7 +706,7 @@ DGX-SPARK:
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
 
   3d:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
