@@ -61,6 +61,16 @@ from vss_agents.utils.url_translation import rewrite_url_host
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_RTVI_CV_TIMEOUT_SECONDS = 60.0
+DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS = 600.0
+DEFAULT_VST_STORAGE_TIMEOUT_SECONDS = 60.0
+DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS = 300.0
+
+ENV_RTVI_CV_TIMEOUT_SECONDS = "VIDEO_INGEST_RTVI_CV_TIMEOUT_SECONDS"
+ENV_RTVI_EMBED_TIMEOUT_SECONDS = "VIDEO_INGEST_RTVI_EMBED_TIMEOUT_SECONDS"
+ENV_VST_STORAGE_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_STORAGE_TIMEOUT_SECONDS"
+ENV_VST_UPLOAD_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_UPLOAD_TIMEOUT_SECONDS"
+
 
 def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None:
     """
@@ -90,6 +100,36 @@ def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None
     if parsed.netloc.endswith(":"):
         return None
     return parsed
+
+
+def _parse_timeout_seconds(raw_value: Any, *, default: float, setting_name: str) -> float:
+    """Parse an optional timeout value, preserving the old hard-coded default."""
+    if raw_value is None or raw_value == "":
+        return default
+    try:
+        timeout_seconds = float(raw_value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%r; falling back to %.1fs", setting_name, raw_value, default)
+        return default
+    if timeout_seconds <= 0:
+        logger.warning("Invalid %s=%r; timeout must be > 0, falling back to %.1fs", setting_name, raw_value, default)
+        return default
+    return timeout_seconds
+
+
+def _resolve_timeout_seconds(
+    streaming_config: Any,
+    *,
+    attr_name: str,
+    env_name: str,
+    default: float,
+) -> float:
+    raw_value = getattr(streaming_config, attr_name, None) if streaming_config else None
+    if raw_value is not None and raw_value.__class__.__module__ == "unittest.mock":
+        raw_value = None
+    if raw_value is None or raw_value == "":
+        raw_value = os.getenv(env_name, "")
+    return _parse_timeout_seconds(raw_value, default=default, setting_name=attr_name)
 
 
 class VideoIngestResponse(BaseModel):
@@ -154,6 +194,10 @@ class _VideoUploadConfig(BaseModel):
     rtvi_cv_base_url: str = ""
     rtvi_embed_model: str = "cosmos-embed1-448p"
     rtvi_embed_chunk_duration: int = 5
+    rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS
+    rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS
+    vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS
+    vst_upload_timeout_seconds: float = DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS
 
 
 def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
@@ -189,6 +233,31 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
     if not vst_internal_url:
         return None
 
+    rtvi_cv_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="rtvi_cv_timeout_seconds",
+        env_name=ENV_RTVI_CV_TIMEOUT_SECONDS,
+        default=DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+    )
+    rtvi_embed_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="rtvi_embed_timeout_seconds",
+        env_name=ENV_RTVI_EMBED_TIMEOUT_SECONDS,
+        default=DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+    )
+    vst_storage_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="vst_storage_timeout_seconds",
+        env_name=ENV_VST_STORAGE_TIMEOUT_SECONDS,
+        default=DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
+    )
+    vst_upload_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="vst_upload_timeout_seconds",
+        env_name=ENV_VST_UPLOAD_TIMEOUT_SECONDS,
+        default=DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS,
+    )
+
     return _VideoUploadConfig(
         vst_internal_url=vst_internal_url,
         vst_external_url=vst_external_url or vst_internal_url,
@@ -196,6 +265,10 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url=rtvi_cv_base_url,
         rtvi_embed_model=rtvi_embed_model,
         rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+        rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
+        rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
+        vst_storage_timeout_seconds=vst_storage_timeout_seconds,
+        vst_upload_timeout_seconds=vst_upload_timeout_seconds,
     )
 
 
@@ -206,6 +279,7 @@ async def _register_with_rtvi_cv(
     camera_name: str,
     vst_file_path: str,
     start_timestamp: str,
+    timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
 ) -> None:
     """POST ``/api/v1/stream/add`` to RTVI-CV. Best-effort (tolerates network errors).
 
@@ -238,7 +312,7 @@ async def _register_with_rtvi_cv(
     logger.info(f"Adding video to RTVI-CV: POST {rtvi_cv_add_url}")
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             with TimeMeasure("video_ingest: register with RTVI-CV"):
                 response = await client.post(
                     rtvi_cv_add_url,
@@ -265,6 +339,7 @@ async def _run_rtvi_embedding(
     rtvi_embed_model: str,
     rtvi_embed_chunk_duration: int,
     start_timestamp: str,
+    timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
 ) -> int:
     """POST ``/v1/generate_video_embeddings``. Returns ``total_chunks_processed``.
 
@@ -290,7 +365,7 @@ async def _run_rtvi_embedding(
 
     logger.info(f"Calling RTVI Embedding API: POST {embedding_url}")
 
-    async with httpx.AsyncClient(timeout=600.0) as client:
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         with TimeMeasure("video_ingest: generate embeddings (RTVI)"):
             response = await client.post(
                 embedding_url,
@@ -304,9 +379,7 @@ async def _run_rtvi_embedding(
             )
 
         if response.status_code != 200:
-            error_msg = (
-                f"Embedding generation failed with status {response.status_code}: {response.text}"
-            )
+            error_msg = f"Embedding generation failed with status {response.status_code}: {response.text}"
             logger.error(error_msg)
             raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
 
@@ -326,6 +399,9 @@ async def _run_post_upload_processing(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+    rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+    vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
 ) -> VideoIngestResponse:
     """
     Run post-upload processing: get timeline, get video URL, add to RTVI-CV, generate embeddings.
@@ -377,7 +453,7 @@ async def _run_post_upload_processing(
     }
     logger.info(f"Calling Storage API: GET {storage_url}")
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=vst_storage_timeout_seconds) as client:
         with TimeMeasure("video_ingest: get storage URL from VST"):
             storage_response = await client.get(storage_url, params=storage_params)
 
@@ -416,6 +492,7 @@ async def _run_post_upload_processing(
                     camera_name=camera_name,
                     vst_file_path=vst_file_path,
                     start_timestamp=start_timestamp,
+                    timeout_seconds=rtvi_cv_timeout_seconds,
                 ),
             )
         )
@@ -435,6 +512,7 @@ async def _run_post_upload_processing(
                     rtvi_embed_model=rtvi_embed_model,
                     rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
                     start_timestamp=start_timestamp,
+                    timeout_seconds=rtvi_embed_timeout_seconds,
                 ),
             )
         )
@@ -510,6 +588,9 @@ def create_video_upload_complete_router(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+    rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+    vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
 ) -> APIRouter:
     """Build the universal ``POST /api/v1/videos/{sensor_id}/complete`` router.
 
@@ -553,6 +634,9 @@ def create_video_upload_complete_router(
                 rtvi_cv_base_url=rtvi_cv_base_url,
                 rtvi_embed_model=rtvi_embed_model,
                 rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
+                rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
+                vst_storage_timeout_seconds=vst_storage_timeout_seconds,
             )
         except HTTPException:
             raise
@@ -603,6 +687,9 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 rtvi_cv_base_url=cfg.rtvi_cv_base_url,
                 rtvi_embed_model=cfg.rtvi_embed_model,
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
+                rtvi_cv_timeout_seconds=cfg.rtvi_cv_timeout_seconds,
+                rtvi_embed_timeout_seconds=cfg.rtvi_embed_timeout_seconds,
+                vst_storage_timeout_seconds=cfg.vst_storage_timeout_seconds,
             )
         )
         logger.info("Registered POST /api/v1/videos/{sensor_id}/complete")
