@@ -379,11 +379,19 @@ class ModelArtifactConfig(BaseModel):
 class HardwareResolutionConfig(BaseModel):
     """Hardware resolution rules for profile validation/device mapping."""
 
-    supported_profiles: tuple[str, ...]
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: dict[str, str]
-    profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] = Field(default_factory=dict)
+    # Keys define the set of supported hardware profiles.
+    # Values are env overrides (None/{} = supported, no overrides).
+    hardware_profiles: dict[str, dict[str, str | dict[str, str]]] = Field(default_factory=dict)
+
+    @field_validator("hardware_profiles", mode="before")
+    @classmethod
+    def _coerce_null_overrides_to_empty(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {k: (v if v is not None else {}) for k, v in value.items()}
 
 
 class ModelResolutionConfig(BaseModel):

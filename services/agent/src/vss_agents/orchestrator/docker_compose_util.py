@@ -31,6 +31,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import field_validator
 import yaml
 
 from .network_util import apply_brev_proxy_env
@@ -99,11 +100,19 @@ class EdgeDeviceIdsInput(BaseModel):
 
 
 class HardwareResolutionInput(BaseModel):
-    supported_profiles: tuple[str, ...]
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: EdgeDeviceIdsInput
-    profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] = Field(default_factory=dict)
+    # Keys define the set of supported hardware profiles.
+    # Values are env overrides (None/{} = supported, no overrides).
+    hardware_profiles: dict[str, dict[str, str | dict[str, str]]] = Field(default_factory=dict)
+
+    @field_validator("hardware_profiles", mode="before")
+    @classmethod
+    def _coerce_null_overrides_to_empty(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {k: (v if v is not None else {}) for k, v in value.items()}
 
 
 class ModelResolutionInput(BaseModel):
@@ -228,7 +237,7 @@ def create_dry_run_recipe(
         mdx_data_dir=Path(mdx_data_dir).expanduser().resolve(),
         compose_file=compose_file,
         source_env_file=source_env_file,
-        supported_hardware_profiles=frozenset(model_resolution.hardware.supported_profiles),
+        supported_hardware_profiles=frozenset(model_resolution.hardware.hardware_profiles.keys()),
         edge_hardware_profiles=frozenset(model_resolution.hardware.edge_profiles),
         edge_allowed_profiles=frozenset(model_resolution.hardware.edge_allowed_profiles),
         edge_device_ids=MappingProxyType(
@@ -250,7 +259,7 @@ def create_dry_run_recipe(
                         for scope, value in overrides.items()
                     }
                 )
-                for hw, overrides in model_resolution.hardware.profile_env_overrides.items()
+                for hw, overrides in model_resolution.hardware.hardware_profiles.items()
             }
         ),
     )
@@ -397,7 +406,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
     #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
-    #   3. yml hw-defaults from profile_env_overrides[HW]:
+    #   3. yml hw-defaults from hardware_profiles[HW]:
     #        a. str-valued keys at the HW root (always apply)
     #        b. dict at key "<profile>" (applies when profile matches)
     #        c. dict at key "<profile>.<profile_mode>" (applies when both match)

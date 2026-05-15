@@ -677,7 +677,7 @@ def _patch_network(monkeypatch: pytest.MonkeyPatch, ip: str = "10.0.0.1") -> Non
 class TestPrecedence:
     """Layered precedence for env values (low -> high):
 
-    profile .env  <  yml profile_env_overrides[HW]  <  notebook named recipe param  <  per-call env_overrides
+    profile .env  <  yml hardware_profiles[HW]  <  notebook named recipe param  <  per-call env_overrides
 
     Tests use a non-edge HW (thor) to isolate the layered-precedence logic from
     edge-specific code paths (edge_device_ids, VLM_BASE_URL synthesis).
@@ -938,7 +938,7 @@ class TestVlmBaseUrlSynthesis:
 
 
 class TestNestedOverrides:
-    """profile_env_overrides[HW] supports both HW-wide str-valued keys and
+    """hardware_profiles[HW] supports both HW-wide str-valued keys and
     scoped dict-valued keys (keyed by "<profile>" or "<profile>.<profile_mode>")."""
 
     def test_hw_level_string_keys_always_apply(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

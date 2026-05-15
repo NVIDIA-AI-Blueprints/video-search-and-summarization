@@ -89,14 +89,6 @@ function_groups:
         artifact_kind: "file"
     model_resolution:
       hardware:
-        supported_profiles:
-        - H100
-        - L40S
-        - RTXPRO6000BW
-        - DGX-SPARK
-        - IGX-THOR
-        - AGX-THOR
-        - OTHER
         edge_profiles:
         - DGX-SPARK
         - IGX-THOR
@@ -109,14 +101,22 @@ function_groups:
           vlm: "0"
           rt_vlm: "0"
           rt_cv: "0"
-        profile_env_overrides:
+        # Keys define the set of supported hardware profiles.
+        # Values are env overrides (empty/null = supported, no overrides).
+        hardware_profiles:
+          H100:
+          L40S:
+          RTXPRO6000BW:
+          OTHER:
           DGX-SPARK:
             PERCEPTION_TAG: "3.2.0-sbsa-26.05.1"
             RTVI_VLM_IMAGE_TAG: "3.2.0-26.05.1-sbsa"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
-            alerts.verification:
+            alerts.verification: 
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
+              RTVI_VLM_MAX_MODEL_LEN: "8192"  # can raise to 16384 if VLLM_ENFORCE_EAGER=true
+              RTVI_VLLM_MAX_NUM_SEQS: "8"
             alerts.real-time:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.5"
               RTVI_VLM_MAX_MODEL_LEN: "8192"
