@@ -273,7 +273,7 @@ services:
     image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.05.1}
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
-    
+
     volumes:
       - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
       - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/

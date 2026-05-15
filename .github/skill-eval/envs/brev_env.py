@@ -344,9 +344,9 @@ class BrevEnvironment(BaseEnvironment):
         # tarball-style checkout (no `.git`) with an obsolete directory
         # layout (`deployments/` instead of `deploy/docker/`) and the
         # pre-rename container names. The pre-deploy script generated
-        # by `adapters/deploy/generate.py::generate_solve_script` only
-        # syncs on the *gold-solution* path; the trial's agent invokes
-        # `/deploy` directly against `$REPO`, so without this step the
+        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+        # only syncs on the *gold-solution* path; the trial's agent invokes
+        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
         # PR_HEAD_SHA forwarded above never actually lands on disk.
         await self._sync_repo_to_pr_head()
 
@@ -371,14 +371,15 @@ class BrevEnvironment(BaseEnvironment):
                   or `<profile>-<deploy_mode>` for alerts variants
                   (`alerts-verification`, `alerts-real-time`).
             If marker == desired → hot, no-op.
-            Else → run `/deploy -p <profile> [-m <mode>]` via
+            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]` via
                   `claude --print`. On success OVERWRITE marker.
 
         2. `profile` absent (trial needs a clean box, no VSS running):
             desired = `""` (empty marker).
-            If marker == `""` → already clean, no-op.
-            Else → tear down all containers (`docker rm -f $(docker
+            Always tear down all containers (`docker rm -f $(docker
                   ps -aq)`) + prune networks; OVERWRITE marker to empty.
+                  An empty marker does not prove a prior standalone
+                  profile-less trial cleaned up every container it started.
                   Preserves anything `docker rm -f` doesn't touch:
                   docker image cache, named volumes (postgres / ES /
                   kafka data), repo clone, and sample-data extract —
@@ -389,11 +390,11 @@ class BrevEnvironment(BaseEnvironment):
                   the reconcile instead of running against a
                   partially-dirty box that pretends to be clean.
 
-        Deploy/* trials themselves set `profile` but don't request a
+        vss-deploy-profile/* trials themselves set `profile` but don't request a
         prereq — their test.sh writes the marker on reward=1.0. They
         never call this hook.
 
-        claude-code is expected on the box from a prior deploy/* trial's
+        claude-code is expected on the box from a prior vss-deploy-profile/* trial's
         harbor agent setup; persists across trials on the reused
         vss-eval-* instance. Override the wall clock via
         PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
@@ -413,7 +414,7 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
         current = (probe.stdout or "").strip()
-        if current == desired:
+        if current == desired and desired:
             state = desired or "<clean>"
             logger.info(
                 "prerequisite %s already current on %s; skipping reconcile",
@@ -427,7 +428,7 @@ class BrevEnvironment(BaseEnvironment):
 
         if not desired:
             # Profile-less trial wants a clean box. Tear down all
-            # containers without touching the deploy skill; keeps the
+            # containers without touching the vss-deploy-profile skill; keeps the
             # docker image cache, named volumes (postgres / ES / kafka
             # data), repo clone, and sample-data extract warm for the
             # next deploy trial. Container teardown is fast (<10s
@@ -479,10 +480,10 @@ class BrevEnvironment(BaseEnvironment):
             env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
         env_prefix = " ".join(env_prefix_parts)
 
-        prompt = f"/deploy -p {profile}"
+        prompt = f"/vss-deploy-profile -p {profile}"
         if deploy_mode:
             prompt += f" -m {deploy_mode}"
-        # Overwrite (>) the canonical marker on /deploy success — the
+        # Overwrite (>) the canonical marker on /vss-deploy-profile success — the
         # marker reflects what is currently running, not a deploy log.
         # PATH prepend: brev exec runs a non-interactive shell that does
         # not source ~/.bashrc, where harbor writes
@@ -508,7 +509,7 @@ class BrevEnvironment(BaseEnvironment):
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
-                f"pre-deploy /deploy -p {profile} -m {deploy_mode} failed "
+                f"pre-deploy /vss-deploy-profile -p {profile} -m {deploy_mode} failed "
                 f"on {self._instance_name}: exit {result.return_code}; "
                 f"output tail: {tail!r}"
             )
@@ -523,8 +524,8 @@ class BrevEnvironment(BaseEnvironment):
         agent step reads `$REPO`.
 
         Why this is in the env provider (not the deploy adapter): the
-        deploy adapter's solve.sh syncs the repo on the *gold-solution*
-        path, but the trial's claude-code agent invokes `/deploy`
+        vss-deploy-profile adapter's solve.sh syncs the repo on the *gold-solution*
+        path, but the trial's claude-code agent invokes `/vss-deploy-profile`
         directly against whatever's on disk. Without this sync, the
         forwarded `PR_HEAD_SHA` env var has no effect on the actual
         compose/skill files the agent reads.

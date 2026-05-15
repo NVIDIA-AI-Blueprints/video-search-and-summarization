@@ -25,7 +25,7 @@ k8s-workload-streamprocessing:
   WDM_KFK_ENABLE: false
   WDM_MSG_TOPIC: vst_events # TODO: or "mdx-sensor"?
   WDM_DS_SWAP_ID_NAME: false
-  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 50 
+  WDM_ADD_REMOVE_RETRY_ATTEMPTS: 50
   WDM_DISABLE_WERKZEUG_LOGGING: true
   WDM_WL_OBJECT_NAME: vss-vios-streamprocessing
   VST_STREAMS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/streams
@@ -39,7 +39,7 @@ k8s-workload-streamprocessing:
   NOHEADERTARGETROUTE: true
   HEADERLESS_SERVICE_ENDPOINTS: "[\"vss-vios-streamprocessing:30001\"]"
   WDM_WL_REDIS_MSG_FIELD: sensor.id
-  WDM_MSG_KEY: vst_events # TODO: or "mdx-notification"? 
+  WDM_MSG_KEY: vst_events # TODO: or "mdx-notification"?
   WDM_WL_PROXY_URL: "/"
   ENVOY_ROUTE_URL_PREFIX_REWRITE: "/"
   ENVOY_ROUTE_URL_PREFIX: "/"
