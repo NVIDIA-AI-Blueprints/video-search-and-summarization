@@ -1,13 +1,8 @@
----
-name: vss-deploy-auto-calibration
-description: Deploy the AutoMagicCalib (AMC) microservice and web UI from pre-built NGC release images. AMC is the `vss-auto-calibration` service inside the `warehouse-operations` industry profile (compose tree at `deploy/docker/services/auto-calibration/`, env at `deploy/docker/industry-profiles/warehouse-operations/.env`). Use when the user says "launch AMC", "launch auto calibration", "deploy AMC", "deploy auto-calibration", "set up auto-magic-calib", or "start AMC microservice". After the stack is healthy, the user typically follows up with `/vss-generate-video-calibration` to run a calibration.
-version: "3.2.0"
-license: "Apache License 2.0"
----
+# Deploy auto-calibration service
 
-# VSS Deploy Auto-Calibration
+Use this reference when the user wants to deploy AMC (launch the microservice + UI). The parent skill ([`../SKILL.md`](../SKILL.md)) routes here on triggers like "launch AMC" / "deploy auto-calibration" / "set up auto-magic-calib".
 
-Deploy the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../deploy/docker/services/auto-calibration/), and AMC is enabled by the `auto-calib` compose profile (also auto-enabled by any `bp_wh_*` warehouse blueprint). AMC is a service inside the `warehouse-operations` industry profile — env vars live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../deploy/docker/industry-profiles/warehouse-operations/.env).
+Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pre-built release images. The compose tree lives at [`deploy/docker/services/auto-calibration/`](../../../deploy/docker/services/auto-calibration/), and AMC is enabled by the `auto-calib` compose profile (also auto-enabled by any `bp_wh_*` warehouse blueprint). AMC is a service inside the `warehouse-operations` industry profile — env vars live in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env).
 
 ## What's different from base VSS
 
@@ -26,7 +21,7 @@ Deploy the `vss-auto-calibration` service — AMC microservice + web UI from pre
 
 ## Env recipe
 
-Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../deploy/docker/industry-profiles/warehouse-operations/.env) (the values below are the in-repo defaults):
+Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../../deploy/docker/industry-profiles/warehouse-operations/.env) (the values below are the in-repo defaults):
 
 | Variable | Purpose | Default |
 |---|---|---|
@@ -34,10 +29,10 @@ Set in [`deploy/docker/industry-profiles/warehouse-operations/.env`](../../deplo
 | `VSS_AUTO_CALIBRATION_UI_PORT` | UI host port (UI publishes `:5000` inside the container) | `5000` |
 | `VSS_AUTO_CALIBRATION_MS_API_URL` | URL the **browser** uses to call the MS (the UI runs in the user's browser, not inside the UI container). Defaults to `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1`. Override if MS and UI run on different hosts, **or** if `${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}` isn't routable from the browser (firewalled port, SSH-tunnel-only access, different network). | computed |
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
-| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` mode of `vss-generate-video-calibration`). Auto-set to `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints | `${VST_INTERNAL_URL}` |
+| `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see [`rtsp.md`](rtsp.md)). Auto-set to `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
 | `VSS_APPS_DIR` | **Absolute path to your repo's `deploy/docker/` directory** (compose-tree root) — NOT an arbitrary data dir. Compose uses it both for `env_file:` lookups (e.g. `${VSS_APPS_DIR}/services/vios/vst.env`) and for bind-mounts of in-repo configs + project state (AMC mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` here). The `.env` ships with a placeholder `/path/to/deploy/docker` — **you MUST replace it with the absolute path to your checkout's `deploy/docker`**, otherwise the dry-run fails with `couldn't find env file: …/services/vios/vst.env`. | (no default — must be set) |
-| `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. See [`deploy/references/data-directory.md`](../deploy/references/data-directory.md) for the full per-container layout + permission setup. | (no default — must be set) |
+| `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. See [`../../deploy/references/data-directory.md`](../../deploy/references/data-directory.md) for the full per-container layout + permission setup. | (no default — must be set) |
 
 ## Deployment flow
 
@@ -176,7 +171,7 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
 | VGGT model not found in MS logs | MS log shows `VGGT model not found at /tmp/vggt_model/vggt_1B_commercial.pt` | Either download VGGT (Step 2) or ignore — AMC works without it. The warning is benign for non-VGGT runs. |
 | Permission denied on VGGT path | MS log shows `PermissionError` on `/tmp/vggt_model/...` | The file at `${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` is not readable by UID 1000. Fix: `sudo chmod a+r ${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt` |
-| VIOS_BASE_URL empty (RTSP capture returns 503) | `vss-generate-video-calibration` (rtsp mode) reports the MS rejects capture with "VIOS not configured" | Either deploy this service alongside a `bp_wh_*` blueprint (which sets `VIOS_BASE_URL=${VST_INTERNAL_URL}`), or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
+| VIOS_BASE_URL empty (RTSP capture returns 503) | The `rtsp` calibration mode reports the MS rejects capture with "VIOS not configured" | Either deploy this service alongside a `bp_wh_*` blueprint (which sets `VIOS_BASE_URL=${VST_INTERNAL_URL}`), or set `VIOS_BASE_URL` explicitly in the env file and `docker compose up -d` again. |
 | Container exits immediately | `docker ps` shows `vss-auto-calibration` as `Exited` | Check logs: `docker logs vss-auto-calibration`. Often a GPU device-ID mismatch or VGGT path typo. |
 
 ## Stopping the services
@@ -191,10 +186,10 @@ COMPOSE_PROFILES=bp_wh_2d_remote-all docker compose --env-file industry-profiles
 
 ## What comes next
 
-Once the AMC stack is up and healthy, the user typically runs [`vss-generate-video-calibration`](../vss-generate-video-calibration/SKILL.md) to actually calibrate cameras. That skill routes to one of three input modes based on what the user has:
+Once the AMC stack is up and healthy, the parent skill picks one of three calibration modes based on what the user has:
 
-- [`references/sample-dataset.md`](../vss-generate-video-calibration/references/sample-dataset.md) — bundled sample (recommended first run; sanity-checks the install).
-- [`references/videos.md`](../vss-generate-video-calibration/references/videos.md) — your own pre-recorded MP4s.
-- [`references/rtsp.md`](../vss-generate-video-calibration/references/rtsp.md) — live RTSP streams (requires VIOS).
+- [`sample-dataset.md`](sample-dataset.md) — bundled sample (recommended first run; sanity-checks the install).
+- [`videos.md`](videos.md) — pre-recorded MP4s.
+- [`rtsp.md`](rtsp.md) — live RTSP streams (requires VIOS).
 
-**Agent behavior**: if the user's original prompt asked to both deploy AND calibrate (e.g. *"launch AMC and test the sample dataset"*, *"set up auto-magic-calib and calibrate my videos at /data/videos/"*), proceed immediately to `/vss-generate-video-calibration` once the readiness probe passes — don't stop at "deploy succeeded" and wait for re-prompt. If the user only asked to deploy, surface the URLs (MS + UI) and the three calibration options above so they can pick.
+**Agent behavior**: if the user's original prompt asked to both deploy AND calibrate (e.g. *"launch AMC and test the sample dataset"*, *"set up auto-magic-calib and calibrate my videos at /data/videos/"*), proceed immediately to one of the calibration-mode references once the readiness probe passes — don't stop at "deploy succeeded" and wait for re-prompt. If the user only asked to deploy, surface the URLs (MS + UI) and the three calibration options above so they can pick.

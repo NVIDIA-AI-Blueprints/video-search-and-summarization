@@ -29,7 +29,7 @@ See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-p
 ### Optional
 5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
 6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
-7. **Run VGGT refinement?** — only if VGGT model is staged (see [`/vss-deploy-auto-calibration`](../../vss-deploy-auto-calibration/SKILL.md) Step 2).
+7. **Run VGGT refinement?** — only if VGGT model is staged (see [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) Step 2).
 
 Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
 
