@@ -204,6 +204,31 @@ function cleanup() {
       sudo rm -rf ${VSS_DATA_DIR}/data_log/redis/log/*
   fi
 
+  # Clean up sdrc runtime artifacts (logs and rendered wdm env files)
+  local _sdrc_dir="${script_dir}/../services/infra/sdrc"
+
+  if [ -d "${_sdrc_dir}/log" ]; then
+      sudo rm -rf "${_sdrc_dir}/log"
+  fi
+
+  if [ -d "${_sdrc_dir}/.wdm-env" ]; then
+      sudo rm -rf "${_sdrc_dir}/.wdm-env"
+  fi
+
+  # Delete render-service generated sdrc config files. Every rendered file in
+  # */sdrc/configs/ has a sibling *.tmpl template; remove the rendered sibling
+  # so the next run regenerates it cleanly from the template.
+  local _docker_dir _tmpl _rendered
+  _docker_dir="$(dirname "${script_dir}")"
+  while IFS= read -r _tmpl; do
+    [[ -z "${_tmpl}" ]] && continue
+    _rendered="${_tmpl%.tmpl}"
+    if [[ -f "${_rendered}" ]]; then
+      echo "Deleting rendered sdrc config: ${_rendered}"
+      sudo rm -f "${_rendered}"
+    fi
+  done < <(find "${_docker_dir}" -type f -path '*/sdrc/configs/*.tmpl' 2>/dev/null)
+
   if [[ "${delete_calibration_data}" == true ]]; then
       sudo rm -rf ${VSS_DATA_DIR}/data_log/calibration_toolkit/*
   fi
