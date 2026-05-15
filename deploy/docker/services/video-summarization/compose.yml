@@ -91,7 +91,9 @@ services:
       - DISABLE_CA_RAG=false
       - ENABLE_AUDIO=${ENABLE_AUDIO:-false}
       - ENABLE_DENSE_CAPTION=false
-      - LVS_ENABLE_MCP=true
+      # The LVS HTTP API is sufficient for the developer profile. Keep MCP opt-in
+      # to avoid host-port collisions when using host networking.
+      - LVS_ENABLE_MCP=${LVS_ENABLE_MCP:-false}
       - VSS_LOG_LEVEL=INFO
       - VLM_SYSTEM_PROMPT=""
 
