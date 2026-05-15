@@ -216,6 +216,13 @@ class TestVideoUnderstandingConfig:
         overrides = _vlm_profile_media_overrides(cfg)
         assert overrides == {"max_frames": 7}
 
+    def test_vlm_profile_media_overrides_none(self):
+        assert _vlm_profile_media_overrides(None) == {}
+
+    def test_vlm_profile_media_overrides_non_model_returns_empty(self):
+        """Mis-typed config should not crash; overrides fall back to VideoUnderstandingConfig."""
+        assert _vlm_profile_media_overrides(object()) == {}
+
     def test_ip_translation_fields_are_not_exposed(self):
         assert "internal_ip" not in VideoUnderstandingConfig.model_fields
         assert "external_ip" not in VideoUnderstandingConfig.model_fields

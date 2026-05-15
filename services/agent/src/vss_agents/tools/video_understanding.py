@@ -54,7 +54,17 @@ _VLM_PROFILE_MEDIA_KEYS = frozenset({"max_frames", "max_fps", "min_pixels", "max
 
 def _vlm_profile_media_overrides(vlm_llm_config: Any) -> dict[str, Any]:
     """Return subset of VLM profile fields that override video_understanding defaults."""
-    dump = vlm_llm_config.model_dump(mode="python")
+    if vlm_llm_config is None:
+        return {}
+    try:
+        dump = vlm_llm_config.model_dump(mode="python")
+    except AttributeError as e:
+        logger.error(
+            "VLM profile config has no model_dump(); expected a NAT LLM config model. "
+            "Check that `vlm_name` points to a registered `llms:` entry. Error: %s",
+            e,
+        )
+        return {}
     return {key: dump[key] for key in _VLM_PROFILE_MEDIA_KEYS if key in dump}
 
 
@@ -361,12 +371,34 @@ async def _build_vlm_messages(
 @register_function(config_type=VideoUnderstandingConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def video_understanding(config: VideoUnderstandingConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
     vlm_llm_config = builder.get_llm_config(config.vlm_name)
+    if vlm_llm_config is None:
+        msg = (
+            f"No LLM/VLM profile registered for vlm_name={config.vlm_name!r}. "
+            "Add a matching entry under `llms:` in the workflow config (e.g. nim_vlm, openai_vlm)."
+        )
+        logger.error(msg)
+        raise ValueError(msg)
+
     profile_media = _vlm_profile_media_overrides(vlm_llm_config)
     max_frames = profile_media.get("max_frames", config.max_frames)
     max_fps = profile_media.get("max_fps", config.max_fps)
     min_pixels = profile_media.get("min_pixels", config.min_pixels)
     max_pixels = profile_media.get("max_pixels", config.max_pixels)
     reasoning_default = profile_media.get("reasoning", config.reasoning)
+
+    profile_keys = sorted(profile_media.keys())
+    logger.info(
+        "VLM media effective for profile %s: max_frames=%s max_fps=%s min_pixels=%s max_pixels=%s "
+        "reasoning_default=%s | keys taken from VLM profile YAML/extras: %s "
+        "(any missing key uses VideoUnderstandingConfig / class default)",
+        config.vlm_name,
+        max_frames,
+        max_fps,
+        min_pixels,
+        max_pixels,
+        reasoning_default,
+        profile_keys if profile_keys else "none",
+    )
 
     base_vlm = await builder.get_llm(config.vlm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     is_nim = config.vlm_name.startswith("nim_")
