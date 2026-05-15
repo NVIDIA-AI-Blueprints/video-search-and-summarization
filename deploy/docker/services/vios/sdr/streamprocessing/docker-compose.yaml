@@ -64,7 +64,7 @@ services:
 
   streamprocessing-ms-2d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","auto_calib_2d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -111,7 +111,7 @@ services:
 
   streamprocessing-ms-3d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "auto_calib_3d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -160,7 +160,7 @@ services:
 
   streamprocessing-ms-mv3dt:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_mv3dt"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
