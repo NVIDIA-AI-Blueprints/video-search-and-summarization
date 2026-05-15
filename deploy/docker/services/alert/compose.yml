@@ -32,6 +32,8 @@ services:
       RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
+      VLM_AS_VERIFIER_REQUEST_TIMEOUT: ${VLM_AS_VERIFIER_REQUEST_TIMEOUT}
+      ALERT_AGENT_NUM_WORKERS: ${ALERT_AGENT_NUM_WORKERS}
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
