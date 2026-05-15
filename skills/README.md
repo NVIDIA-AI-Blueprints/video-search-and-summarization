@@ -70,4 +70,4 @@ To uninstall skills, paste the following prompt:
 
 ## Source of truth
 
-This `skills/` directory is the canonical source. Skills published to the public catalog at `github.com/nvidia/skills` are mirrored from here at sync time per [`components.yml`](https://github.com/NVIDIA/skills/blob/main/components.yml).
+This `skills/` directory is the canonical source. Skills published to the public catalog at `github.com/nvidia/skills` are mirrored from here at sync time.
