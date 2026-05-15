@@ -1,17 +1,21 @@
 import {
+  IconDownload,
   IconExclamationCircle,
-  IconMaximize,
-  IconX,
 } from '@tabler/icons-react';
 import React, { memo, useRef, useState, useCallback, useEffect } from 'react';
+import toast from 'react-hot-toast';
+
+import { downloadImageFromUrl } from '@/utils/media/download';
 
 interface ImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   src: string;
   alt?: string;
+  /** When true, show a download button (used for agent <image> chat options). */
+  showDownload?: boolean;
 }
 
 export const Image = memo(
-  ({ src, alt, ...props }: ImageProps) => {
+  ({ src, alt, showDownload = false, ...props }: ImageProps) => {
     const imgRef = useRef(null);
     const prevSrcRef = useRef(src);
     const [error, setError] = useState(false);
@@ -31,6 +35,20 @@ export const Image = memo(
       e.stopPropagation();
       setIsFullscreen((prev) => !prev);
     }, []);
+
+    const handleDownload = useCallback(
+      async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+          await downloadImageFromUrl(src, alt);
+          toast.success('Image downloaded');
+        } catch (error) {
+          console.error('Error downloading image:', error);
+          toast.error('Failed to download image');
+        }
+      },
+      [src, alt],
+    );
 
     // Reset error and loaded state when src changes
     // Use ref comparison to avoid comparing large base64 strings repeatedly
@@ -80,7 +98,7 @@ export const Image = memo(
             </span>
           </span>
         ) : (
-          <span className="relative block w-full">
+          <span className="relative block w-full isolate">
             {/* Image - always rendered to allow lazy loading to work */}
             {/* Use opacity instead of display:none so browser can still detect it for lazy loading */}
             <img
@@ -91,7 +109,7 @@ export const Image = memo(
               onLoad={handleImageLoad}
               loading="eager"  // Changed from lazy - lazy + hidden causes loading issues
               decoding="async"
-              className="object-cover rounded-lg border border-slate-100 dark:border-slate-600 shadow-xs cursor-pointer"
+              className="relative z-0 max-w-full h-auto rounded-lg border border-slate-100 dark:border-slate-600 shadow-xs cursor-pointer object-cover"
               onClick={toggleFullscreen}
               style={{ 
                 maxWidth: '100%', 
@@ -105,6 +123,17 @@ export const Image = memo(
               }}
               {...props}
             />
+            {showDownload && isLoaded && (
+              <button
+                type="button"
+                className="absolute top-2 right-2 z-[2] flex items-center justify-center rounded-md bg-black/70 p-1.5 text-white shadow-md ring-1 ring-white/25 transition-colors hover:bg-black/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#76b900]"
+                onClick={handleDownload}
+                aria-label="Download image"
+                title="Download image"
+              >
+                <IconDownload size={18} />
+              </button>
+            )}
             {/* Loading indicator while image loads - shown behind/instead of image */}
             {!isLoaded && !error && (
               <div className="flex items-center justify-center p-8 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-600 min-h-[200px]">
@@ -132,19 +161,30 @@ export const Image = memo(
             {/* Fullscreen Mode - this is fine as it's positioned fixed outside normal flow */}
             {isFullscreen && !error && isLoaded && (
               <div
-                className="fixed inset-0 bg-black/95 flex items-center justify-center z-50"
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
                 onClick={toggleFullscreen}
                 onKeyDown={(e) => e.key === 'Escape' && toggleFullscreen(e as any)}
                 role="dialog"
                 aria-modal="true"
                 tabIndex={-1}
               >
-                <div className="relative max-w-[90vw] max-h-[90vh]">
+                <div className="relative max-h-[90vh] max-w-[90vw]">
+                  {showDownload && (
+                    <button
+                      type="button"
+                      className="absolute right-3 top-3 z-[2] rounded-md bg-white/90 p-2 text-neutral-900 shadow-md ring-1 ring-black/10 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#76b900] dark:bg-neutral-800 dark:text-white dark:ring-white/20"
+                      onClick={handleDownload}
+                      aria-label="Download image"
+                      title="Download image"
+                    >
+                      <IconDownload size={20} />
+                    </button>
+                  )}
                   <img
                     src={src}
                     alt={alt || 'image'}
                     decoding="async"
-                    className="max-w-full max-h-full object-contain rounded-lg"
+                    className="max-h-full max-w-full rounded-lg object-contain"
                     style={{ maxWidth: '90vw', maxHeight: '90vh' }}
                   />
                 </div>
@@ -158,7 +198,11 @@ export const Image = memo(
   (prevProps: ImageProps, nextProps: ImageProps) => {
     // Fast comparison for small strings
     if (prevProps.src.length < 1000) {
-      return prevProps.src === nextProps.src && prevProps.alt === nextProps.alt;
+      return (
+        prevProps.src === nextProps.src &&
+        prevProps.alt === nextProps.alt &&
+        prevProps.showDownload === nextProps.showDownload
+      );
     }
     
     // For large strings (likely base64 images), use optimized comparison
@@ -173,8 +217,11 @@ export const Image = memo(
     const nextStart = nextProps.src.substring(0, 100);
     const nextEnd = nextProps.src.substring(nextProps.src.length - 100);
     
-    return prevStart === nextStart && 
-           prevEnd === nextEnd && 
-           prevProps.alt === nextProps.alt;
-  }
+    return (
+      prevStart === nextStart &&
+      prevEnd === nextEnd &&
+      prevProps.alt === nextProps.alt &&
+      prevProps.showDownload === nextProps.showDownload
+    );
+  },
 );
