@@ -40,6 +40,10 @@ from fastapi import HTTPException
 from fastapi import Request
 import httpx
 
+from vss_agents.api.video_ingest import DEFAULT_RTVI_CV_TIMEOUT_SECONDS
+from vss_agents.api.video_ingest import DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS
+from vss_agents.api.video_ingest import DEFAULT_VST_STORAGE_TIMEOUT_SECONDS
+from vss_agents.api.video_ingest import DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS
 from vss_agents.api.video_ingest import VideoIngestResponse
 from vss_agents.api.video_ingest import _resolve_video_upload_config
 from vss_agents.api.video_ingest import _run_post_upload_processing
@@ -60,6 +64,10 @@ def create_video_search_ingest_router(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    vst_upload_timeout_seconds: float = DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS,
+    rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+    rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+    vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
 ) -> APIRouter:
     """Build the deprecated ``PUT /api/v1/videos-for-search/{filename}`` router.
 
@@ -121,7 +129,7 @@ def create_video_search_ingest_router(
             raise HTTPException(status_code=400, detail="File is empty.")
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            async with httpx.AsyncClient(timeout=vst_upload_timeout_seconds) as client:
                 logger.info("Streaming PUT upload to VST at %s", vst_upload_url)
                 with TimeMeasure("video_search_ingest: stream upload to VST"):
                     vst_response = await client.put(
@@ -160,6 +168,9 @@ def create_video_search_ingest_router(
                     rtvi_cv_base_url=rtvi_cv_base_url,
                     rtvi_embed_model=rtvi_embed_model,
                     rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                    rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
+                    rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
+                    vst_storage_timeout_seconds=vst_storage_timeout_seconds,
                 )
 
         except HTTPException:
@@ -192,6 +203,10 @@ def register_video_search_ingest_routes(app: "FastAPI", config: "Any") -> None:
                 rtvi_cv_base_url=cfg.rtvi_cv_base_url,
                 rtvi_embed_model=cfg.rtvi_embed_model,
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
+                vst_upload_timeout_seconds=cfg.vst_upload_timeout_seconds,
+                rtvi_cv_timeout_seconds=cfg.rtvi_cv_timeout_seconds,
+                rtvi_embed_timeout_seconds=cfg.rtvi_embed_timeout_seconds,
+                vst_storage_timeout_seconds=cfg.vst_storage_timeout_seconds,
             )
         )
         logger.info("Registered deprecated PUT /api/v1/videos-for-search/{filename}")

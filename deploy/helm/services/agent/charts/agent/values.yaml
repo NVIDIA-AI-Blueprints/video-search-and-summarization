@@ -93,6 +93,15 @@ vstInternalIp: ""
 vssAgentVersion: "3.2.0-26.05.2-2b9b7127c0bb"
 lvsBackendService: ""
 
+# [Optional] VSS Agent service configs for video ingest HTTP call timeouts, in
+# seconds. Leave blank to preserve the service defaults: VST upload 300,
+# VST storage 60, RTVI-CV 60, RTVI-Embed 600.
+videoIngestTimeouts:
+  vstUploadSeconds: ""
+  vstStorageSeconds: ""
+  rtviCvSeconds: ""
+  rtviEmbedSeconds: ""
+
 # Block startup until Kafka, Redis, and Elasticsearch accept TCP (optional).
 waitForDependencies:
   enabled: false

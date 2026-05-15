@@ -115,6 +115,15 @@ spec:
             - name: {{ .name }}
               value: {{ tpl (.value | default "" | toString) $ | quote }}
             {{- end }}
+            {{- $videoIngestTimeouts := .Values.videoIngestTimeouts | default dict }}
+            - name: VIDEO_INGEST_VST_UPLOAD_TIMEOUT_SECONDS
+              value: {{ tpl (get $videoIngestTimeouts "vstUploadSeconds" | default "" | toString) $ | quote }}
+            - name: VIDEO_INGEST_VST_STORAGE_TIMEOUT_SECONDS
+              value: {{ tpl (get $videoIngestTimeouts "vstStorageSeconds" | default "" | toString) $ | quote }}
+            - name: VIDEO_INGEST_RTVI_CV_TIMEOUT_SECONDS
+              value: {{ tpl (get $videoIngestTimeouts "rtviCvSeconds" | default "" | toString) $ | quote }}
+            - name: VIDEO_INGEST_RTVI_EMBED_TIMEOUT_SECONDS
+              value: {{ tpl (get $videoIngestTimeouts "rtviEmbedSeconds" | default "" | toString) $ | quote }}
             {{- range (.Values.extraEnv | default list) }}
             - name: {{ .name }}
               value: {{ tpl (.value | default "" | toString) $ | quote }}
