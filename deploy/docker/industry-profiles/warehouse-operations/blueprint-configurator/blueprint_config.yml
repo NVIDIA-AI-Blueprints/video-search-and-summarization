@@ -348,7 +348,7 @@ commons:
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
-      - spatial_analytics_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
+      - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
     3d:
@@ -358,7 +358,7 @@ commons:
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
-      - spatial_analytics_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
+      - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
     mv3dt:
@@ -368,7 +368,7 @@ commons:
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
-      - spatial_analytics_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
+      - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
 
@@ -401,7 +401,7 @@ commons:
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
 
-      # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
+      # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
@@ -411,10 +411,10 @@ commons:
             updates:
               - match: sourceType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
               - match: sinkType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
 
       # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
@@ -487,7 +487,7 @@ commons:
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
 
-      # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
+      # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
@@ -497,10 +497,10 @@ commons:
             updates:
               - match: sourceType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
               - match: sinkType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
 
       # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
@@ -552,7 +552,7 @@ commons:
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
 
-      # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
+      # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
@@ -562,10 +562,10 @@ commons:
             updates:
               - match: sourceType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
               - match: sinkType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
 
       # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
