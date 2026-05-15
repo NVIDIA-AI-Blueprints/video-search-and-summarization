@@ -107,21 +107,41 @@ RTVI VLM has no equivalent setting — like perception, it is always deployed lo
 
 ## Access Points
 
+**Prefer the HAProxy ingress (port `7777`)** — it gives a single browser-reachable origin and rewrites paths to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
+
+### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_PORT>` — default `<EXTERNAL_IP>:7777`)
+
+| Path | Backend | Profile |
+|---|---|---|
+| `/` | `vss-agent-ui` (Next.js) | `bp_wh` (returns 503 in `bp_wh_kafka`/`bp_wh_redis` — no UI backend) |
+| `/vst`, `/vst/...` | `vss-vios-ingress` (VST / VIOS UI) | All |
+| `/storage`, `/storage/...` | `vst-storage` (compat → `/vst/storage/...`) | All |
+| `/kibana`, `/kibana/...` | `kibana` | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| `/video-analytics-api`, `.../...` | `vss-video-analytics-api` | `bp_wh`, or kafka/redis extended |
+| `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | All |
+| `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | All |
+| `/alert-bridge`, `.../...` | `vss-alert-bridge` | `bp_wh` only |
+| `/phoenix`, `.../...` | `phoenix` | `bp_wh` only |
+| `/va-mcp`, `.../...` | `vss-va-mcp` | `bp_wh` only |
+| `/api`, `/api/...` | `vss-agent` | `bp_wh` only |
+| `/api/chat`, `.../...` | `vss-agent-ui` | `bp_wh` only |
+| `/chat`, `/static`, `/websocket` | `vss-agent` | `bp_wh` only |
+
+### Direct ports (no HAProxy route — diagnostics only)
+
 | Service | URL | Profile |
 |---|---|---|
-| **VSS UI (via HAProxy ingress)** | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` (defaults `7777`) | `bp_wh` (UI backend `vss-agent-ui` is `bp_wh`-only) |
-| HAProxy ingress (proxying VST/kibana/analytics) | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| VSS Agent API | `http://<HOST_IP>:8000` | `bp_wh` |
-| Phoenix telemetry | `http://<HOST_IP>:6006` | `bp_wh` |
-| VST / VIOS UI | `http://<HOST_IP>:30888/vst` | All |
-| VST MCP | `http://<HOST_IP>:8001` | All |
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
 | Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
-| Elasticsearch API | `http://localhost:9200` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| Kibana | `http://<HOST_IP>:5601` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| Video Analytics API | `http://<HOST_IP>:8081` (`MDX_PORT`) | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
+| VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
+| VST MCP (direct) | `http://<HOST_IP>:8001` | All |
+| Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
+| Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
+| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
+| VST UI (direct) | `http://<HOST_IP>:30888/vst` | Prefer `/vst` via HAProxy |
 
-`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, follow the same secure-link pattern as the other VSS profiles (`SKILL.md` Step 1c).
+`EXTERNAL_IP` defaults to `${HOST_IP}` but should be set to the browser-reachable hostname/IP. On Brev, follow the same secure-link pattern as the other VSS profiles (`SKILL.md` Step 1c). The HAProxy `h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`) — wrong Host headers get a 404 from haproxy.
 
 ## Compose File Structure
 
@@ -141,7 +161,7 @@ App data (sample videos, perception models) is **not** bundled with the repo. Pi
 |---|---|---|
 | `<repo>/data` | Quick start — drop assets into the repo's `data/` directory | `<repo>/data` |
 | Custom local path | Existing dataset on a non-repo path (e.g. `/mnt/warehouse-data`) | user-provided path |
-| NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` |
+| NGC app-data resource | Reproducing the official sample-video deployment | extracted path of `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` **or** `nvstaging/vss-warehouse/vss-warehouse-app-data:<version>` (staging keys land here) |
 
 Ask the user which source they want and whether they already have the assets on disk. Only run the NGC download (next subsection) when they explicitly choose the NGC source.
 
@@ -149,7 +169,9 @@ Ask the user which source they want and whether they already have the assets on 
 
 | Artifact | NGC Resource | Local directory after extract |
 |---|---|---|
-| App data (videos, models) | `nvidia/vss-warehouse/vss-warehouse-app-data:3.1.0` | `vss-warehouse-app-data_v3.1.0/` |
+| App data (videos, models) | `nvidia/vss-warehouse/vss-warehouse-app-data:<version>` **or** `nvstaging/vss-warehouse/vss-warehouse-app-data:<version>` | `vss-warehouse-app-data_v<version>/` |
+
+> **Org may be `nvidia` or `nvstaging`.** Production keys access the canonical `nvidia/...` path; staging / NVIDIAN keys typically only see `nvstaging/...`. If you get `403 Access Denied` on one, retry with the other before assuming the resource is missing. Confirm by running `ngc org list` to see which orgs the current key belongs to.
 
 ## Known Limitations
 
@@ -296,12 +318,15 @@ Or configure interactively: `ngc config set`
 
 #### 1.4 Verify NGC Access
 
+Image paths in `deploy/docker/` reference **both** `nvcr.io/nvidia/vss-core/...` (public org) and `nvcr.io/nvstaging/vss-core/...` (staging org). Which one your key resolves depends on your NGC org membership — list both teams and the warehouse resources visible to it. Confirm the actual paths against `<repo>/deploy/docker/services/**/compose*.{yml,yaml}` and the warehouse `.env` (e.g. `PERCEPTION_IMAGE`, `BEV_FUSION_MV3DT_IMAGE`).
+
 ```bash
-ngc registry resource list "nvidia/vss-warehouse/*"
-ngc registry image list "nvidia/vss-core/*"
+# Probe both orgs — at least one should succeed for warehouse to deploy
+ngc registry image list "nvidia/vss-core/*"     2>&1 | head -10
+ngc registry image list "nvstaging/vss-core/*"  2>&1 | head -10
 ```
 
-**`Missing org` error** → run `ngc config set` and match the org to the one used when generating the key.
+**`Missing org` error** → run `ngc config set` (or write `~/.ngc/config` directly) and match the org to the one used when generating the key. Run `ngc org list` to see which orgs the current key has access to before guessing.
 
 ---
 
@@ -391,7 +416,9 @@ If it still fails → reboot (`sudo reboot`), then re-run the `nvidia-smi` query
 
 ##### NVIDIA Fabric Manager (when required)
 
-Fabric Manager is required on systems where multiple GPUs are connected via **NVLink** or **NVSwitch** (e.g. DGX multi-GPU, HGX baseboards, NVSwitch servers, multi-GPU NVLink topologies, datacenter GPUs in NVLink layouts). It is **not** required for single-GPU systems or multi-GPU **PCIe-only** setups without NVLink/NVSwitch.
+> **Single-GPU systems: SKIP THIS SECTION ENTIRELY.** Fabric Manager is not needed and `nvidia-fabricmanager-580` may even fail to install because it depends on `nvidia-kernel-common-580-server-*` (the server variant of the driver), which conflicts with the standard `nvidia-driver-580` you just installed. If you have one GPU and aren't on an NVLink/NVSwitch system, do not install Fabric Manager.
+
+Fabric Manager is required only on systems where multiple GPUs are connected via **NVLink** or **NVSwitch** (e.g. DGX multi-GPU, HGX baseboards, NVSwitch servers, multi-GPU NVLink topologies, datacenter GPUs in NVLink layouts). It is **not** required for single-GPU systems or multi-GPU **PCIe-only** setups without NVLink/NVSwitch.
 
 Docs: https://docs.nvidia.com/datacenter/tesla/fabric-manager-user-guide/index.html
 
@@ -409,13 +436,15 @@ If that exact apt version is unavailable, use the NVIDIA archive for 580.105.08:
 
 #### 2.2 Docker
 
+Minimum required: **Docker Engine ≥ 27.2.0** and **Compose plugin ≥ v2.29.0**. If both are already installed and at or above those versions, **leave them alone** — proceed to §2.3.
+
 ```bash
 docker --version        # need 27.2.0+
 docker compose version  # need v2.29.0+
 docker ps               # must run without sudo
 ```
 
-**Install Docker if missing:**
+**Install Docker (if missing):**
 ```bash
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl gnupg lsb-release
@@ -431,6 +460,34 @@ echo \
 sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
+
+##### When to downgrade to exactly 27.2.0 / 2.29.x
+
+**Only downgrade if you hit this specific failure during `docker compose up --pull always`:**
+
+```
+error from registry: Incorrect Repository Format
+```
+
+If you see that, downgrade to the known-good combination matching the reference rig (Docker 27.2.0):
+
+```bash
+sudo systemctl stop docker docker.socket 2>/dev/null || true
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
+  docker-ce=5:27.2.0-1~ubuntu.24.04~noble \
+  docker-ce-cli=5:27.2.0-1~ubuntu.24.04~noble \
+  containerd.io=2.2.2-1~ubuntu.24.04~noble \
+  docker-compose-plugin=2.29.2-1~ubuntu.24.04~noble
+sudo systemctl start docker
+
+# Optional: hold so unattended-upgrades doesn't move them back
+sudo apt-mark hold docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+docker version --format '{{.Server.Version}}'   # → 27.2.0
+docker compose version --short                  # → 2.29.2
+```
+
+Then re-run `docker compose up --pull always` — the tag-pull will succeed.
 
 **Non-root Docker:**
 ```bash
@@ -452,7 +509,7 @@ sudo systemctl daemon-reload && sudo systemctl restart docker
 #### 2.3 NVIDIA Container Toolkit
 
 ```bash
-docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -8
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi 2>&1 | head -8
 ```
 
 If it fails:
@@ -685,7 +742,7 @@ OPENAI_API_KEY=''                              # required for OpenAI remote endp
 ```bash
 nvidia-smi --query-gpu=index,name --format=csv,noheader
 docker info 2>/dev/null | grep -i "runtimes"
-docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -5
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi 2>&1 | head -5
 echo "NGC_CLI_API_KEY: ${NGC_CLI_API_KEY:+SET}${NGC_CLI_API_KEY:-NOT SET}"
 ngc config current 2>/dev/null | grep -q "apikey" && echo "NGC config: key present" || echo "NGC config: no key"
 ```

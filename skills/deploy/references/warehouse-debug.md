@@ -111,6 +111,8 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `no space left on device` | any | Disk full — free space before redeploy |
 | `OOMKilled` (exit code 137) | any | Container OOM — check RAM (`free -h`) and GPU memory |
 
+> **Don't `docker restart vss-rtvi-cv` to "fix" stream issues during normal operation.** The SDR-to-CV stream re-registration after a CV restart is fragile — it often drops streams instead of recovering them. If perception is misbehaving, better to do a full clean redeploy.
+
 ## Elasticsearch Indices
 
 | Index | Written by | Contains | Used for |
@@ -175,19 +177,41 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 
 ## Service Access Points
 
-| Service | URL | Available in |
+**Prefer the HAProxy ingress (port `7777`)** — single browser-reachable origin, paths rewritten to internal services. Direct ports are only useful for diagnostics from the host. Routes confirmed against `deploy/docker/services/infra/haproxy/haproxy.cfg.template`.
+
+### Via HAProxy ingress (`http://<EXTERNAL_IP>:<HAPROXY_PORT>` — default `<EXTERNAL_IP>:7777`)
+
+| Path | Backend | Profile |
 |---|---|---|
-| **VSS UI (via HAProxy ingress)** | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` (default `7777`) | `bp_wh` (UI backend `vss-agent-ui` is `bp_wh`-only) |
-| HAProxy ingress (proxying VST/kibana/analytics) | `http://<EXTERNAL_IP>:<HAPROXY_PORT>` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| VSS Agent API | `http://<HOST_IP>:8000` | `bp_wh` |
-| VST / VIOS UI | `http://<HOST_IP>:30888/vst` | All |
-| VST MCP | `http://<HOST_IP>:8001` | All |
+| `/` | `vss-agent-ui` (Next.js) | `bp_wh` (returns 503 in `bp_wh_kafka`/`bp_wh_redis` — no UI backend) |
+| `/vst`, `/vst/...` | `vss-vios-ingress` (VST / VIOS UI) | All |
+| `/storage`, `/storage/...` | `vst-storage` (compat → `/vst/storage/...`) | All |
+| `/kibana`, `/kibana/...` | `kibana` | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| `/video-analytics-api`, `.../...` | `vss-video-analytics-api` | `bp_wh`, or kafka/redis extended |
+| `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | All |
+| `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | All |
+| `/alert-bridge`, `.../...` | `vss-alert-bridge` | `bp_wh` only |
+| `/phoenix`, `.../...` | `phoenix` | `bp_wh` only |
+| `/va-mcp`, `.../...` | `vss-va-mcp` | `bp_wh` only |
+| `/api`, `/api/...` | `vss-agent` | `bp_wh` only |
+| `/api/chat`, `.../...` | `vss-agent-ui` | `bp_wh` only |
+| `/chat`, `/static`, `/websocket` | `vss-agent` | `bp_wh` only |
+
+### Direct ports (no HAProxy route — diagnostics only)
+
+| Service | URL | Profile |
+|---|---|---|
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
 | Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
-| Elasticsearch API | `http://localhost:9200` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| Phoenix telemetry | `http://<HOST_IP>:6006` | `bp_wh` |
-| Kibana | `http://<HOST_IP>:5601` | `bp_wh`, or kafka/redis extended (2D or 3D) |
-| Video Analytics API | `http://<HOST_IP>:8081` (`MDX_PORT`) | `bp_wh`, or kafka/redis extended (2D or 3D) |
+| Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
+| VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
+| VST MCP (direct) | `http://<HOST_IP>:8001` | All |
+| Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
+| Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
+| Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
+| VST UI (direct) | `http://<HOST_IP>:30888/vst` | Prefer `/vst` via HAProxy |
+
+`h_main` ACL only routes when the `Host:` header matches `${VSS_PUBLIC_HOST}`, `${EXTERNAL_IP}`, `${HOST_IP}`, `localhost`, or `127.0.0.1` (with or without `:${HAPROXY_PORT}`). Unknown Host headers get a 404 from haproxy itself.
 
 ## BEV Sync Thresholds
 
@@ -473,6 +497,7 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify `.env` values; redeploy |
 | `vss-haproxy-ingress` up but UI 502 / report links broken | `EXTERNAL_IP` / `HAPROXY_PORT` not browser-reachable | Set `EXTERNAL_IP` to a real reachable hostname (see `warehouse.md` Phase 5); redeploy |
+| `error from registry: Incorrect Repository Format` during `docker compose up` | Docker 29.x multi-arch pull regression | Downgrade to Docker 27.2.0 / containerd 2.2.2 (warehouse.md §2.2). |
 
 Present the summary in this format:
 
