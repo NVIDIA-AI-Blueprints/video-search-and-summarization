@@ -312,7 +312,9 @@ async def _run_rtvi_embedding(
 
         result = response.json()
         logger.info("RTVI Embedding generation successful")
-        return result.get("usage", {}).get("total_chunks_processed", 0)
+        # `usage.total_chunks_processed` is the server-side count; coerce
+        # explicitly so mypy keeps the helper's int return type intact.
+        return int(result.get("usage", {}).get("total_chunks_processed", 0) or 0)
 
 
 async def _run_post_upload_processing(
@@ -447,7 +449,9 @@ async def _run_post_upload_processing(
             )
         # Re-raise in task-declaration order so the caller sees the same
         # priority the old sequential code did (CV first, then embed).
-        for (label, _), result in zip(rtvi_tasks, results):
+        # ``strict=True``: ``asyncio.gather`` always returns one result per
+        # awaitable, so a length mismatch would indicate a bug.
+        for (label, _), result in zip(rtvi_tasks, results, strict=True):
             if isinstance(result, BaseException):
                 logger.error("%s task failed: %s", label, result)
                 raise result
