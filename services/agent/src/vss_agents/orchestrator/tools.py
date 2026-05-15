@@ -367,13 +367,19 @@ class DockerPrereqsInput(BaseModel):
     pass
 
 
-class ModelArtifactConfig(BaseModel):
-    """Config shape for profile model artifacts in MCP YAML."""
+class ModelArtifactEntry(BaseModel):
+    """One artifact extracted from a downloaded NGC package."""
+
+    src: str  # Path within the downloaded package (relative to the unpacked dir).
+    out: str  # Destination filename/path under <mdx_data_dir>/models/.
+    kind: Literal["file", "dir"]
+
+
+class ModelPackageConfig(BaseModel):
+    """An NGC package and the artifacts to extract from it."""
 
     package_ref: str
-    downloaded_relative_path: str
-    output_name: str
-    artifact_kind: Literal["file", "dir"]
+    artifacts: tuple[ModelArtifactEntry, ...]
 
 
 class HardwareResolutionConfig(BaseModel):
@@ -437,9 +443,12 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         ...,
         description="Relative subdirectories created under VSS_DATA_DIR for all profiles by docker_generate.",
     )
-    model_artifacts: dict[str, tuple[ModelArtifactConfig, ...]] = Field(
+    model_artifacts: dict[str, tuple[ModelPackageConfig, ...]] = Field(
         ...,
-        description="Profile-keyed model artifact definitions used by pre-compose download checks.",
+        description=(
+            "Profile-keyed NGC package definitions used by pre-compose download checks. "
+            "Each entry groups one package_ref with the artifacts to extract from it."
+        ),
     )
     model_resolution: ModelResolutionConfig = Field(
         ...,
@@ -472,8 +481,8 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     @classmethod
     def _validate_model_artifact_profiles(
         cls,
-        value: dict[str, tuple[ModelArtifactConfig, ...]],
-    ) -> dict[str, tuple[ModelArtifactConfig, ...]]:
+        value: dict[str, tuple[ModelPackageConfig, ...]],
+    ) -> dict[str, tuple[ModelPackageConfig, ...]]:
         unknown_profiles = set(value) - SUPPORTED_PROFILES
         if unknown_profiles:
             raise ValueError(
@@ -514,14 +523,15 @@ async def vss_orchestrator(
     configured_model_artifacts_by_profile: dict[str, tuple[ModelArtifact, ...]] = {
         profile: tuple(
             ModelArtifact(
-                package_ref=artifact.package_ref,
-                downloaded_relative_path=artifact.downloaded_relative_path,
-                output_name=artifact.output_name,
-                artifact_kind=ArtifactKind(artifact.artifact_kind),
+                package_ref=package.package_ref,
+                downloaded_relative_path=entry.src,
+                output_name=entry.out,
+                artifact_kind=ArtifactKind(entry.kind),
             )
-            for artifact in artifacts
+            for package in packages
+            for entry in package.artifacts
         )
-        for profile, artifacts in _config.model_artifacts.items()
+        for profile, packages in _config.model_artifacts.items()
     }
     configured_model_resolution = _config.model_resolution
 

@@ -59,34 +59,38 @@ function_groups:
     - agent_eval/results
     - videos/dev-profile-alerts
     - models
-    # Model artifact definitions keyed by profile name.
+    # NGC packages to download per profile. Each entry groups one package_ref
+    # with the artifacts to extract from it (src = path inside the downloaded
+    # package, out = destination under <mdx_data_dir>/models/).
     model_artifacts:
       search:
       - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1"
-        downloaded_relative_path: "rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx"  # yamllint disable-line rule:line-length
-        output_name: "rtdetr_warehouse_v1.0.1.fp16.onnx"
-        artifact_kind: "file"
+        artifacts:
+        - src: "rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx"  # yamllint disable-line rule:line-length
+          out: "rtdetr_warehouse_v1.0.1.fp16.onnx"
+          kind: "file"
       - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx"
-        output_name: "radio-clip_v1.0.onnx"
-        artifact_kind: "file"
-      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin"
-        output_name: "radio-clip_v1.0_weights.bin"
-        artifact_kind: "file"
-      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer"
-        output_name: "radio-clip_v1.0_tokenizer"
-        artifact_kind: "dir"
+        artifacts:
+        - src: "radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx"
+          out: "radio-clip_v1.0.onnx"
+          kind: "file"
+        - src: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin"
+          out: "radio-clip_v1.0_weights.bin"
+          kind: "file"
+        - src: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer"
+          out: "radio-clip_v1.0_tokenizer"
+          kind: "dir"
       alerts:
       - package_ref: "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
-        downloaded_relative_path: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"  # yamllint disable-line rule:line-length
-        output_name: "rtdetr-its/model_epoch_035.fp16.onnx"
-        artifact_kind: "file"
+        artifacts:
+        - src: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"  # yamllint disable-line rule:line-length
+          out: "rtdetr-its/model_epoch_035.fp16.onnx"
+          kind: "file"
       - package_ref: "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"  # yamllint disable-line rule:line-length
-        downloaded_relative_path: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"  # yamllint disable-line rule:line-length
-        output_name: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-        artifact_kind: "file"
+        artifacts:
+        - src: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"  # yamllint disable-line rule:line-length
+          out: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+          kind: "file"
     model_resolution:
       hardware:
         edge_profiles:
