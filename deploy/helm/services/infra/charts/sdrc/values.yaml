@@ -5,8 +5,8 @@ enabled: false
 global: {}
 
 image:
-  repository: nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l
-  tag: 3.0.0-rc.15
+  repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
+  tag: 3.0.0-prd.2
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -14,9 +14,9 @@ replicas: 1
 
 service:
   controller:
-    type: NodePort
+    type: ClusterIP
     port: 5002
-    nodePort: 30010
+    # nodePort: 30010
   sdrcDirectListener:
     type: ClusterIP
     port: 8011
