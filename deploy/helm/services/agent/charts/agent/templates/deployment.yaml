@@ -115,15 +115,6 @@ spec:
             - name: {{ .name }}
               value: {{ tpl (.value | default "" | toString) $ | quote }}
             {{- end }}
-            {{- /*
-              videoIngestTimeouts emits a VIDEO_INGEST_*_TIMEOUT_SECONDS env var
-              per non-empty entry only. The previous unconditional emission
-              clobbered any matching name set in `.Values.env` with the empty
-              string (last-wins ordering) — invisible to operators, since they
-              had no reason to read this template. Skipping empty values keeps
-              `.Values.env` overrides effective while still letting parent
-              charts pin a value here.
-            */}}
             {{- $videoIngestTimeouts := .Values.videoIngestTimeouts | default dict }}
             {{- with get $videoIngestTimeouts "vstUploadTimeoutSeconds" }}
             - name: VIDEO_INGEST_VST_UPLOAD_TIMEOUT_SECONDS
