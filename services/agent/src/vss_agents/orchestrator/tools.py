@@ -263,8 +263,12 @@ class GenerateInput(BaseModel):
 class OrchestratorRuntimeSettings(BaseSettings):
     """Runtime env required by the orchestrator MCP server."""
 
+    # load from .env file
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", validate_default=True)
 
+    # load from os.environ
+    # Path A: MCP server startup environment
+    # Path B: per-call MCP tool args
     ngc_cli_api_key: str = Field(default="", validation_alias="NGC_CLI_API_KEY")
     nvidia_api_key: str = Field(default="", validation_alias="NVIDIA_API_KEY")
     hardware_profile: str = Field(default="", validation_alias="HARDWARE_PROFILE")

@@ -117,6 +117,7 @@ function_groups:
           DGX-SPARK:
             PERCEPTION_TAG: "3.2.0-sbsa-26.05.1"
             RTVI_VLM_IMAGE_TAG: "3.2.0-26.05.1-sbsa"
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
       vlm:
         thor_overrides:
           VLM_NAME_SLUG: none

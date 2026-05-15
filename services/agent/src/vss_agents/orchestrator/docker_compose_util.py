@@ -356,9 +356,30 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
 
 
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
+    #   (lowest -> highest precedence)
+    #   1. profile .env defaults
+    #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
+    #   3. yml hw-defaults (profile_env_overrides, edge_device_ids, thor_vlm_overrides, thor_base_vlm_overrides)
+    #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
+    #   5. per-call env_overrides
     merged = parse_env_file(config.source_env_file)
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
+    effective_hardware_profile = (
+        config.env_overrides.get("HARDWARE_PROFILE", "").strip() or merged.get("HARDWARE_PROFILE", "").strip()
+    )
+    hardware_overrides = config.hardware_profile_env_overrides.get(effective_hardware_profile)
+    if hardware_overrides:
+        merged.update(hardware_overrides)
+    if effective_hardware_profile in config.edge_hardware_profiles:
+        merged["LLM_DEVICE_ID"] = config.edge_device_ids["llm"]
+        merged["VLM_DEVICE_ID"] = config.edge_device_ids["vlm"]
+        merged["RT_VLM_DEVICE_ID"] = config.edge_device_ids["rt_vlm"]
+        merged["RT_CV_DEVICE_ID"] = config.edge_device_ids["rt_cv"]
+    if effective_hardware_profile in config.thor_profiles and config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
+        merged.update(config.thor_vlm_overrides)
+    if effective_hardware_profile in config.thor_profiles and config.profile == PROFILE_BASE:
+        merged.update(config.thor_base_vlm_overrides)
     if config.ngc_cli_api_key:
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key:
@@ -387,12 +408,6 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["VLM_NIM_KVCACHE_PERCENT"] = config.nim_kvcache_percent
     if config.rtvi_vllm_gpu_memory_utilization:
         merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
-    effective_hardware_profile = (
-        config.env_overrides.get("HARDWARE_PROFILE", "").strip() or merged.get("HARDWARE_PROFILE", "").strip()
-    )
-    hardware_overrides = config.hardware_profile_env_overrides.get(effective_hardware_profile)
-    if hardware_overrides:
-        merged.update(hardware_overrides)
     merged.update(config.env_overrides)
 
     host_ip = (
@@ -461,18 +476,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         if not merged.get("VLM_BASE_URL", "").strip():
             raise ValidationError("VLM_BASE_URL is required when VLM_MODE=remote.")
 
-    if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
-        merged["LLM_DEVICE_ID"] = config.edge_device_ids["llm"]
-        merged["VLM_DEVICE_ID"] = config.edge_device_ids["vlm"]
-        merged["RT_VLM_DEVICE_ID"] = config.edge_device_ids["rt_vlm"]
-        merged["RT_CV_DEVICE_ID"] = config.edge_device_ids["rt_cv"]
-
     if merged.get("HARDWARE_PROFILE", "") in config.thor_profiles and config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
-        merged.update(config.thor_vlm_overrides)
         merged["VLM_BASE_URL"] = f"http://{host_ip}:{THOR_VLM_PORT}"
-
-    if merged.get("HARDWARE_PROFILE", "") in config.thor_profiles and config.profile == PROFILE_BASE:
-        merged.update(config.thor_base_vlm_overrides)
 
     if config.profile == PROFILE_ALERTS:
         if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
