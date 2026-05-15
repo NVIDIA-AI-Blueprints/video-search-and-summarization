@@ -15,7 +15,6 @@
 
 include:
   - path: ./haproxy/compose.yml
-  - path: ./sdrc/docker-compose.yaml
 
 services:
   mosquitto:
