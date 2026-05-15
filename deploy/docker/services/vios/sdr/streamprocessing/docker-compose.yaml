@@ -209,7 +209,7 @@ services:
 
   sdr-streamprocessing:
     image: ${SDR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_2d","auto_calib_3d","auto_calib_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d"]
     user: "0:0"
     network_mode: "host"
     logging:
@@ -288,9 +288,39 @@ services:
         condition: service_healthy
         required: false
 
+  # envoy-streamprocessing:
+  #   image: ${ENVOY_PROXY_IMAGE}
+  #   profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+  #   user: "0:0"
+  #   command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
+  #   network_mode: "host"
+  #   container_name: vss-vios-envoy
+  #   volumes:
+  #     - ./envoy.yaml:/etc/envoy/envoy.yaml
+  #   restart: unless-stopped
+  #   environment:
+  #     WDM_WL_REDIS_SERVER: ${REDIS_HOSTADDR}
+  #     CONTAINER_NAME: vss-vios-envoy
+  #     WDM_WL_REDIS_PORT: ${REDIS_PORT}
+  #     WDM_KFK_BOOTSTRAP_URL: ${KAFKA_BOOTSTRAP_URL}
+  #     WDM_WL_OBJECT_NAME: streamprocessing-ms
+  #     ENVOYROUTEHEADER: "streamid"
+  #     NOHEADERTARGETCONTAINER: "streamprocessing-ms-1"
+  #   depends_on:
+  #     redis:
+  #       condition: service_started
+  #     streamprocessing-ms:
+  #       condition: service_healthy
+  #       required: false
+  #     streamprocessing-ms-2d:
+  #       condition: service_healthy
+  #       required: false
+  #     streamprocessing-ms-3d:
+  #       condition: service_healthy
+  #       required: false
   envoy-streamprocessing:
     image: ${ENVOY_PROXY_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_2d","auto_calib_3d","auto_calib_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d"]
     user: "0:0"
     command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
     network_mode: "host"
