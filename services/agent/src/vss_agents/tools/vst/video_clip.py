@@ -80,10 +80,10 @@ class VSTVideoClipConfig(FunctionBaseConfig, name="vst.video_clip"):
         "'offset' for seconds since stream start. "
         "Must match across video_understanding, vst.video_clip, vst.snapshot, and critic_agent configs.",
     )
-    disable_audio: bool = Field(
-        True,
-        description="When True, VST clip requests pass disableAudio=true (audio stripped; CR2-compatible). "
-        "Set False for VLMs that accept audio (e.g. Nemotron Omni NIM) to passthrough audio from VIOS/VST.",
+    enable_audio: bool = Field(
+        False,
+        description="When False (default), VST clip requests pass disableAudio=true (audio stripped; CR2-compatible). "
+        "Set True for VLMs that accept audio (e.g. Nemotron Omni NIM) so VST uses disableAudio=false.",
     )
 
 
@@ -306,7 +306,7 @@ async def vst_video_clip(config: VSTVideoClipConfig, _: Builder) -> AsyncGenerat
             config.vst_internal_url,
             overlay_enabled=config.overlay_config,
             object_ids=vst_video_clip_input.object_ids,
-            disable_audio=config.disable_audio,
+            disable_audio=not config.enable_audio,
         )
         await validate_video_url(video_clip_url)
         # VST JSON may return a browser/proxy HTTPS URL (e.g. Brev). Server-side download (frame

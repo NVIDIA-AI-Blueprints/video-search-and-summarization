@@ -97,7 +97,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
-    disable_audio: true
+    enable_audio: ${ENABLE_AUDIO:-false}
     # yamllint disable rule:line-length
     vlm_prompt: |
       Describe in detail what is happening in this video,

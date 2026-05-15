@@ -81,6 +81,8 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_snapshot:
     _type: vst.snapshot
@@ -213,6 +215,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
     vlm_prompt: |
       Describe in detail what is happening in this video,
       including all visible people, vehicles, equipments, objects,
