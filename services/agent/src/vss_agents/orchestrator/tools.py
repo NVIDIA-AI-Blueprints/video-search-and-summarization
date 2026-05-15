@@ -387,7 +387,7 @@ class HardwareResolutionConfig(BaseModel):
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: dict[str, str]
-    profile_env_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
+    profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] = Field(default_factory=dict)
 
 
 class ModelResolutionConfig(BaseModel):
@@ -995,6 +995,7 @@ async def vss_orchestrator(
                     llm_enable_thinking=runtime_settings.llm_enable_thinking,
                     nim_kvcache_percent=runtime_settings.nim_kvcache_percent,
                     rtvi_vllm_gpu_memory_utilization=runtime_settings.rtvi_vllm_gpu_memory_utilization,
+                    profile_mode=input.alerts_mode,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),

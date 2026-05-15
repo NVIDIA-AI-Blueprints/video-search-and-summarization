@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from dataclasses import field
 import os
@@ -102,7 +103,7 @@ class HardwareResolutionInput(BaseModel):
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: EdgeDeviceIdsInput
-    profile_env_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
+    profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] = Field(default_factory=dict)
 
 
 class ModelResolutionInput(BaseModel):
@@ -127,6 +128,7 @@ class DryRunRecipe:
     llm_enable_thinking: str | None
     nim_kvcache_percent: str | None
     rtvi_vllm_gpu_memory_utilization: str | None
+    profile_mode: str | None
     output_env_file: Path
     output_compose_file: Path
     deployments_dir: Path
@@ -138,7 +140,7 @@ class DryRunRecipe:
     edge_allowed_profiles: frozenset[str]
     edge_device_ids: Mapping[str, str]
     alerts_mode_to_env_modes: Mapping[str, str]
-    hardware_profile_env_overrides: Mapping[str, Mapping[str, str]] = field(
+    hardware_profile_env_overrides: Mapping[str, Mapping[str, str | Mapping[str, str]]] = field(
         default_factory=lambda: MappingProxyType({})
     )
 
@@ -161,6 +163,7 @@ def create_dry_run_recipe(
     llm_enable_thinking: str | None = None,
     nim_kvcache_percent: str | None = None,
     rtvi_vllm_gpu_memory_utilization: str | None = None,
+    profile_mode: str | None = None,
     model_resolution: Any,
     output_env_file: str,
     output_compose_file: str,
@@ -218,6 +221,7 @@ def create_dry_run_recipe(
         llm_enable_thinking=(llm_enable_thinking or "").strip() or None,
         nim_kvcache_percent=(nim_kvcache_percent or "").strip() or None,
         rtvi_vllm_gpu_memory_utilization=(rtvi_vllm_gpu_memory_utilization or "").strip() or None,
+        profile_mode=(profile_mode or "").strip() or None,
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
         deployments_dir=deployments_path,
@@ -238,7 +242,12 @@ def create_dry_run_recipe(
         alerts_mode_to_env_modes=MappingProxyType(dict(alerts_mode_to_env_modes or {})),
         hardware_profile_env_overrides=MappingProxyType(
             {
-                hw: MappingProxyType(dict(overrides))
+                hw: MappingProxyType(
+                    {
+                        scope: (MappingProxyType(dict(value)) if isinstance(value, dict) else value)
+                        for scope, value in overrides.items()
+                    }
+                )
                 for hw, overrides in model_resolution.hardware.profile_env_overrides.items()
             }
         ),
@@ -346,7 +355,11 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
     #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
-    #   3. yml hw-defaults (profile_env_overrides, edge_device_ids)
+    #   3. yml hw-defaults from profile_env_overrides[HW]:
+    #        a. str-valued keys at the HW root (always apply)
+    #        b. dict at key "<profile>" (applies when profile matches)
+    #        c. dict at key "<profile>.<profile_mode>" (applies when both match)
+    #      ... then yml edge_device_ids (for edge HW)
     #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
     #   5. per-call env_overrides
     merged = parse_env_file(config.source_env_file)
@@ -355,9 +368,21 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     effective_hardware_profile = (
         config.env_overrides.get("HARDWARE_PROFILE", "").strip() or merged.get("HARDWARE_PROFILE", "").strip()
     )
-    hardware_overrides = config.hardware_profile_env_overrides.get(effective_hardware_profile)
-    if hardware_overrides:
-        merged.update(hardware_overrides)
+    hw_block = config.hardware_profile_env_overrides.get(effective_hardware_profile, {})
+    # (3a) HW-level: str-valued keys at the HW root.
+    for key, value in hw_block.items():
+        if isinstance(value, str):
+            merged[key] = value
+    # (3b) profile-level: dict at HW[<profile>].
+    profile_block = hw_block.get(config.profile)
+    if isinstance(profile_block, MappingABC):
+        merged.update({k: v for k, v in profile_block.items() if isinstance(v, str)})
+    # (3c) profile+mode-level: dict at HW["<profile>.<profile_mode>"].
+    if config.profile_mode:
+        scoped_key = f"{config.profile}.{config.profile_mode}"
+        scoped_block = hw_block.get(scoped_key)
+        if isinstance(scoped_block, MappingABC):
+            merged.update({k: v for k, v in scoped_block.items() if isinstance(v, str)})
     if effective_hardware_profile in config.edge_hardware_profiles:
         merged["LLM_DEVICE_ID"] = config.edge_device_ids["llm"]
         merged["VLM_DEVICE_ID"] = config.edge_device_ids["vlm"]

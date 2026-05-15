@@ -114,7 +114,14 @@ function_groups:
           DGX-SPARK:
             PERCEPTION_TAG: "3.2.0-sbsa-26.05.1"
             RTVI_VLM_IMAGE_TAG: "3.2.0-26.05.1-sbsa"
-            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
+            base:
+              VLM_NIM_KVCACHE_PERCENT: "0.2"
+            alerts.verification:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
+            alerts.real-time:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.5"
+              RTVI_VLM_MAX_MODEL_LEN: "8192"
+              RTVI_VLLM_MAX_NUM_SEQS: "8"
           IGX-THOR:
             VLM_NAME_SLUG: none
             VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208

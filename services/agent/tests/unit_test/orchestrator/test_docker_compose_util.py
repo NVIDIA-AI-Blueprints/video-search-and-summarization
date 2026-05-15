@@ -46,11 +46,12 @@ def _make_recipe(
     llm_enable_thinking: str | None = None,
     nim_kvcache_percent: str | None = None,
     rtvi_vllm_gpu_memory_utilization: str | None = None,
+    profile_mode: str | None = None,
     supported_hardware_profiles: frozenset[str] = frozenset({"igx", "thor"}),
     edge_hardware_profiles: frozenset[str] = frozenset({"igx"}),
     edge_allowed_profiles: frozenset[str] | None = None,
     edge_device_ids: dict[str, str] | None = None,
-    hardware_profile_env_overrides: dict[str, dict[str, str]] | None = None,
+    hardware_profile_env_overrides: dict[str, dict[str, str | dict[str, str]]] | None = None,
 ) -> dcu.DryRunRecipe:
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
@@ -81,6 +82,7 @@ def _make_recipe(
         llm_enable_thinking=llm_enable_thinking,
         nim_kvcache_percent=nim_kvcache_percent,
         rtvi_vllm_gpu_memory_utilization=rtvi_vllm_gpu_memory_utilization,
+        profile_mode=profile_mode,
         output_env_file=tmp_path / "generated.env",
         output_compose_file=tmp_path / "docker-compose.generated.yml",
         deployments_dir=deployments_dir,
@@ -856,6 +858,167 @@ class TestVlmBaseUrlSynthesis:
         resolved = dcu.build_resolved_env(recipe)
 
         assert resolved.get("VLM_BASE_URL", "") == ""
+
+
+class TestNestedOverrides:
+    """profile_env_overrides[HW] supports both HW-wide str-valued keys and
+    scoped dict-valued keys (keyed by "<profile>" or "<profile>.<profile_mode>")."""
+
+    def test_hw_level_string_keys_always_apply(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            hardware_profile_env_overrides={
+                "thor": {
+                    "PERCEPTION_TAG": "tag-from-yml",
+                    "RTVI_VLM_IMAGE_TAG": "img-from-yml",
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["PERCEPTION_TAG"] == "tag-from-yml"
+        assert resolved["RTVI_VLM_IMAGE_TAG"] == "img-from-yml"
+
+    def test_profile_scoped_block_applies_when_profile_matches(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            profile=dcu.PROFILE_BASE,
+            hardware_profile_env_overrides={
+                "thor": {
+                    "base": {"VLM_NIM_KVCACHE_PERCENT": "0.2"},
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_NIM_KVCACHE_PERCENT"] == "0.2"
+
+    def test_profile_scoped_block_ignored_when_profile_differs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            profile=dcu.PROFILE_BASE,
+            hardware_profile_env_overrides={
+                "thor": {
+                    "search": {"VLM_NIM_KVCACHE_PERCENT": "0.2"},
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert "VLM_NIM_KVCACHE_PERCENT" not in resolved
+
+    def test_profile_mode_scoped_block_applies_when_both_match(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_ALERTS,
+            profile_mode="verification",
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            hardware_profile_env_overrides={
+                "igx": {
+                    "alerts.verification": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.25"},
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.25"
+
+    def test_profile_mode_scoped_block_ignored_when_mode_differs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_ALERTS,
+            profile_mode="real-time",
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            hardware_profile_env_overrides={
+                "igx": {
+                    "alerts.verification": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.25"},
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert "RTVI_VLLM_GPU_MEMORY_UTILIZATION" not in resolved
+
+    def test_profile_mode_scoped_block_ignored_when_profile_mode_unset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_ALERTS,
+            # profile_mode left as None
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            hardware_profile_env_overrides={
+                "igx": {
+                    "alerts.verification": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.25"},
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert "RTVI_VLLM_GPU_MEMORY_UTILIZATION" not in resolved
+
+    def test_precedence_within_scopes_mode_beats_profile_beats_hw(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Within yml: HW.<profile>.<mode> > HW.<profile> > HW-level str-key."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_ALERTS,
+            profile_mode="verification",
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            hardware_profile_env_overrides={
+                "igx": {
+                    "RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.10",  # HW-level
+                    "alerts": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.20"},  # profile
+                    "alerts.verification": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.30"},  # mode
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.30"
+
+    def test_env_overrides_still_beats_all_yml_scopes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """env_overrides is the highest layer regardless of yml scoping depth."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_ALERTS,
+            profile_mode="verification",
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            hardware_profile_env_overrides={
+                "igx": {
+                    "alerts.verification": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.30"},
+                },
+            },
+            env_overrides={"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.99"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.99"
 
 
 class TestGenerateDryRunArtifacts:
