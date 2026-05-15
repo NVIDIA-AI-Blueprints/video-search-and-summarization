@@ -38,8 +38,10 @@ multiple streams — that lifecycle is handled by ``rtsp_ingest.py`` /
 ``rtsp_delete.py``, not this module.
 """
 
+import asyncio
 import json
 import logging
+import math
 import os
 import re
 from typing import Any
@@ -59,6 +61,16 @@ from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.url_translation import rewrite_url_host
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_RTVI_CV_TIMEOUT_SECONDS = 60.0
+DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS = 600.0
+DEFAULT_VST_STORAGE_TIMEOUT_SECONDS = 60.0
+DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS = 300.0
+
+ENV_RTVI_CV_TIMEOUT_SECONDS = "VIDEO_INGEST_RTVI_CV_TIMEOUT_SECONDS"
+ENV_RTVI_EMBED_TIMEOUT_SECONDS = "VIDEO_INGEST_RTVI_EMBED_TIMEOUT_SECONDS"
+ENV_VST_STORAGE_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_STORAGE_TIMEOUT_SECONDS"
+ENV_VST_UPLOAD_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_UPLOAD_TIMEOUT_SECONDS"
 
 
 def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None:
@@ -89,6 +101,73 @@ def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None
     if parsed.netloc.endswith(":"):
         return None
     return parsed
+
+
+def _parse_timeout_seconds(raw_value: Any, *, setting_name: str) -> float | None:
+    """Parse an optional timeout value to a positive finite float.
+
+    Returns ``None`` if ``raw_value`` is unset, malformed, non-positive, or
+    non-finite (NaN/Inf). The caller decides what to do on ``None`` — for
+    YAML inputs that's "try the env-var fallback before defaulting", which
+    matches the documented "YAML > env > default" precedence.
+
+    Notable rejections (each logs a warning so misconfiguration is visible):
+
+    - ``True``/``False`` — YAML coerces ``yes``/``no`` to bool, then ``float``
+      happily turns them into 1.0 / 0.0. A typo like
+      ``vst_upload_timeout_seconds: yes`` would silently become a 1-second
+      timeout. Reject bool before the ``float()`` call.
+    - ``"nan"``, ``"inf"``, ``float('inf')`` — accepted by ``float`` and pass
+      ``> 0`` (NaN comparisons are always False; +Inf is positive). httpx's
+      behaviour on these is undefined, so reject up front.
+    """
+    if raw_value is None or raw_value == "":
+        return None
+    if isinstance(raw_value, bool):
+        logger.warning("Invalid %s=%r; bool/YAML-yes/no isn't a timeout, skipping", setting_name, raw_value)
+        return None
+    try:
+        timeout_seconds = float(raw_value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%r; not a number, skipping", setting_name, raw_value)
+        return None
+    if not math.isfinite(timeout_seconds):
+        logger.warning("Invalid %s=%r; must be finite, skipping", setting_name, raw_value)
+        return None
+    if timeout_seconds <= 0:
+        logger.warning("Invalid %s=%r; timeout must be > 0, skipping", setting_name, raw_value)
+        return None
+    return timeout_seconds
+
+
+def _resolve_timeout_seconds(
+    streaming_config: Any,
+    *,
+    attr_name: str,
+    env_name: str,
+    default: float,
+) -> float:
+    """Resolve a timeout value using ``YAML > env > default`` precedence.
+
+    Each source is parsed via :func:`_parse_timeout_seconds`; a malformed
+    value on one source falls through to the next. This matches operator
+    intuition: setting the env var lets you recover from a typo in YAML
+    without having to redeploy the chart.
+
+    ``streaming_config`` is whatever pydantic produced from
+    ``general.front_end.streaming_ingest`` — a model with attributes, or
+    ``None`` when NAT stripped the section. Other callers (tests, dev
+    harnesses) typically pass a ``SimpleNamespace``.
+    """
+    raw_yaml = getattr(streaming_config, attr_name, None) if streaming_config else None
+    parsed = _parse_timeout_seconds(raw_yaml, setting_name=attr_name)
+    if parsed is not None:
+        return parsed
+    raw_env = os.getenv(env_name, "")
+    parsed = _parse_timeout_seconds(raw_env, setting_name=env_name)
+    if parsed is not None:
+        return parsed
+    return default
 
 
 class VideoIngestResponse(BaseModel):
@@ -153,6 +232,10 @@ class _VideoUploadConfig(BaseModel):
     rtvi_cv_base_url: str = ""
     rtvi_embed_model: str = "cosmos-embed1-448p"
     rtvi_embed_chunk_duration: int = 5
+    rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS
+    rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS
+    vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS
+    vst_upload_timeout_seconds: float = DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS
 
 
 def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
@@ -188,6 +271,31 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
     if not vst_internal_url:
         return None
 
+    rtvi_cv_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="rtvi_cv_timeout_seconds",
+        env_name=ENV_RTVI_CV_TIMEOUT_SECONDS,
+        default=DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+    )
+    rtvi_embed_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="rtvi_embed_timeout_seconds",
+        env_name=ENV_RTVI_EMBED_TIMEOUT_SECONDS,
+        default=DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+    )
+    vst_storage_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="vst_storage_timeout_seconds",
+        env_name=ENV_VST_STORAGE_TIMEOUT_SECONDS,
+        default=DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
+    )
+    vst_upload_timeout_seconds = _resolve_timeout_seconds(
+        streaming_config,
+        attr_name="vst_upload_timeout_seconds",
+        env_name=ENV_VST_UPLOAD_TIMEOUT_SECONDS,
+        default=DEFAULT_VST_UPLOAD_TIMEOUT_SECONDS,
+    )
+
     return _VideoUploadConfig(
         vst_internal_url=vst_internal_url,
         vst_external_url=vst_external_url or vst_internal_url,
@@ -195,7 +303,129 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url=rtvi_cv_base_url,
         rtvi_embed_model=rtvi_embed_model,
         rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+        rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
+        rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
+        vst_storage_timeout_seconds=vst_storage_timeout_seconds,
+        vst_upload_timeout_seconds=vst_upload_timeout_seconds,
     )
+
+
+async def _register_with_rtvi_cv(
+    *,
+    rtvi_cv_base_url: str,
+    sensor_id: str,
+    camera_name: str,
+    vst_file_path: str,
+    start_timestamp: str,
+    timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+) -> None:
+    """POST ``/api/v1/stream/add`` to RTVI-CV. Best-effort (tolerates network errors).
+
+    Connect/timeout failures degrade to a warning and silent skip — same as the
+    original inline path — because RTVI-CV is treated as optional infra. Other
+    HTTP errors (non-2xx) raise ``HTTPException(502)`` so the caller surfaces a
+    hard failure.
+    """
+    # `x-stream-id` is the routing key for SDR-fronted RTVI deployments: the
+    # in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR coordinator)
+    # consistent-hashes this header to pin a stream to one worker pod.
+    # Without it the proxy falls back to round-robin and subsequent
+    # /add → /delete → /config calls for the same sensor can land on different
+    # workers. See Projects/SDR/wiki.md for the routing contract.
+    rtvi_cv_url = rtvi_cv_base_url.rstrip("/")
+    rtvi_cv_add_url = f"{rtvi_cv_url}/api/v1/stream/add"
+    rtvi_cv_payload = {
+        "key": "sensor",
+        "value": {
+            "camera_id": sensor_id,
+            "camera_name": camera_name,
+            "camera_url": vst_file_path,
+            "creation_time": start_timestamp,
+            "change": "camera_add",
+            "metadata": {"resolution": "1920x1080", "codec": "h264", "framerate": 30},
+        },
+        "headers": {"source": "vst", "created_at": start_timestamp},
+    }
+
+    logger.info(f"Adding video to RTVI-CV: POST {rtvi_cv_add_url}")
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            with TimeMeasure("video_ingest: register with RTVI-CV"):
+                response = await client.post(
+                    rtvi_cv_add_url,
+                    json=rtvi_cv_payload,
+                    headers={"x-stream-id": sensor_id},
+                )
+            if response.status_code not in (200, 201):
+                error_msg = f"RTVI-CV returned {response.status_code}: {response.text}"
+                logger.error(error_msg)
+                raise HTTPException(status_code=502, detail=f"RTVI-CV add failed: {error_msg}")
+            logger.info(f"RTVI-CV video added: {sensor_id}")
+    except httpx.ConnectError:
+        logger.warning("RTVI-CV not reachable at %s, skipping (service may not be deployed)", rtvi_cv_add_url)
+    except httpx.TimeoutException:
+        logger.warning("RTVI-CV timed out at %s, skipping", rtvi_cv_add_url)
+
+
+async def _run_rtvi_embedding(
+    *,
+    rtvi_embed_base_url: str,
+    sensor_id: str,
+    vst_url: str,
+    vst_file_path: str,
+    rtvi_embed_model: str,
+    rtvi_embed_chunk_duration: int,
+    start_timestamp: str,
+    timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+) -> int:
+    """POST ``/v1/generate_video_embeddings``. Returns ``total_chunks_processed``.
+
+    The call is synchronous on the RTVI-Embed side — it blocks until the
+    generation completes (up to the 600s client timeout). Any non-200 raises
+    ``HTTPException(502)`` so the caller can surface the failure.
+    """
+    rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
+    embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
+    parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
+    if not parsed_vst.hostname:
+        raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
+    translated_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
+    logger.info(f"Using internal VST URL for RTVI: {translated_video_url}")
+
+    embed_request = {
+        "url": translated_video_url,
+        "id": sensor_id,
+        "model": rtvi_embed_model,
+        "creation_time": start_timestamp,
+        "chunk_duration": rtvi_embed_chunk_duration,
+    }
+
+    logger.info(f"Calling RTVI Embedding API: POST {embedding_url}")
+
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        with TimeMeasure("video_ingest: generate embeddings (RTVI)"):
+            response = await client.post(
+                embedding_url,
+                json=embed_request,
+                headers={
+                    "accept": "application/json",
+                    "Content-Type": "application/json",
+                    # SDR routing key — same rationale as RTVI-CV.
+                    "x-stream-id": sensor_id,
+                },
+            )
+
+        if response.status_code != 200:
+            error_msg = f"Embedding generation failed with status {response.status_code}: {response.text}"
+            logger.error(error_msg)
+            raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
+
+        result = response.json()
+        logger.info("RTVI Embedding generation successful")
+        # `usage.total_chunks_processed` is the server-side count; coerce
+        # explicitly so mypy keeps the helper's int return type intact.
+        return int(result.get("usage", {}).get("total_chunks_processed", 0) or 0)
 
 
 async def _run_post_upload_processing(
@@ -207,6 +437,9 @@ async def _run_post_upload_processing(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+    rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+    vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
 ) -> VideoIngestResponse:
     """
     Run post-upload processing: get timeline, get video URL, add to RTVI-CV, generate embeddings.
@@ -258,7 +491,7 @@ async def _run_post_upload_processing(
     }
     logger.info(f"Calling Storage API: GET {storage_url}")
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=vst_storage_timeout_seconds) as client:
         with TimeMeasure("video_ingest: get storage URL from VST"):
             storage_response = await client.get(storage_url, params=storage_params)
 
@@ -276,106 +509,70 @@ async def _run_post_upload_processing(
 
         logger.info(f"VST video URL obtained: {vst_file_path}")
 
-    # Add to RTVI-CV (if configured). The URL parser rejects empty, scheme-only,
-    # and "http://host:" (no port body) forms — anything that wouldn't connect.
+    # Register with RTVI-CV and trigger embedding generation concurrently.
+    # The two services are independent — they both consume the VST storage URL
+    # but write to disjoint backends — so running them in parallel cuts the
+    # post-upload wall time roughly down to max(cv_time, embed_time) instead
+    # of cv_time + embed_time. The embed call is the long pole (it blocks
+    # until generation completes, up to 600s), so the savings are real.
     parsed_cv = _parse_optional_http_url(rtvi_cv_base_url)
+    parsed_embed = _parse_optional_http_url(rtvi_embed_base_url)
+
+    rtvi_tasks: list[tuple[str, Any]] = []
+
     if parsed_cv is not None:
-        rtvi_cv_url = rtvi_cv_base_url.rstrip("/")
-        rtvi_cv_add_url = f"{rtvi_cv_url}/api/v1/stream/add"
-        rtvi_cv_payload = {
-            "key": "sensor",
-            "value": {
-                "camera_id": sensor_id,
-                "camera_name": camera_name,
-                "camera_url": vst_file_path,
-                "creation_time": start_timestamp,
-                "change": "camera_add",
-                "metadata": {"resolution": "1920x1080", "codec": "h264", "framerate": 30},
-            },
-            "headers": {"source": "vst", "created_at": start_timestamp},
-        }
-
-        logger.info(f"Adding video to RTVI-CV: POST {rtvi_cv_add_url}")
-
-        # `x-stream-id` is the routing key for SDR-fronted RTVI deployments:
-        # the in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR
-        # coordinator) consistent-hashes this header to pin a stream to one
-        # worker pod. Without it the proxy falls back to round-robin and
-        # subsequent /add → /delete → /config calls for the same sensor can
-        # land on different workers. See Projects/SDR/wiki.md for the routing
-        # contract.
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as rtvi_cv_client:
-                with TimeMeasure("video_ingest: register with RTVI-CV"):
-                    rtvi_cv_response = await rtvi_cv_client.post(
-                        rtvi_cv_add_url,
-                        json=rtvi_cv_payload,
-                        headers={"x-stream-id": sensor_id},
-                    )
-
-                if rtvi_cv_response.status_code not in (200, 201):
-                    error_msg = f"RTVI-CV returned {rtvi_cv_response.status_code}: {rtvi_cv_response.text}"
-                    logger.error(error_msg)
-                    raise HTTPException(status_code=502, detail=f"RTVI-CV add failed: {error_msg}")
-
-                logger.info(f"RTVI-CV video added: {sensor_id}")
-        except httpx.ConnectError:
-            logger.warning("RTVI-CV not reachable at %s, skipping (service may not be deployed)", rtvi_cv_add_url)
-        except httpx.TimeoutException:
-            logger.warning("RTVI-CV timed out at %s, skipping", rtvi_cv_add_url)
+        rtvi_tasks.append(
+            (
+                "rtvi-cv",
+                _register_with_rtvi_cv(
+                    rtvi_cv_base_url=rtvi_cv_base_url,
+                    sensor_id=sensor_id,
+                    camera_name=camera_name,
+                    vst_file_path=vst_file_path,
+                    start_timestamp=start_timestamp,
+                    timeout_seconds=rtvi_cv_timeout_seconds,
+                ),
+            )
+        )
     else:
         logger.info("RTVI-CV not configured, skipping")
 
-    # Trigger embedding generation (skip if the embed service isn't configured).
-    # Uses the same parser as RTVI-CV for consistency — hostname-only URLs
-    # relying on the scheme's default port are accepted.
-    parsed_embed = _parse_optional_http_url(rtvi_embed_base_url)
     chunks_processed = 0
-
-    if parsed_embed is None:
-        logger.info("RTVI Embed not configured, skipping embedding generation")
+    if parsed_embed is not None:
+        rtvi_tasks.append(
+            (
+                "rtvi-embed",
+                _run_rtvi_embedding(
+                    rtvi_embed_base_url=rtvi_embed_base_url,
+                    sensor_id=sensor_id,
+                    vst_url=vst_url,
+                    vst_file_path=vst_file_path,
+                    rtvi_embed_model=rtvi_embed_model,
+                    rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                    start_timestamp=start_timestamp,
+                    timeout_seconds=rtvi_embed_timeout_seconds,
+                ),
+            )
+        )
     else:
-        rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
-        embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
-        parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
-        if not parsed_vst.hostname:
-            raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
-        translated_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
-        logger.info(f"Using internal VST URL for RTVI: {translated_video_url}")
+        logger.info("RTVI Embed not configured, skipping embedding generation")
 
-        embed_request = {
-            "url": translated_video_url,
-            "id": sensor_id,
-            "model": rtvi_embed_model,
-            "creation_time": start_timestamp,
-            "chunk_duration": rtvi_embed_chunk_duration,
-        }
-
-        logger.info(f"Calling RTVI Embedding API: POST {embedding_url}")
-
-        async with httpx.AsyncClient(timeout=600.0) as client:
-            with TimeMeasure("video_ingest: generate embeddings (RTVI)"):
-                embed_response = await client.post(
-                    embedding_url,
-                    json=embed_request,
-                    headers={
-                        "accept": "application/json",
-                        "Content-Type": "application/json",
-                        # SDR routing key — same rationale as RTVI-CV above.
-                        "x-stream-id": sensor_id,
-                    },
-                )
-
-            if embed_response.status_code != 200:
-                error_msg = (
-                    f"Embedding generation failed with status {embed_response.status_code}: {embed_response.text}"
-                )
-                logger.error(error_msg)
-                raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
-
-            embed_result = embed_response.json()
-            logger.info("RTVI Embedding generation successful")
-            chunks_processed = embed_result.get("usage", {}).get("total_chunks_processed", 0)
+    if rtvi_tasks:
+        with TimeMeasure("video_ingest: RTVI-CV register + embedding generation (parallel)"):
+            results = await asyncio.gather(
+                *(coro for _, coro in rtvi_tasks),
+                return_exceptions=True,
+            )
+        # Re-raise in task-declaration order so the caller sees the same
+        # priority the old sequential code did (CV first, then embed).
+        # ``strict=True``: ``asyncio.gather`` always returns one result per
+        # awaitable, so a length mismatch would indicate a bug.
+        for (label, _), result in zip(rtvi_tasks, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.error("%s task failed: %s", label, result)
+                raise result
+            if label == "rtvi-embed":
+                chunks_processed = result or 0
 
     message = (
         f"Video {filename} successfully uploaded to VST and embeddings generated"
@@ -429,6 +626,9 @@ def create_video_upload_complete_router(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
+    rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
+    vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
 ) -> APIRouter:
     """Build the universal ``POST /api/v1/videos/{sensor_id}/complete`` router.
 
@@ -472,6 +672,9 @@ def create_video_upload_complete_router(
                 rtvi_cv_base_url=rtvi_cv_base_url,
                 rtvi_embed_model=rtvi_embed_model,
                 rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
+                rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
+                vst_storage_timeout_seconds=vst_storage_timeout_seconds,
             )
         except HTTPException:
             raise
@@ -522,6 +725,9 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 rtvi_cv_base_url=cfg.rtvi_cv_base_url,
                 rtvi_embed_model=cfg.rtvi_embed_model,
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
+                rtvi_cv_timeout_seconds=cfg.rtvi_cv_timeout_seconds,
+                rtvi_embed_timeout_seconds=cfg.rtvi_embed_timeout_seconds,
+                vst_storage_timeout_seconds=cfg.vst_storage_timeout_seconds,
             )
         )
         logger.info("Registered POST /api/v1/videos/{sensor_id}/complete")
