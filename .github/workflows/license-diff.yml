@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: License Diff
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  license-diff:
+    name: License Diff (OSRB CSV)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Resolve base ref
+        id: base
+        env:
+          DEFAULT_BRANCH: develop
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          merge_base=$(git merge-base HEAD "origin/${DEFAULT_BRANCH}" || git rev-parse "origin/${DEFAULT_BRANCH}")
+          echo "ref=${merge_base}" >> "$GITHUB_OUTPUT"
+          echo "Comparing HEAD against ${merge_base}"
+
+      - name: Generate license diff CSV
+        run: |
+          set -euo pipefail
+          python scripts/licensing/license_diff_csv.py \
+            --base-ref "${{ steps.base.outputs.ref }}" \
+            --head-ref HEAD \
+            --output license-diff.csv
+          echo "--- csv preview ---"
+          head -n 30 license-diff.csv || true
+
+      - name: Upload CSV artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: license-diff
+          path: license-diff.csv
+          if-no-files-found: warn
+
+      - name: Write step summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## License Diff for OSRB"
+            echo
+            if [[ ! -f license-diff.csv ]]; then
+              echo "No CSV produced."
+              exit 0
+            fi
+            row_count=$(($(wc -l < license-diff.csv) - 1))
+            if [[ "$row_count" -le 0 ]]; then
+              echo "No package version or license changes detected."
+              exit 0
+            fi
+            echo "Compared HEAD against \`${{ steps.base.outputs.ref }}\`."
+            echo "**$row_count** changed packages require OSRB review. Full CSV is attached as the **license-diff** artifact."
+            echo
+            echo "| language | package | change | old_version | new_version | old_license | new_license |"
+            echo "|----------|---------|--------|-------------|-------------|-------------|-------------|"
+            python3 - <<'PY'
+          import csv
+          with open("license-diff.csv") as f:
+              for row in csv.DictReader(f):
+                  cells = [
+                      row["language"], row["package"], row["change"],
+                      row["old_version"], row["new_version"],
+                      row["old_license"], row["new_license"],
+                  ]
+                  print("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"
