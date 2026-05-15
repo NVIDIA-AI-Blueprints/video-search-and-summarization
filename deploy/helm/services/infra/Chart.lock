@@ -5,9 +5,6 @@ dependencies:
 - name: redis
   repository: file://./charts/redis
   version: 26.04.2
-- name: sdrc
-  repository: file://./charts/sdrc
-  version: 26.04.2
 - name: elasticsearch
   repository: file://./charts/elasticsearch
   version: 26.04.2
@@ -23,5 +20,5 @@ dependencies:
 - name: vss-broker-health-check
   repository: file://./charts/broker-health-check
   version: 26.04.2
-digest: sha256:46b846c200cdd2713fd5467e154263fec2871c0429619d4f06989707ab97f220
-generated: "2026-05-15T01:58:12.57079796Z"
+digest: sha256:11604f82d18d9cc753e518c2305018f80d695521c734392f988cb88c7fe15b1d
+generated: "2026-04-20T18:59:22.662604+05:30"

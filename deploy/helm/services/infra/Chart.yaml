@@ -28,10 +28,6 @@ dependencies:
     version: 26.04.2
     repository: "file://./charts/redis"
     condition: redis.enabled
-  - name: sdrc
-    version: 26.04.2
-    repository: "file://./charts/sdrc"
-    condition: sdrc.enabled
   - name: elasticsearch
     version: 26.04.2
     repository: "file://./charts/elasticsearch"
