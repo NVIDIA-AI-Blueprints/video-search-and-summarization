@@ -616,12 +616,20 @@ class TopAgent(AsyncMixin):
         lowered_question = question.lower()
         if lowered_question.startswith("let's show the videos just uploaded"):
             logger.info("Plan node: by pass plan for showing uploaded video")
+            names_raw = lowered_question.removeprefix("let's show the videos just uploaded").removesuffix("?").strip()
             state.plan = (
-                "1. Call vst_video_clip tool in parallel with each video name as a separate input:"
-                + lowered_question.removeprefix("let's show the videos just uploaded").removesuffix("?")
-            )
-            state.plan += (
-                "\n\n 2. Format the result url into html tags like <video src='url' alt='video name'>video name</video>"
+                f"1. You MUST call the vst_video_clip tool in parallel, once for each name in: {names_raw}. "
+                "Pass the name as the sensor_id argument. "
+                "Do NOT invent, guess, or template the video URL - it MUST come from the tool result.\n"
+                "2. For each tool result, format an HTML video tag using the EXACT video_url "
+                'returned by the tool: <video src="<VIDEO_URL_FROM_TOOL_RESULT>" '
+                'alt="<NAME>"><NAME></video>. '
+                "<VIDEO_URL_FROM_TOOL_RESULT> is a substitution placeholder - replace it with the "
+                "exact url string the tool returned, not with the literal text "
+                '"<VIDEO_URL_FROM_TOOL_RESULT>" and not with any example domain like '
+                "vst.example.com.\n"
+                "3. If a vst_video_clip call fails or returns no url, say so for that name "
+                "instead of inventing a URL."
             )
             return state
 
