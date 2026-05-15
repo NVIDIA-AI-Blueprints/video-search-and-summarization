@@ -95,8 +95,7 @@ class StreamingIngestConfig(BaseModel):
     rtvi_cv_timeout_seconds: float | None = Field(
         default=None,
         description=(
-            "Per-request timeout (seconds) for RTVI-CV /api/v1/stream/add during "
-            "post-upload processing. Default: 60s."
+            "Per-request timeout (seconds) for RTVI-CV /api/v1/stream/add during post-upload processing. Default: 60s."
         ),
     )
     rtvi_embed_timeout_seconds: float | None = Field(

@@ -124,9 +124,7 @@ def _parse_timeout_seconds(raw_value: Any, *, setting_name: str) -> float | None
     if raw_value is None or raw_value == "":
         return None
     if isinstance(raw_value, bool):
-        logger.warning(
-            "Invalid %s=%r; bool/YAML-yes/no isn't a timeout, skipping", setting_name, raw_value
-        )
+        logger.warning("Invalid %s=%r; bool/YAML-yes/no isn't a timeout, skipping", setting_name, raw_value)
         return None
     try:
         timeout_seconds = float(raw_value)

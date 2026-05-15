@@ -128,7 +128,7 @@ class TestParseTimeoutSeconds:
             "inf",
             float("inf"),
             "-inf",
-            True,   # YAML `yes` coerces to bool → would silently be 1s
+            True,  # YAML `yes` coerces to bool → would silently be 1s
             False,  # YAML `no` coerces to bool → would silently be 0s
         ],
     )
