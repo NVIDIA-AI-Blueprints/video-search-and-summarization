@@ -65,7 +65,7 @@ vlm:
   # Beware that these parameters need to be set in accordance with the VLM max context window
   enable_sampling: true
   sampling_fps: 4
-  max_retries: 3
+  max_retries: 1
   request_timeout: 30
   temperature: 0.0
   do_resize: false
