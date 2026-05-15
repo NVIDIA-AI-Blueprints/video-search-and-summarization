@@ -96,8 +96,8 @@ If `nvidia-smi` fails → driver not installed or not loaded. Guide the user:
 ### 2. Docker
 
 ```bash
-docker --version        # need 27.2.0+
-docker compose version  # need v2.29.1+
+docker --version        # need 28.3.3+
+docker compose version  # need v2.39.1+
 docker ps               # verify runs without sudo
 ```
 
