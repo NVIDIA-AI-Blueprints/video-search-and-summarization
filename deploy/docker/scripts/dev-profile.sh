@@ -262,6 +262,37 @@ function mask_secret() {
   fi
 }
 
+function mask_external_ip_args() {
+  local _arg _masked_value
+  local _mask_next="false"
+  local _masked_args=()
+  for _arg in "$@"; do
+    if [[ "${_mask_next}" == "true" ]]; then
+      _masked_args+=("$(mask_secret "${_arg}")")
+      _mask_next="false"
+      continue
+    fi
+    case "${_arg}" in
+      -e|--external-ip)
+        _masked_args+=("${_arg}")
+        _mask_next="true"
+        ;;
+      --external-ip=*)
+        _masked_value="${_arg#--external-ip=}"
+        _masked_args+=("--external-ip=$(mask_secret "${_masked_value}")")
+        ;;
+      -e?*)
+        _masked_value="${_arg#-e}"
+        _masked_args+=("-e$(mask_secret "${_masked_value}")")
+        ;;
+      *)
+        _masked_args+=("${_arg}")
+        ;;
+    esac
+  done
+  echo "${_masked_args[*]}"
+}
+
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
@@ -402,7 +433,7 @@ function validate_args() {
 
   _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
-    echo "[ERROR] Invalid usage: ${_args[*]}"
+    echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
   else
     eval set -- "${_valid_args}"
@@ -940,7 +971,7 @@ function print_args() {
     echo "profile:                   ${profile}"
     echo "host-ip:                   ${host_ip}"
     if [[ -n "${external_ip}" ]]; then
-      echo "external-ip:               ${external_ip}"
+      echo "external-ip:               $(mask_secret "${external_ip}")"
     fi
     echo "ngc-cli-api-key:           $(mask_secret "${ngc_cli_api_key}")"
     local _env_file="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
@@ -1093,7 +1124,7 @@ function state_up() {
     set_env_var "VSS_VA_MCP_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/va_mcp_server_config.yml"
   fi
   if [[ -n "${external_ip}" ]]; then
-    set_env_var "EXTERNAL_IP" "${external_ip}"
+    set_env_var "EXTERNAL_IP" "${external_ip}" "true"
   fi
 
   # ===== Brev secure links =====
