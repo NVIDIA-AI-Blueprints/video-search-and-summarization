@@ -99,7 +99,7 @@ env:
   - name: LVS_ENABLE_LLM_MERGING
     value: "false"
   - name: LVS_ENABLE_MCP
-    value: "true"
+    value: "false"
   - name: LVS_MCP_PORT
     value: "38112"
   - name: MILVUS_DB_GRPC_PORT

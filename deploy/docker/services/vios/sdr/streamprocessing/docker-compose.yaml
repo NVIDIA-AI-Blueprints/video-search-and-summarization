@@ -49,7 +49,7 @@ services:
       restart_policy:
         condition: always
     healthcheck:
-      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/${HTTP_PORT:-30001}'"]
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30001}'"]
       # Handle slow apt mirrors which delays package installs and service startup
       # Hence widen retries x interval ~ 25min so healthcheck outlasts apt
       interval: 20s
