@@ -63,9 +63,9 @@ template is in § Harbor invocation below.
    blocker comment once for that spec and skip it — the others on
    the same skill still run.
 
-   Optional: `profile` (string — the `/deploy -p <profile>`
+   Optional: `profile` (string — the `/vss-deploy-profile -p <profile>`
    argument, e.g. `"alerts"`) and `deploy_mode` (string — the
-   `/deploy -m <mode>` argument, e.g. `"verification"`). If the spec
+   `/vss-deploy-profile -m <mode>` argument, e.g. `"verification"`). If the spec
    sets `profile`, the adapter prepends a deploy task ahead of the
    spec's `expects`. If `profile` is absent, there is **no deploy
    prerequisite** — the trial runs directly on a bare Brev instance
@@ -96,9 +96,9 @@ template is in § Harbor invocation below.
 
    3b. **Generate or patch the adapter in the workspace.** Pattern-match
        from
-       `.github/skill-eval/adapters/vios/generate.py` (single-platform /
+       `.github/skill-eval/adapters/vss-manage-video-io-storage/generate.py` (single-platform /
        step-chain) or
-       `.github/skill-eval/adapters/deploy/generate.py` (matrix). For
+       `.github/skill-eval/adapters/vss-deploy-profile/generate.py` (matrix). For
        updates, edit the existing file rather than rewriting it.
 
    3c. **Raise a bot PR against the source PR's *original* branch and
@@ -192,16 +192,16 @@ template is in § Harbor invocation below.
        - different → push as a new commit on the same branch (PR auto-
          updates). Don't open a duplicate PR.
 
-   When cloning the vios template for a new skill, the `[metadata]`
+   When cloning the vss-manage-video-io-storage template for a new skill, the `[metadata]`
    block's `profile` field **must be read from the spec JSON**, not
    hardcoded: `spec.get("profile", "base")`. Hardcoding breaks the
-   `/deploy -p <profile>` chain for skills like `video-search`
-   (profile: `search`) and `video-summarization` (profile: `lvs`)
-   that share the vios shape but not its profile.
+   `/vss-deploy-profile -p <profile>` chain for skills like `vss-search-archive`
+   (profile: `search`) and `vss-summarize-video` (profile: `lvs`)
+   that share the vss-manage-video-io-storage shape but not its profile.
 
    The `prerequisite_deploy_mode` field is **alerts-only** today —
    placement (`remote-all` / `dedicated` / etc.) is no longer a
-   marker dimension; `/deploy` picks placement from env at runtime.
+   marker dimension; `/vss-deploy-profile` picks placement from env at runtime.
    Emit `prerequisite_deploy_mode` **only when the spec declares
    it**, so the consumer's `desired = profile` branch fires for
    base/lvs/search (marker = `<profile>`, not `<profile>-remote-all`):
@@ -216,12 +216,12 @@ template is in § Harbor invocation below.
    writes `<profile>`, warm reuse breaks silently.
 
    Every `instruction.md` the adapter writes **must begin with the
-   `PREAMBLE` constant** defined in `adapters/vios/generate.py` and
-   `adapters/deploy/generate.py`:
+   `PREAMBLE` constant** defined in `adapters/vss-manage-video-io-storage/generate.py` and
+   `adapters/vss-deploy-profile/generate.py`:
 
    > You are running inside a non-interactive evaluation harness.
    > You are pre-authorized to deploy prerequisites autonomously —
-   > do not pause to ask for confirmation on `/deploy` or any other
+   > do not pause to ask for confirmation on `/vss-deploy-profile` or any other
    > setup action the trial requires.
 
    Skills' SKILL.md prereq blocks include a bypass clause that fires
@@ -455,7 +455,7 @@ runs — **must be ignored**, even if the gpu_type or resources look
 compatible. The `gpu_count == 0` rule below skips the GPU-type
 check, which makes non-anchored matching especially dangerous
 (e.g. a user's `l40s-48gb2x` with an L4 and a 40 GB disk passes
-the match but runs `/deploy` 2–3× slower and trips the agent-exec
+the match but runs `/vss-deploy-profile` 2–3× slower and trips the agent-exec
 timeout). If no name matches `^vss-eval-`, fall through to the
 wait-for-pool path in § 5a — never `brev create` one yourself.
 
@@ -574,7 +574,7 @@ Notes that have burned prior runs:
   done
   ```
 
-  Single-step specs (most deploy/* specs) skip this loop entirely
+  Single-step specs (most `vss-deploy-profile/*` specs) skip this loop entirely
   and use the simpler one-shot invocation pattern. Detect by
   reading `step_count` from `task.toml`: if 1, dispatch once
   with `--include-task-name "<platform>"`; if N, use the loop.
@@ -597,7 +597,7 @@ Notes that have burned prior runs:
   outer harbor wrapper is what actually trips first.
 - `--agent-timeout-multiplier 3.0` raises the per-trial agent-exec
   ceiling (the one that bounds the `claude --print` subprocess
-  harbor spawns) by the same factor. `/deploy` on a cold box —
+  harbor spawns) by the same factor. `/vss-deploy-profile` on a cold box —
   especially `lvs` / `alerts_*` which pull multiple local NIMs — can
   legitimately need 20+ min of `docker pull` + NGC auth + container
   start; the stock ceiling SIGTERMs it mid-pull and harbor records a
@@ -607,7 +607,7 @@ Notes that have burned prior runs:
 - `--verifier-timeout-multiplier 3.0` raises harbor's verifier
   execution ceiling from the 600s default to 1800s. Our
   `generic_judge.py` spawns a claude-agent-sdk judge **per check**
-  with `Bash` + `Read` + `Grep` tools — specs like `vios` carry 4-6
+  with `Bash` + `Read` + `Grep` tools — specs like `vss-manage-video-io-storage` carry 4-6
   checks, each potentially probing the live stack, so the aggregate
   verify pass compounds past 600s and harbor raises
   `VerifierTimeoutError`. This is the third of three timeout
@@ -830,7 +830,7 @@ separate; don't conflate the two.
   verdict is treated as a real failure (it isn't a green ✓ anymore).
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
-    - `DONE: 2/3 specs passed; 1 spec failed (rt-vlm/step-2 reward=0.83)`
+    - `DONE: 2/3 specs passed; 1 spec failed (vss-deploy-dense-captioning/step-2 reward=0.83)`
     - `BLOCKED: anthropic rate limit after 3 retries`
     - `BLOCKED: lock timeout on vss-eval-l40s`
   If you ran trials, you MUST also have called `gh pr comment
