@@ -262,6 +262,24 @@ function mask_secret() {
   fi
 }
 
+function get_rtvi_vllm_gpu_memory_utilization() {
+  local _hardware_profile="${1}"
+  local _vlm_mode="${2}"
+
+  if [[ "${_vlm_mode}" == "local_shared" ]]; then
+    case "${_hardware_profile}" in
+      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
+      L40S) echo "0.8" ;;
+      *) echo "0.7" ;;
+    esac
+    return
+  fi
+
+  case "${_hardware_profile}" in
+    L40S) echo "0.8" ;;
+    *) echo "0.7" ;;
+  esac
+}
 
 # Apply VSS kernel settings (IPv6 disable, TCP buffer sizes). Persistent across reboots via /etc/sysctl.d/99-vss.conf.
 function set_vss_linux_kernel_settings() {
@@ -1241,22 +1259,10 @@ function state_up() {
     if [[ "${vlm_mode}" != "remote" ]]; then
       set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
     fi
-    # RTVI_VLLM_GPU_MEMORY_UTILIZATION: mirrors NIM NIM_KVCACHE_PERCENT hw-*.env pattern.
-    # IGX-THOR/AGX-THOR have no NIM hw env file → ignored here, handled in the hw sub-block below.
-    # OTHER has no NIM hw env file → not set.
-    if [[ "${hardware_profile}" != "OTHER" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      if [[ "${vlm_mode}" == "local_shared" ]]; then
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-      else
-        case "${hardware_profile}" in
-          DGX-SPARK|L40S)
-            set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
-            ;;
-          *)
-            set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
-            ;;
-        esac
-      fi
+    # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
+    # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
+    if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
     fi
     # RT_VLM_DEVICE_ID: mirrors NIM compose device_ids pattern.
     # local → VLM_DEVICE_ID; local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
