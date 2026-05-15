@@ -142,11 +142,14 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vios.vstStorage.streamerVideos`** | **`size`:** **20Gi**, **`storageClass`:** **`""`** | Claim size for the shared **streamer upload** video volume; same **`storageClass`** rules as **`vstData`**. |
 | **`infra.phoenix.enabled`** | **`true`** | Set **`false`** to disable Phoenix ( **`infra`** subchart). |
 | **`infra.redis.enabled`** | **`true`** | Set **`false`** to disable Redis. |
+| **`infra.sdrc.enabled`** | **`true`** | Enables the combined SDRC controller/router used by Alerts for streamprocessing and, in verification mode, **vss-rtvi-cv** provisioning. |
+| **`infra.sdrc.configFilePath`** | **`configs/sdrc/config-verification.yml`** | Profile-local SDRC workload config rendered into the **`sdrc-config`** ConfigMap. **`values-realtime.yaml`** switches this to **`configs/sdrc/config-realtime.yml`**. |
 | **`vios.enabled`** | **`true`** | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | **`true`** | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
-| **`vios.vss-vios-envoy-proxy.enabled`** | **`true`** | Set **`false`** to disable Envoy in front of streamprocessing. |
-| **`vios.vss-vios-sdr.enabled`** | **`true`** | Set **`false`** to disable SDR streamprocessing. |
+| **`vios.vss-vios-envoy-proxy.enabled`** | **`false`** | Legacy streamprocessing Envoy is disabled for Alerts; SDRC provides the router endpoint. |
+| **`vios.vss-vios-sdr.enabled`** | **`false`** | Legacy streamprocessing SDR is disabled for Alerts; SDRC owns provisioning. |
 | **`vios.vss-vios-sensor.enabled`** | **`true`** | Set **`false`** to disable the **sensor** workload. |
+| **`vios.vss-vios-sensor.streamProcessorService`** | **`sdrc`** | In-cluster service used for **`STREAM_PROCESSOR_MODULE_ENDPOINT`**. |
 | **`vios.vss-vios-sensor.persistence`** | Each of **`vstData`** and **`vstVideo`**: mount on, **`create: false`**, **`existingClaim`** empty by default | Controls whether **sensor** mounts two shared folders (**data** and **video**). **Typical setup:** leave **`existingClaim`** blank—Helm wires the pods to the PVCs created when **`vios.vstStorage.createSharedPvcs`** is **`true`**. **Custom PVCs:** set **`existingClaim`** to your claim name for that volume. **Disable a mount:** set that volume’s **`enabled`** to **`false`** (that path is not mounted). |
 | **`vios.vss-vios-streamprocessing.enabled`** | **`true`** | Set **`false`** to disable **vss-vios-streamprocessing**. |
 | **`vios.vss-vios-streamprocessing.useSdrEnvoyStyleHeadless`** | **`false`** | Alerts: networking style for streamprocessing / SDR integration; override only if your deployment doc requires headless Envoy-style wiring. |
@@ -236,7 +239,7 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`infra.logstash.elasticsearch.host`** | **`""`** | Elasticsearch output host. When empty, defaults to **`elasticsearch:9200`** unprefixed (see **logstash** subchart **`_helpers.tpl`**). |
 | **`vios.vss-vios-nvstreamer.enabled`** | **`true`** | Set **`false`** to disable **NVStreamer** for Alerts. |
 | **`rtvi.vss-rtvi-cv.enabled`** | **`true`** | Set **`false`** to disable **vss-rtvi-cv** in **`real-time`** mode |
-| **`rtvi.vss-rtvi-cv-sdr.enabled`** | **`true`** | Set **`false`** to disable **vss-rtvi-cv-sdr** in **`real-time`** mode |
+| **`rtvi.vss-rtvi-cv-sdr.enabled`** | **`false`** | Legacy **vss-rtvi-cv-sdr** is disabled; SDRC provisions **vss-rtvi-cv** in verification mode. |
 | **`rtvi.vss-rtvi-cv-sdr.perceptionProvisioningAddress`** | **`""`** | **Perception** service host:port for SDR provisioning. When empty, defaults to **`<release>-vss-rtvi-cv:9010`**. |
 | **`rtvi.vss-rtvi-cv-sdr.vstStatusEndpoint`** | **`""`** | **VST** sensor status HTTP URL. When empty, defaults to **`http://<release>-vss-vios-ingress:30888/vst/api/v1/sensor/status`**. |
 | **`rtvi.vss-rtvi-cv-sdr.vstStreamsEndpoint`** | **`""`** | **VST** live streams HTTP URL. When empty, defaults to **`http://<release>-vss-vios-ingress:30888/vst/api/v1/live/streams`**. |
