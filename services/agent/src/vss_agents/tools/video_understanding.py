@@ -617,11 +617,8 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             # /vst/ base when the external URL is a reverse proxy that may not return raw bytes on GET.
             if use_video_base64 and not signed_q:
                 rebuilt = _rebuild_vst_clip_url_with_internal_base(video_url, config.vst_internal_url)
-                if (
-                    rebuilt
-                    and (config.vst_internal_url or "").strip()
-                    and not video_url.startswith(config.vst_internal_url.rstrip("/"))
-                ):
+                internal_clip_base = (config.vst_internal_url or "").rstrip("/")
+                if rebuilt and internal_clip_base and not video_url.startswith(internal_clip_base):
                     video_url = rebuilt
                     logger.info(
                         "Frame mode: coerced clip download to VST internal URL (proxy or external "
