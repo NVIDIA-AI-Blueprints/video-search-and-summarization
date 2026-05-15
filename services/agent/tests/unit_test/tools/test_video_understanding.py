@@ -20,6 +20,7 @@ from vss_agents.tools.video_understanding import VideoUnderstandingConfig
 from vss_agents.tools.video_understanding import _build_vlm_messages
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
 from vss_agents.tools.video_understanding import _should_use_video_base64
+from vss_agents.tools.video_understanding import _vlm_profile_media_overrides
 
 
 class TestParseThinkingFromContent:
@@ -185,6 +186,35 @@ class TestBuildVlmMessages:
 
 class TestVideoUnderstandingConfig:
     """Test video understanding config shape."""
+
+    def test_vlm_profile_media_overrides_from_extras(self):
+        """VLM profile YAML extras should be picked up for video understanding."""
+        from nat.llm.nim_llm import NIMModelConfig
+
+        cfg = NIMModelConfig(
+            model_name="nvidia/test",
+            max_frames=30,
+            max_fps=2,
+            min_pixels=100,
+            max_pixels=200,
+            reasoning=True,
+        )
+        overrides = _vlm_profile_media_overrides(cfg)
+        assert overrides == {
+            "max_frames": 30,
+            "max_fps": 2,
+            "min_pixels": 100,
+            "max_pixels": 200,
+            "reasoning": True,
+        }
+
+    def test_vlm_profile_media_overrides_partial(self):
+        """Only keys present on the profile should appear in overrides."""
+        from nat.llm.nim_llm import NIMModelConfig
+
+        cfg = NIMModelConfig(model_name="nvidia/test", max_frames=7)
+        overrides = _vlm_profile_media_overrides(cfg)
+        assert overrides == {"max_frames": 7}
 
     def test_ip_translation_fields_are_not_exposed(self):
         assert "internal_ip" not in VideoUnderstandingConfig.model_fields

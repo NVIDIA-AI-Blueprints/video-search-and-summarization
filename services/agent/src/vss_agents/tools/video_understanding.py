@@ -47,6 +47,17 @@ from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
 logger = logging.getLogger(__name__)
 
+# Optional VLM media / reasoning knobs configured on each LLM profile in YAML (nim_vlm, openai_vlm, …).
+# NAT NIM/OpenAI configs use `extra="allow"`, so these appear in `model_dump()` when set.
+_VLM_PROFILE_MEDIA_KEYS = frozenset({"max_frames", "max_fps", "min_pixels", "max_pixels", "reasoning"})
+
+
+def _vlm_profile_media_overrides(vlm_llm_config: Any) -> dict[str, Any]:
+    """Return subset of VLM profile fields that override video_understanding defaults."""
+    dump = vlm_llm_config.model_dump(mode="python")
+    return {key: dump[key] for key in _VLM_PROFILE_MEDIA_KEYS if key in dump}
+
+
 # Transient errors worth retrying for VLM calls.
 # Excludes client errors (4xx) like BadRequestError which are not retryable.
 _VLM_RETRYABLE_ERRORS = (
@@ -138,23 +149,28 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
     )
     max_frames: int = Field(
         24,
-        description="The maximum number of frames to sample from the video",
+        description="The maximum number of frames to sample from the video. "
+        "When the same key is set on the VLM LLM profile (e.g. nim_vlm), the profile value wins.",
     )
     max_fps: int = Field(
         default=2,
-        description="Maximum frames per second to sample. num_frames = min(video_length * max_fps, max_frames)",
+        description="Maximum frames per second to sample. num_frames = min(video_length * max_fps, max_frames). "
+        "When set on the VLM LLM profile, the profile value wins.",
     )
     min_pixels: int = Field(
         1568,
-        description="The minimum number of pixels for 2 frames from the video, 28x28=784 will be converted to one video token",
+        description="The minimum number of pixels for 2 frames from the video, 28x28=784 will be converted to one video token. "
+        "When set on the VLM LLM profile, the profile value wins.",
     )
     max_pixels: int = Field(
         345600,
-        description="The maximum number of pixels for 2 frames from the video, 28x28=784 will be converted to one video token",
+        description="The maximum number of pixels for 2 frames from the video, 28x28=784 will be converted to one video token. "
+        "When set on the VLM LLM profile, the profile value wins.",
     )
     reasoning: bool = Field(
         False,
-        description="Only for cosmos reason models, turn on reasoning when you want to let the VLM reason before returning the answer.",
+        description="Only for cosmos reason models, turn on reasoning when you want to let the VLM reason before returning the answer. "
+        "When set on the VLM LLM profile, the profile value wins.",
     )
     filter_thinking: bool = Field(
         False,
@@ -221,7 +237,7 @@ class VideoUnderstandingInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode. If None, uses config.reasoning default.",
+        description="Enable VLM reasoning mode. If None, uses the reasoning default from the VLM profile (or video_understanding config).",
     )
     model_config = {
         "extra": "forbid",
@@ -254,7 +270,7 @@ class VideoUnderstandingOffsetInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode. If None, uses config.reasoning default.",
+        description="Enable VLM reasoning mode. If None, uses the reasoning default from the VLM profile (or video_understanding config).",
     )
     model_config = {
         "extra": "forbid",
@@ -344,6 +360,14 @@ async def _build_vlm_messages(
 
 @register_function(config_type=VideoUnderstandingConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def video_understanding(config: VideoUnderstandingConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
+    vlm_llm_config = builder.get_llm_config(config.vlm_name)
+    profile_media = _vlm_profile_media_overrides(vlm_llm_config)
+    max_frames = profile_media.get("max_frames", config.max_frames)
+    max_fps = profile_media.get("max_fps", config.max_fps)
+    min_pixels = profile_media.get("min_pixels", config.min_pixels)
+    max_pixels = profile_media.get("max_pixels", config.max_pixels)
+    reasoning_default = profile_media.get("reasoning", config.reasoning)
+
     base_vlm = await builder.get_llm(config.vlm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     is_nim = config.vlm_name.startswith("nim_")
     model_name = getattr(base_vlm, "model_name", "") or getattr(base_vlm, "model", "")
@@ -454,21 +478,21 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
             end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         video_length_seconds = (end_dt - start_dt).total_seconds()
-        num_frames = min(int(video_length_seconds) * config.max_fps, config.max_frames)
+        num_frames = min(int(video_length_seconds) * max_fps, max_frames)
         # Ensure at least 1 frame···
         num_frames = max(num_frames, 1)
         logger.info(
-            f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={config.max_fps}, max_frames={config.max_frames})"
+            f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={max_fps}, max_frames={max_frames})"
         )
 
         # Bind VLM with dynamic num_frames
         if is_cosmos_model:
             media_io_kwargs = {"video": {"num_frames": num_frames}}
             if is_cosmos_reason2:
-                mm_processor_kwargs = {"size": {"shortest_edge": config.min_pixels, "longest_edge": config.max_pixels}}
+                mm_processor_kwargs = {"size": {"shortest_edge": min_pixels, "longest_edge": max_pixels}}
             else:
                 mm_processor_kwargs = {
-                    "videos_kwargs": {"min_pixels": config.min_pixels, "max_pixels": config.max_pixels}
+                    "videos_kwargs": {"min_pixels": min_pixels, "max_pixels": max_pixels}
                 }
             vlm = base_vlm.bind(
                 mm_processor_kwargs=mm_processor_kwargs,
@@ -477,11 +501,11 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         else:
             vlm = base_vlm
 
-        # Select reasoning mode: default to config.reasoning if not specified in the input
+        # Select reasoning mode: default to VLM profile / video_understanding if not specified in the input
         use_reasoning = (
             video_understanding_input.vlm_reasoning
             if video_understanding_input.vlm_reasoning is not None
-            else config.reasoning
+            else reasoning_default
         )
 
         prompt_template = reasoning_prompt_template if use_reasoning else non_reasoning_prompt_template
@@ -566,7 +590,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             use_base64=use_video_base64,
             video_length_seconds=video_length_seconds,
             num_frames=num_frames,
-            max_fps=config.max_fps,
+            max_fps=max_fps,
         )
 
         # Retry logic for VLM call — only retry transient errors (connection/timeout/5xx).
@@ -613,7 +637,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             start_timestamp: The start timestamp in offset seconds since beginning of the stream
             end_timestamp: The end timestamp in offset seconds since beginning of the stream
             user_prompt: The prompt that is used to query the VLM to understand the video, mention all search entities in the prompt that is related to the user's query.
-            vlm_reasoning: Enable VLM reasoning mode. If None, uses config.reasoning default.
+            vlm_reasoning: Enable VLM reasoning mode. If None, uses the reasoning default from the VLM profile (or video_understanding config).
             Note: start_timestamp and end_timestamp are optional. If None, then the entire stream is returned.
         """
 
@@ -634,7 +658,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             start_timestamp: The start timestamp in UTC ISO 8601 format (e.g., '2025-08-25T03:05:55.752Z')
             end_timestamp: The end timestamp in UTC ISO 8601 format (e.g., '2025-08-25T03:06:15.752Z')
             user_prompt: The prompt that is used to query the VLM to understand the video, mention all search entities in the prompt that is related to the user's query.
-            vlm_reasoning: Enable VLM reasoning mode. If None, uses config.reasoning default.
+            vlm_reasoning: Enable VLM reasoning mode. If None, uses the reasoning default from the VLM profile (or video_understanding config).
         """
 
         yield FunctionInfo.create(
