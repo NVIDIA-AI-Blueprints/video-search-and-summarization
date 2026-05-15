@@ -26,6 +26,8 @@ services:
       - "bp_developer_lvs_2d"
       - "bp_developer_alerts_2d_cv"
       - "bp_developer_alerts_2d_vlm"
+      - "bp_smartcities_2d_cv"
+      - "bp_smartcities_2d_vlm"
       - "bp_wh_2d"
       - "bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}"
       - "bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}"

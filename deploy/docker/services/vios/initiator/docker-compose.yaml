@@ -35,6 +35,8 @@ services:
       - bp_developer_lvs_2d
       - bp_developer_alerts_2d_cv
       - bp_developer_alerts_2d_vlm
+      - bp_smartcities_2d_cv
+      - bp_smartcities_2d_vlm
     user: "0:0"
     runtime: nvidia
     entrypoint: ["/bin/bash", "-c", "exec /home/vst/vst_release/launch_vst"]
