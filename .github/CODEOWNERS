@@ -23,3 +23,19 @@ Cargo.lock              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 go.sum                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 Gemfile.lock            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 LICENSE-3rd-party.txt   @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+
+# Dependency manifests.
+# A manifest can change without an accompanying lockfile update (version-range
+# bumps, new direct deps, removed deps), and the next time the lock regenerates
+# it can pull in new transitive packages and licenses. Gate the manifests too
+# so OSRB sees the change at the point it is introduced, not weeks later when
+# someone else regenerates the lock.
+pyproject.toml          @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+requirements*.txt       @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+setup.py                @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+setup.cfg               @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Pipfile                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+package.json            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+go.mod                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Cargo.toml              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Gemfile                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers

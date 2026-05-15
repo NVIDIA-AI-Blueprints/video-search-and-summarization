@@ -106,7 +106,7 @@ commons:
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis", "auto_calib"]
 
       # bp_wh 2d profile is not supported on IGX-THOR or DGX-SPARK
       - variable: HARDWARE_PROFILE
@@ -180,6 +180,8 @@ commons:
                   matches: "bp_wh_kafka_2d,*"
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_2d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "auto_calib_2d,*"
 
     3d:
       # VSS path variables must be set to real paths, not placeholders or empty
@@ -200,9 +202,9 @@ commons:
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
-      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
+      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "auto_calib"
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh_kafka", "bp_wh_redis", "auto_calib"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
@@ -258,6 +260,8 @@ commons:
                   matches: "bp_wh_kafka_3d,*"
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_3d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "auto_calib_3d,*"
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
@@ -280,7 +284,7 @@ commons:
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh_kafka", "bp_wh_redis", "auto_calib"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
@@ -585,7 +589,7 @@ commons:
 
 H100:
   2d:
-    max_streams_supported: 17
+    max_streams_supported: 76
   3d:
     max_streams_supported: 16
   mv3dt:
@@ -593,7 +597,7 @@ H100:
 
 L4:
   2d:
-    max_streams_supported: 2
+    max_streams_supported: 9
   3d:
     max_streams_supported: 2
   mv3dt:
@@ -601,7 +605,7 @@ L4:
 
 L40S:
   2d:
-    max_streams_supported: 7
+    max_streams_supported: 29
   3d:
     max_streams_supported: 6
   mv3dt:
@@ -617,7 +621,7 @@ RTXA6000:
 
 RTXA6000ADA:
   2d:
-    max_streams_supported: 8
+    max_streams_supported: 28
   3d:
     max_streams_supported: 6
   mv3dt:
@@ -625,7 +629,7 @@ RTXA6000ADA:
 
 RTXPRO6000BW:
   2d:
-    max_streams_supported: 30
+    max_streams_supported: 49
   3d:
     max_streams_supported: 19
   mv3dt:
@@ -633,7 +637,7 @@ RTXPRO6000BW:
 
 IGX-THOR:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 9
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -697,7 +701,7 @@ IGX-THOR:
 
 DGX-SPARK:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
