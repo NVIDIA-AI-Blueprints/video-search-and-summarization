@@ -18,7 +18,7 @@
         "clean": "turbo run clean"
     },
     "devDependencies": {
-        "turbo": "2.9.6"
+        "turbo": "^2.9.14"
     },
     "overrides": {
         "preact": "10.27.3",
