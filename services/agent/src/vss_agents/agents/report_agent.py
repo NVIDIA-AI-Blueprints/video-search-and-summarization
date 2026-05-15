@@ -711,10 +711,6 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
             f"Query: {video_report_input.user_query}\n",
         ]
 
-        # Add HITL prompts if available (from LVS)
-        if hitl_text:
-            messages.append(f"\n{hitl_text}")
-
         messages.append(report_result.summary)
 
         agent_output = AgentOutput(
