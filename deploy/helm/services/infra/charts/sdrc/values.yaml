@@ -15,7 +15,7 @@ replicas: 1
 service:
   controller:
     type: ClusterIP
-    port: 5002
+    port: 5003
     # nodePort: 30010
   sdrcDirectListener:
     type: ClusterIP
