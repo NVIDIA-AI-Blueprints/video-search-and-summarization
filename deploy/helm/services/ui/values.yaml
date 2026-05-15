@@ -19,7 +19,7 @@ serviceAccount:
   create: false
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-  tag: "3.2.0-26.05.2"
+  tag: "3.2.0-26.05.2-2b9b7127c0bb"
   pullPolicy: IfNotPresent
 replicas: 1
 service:

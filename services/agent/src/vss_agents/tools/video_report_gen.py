@@ -388,7 +388,7 @@ class VideoReportGenConfig(FunctionBaseConfig, name="video_report_gen"):
         default=None,
         description=(
             "Name of the LVS stream understanding tool used to fetch summaries/events for "
-            "live-stream reports (media_type='stream'). When None, stream reports are disabled."
+            "live-stream reports (media_type='rtsp'). When None, RTSP reports are disabled."
         ),
     )
 
@@ -488,9 +488,9 @@ class VideoReportGenInput(BaseModel):
         ...,
         description=(
             "VST sensor ID(s) for media_type='video' (filename of uploaded video, e.g., 'warehouse_01.mp4' "
-            "or ['video1.mp4', 'video2.mp4']) OR VST stream/camera name for media_type='stream' "
+            "or ['video1.mp4', 'video2.mp4']) OR VST stream/camera name for media_type='rtsp' "
             "(must be a single string). Multiple videos are processed in parallel with per-video routing "
-            "(LVS for long videos, standard VLM for short). Streams must be configured first via lvs_config_media."
+            "(LVS for long videos, standard VLM for short). RTSP streams must be configured first via lvs_config_media."
         ),
     )
     user_query: str = Field(
@@ -499,20 +499,20 @@ class VideoReportGenInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis (uploaded videos only; ignored for streams).",
+        description="Enable VLM reasoning mode for video analysis (uploaded videos only; ignored for RTSP streams).",
     )
-    media_type: Literal["video", "stream"] = Field(
+    media_type: Literal["video", "rtsp"] = Field(
         default="video",
         description=(
             "Type of source: 'video' (default; uploaded VST file, supports multi-video batch) or "
-            "'stream' (configured live stream; requires start_time/end_time and a single sensor_id)."
+            "'rtsp' (configured live/camera stream; requires start_time/end_time and a single sensor_id)."
         ),
     )
     start_time: float | None = Field(
         default=None,
         ge=0,
         description=(
-            "Start time in seconds (offset from stream start). Required when media_type='stream'. "
+            "Start time in seconds (offset from stream start). Required when media_type='rtsp'. "
             "Ignored when media_type='video'."
         ),
     )
@@ -520,7 +520,7 @@ class VideoReportGenInput(BaseModel):
         default=None,
         ge=0,
         description=(
-            "End time in seconds (offset from stream start). Required when media_type='stream'; "
+            "End time in seconds (offset from stream start). Required when media_type='rtsp'; "
             "use 0 for 'no upper bound (until now)'. Ignored when media_type='video'."
         ),
     )
@@ -541,11 +541,11 @@ class VideoReportGenInput(BaseModel):
 
     @model_validator(mode="after")
     def _validate_media_type_constraints(self) -> "VideoReportGenInput":
-        if self.media_type == "stream":
+        if self.media_type == "rtsp":
             if isinstance(self.sensor_id, list):
-                raise ValueError("media_type='stream' requires a single sensor_id (stream name), not a list")
+                raise ValueError("media_type='rtsp' requires a single sensor_id (stream name), not a list")
             if self.start_time is None or self.end_time is None:
-                raise ValueError("media_type='stream' requires both start_time and end_time")
+                raise ValueError("media_type='rtsp' requires both start_time and end_time")
         return self
 
 
@@ -1294,7 +1294,7 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
             )
             lvs_video_understanding_tool = None
 
-    # Load LVS stream tool if configured (optional; powers media_type='stream' reports).
+    # Load LVS stream tool if configured (optional; powers media_type='rtsp' reports).
     lvs_stream_understanding_tool = None
     if config.lvs_stream_understanding_tool is not None:
         try:
@@ -2347,12 +2347,12 @@ Enter your choice or press Submit to keep current value:"""
             4. Saves markdown and PDF to object store
             5. Returns URLs and metadata
             Supports multiple videos with mixed LVS/VLM routing and parallel processing.
-        - media_type='stream': configured LVS live stream (single sensor_id; requires
+        - media_type='rtsp': configured LVS live stream (single sensor_id; requires
             start_time/end_time). Calls lvs_stream_understanding for narrative+events,
             then reuses the same report header/markdown/PDF pipeline. The stream must
             already be configured via lvs_config_media.
         """
-        if report_input.media_type == "stream":
+        if report_input.media_type == "rtsp":
             return await _stream_report_gen_single(report_input)
 
         sensor_ids = report_input.sensor_id if isinstance(report_input.sensor_id, list) else [report_input.sensor_id]
@@ -2366,7 +2366,7 @@ Enter your choice or press Submit to keep current value:"""
         desc += f"\nlvs is available. report agent will call lvs to generate a report for videos longer than {config.lvs_video_length}s.\n\n"
     if config.lvs_stream_understanding_tool is not None:
         desc += (
-            "\nstream reports are available. Set media_type='stream' with start_time and end_time "
+            "\nRTSP-stream reports are available. Set media_type='rtsp' with start_time and end_time "
             "(in seconds; end_time=0 means 'until now') and a single stream sensor_id to generate "
             "a report for a configured LVS live stream.\n\n"
         )

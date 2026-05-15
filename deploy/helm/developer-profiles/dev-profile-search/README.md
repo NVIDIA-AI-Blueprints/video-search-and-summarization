@@ -29,7 +29,7 @@ The stack requests GPUs (`nvidia.com/gpu: 1` each) for the workloads listed belo
 
 | Workload | GPU |
 |----------|-----|
-| `vss-rtvi-ci` | 1 |
+| `vss-rtvi-cv` | 1 |
 | `vss-rtvi-embed` (Cosmos Embed) | 1 |
 | `vss-vios-streamprocessing` | 1 |
 | **Total** | **3** |
@@ -40,14 +40,14 @@ The critic agent and Cosmos NIM are **enabled by default** (`global.enableCritic
 
 | Workload | GPU | Notes |
 |----------|-----|-------|
-| `vss-rtvi-ci` | 1 | |
+| `vss-rtvi-cv` | 1 | |
 | `vss-rtvi-embed` (Cosmos Embed) | 1 | |
 | `vss-vios-streamprocessing` | 1 | |
 | `nvidia-nemotron-nano-9b-v2` (NIM) | 1 | |
-| `cosmos-reason2-8b` (NIM) | 1 | Critic agent VLM — enabled by default |
+| `nvidia-cosmos-reason2-8b` (NIM) | 1 | Critic agent VLM — enabled by default |
 | **Total** | **5** | **4** if critic is disabled |
 
-> **Note:** By default, `cosmos-reason2-8b` requests **1 full GPU** (`nvidia.com/gpu: "1"`).
+> **Note:** By default, `nvidia-cosmos-reason2-8b` requests **1 full GPU** (`nvidia.com/gpu: "1"`).
 > If you are using GPU time-slicing, adjust the resource request in `values.yaml` as needed
 > (e.g. `nims.cosmos.resources.limits."nvidia.com/gpu": "2"` for two time-sliced replicas).
 
@@ -96,31 +96,39 @@ helm upgrade --install nim-operator nvidia/k8s-nim-operator \
 kubectl get pods -n nim-operator
 ```
 
-- **Volume provisioner / StorageClass**
-  - A **default StorageClass** must exist on the cluster.
-  - **Bare-metal clusters:** install a local-path provisioner (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)).
-  - **Cloud clusters:** use your provider's block storage class (e.g. `gp3`, `oci-bv-high`, `standard`). Skip [Step 1](#step-1-install-local-path-provisioner-bare-metal-only) and proceed to [Step 2](#step-2-install-ingress-controller-haproxy).
+- **Volume provisioner (e.g. local-path)**
+  - A **StorageClass** must exist on the cluster. Set **`global.storageClass`** in your Helm values override to that class’s **`metadata.name`** (this profile’s install examples use **`--set global.storageClass=…`**).
+  - **Bare-metal clusters:** Install **local-path** (see [rancher/local-path-provisioner](https://github.com/rancher/local-path-provisioner/tree/master)), or use the Helm-based install in [Step 1](#step-1-volume-provisioner-bare-metal-optional) if you prefer that packaging.
+  - **Default StorageClass:** If your class (for example **`local-path`**) is not already the default, set it as the default StorageClass:
 
-### Chart / Tooling
+    ```bash
+    kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+    ```
+
+    Replace **`local-path`** with your StorageClass **`metadata.name`** if it differs.
+
+### Chart / tooling
 
 - **Helm** 3.x
 - **kubectl**
 - **GPUs**: see [GPU Requirements](#gpu-requirements)
 - **NGC**: API key for image pull, model downloads, and NIM access
-- **Shared VIOS umbrella**: the **`vios`** chart at **`helm/services/vios/`** bundles the reusable **`vss-vios-*`** microservice charts as subcharts (same sources as the alerts developer profile). Before **`helm install`** / **`helm package`**, run **`helm dependency build`** in this chart directory (uses **`Chart.lock`** to populate **`charts/*.tgz`**, which are gitignored). Use **`helm dependency update`** if **`Chart.lock`** is missing or you changed **`Chart.yaml`** dependencies. To lint after vendoring: from **`deploy/helm/developer-profiles`**, run **`helm dependency build ./dev-profile-search`** then **`helm lint ./dev-profile-search`** (and optionally **`helm lint ../../services/vios`**). Remove generated **`charts/*.tgz`** from the profile directory if you do not want vendored tarballs in your working tree.
+- **StorageClass**: set **`global.storageClass`** to a class on the cluster (see [Prerequisites](#prerequisites)—**Volume provisioner**).
 
 ## Environment Setup
 
 ```bash
 export NODE_EXTERNAL_IP='<your node IP>'
 export NGC_CLI_API_KEY='<your NGC API key>'
+export STORAGE_CLASS='<Storage Class Name>'
 export GPU_NAME='H100'  # One of: H100, L40S, RTXPRO6000BW
 ```
 
-> **Critic agent** and **Cosmos NIM** are enabled by default. To disable, add `--set global.enableCritic=false,nims.cosmos.enabled=false` to the helm install command. See [Disabling the Critic Agent](#disabling-the-critic-agent).
-## Step 1: Install Local-Path Provisioner (Bare-Metal Only)
+> **Critic agent behavior** is enabled by default (`global.enableCritic=true`). With NVIDIA Build Endpoint (Option A), local Nemotron and Cosmos NIMs are disabled by `values-build-endpoint.yaml`; disable critic verification with `--set global.enableCritic=false`. With Local NIMs (Option B), disable both critic verification and the local Cosmos NIM with `--set global.enableCritic=false,nims.cosmos.enabled=false`. See [Disabling the Critic Agent](#disabling-the-critic-agent).
 
-> **Cloud clusters** that already have a default StorageClass (e.g. `gp3`, `standard`) can skip this step.
+## Step 1: Volume provisioner (bare metal, optional)
+
+Use this **only** when you want to install **local-path** with Helm on bare metal. If the cluster already has a suitable StorageClass, set **`global.storageClass`** per [Prerequisites](#prerequisites)—**Volume provisioner** and skip this step.
 
 ```bash
 helm repo add containeroo https://charts.containeroo.ch
@@ -130,19 +138,15 @@ helm upgrade --namespace default --install \
   local-path-provisioner-default \
   containeroo/local-path-provisioner \
   --version '0.0.32'
-
-# Patch storage class as default
-kubectl patch storageclass local-path \
-  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
-Verify:
+Verify the StorageClass exists:
 
 ```bash
 kubectl get storageclass
 ```
 
-You should see `local-path (default)` in the output.
+If **`local-path`** is listed but is **not** the default (no **`(default)`** marker), run the **`kubectl patch storageclass`** command under [Prerequisites](#prerequisites)—**Volume provisioner** (**Default StorageClass**) to set it as the default StorageClass.
 
 ## Step 2: Install Ingress Controller (HAProxy)
 
@@ -171,14 +175,7 @@ You should see an IngressClass named `haproxy`.
 
 ## Step 3: Deploy the Search Profile
 
-`NOTE:` Helm install command will take a few minutes to install all dependent services so please wait
-
-The following Kubernetes secrets are **automatically created** by the chart when `global.ngcApiKey` is set:
-- `ngc-api-key-secret` — NGC API key for model downloads (used by vss-rtvi-ci, vss-rtvi-embed, and other services)
-- `ngc-docker-reg-secret` — Docker registry pull secret for `nvcr.io` images
-- `ngc-nim-api-key-secret` — NIM-specific API key secret
-- `ngc-nim-docker-reg-secret` — NIM-specific registry pull secret
-
+**Note:** The Helm install can take several minutes while dependent services start; wait for workloads to become Ready before using the UI. Use **`global.ngcApiKey`** (and **`nims.global.ngcApiKey`** for [Option B](#option-b-deploy-with-local-nims)) as in the examples below—Helm creates the needed NGC and registry secrets from those values.
 
 ```bash
 # Clone the repository. For a specific branch or tag, add: -b <name-or-tag> (before the URL).
@@ -190,10 +187,10 @@ helm dependency build ./dev-profile-search
 
 ### Option A: Remote NIMs
 
-Deploy with NVIDIA Build Endpoint (Recommended)
+Deploy with NVIDIA Build Endpoint
 
 Uses hosted NIMs at `https://integrate.api.nvidia.com` — no local GPU required for LLM/VLM inference.
-vss-rtvi-ci and RTVI Embed still run on local GPUs. See [GPU Requirements](#with-nvidia-build-endpoint-option-a).
+vss-rtvi-cv and RTVI Embed still run on local GPUs. See [GPU Requirements](#with-nvidia-build-endpoint-option-a).
 
 ```bash
 helm upgrade --install vss-search ./dev-profile-search \
@@ -202,16 +199,17 @@ helm upgrade --install vss-search ./dev-profile-search \
   --set global.externalHost=vss-search.$NODE_EXTERNAL_IP.nip.io \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
   --set agent.vss-agent.apiKeys.nvidia=$NGC_CLI_API_KEY \
+  --set global.storageClass=$STORAGE_CLASS \
   --wait=false
 ```
 
-> **Critic agent** and **Cosmos NIM** are enabled by default (`global.enableCritic=true`, `nims.cosmos.enabled=true`). To disable, add `--set global.enableCritic=false,nims.cosmos.enabled=false`.
+> **Option A note:** `values-build-endpoint.yaml` disables local Nemotron and Cosmos NIM deployments (`nims.nemotron.enabled=false`, `nims.cosmos.enabled=false`). Critic verification is still enabled by default and uses the hosted VLM endpoint. To disable critic verification, add `--set global.enableCritic=false`.
 
 **Custom remote NIM (self-hosted or external endpoints)**
 
 If you already run **NIM** (or an OpenAI-compatible LLM/VLM API) outside this cluster—another namespace, a shared service, or a hosted endpoint—use the steps below to point **vss-agent** at those URLs. Set **`nims.enabled=false`** so this chart does not deploy in-cluster NIM workloads; set **`agent.vss-agent.llmBaseUrl`** and **`agent.vss-agent.vlmBaseUrl`** to the HTTP(S) base URLs your agent can reach (include path prefix if your service requires it). Keep **`agent.vss-agent.llmName`** and **`agent.vss-agent.vlmName`** aligned with the models those endpoints serve.
 
-This profile lists the **full** **`agent.vss-agent.env`** block (Option B). Search-specific behavior is driven by **`general.front_end.streaming_ingest`** in `configs/vss-agent/config.yml`. The legacy capability flags (`enable_videos_for_search`, `enable_rtsp_streams`, `enable_video_delete`) are no longer read — the universal `/api/v1/videos/{sensor_id}/complete` + RTSP routes register on every profile and self-skip downstream calls when their backing URL is unset. **`delete_vst_storage_on_stream_remove: false`** stays meaningful (RTVI manages storage lifecycle in search-style deployments). The env block contributes **`VLM_MODE=remote`**, an extra **`ENABLE_CRITIC`** entry (from **`global.enableCritic`**), and **`ELASTIC_SEARCH_INDEX`** defaulting to **`mdx-embed-filtered-2025-01-01`**. **`elasticsearchUrl`** / **`elasticsearchIndex`** in **`agent.vss-agent`** are still used inside the **`ELASTIC_SEARCH_*`** env **`tpl`** strings when you need overrides.
+This profile lists the **full** **`agent.vss-agent.env`** block for Search deployments. Search behavior is driven by **`general.front_end.streaming_ingest`** in `configs/vss-agent/config.yml`; the chart wires the agent for remote VLM mode, critic verification via **`global.enableCritic`**, and the default Elasticsearch index **`mdx-embed-filtered-2025-01-01`**. Override **`agent.vss-agent.elasticsearchUrl`** or **`agent.vss-agent.elasticsearchIndex`** when you need a different Elasticsearch endpoint or index.
 
 ```bash
 
@@ -224,6 +222,7 @@ helm upgrade --install vss-search ./dev-profile-search \
   --set global.externalHost=vss-search.$NODE_EXTERNAL_IP.nip.io \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
   --set agent.vss-agent.apiKeys.nvidia=$NGC_CLI_API_KEY \
+  --set global.storageClass=$STORAGE_CLASS \
   --set nims.enabled=false \
   --set agent.vss-agent.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
   --set agent.vss-agent.vlmName="nvidia/cosmos-reason2-8b" \
@@ -247,6 +246,7 @@ helm upgrade --install vss-search ./dev-profile-search \
   -n vss-search --create-namespace \
   --set global.externalHost=vss-search.$NODE_EXTERNAL_IP.nip.io \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
+  --set global.storageClass=$STORAGE_CLASS \
   --set nims.global.ngcApiKey=$NGC_CLI_API_KEY \
   --set nims.gpuType=$GPU_NAME \
   --wait=false
@@ -262,6 +262,7 @@ helm upgrade --install vss-search ./dev-profile-search \
   -n vss-search --create-namespace \
   --set global.externalHost=vss-search.$NODE_EXTERNAL_IP.nip.io \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
+  --set global.storageClass=$STORAGE_CLASS \
   --set nims.global.ngcApiKey=$NGC_CLI_API_KEY \
   --set nims.gpuType=$GPU_NAME \
   --wait=false
@@ -281,9 +282,15 @@ This single chart deploys all application components:
 
 ### Disabling the Critic Agent
 
-The critic agent (VLM-based verification of search results) and its backing **Cosmos Reason2 8B** NIM are **enabled by default**. To deploy without the critic agent—for example, to reduce GPU requirements or when VLM verification is not needed—disable both `global.enableCritic` and `nims.cosmos.enabled` at install time.
+The critic agent (VLM-based verification of search results) is **enabled by default**. With NVIDIA Build Endpoint (Option A), it uses the hosted VLM endpoint and local Cosmos NIM is not deployed. With Local NIMs (Option B), its backing **Cosmos Reason2 8B** NIM is enabled by default.
 
-Add the following `--set` to any of the `helm upgrade --install` commands above:
+For NVIDIA Build Endpoint or another remote VLM endpoint, disable critic verification with:
+
+```bash
+--set global.enableCritic=false
+```
+
+For Local NIM deployments, disable both critic verification and the local Cosmos NIM with:
 
 ```bash
 --set global.enableCritic=false,nims.cosmos.enabled=false
@@ -292,11 +299,19 @@ Add the following `--set` to any of the `helm upgrade --install` commands above:
 This has two effects:
 
 1. **Agent config**: `enable_critic` is set to `false` in the vss-agent `config.yml`, so the search and search_agent functions skip VLM verification.
-2. **Cosmos NIM**: The `cosmos-reason2-8b` NIM pod is not deployed, freeing 1 GPU (see [GPU Requirements](#with-local-nims-option-b)).
+2. **Cosmos NIM**: For Local NIM deployments, the `nvidia-cosmos-reason2-8b` NIM pod is not deployed, freeing 1 GPU (see [GPU Requirements](#with-local-nims-option-b)).
 
-> **Note:** `global.enableCritic` controls the agent behavior. `nims.cosmos.enabled` controls the Cosmos NIM pod. The shared **`helm/services/nims`** subchart does not read `global.enableCritic`, so both keys must be set together. When using a **remote VLM** endpoint (`nims.enabled=false` + `agent.vss-agent.vlmBaseUrl`), set only `global.enableCritic=false` to disable the critic while keeping the remote VLM URL configured for other uses.
+> **Note:** `global.enableCritic` controls the agent behavior. `nims.cosmos.enabled` controls the Cosmos NIM pod. The shared **`helm/services/nims`** subchart does not read `global.enableCritic`, so Local NIM deployments should set both keys together. When using a **remote VLM** endpoint (`nims.enabled=false` + `agent.vss-agent.vlmBaseUrl`), set only `global.enableCritic=false` to disable the critic while keeping the remote VLM URL configured for other uses.
 
-To re-enable later:
+To re-enable critic verification with NVIDIA Build Endpoint or another remote VLM endpoint:
+
+```bash
+helm upgrade vss-search ./dev-profile-search \
+  --reuse-values \
+  --set global.enableCritic=true
+```
+
+To re-enable critic verification and the local Cosmos NIM with Local NIMs:
 
 ```bash
 helm upgrade vss-search ./dev-profile-search \
@@ -314,7 +329,7 @@ kubectl get svc -n <NAMESPACE>
 kubectl get ingress -n <NAMESPACE>
 
 # Check RTVI Embed model loading (may take 5-10 minutes)
-kubectl logs -f deployment/vss-search-vss-rtvi-embed # <RELEASE_NAME>-vss-rtvi-embed
+kubectl logs -f deployment/vss-rtvi-embed # <RELEASE_NAME>-vss-rtvi-embed if global.useReleaseNamePrefix=true
 ```
 
 ## Access the Services
@@ -362,21 +377,23 @@ Replace `<NODE_IP>` with the value of `$NODE_EXTERNAL_IP`.
 
 When using the default ClusterIP services (no Ingress or NodePort), use `kubectl port-forward`:
 
+These names match the default **`global.useReleaseNamePrefix=false`**. If you set it to **`true`**, prefix service names with **`<RELEASE_NAME>-`**.
+
 ```bash
 # VSS UI
-kubectl port-forward svc/vss-search-vss-agent-ui 3000:3000
+kubectl port-forward svc/vss-agent-ui 3000:3000
 
 # VSS Agent API
-kubectl port-forward svc/vss-search-vss-agent 8000:8000
+kubectl port-forward svc/vss-agent 8000:8000
 
 # VST API (via vss-vios-ingress; service listens on 30888)
-kubectl port-forward svc/vss-search-vss-vios-ingress 30888:30888
+kubectl port-forward svc/vss-vios-ingress 30888:30888
 
 # NVStreamer HTTP (ClusterIP service port 31000; matches bundled vst_config.json)
-kubectl port-forward svc/vss-search-vss-vios-nvstreamer 31000:31000
+kubectl port-forward svc/vss-vios-nvstreamer 31000:31000
 
 # Kibana
-kubectl port-forward svc/vss-search-kibana-kibana 5601:5601
+kubectl port-forward svc/kibana 5601:5601
 
 # Phoenix (Service metadata name is `phoenix` when release-name prefixing is off)
 kubectl port-forward svc/phoenix 6006:6006
@@ -429,6 +446,7 @@ helm upgrade --install vss-search ./dev-profile-search \
   -n vss-search \
   --set global.externalHost=$NODE_EXTERNAL_IP \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
+  --set global.storageClass=$STORAGE_CLASS \
   --set ingress.hosts.main=vss-search.example.com \
   --set ingress.hosts.streamer=streamer.example.com \
   --set ingress.hosts.kibana=kibana.example.com \
@@ -449,6 +467,7 @@ helm upgrade --install vss-search ./dev-profile-search \
   -n vss-search \
   --set global.externalHost=$NODE_EXTERNAL_IP \
   --set global.ngcApiKey=$NGC_CLI_API_KEY \
+  --set global.storageClass=$STORAGE_CLASS \
   --set ingress.hosts.main=vss-search.example.com \
   --set ingress.tls[0].secretName=vss-search-tls \
   --set ingress.tls[0].hosts[0]=vss-search.example.com \
@@ -464,19 +483,16 @@ helm uninstall vss-search -n <NAMESPACE>
 # Clean up PVCs (includes database, video storage, model caches)
 kubectl delete pvc -l app.kubernetes.io/instance=vss-search
 
-# Uninstall NIMs (if deployed separately)
-helm uninstall nemotron-nim -n -n <NAMESPACE>
+# If you installed additional Helm releases for NIMs or other add-ons, uninstall them by release name, for example:
+# helm uninstall <OTHER_RELEASE_NAME> -n <NAMESPACE>
 
 # Uninstall HAProxy Ingress controller
 helm uninstall haproxy-kubernetes-ingress -n haproxy-controller
 
-# Uninstall local-path provisioner (if installed)
-helm uninstall local-path-provisioner-default
+# Uninstall local-path provisioner (if installed in namespace default)
+helm uninstall local-path-provisioner-default -n default
 
 # Cleanup remaining storage
 kubectl delete nimcache --all -n <NAMESPACE>
 kubectl delete pvc --all -n <NAMESPACE>
-
-# Delete secrets
-kubectl delete secret ngc-api-key-secret ngc-nim-api-key-secret ngc-nim-docker-reg-secret
 ```
