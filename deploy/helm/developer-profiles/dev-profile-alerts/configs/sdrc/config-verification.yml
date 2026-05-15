@@ -36,8 +36,8 @@ k8s-workload-streamprocessing:
   WDM_TARGET_PORT_MAPPING: '{"vss-vios-streamprocessing": 30001}'
   ENVOY_ROUTE_HEADER: streamid
   WDM_MS_LISTENER_PORT: 10000
-  NOHEADERTARGETROUTE: false
-  HEADERLESS_SERVICE_ENDPOINTS: "[]"
+  NOHEADERTARGETROUTE: true
+  HEADERLESS_SERVICE_ENDPOINTS: '["vss-vios-streamprocessing:30001"]'
   WDM_WL_REDIS_MSG_FIELD: sensor.id
   WDM_MSG_KEY: vst_events
   WDM_WL_PROXY_URL: /

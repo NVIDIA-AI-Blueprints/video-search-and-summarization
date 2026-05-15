@@ -22,7 +22,7 @@ services:
   # are root-owned (rm only needs write+exec on the parent dir).
   init-dirs:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    image: alpine:3
+    image: alpine:3.23.4
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     container_name: sdrc-init-dirs
@@ -45,7 +45,7 @@ services:
   # completing successfully.
   render-config:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    image: alpine:3
+    image: alpine:3.23.4
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -74,11 +74,12 @@ services:
 
   wdm-env-from-config:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    image: mikefarah/yq:4
+    image: alpine:3.23.4
     # yq image runs as non-root; bind-mounted ./.wdm-env is often root-owned — write as root.
     user: "0:0"
-    entrypoint: ["/bin/sh"]
-    command: ["/run.sh"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - apk add --no-cache gettext yq >/dev/null && /run.sh
     environment:
       HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
       NUM_STREAMS: ${NUM_STREAMS:-}
@@ -114,7 +115,10 @@ services:
     
   wait-for-docker-workloads:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    image: docker:27-cli
+    image: alpine:3.23.4
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - apk add --no-cache docker-cli >/dev/null && /wait-for-docker-workloads.sh
     restart: "no"
     user: "0:0"
     depends_on:
@@ -126,7 +130,6 @@ services:
       - ./wait-for-docker-workloads.sh:/wait-for-docker-workloads.sh:ro
       - ./.wdm-env:/wdm-env:ro
       - /var/run/docker.sock:/var/run/docker.sock
-    entrypoint: ["/bin/sh", "/wait-for-docker-workloads.sh"]
 
   # sdr-mw-l: host network, Kubernetes API + CA, Docker socket, docker_cluster_config.json (mixed docker/k8s).
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).

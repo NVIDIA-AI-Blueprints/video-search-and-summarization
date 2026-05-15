@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: nvcr.io/nv-metropolis-dev/metropolis-analytic/sdr-mw-l
-  tag: 3.0.0-rc.14
+  tag: 3.0.0-rc.15
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
