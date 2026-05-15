@@ -13,6 +13,14 @@
             {
                 "name":"inSimulationMode",
                 "value":"false"
+            },
+            {
+                "name":"configStatusTimeoutMs",
+                "value":"30000"
+            },
+            {
+                "name":"configStatusTimeoutCheckFrequencyMs",
+                "value":"900000"
             }
         ]
     },
