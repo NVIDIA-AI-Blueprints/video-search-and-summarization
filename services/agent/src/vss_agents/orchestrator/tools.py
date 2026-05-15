@@ -63,11 +63,11 @@ from pydantic_settings import SettingsConfigDict
 
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
-from .docker_compose_util import alerts_mode_to_env_mode
 from .docker_compose_util import create_dry_run_recipe
 from .docker_compose_util import generate_dry_run_artifacts
 from .docker_compose_util import parse_env_file
 from .docker_compose_util import parse_env_overrides
+from .docker_compose_util import resolve_and_apply_profile_mode
 from .prereqs_check import run_prereqs_checks
 from .storage import ArtifactKind
 from .storage import ModelArtifact
@@ -210,13 +210,6 @@ _SUPPORTED_COMPOSE_ACTIONS: Final[frozenset[str]] = frozenset(action.value for a
 _ALL_KNOWN_STATUSES: Final[frozenset[str]] = frozenset(status.value for status in ComposeStatus)
 
 
-def _reject_option_like_docker_positional(arg_name: str, value: str) -> str:
-    """Reject Docker positional arguments that could be parsed as flags."""
-    if value.startswith("-"):
-        raise ValueError(f"{arg_name} must not begin with '-'.")
-    return value
-
-
 def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
     """UTF-8-safe truncation with a fixed-size summary marker."""
 
@@ -250,11 +243,12 @@ class GenerateInput(BaseModel):
         ),
         examples=[["HARDWARE_PROFILE=H100", "LLM_MODE=local", "HOST_IP=192.168.1.10"]],
     )
-    alerts_mode: Literal["verification", "real-time"] | None = Field(
+    profile_mode: str | None = Field(
         default=None,
         description=(
-            "High-level alerts mode; required when profile='alerts'. "
-            "'verification' maps to MODE=2d_cv, 'real-time' maps to MODE=2d_vlm."
+            "Per-profile mode (e.g., 'verification' or 'real-time' for the alerts profile). "
+            "Required when the profile has modes defined in profile_mode_to_env_modes. "
+            "The string is resolved to a MODE env value via that mapping."
         ),
         examples=["verification"],
     )
@@ -356,7 +350,9 @@ class ContainerLogsInput(BaseModel):
     @field_validator("container_name")
     @classmethod
     def _validate_container_name(cls, value: str) -> str:
-        return _reject_option_like_docker_positional("container_name", value)
+        if value.startswith("-"):
+            raise ValueError("container_name must not begin with '-'.")
+        return value
 
 
 class DockerProfilesInput(BaseModel):
@@ -441,11 +437,12 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         ...,
         description="Hardware/model resolution rules used during docker_generate validation.",
     )
-    alerts_mode_to_env_modes: dict[str, str] = Field(
+    profile_mode_to_env_modes: dict[str, dict[str, str]] = Field(
         default_factory=dict,
         description=(
-            "Mapping from user-facing alerts modes to MODE env values. "
-            "Example: {'verification': '2d_cv', 'real-time': '2d_vlm'}."
+            "Per-profile mapping from user-facing modes to MODE env values. "
+            "Example: {'alerts': {'verification': '2d_cv', 'real-time': '2d_vlm'}}. "
+            "A profile present in this mapping requires profile_mode at docker_generate time."
         ),
     )
     include: list[str] = Field(
@@ -968,16 +965,9 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
-                if input.alerts_mode is not None:
-                    if input.profile != "alerts":
-                        raise ValidationError("alerts_mode is only supported when profile='alerts'.")
-                    resolved_mode = alerts_mode_to_env_mode(input.alerts_mode, _config.alerts_mode_to_env_modes)
-                    existing_mode = env_overrides.get("MODE")
-                    if existing_mode is not None and existing_mode != resolved_mode:
-                        raise ValidationError(
-                            f"alerts_mode={input.alerts_mode!r} conflicts with env override MODE={existing_mode!r}."
-                        )
-                    env_overrides["MODE"] = resolved_mode
+                resolve_and_apply_profile_mode(
+                    input.profile, input.profile_mode, _config.profile_mode_to_env_modes, env_overrides
+                )
                 dry_run_recipe = create_dry_run_recipe(
                     profile=input.profile,
                     env_overrides=env_overrides,
@@ -995,13 +985,13 @@ async def vss_orchestrator(
                     llm_enable_thinking=runtime_settings.llm_enable_thinking,
                     nim_kvcache_percent=runtime_settings.nim_kvcache_percent,
                     rtvi_vllm_gpu_memory_utilization=runtime_settings.rtvi_vllm_gpu_memory_utilization,
-                    profile_mode=input.alerts_mode,
+                    profile_mode=input.profile_mode,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),
                     deployments_dir=str(deployments_dir),
                     mdx_data_dir=str(mdx_data_dir),
-                    alerts_mode_to_env_modes=_config.alerts_mode_to_env_modes,
+                    profile_mode_to_env_modes=_config.profile_mode_to_env_modes,
                     source_compose_yaml=_config.source_compose_yaml,
                     source_env=_config.source_env,
                 )

@@ -139,7 +139,7 @@ class DryRunRecipe:
     edge_hardware_profiles: frozenset[str]
     edge_allowed_profiles: frozenset[str]
     edge_device_ids: Mapping[str, str]
-    alerts_mode_to_env_modes: Mapping[str, str]
+    profile_mode_to_env_modes: Mapping[str, Mapping[str, str]]
     hardware_profile_env_overrides: Mapping[str, Mapping[str, str | Mapping[str, str]]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -169,7 +169,7 @@ def create_dry_run_recipe(
     output_compose_file: str,
     deployments_dir: str,
     mdx_data_dir: str,
-    alerts_mode_to_env_modes: dict[str, str] | None,
+    profile_mode_to_env_modes: dict[str, dict[str, str]] | None,
     source_compose_yaml: str,
     source_env: str,
 ) -> DryRunRecipe:
@@ -239,7 +239,9 @@ def create_dry_run_recipe(
                 "rt_cv": model_resolution.hardware.edge_device_ids.rt_cv,
             }
         ),
-        alerts_mode_to_env_modes=MappingProxyType(dict(alerts_mode_to_env_modes or {})),
+        profile_mode_to_env_modes=MappingProxyType(
+            {profile: MappingProxyType(dict(modes)) for profile, modes in (profile_mode_to_env_modes or {}).items()}
+        ),
         hardware_profile_env_overrides=MappingProxyType(
             {
                 hw: MappingProxyType(
@@ -309,15 +311,55 @@ def _set_env_line(lines: list[str], key: str, value: str) -> None:
     lines.append(f"{key}={value}")
 
 
-def alerts_mode_to_env_mode(alerts_mode: str, alerts_mode_to_env_modes: Mapping[str, str]) -> str:
-    normalized = alerts_mode.strip()
-    resolved_mode = alerts_mode_to_env_modes.get(normalized)
+def profile_mode_to_env_mode(
+    profile: str,
+    profile_mode: str,
+    profile_mode_to_env_modes: Mapping[str, Mapping[str, str]],
+) -> str:
+    normalized = profile_mode.strip()
+    profile_modes = profile_mode_to_env_modes.get(profile, {})
+    resolved_mode = profile_modes.get(normalized)
     if resolved_mode:
         return resolved_mode
-    supported_modes = sorted(alerts_mode_to_env_modes)
+    supported_modes = sorted(profile_modes)
     if not supported_modes:
-        raise ValidationError("alerts_mode is not configured for this orchestrator deployment.")
-    raise ValidationError(f"Invalid alerts mode '{alerts_mode}'. Supported values: {supported_modes}.")
+        raise ValidationError(f"profile_mode is not configured for profile '{profile}'.")
+    raise ValidationError(
+        f"Invalid profile_mode '{profile_mode}' for profile '{profile}'. Supported values: {supported_modes}."
+    )
+
+
+def resolve_and_apply_profile_mode(
+    profile: str,
+    profile_mode: str | None,
+    profile_mode_to_env_modes: Mapping[str, Mapping[str, str]],
+    env_overrides: dict[str, str],
+) -> None:
+    """Validate ``profile_mode`` against per-profile mode requirements and write the
+    resolved ``MODE`` into ``env_overrides``.
+
+    Rules:
+    - If the profile has modes configured (present in ``profile_mode_to_env_modes``),
+      ``profile_mode`` is required; otherwise raises ``ValidationError``.
+    - If the profile has no modes, ``profile_mode`` must be None; otherwise raises.
+    - On a valid combination, sets ``env_overrides["MODE"]`` to the resolved env-mode value.
+    - If ``env_overrides`` already carries a conflicting ``MODE``, raises ``ValidationError``.
+    """
+    profile_supports_modes = bool(profile_mode_to_env_modes.get(profile))
+    if profile_mode is not None:
+        if not profile_supports_modes:
+            raise ValidationError(
+                f"profile_mode is not supported when profile={profile!r} "
+                f"(no modes configured in profile_mode_to_env_modes)."
+            )
+        resolved_mode = profile_mode_to_env_mode(profile, profile_mode, profile_mode_to_env_modes)
+        existing_mode = env_overrides.get("MODE")
+        if existing_mode is not None and existing_mode != resolved_mode:
+            raise ValidationError(f"profile_mode={profile_mode!r} conflicts with env override MODE={existing_mode!r}.")
+        env_overrides["MODE"] = resolved_mode
+    elif profile_supports_modes:
+        supported = sorted(profile_mode_to_env_modes[profile])
+        raise ValidationError(f"profile_mode is required when profile={profile!r}. Supported values: {supported}.")
 
 
 def resolve_env_interpolation(value: str, env: Mapping[str, str]) -> str:

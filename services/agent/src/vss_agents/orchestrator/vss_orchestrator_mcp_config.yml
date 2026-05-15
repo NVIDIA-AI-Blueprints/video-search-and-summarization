@@ -87,7 +87,6 @@ function_groups:
         downloaded_relative_path: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"  # yamllint disable-line rule:line-length
         output_name: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
         artifact_kind: "file"
-    # Hardware/model resolution rules used by docker_generate.
     model_resolution:
       hardware:
         supported_profiles:
@@ -136,9 +135,10 @@ function_groups:
             RTVI_VLM_MODEL_TO_USE: cosmos-reason2
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
             VLM_MODEL_TYPE: rtvi
-    alerts_mode_to_env_modes:
-      verification: 2d_cv
-      real-time: 2d_vlm
+    profile_mode_to_env_modes:
+      alerts:  # must set modes below for profile that has modes
+        verification: 2d_cv
+        real-time: 2d_vlm
     include:
     - profiles
     - prereqs

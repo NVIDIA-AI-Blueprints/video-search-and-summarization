@@ -15,6 +15,7 @@
 """Tests for vss_agents/orchestrator/docker_compose_util.py."""
 
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 import yaml
@@ -93,7 +94,9 @@ def _make_recipe(
         edge_hardware_profiles=edge_hardware_profiles,
         edge_allowed_profiles=edge_allowed_profiles,
         edge_device_ids=edge_device_ids,
-        alerts_mode_to_env_modes={"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM},
+        profile_mode_to_env_modes={
+            dcu.PROFILE_ALERTS: {"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM},
+        },
         hardware_profile_env_overrides=(hardware_profile_env_overrides or {}),
     )
 
@@ -162,19 +165,93 @@ class TestFirstNonPlaceholder:
         assert dcu.first_non_placeholder(["", "   ", "<HOST_IP>", "${HOST_IP}"]) == ""
 
 
-class TestAlertsModeToEnvMode:
-    def test_alerts_mode_to_env_mode_maps_supported_modes(self):
-        alerts_mode_map = {"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM}
-        assert dcu.alerts_mode_to_env_mode("verification", alerts_mode_map) == dcu.MODE_2D_CV
-        assert dcu.alerts_mode_to_env_mode("real-time", alerts_mode_map) == dcu.MODE_2D_VLM
+class TestProfileModeToEnvMode:
+    def test_profile_mode_to_env_mode_maps_supported_modes(self):
+        mapping = {dcu.PROFILE_ALERTS: {"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM}}
+        assert dcu.profile_mode_to_env_mode(dcu.PROFILE_ALERTS, "verification", mapping) == dcu.MODE_2D_CV
+        assert dcu.profile_mode_to_env_mode(dcu.PROFILE_ALERTS, "real-time", mapping) == dcu.MODE_2D_VLM
 
-    def test_alerts_mode_to_env_mode_rejects_unknown_mode(self):
+    def test_profile_mode_to_env_mode_rejects_unknown_mode(self):
         with pytest.raises(dcu.ValidationError, match="Supported values"):
-            dcu.alerts_mode_to_env_mode("unsupported", {"verification": dcu.MODE_2D_CV})
+            dcu.profile_mode_to_env_mode(
+                dcu.PROFILE_ALERTS, "unsupported", {dcu.PROFILE_ALERTS: {"verification": dcu.MODE_2D_CV}}
+            )
 
-    def test_alerts_mode_to_env_mode_rejects_when_not_configured(self):
-        with pytest.raises(dcu.ValidationError, match="not configured"):
-            dcu.alerts_mode_to_env_mode("verification", {})
+    def test_profile_mode_to_env_mode_rejects_when_profile_has_no_modes(self):
+        with pytest.raises(dcu.ValidationError, match="not configured for profile"):
+            dcu.profile_mode_to_env_mode(dcu.PROFILE_BASE, "verification", {dcu.PROFILE_ALERTS: {}})
+
+    def test_profile_mode_to_env_mode_rejects_when_mapping_empty(self):
+        with pytest.raises(dcu.ValidationError, match="not configured for profile"):
+            dcu.profile_mode_to_env_mode(dcu.PROFILE_ALERTS, "verification", {})
+
+
+class TestResolveAndApplyProfileMode:
+    """Integration coverage of the validation+dispatch helper used by _docker_generate.
+    Each test exercises one branch of the rule: modes-required, modes-rejected, MODE
+    conflict, invalid mode, valid resolution."""
+
+    MAPPING: ClassVar[dict[str, dict[str, str]]] = {
+        dcu.PROFILE_ALERTS: {"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM},
+    }
+
+    def test_modeful_profile_without_profile_mode_raises(self):
+        """Regression guard: alerts profile invoked without profile_mode must fail loudly
+        instead of silently producing an env with no MODE (the original bug)."""
+        env_overrides: dict[str, str] = {}
+        with pytest.raises(dcu.ValidationError, match="profile_mode is required when profile='alerts'"):
+            dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, None, self.MAPPING, env_overrides)
+        assert "MODE" not in env_overrides
+
+    def test_modeful_profile_with_valid_mode_sets_env_mode(self):
+        env_overrides: dict[str, str] = {}
+        dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, "verification", self.MAPPING, env_overrides)
+        assert env_overrides["MODE"] == dcu.MODE_2D_CV
+
+    def test_modeful_profile_with_unknown_mode_raises(self):
+        env_overrides: dict[str, str] = {}
+        with pytest.raises(dcu.ValidationError, match="Invalid profile_mode 'bogus'"):
+            dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, "bogus", self.MAPPING, env_overrides)
+        assert "MODE" not in env_overrides
+
+    def test_modeful_profile_with_mode_conflicting_with_env_override_raises(self):
+        env_overrides = {"MODE": dcu.MODE_2D_VLM}
+        with pytest.raises(dcu.ValidationError, match="conflicts with env override MODE='2d_vlm'"):
+            dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, "verification", self.MAPPING, env_overrides)
+        assert env_overrides["MODE"] == dcu.MODE_2D_VLM  # unchanged
+
+    def test_modeful_profile_with_mode_matching_env_override_succeeds(self):
+        """A consistent MODE override is allowed (no conflict)."""
+        env_overrides = {"MODE": dcu.MODE_2D_CV}
+        dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, "verification", self.MAPPING, env_overrides)
+        assert env_overrides["MODE"] == dcu.MODE_2D_CV
+
+    def test_modeless_profile_without_profile_mode_is_noop(self):
+        """base has no modes; profile_mode=None must succeed and leave env_overrides untouched."""
+        env_overrides: dict[str, str] = {}
+        dcu.resolve_and_apply_profile_mode(dcu.PROFILE_BASE, None, self.MAPPING, env_overrides)
+        assert env_overrides == {}
+
+    def test_modeless_profile_preserves_existing_env_overrides(self):
+        """Existing env_overrides (including a pre-set MODE) must pass through untouched
+        when the profile has no modes and profile_mode is None."""
+        env_overrides = {"MODE": "custom_mode", "OTHER_KEY": "value"}
+        dcu.resolve_and_apply_profile_mode(dcu.PROFILE_BASE, None, self.MAPPING, env_overrides)
+        assert env_overrides == {"MODE": "custom_mode", "OTHER_KEY": "value"}
+
+    def test_modeless_profile_with_profile_mode_raises(self):
+        env_overrides: dict[str, str] = {}
+        with pytest.raises(dcu.ValidationError, match="profile_mode is not supported when profile='base'"):
+            dcu.resolve_and_apply_profile_mode(dcu.PROFILE_BASE, "verification", self.MAPPING, env_overrides)
+        assert env_overrides == {}
+
+    def test_empty_mapping_treats_all_profiles_as_modeless(self):
+        """When no profile is configured with modes, all profiles behave as modeless."""
+        env_overrides: dict[str, str] = {}
+        dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, None, {}, env_overrides)
+        assert env_overrides == {}
+        with pytest.raises(dcu.ValidationError, match="profile_mode is not supported when profile='alerts'"):
+            dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, "verification", {}, env_overrides)
 
 
 class TestResolveComposeProfiles:
@@ -1020,9 +1097,41 @@ class TestNestedOverrides:
 
         assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.99"
 
+    def test_modeless_profile_honors_hw_root_and_profile_level_overrides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When the profile has no modes (profile_mode=None), HW-root str keys AND profile-level
+        dict overrides still apply. Any mode-scoped block must be ignored. Regression guard
+        for the bug where moving overrides under per-mode keys silently dropped them for
+        modeless profiles."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            profile=dcu.PROFILE_BASE,
+            # profile_mode left as None — base has no modes
+            hardware_profile_env_overrides={
+                "thor": {
+                    # HW-root: always applies
+                    "PERCEPTION_TAG": "tag-from-hw-root",
+                    "RTVI_VLM_IMAGE_TAG": "img-from-hw-root",
+                    # profile-level: applies for any base run
+                    "base": {"VLM_NIM_KVCACHE_PERCENT": "0.2"},
+                    # mode-scoped under base (should be ignored — base has no modes)
+                    "base.some-mode": {"VLM_NIM_KVCACHE_PERCENT": "0.99"},
+                },
+            },
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["PERCEPTION_TAG"] == "tag-from-hw-root"
+        assert resolved["RTVI_VLM_IMAGE_TAG"] == "img-from-hw-root"
+        assert resolved["VLM_NIM_KVCACHE_PERCENT"] == "0.2"
+
 
 class TestGenerateDryRunArtifacts:
-    def test_generate_dry_run_artifacts_persists_alerts_mode_in_generated_env(
+    def test_generate_dry_run_artifacts_persists_profile_mode_in_generated_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         recipe = _make_recipe(
