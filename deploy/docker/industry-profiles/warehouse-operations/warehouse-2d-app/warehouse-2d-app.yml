@@ -156,6 +156,7 @@ services:
       ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
       ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
+      SEND_CONFIG_TO_SDR: false
       CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/$CONFIGURATOR_CONFIG_FILE
       HARDWARE_PROFILE: $HARDWARE_PROFILE
@@ -193,17 +194,6 @@ services:
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false
     env_file: ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
-    command:
-      - python
-      - -c
-      - |
-        import os
-        import sys
-
-        os.environ["SEND_CONFIG_TO_SDR"] = (
-            "false" if os.environ.get("BP_PROFILE") == "auto_calib" else "true"
-        )
-        os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
       - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
