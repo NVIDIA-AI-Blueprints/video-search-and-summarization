@@ -113,6 +113,10 @@ function_groups:
         thor_profiles:
         - IGX-THOR
         - AGX-THOR
+        profile_env_overrides:
+          DGX-SPARK:
+            PERCEPTION_TAG: "3.2.0-sbsa-26.05.1"
+            RTVI_VLM_IMAGE_TAG: "3.2.0-26.05.1-sbsa"
       vlm:
         thor_overrides:
           VLM_NAME_SLUG: none

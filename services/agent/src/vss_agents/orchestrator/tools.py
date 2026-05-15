@@ -384,6 +384,7 @@ class HardwareResolutionConfig(BaseModel):
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: dict[str, str]
     thor_profiles: tuple[str, ...]
+    profile_env_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class VlmResolutionConfig(BaseModel):

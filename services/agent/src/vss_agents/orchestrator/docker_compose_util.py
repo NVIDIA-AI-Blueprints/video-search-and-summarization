@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 import os
 from pathlib import Path
 import re
@@ -28,6 +29,7 @@ from typing import Final
 from typing import Literal
 
 from pydantic import BaseModel
+from pydantic import Field
 import yaml
 
 from .network_util import apply_brev_proxy_env
@@ -101,6 +103,7 @@ class HardwareResolutionInput(BaseModel):
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: EdgeDeviceIdsInput
     thor_profiles: tuple[str, ...]
+    profile_env_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class VlmResolutionInput(BaseModel):
@@ -145,6 +148,9 @@ class DryRunRecipe:
     alerts_mode_to_env_modes: Mapping[str, str]
     thor_vlm_overrides: Mapping[str, str]
     thor_base_vlm_overrides: Mapping[str, str]
+    hardware_profile_env_overrides: Mapping[str, Mapping[str, str]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 def create_dry_run_recipe(
@@ -243,6 +249,12 @@ def create_dry_run_recipe(
         alerts_mode_to_env_modes=MappingProxyType(dict(alerts_mode_to_env_modes or {})),
         thor_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_overrides)),
         thor_base_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_base_overrides)),
+        hardware_profile_env_overrides=MappingProxyType(
+            {
+                hw: MappingProxyType(dict(overrides))
+                for hw, overrides in model_resolution.hardware.profile_env_overrides.items()
+            }
+        ),
     )
 
 
@@ -375,6 +387,12 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["VLM_NIM_KVCACHE_PERCENT"] = config.nim_kvcache_percent
     if config.rtvi_vllm_gpu_memory_utilization:
         merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
+    effective_hardware_profile = (
+        config.env_overrides.get("HARDWARE_PROFILE", "").strip() or merged.get("HARDWARE_PROFILE", "").strip()
+    )
+    hardware_overrides = config.hardware_profile_env_overrides.get(effective_hardware_profile)
+    if hardware_overrides:
+        merged.update(hardware_overrides)
     merged.update(config.env_overrides)
 
     host_ip = (
