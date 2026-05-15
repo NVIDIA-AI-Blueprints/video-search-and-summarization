@@ -402,9 +402,9 @@ workflow:
       - Do NOT call this tool just because a previous tool's response said the stream is "not configured" — surface that response to the user and wait for an explicit start request.
       - Do NOT call speculatively or as a pre-check.
       - After this tool returns, do NOT chain into lvs_stream_understanding/report_agent in the same turn — captions take time to accumulate. Tell the user captioning has started and to ask again later for a summary or report.
-      **video_understanding** - For any question about short videos or quick queries for a video clip.
-      - Use when video is less than 1 minute.
+      **video_understanding** - For VLM analysis of short uploaded videos (under 1 minute).
       - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
+      - Do NOT use when user asks to "show", "play", or "display" a video — those route to vst_video_clip.
       - Do NOT use when user asks to "generate a report" or "summarize" — use report_agent or lvs_video_understanding respectively.
       **vst_video_clip** - For queries asking for showing videos (e.g., "Let's show the videos just uploaded"), call this tool in parallel with each video name as a separate input.
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
