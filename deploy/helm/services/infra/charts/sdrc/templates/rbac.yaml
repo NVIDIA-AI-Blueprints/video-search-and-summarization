@@ -1,0 +1,42 @@
+{{- if and .Values.enabled .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "sdrc.serviceAccountName" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "sdrc.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Values.rbac.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sdrc.clusterRbacName" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "sdrc.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sdrc.clusterRbacName" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "sdrc.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "sdrc.clusterRbacName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sdrc.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
