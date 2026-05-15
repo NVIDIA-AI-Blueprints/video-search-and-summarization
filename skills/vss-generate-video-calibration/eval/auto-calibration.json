@@ -1,6 +1,5 @@
 {
   "skills": ["vss-generate-video-calibration"],
-  "profile": "auto-calibration",
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {

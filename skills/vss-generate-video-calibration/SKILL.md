@@ -1,8 +1,11 @@
 ---
 name: vss-generate-video-calibration
 description: Calibrate a multi-camera dataset with AutoMagicCalib — from local MP4s, live RTSP streams, or the bundled sample dataset. Also handles deploying the AMC microservice (`vss-auto-calibration`) when the user hasn't set it up yet. Use when the user says "calibrate my videos", "run AMC on these videos", "calibrate from video files", "calibrate RTSP streams", "calibrate from live cameras", "run AMC on RTSP", "test sample dataset", "run sample calibration", "verify AMC install", "launch and test", "launch AMC", "deploy AMC", "deploy auto-calibration", "set up auto-magic-calib", "start AMC microservice", or provides RTSP URLs / local cam_*.mp4 files. Routes to the deploy / videos / rtsp / sample-dataset workflow based on user intent.
-version: "3.2.0"
-license: "Apache License 2.0"
+license: Apache-2.0
+metadata:
+  version: "3.2.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint operational"
 ---
 
 # VSS Generate Video Calibration
