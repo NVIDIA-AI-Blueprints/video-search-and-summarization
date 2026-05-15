@@ -111,8 +111,8 @@ Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/clo
     - 580.95.05 (DGX-SPARK)
     - 580.00 (IGX-THOR and AGX-THOR)
 - NVIDIA Container Toolkit: 1.17.8+
-- Docker: 27.2.0+
-- Docker Compose: v2.29.1+
+- Docker: 28.3.3+
+- Docker Compose: v2.39.1+
 - NGC CLI: 4.10.0+
 
 Please refer to [Prerequisites section here for installation details](https://docs.nvidia.com/vss/latest/prerequisites.html).
