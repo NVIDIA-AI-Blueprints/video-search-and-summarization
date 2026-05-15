@@ -141,10 +141,12 @@ services:
       WDM_WL_REDIS_PORT: ${WDM_WL_REDIS_PORT:-6379}
       WDM_WORKLOADS_CONFIG: "/configs/config.yml"
       OTEL_SDK_DISABLED: "true"
-      WDM_CONTROLLER_PORT: ${HOST_IP}
+      WDM_CONTROLLER_PORT: 5003
       WDM_CONTROLLER_HOST: ${HOST_IP}
       WDM_SDRC_DIRECT_LISTENER_PORT: 8011
       ENVOY_ADMIN_PORT: 9902
+      PORT: 5003
+      ROUTER_PORT: 5003
     volumes:
       - ./log:/logs
       - /var/run/docker.sock:/var/run/docker.sock
