@@ -27,6 +27,9 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
     command: python3 apps/spatial_analytics/main_spatial_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
 
   vss-behavior-analytics-playback-3d:
     extends:
@@ -44,7 +47,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d","auto_calib_3d"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -68,11 +71,8 @@ services:
       - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
       bp-configurator-3d:
-        condition: service_healthy 
-
+        condition: service_healthy
 
   perception-sdr-3d:
     extends:
@@ -96,17 +96,63 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
+  bp-configurator-3d-init:
+    extends:
+      file: ${VSS_APPS_DIR}/services/infra/compose.yml
+      service: broker-health-check
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "auto_calib_3d"]
+    container_name: vss-configurator-3d-init
+    network_mode: "host"
+    environment:
+      BP_PROFILE: $BP_PROFILE
+      STREAM_TYPE: $STREAM_TYPE
+      MAX_RETRIES: 60
+      RETRY_INTERVAL: 2
+      BOOTSTRAP_HOST: localhost
+      KAFKA_PORT: 9092
+      REDIS_PORT: 6379
+      KAFKA_TOPICS: '[{"name": "mdx-raw"},
+        {"name": "mdx-bev"},
+        {"name": "mdx-space-utilization"},
+        {"name": "mdx-alerts"},
+        {"name": "mdx-behavior"},
+        {"name": "mdx-behavior-plus"},
+        {"name": "mdx-frames"},
+        {"name": "mdx-mtmc"},
+        {"name": "mdx-rtls"},
+        {"name": "mdx-rtls-region-1"},
+        {"name": "mdx-amr"},
+        {"name": "mdx-vlm-alerts"},
+        {"name": "mdx-notification"},
+        {"name": "mdx-events"},
+        {"name": "mdx-incidents"},
+        {"name": "mdx-vlm-incidents"},
+        {"name": "mdx-vlm"},
+        {"name": "mdx-vlm-captions"},
+        {"name": "mdx-structured-events-summary"},
+        {"name": "mdx-embed"},
+        {"name": "mdx-embed-filtered"}]'
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ "$${BP_PROFILE}" = "auto_calib" ]; then
+          echo "BP_PROFILE is auto_calib. Broker health check is not required"
+        else
+          exec /scripts/check-$${STREAM_TYPE}-health.sh
+        fi
+
   bp-configurator-3d:
     image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
     container_name: vss-configurator
     network_mode: "host"
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "auto_calib_3d"]
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
+      ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
+      ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
-      SEND_CONFIG_TO_SDR: true
       CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
       HARDWARE_PROFILE: $HARDWARE_PROFILE
@@ -138,13 +184,24 @@ services:
       SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: true
     env_file: ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
+    command:
+      - python
+      - -c
+      - |
+        import os
+        import sys
+
+        os.environ["SEND_CONFIG_TO_SDR"] = (
+            "false" if os.environ.get("BP_PROFILE") == "auto_calib" else "true"
+        )
+        os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
       - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      broker-health-check:
+      bp-configurator-3d-init:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -246,9 +303,11 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_3d","playback_redis_3d"]
     container_name: vss-video-analytics-api
-    volumes:
-      - $VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      elasticsearch-init-container:
+        condition: service_completed_successfully
 
   import-calibration-output-container-3d:
     build:
@@ -269,4 +328,3 @@ volumes:
   mdx-nvstreamer-data:        
   mdx-nvstreamer-videos: 
   perception-3d:
-
