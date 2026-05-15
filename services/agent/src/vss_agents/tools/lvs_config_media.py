@@ -120,6 +120,10 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
     conn_timeout_ms: int = Field(default=5000, description="Connection timeout in milliseconds.")
     read_timeout_ms: int = Field(default=600000, description="Read timeout in milliseconds.")
     chunk_duration: int = Field(default=10, description="Duration of each stream chunk in seconds.")
+    num_frames_per_chunk: int = Field(
+        default=10,
+        description="Frames per chunk sent to the VLM. Forwarded as `num_frames_per_second_or_fixed_frames_chunk`.",
+    )
     seed: int | None = Field(default=None, description="Random seed for LVS media processing.")
     vlm_input_width: int | None = Field(
         default=None,
@@ -343,6 +347,7 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
             "scenario": scenario,
             "events": events,
             "chunk_duration": config.chunk_duration,
+            "num_frames_per_second_or_fixed_frames_chunk": config.num_frames_per_chunk,
         }
         if config.seed is not None:
             payload["seed"] = config.seed
