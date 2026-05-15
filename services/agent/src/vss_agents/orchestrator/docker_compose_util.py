@@ -80,6 +80,8 @@ DEFAULT_ALERTS_VLM_PORT: Final[int] = 30082
 EDGE_ALERTS_RTVI_INPUT_WIDTH: Final[str] = "860"
 EDGE_ALERTS_RTVI_INPUT_HEIGHT: Final[str] = "467"
 EDGE_ALERTS_RTVI_FPS: Final[str] = "20"
+EDGE_PERCEPTION_DOCKERFILE_PREFIX: Final[str] = "EDGE-"
+EDGE_ALERTS_VLM_AS_VERIFIER_CONFIG_FILE_PREFIX: Final[str] = "EDGE-LOCAL-VLM-"
 COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "MODE",
     "BP_PROFILE",
@@ -545,12 +547,12 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
 
     if config.profile == PROFILE_ALERTS:
         if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
-            merged["PERCEPTION_DOCKERFILE_PREFIX"] = "EDGE-"
+            merged["PERCEPTION_DOCKERFILE_PREFIX"] = EDGE_PERCEPTION_DOCKERFILE_PREFIX
             merged["RTVI_VLM_INPUT_WIDTH"] = EDGE_ALERTS_RTVI_INPUT_WIDTH
             merged["RTVI_VLM_INPUT_HEIGHT"] = EDGE_ALERTS_RTVI_INPUT_HEIGHT
             merged["RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK"] = EDGE_ALERTS_RTVI_FPS
             if merged["VLM_MODE"] != MODE_REMOTE:
-                merged["VLM_AS_VERIFIER_CONFIG_FILE_PREFIX"] = "EDGE-LOCAL-VLM-"
+                merged["VLM_AS_VERIFIER_CONFIG_FILE_PREFIX"] = EDGE_ALERTS_VLM_AS_VERIFIER_CONFIG_FILE_PREFIX
 
         if merged["MODE"] == MODE_2D_VLM and merged["VLM_MODE"] != MODE_REMOTE:
             vlm_port = merged.get("VLM_PORT", "").strip() or str(DEFAULT_ALERTS_VLM_PORT)

@@ -122,7 +122,7 @@ function_groups:
               RTVI_VLM_MAX_MODEL_LEN: "8192"  # can raise to 16384 if VLLM_ENFORCE_EAGER=true
               RTVI_VLLM_MAX_NUM_SEQS: "8"
             alerts.real-time:
-              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.5"
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.3"
               RTVI_VLM_MAX_MODEL_LEN: "8192"
               RTVI_VLLM_MAX_NUM_SEQS: "8"
           IGX-THOR:
