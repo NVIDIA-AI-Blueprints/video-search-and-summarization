@@ -31,10 +31,15 @@ services:
       - "bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}"
       - "bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}"
       - "bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}"
+      - "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}"
+      - "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}"
       - "playback_kafka_2d"
       - "playback_kafka_3d"
       - "playback_redis_2d"
       - "playback_redis_3d"
+      - "auto_calib_2d"
+      - "auto_calib_3d"
+      - "auto_calib_mv3dt"
     container_name: vss-haproxy-ingress
     network_mode: host
     restart: always
