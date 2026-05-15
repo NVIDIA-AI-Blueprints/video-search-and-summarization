@@ -110,23 +110,25 @@ function_groups:
           vlm: "0"
           rt_vlm: "0"
           rt_cv: "0"
-        thor_profiles:
-        - IGX-THOR
-        - AGX-THOR
         profile_env_overrides:
           DGX-SPARK:
             PERCEPTION_TAG: "3.2.0-sbsa-26.05.1"
             RTVI_VLM_IMAGE_TAG: "3.2.0-26.05.1-sbsa"
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
-      vlm:
-        thor_overrides:
-          VLM_NAME_SLUG: none
-          VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
-          RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
-          RTVI_VLM_MODEL_TO_USE: cosmos-reason2
-          RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
-        thor_base_overrides:
-          VLM_MODEL_TYPE: rtvi
+          IGX-THOR:
+            VLM_NAME_SLUG: none
+            VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+            RTVI_VLM_MODEL_TO_USE: cosmos-reason2
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+            VLM_MODEL_TYPE: rtvi
+          AGX-THOR:
+            VLM_NAME_SLUG: none
+            VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+            RTVI_VLM_MODEL_TO_USE: cosmos-reason2
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+            VLM_MODEL_TYPE: rtvi
     alerts_mode_to_env_modes:
       verification: 2d_cv
       real-time: 2d_vlm

@@ -102,18 +102,11 @@ class HardwareResolutionInput(BaseModel):
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: EdgeDeviceIdsInput
-    thor_profiles: tuple[str, ...]
     profile_env_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
-
-
-class VlmResolutionInput(BaseModel):
-    thor_overrides: dict[str, str]
-    thor_base_overrides: dict[str, str]
 
 
 class ModelResolutionInput(BaseModel):
     hardware: HardwareResolutionInput
-    vlm: VlmResolutionInput
 
 
 @dataclass(frozen=True)
@@ -144,10 +137,7 @@ class DryRunRecipe:
     edge_hardware_profiles: frozenset[str]
     edge_allowed_profiles: frozenset[str]
     edge_device_ids: Mapping[str, str]
-    thor_profiles: frozenset[str]
     alerts_mode_to_env_modes: Mapping[str, str]
-    thor_vlm_overrides: Mapping[str, str]
-    thor_base_vlm_overrides: Mapping[str, str]
     hardware_profile_env_overrides: Mapping[str, Mapping[str, str]] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -209,7 +199,7 @@ def create_dry_run_recipe(
     try:
         model_resolution = ModelResolutionInput.model_validate(model_resolution, from_attributes=True)
     except Exception as exc:
-        raise ValidationError("model_resolution must include hardware and vlm sections with required keys.") from exc
+        raise ValidationError("model_resolution must include hardware section with required keys.") from exc
 
     return DryRunRecipe(
         profile=profile,  # type: ignore[arg-type]
@@ -245,10 +235,7 @@ def create_dry_run_recipe(
                 "rt_cv": model_resolution.hardware.edge_device_ids.rt_cv,
             }
         ),
-        thor_profiles=frozenset(model_resolution.hardware.thor_profiles),
         alerts_mode_to_env_modes=MappingProxyType(dict(alerts_mode_to_env_modes or {})),
-        thor_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_overrides)),
-        thor_base_vlm_overrides=MappingProxyType(dict(model_resolution.vlm.thor_base_overrides)),
         hardware_profile_env_overrides=MappingProxyType(
             {
                 hw: MappingProxyType(dict(overrides))
@@ -359,7 +346,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
     #   2. HARDWARE_PROFILE from notebook (sets the key for the yml lookup)
-    #   3. yml hw-defaults (profile_env_overrides, edge_device_ids, thor_vlm_overrides, thor_base_vlm_overrides)
+    #   3. yml hw-defaults (profile_env_overrides, edge_device_ids)
     #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
     #   5. per-call env_overrides
     merged = parse_env_file(config.source_env_file)
@@ -376,10 +363,6 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["VLM_DEVICE_ID"] = config.edge_device_ids["vlm"]
         merged["RT_VLM_DEVICE_ID"] = config.edge_device_ids["rt_vlm"]
         merged["RT_CV_DEVICE_ID"] = config.edge_device_ids["rt_cv"]
-    if effective_hardware_profile in config.thor_profiles and config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
-        merged.update(config.thor_vlm_overrides)
-    if effective_hardware_profile in config.thor_profiles and config.profile == PROFILE_BASE:
-        merged.update(config.thor_base_vlm_overrides)
     if config.ngc_cli_api_key:
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key:
@@ -476,8 +459,13 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         if not merged.get("VLM_BASE_URL", "").strip():
             raise ValidationError("VLM_BASE_URL is required when VLM_MODE=remote.")
 
-    if merged.get("HARDWARE_PROFILE", "") in config.thor_profiles and config.profile in {PROFILE_BASE, PROFILE_ALERTS}:
-        merged["VLM_BASE_URL"] = f"http://{host_ip}:{THOR_VLM_PORT}"
+    if (
+        merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles
+        and config.profile in {PROFILE_BASE, PROFILE_ALERTS}
+        and not merged.get("VLM_BASE_URL", "").strip()
+    ):
+        vlm_port = merged.get("VLM_PORT", "").strip() or str(THOR_VLM_PORT)
+        merged["VLM_BASE_URL"] = f"http://{host_ip}:{vlm_port}"
 
     if config.profile == PROFILE_ALERTS:
         if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:

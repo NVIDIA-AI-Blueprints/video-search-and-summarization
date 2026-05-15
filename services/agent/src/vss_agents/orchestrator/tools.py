@@ -387,22 +387,13 @@ class HardwareResolutionConfig(BaseModel):
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: dict[str, str]
-    thor_profiles: tuple[str, ...]
     profile_env_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
-
-
-class VlmResolutionConfig(BaseModel):
-    """VLM Thor overrides applied during docker_generate."""
-
-    thor_overrides: dict[str, str]
-    thor_base_overrides: dict[str, str]
 
 
 class ModelResolutionConfig(BaseModel):
     """Model/hardware resolution rules supplied via MCP YAML."""
 
     hardware: HardwareResolutionConfig
-    vlm: VlmResolutionConfig
 
 
 class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):

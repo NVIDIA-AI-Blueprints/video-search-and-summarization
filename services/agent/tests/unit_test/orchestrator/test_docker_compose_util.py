@@ -35,6 +35,22 @@ def _make_recipe(
     ngc_cli_api_key: str | None = None,
     nvidia_api_key: str | None = None,
     hardware_profile: str | None = None,
+    external_ip: str | None = None,
+    openai_api_key: str | None = None,
+    llm_endpoint_url: str | None = None,
+    llm_model_type: str | None = None,
+    llm_name: str | None = None,
+    vlm_name: str | None = None,
+    vlm_endpoint_url: str | None = None,
+    vlm_model_type: str | None = None,
+    llm_enable_thinking: str | None = None,
+    nim_kvcache_percent: str | None = None,
+    rtvi_vllm_gpu_memory_utilization: str | None = None,
+    supported_hardware_profiles: frozenset[str] = frozenset({"igx", "thor"}),
+    edge_hardware_profiles: frozenset[str] = frozenset({"igx"}),
+    edge_allowed_profiles: frozenset[str] | None = None,
+    edge_device_ids: dict[str, str] | None = None,
+    hardware_profile_env_overrides: dict[str, dict[str, str]] | None = None,
 ) -> dcu.DryRunRecipe:
     deployments_dir = tmp_path / "deployments"
     deployments_dir.mkdir()
@@ -43,32 +59,40 @@ def _make_recipe(
     source_env_file = tmp_path / "profile.env"
     source_env_file.write_text(env_text.strip() + "\n")
 
+    if edge_allowed_profiles is None:
+        edge_allowed_profiles = frozenset({dcu.PROFILE_ALERTS, dcu.PROFILE_SEARCH})
+    if edge_device_ids is None:
+        edge_device_ids = {"llm": "0", "vlm": "1", "rt_vlm": "2", "rt_cv": "3"}
+
     return dcu.DryRunRecipe(
         profile=profile,  # type: ignore[arg-type]
         env_overrides=env_overrides or {},
         ngc_cli_api_key=ngc_cli_api_key,
         nvidia_api_key=nvidia_api_key,
         hardware_profile=hardware_profile,
+        external_ip=external_ip,
+        openai_api_key=openai_api_key,
+        llm_endpoint_url=llm_endpoint_url,
+        llm_model_type=llm_model_type,
+        llm_name=llm_name,
+        vlm_name=vlm_name,
+        vlm_endpoint_url=vlm_endpoint_url,
+        vlm_model_type=vlm_model_type,
+        llm_enable_thinking=llm_enable_thinking,
+        nim_kvcache_percent=nim_kvcache_percent,
+        rtvi_vllm_gpu_memory_utilization=rtvi_vllm_gpu_memory_utilization,
         output_env_file=tmp_path / "generated.env",
         output_compose_file=tmp_path / "docker-compose.generated.yml",
         deployments_dir=deployments_dir,
         mdx_data_dir=mdx_data_dir,
         compose_file=tmp_path / "compose.yml",
         source_env_file=source_env_file,
-        supported_hardware_profiles=frozenset({"igx", "thor"}),
-        edge_hardware_profiles=frozenset({"igx"}),
-        edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS, dcu.PROFILE_SEARCH}),
-        edge_device_ids={"llm": "0", "vlm": "1"},
-        thor_profiles=frozenset({"thor"}),
+        supported_hardware_profiles=supported_hardware_profiles,
+        edge_hardware_profiles=edge_hardware_profiles,
+        edge_allowed_profiles=edge_allowed_profiles,
+        edge_device_ids=edge_device_ids,
         alerts_mode_to_env_modes={"verification": dcu.MODE_2D_CV, "real-time": dcu.MODE_2D_VLM},
-        thor_vlm_overrides={
-            "VLM_NAME_SLUG": "none",
-            "VLM_NAME": "nim_nvidia_cosmos-reason2-8b_hf-1208",
-            "RTVI_VLM_MODEL_PATH": "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
-            "RTVI_VLM_MODEL_TO_USE": "cosmos-reason2",
-            "RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.35",
-        },
-        thor_base_vlm_overrides={"VLM_MODEL_TYPE": "rtvi"},
+        hardware_profile_env_overrides=(hardware_profile_env_overrides or {}),
     )
 
 
@@ -516,6 +540,18 @@ class TestBuildResolvedEnv:
                 "HOST_IP=10.0.0.8",
             ),
             profile=dcu.PROFILE_ALERTS,
+            edge_hardware_profiles=frozenset({"thor"}),
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            hardware_profile_env_overrides={
+                "thor": {
+                    "VLM_NAME_SLUG": "none",
+                    "VLM_NAME": "nim_nvidia_cosmos-reason2-8b_hf-1208",
+                    "RTVI_VLM_MODEL_PATH": "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208",
+                    "RTVI_VLM_MODEL_TO_USE": "cosmos-reason2",
+                    "RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.35",
+                    "VLM_MODEL_TYPE": "rtvi",
+                },
+            },
         )
 
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("env HOST_IP should be used"))
@@ -531,6 +567,295 @@ class TestBuildResolvedEnv:
         assert resolved["RTVI_VLM_MODEL_PATH"] == "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
         assert resolved["RTVI_VLM_MODEL_TO_USE"] == "cosmos-reason2"
         assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.35"
+
+
+def _base_env(hardware_profile: str, *extra: str) -> tuple[str, ...]:
+    return (
+        "MODE=local",
+        "BP_PROFILE=base",
+        "PROXY_MODE=direct",
+        f"HARDWARE_PROFILE={hardware_profile}",
+        "LLM_MODE=local",
+        "LLM_NAME=llm-a",
+        "LLM_NAME_SLUG=llm-a-slug",
+        "VLM_MODE=local",
+        "VLM_NAME=vlm-a",
+        "VLM_NAME_SLUG=vlm-a-slug",
+        "HOST_IP=10.0.0.1",
+        "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+        "VSS_APPS_DIR=/path/to/deploy/docker",
+        *extra,
+    )
+
+
+def _patch_network(monkeypatch: pytest.MonkeyPatch, ip: str = "10.0.0.1") -> None:
+    monkeypatch.setattr(dcu, "detect_internal_ip", lambda: ip)
+    monkeypatch.setattr(dcu, "detect_external_ip", lambda: ip)
+    monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
+    monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+
+class TestPrecedence:
+    """Layered precedence for env values (low -> high):
+
+    profile .env  <  yml profile_env_overrides[HW]  <  notebook named recipe param  <  per-call env_overrides
+
+    Tests use a non-edge HW (thor) to isolate the layered-precedence logic from
+    edge-specific code paths (edge_device_ids, VLM_BASE_URL synthesis).
+    """
+
+    def test_dotenv_value_passes_through_when_no_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor", "RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.10")),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.10"
+
+    def test_profile_env_overrides_wins_over_dotenv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor", "RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.10")),
+            hardware_profile_env_overrides={"thor": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.20"}},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.20"
+
+    def test_named_param_wins_over_profile_env_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor", "RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.10")),
+            hardware_profile_env_overrides={"thor": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.20"}},
+            rtvi_vllm_gpu_memory_utilization="0.30",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.30"
+
+    def test_env_overrides_wins_over_named_param(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor", "RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.10")),
+            hardware_profile_env_overrides={"thor": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.20"}},
+            rtvi_vllm_gpu_memory_utilization="0.30",
+            env_overrides={"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.40"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.40"
+
+    def test_env_overrides_wins_over_profile_env_overrides_without_named_param(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            hardware_profile_env_overrides={"thor": {"VLM_NAME": "yml-vlm"}},
+            env_overrides={"VLM_NAME": "override-vlm"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_NAME"] == "override-vlm"
+
+    def test_profile_env_overrides_for_different_hardware_is_ignored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor", "RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.10")),
+            hardware_profile_env_overrides={"igx": {"RTVI_VLLM_GPU_MEMORY_UTILIZATION": "0.20"}},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.10"
+
+    def test_key_absent_at_all_layers_is_not_in_resolved_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert "RTVI_VLLM_GPU_MEMORY_UTILIZATION" not in resolved
+
+    def test_named_param_writes_key_when_dotenv_lacks_it(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            rtvi_vllm_gpu_memory_utilization="0.55",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.55"
+
+
+class TestEdgeDeviceIdsPrecedence:
+    """yml edge_device_ids apply for edge HW only, and are overridable by env_overrides."""
+
+    def test_edge_device_ids_applied_for_edge_hardware(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_ALERTS,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            edge_device_ids={"llm": "5", "vlm": "6", "rt_vlm": "7", "rt_cv": "8"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_DEVICE_ID"] == "5"
+        assert resolved["VLM_DEVICE_ID"] == "6"
+        assert resolved["RT_VLM_DEVICE_ID"] == "7"
+        assert resolved["RT_CV_DEVICE_ID"] == "8"
+
+    def test_edge_device_ids_not_applied_for_non_edge_hardware(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("H100")),
+            supported_hardware_profiles=frozenset({"igx", "H100"}),
+            edge_device_ids={"llm": "5", "vlm": "6", "rt_vlm": "7", "rt_cv": "8"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert "LLM_DEVICE_ID" not in resolved
+        assert "VLM_DEVICE_ID" not in resolved
+
+    def test_env_overrides_wins_over_edge_device_ids(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_ALERTS,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+            edge_device_ids={"llm": "5", "vlm": "6", "rt_vlm": "7", "rt_cv": "8"},
+            env_overrides={"LLM_DEVICE_ID": "99", "VLM_DEVICE_ID": "100"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_DEVICE_ID"] == "99"
+        assert resolved["VLM_DEVICE_ID"] == "100"
+        # untouched device IDs still come from yml defaults
+        assert resolved["RT_VLM_DEVICE_ID"] == "7"
+        assert resolved["RT_CV_DEVICE_ID"] == "8"
+
+
+class TestVlmBaseUrlSynthesis:
+    """Late VLM_BASE_URL synthesis: edge HW + base/alerts, dynamic VLM_PORT, notebook wins."""
+
+    def test_synthesizes_for_edge_base_when_unset(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx", "VLM_PORT=8018")),
+            profile=dcu.PROFILE_BASE,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_BASE}),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_BASE_URL"] == "http://10.0.0.1:8018"
+
+    def test_synthesizes_for_edge_alerts_when_unset(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx", "VLM_PORT=8018")),
+            profile=dcu.PROFILE_ALERTS,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_ALERTS}),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_BASE_URL"] == "http://10.0.0.1:8018"
+
+    def test_uses_dynamic_vlm_port_from_merged_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx", "VLM_PORT=30082")),
+            profile=dcu.PROFILE_BASE,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_BASE}),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_BASE_URL"] == "http://10.0.0.1:30082"
+
+    def test_falls_back_to_thor_vlm_port_when_vlm_port_unset(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx")),
+            profile=dcu.PROFILE_BASE,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_BASE}),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_BASE_URL"] == f"http://10.0.0.1:{dcu.THOR_VLM_PORT}"
+
+    def test_notebook_vlm_endpoint_url_wins_over_synthesis(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx", "VLM_PORT=8018")),
+            profile=dcu.PROFILE_BASE,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_BASE}),
+            vlm_endpoint_url="http://custom-vlm:9999/v1",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_BASE_URL"] == "http://custom-vlm:9999/v1"
+
+    def test_env_overrides_vlm_base_url_wins_over_synthesis(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("igx", "VLM_PORT=8018")),
+            profile=dcu.PROFILE_BASE,
+            edge_allowed_profiles=frozenset({dcu.PROFILE_BASE}),
+            env_overrides={"VLM_BASE_URL": "http://override-vlm:9999"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_BASE_URL"] == "http://override-vlm:9999"
+
+    def test_does_not_synthesize_for_non_edge_hardware(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("H100", "VLM_PORT=8018")),
+            profile=dcu.PROFILE_BASE,
+            supported_hardware_profiles=frozenset({"igx", "H100"}),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved.get("VLM_BASE_URL", "") == ""
 
 
 class TestGenerateDryRunArtifacts:
