@@ -12,9 +12,9 @@ Two related problems with the pre-deploy hook added to
 **(1) Stale-marker silent skip.** Markers were per-(profile, mode) flag
 files (`/tmp/skill-eval/deployed-<profile>-<mode>.flag`) that accumulated
 as a deploy log instead of tracking what is currently running. Sequence:
-`deploy/base` writes `deployed-base-remote-all.flag`, then `deploy/search`
+`vss-deploy-profile/base` writes `deployed-base-remote-all.flag`, then `vss-deploy-profile/search`
 tears down base + brings up search but the base flag stays on disk. A
-subsequent `vios` trial requiring base sees the stale flag, skips
+subsequent `vss-manage-video-io-storage` trial requiring base sees the stale flag, skips
 pre-deploy, and runs against search — silent wrong answer. The invariant
 we wanted but didn't enforce: *the marker is what is currently RUNNING on
 this box, not what has at any point been deployed here.*
@@ -50,16 +50,16 @@ Empty / missing means "nothing is up."
 Marker format:
 - `base`, `lvs`, `search` — profile name only. Placement (LLM/VLM
   local vs remote) is decided at deploy time from the env the
-  `/deploy` skill sees; it is NOT part of the marker.
+  `/vss-deploy-profile` skill sees; it is NOT part of the marker.
 - `alerts-verification`, `alerts-real-time` — alerts has two distinct
-  stacks (`/deploy -m verification` runs CV + VLM-verifier; `-m
+  stacks (`/vss-deploy-profile -m verification` runs CV + VLM-verifier; `-m
   real-time` runs continuous-VLM). Downstream trials that need a
   specific variant cannot share a box running the other one, so the
   alerts mode is part of the marker.
 
-Single owner: whoever last successfully ran `/deploy` on the box. Two
+Single owner: whoever last successfully ran `/vss-deploy-profile` on the box. Two
 write paths in practice — the harness pre-deploy hook (when called) and
-the deploy/* trial's `test.sh` (its scored task IS running /deploy) —
+the vss-deploy-profile/* trial's `test.sh` (its scored task IS running /vss-deploy-profile) —
 both overwrite the same file with the same token. Equivalent semantics;
 pick one or both, just never `touch` per-flag.
 
@@ -82,14 +82,14 @@ Algorithm:
 2. If `stdout == desired` → no-op. Box already matches.
 3. Else if `desired == ""` → tear down all containers
    (`docker ps -aq | xargs -r docker rm -f && docker network prune -f`)
-   and write the marker as empty. Does NOT invoke `/deploy down` —
+   and write the marker as empty. Does NOT invoke `/vss-deploy-profile down` —
    stays out of skill code and avoids paying for an LLM call to do
    the cleanup. Preserves docker image cache, repo clone, and
    sample-data extract (the slow things) so the next deploy trial on
    this box is warm.
-4. Else → run `/deploy -p <profile>` (plus `-m <mode>` when an alerts
+4. Else → run `/vss-deploy-profile -p <profile>` (plus `-m <mode>` when an alerts
    variant is requested) via
-   `claude --print --dangerously-skip-permissions`; the deploy skill's
+   `claude --print --dangerously-skip-permissions`; the vss-deploy-profile skill's
    own step-0 teardown handles any prior stack. On success, **overwrite**
    `active-deploy.txt` with `desired`. On failure, leave the marker
    alone — next trial re-evaluates.
@@ -137,7 +137,7 @@ validates the chosen box.
 
 - Each box's `active-deploy.txt` is on its own /tmp; no shared state.
 - Per-box flock prevents two workers from running trials on the same
-  box simultaneously, even within /deploy.
+  box simultaneously, even within /vss-deploy-profile.
 - The `started-by-<run_id>.txt` cleanup marker (used by
   `cleanup_instances`) is already per-run — workers don't step on each
   other at teardown.
@@ -168,15 +168,15 @@ up to N parallel.
 ## Verification
 
 1. **Stale-flag regression test.** Reproduce the run 24969145586 pattern:
-   `deploy/lvs` → `deploy/search` → `vios step-1`. Confirm `vios` now
+   `vss-deploy-profile/lvs` → `vss-deploy-profile/search` → `vss-manage-video-io-storage step-1`. Confirm `vss-manage-video-io-storage` now
    redeploys base (marker reads `search`, not `base`) instead of
    skipping on a stale flag.
-2. **Same-profile reuse.** `deploy/base` → `vios step-1` → `vios step-2`
-   → `vios step-3`. Three vios trials share the marker set by
-   `deploy/base`; pre-deploy hook fires zero times.
-3. **Profile transition.** `deploy/base` → `vios step-1` →
-   `deploy/search` → `video-search step-1`. Each transition triggers
-   exactly one /deploy.
+2. **Same-profile reuse.** `vss-deploy-profile/base` → `vss-manage-video-io-storage step-1` → `vss-manage-video-io-storage step-2`
+   → `vss-manage-video-io-storage step-3`. Three vss-manage-video-io-storage trials share the marker set by
+   `vss-deploy-profile/base`; pre-deploy hook fires zero times.
+3. **Profile transition.** `vss-deploy-profile/base` → `vss-manage-video-io-storage step-1` →
+   `vss-deploy-profile/search` → `vss-search-archive step-1`. Each transition triggers
+   exactly one /vss-deploy-profile.
 4. **Fleet=1 baseline.** With one `vss-eval-l40s`, behaviour is
    indistinguishable from today.
 5. **Fleet>1 concurrency smoke test.** Manually `brev create

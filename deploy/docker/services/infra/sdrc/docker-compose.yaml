@@ -1,0 +1,164 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  # Init container: ensure bind-mount dirs exist and are writable by the host
+  # user. sdr-controller / wdm-env-from-config run as root inside the container
+  # and would otherwise leave ./log and ./.wdm-env as root:root 755, which the
+  # host user cannot delete without sudo. We chmod 0777 the *parent* dirs so
+  # `rm -rf log/* .wdm-env/*` works without sudo even though the files inside
+  # are root-owned (rm only needs write+exec on the parent dir).
+  init-dirs:
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: alpine:3.23.4
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    container_name: sdrc-init-dirs
+    command:
+      - |
+        set -e
+        mkdir -p /mnt/log /mnt/wdm-env
+        chmod 0777 /mnt/log /mnt/wdm-env
+    volumes:
+      - ./log:/mnt/log
+      - ./.wdm-env:/mnt/wdm-env
+    restart: "no"
+
+  # Init container: render every *.tmpl file in the configs/ directory by
+  # substituting ${HOST_IP} / ${NUM_STREAMS}. Each template is written to the
+  # same directory under the same name with the `.tmpl` suffix stripped (e.g.
+  # config.yml.tmpl -> config.yml). Drop a new *.tmpl into configs/ and it gets
+  # picked up automatically — no compose changes needed.
+  # Every downstream service that reads these rendered files depends on this
+  # completing successfully.
+  render-config:
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: alpine:3.23.4
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "render-config: NUM_STREAMS is ${NUM_STREAMS}"
+        echo "render-config: NUM_SENSORS is ${NUM_SENSORS}"
+        set -e
+        echo "render-config: HOST_IP=$${HOST_IP} NUM_STREAMS=$${NUM_STREAMS} NUM_SENSORS=$${NUM_SENSORS}"
+        rendered=0
+        for tmpl in /tmpl/*.tmpl; do
+          [ -e "$$tmpl" ] || { echo "render-config: no *.tmpl files found in /tmpl"; exit 1; }
+          base="$$(basename "$$tmpl" .tmpl)"
+          /render-config.sh "$$tmpl" "/tmpl/$$base"
+          rendered=$$((rendered + 1))
+        done
+        echo "render-config: rendered $$rendered template(s)"
+    environment:
+      HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:-1}
+      NUM_SENSORS: ${NUM_SENSORS:-1}
+    volumes:
+      - ./render-config.sh:/render-config.sh:ro
+      - ${SDR_CONTROLLER_CONFIG_PATH:-"./configs"}/configs:/tmpl
+    restart: "no"
+    container_name: sdrc-render-config
+
+  wdm-env-from-config:
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: alpine:3.23.4
+    # yq image runs as non-root; bind-mounted ./.wdm-env is often root-owned — write as root.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - apk add --no-cache gettext yq >/dev/null && /run.sh
+    environment:
+      HOST_IP: ${HOST_IP:?HOST_IP must be set in .env or shell before running compose}
+      NUM_STREAMS: ${NUM_STREAMS:-}
+      NUM_SENSORS: ${NUM_SENSORS:-}
+    volumes:
+      - ${SDR_CONTROLLER_CONFIG_PATH:-"./configs"}/configs/config.yml:/config.yml:ro
+      - ./wdm-env-from-config.sh:/run.sh:ro
+      - ./.wdm-env:/env
+    depends_on:
+      init-dirs:
+        condition: service_completed_successfully
+      render-config:
+        condition: service_completed_successfully
+    restart: "no"
+    container_name: sdrc-wdm-env-from-config
+
+  wait-for-redis:
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: redis:8.6.2-alpine
+    restart: "no"
+    depends_on:
+      wdm-env-from-config:
+        condition: service_completed_successfully
+    environment:
+      WDM_WL_REDIS_SERVER: ${HOST_IP}
+      WDM_WL_REDIS_PORT: ${WDM_WL_REDIS_PORT:-6379}
+      REDIS_WAIT_TIMEOUT_SECONDS: "${REDIS_WAIT_TIMEOUT_SECONDS:-120}"
+    volumes:
+      - ./wait-for-redis.sh:/wait-for-redis.sh:ro
+      - ./.wdm-env:/wdm-env:ro
+    entrypoint: ["/bin/sh", "/wait-for-redis.sh"]
+    container_name: sdrc-wait-for-redis
+
+  wait-for-docker-workloads:
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: alpine:3.23.4
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - apk add --no-cache docker-cli >/dev/null && /wait-for-docker-workloads.sh
+    restart: "no"
+    user: "0:0"
+    depends_on:
+      wdm-env-from-config:
+        condition: service_completed_successfully
+    environment:
+      DOCKER_WORKLOAD_WAIT_SECONDS: "${DOCKER_WORKLOAD_WAIT_SECONDS:-300}"
+    volumes:
+      - ./wait-for-docker-workloads.sh:/wait-for-docker-workloads.sh:ro
+      - ./.wdm-env:/wdm-env:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # sdr-mw-l: host network, Kubernetes API + CA, Docker socket, docker_cluster_config.json (mixed docker/k8s).
+  # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
+  sdr-controller:
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt${MINIMAL_PROFILE:+_extended}", "bp_wh_redis_mv3dt${MINIMAL_PROFILE:+_extended}","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.2}
+    container_name: sdr-controller
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      WDM_WL_REDIS_SERVER: ${HOST_IP}
+      WDM_WL_REDIS_PORT: ${WDM_WL_REDIS_PORT:-6379}
+      WDM_WORKLOADS_CONFIG: "/configs/config.yml"
+      OTEL_SDK_DISABLED: "true"
+      WDM_CONTROLLER_PORT: 5003
+      WDM_CONTROLLER_HOST: ${HOST_IP}
+      WDM_SDRC_DIRECT_LISTENER_PORT: 8011
+      ENVOY_ADMIN_PORT: 9902
+      PORT: 5003
+      ROUTER_PORT: 5003
+    volumes:
+      - ./log:/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Host dir with docker-config.yml (see WDM_WORKLOADS_CONFIG). Same tree as wdm-env-from-config config.yml.
+      - "${SDR_CONTROLLER_CONFIG_PATH:-'./configs'}/configs:/configs/:ro"
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      init-dirs:
+        condition: service_completed_successfully
+      render-config:
+        condition: service_completed_successfully
