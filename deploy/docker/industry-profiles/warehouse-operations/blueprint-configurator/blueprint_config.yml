@@ -106,7 +106,7 @@ commons:
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis", "auto_calib"]
 
       # bp_wh 2d profile is not supported on IGX-THOR or DGX-SPARK
       - variable: HARDWARE_PROFILE
@@ -180,6 +180,8 @@ commons:
                   matches: "bp_wh_kafka_2d,*"
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_2d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "auto_calib_2d,*"
 
     3d:
       # VSS path variables must be set to real paths, not placeholders or empty
@@ -200,9 +202,9 @@ commons:
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
-      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
+      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "auto_calib"
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh_kafka", "bp_wh_redis", "auto_calib"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
@@ -258,6 +260,8 @@ commons:
                   matches: "bp_wh_kafka_3d,*"
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_3d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "auto_calib_3d,*"
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
@@ -280,7 +284,7 @@ commons:
 
       # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh_kafka", "bp_wh_redis", "auto_calib"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
