@@ -59,6 +59,7 @@ jobs:
           head -n 30 license-diff.csv || true
 
       - name: Upload CSV artifact
+        id: upload
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
@@ -117,6 +118,7 @@ jobs:
           ROWS: ${{ steps.gen.outputs.rows }}
           BASE: ${{ steps.ctx.outputs.base }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
         run: |
           set -euo pipefail
           marker='<!-- license-diff-osrb -->'
@@ -125,9 +127,16 @@ jobs:
             echo "## License Diff for OSRB"
             echo
             echo "**${ROWS}** changed packages require OSRB review (vs \`${BASE}\`)."
-            echo "Download the full CSV from the [workflow run](${RUN_URL}) (artifact: \`license-diff\`)."
+            echo "Download the full CSV directly: [\`license-diff.csv\`](${ARTIFACT_URL}) (or browse the [workflow run](${RUN_URL}))."
             echo
             cat diff-table.md
+            echo
+            echo "<details><summary>Raw CSV (inline)</summary>"
+            echo
+            echo '```csv'
+            cat license-diff.csv
+            echo '```'
+            echo "</details>"
             echo
             echo "_This check is informational. CODEOWNERS still gates merge — get approval from \`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers\` for the touched lockfile/manifest paths._"
           } > comment.md
