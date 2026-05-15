@@ -38,6 +38,7 @@ multiple streams — that lifecycle is handled by ``rtsp_ingest.py`` /
 ``rtsp_delete.py``, not this module.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -198,6 +199,122 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
     )
 
 
+async def _register_with_rtvi_cv(
+    *,
+    rtvi_cv_base_url: str,
+    sensor_id: str,
+    camera_name: str,
+    vst_file_path: str,
+    start_timestamp: str,
+) -> None:
+    """POST ``/api/v1/stream/add`` to RTVI-CV. Best-effort (tolerates network errors).
+
+    Connect/timeout failures degrade to a warning and silent skip — same as the
+    original inline path — because RTVI-CV is treated as optional infra. Other
+    HTTP errors (non-2xx) raise ``HTTPException(502)`` so the caller surfaces a
+    hard failure.
+    """
+    # `x-stream-id` is the routing key for SDR-fronted RTVI deployments: the
+    # in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR coordinator)
+    # consistent-hashes this header to pin a stream to one worker pod.
+    # Without it the proxy falls back to round-robin and subsequent
+    # /add → /delete → /config calls for the same sensor can land on different
+    # workers. See Projects/SDR/wiki.md for the routing contract.
+    rtvi_cv_url = rtvi_cv_base_url.rstrip("/")
+    rtvi_cv_add_url = f"{rtvi_cv_url}/api/v1/stream/add"
+    rtvi_cv_payload = {
+        "key": "sensor",
+        "value": {
+            "camera_id": sensor_id,
+            "camera_name": camera_name,
+            "camera_url": vst_file_path,
+            "creation_time": start_timestamp,
+            "change": "camera_add",
+            "metadata": {"resolution": "1920x1080", "codec": "h264", "framerate": 30},
+        },
+        "headers": {"source": "vst", "created_at": start_timestamp},
+    }
+
+    logger.info(f"Adding video to RTVI-CV: POST {rtvi_cv_add_url}")
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            with TimeMeasure("video_ingest: register with RTVI-CV"):
+                response = await client.post(
+                    rtvi_cv_add_url,
+                    json=rtvi_cv_payload,
+                    headers={"x-stream-id": sensor_id},
+                )
+            if response.status_code not in (200, 201):
+                error_msg = f"RTVI-CV returned {response.status_code}: {response.text}"
+                logger.error(error_msg)
+                raise HTTPException(status_code=502, detail=f"RTVI-CV add failed: {error_msg}")
+            logger.info(f"RTVI-CV video added: {sensor_id}")
+    except httpx.ConnectError:
+        logger.warning("RTVI-CV not reachable at %s, skipping (service may not be deployed)", rtvi_cv_add_url)
+    except httpx.TimeoutException:
+        logger.warning("RTVI-CV timed out at %s, skipping", rtvi_cv_add_url)
+
+
+async def _run_rtvi_embedding(
+    *,
+    rtvi_embed_base_url: str,
+    sensor_id: str,
+    vst_url: str,
+    vst_file_path: str,
+    rtvi_embed_model: str,
+    rtvi_embed_chunk_duration: int,
+    start_timestamp: str,
+) -> int:
+    """POST ``/v1/generate_video_embeddings``. Returns ``total_chunks_processed``.
+
+    The call is synchronous on the RTVI-Embed side — it blocks until the
+    generation completes (up to the 600s client timeout). Any non-200 raises
+    ``HTTPException(502)`` so the caller can surface the failure.
+    """
+    rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
+    embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
+    parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
+    if not parsed_vst.hostname:
+        raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
+    translated_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
+    logger.info(f"Using internal VST URL for RTVI: {translated_video_url}")
+
+    embed_request = {
+        "url": translated_video_url,
+        "id": sensor_id,
+        "model": rtvi_embed_model,
+        "creation_time": start_timestamp,
+        "chunk_duration": rtvi_embed_chunk_duration,
+    }
+
+    logger.info(f"Calling RTVI Embedding API: POST {embedding_url}")
+
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        with TimeMeasure("video_ingest: generate embeddings (RTVI)"):
+            response = await client.post(
+                embedding_url,
+                json=embed_request,
+                headers={
+                    "accept": "application/json",
+                    "Content-Type": "application/json",
+                    # SDR routing key — same rationale as RTVI-CV.
+                    "x-stream-id": sensor_id,
+                },
+            )
+
+        if response.status_code != 200:
+            error_msg = (
+                f"Embedding generation failed with status {response.status_code}: {response.text}"
+            )
+            logger.error(error_msg)
+            raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
+
+        result = response.json()
+        logger.info("RTVI Embedding generation successful")
+        return result.get("usage", {}).get("total_chunks_processed", 0)
+
+
 async def _run_post_upload_processing(
     camera_name: str,
     sensor_id: str,
@@ -276,106 +393,66 @@ async def _run_post_upload_processing(
 
         logger.info(f"VST video URL obtained: {vst_file_path}")
 
-    # Add to RTVI-CV (if configured). The URL parser rejects empty, scheme-only,
-    # and "http://host:" (no port body) forms — anything that wouldn't connect.
+    # Register with RTVI-CV and trigger embedding generation concurrently.
+    # The two services are independent — they both consume the VST storage URL
+    # but write to disjoint backends — so running them in parallel cuts the
+    # post-upload wall time roughly down to max(cv_time, embed_time) instead
+    # of cv_time + embed_time. The embed call is the long pole (it blocks
+    # until generation completes, up to 600s), so the savings are real.
     parsed_cv = _parse_optional_http_url(rtvi_cv_base_url)
+    parsed_embed = _parse_optional_http_url(rtvi_embed_base_url)
+
+    rtvi_tasks: list[tuple[str, Any]] = []
+
     if parsed_cv is not None:
-        rtvi_cv_url = rtvi_cv_base_url.rstrip("/")
-        rtvi_cv_add_url = f"{rtvi_cv_url}/api/v1/stream/add"
-        rtvi_cv_payload = {
-            "key": "sensor",
-            "value": {
-                "camera_id": sensor_id,
-                "camera_name": camera_name,
-                "camera_url": vst_file_path,
-                "creation_time": start_timestamp,
-                "change": "camera_add",
-                "metadata": {"resolution": "1920x1080", "codec": "h264", "framerate": 30},
-            },
-            "headers": {"source": "vst", "created_at": start_timestamp},
-        }
-
-        logger.info(f"Adding video to RTVI-CV: POST {rtvi_cv_add_url}")
-
-        # `x-stream-id` is the routing key for SDR-fronted RTVI deployments:
-        # the in-front-of-RTVI proxy (HAProxy Ingress or Envoy via SDR
-        # coordinator) consistent-hashes this header to pin a stream to one
-        # worker pod. Without it the proxy falls back to round-robin and
-        # subsequent /add → /delete → /config calls for the same sensor can
-        # land on different workers. See Projects/SDR/wiki.md for the routing
-        # contract.
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as rtvi_cv_client:
-                with TimeMeasure("video_ingest: register with RTVI-CV"):
-                    rtvi_cv_response = await rtvi_cv_client.post(
-                        rtvi_cv_add_url,
-                        json=rtvi_cv_payload,
-                        headers={"x-stream-id": sensor_id},
-                    )
-
-                if rtvi_cv_response.status_code not in (200, 201):
-                    error_msg = f"RTVI-CV returned {rtvi_cv_response.status_code}: {rtvi_cv_response.text}"
-                    logger.error(error_msg)
-                    raise HTTPException(status_code=502, detail=f"RTVI-CV add failed: {error_msg}")
-
-                logger.info(f"RTVI-CV video added: {sensor_id}")
-        except httpx.ConnectError:
-            logger.warning("RTVI-CV not reachable at %s, skipping (service may not be deployed)", rtvi_cv_add_url)
-        except httpx.TimeoutException:
-            logger.warning("RTVI-CV timed out at %s, skipping", rtvi_cv_add_url)
+        rtvi_tasks.append(
+            (
+                "rtvi-cv",
+                _register_with_rtvi_cv(
+                    rtvi_cv_base_url=rtvi_cv_base_url,
+                    sensor_id=sensor_id,
+                    camera_name=camera_name,
+                    vst_file_path=vst_file_path,
+                    start_timestamp=start_timestamp,
+                ),
+            )
+        )
     else:
         logger.info("RTVI-CV not configured, skipping")
 
-    # Trigger embedding generation (skip if the embed service isn't configured).
-    # Uses the same parser as RTVI-CV for consistency — hostname-only URLs
-    # relying on the scheme's default port are accepted.
-    parsed_embed = _parse_optional_http_url(rtvi_embed_base_url)
     chunks_processed = 0
-
-    if parsed_embed is None:
-        logger.info("RTVI Embed not configured, skipping embedding generation")
+    if parsed_embed is not None:
+        rtvi_tasks.append(
+            (
+                "rtvi-embed",
+                _run_rtvi_embedding(
+                    rtvi_embed_base_url=rtvi_embed_base_url,
+                    sensor_id=sensor_id,
+                    vst_url=vst_url,
+                    vst_file_path=vst_file_path,
+                    rtvi_embed_model=rtvi_embed_model,
+                    rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                    start_timestamp=start_timestamp,
+                ),
+            )
+        )
     else:
-        rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
-        embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
-        parsed_vst = urllib.parse.urlparse(f"http://{vst_url}" if "://" not in vst_url else vst_url)
-        if not parsed_vst.hostname:
-            raise HTTPException(status_code=500, detail=f"Invalid vst_url format: {vst_url}")
-        translated_video_url = rewrite_url_host(vst_file_path, parsed_vst.hostname)
-        logger.info(f"Using internal VST URL for RTVI: {translated_video_url}")
+        logger.info("RTVI Embed not configured, skipping embedding generation")
 
-        embed_request = {
-            "url": translated_video_url,
-            "id": sensor_id,
-            "model": rtvi_embed_model,
-            "creation_time": start_timestamp,
-            "chunk_duration": rtvi_embed_chunk_duration,
-        }
-
-        logger.info(f"Calling RTVI Embedding API: POST {embedding_url}")
-
-        async with httpx.AsyncClient(timeout=600.0) as client:
-            with TimeMeasure("video_ingest: generate embeddings (RTVI)"):
-                embed_response = await client.post(
-                    embedding_url,
-                    json=embed_request,
-                    headers={
-                        "accept": "application/json",
-                        "Content-Type": "application/json",
-                        # SDR routing key — same rationale as RTVI-CV above.
-                        "x-stream-id": sensor_id,
-                    },
-                )
-
-            if embed_response.status_code != 200:
-                error_msg = (
-                    f"Embedding generation failed with status {embed_response.status_code}: {embed_response.text}"
-                )
-                logger.error(error_msg)
-                raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")
-
-            embed_result = embed_response.json()
-            logger.info("RTVI Embedding generation successful")
-            chunks_processed = embed_result.get("usage", {}).get("total_chunks_processed", 0)
+    if rtvi_tasks:
+        with TimeMeasure("video_ingest: RTVI-CV register + embedding generation (parallel)"):
+            results = await asyncio.gather(
+                *(coro for _, coro in rtvi_tasks),
+                return_exceptions=True,
+            )
+        # Re-raise in task-declaration order so the caller sees the same
+        # priority the old sequential code did (CV first, then embed).
+        for (label, _), result in zip(rtvi_tasks, results):
+            if isinstance(result, BaseException):
+                logger.error("%s task failed: %s", label, result)
+                raise result
+            if label == "rtvi-embed":
+                chunks_processed = result or 0
 
     message = (
         f"Video {filename} successfully uploaded to VST and embeddings generated"

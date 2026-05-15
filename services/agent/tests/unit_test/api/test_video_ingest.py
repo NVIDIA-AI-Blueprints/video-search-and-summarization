@@ -160,6 +160,24 @@ class TestRunPostUploadProcessing:
         resp.text = text
         return resp
 
+    @staticmethod
+    def _post_router(routes: dict):
+        """Build an AsyncMock that dispatches POSTs by URL.
+
+        RTVI-CV and embedding generation now run in parallel via asyncio.gather,
+        so callbacks may consume the side_effect list in either order. Route by
+        URL substring instead of by call order.
+        """
+        def _dispatch(url, *args, **kwargs):
+            for substring, response in routes.items():
+                if substring in url:
+                    if isinstance(response, BaseException):
+                        raise response
+                    return response
+            raise AssertionError(f"unexpected POST URL: {url}")
+
+        return AsyncMock(side_effect=_dispatch)
+
     @pytest.mark.asyncio
     async def test_happy_path_with_cv_and_embed_configured(self):
         storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
@@ -170,7 +188,10 @@ class TestRunPostUploadProcessing:
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
         client.get = AsyncMock(return_value=storage_resp)
-        client.post = AsyncMock(side_effect=[cv_resp, embed_resp])
+        client.post = self._post_router({
+            "/api/v1/stream/add": cv_resp,
+            "/v1/generate_video_embeddings": embed_resp,
+        })
 
         with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
@@ -197,7 +218,10 @@ class TestRunPostUploadProcessing:
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
         client.get = AsyncMock(return_value=storage_resp)
-        client.post = AsyncMock(side_effect=[httpx.ConnectError("connection refused"), embed_resp])
+        client.post = self._post_router({
+            "/api/v1/stream/add": httpx.ConnectError("connection refused"),
+            "/v1/generate_video_embeddings": embed_resp,
+        })
 
         with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
