@@ -56,10 +56,6 @@ functions:
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
-    max_frames: 30
-    min_pixels: 3136
-    max_pixels: 12845056
-    reasoning: true
     video_url_tool: vst_video_clip
     vlm_mode: ${VLM_MODE}
     vst_internal_url: ${VST_INTERNAL_URL}
@@ -68,10 +64,6 @@ functions:
   video_understanding_iso:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
-    max_frames: 30
-    min_pixels: 3136
-    max_pixels: 12845056
-    reasoning: true
     video_url_tool: vst_video_url
     use_base64: true
     vlm_mode: ${VLM_MODE}
@@ -215,6 +207,11 @@ llms:
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 1024
+    max_frames: 30
+    max_fps: 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: true
 
   openai_vlm:
     _type: openai
@@ -222,6 +219,11 @@ llms:
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 4096
+    max_frames: 30
+    max_fps: 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: true
 
   vllm_vlm:
     _type: openai
@@ -229,6 +231,11 @@ llms:
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 4096
+    max_frames: 30
+    max_fps: 2
+    min_pixels: 3136
+    max_pixels: 12845056
+    reasoning: true
 
   # --- Others ---
   prompt_gen_llm:
