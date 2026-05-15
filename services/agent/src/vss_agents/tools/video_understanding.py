@@ -523,9 +523,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             if is_cosmos_reason2:
                 mm_processor_kwargs = {"size": {"shortest_edge": min_pixels, "longest_edge": max_pixels}}
             else:
-                mm_processor_kwargs = {
-                    "videos_kwargs": {"min_pixels": min_pixels, "max_pixels": max_pixels}
-                }
+                mm_processor_kwargs = {"videos_kwargs": {"min_pixels": min_pixels, "max_pixels": max_pixels}}
             vlm = base_vlm.bind(
                 mm_processor_kwargs=mm_processor_kwargs,
                 media_io_kwargs=media_io_kwargs,
