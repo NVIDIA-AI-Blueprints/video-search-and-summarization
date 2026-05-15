@@ -53,24 +53,24 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  perception-sdr-alerts:
-    extends:
-      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: perception-sdr
-    profiles: ["bp_developer_alerts_2d_cv"]
-    container_name: vss-rtvi-cv-sdr
-    volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-data
-    environment:
-      WDM_INITIALIZE_FROM_VST: true
-      WDM_KFK_ENABLE: false
-      WDM_PRELOAD_DELAY_FOR_DS_API: true
-      WDM_WL_THRESHOLD: ${NUM_SENSORS}
-      WDM_POD_WATCH_DOCKER_DELAY: 0.5
-      WDM_WL_OBJECT_NAME: sdr-deepstream
-      WDM_CONSUMER_GRP_ID: sdr-deepstream-cg
-      WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+  # perception-sdr-alerts:
+  #   extends:
+  #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+  #     service: perception-sdr
+  #   profiles: ["bp_developer_alerts_2d_cv"]
+  #   container_name: vss-rtvi-cv-sdr
+  #   volumes:
+  #     - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
+  #     - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-data
+  #   environment:
+  #     WDM_INITIALIZE_FROM_VST: true
+  #     WDM_KFK_ENABLE: false
+  #     WDM_PRELOAD_DELAY_FOR_DS_API: true
+  #     WDM_WL_THRESHOLD: ${NUM_SENSORS}
+  #     WDM_POD_WATCH_DOCKER_DELAY: 0.5
+  #     WDM_WL_OBJECT_NAME: sdr-deepstream
+  #     WDM_CONSUMER_GRP_ID: sdr-deepstream-cg
+  #     WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
 
   perception-alerts:
     extends:
