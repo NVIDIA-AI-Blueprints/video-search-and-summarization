@@ -124,6 +124,10 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
         default=10,
         description="Frames per chunk sent to the VLM. Forwarded as `num_frames_per_second_or_fixed_frames_chunk`.",
     )
+    use_fps_for_chunking: bool = Field(
+        default=False,
+        description="If True, interpret `num_frames_per_chunk` as FPS instead of fixed frames per chunk.",
+    )
     seed: int | None = Field(default=None, description="Random seed for LVS media processing.")
     vlm_input_width: int | None = Field(
         default=None,
@@ -348,6 +352,7 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
             "events": events,
             "chunk_duration": config.chunk_duration,
             "num_frames_per_second_or_fixed_frames_chunk": config.num_frames_per_chunk,
+            "use_fps_for_chunking": config.use_fps_for_chunking,
         }
         if config.seed is not None:
             payload["seed"] = config.seed

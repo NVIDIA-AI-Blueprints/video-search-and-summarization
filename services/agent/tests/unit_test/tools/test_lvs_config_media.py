@@ -145,6 +145,7 @@ class TestLVSConfigMediaInner:
                 "events": ["accident"],
                 "chunk_duration": 10,
                 "num_frames_per_second_or_fixed_frames_chunk": 10,
+                "use_fps_for_chunking": False,
             },
         )
 
@@ -229,6 +230,47 @@ class TestLVSConfigMediaInner:
         mock_session.post.assert_called_once()
         _, kwargs = mock_session.post.call_args
         assert kwargs["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 20
+
+    @pytest.mark.asyncio
+    async def test_use_fps_for_chunking_is_configurable(self):
+        config = LVSConfigMediaConfig(
+            lvs_backend_url="http://localhost:38111",
+            vst_internal_url="http://localhost:30888",
+            model="nvidia/cosmos-reason2-8b",
+            hitl_scenario_template="Scenario",
+            hitl_events_template="Events",
+            hitl_objects_template="Objects",
+            default_scenario="warehouse monitoring",
+            default_events=["accident"],
+            use_fps_for_chunking=True,
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.status = 202
+        mock_resp.text = AsyncMock(return_value="")
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post.return_value = mock_resp
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.lvs_config_media.get_stream_info_by_name", new_callable=AsyncMock) as mock_stream:
+            mock_stream.return_value = ("stream-uuid", "rtsp://example/stream")
+            with patch(
+                "vss_agents.tools.lvs_config_media._prompt_user_input",
+                new_callable=AsyncMock,
+            ) as mock_prompt:
+                mock_prompt.side_effect = ["", "", "forklifts, workers", ""]
+                with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientSession", return_value=mock_session):
+                    with patch("vss_agents.tools.lvs_config_media.aiohttp.ClientTimeout"):
+                        inner_fn = await self._get_inner_fn(config)
+                        await inner_fn(LVSConfigMediaInput(stream_name="CAM_1"))
+
+        mock_session.post.assert_called_once()
+        _, kwargs = mock_session.post.call_args
+        assert kwargs["json"]["use_fps_for_chunking"] is True
 
     @pytest.mark.asyncio
     async def test_config_media_stream_not_found(self):
