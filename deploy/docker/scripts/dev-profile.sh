@@ -608,9 +608,10 @@ function process_args() {
       fi
 
       # Fail fast: requested hardware_profile must match detected GPU (from nvidia-smi display name).
+      # OTHER is a user-selected catch-all and intentionally bypasses the host GPU match.
       # Both sides use canonical types (AGX-THOR and IGX-THOR map to THOR for comparison).
       # Set SKIP_HARDWARE_CHECK=true to skip (e.g. in CI/tests without matching GPU).
-      if [[ -n "${hardware_profile}" ]] && [[ "${SKIP_HARDWARE_CHECK,,}" != "true" ]]; then
+      if [[ -n "${hardware_profile}" ]] && [[ "$(get_canonical_hardware_profile "${hardware_profile}")" != "OTHER" ]] && [[ "${SKIP_HARDWARE_CHECK,,}" != "true" ]]; then
         local _gpu_name _detected_canonical
         _gpu_name="$(get_nvidia_smi_gpu_name)"
         if [[ -z "${_gpu_name}" ]]; then
