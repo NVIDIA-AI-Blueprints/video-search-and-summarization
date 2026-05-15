@@ -41,6 +41,7 @@ multiple streams — that lifecycle is handled by ``rtsp_ingest.py`` /
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 from typing import Any
@@ -102,18 +103,42 @@ def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None
     return parsed
 
 
-def _parse_timeout_seconds(raw_value: Any, *, default: float, setting_name: str) -> float:
-    """Parse an optional timeout value, preserving the old hard-coded default."""
+def _parse_timeout_seconds(raw_value: Any, *, setting_name: str) -> float | None:
+    """Parse an optional timeout value to a positive finite float.
+
+    Returns ``None`` if ``raw_value`` is unset, malformed, non-positive, or
+    non-finite (NaN/Inf). The caller decides what to do on ``None`` — for
+    YAML inputs that's "try the env-var fallback before defaulting", which
+    matches the documented "YAML > env > default" precedence.
+
+    Notable rejections (each logs a warning so misconfiguration is visible):
+
+    - ``True``/``False`` — YAML coerces ``yes``/``no`` to bool, then ``float``
+      happily turns them into 1.0 / 0.0. A typo like
+      ``vst_upload_timeout_seconds: yes`` would silently become a 1-second
+      timeout. Reject bool before the ``float()`` call.
+    - ``"nan"``, ``"inf"``, ``float('inf')`` — accepted by ``float`` and pass
+      ``> 0`` (NaN comparisons are always False; +Inf is positive). httpx's
+      behaviour on these is undefined, so reject up front.
+    """
     if raw_value is None or raw_value == "":
-        return default
+        return None
+    if isinstance(raw_value, bool):
+        logger.warning(
+            "Invalid %s=%r; bool/YAML-yes/no isn't a timeout, skipping", setting_name, raw_value
+        )
+        return None
     try:
         timeout_seconds = float(raw_value)
     except (TypeError, ValueError):
-        logger.warning("Invalid %s=%r; falling back to %.1fs", setting_name, raw_value, default)
-        return default
+        logger.warning("Invalid %s=%r; not a number, skipping", setting_name, raw_value)
+        return None
+    if not math.isfinite(timeout_seconds):
+        logger.warning("Invalid %s=%r; must be finite, skipping", setting_name, raw_value)
+        return None
     if timeout_seconds <= 0:
-        logger.warning("Invalid %s=%r; timeout must be > 0, falling back to %.1fs", setting_name, raw_value, default)
-        return default
+        logger.warning("Invalid %s=%r; timeout must be > 0, skipping", setting_name, raw_value)
+        return None
     return timeout_seconds
 
 
@@ -124,12 +149,27 @@ def _resolve_timeout_seconds(
     env_name: str,
     default: float,
 ) -> float:
-    raw_value = getattr(streaming_config, attr_name, None) if streaming_config else None
-    if raw_value is not None and raw_value.__class__.__module__ == "unittest.mock":
-        raw_value = None
-    if raw_value is None or raw_value == "":
-        raw_value = os.getenv(env_name, "")
-    return _parse_timeout_seconds(raw_value, default=default, setting_name=attr_name)
+    """Resolve a timeout value using ``YAML > env > default`` precedence.
+
+    Each source is parsed via :func:`_parse_timeout_seconds`; a malformed
+    value on one source falls through to the next. This matches operator
+    intuition: setting the env var lets you recover from a typo in YAML
+    without having to redeploy the chart.
+
+    ``streaming_config`` is whatever pydantic produced from
+    ``general.front_end.streaming_ingest`` — a model with attributes, or
+    ``None`` when NAT stripped the section. Other callers (tests, dev
+    harnesses) typically pass a ``SimpleNamespace``.
+    """
+    raw_yaml = getattr(streaming_config, attr_name, None) if streaming_config else None
+    parsed = _parse_timeout_seconds(raw_yaml, setting_name=attr_name)
+    if parsed is not None:
+        return parsed
+    raw_env = os.getenv(env_name, "")
+    parsed = _parse_timeout_seconds(raw_env, setting_name=env_name)
+    if parsed is not None:
+        return parsed
+    return default
 
 
 class VideoIngestResponse(BaseModel):

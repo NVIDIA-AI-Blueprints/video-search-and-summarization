@@ -84,6 +84,45 @@ class StreamingIngestConfig(BaseModel):
     elasticsearch_url: str = Field(default="", description="Elasticsearch endpoint URL")
     rtvi_embed_es_index: str = Field(default="", description="Elasticsearch index for embeddings")
 
+    # Optional HTTP-client timeouts for the post-upload pipeline (video_ingest).
+    # All four default to ``None`` so the resolver in ``video_ingest`` falls
+    # through to the env-var fallback and then the module's DEFAULT_*_TIMEOUT
+    # constants. Declaring them on the model (instead of relying on
+    # ``extra="allow"``) gives operators typo detection at config-load time
+    # (an unknown sibling like ``rtvi_emb_timeout_seconds`` would still ride
+    # in silently via ``extra="allow"``, but the four spellings below are
+    # auto-completed and type-checked).
+    rtvi_cv_timeout_seconds: float | None = Field(
+        default=None,
+        description=(
+            "Per-request timeout (seconds) for RTVI-CV /api/v1/stream/add during "
+            "post-upload processing. Default: 60s."
+        ),
+    )
+    rtvi_embed_timeout_seconds: float | None = Field(
+        default=None,
+        description=(
+            "Per-request timeout (seconds) for RTVI-Embed /v1/generate_video_embeddings. "
+            "This call blocks until generation completes — bump it for very long videos. "
+            "Default: 600s."
+        ),
+    )
+    vst_storage_timeout_seconds: float | None = Field(
+        default=None,
+        description=(
+            "Per-request timeout (seconds) for the VST /storage/file/{sensor_id}/url lookup "
+            "that resolves the playable URL after upload. Default: 60s."
+        ),
+    )
+    vst_upload_timeout_seconds: float | None = Field(
+        default=None,
+        description=(
+            "Per-request timeout (seconds) for the deprecated single-PUT upload shim "
+            "(PUT /api/v1/videos-for-search/{filename}). NOT used by the chat upload flow — "
+            "those chunks go browser → VST and bypass the agent entirely. Default: 300s."
+        ),
+    )
+
 
 class VSSFastApiFrontEndConfig(FastApiFrontEndConfig, name="vss_fastapi"):  # type: ignore[call-arg]
     """

@@ -93,14 +93,25 @@ vstInternalIp: ""
 vssAgentVersion: "3.2.0-26.05.2-2b9b7127c0bb"
 lvsBackendService: ""
 
-# [Optional] VSS Agent service configs for video ingest HTTP call timeouts, in
-# seconds. Leave blank to preserve the service defaults: VST upload 300,
-# VST storage 60, RTVI-CV 60, RTVI-Embed 600.
+# [Optional] HTTP-client timeouts (seconds) for the post-upload pipeline in
+# services/agent/src/vss_agents/api/video_ingest.py. Each value flows in as
+# a VIDEO_INGEST_*_TIMEOUT_SECONDS env var and is only emitted when set, so
+# leaving a key empty preserves whatever the agent's YAML config or the
+# DEFAULT_*_TIMEOUT_SECONDS module constants set (the canonical source of
+# the numeric defaults — they're intentionally NOT duplicated here, to
+# avoid silent drift if anyone bumps a default in Python).
+#
+# vstUploadTimeoutSeconds is consumed ONLY by the deprecated single-PUT
+# shim at PUT /api/v1/videos-for-search/{filename} (used by the search-
+# profile CI fixture). The chat upload flow streams chunks browser → VST
+# directly, so the agent isn't in the upload data path and this knob has
+# no effect there. Tune vstStorageTimeoutSeconds + rtviCvTimeoutSeconds +
+# rtviEmbedTimeoutSeconds for the chat flow.
 videoIngestTimeouts:
-  vstUploadSeconds: ""
-  vstStorageSeconds: ""
-  rtviCvSeconds: ""
-  rtviEmbedSeconds: ""
+  vstUploadTimeoutSeconds: ""
+  vstStorageTimeoutSeconds: ""
+  rtviCvTimeoutSeconds: ""
+  rtviEmbedTimeoutSeconds: ""
 
 # Block startup until Kafka, Redis, and Elasticsearch accept TCP (optional).
 waitForDependencies:
