@@ -54,7 +54,7 @@ services:
     network_mode: host
     container_name: vss-vios-ingress
     restart: always    # Nginx should always restart as it's critical for routing
-    command: ["nginx", "-g", "daemon off;"]
+    command: ["nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${VST_INGRESS_HTTP_PORT:-30888}'"]
       interval: 5s
