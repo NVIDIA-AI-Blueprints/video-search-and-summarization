@@ -204,7 +204,7 @@ llms:
 
   rtvi_vlm:
     _type: openai
-    model_name: nim_nvidia_cosmos-reason2-8b_hf-1208
+    model_name: ${VLM_NAME}
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
