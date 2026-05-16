@@ -21,7 +21,7 @@
       ]
     },
     {
-      "query": "Verify the VSS stack is ready for the **video-understanding** skill. Confirm the agent serves OpenAPI at `/docs` and that VST lists at least one stream.",
+      "query": "Verify the VSS stack is ready for the **vss-ask-video** skill. Confirm the agent serves OpenAPI at `/docs` and that VST lists at least one stream.",
       "checks": [
         "curl -sf --max-time 10 -o /dev/null -w '%{http_code}' http://localhost:8000/docs returns 200",
         "curl -sf --max-time 10 http://localhost:30888/vst/api/v1/sensor/streams returns HTTP 200 and a non-empty JSON body"
