@@ -43,3 +43,19 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: {{ include "vss-behavior-analytics.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{- define "vss-behavior-analytics.effectiveResourcesStorage" -}}
+{{- $claim := printf "%s-resources" (include "vss-behavior-analytics.fullname" .) }}
+{{- $default := .Values.resourcesPvc.size | default "1Gi" }}
+{{- if .Values.forceResourcesStorageFromValues }}
+{{- print $default }}
+{{- else }}
+{{- $pvc := lookup "v1" "PersistentVolumeClaim" .Release.Namespace $claim }}
+{{- $got := dig "spec" "resources" "requests" "storage" "" $pvc }}
+{{- if $got }}
+{{- print $got }}
+{{- else }}
+{{- print $default }}
+{{- end }}
+{{- end }}
+{{- end }}

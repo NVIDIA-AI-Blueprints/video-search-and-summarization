@@ -300,6 +300,14 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # Pin the eval's deploy step to the PR's actual head SHA on
+            # the actual source repo — the pre-deploy script reads these
+            # and resets $REPO to that SHA. Without them, the adapter's
+            # baked-in branch wins and warm-pool boxes drift from PR
+            # reality (NVBug 6154461 / PR #377 finding: spec asserted
+            # the renamed release/3.2.0 container names while the eval
+            # deployed feat/skills's old names).
+            "PR_HEAD_SHA", "PR_REPO",
         ):
             val = os.environ.get(key)
             if val:
@@ -328,6 +336,20 @@ class BrevEnvironment(BaseEnvironment):
             logger.info("Uploading skills from %s to /skills on instance", task_skills_dir)
             await self.upload_dir(str(task_skills_dir), "/skills")
 
+        # Sync ~/video-search-and-summarization on the box to the PR's
+        # actual head SHA before any deploy/agent step reads it.
+        #
+        # Without this, every trial runs against whatever happened to be
+        # checked out on the box from a prior session — often a stale
+        # tarball-style checkout (no `.git`) with an obsolete directory
+        # layout (`deployments/` instead of `deploy/docker/`) and the
+        # pre-rename container names. The pre-deploy script generated
+        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+        # only syncs on the *gold-solution* path; the trial's agent invokes
+        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
+        # PR_HEAD_SHA forwarded above never actually lands on disk.
+        await self._sync_repo_to_pr_head()
+
         # Pre-deploy any prerequisite profile declared in task.toml [metadata].
         # Idempotent via marker file on the box, so dependent trials reuse the
         # deployment without re-running it.
@@ -337,35 +359,54 @@ class BrevEnvironment(BaseEnvironment):
         logger.info("Brev instance %s is reachable", self._instance_name)
 
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
-        """If task.toml [metadata] declares both `profile` and
-        `prerequisite_deploy_mode`, ensure /deploy has run on the Brev
-        box for that profile-mode pair. Reads a single canonical
-        marker that records what is currently RUNNING on the box —
-        not a deploy log. See specs/stale-marker.spec.
+        """Reconcile the Brev box's deployment state with what this
+        trial's task.toml [metadata] declares. Reads a single canonical
+        marker that records what is currently RUNNING on the box — not
+        a deploy log. See specs/stale-marker.spec.
 
-        Algorithm:
-          1. cat /tmp/skill-eval/active-deploy.txt on the box.
-          2. If contents == f"{profile}-{deploy_mode}" → no-op (hot).
-          3. Else → run /deploy via claude --print; the deploy skill's
-             own step-0 teardown handles any prior stack. On success
-             OVERWRITE the marker. On failure leave it alone — next
-             trial re-evaluates.
+        Three regimes, derived from `profile` + `prerequisite_deploy_mode`:
 
-        Trials with NO `profile` (skills that don't need a deployed
-        VSS) skip this entirely. Deploy/* trials set `profile` but NOT
-        `prerequisite_deploy_mode` (they ARE the deploy), so they also
-        early-return; their test.sh writes the marker on reward=1.0.
+        1. `profile` set (downstream needs a deployed VSS stack):
+            desired = `<profile>` (e.g. `base`, `lvs`, `search`),
+                  or `<profile>-<deploy_mode>` for alerts variants
+                  (`alerts-verification`, `alerts-real-time`).
+            If marker == desired → hot, no-op.
+            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]` via
+                  `claude --print`. On success OVERWRITE marker.
 
-        claude-code is expected on the box from a prior deploy/* trial's
+        2. `profile` absent (trial needs a clean box, no VSS running):
+            desired = `""` (empty marker).
+            Always tear down all containers (`docker rm -f $(docker
+                  ps -aq)`) + prune networks; OVERWRITE marker to empty.
+                  An empty marker does not prove a prior standalone
+                  profile-less trial cleaned up every container it started.
+                  Preserves anything `docker rm -f` doesn't touch:
+                  docker image cache, named volumes (postgres / ES /
+                  kafka data), repo clone, and sample-data extract —
+                  the slow caches that make warm reuse valuable for
+                  the next deploy trial. Cleanup failures fail loud:
+                  if either docker command exits non-zero the marker
+                  is NOT overwritten, so the next trial re-attempts
+                  the reconcile instead of running against a
+                  partially-dirty box that pretends to be clean.
+
+        vss-deploy-profile/* trials themselves set `profile` but don't request a
+        prereq — their test.sh writes the marker on reward=1.0. They
+        never call this hook.
+
+        claude-code is expected on the box from a prior vss-deploy-profile/* trial's
         harbor agent setup; persists across trials on the reused
         vss-eval-* instance. Override the wall clock via
         PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
         profile = meta.get("profile")
         deploy_mode = meta.get("prerequisite_deploy_mode")
-        if not profile or not deploy_mode:
-            return
+        if profile and deploy_mode:
+            desired = f"{profile}-{deploy_mode}"
+        elif profile:
+            desired = profile
+        else:
+            desired = ""
 
-        desired = f"{profile}-{deploy_mode}"
         marker_path = "/tmp/skill-eval/active-deploy.txt"
         probe = await _run_brev_exec(
             self._instance_name,
@@ -373,16 +414,50 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
         current = (probe.stdout or "").strip()
-        if current == desired:
+        if current == desired and desired:
+            state = desired or "<clean>"
             logger.info(
-                "prerequisite %s already running on %s; skipping pre-deploy",
-                desired, self._instance_name,
+                "prerequisite %s already current on %s; skipping reconcile",
+                state, self._instance_name,
             )
             return
         logger.info(
-            "prerequisite mismatch on %s (active=%r, desired=%r); pre-deploying",
-            self._instance_name, current or "<empty>", desired,
+            "prerequisite mismatch on %s (active=%r, desired=%r); reconciling",
+            self._instance_name, current or "<empty>", desired or "<clean>",
         )
+
+        if not desired:
+            # Profile-less trial wants a clean box. Tear down all
+            # containers without touching the vss-deploy-profile skill; keeps the
+            # docker image cache, named volumes (postgres / ES / kafka
+            # data), repo clone, and sample-data extract warm for the
+            # next deploy trial. Container teardown is fast (<10s
+            # typically) so the timeout is short.
+            #
+            # No `|| true` on the docker commands by design — if either
+            # exits non-zero (stuck container, daemon transient error)
+            # the `&&` chain short-circuits and the marker is left as
+            # it was, so the next trial re-runs the reconcile rather
+            # than silently treating a partially-dirty box as clean.
+            # `xargs -r` already handles the "no containers to remove"
+            # case (skips invoking docker rm at all, exit 0).
+            cmd = (
+                "mkdir -p /tmp/skill-eval && "
+                "docker ps -aq | xargs -r docker rm -f >/dev/null && "
+                "docker network prune -f >/dev/null && "
+                f"printf '' > {shlex.quote(marker_path)}"
+            )
+            logger.info(
+                "Cleaning box %s (no profile required)", self._instance_name,
+            )
+            result = await _run_brev_exec(self._instance_name, cmd, timeout=120)
+            if result.return_code != 0:
+                tail = (result.stderr or result.stdout or "")[-500:]
+                raise RuntimeError(
+                    f"box-clean failed on {self._instance_name}: "
+                    f"exit {result.return_code}; tail:\n{tail}"
+                )
+            return
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
@@ -405,8 +480,10 @@ class BrevEnvironment(BaseEnvironment):
             env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
         env_prefix = " ".join(env_prefix_parts)
 
-        prompt = f"/deploy -p {profile} -m {deploy_mode}"
-        # Overwrite (>) the canonical marker on /deploy success — the
+        prompt = f"/vss-deploy-profile -p {profile}"
+        if deploy_mode:
+            prompt += f" -m {deploy_mode}"
+        # Overwrite (>) the canonical marker on /vss-deploy-profile success — the
         # marker reflects what is currently running, not a deploy log.
         # PATH prepend: brev exec runs a non-interactive shell that does
         # not source ~/.bashrc, where harbor writes
@@ -432,13 +509,86 @@ class BrevEnvironment(BaseEnvironment):
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
-                f"pre-deploy /deploy -p {profile} -m {deploy_mode} failed "
+                f"pre-deploy /vss-deploy-profile -p {profile} -m {deploy_mode} failed "
                 f"on {self._instance_name}: exit {result.return_code}; "
                 f"output tail: {tail!r}"
             )
         logger.info(
             "Pre-deploy %s succeeded on %s; active marker overwritten",
             desired, self._instance_name,
+        )
+
+    async def _sync_repo_to_pr_head(self) -> None:
+        """Reset `~/video-search-and-summarization` on the Brev box to the
+        PR's actual head SHA. Runs once per trial, before any deploy or
+        agent step reads `$REPO`.
+
+        Why this is in the env provider (not the deploy adapter): the
+        vss-deploy-profile adapter's solve.sh syncs the repo on the *gold-solution*
+        path, but the trial's claude-code agent invokes `/vss-deploy-profile`
+        directly against whatever's on disk. Without this sync, the
+        forwarded `PR_HEAD_SHA` env var has no effect on the actual
+        compose/skill files the agent reads.
+
+        Handles three pre-states:
+
+        - **Empty / missing dir** — fresh clone.
+        - **Stale non-git checkout** (tarball-style, no `.git` dir) —
+          this is the load-bearing fix: prior versions of the dir
+          shipped from before the repo was renamed and the layout
+          changed (`deployments/` not `deploy/docker/`). Nuke and
+          re-clone; never silently fall through to `git fetch` on
+          a non-git dir.
+        - **Existing git checkout** — `git remote set-url` (handles
+          cross-fork PRs) + `git fetch <PR_HEAD_SHA>` + hard reset.
+
+        Preserves `data/` (NGC sample bundle) and `.env` (active trial
+        overrides) on `git clean`. Fails loud — `set -euo pipefail` so
+        any sync error short-circuits start() before the agent runs.
+        """
+        # PR_HEAD_SHA + PR_REPO come from the workflow step's env and are
+        # forwarded into ~/.eval_env on the instance by the loop above.
+        # When unset (local dev / smoke test), fall back to develop.
+        cmd = r"""set -euo pipefail
+PR_REPO="${PR_REPO:-NVIDIA-AI-Blueprints/video-search-and-summarization}"
+PR_HEAD_SHA="${PR_HEAD_SHA:-}"
+REPO="$HOME/video-search-and-summarization"
+VSS_REPO_URL="https://github.com/${PR_REPO}.git"
+
+# Case 1: dir exists but isn't a git repo (stale tarball checkout) — nuke
+#         and re-clone. Case 2: dir doesn't exist — clone fresh.
+if [ ! -d "$REPO/.git" ]; then
+  rm -rf "$REPO"
+  git clone --no-checkout --depth=1 --branch develop "$VSS_REPO_URL" "$REPO"
+fi
+cd "$REPO"
+git remote set-url origin "$VSS_REPO_URL"
+if [ -n "$PR_HEAD_SHA" ]; then
+  git fetch --depth=1 origin "$PR_HEAD_SHA"
+  git -c advice.detachedHead=false checkout --force "$PR_HEAD_SHA"
+  git reset --hard "$PR_HEAD_SHA"
+else
+  git fetch --depth=1 origin develop
+  git -c advice.detachedHead=false checkout --force FETCH_HEAD
+  git reset --hard FETCH_HEAD
+fi
+# Drop leftover working-tree state from a prior trial, but keep data/
+# (sample-data extract — slow to re-pull from NGC) and any .env tweaks
+# the active trial may have placed.
+git clean -fdx -e data/ -e .env
+echo "synced $REPO to $(git rev-parse --short HEAD)"
+"""
+        logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
+        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"repo sync failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Repo sync on %s: %s",
+            self._instance_name, (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
     async def stop(self, delete: bool) -> None:

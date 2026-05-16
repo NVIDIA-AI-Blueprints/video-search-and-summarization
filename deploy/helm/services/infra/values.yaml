@@ -57,6 +57,11 @@ redis:
   nodeSelector: {}
   tolerations: []
 
+# SDRC (combined WDM controller + Envoy router). Disabled by default; parent
+# profiles enable it and provide a profile-owned workload config ConfigMap.
+sdrc:
+  enabled: false
+
 # Elasticsearch (StatefulSet + elasticsearch.yml + optional bootstrap Job). Profiles override via infra.elasticsearch.
 elasticsearch:
   enabled: false

@@ -399,6 +399,14 @@ run_negative_test "invalid profile" 1 up -p invalid
 run_negative_test "invalid hardware-profile" 1 up -p base -H INVALID
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
+_mock_nvidia_smi_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_nvidia_smi_dir}")
+cat > "${_mock_nvidia_smi_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+echo "NVIDIA H100 80GB HBM3"
+EOF
+chmod +x "${_mock_nvidia_smi_dir}/nvidia-smi"
+PATH="${_mock_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "OTHER accepted when detected GPU is supported" up -p base -i 127.0.0.1 -H OTHER -d
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
@@ -682,11 +690,11 @@ rm -f "${_out_alerts}"
 # Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvstaging TAO).
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.1.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
+if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
   echo "PASS: search dry-run output includes NGC model download steps"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.1.fp16.onnx, --org nvstaging, ngc registry model)"
+  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvstaging, ngc registry model)"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"

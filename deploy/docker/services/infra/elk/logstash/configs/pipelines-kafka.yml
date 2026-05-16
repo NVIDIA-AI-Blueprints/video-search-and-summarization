@@ -1,0 +1,4 @@
+- pipeline.id: mdx-kafka
+  path.config: "/usr/share/logstash/pipelines/mdx-logstash.conf"
+- pipeline.id: mdx-lvs
+  path.config: "/usr/share/logstash/pipelines/mdx-lvs-logstash.conf"
