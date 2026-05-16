@@ -1,0 +1,133 @@
+name: SonarQube Analysis
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "release/**"
+  pull_request:
+    branches:
+      - main
+      - develop
+      - "release/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sonarqube:
+    name: SonarQube Scan (${{ matrix.name }})
+    runs-on: sonarqube-workflows-bp-sre
+    timeout-minutes: 30
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: agent
+            project_key: TEGRASW_metropolis_video-search-and-summarization-agent_video-search-and-summarization
+            project_name: video-search-and-summarization-agent
+            sources: services/agent
+            tests: services/agent/tests
+            python_version: "3.13"
+          - name: ui
+            project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
+            project_name: video-search-and-summarization-ui
+            sources: services/ui
+            tests: ""
+            python_version: ""
+          - name: skills
+            project_key: TEGRASW_metropolis_video-search-and-summarization-skills_video-search-and-summarization
+            project_name: video-search-and-summarization-skills
+            sources: skills
+            tests: ""
+            python_version: ""
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate SonarQube secrets
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_HOST_URL" ]; then
+            echo "SONAR_HOST_URL secret is required."
+            exit 1
+          fi
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "SONAR_TOKEN secret is required."
+            exit 1
+          fi
+
+      - name: Write SonarQube configuration
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          SONAR_PROJECT_KEY: ${{ matrix.project_key }}
+          SONAR_PROJECT_NAME: ${{ matrix.project_name }}
+          SONAR_SOURCES: ${{ matrix.sources }}
+          SONAR_TESTS: ${{ matrix.tests }}
+          SONAR_PYTHON_VERSION: ${{ matrix.python_version }}
+        run: |
+          exclusions="**/node_modules/**,**/.venv/**,**/__pycache__/**,**/.mypy_cache/**,**/.ruff_cache/**,**/dist/**,**/build/**,**/.next/**,**/coverage/**,**/__tests__/**,**/*.test.ts,**/*.test.tsx,**/*.test.js,**/*.test.jsx,**/*.spec.ts,**/*.spec.tsx,**/3rdparty/**"
+
+          {
+            echo "sonar.projectKey=${SONAR_PROJECT_KEY}"
+            echo "sonar.projectName=${SONAR_PROJECT_NAME}"
+            echo "sonar.projectVersion=1.0.0"
+            echo "sonar.sourceEncoding=UTF-8"
+            echo "sonar.scm.provider=git"
+            echo "sonar.qualitygate.wait=true"
+            echo "sonar.sources=${SONAR_SOURCES}"
+            echo "sonar.exclusions=${exclusions}"
+          } > sonar-project.properties
+
+          if [ -n "$SONAR_TESTS" ]; then
+            {
+              echo "sonar.tests=${SONAR_TESTS}"
+              echo "sonar.test.inclusions=${SONAR_TESTS}/**/*.py"
+            } >> sonar-project.properties
+          fi
+
+          if [ -n "$SONAR_PYTHON_VERSION" ]; then
+            echo "sonar.python.version=${SONAR_PYTHON_VERSION}" >> sonar-project.properties
+          fi
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            {
+              echo "sonar.pullrequest.key=${PR_NUMBER}"
+              echo "sonar.pullrequest.branch=${PR_HEAD_REF}"
+              echo "sonar.pullrequest.base=${PR_BASE_REF}"
+            } >> sonar-project.properties
+          elif [ -n "${GITHUB_REF_NAME:-}" ]; then
+            echo "sonar.branch.name=${GITHUB_REF_NAME}" >> sonar-project.properties
+          fi
+
+          sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
+
+      - name: Run SonarQube scanner
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Check SonarQube quality gate
+        uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496 # v1
+        timeout-minutes: 5
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
