@@ -19,6 +19,7 @@ Stdlib only. The runner is expected to have Python 3.12 and nv-base
 pre-installed; nothing else.
 """
 
+import atexit
 import json
 import os
 import shutil
@@ -153,6 +154,7 @@ def main() -> None:
     nv_base = find_nv_base()
 
     out_dir = Path(tempfile.mkdtemp(prefix="nvbase-"))
+    atexit.register(shutil.rmtree, out_dir, ignore_errors=True)
     cmd = [
         nv_base, "validate", skill_root,
         "--type", "skill",

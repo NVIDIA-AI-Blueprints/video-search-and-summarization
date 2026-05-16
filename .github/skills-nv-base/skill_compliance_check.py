@@ -272,7 +272,7 @@ SAFE_LINE_PATTERNS: List[str] = [
     r"\$\{[A-Z_]+\}",           # ${ENV_VAR}
     r"\$[A-Z][A-Z_]{2,}",       # $ENV_VAR (e.g. $SERVICE_API_TOKEN)
     r"vault kv get",             # vault retrieval command, not a secret itself
-    r"#.*",                      # full-line comments
+    r"^\s*#",                    # full-line comments (anchored; inline '#' must not exempt the whole line)
     r"your[_\-]",                # "your_api_key", "your-token" etc.
     r"\b(example|placeholder|dummy|fake|sample)\b",  # whole-word only; NOT "test"
 ]
@@ -586,8 +586,8 @@ def check_frontmatter(skill_path: Path, result: SkillResult) -> None:
     if fm is None:
         result.findings.append(Finding(
             ERROR, "FM-001",
-            "SKILL.md has no YAML frontmatter. The file must start with --- and include "
-            "name, description, owner, service, version, and reviewed fields.",
+            "SKILL.md has no YAML frontmatter. The file must start with --- and "
+            "include name and description fields.",
         ))
         return
 
