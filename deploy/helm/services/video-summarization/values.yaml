@@ -17,7 +17,7 @@ enabled: false
 global: {}
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-video-summarization
-  tag: "3.2.0-rc9-10bde8d"
+  tag: "3.2.0-rc10-6f75390"
   pullPolicy: IfNotPresent
 replicas: 1
 # Backend (API), MCP ports — match Compose
@@ -42,6 +42,9 @@ vlmName: ""  # optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLO
 elasticsearchHost: ""
 elasticsearchPort: "9200"
 elasticsearchTransportPort: "9300"
+# Leave empty for the in-cluster Kafka service. Defaults to kafka-kafka:9092,
+# or <release>-kafka-kafka:9092 when global.useReleaseNamePrefix is enabled.
+kafkaBootstrapServers: ""
 env:
   - name: ARANGO_DB_HOST
     value: arango-db
@@ -78,14 +81,11 @@ env:
   - name: GRAPH_DB_USERNAME
     value: neo4j
   # Kafka integration: consume RTVI captions / publish structured summaries.
-  # Compose parity: deploy/docker/services/video-summarization/compose.yml
-  # `lvs-server` environment block + dev-profile-lvs/.env.
+  # Helm LVS uses the infra Kafka service name; Compose uses kafka:9092.
   - name: KAFKA_ENABLED
-    value: "false"
-  - name: KAFKA_BOOTSTRAP_SERVERS
-    value: "kafka:9092"
+    value: "true"
   - name: KAFKA_STRUCTURED_SUMMARY_TOPIC
-    value: structured-events-summary
+    value: mdx-structured-events-summary
   - name: LVS_DATABASE_BACKEND
     value: elasticsearch_db
   - name: LVS_DISABLE_DB_RESET_ON_REQUEST_DONE
@@ -96,8 +96,10 @@ env:
     value: "false"
   - name: LVS_EMB_MODEL_NAME
     value: ""
+  - name: LVS_ENABLE_LLM_MERGING
+    value: "false"
   - name: LVS_ENABLE_MCP
-    value: "true"
+    value: "false"
   - name: LVS_MCP_PORT
     value: "38112"
   - name: MILVUS_DB_GRPC_PORT
@@ -125,9 +127,9 @@ env:
   - name: VSS_LOG_LEVEL
     value: INFO
 
-# extraEnv: appended after the computed env block (duplicate names: last wins). Each value is rendered with `tpl`, so
-# expressions like `http://{{ .Release.Name }}-vss-rtvi-vlm:8000` are supported. Use this for LVS → RTVI-VLM wiring
-# (RTVI_VLM_URL, RTVI_VLM_URL_PASSTHROUGH) without duplicating the full `env` list.
+# extraEnv: appended after the computed env block. Each value is rendered with `tpl`, so expressions like
+# `http://{{ .Release.Name }}-vss-rtvi-vlm:8000` are supported. Use this for LVS -> RTVI-VLM wiring
+# (RTVI_VLM_URL, RTVI_VLM_URL_PASSTHROUGH) or truly additional env vars.
 extraEnv: []
 
 # VST_INTERNAL_URL: used by LVS to rewrite video download URLs (e.g. from 127.0.0.1 or external host to in-cluster VST).

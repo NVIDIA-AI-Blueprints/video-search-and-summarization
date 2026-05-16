@@ -64,10 +64,10 @@ function_groups:
     # package, out = destination under <mdx_data_dir>/models/).
     model_artifacts:
       search:
-      - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1"
+      - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2"
         artifacts:
-        - src: "rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx"  # yamllint disable-line rule:line-length
-          out: "rtdetr_warehouse_v1.0.1.fp16.onnx"
+        - src: "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx"  # yamllint disable-line rule:line-length
+          out: "rtdetr_warehouse_v1.0.2.fp16.onnx"
           kind: "file"
       - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
         artifacts:
