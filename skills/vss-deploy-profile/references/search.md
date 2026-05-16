@@ -285,7 +285,7 @@ Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${
 DATA="$VSS_DATA_DIR"                                     # e.g. <repo>/data
 mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/models"
 
-NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
     nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
     --org nvstaging

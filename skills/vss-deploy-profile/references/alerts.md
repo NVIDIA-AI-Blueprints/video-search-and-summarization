@@ -245,7 +245,7 @@ rm -rf "$DATA/models"
 mkdir -p "$DATA/models/rtdetr-its" "$DATA/models/gdino"
 
 # 1. RTDETR-ITS (TrafficcamNet)
-NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
     nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
 mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
@@ -253,7 +253,7 @@ mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamn
 rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
 
 # 2. Mask Grounding DINO
-NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
     nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
 mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \
