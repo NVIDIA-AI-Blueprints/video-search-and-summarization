@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "VSS **base** profile on the target host: VSS agent HTTP API on **8000** (e.g. `http://localhost:8000/docs`), VST reachable at http://localhost:30888/vst/api/v1. Use **remote-all** (remote LLM + VLM) so no local NIMs are required. Set Brev secure-link vars (`BREV_ENV_ID`, `BREV_LINK_PREFIX`) if checks validate media URLs. (See `skills/report/SKILL.md`).",
+  "env": "VSS **base** profile on the target host: VSS agent HTTP API on **8000** (e.g. `http://localhost:8000/docs`), VST reachable at http://localhost:30888/vst/api/v1. Use **remote-all** (remote LLM + VLM) so no local NIMs are required. Set Brev secure-link vars (`BREV_ENV_ID`, `BREV_LINK_PREFIX`) if checks validate media URLs. (See `skills/vss-generate-video-report/SKILL.md`).",
   "expects": [
     {
       "query": "Check if the warehouse_safety_0001 video is already uploaded on VST. If it doesn't exist, upload the warehouse_safety_0001 video to VIOS with timestamp 2025-01-01T00:00:00.000Z. If it exists, skip the uploading.",
