@@ -15,7 +15,7 @@
  * 
  */
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Button, Select } from '@nvidia/foundations-react-core';
 import { DashboardSidebarControls } from './components/DashboardSidebarControls';
 
@@ -70,12 +70,9 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
   
   // Track if iframe has ever been loaded (for lazy loading)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(isActive);
-  
-  // Key to force iframe refresh when navigating back to dashboard
+
+  // Key to force iframe remount (Retry after error, or explicit refresh)
   const [iframeKey, setIframeKey] = useState(0);
-  
-  // Track previous isActive state to detect when user comes back (useRef to avoid re-render)
-  const wasActiveRef = useRef(isActive);
   
   // State for selected dashboard
   const [selectedDashboardId, setSelectedDashboardId] = useState<string | null>(null);
@@ -112,21 +109,12 @@ export const DashboardComponent: React.FC<DashboardComponentProps> = ({
     return `${baseUrl}/app/dashboards`;
   }, [kibanaBaseUrl, dashboards.length, selectedDashboardId]);
 
-  // When component becomes active, load/refresh the iframe
+  // First time the tab becomes active: allow iframe to mount. Do not remount when switching
+  // away and back — the tab panel stays mounted (display:none) and reloading would drop Kibana state.
   useEffect(() => {
-    const wasActive = wasActiveRef.current;
-    
     if (isActive && !hasLoadedOnce) {
-      // First time activation - just load
       setHasLoadedOnce(true);
-    } else if (isActive && !wasActive && hasLoadedOnce) {
-      // Coming back to dashboard - refresh iframe
-      setIsLoading(true);
-      setError(null);
-      setIframeKey(prev => prev + 1);
     }
-    
-    wasActiveRef.current = isActive;
   }, [isActive, hasLoadedOnce]);
 
   // Memoize the controls component to prevent unnecessary re-renders
