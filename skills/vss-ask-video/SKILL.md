@@ -53,8 +53,18 @@ This skill requires a VSS profile that serves the `video_understanding` tool —
 ## Agent workflow
 
 1. **Clip** — Identify **sensor id**, **filename**, or **URL** for one video segment. If ambiguous, ask the user.
-2. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question.
-3. Return the vss agent's answer back to the user.
+
+2. **Verify the sensor exists on VST** — before calling the VSS agent, list sensors and confirm the named video is already ingested:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
+   ```
+   Match the user-supplied `<sensor-id>` (or **filename stem**, e.g. `warehouse_safety_0001`) against the returned names.
+   - **Sensor present** → proceed.
+   - **Sensor absent** → hand off to **`/vss-manage-video-io-storage`** to upload the video, then re-list to confirm the sensor is visible. In pre-authorized / non-interactive runs, perform the upload directly; in interactive runs, confirm with the user first. Do **not** call `/generate` against an unknown sensor, and do **not** issue an unconditional PUT upload without first checking the sensor list.
+
+3. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question.
+
+4. Return the vss agent's answer back to the user.
 
 
 ## Query VSS agent (`/generate`)

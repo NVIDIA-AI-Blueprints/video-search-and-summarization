@@ -54,13 +54,21 @@ Run these steps **in order**:
 
 1. **Sensor / clip** — Confirm which **sensor id** or **video** the user means. If unclear, ask before proceeding. If the sensor or video is not mentioned directly in the user request, the user may be referring to a video they mentioned previously.
 
-2. **VSS agent deployment** — Resolve the agent **HTTP base URL**. Read **`VSS_AGENT_PORT`**, **`EXTERNAL_IP` / `HOST_IP`**, or compose / deployment docs for the machine where the stack runs. Typical pattern: **`http://<host>:<port>`** with port from env (often **`8000`** for the agent API).
+2. **Verify the sensor exists on VST** — before calling the VSS agent, list sensors and confirm the named video is already ingested:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
+   ```
+   Match the user-supplied `<sensor-id>` (or **filename stem**, e.g. `warehouse_safety_0001`) against the returned names.
+   - **Sensor present** → proceed.
+   - **Sensor absent** → hand off to **`/vss-manage-video-io-storage`** to upload the video, then re-list to confirm the sensor is visible. In pre-authorized / non-interactive runs, perform the upload directly; in interactive runs, confirm with the user first. Do **not** call `/generate` against an unknown sensor, and do **not** issue an unconditional PUT upload without first checking the sensor list.
 
-3. **Query the agent** — **`POST ${VSS_AGENT_BASE_URL}/generate`** with JSON **`{"input_message": "<prompt>"}`**. Ask for a **captioned summary with timestamps** (chronological segments, seconds from clip start), e.g. describe scenes and events with time ranges. Name the **sensor / file** in the message so the agent has the necessary information.
+3. **VSS agent deployment** — Resolve the agent **HTTP base URL**. Read **`VSS_AGENT_PORT`**, **`EXTERNAL_IP` / `HOST_IP`**, or compose / deployment docs for the machine where the stack runs. Typical pattern: **`http://<host>:<port>`** with port from env (often **`8000`** for the agent API).
+
+4. **Query the agent** — **`POST ${VSS_AGENT_BASE_URL}/generate`** with JSON **`{"input_message": "<prompt>"}`**. Ask for a **captioned summary with timestamps** (chronological segments, seconds from clip start), e.g. describe scenes and events with time ranges. Name the **sensor / file** in the message so the agent has the necessary information.
    - DO NOT mention a report to vss agent
 
-4. **Report template** — Copy the agent’s final text (timestamped caption/summary) into **Analysis Results** and fill **Basic Information**; **return that markdown** to the user.
-0l
+5. **Report template** — Copy the agent’s final text (timestamped caption/summary) into **Analysis Results** and fill **Basic Information**; **return that markdown** to the user.
+
 ---
 
 ## Query VSS agent (`/generate`)
