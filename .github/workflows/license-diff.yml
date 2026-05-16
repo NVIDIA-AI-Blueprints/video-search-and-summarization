@@ -49,7 +49,7 @@ jobs:
         id: gen
         run: |
           set -euo pipefail
-          python scripts/licensing/license_diff_csv.py \
+          python .github/scripts/license_diff_csv.py \
             --base-ref "${{ steps.ctx.outputs.base }}" \
             --head-ref HEAD \
             --output license-diff.csv
