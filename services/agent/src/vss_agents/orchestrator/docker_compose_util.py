@@ -90,6 +90,7 @@ COMPOSE_PROFILE_REQUIRED_KEYS: Final[tuple[str, ...]] = (
     "LLM_NAME_SLUG",
     "VLM_NAME_SLUG",
 )
+_COMPOSE_SHELL_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset({"LLM_MODE", "VLM_MODE"})
 
 
 class ValidationError(ValueError):
@@ -628,6 +629,15 @@ def render_generated_env(source_env_file: Path, resolved: dict[str, str]) -> str
     return "\n".join(lines) + "\n"
 
 
+def _compose_subprocess_env(extra_defaults: Mapping[str, str] = MappingProxyType({})) -> dict[str, str]:
+    env = os.environ.copy()
+    for key in _COMPOSE_SHELL_ENV_BLOCKLIST:
+        env.pop(key, None)
+    for key, value in extra_defaults.items():
+        env.setdefault(key, value)
+    return env
+
+
 def resolve_compose(config: DryRunRecipe) -> str:
     try:
         result = subprocess.run(
@@ -635,6 +645,7 @@ def resolve_compose(config: DryRunRecipe) -> str:
             cwd=str(config.deployments_dir),
             capture_output=True,
             text=True,
+            env=_compose_subprocess_env(),
         )
     except FileNotFoundError as exc:
         raise RuntimeError("docker command not found. Install Docker with Compose v2.") from exc
@@ -644,10 +655,8 @@ def resolve_compose(config: DryRunRecipe) -> str:
 
 
 def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path, *args: str) -> None:
-    compose_env = os.environ.copy()
     # Prefer plain, non-ANSI output so status logs are visible/persistent in non-interactive captures.
-    compose_env.setdefault("COMPOSE_PROGRESS", "plain")
-    compose_env.setdefault("COMPOSE_ANSI", "never")
+    compose_env = _compose_subprocess_env({"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"})
     try:
         result = subprocess.run(
             ["docker", "compose", "-f", str(compose_file), "--env-file", str(env_file), *args],

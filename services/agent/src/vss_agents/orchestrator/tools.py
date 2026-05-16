@@ -278,6 +278,8 @@ class OrchestratorRuntimeSettings(BaseSettings):
     # Outer/profile-level knob; hw-*.env files bridge this to NIM-internal NIM_KVCACHE_PERCENT.
     nim_kvcache_percent: str = Field(default="", validation_alias="VLM_NIM_KVCACHE_PERCENT")
     rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
+    llm_device_id: str = Field(default="", validation_alias="LLM_DEVICE_ID")
+    vlm_device_id: str = Field(default="", validation_alias="VLM_DEVICE_ID")
 
     @field_validator(
         "ngc_cli_api_key",
@@ -294,6 +296,8 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "llm_enable_thinking",
         "nim_kvcache_percent",
         "rtvi_vllm_gpu_memory_utilization",
+        "llm_device_id",
+        "vlm_device_id",
     )
     @classmethod
     def _strip_value(cls, value: str) -> str:
@@ -983,6 +987,10 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
+                if runtime_settings.llm_device_id:
+                    env_overrides.setdefault("LLM_DEVICE_ID", runtime_settings.llm_device_id)
+                if runtime_settings.vlm_device_id:
+                    env_overrides.setdefault("VLM_DEVICE_ID", runtime_settings.vlm_device_id)
                 resolve_and_apply_profile_mode(
                     input.profile, input.profile_mode, _config.profile_mode_to_env_modes, env_overrides
                 )

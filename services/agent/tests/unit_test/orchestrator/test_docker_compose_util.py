@@ -254,6 +254,66 @@ class TestResolveAndApplyProfileMode:
             dcu.resolve_and_apply_profile_mode(dcu.PROFILE_ALERTS, "verification", {}, env_overrides)
 
 
+class TestInferRuntimeMode:
+    """Direct unit tests for the LLM/VLM mode derivation function.
+
+    The function returns one of MODE_REMOTE / MODE_LOCAL_SHARED / MODE_LOCAL based on
+    device ids + remote flags. Cases mirror dev-profile.sh:643-674.
+    """
+
+    @pytest.mark.parametrize(
+        ("device_id", "peer_id", "is_remote", "peer_is_remote", "reserved", "fixed_shared", "expected"),
+        [
+            # is_remote=True short-circuits regardless of everything else.
+            ("0", "0", True, False, "", "", dcu.MODE_REMOTE),
+            ("0", "1", True, True, "0", "1", dcu.MODE_REMOTE),
+            ("", "", True, False, "", "", dcu.MODE_REMOTE),
+            # Empty device id with non-remote → caller keeps whatever mode was already set.
+            ("", "0", False, False, "", "", None),
+            ("", "0", False, True, "", "", None),
+            # Same device id, neither remote → shared.
+            ("0", "0", False, False, "", "", dcu.MODE_LOCAL_SHARED),
+            # Different device ids, neither remote → local for both sides.
+            ("0", "1", False, False, "", "", dcu.MODE_LOCAL),
+            # Peer remote → same-device rule doesn't apply, device-id-in-csv rules still do.
+            ("0", "0", False, True, "", "", dcu.MODE_LOCAL),
+            ("0", "1", False, True, "", "", dcu.MODE_LOCAL),
+            # FIXED_SHARED hit → shared even when peer is on a different device.
+            ("1", "2", False, False, "0", "1", dcu.MODE_LOCAL_SHARED),
+            # RESERVED hit → shared (dev-profile.sh treats reserved devices as shared
+            # for mode inference; validation upstream blocks reserved ids on user input).
+            ("0", "2", False, False, "0", "", dcu.MODE_LOCAL_SHARED),
+            # Multi-entry csv: id not in either list → local.
+            ("2", "1", False, False, "0,5", "1,7", dcu.MODE_LOCAL),
+            # Multi-entry csv: id matches one entry in fixed_shared → shared.
+            ("5", "1", False, False, "0,5", "", dcu.MODE_LOCAL_SHARED),
+            # Multi-entry csv with whitespace around entries (mirrors how shell exports them).
+            ("7", "1", False, False, "", "0, 7 , 9", dcu.MODE_LOCAL_SHARED),
+            # Peer remote AND device in FIXED_SHARED → still shared (csv wins over peer-remote).
+            ("1", "0", False, True, "", "1", dcu.MODE_LOCAL_SHARED),
+        ],
+    )
+    def test_infer_runtime_mode_truth_table(
+        self,
+        device_id: str,
+        peer_id: str,
+        is_remote: bool,
+        peer_is_remote: bool,
+        reserved: str,
+        fixed_shared: str,
+        expected: str | None,
+    ):
+        result = dcu.infer_runtime_mode(
+            device_id=device_id,
+            peer_device_id=peer_id,
+            is_remote=is_remote,
+            peer_is_remote=peer_is_remote,
+            reserved_device_ids=reserved,
+            fixed_shared_device_ids=fixed_shared,
+        )
+        assert result == expected
+
+
 class TestResolveComposeProfiles:
     def test_resolve_compose_profiles_uses_profile_template(self):
         merged = {
@@ -839,6 +899,198 @@ class TestEdgeDeviceIdsPrecedence:
         # untouched device IDs still come from yml defaults
         assert resolved["RT_VLM_DEVICE_ID"] == "7"
         assert resolved["RT_CV_DEVICE_ID"] == "8"
+
+    def test_env_override_same_device_ids_yields_local_shared(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """End-to-end wire: passing matching LLM_DEVICE_ID/VLM_DEVICE_ID via env_overrides
+        (the notebook → MCP path) flips both modes to local_shared, overriding the
+        static LLM_MODE/VLM_MODE=local from _base_env."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("H100")),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+            env_overrides={"LLM_DEVICE_ID": "2", "VLM_DEVICE_ID": "2"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_DEVICE_ID"] == "2"
+        assert resolved["VLM_DEVICE_ID"] == "2"
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL_SHARED
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL_SHARED
+
+    def test_env_override_different_device_ids_yields_local(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """End-to-end wire: passing non-matching LLM_DEVICE_ID/VLM_DEVICE_ID via
+        env_overrides yields both modes inferred as local."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("H100")),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+            env_overrides={"LLM_DEVICE_ID": "2", "VLM_DEVICE_ID": "3"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_DEVICE_ID"] == "2"
+        assert resolved["VLM_DEVICE_ID"] == "3"
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL
+
+
+class TestModeInferenceIntegration:
+    """End-to-end LLM_MODE / VLM_MODE computation through build_resolved_env.
+
+    Covers the wires the standalone TestInferRuntimeMode unit tests can't reach:
+      - llm_endpoint_url / vlm_endpoint_url recipe params → is_remote → mode
+      - RESERVED_DEVICE_IDS / FIXED_SHARED_DEVICE_IDS from the profile .env →
+        shared-id set → mode
+      - inferred mode beating the static LLM_MODE / VLM_MODE from the profile .env
+        (which always says local_shared and used to leak through pre-fix)
+    """
+
+    def test_remote_llm_with_same_device_ids_yields_vlm_local(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """DGX-SPARK base-profile regression: --use-remote-llm + LLM_DEVICE_ID=VLM_DEVICE_ID
+        used to keep VLM_MODE=local_shared (stale .env default). Now: LLM=remote (URL set)
+        and VLM=local (peer is remote, so same-device check skipped)."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("H100", "LLM_DEVICE_ID=0", "VLM_DEVICE_ID=0")),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+            llm_endpoint_url="http://qwen-vllm:8010",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_REMOTE
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL
+
+    def test_remote_vlm_with_same_device_ids_yields_llm_local(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Symmetric to remote-LLM: remote VLM endpoint URL → VLM=remote, LLM=local."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("H100", "LLM_DEVICE_ID=0", "VLM_DEVICE_ID=0")),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+            vlm_endpoint_url="http://cosmos-nim:8000",
+            vlm_name="nvidia/cosmos-reason2-8b",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_MODE"] == dcu.MODE_REMOTE
+
+    def test_both_remote_endpoints_yields_both_remote(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("H100", "LLM_DEVICE_ID=0", "VLM_DEVICE_ID=0")),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+            llm_endpoint_url="http://qwen-vllm:8010",
+            vlm_endpoint_url="http://cosmos-nim:8000",
+            vlm_name="nvidia/cosmos-reason2-8b",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_REMOTE
+        assert resolved["VLM_MODE"] == dcu.MODE_REMOTE
+
+    def test_fixed_shared_device_ids_from_profile_env_force_shared(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Search-profile-like setup: VLM on its own device id that is listed in
+        FIXED_SHARED_DEVICE_IDS → inferred as local_shared even though peer is on a
+        different device."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "H100",
+                    "LLM_DEVICE_ID=1",
+                    "VLM_DEVICE_ID=2",
+                    "FIXED_SHARED_DEVICE_IDS=2",
+                    "RESERVED_DEVICE_IDS=0",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        # VLM on device 2 ∈ FIXED_SHARED → shared regardless of peer
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL_SHARED
+        # LLM on device 1 ∉ any list, peer (VLM) not remote, 1 ≠ 2 → local
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
+
+    def test_reserved_device_ids_from_profile_env_force_shared(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """If a model's device id ends up in RESERVED_DEVICE_IDS, inference flags it as
+        local_shared (validation upstream blocks user-supplied ids in RESERVED, but the
+        rule still needs to hold for any path that bypasses that check)."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                *_base_env(
+                    "H100",
+                    "LLM_DEVICE_ID=0",
+                    "VLM_DEVICE_ID=1",
+                    "RESERVED_DEVICE_IDS=0",
+                )
+            ),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL_SHARED
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL
+
+    def test_inference_overrides_static_local_shared_default_when_devices_differ(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The buggy pre-fix behavior: profile .env said LLM_MODE=VLM_MODE=local_shared
+        and that just passed through unchanged. Now: inference recomputes from device
+        ids and overrides the stale default."""
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=base",
+                "PROXY_MODE=direct",
+                "HARDWARE_PROFILE=H100",
+                "LLM_MODE=local_shared",
+                "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
+                "VLM_MODE=local_shared",
+                "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
+                "HOST_IP=10.0.0.1",
+                "VSS_APPS_DIR=/path/to/deploy/docker",
+                "LLM_DEVICE_ID=0",
+                "VLM_DEVICE_ID=1",
+            ),
+            supported_hardware_profiles=frozenset({"H100"}),
+            edge_hardware_profiles=frozenset(),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        # Different device ids, neither remote, neither in shared lists → both local.
+        # If inference were skipped, both would still be local_shared (the bug).
+        assert resolved["LLM_MODE"] == dcu.MODE_LOCAL
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL
 
 
 class TestVlmBaseUrlSynthesis:
