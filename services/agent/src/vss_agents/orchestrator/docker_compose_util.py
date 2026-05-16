@@ -529,6 +529,18 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if inferred_vlm_mode is not None:
         merged["VLM_MODE"] = inferred_vlm_mode
 
+    if (
+        "RT_VLM_DEVICE_ID" not in config.env_overrides
+        and effective_hardware_profile not in config.edge_hardware_profiles
+    ):
+        if merged.get("VLM_MODE") == MODE_LOCAL_SHARED:
+            shared_dev = merged.get("SHARED_LLM_VLM_DEVICE_ID", "").strip()
+            merged["RT_VLM_DEVICE_ID"] = shared_dev or vlm_dev
+        elif merged.get("VLM_MODE") == MODE_REMOTE:
+            merged["RT_VLM_DEVICE_ID"] = "0"
+        elif vlm_dev:
+            merged["RT_VLM_DEVICE_ID"] = vlm_dev
+
     host_ip = (
         first_non_placeholder([config.env_overrides.get("HOST_IP", ""), merged.get("HOST_IP", "")])
         or detect_internal_ip()
