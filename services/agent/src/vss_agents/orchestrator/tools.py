@@ -987,10 +987,14 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
-                if runtime_settings.llm_device_id:
-                    env_overrides.setdefault("LLM_DEVICE_ID", runtime_settings.llm_device_id)
-                if runtime_settings.vlm_device_id:
-                    env_overrides.setdefault("VLM_DEVICE_ID", runtime_settings.vlm_device_id)
+                effective_hardware_profile = (
+                    env_overrides.get("HARDWARE_PROFILE", "").strip() or runtime_settings.hardware_profile
+                )
+                if effective_hardware_profile not in configured_model_resolution.hardware.edge_profiles:
+                    if runtime_settings.llm_device_id:
+                        env_overrides.setdefault("LLM_DEVICE_ID", runtime_settings.llm_device_id)
+                    if runtime_settings.vlm_device_id:
+                        env_overrides.setdefault("VLM_DEVICE_ID", runtime_settings.vlm_device_id)
                 resolve_and_apply_profile_mode(
                     input.profile, input.profile_mode, _config.profile_mode_to_env_modes, env_overrides
                 )
