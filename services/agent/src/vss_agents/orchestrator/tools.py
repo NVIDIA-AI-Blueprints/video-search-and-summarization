@@ -555,7 +555,7 @@ async def vss_orchestrator(
         name for name in ("NGC_CLI_API_KEY", "NVIDIA_API_KEY") if not (os.environ.get(name) or "").strip()
     ]
     if _missing_creds:
-        print(f"[vss_orchestrator] WARNING: {', '.join(_missing_creds)} not set in MCP server env — ", flush=True)
+        print(f"[vss_orchestrator] WARNING: {', '.join(_missing_creds)} not set in environment variables", flush=True)
 
     try:
         runtime_settings = OrchestratorRuntimeSettings()
