@@ -600,13 +600,15 @@ async def lvs_video_understanding(
         # Build LVS request using new API contract
         lvs_request = {
             "url": video_url,
+            "source_type": "file",
             "model": config.model,
             # HITL parameters
             "scenario": scenario,
             "events": events,
             # Video processing parameters
             "chunk_duration": config.chunk_duration,
-            "num_frames_per_chunk": config.num_frames_per_chunk,
+            "num_frames_per_second_or_fixed_frames_chunk": config.num_frames_per_chunk,
+            "use_fps_for_chunking": False,
         }
         logger.info(f"LVS request: {lvs_request}")
 
