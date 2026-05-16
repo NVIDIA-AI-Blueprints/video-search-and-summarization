@@ -27,7 +27,7 @@
 #   vss_orchestrator__docker_status - poll docker operation status/logs
 #
 # Start with:
-#   nat mcp serve --config_file services/agent/src/vss_agents/orchestrator/vss_orchestrator_mcp_config.yml --port 9902
+#   nat mcp serve --config_file deploy/docker/scripts/vss_orchestrator_mcp_config.yml --port 9902
 #
 # Server listens at: http://localhost:9902/mcp
 
