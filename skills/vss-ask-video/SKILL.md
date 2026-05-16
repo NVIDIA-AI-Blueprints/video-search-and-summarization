@@ -50,21 +50,39 @@ This skill requires a VSS profile that serves the `video_understanding` tool —
 
 ---
 
-## Agent workflow
+## Sensor prerequisite
 
-1. **Clip** — Identify **sensor id**, **filename**, or **URL** for one video segment. If ambiguous, ask the user.
+**You MUST list VST sensors before any `/generate` call.** This is required even when the user names the sensor explicitly, even when the user asserts the video is already uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
 
-2. **Verify the sensor exists on VST** — before calling the VSS agent, list sensors and confirm the named video is already ingested:
+1. List sensors:
    ```bash
    curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
    ```
-   Match the user-supplied `<sensor-id>` (or **filename stem**, e.g. `warehouse_safety_0001`) against the returned names.
-   - **Sensor present** → proceed.
-   - **Sensor absent** → hand off to **`/vss-manage-video-io-storage`** to upload the video, then re-list to confirm the sensor is visible. In pre-authorized / non-interactive runs, perform the upload directly; in interactive runs, confirm with the user first. Do **not** call `/generate` against an unknown sensor, and do **not** issue an unconditional PUT upload without first checking the sensor list.
 
-3. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question.
+2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**, e.g. `warehouse_safety_0001`).
 
-4. Return the vss agent's answer back to the user.
+3. **If a matching sensor is present** → proceed to the Agent workflow below.
+
+4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new sensor appears:
+   ```bash
+   # filename: must not contain whitespace
+   # timestamp: ISO 8601 UTC — default 2025-01-01T00:00:00.000Z if user did not specify
+   curl -s -X PUT "http://${HOST_IP}:30888/vst/api/v1/storage/file/<filename>?timestamp=<timestamp>" \
+     -H "Content-Type: application/octet-stream" \
+     -H "Content-Length: <file_size_in_bytes>" \
+     --upload-file /path/to/<filename> | jq .
+   ```
+   See `/vss-manage-video-io-storage` for full upload semantics (v1 vs v2, conflict handling, delete flow). In interactive runs, confirm with the user before uploading. **Never** issue an unconditional PUT without first running the sensor-list check above — that is exactly the failure mode this prerequisite exists to prevent.
+
+---
+
+## Agent workflow
+
+The Sensor prerequisite above must have already confirmed (or made) the sensor exist on VST. Then:
+
+1. **Clip** — Identify **sensor id**, **filename**, or **URL** for one video segment. If ambiguous, ask the user.
+2. Call vss agent with the sensor id and ask for it to call video_understanding tool to answer the user's question.
+3. Return the vss agent's answer back to the user.
 
 
 ## Query VSS agent (`/generate`)
