@@ -104,7 +104,7 @@ services:
       file: ${VSS_APPS_DIR}/services/infra/compose.yml
       service: broker-health-check
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "auto_calib_2d"]
-    container_name: vss-configurator-2d-init
+    container_name: vss-configurator-init
     network_mode: "host"
     environment:
       BP_PROFILE: $BP_PROFILE
