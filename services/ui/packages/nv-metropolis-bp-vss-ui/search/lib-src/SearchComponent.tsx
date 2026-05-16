@@ -333,7 +333,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   return (
     <div 
       data-testid="search-component"
-      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
+      className={`flex min-h-0 min-w-0 max-w-full flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
       <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
         <SearchHeader 
