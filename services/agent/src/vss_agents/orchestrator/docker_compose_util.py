@@ -71,9 +71,11 @@ PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
 )
 
 MODE_REMOTE: Final[str] = "remote"
+MODE_LOCAL: Final[str] = "local"
+MODE_LOCAL_SHARED: Final[str] = "local_shared"
 MODE_2D_CV: Final[str] = "2d_cv"
 MODE_2D_VLM: Final[str] = "2d_vlm"
-SUPPORTED_RUNTIME_MODES: Final[frozenset[str]] = frozenset({"local", "local_shared", MODE_REMOTE})
+SUPPORTED_RUNTIME_MODES: Final[frozenset[str]] = frozenset({MODE_LOCAL, MODE_LOCAL_SHARED, MODE_REMOTE})
 MODEL_SLUG_NONE: Final[str] = "none"
 THOR_VLM_PORT: Final[int] = 8018
 DEFAULT_ALERTS_VLM_PORT: Final[int] = 30082
@@ -404,6 +406,32 @@ def resolve_compose_profiles(merged: Mapping[str, str], profile: SupportedProfil
     return ",".join(compose_profiles)
 
 
+def infer_runtime_mode(
+    *,
+    device_id: str,
+    peer_device_id: str,
+    is_remote: bool,
+    peer_is_remote: bool,
+    reserved_device_ids: str,
+    fixed_shared_device_ids: str,
+) -> str | None:
+    if is_remote:
+        return MODE_REMOTE
+    if not device_id:
+        return None
+    shared_ids = {
+        entry.strip()
+        for csv in (reserved_device_ids, fixed_shared_device_ids)
+        for entry in csv.split(",")
+        if entry.strip()
+    }
+    if device_id in shared_ids:
+        return MODE_LOCAL_SHARED
+    if not peer_is_remote and device_id == peer_device_id:
+        return MODE_LOCAL_SHARED
+    return MODE_LOCAL
+
+
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   1. profile .env defaults
@@ -470,6 +498,35 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if config.rtvi_vllm_gpu_memory_utilization:
         merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
     merged.update(config.env_overrides)
+
+    llm_is_remote = bool(config.llm_endpoint_url)
+    vlm_is_remote = bool(config.vlm_endpoint_url)
+    reserved = merged.get("RESERVED_DEVICE_IDS", "")
+    fixed_shared = merged.get("FIXED_SHARED_DEVICE_IDS", "")
+    llm_dev = merged.get("LLM_DEVICE_ID", "").strip()
+    vlm_dev = merged.get("VLM_DEVICE_ID", "").strip()
+
+    inferred_llm_mode = infer_runtime_mode(
+        device_id=llm_dev,
+        peer_device_id=vlm_dev,
+        is_remote=llm_is_remote,
+        peer_is_remote=vlm_is_remote,
+        reserved_device_ids=reserved,
+        fixed_shared_device_ids=fixed_shared,
+    )
+    if inferred_llm_mode is not None:
+        merged["LLM_MODE"] = inferred_llm_mode
+
+    inferred_vlm_mode = infer_runtime_mode(
+        device_id=vlm_dev,
+        peer_device_id=llm_dev,
+        is_remote=vlm_is_remote,
+        peer_is_remote=llm_is_remote,
+        reserved_device_ids=reserved,
+        fixed_shared_device_ids=fixed_shared,
+    )
+    if inferred_vlm_mode is not None:
+        merged["VLM_MODE"] = inferred_vlm_mode
 
     host_ip = (
         first_non_placeholder([config.env_overrides.get("HOST_IP", ""), merged.get("HOST_IP", "")])
