@@ -117,7 +117,7 @@ export function TabWithChatSidebarLayout({
               aria-orientation="vertical"
               aria-label="Resize Chat sidebar"
               className="flex w-1.5 flex-shrink-0 cursor-col-resize touch-none select-none border-r border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800 active:bg-neutral-400 dark:active:bg-neutral-700 focus:outline-none"
-              onMouseDown={(e) => handleResizeStart(e, effectiveWidth)}
+              onPointerDown={(e) => handleResizeStart(e, effectiveWidth)}
               title="Drag to resize"
             />
             <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden [transform:translateZ(0)] [&>main]:!h-full [&>main]:!w-full">
