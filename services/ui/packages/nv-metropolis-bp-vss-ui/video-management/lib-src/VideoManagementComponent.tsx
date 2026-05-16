@@ -514,7 +514,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100">
+    <div className="flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col bg-gray-50 text-gray-900 dark:bg-black dark:text-gray-100">
       {/* Hidden input for upload dialog add-more */}
       <input
         ref={fileInputRef}
