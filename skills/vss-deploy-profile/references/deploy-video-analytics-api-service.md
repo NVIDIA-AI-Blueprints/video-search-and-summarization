@@ -3,8 +3,7 @@
 Deploy **just** `vss-video-analytics-api` (no perception, no behavior-analytics, no UI) — useful when you want to:
 
 - Run the REST API against an existing Elasticsearch cluster (and optionally Kafka).
-- Serve calibration, sensor, behavior, alert, event, incident, and metrics endpoints for another consumer (UI, scripts, integration tests).
-- Test API-layer changes without spinning up the full perception + analytics stack.
+- Serve calibration, sensor, behavior, alerts, events, tracking, incident, and metrics endpoints.
 
 ---
 
