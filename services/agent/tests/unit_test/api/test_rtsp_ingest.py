@@ -28,6 +28,8 @@ from tenacity import wait_none
 from vss_agents.api.rtsp_ingest import AddStreamRequest
 from vss_agents.api.rtsp_ingest import AddStreamResponse
 from vss_agents.api.rtsp_ingest import ServiceConfig
+from vss_agents.api.rtsp_ingest import _is_nvstream_url
+from vss_agents.api.rtsp_ingest import _with_include_audio
 from vss_agents.api.rtsp_ingest import add_to_rtvi_cv
 from vss_agents.api.rtsp_ingest import add_to_rtvi_embed
 from vss_agents.api.rtsp_ingest import add_to_rtvi_vlm
@@ -59,6 +61,58 @@ def _multi_attempt_retry(attempts: int = 3) -> AsyncRetrying:
     )
 
 
+class TestIsNvstreamUrl:
+    """Predicate for `/nvstream/` paths."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "rtsp://nvstreamer:31555/nvstream/file.mp4",
+            "rtsp://10.0.0.1:31555/nvstream/sub/dir/file.mp4",
+            "rtsp://nvstreamer:31555/nvstream/file.mp4?x=1",
+        ],
+    )
+    def test_matches_nvstream_paths(self, url):
+        assert _is_nvstream_url(url) is True
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "rtsp://vst:30557/live/uuid-abc",
+            "rtsp://camera.lab:554/cam1",
+            "rtsp://nvstreamer:31555/nvstreamX/file.mp4",
+            "",
+        ],
+    )
+    def test_rejects_non_nvstream_paths(self, url):
+        assert _is_nvstream_url(url) is False
+
+
+class TestWithIncludeAudio:
+    """``_with_include_audio`` merges ``includeAudio=true`` into the RTSP URL."""
+
+    def test_appends_when_query_absent(self):
+        assert _with_include_audio("rtsp://vst:554/sensor-123") == "rtsp://vst:554/sensor-123?includeAudio=true"
+
+    def test_preserves_existing_query_keys(self):
+        result = _with_include_audio("rtsp://vst:554/sensor-123?transport=tcp")
+        # `parse_qsl`/`urlencode` may reorder, so check both keys are present.
+        assert result.startswith("rtsp://vst:554/sensor-123?")
+        assert "transport=tcp" in result
+        assert "includeAudio=true" in result
+
+    def test_idempotent_when_already_present(self):
+        """Don't duplicate the key on retry - preserves whatever value is there."""
+        url = "rtsp://vst:554/sensor-123?includeAudio=true"
+        assert _with_include_audio(url) == url
+
+    def test_idempotent_for_explicit_false(self):
+        """If a caller already set ``includeAudio=false`` we leave it alone
+        rather than override their intent."""
+        url = "rtsp://vst:554/sensor-123?includeAudio=false"
+        assert _with_include_audio(url) == url
+
+
 class TestServiceConfig:
     """Test ServiceConfig class."""
 
@@ -72,6 +126,8 @@ class TestServiceConfig:
         assert config.rtvi_embed_chunk_duration == 5
         # default: alerts/base/lvs-style behavior — VST owns storage, so delete it on remove
         assert config.delete_vst_storage_on_stream_remove is True
+        # audio-aware VLMs are opt-in
+        assert config.enable_audio is False
 
     def test_full_config(self):
         config = ServiceConfig(
@@ -82,6 +138,7 @@ class TestServiceConfig:
             rtvi_embed_model="custom-model",
             rtvi_embed_chunk_duration=10,
             delete_vst_storage_on_stream_remove=False,
+            enable_audio=True,
         )
         assert config.vst_url == "http://vst:30888"
         assert config.rtvi_cv_url == "http://rtvi-cv:9000"
@@ -91,6 +148,7 @@ class TestServiceConfig:
         assert config.rtvi_embed_chunk_duration == 10
         # search-style: RTVI owns storage lifecycle, leave VST storage alone
         assert config.delete_vst_storage_on_stream_remove is False
+        assert config.enable_audio is True
 
 
 class TestAddStreamRequest:
@@ -164,6 +222,62 @@ class TestAddToVst:
         assert success is True
         assert sensor_id == "sensor-123"
         assert rtsp_url == "rtsp://vst:554/sensor-123"
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.vst_add_sensor")
+    @patch("vss_agents.api.rtsp_ingest.vst_get_rtsp_url")
+    async def test_appends_include_audio_for_nvstream_source(self, mock_get_rtsp_url, mock_add_sensor):
+        """``enable_audio=True`` + nvstreamer source ⇒ VST gets the audio-opted URL."""
+        config = ServiceConfig(vst_internal_url="http://vst:30888", enable_audio=True)
+        request = AddStreamRequest(
+            sensor_url="rtsp://nvstreamer:31555/nvstream/file.mp4",
+            name="cam1",
+        )
+
+        mock_add_sensor.return_value = (True, "OK", "sensor-123")
+        mock_get_rtsp_url.return_value = (True, "OK", "rtsp://vst:30557/live/uuid-abc")
+
+        success, _msg, _sensor_id, rtsp_url = await add_to_vst(config, request)
+
+        assert success is True
+        assert mock_add_sensor.call_args.kwargs["sensor_url"] == (
+            "rtsp://nvstreamer:31555/nvstream/file.mp4?includeAudio=true"
+        )
+        # VST's downstream URL is returned unchanged.
+        assert rtsp_url == "rtsp://vst:30557/live/uuid-abc"
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.vst_add_sensor")
+    @patch("vss_agents.api.rtsp_ingest.vst_get_rtsp_url")
+    async def test_does_not_rewrite_non_nvstream_source(self, mock_get_rtsp_url, mock_add_sensor):
+        """Generic RTSP cameras don't speak ``includeAudio``; leave them alone."""
+        config = ServiceConfig(vst_internal_url="http://vst:30888", enable_audio=True)
+        request = AddStreamRequest(sensor_url="rtsp://camera.lab:554/cam1", name="cam1")
+
+        mock_add_sensor.return_value = (True, "OK", "sensor-123")
+        mock_get_rtsp_url.return_value = (True, "OK", "rtsp://vst:30557/live/uuid-abc")
+
+        await add_to_vst(config, request)
+
+        assert mock_add_sensor.call_args.kwargs["sensor_url"] == "rtsp://camera.lab:554/cam1"
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.vst_add_sensor")
+    @patch("vss_agents.api.rtsp_ingest.vst_get_rtsp_url")
+    async def test_does_not_rewrite_when_audio_disabled(self, mock_get_rtsp_url, mock_add_sensor):
+        """Default profile (``enable_audio=False``) is unchanged behavior."""
+        config = ServiceConfig(vst_internal_url="http://vst:30888")
+        request = AddStreamRequest(
+            sensor_url="rtsp://nvstreamer:31555/nvstream/file.mp4",
+            name="cam1",
+        )
+
+        mock_add_sensor.return_value = (True, "OK", "sensor-123")
+        mock_get_rtsp_url.return_value = (True, "OK", "rtsp://vst:30557/live/uuid-abc")
+
+        await add_to_vst(config, request)
+
+        assert mock_add_sensor.call_args.kwargs["sensor_url"] == "rtsp://nvstreamer:31555/nvstream/file.mp4"
 
     @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_ingest.vst_add_sensor")
@@ -518,6 +632,31 @@ class TestAddToRtviVlm:
             },
             headers={"x-stream-id": "sensor-123"},
         )
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_ingest.create_retry_strategy")
+    async def test_downstream_url_is_never_rewritten(self, mock_retry):
+        """rtvi-vlm gets VST's ``/live/<uuid>`` URL verbatim; audio opt-in happens upstream."""
+        mock_client = MagicMock()
+        config = ServiceConfig(
+            vst_internal_url="http://vst:30888",
+            rtvi_vlm_base_url="http://rtvi-vlm:8018",
+            enable_audio=True,
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"results": [{"id": "sensor-123"}]}'
+        mock_response.json = MagicMock(return_value={"results": [{"id": "sensor-123"}]})
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        mock_retry.return_value = _single_attempt_retry()
+
+        downstream_url = "rtsp://vst:30557/live/uuid-abc"
+        await add_to_rtvi_vlm(mock_client, config, "sensor-123", "camera-1", downstream_url)
+
+        sent = mock_client.post.call_args.kwargs["json"]["streams"][0]["liveStreamUrl"]
+        assert sent == downstream_url
 
     @pytest.mark.asyncio
     async def test_skipped_when_not_configured(self):

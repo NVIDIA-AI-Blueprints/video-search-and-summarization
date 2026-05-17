@@ -28,6 +28,7 @@ module just imports what it needs.
 
 import logging
 from typing import Any
+import urllib.parse
 
 from fastapi import APIRouter
 from fastapi import FastAPI
@@ -70,6 +71,7 @@ class ServiceConfig:
         rtvi_embed_model: str = "cosmos-embed1-448p",
         rtvi_embed_chunk_duration: int = 5,
         delete_vst_storage_on_stream_remove: bool = True,
+        enable_audio: bool = False,
     ):
         self.vst_url = vst_internal_url.rstrip("/")
         self.rtvi_cv_url = rtvi_cv_base_url.rstrip("/") if rtvi_cv_base_url else ""
@@ -78,6 +80,7 @@ class ServiceConfig:
         self.rtvi_embed_model = rtvi_embed_model
         self.rtvi_embed_chunk_duration = rtvi_embed_chunk_duration
         self.delete_vst_storage_on_stream_remove = delete_vst_storage_on_stream_remove
+        self.enable_audio = enable_audio
 
 
 def _resolve_service_config(config: Any) -> ServiceConfig:
@@ -104,6 +107,7 @@ def _resolve_service_config(config: Any) -> ServiceConfig:
         delete_vst_storage_on_stream_remove=bool(
             getattr(streaming_config, "delete_vst_storage_on_stream_remove", True)
         ),
+        enable_audio=bool(getattr(streaming_config, "enable_audio", False)),
     )
 
 
@@ -134,6 +138,36 @@ class AddStreamResponse(BaseModel):
 
 
 # ============================================================================
+# URL helpers
+# ============================================================================
+
+
+def _is_nvstream_url(url: str) -> bool:
+    """True iff ``url`` path starts with ``/nvstream/`` (nvstreamer file -> RTSP)."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:  # pragma: no cover
+        return False
+    return parsed.path.startswith("/nvstream/")
+
+
+def _with_include_audio(rtsp_url: str) -> str:
+    """Return ``rtsp_url`` with ``includeAudio=true`` merged into its query.
+
+    nvstreamer's file -> RTSP path strips audio by default; appending
+    ``?includeAudio=true`` opts the session in. Idempotent - if the key is
+    already present (any value) the URL is returned unchanged so we don't
+    duplicate it on retry, and other query params are preserved.
+    """
+    parsed = urllib.parse.urlparse(rtsp_url)
+    query_pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    if any(key == "includeAudio" for key, _ in query_pairs):
+        return rtsp_url
+    query_pairs.append(("includeAudio", "true"))
+    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query_pairs)))
+
+
+# ============================================================================
 # VST API Wrappers
 # ============================================================================
 
@@ -143,8 +177,13 @@ async def add_to_vst(config: ServiceConfig, request: AddStreamRequest) -> tuple[
     Add stream to VST and fetch the RTSP URL from streams API.
     Returns: (success, message, sensor_id, rtsp_url)
     """
+    # Opt VST into nvstreamer's audio track when enable_audio is set.
+    source_url = request.sensor_url
+    if config.enable_audio and _is_nvstream_url(source_url):
+        source_url = _with_include_audio(source_url)
+
     success, msg, sensor_id = await vst_add_sensor(
-        sensor_url=request.sensor_url,
+        sensor_url=source_url,
         name=request.name,
         username=request.username,
         password=request.password,
