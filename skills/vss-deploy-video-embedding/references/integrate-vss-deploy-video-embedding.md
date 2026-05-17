@@ -72,7 +72,7 @@ curl -fsS -X POST "$BASE_URL/v1/generate_text_embeddings" \
   -d '{"text_input": "a forklift moving pallets", "model": "cosmos-embed1-448p"}'
 ```
 
-Example: register and embed a live RTSP stream.
+Example: register and embed a live RTSP stream. Live-stream requests **require** `stream: true` and `chunk_duration > 0`; a synchronous call returns `400 BadParameters: "Only streaming output is supported for live-streams"` and an unset/zero `chunk_duration` returns `400 BadParameter: "chunk_duration must be greater than 0"`. Send `Accept: text/event-stream` and use `curl -N` so SSE events stream immediately.
 
 ```bash
 # 1. Add the live stream.
@@ -81,12 +81,19 @@ STREAM_ID=$(curl -fsS -X POST "$BASE_URL/v1/streams/add" \
   -d '{"streams":[{"liveStreamUrl":"rtsp://host:port/live/video","description":"camera-001"}]}' \
   | jq -r '.results[0].id')
 
-# 2. Start embedding for that stream.
-curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
+# 2. Start embedding for that stream (SSE).
+curl -N -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Content-Type: application/json" \
-  -d "{\"id\": \"$STREAM_ID\", \"model\": \"cosmos-embed1-448p\"}"
+  -H "Accept: text/event-stream" \
+  -d "{
+    \"id\": \"$STREAM_ID\",
+    \"model\": \"cosmos-embed1-448p\",
+    \"stream\": true,
+    \"chunk_duration\": 10,
+    \"chunk_overlap_duration\": 2
+  }"
 
-# 3. Stop embedding for that stream when done.
+# 3. Stop embedding for that stream when done (terminates SSE with data: [DONE]).
 curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 ```
 
