@@ -123,15 +123,16 @@ template is in § Harbor invocation below.
        git config user.name  "skills-eval-bot"
        git config user.email "skills-eval-bot@users.noreply.github.com"
 
-       # actions/checkout@v4 sets `http.https://github.com/.extraheader`
-       # to authenticate every git op against github.com as the runner's
-       # default GITHUB_TOKEN (github-actions[bot]). That bot can't
-       # create new branches in this repo, so a raw `git push` fails
-       # with "denied to github-actions[bot]" even though GH_TOKEN in
-       # the env is the PAT. Clear the extraheader and embed the PAT
-       # in origin's URL so git uses it.
-       git config --local --unset-all "http.https://github.com/.extraheader" || true
-       git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${PR_REPO}.git"
+       # Authentication: actions/checkout@v4 sets
+       # http.https://github.com/.extraheader to the workflow GITHUB_TOKEN
+       # (github-actions[bot]). skills-eval.yml grants this token
+       # contents:write + pull-requests:write at the permissions: block,
+       # so it can push new eval-bot/* branches, comment on the source PR,
+       # and open the bot PR. No PAT, no extraheader hack — same pattern
+       # helm-sync uses. Commit Author/Committer is `skills-eval-bot`
+       # (from `git config user.{name,email}` above); push lands as
+       # github-actions[bot]; DCO sees the Signed-off-by trailer that
+       # `git commit -s` adds, which matches the committer email.
 
        # Branch off the contributor's tip (NOT the mirror tip — the
        # mirror SHA can drift slightly behind the source branch
