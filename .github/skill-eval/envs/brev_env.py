@@ -428,23 +428,35 @@ class BrevEnvironment(BaseEnvironment):
 
         if not desired:
             # Profile-less trial wants a clean box. Tear down all
-            # containers without touching the vss-deploy-profile skill; keeps the
-            # docker image cache, named volumes (postgres / ES / kafka
-            # data), repo clone, and sample-data extract warm for the
-            # next deploy trial. Container teardown is fast (<10s
-            # typically) so the timeout is short.
+            # containers, networks, AND volumes so the deploy starts
+            # against a guaranteed-empty state — postgres / ES / kafka /
+            # agent-eval volumes from a prior profile's run would
+            # otherwise be reused and could leak schema or stale rows
+            # into the next deploy. Keeps the docker image cache, repo
+            # clone, and sample-data extract (~/data) warm; those are
+            # profile-agnostic and slow to re-pull from NGC.
             #
-            # No `|| true` on the docker commands by design — if either
-            # exits non-zero (stuck container, daemon transient error)
-            # the `&&` chain short-circuits and the marker is left as
-            # it was, so the next trial re-runs the reconcile rather
-            # than silently treating a partially-dirty box as clean.
-            # `xargs -r` already handles the "no containers to remove"
-            # case (skips invoking docker rm at all, exit 0).
+            # `docker volume prune -af` removes all unused volumes
+            # (including named ones like `agent-eval`); becomes safe to
+            # run only after `docker rm -f` releases the references.
+            # For volumes whose `driver_opts` bind a host path (e.g.
+            # `agent-eval` → `$VSS_DATA_DIR/agent_eval`), prune
+            # unregisters the docker volume but does NOT wipe the bind
+            # directory contents — that's an operator-managed dir and
+            # the next deploy re-binds to it.
+            #
+            # No `|| true` on the docker commands by design — if any
+            # step exits non-zero (stuck container, daemon transient
+            # error) the `&&` chain short-circuits and the marker is
+            # left as it was, so the next trial re-runs the reconcile
+            # rather than silently treating a partially-dirty box as
+            # clean. `xargs -r` already handles the "no containers to
+            # remove" case (skips invoking docker rm at all, exit 0).
             cmd = (
                 "mkdir -p /tmp/skill-eval && "
                 "docker ps -aq | xargs -r docker rm -f >/dev/null && "
                 "docker network prune -f >/dev/null && "
+                "docker volume prune -af >/dev/null && "
                 f"printf '' > {shlex.quote(marker_path)}"
             )
             logger.info(
