@@ -497,13 +497,60 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
 
 
 class ComposeOperationInput(BaseModel):
-    """Input for docker_up/docker_down operations."""
+    """Base input shared by docker_up/docker_down operations."""
 
     docker_compose_id: str = Field(
         ...,
         description=(
             "Identifier for compose artifacts and operation tracking. "
             "For current deployments, this matches profile names such as 'base', 'search', 'lvs', or 'alerts'."
+        ),
+    )
+
+
+class ComposeUpOperationInput(ComposeOperationInput):
+    """Input for docker_up operations."""
+
+    build: bool = Field(
+        default=True,
+        description=(
+            "When true (default), append '--build' so services with a 'build:' section are "
+            "(re)built before starting. Set to false to skip the build step and reuse the "
+            "existing local images."
+        ),
+    )
+    force_recreate: bool = Field(
+        default=False,
+        description=(
+            "When true, append '--force-recreate' so existing containers are torn down "
+            "and recreated even if their configuration and image have not changed."
+        ),
+    )
+    pull_always: bool = Field(
+        default=False,
+        description=(
+            "When true, append '--pull always' so images are re-pulled from the registry "
+            "instead of reusing cached local images."
+        ),
+    )
+
+
+class ComposeDownOperationInput(ComposeOperationInput):
+    """Input for docker_down operations."""
+
+    remove_volumes: bool = Field(
+        default=True,
+        description=(
+            "When true (default), append '-v' so named volumes declared in the compose file "
+            "(and anonymous volumes attached to containers) are removed. Set to false to "
+            "preserve volumes across teardowns."
+        ),
+    )
+    remove_orphans: bool = Field(
+        default=True,
+        description=(
+            "When true (default), append '--remove-orphans' so containers for services not "
+            "defined in the current compose file are also removed."
         ),
     )
 
@@ -1179,20 +1226,30 @@ async def vss_orchestrator(
 
     if "docker_up" in _config.include:
 
-        async def _docker_up(input: ComposeOperationInput) -> dict:
+        async def _docker_up(input: ComposeUpOperationInput) -> dict:
             """Start docker compose services using previously generated artifacts.
 
-            Runs in background: docker compose up -d --build --quiet-pull
+            Runs in background: docker compose up -d --quiet-pull
+            (appends --build when build=True (default),
+             appends --force-recreate when force_recreate=True,
+             appends --pull always when pull_always=True)
 
             Requires that artifacts for the docker_compose_id already exist.
 
             Returns immediately for polling via docker_status.
             """
+            action_args = ["-d", "--quiet-pull"]
+            if input.build:
+                action_args.append("--build")
+            if input.force_recreate:
+                action_args.append("--force-recreate")
+            if input.pull_always:
+                action_args += ["--pull", "always"]
             try:
                 return _start_compose_op(
                     docker_compose_id=input.docker_compose_id,
                     action="up",
-                    action_args=["-d", "--build", "--quiet-pull"],
+                    action_args=action_args,
                 )
             except FileNotFoundError:
                 return {
@@ -1249,20 +1306,27 @@ async def vss_orchestrator(
 
     if "docker_down" in _config.include:
 
-        async def _docker_down(input: ComposeOperationInput) -> dict:
+        async def _docker_down(input: ComposeDownOperationInput) -> dict:
             """Stop and remove docker compose services.
 
-            Runs in background: docker compose down -v --remove-orphans
+            Runs in background: docker compose down
+            (appends -v when remove_volumes=True (default),
+             appends --remove-orphans when remove_orphans=True (default))
 
             Requires that artifacts for the docker_compose_id already exist.
 
             Returns immediately for polling via docker_status.
             """
+            action_args: list[str] = []
+            if input.remove_volumes:
+                action_args.append("-v")
+            if input.remove_orphans:
+                action_args.append("--remove-orphans")
             try:
                 return _start_compose_op(
                     docker_compose_id=input.docker_compose_id,
                     action="down",
-                    action_args=["-v", "--remove-orphans"],
+                    action_args=action_args,
                 )
             except FileNotFoundError:
                 return {
