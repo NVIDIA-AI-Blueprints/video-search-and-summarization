@@ -282,7 +282,7 @@ commons:
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
-      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
+      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
         allowed_values: ["bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
 

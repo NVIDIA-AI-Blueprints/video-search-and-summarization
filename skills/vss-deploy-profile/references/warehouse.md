@@ -16,7 +16,8 @@ Work through **one path** under [Choose your path](#choose-your-path). Reference
 | 2D Vision AI with Agents Profile | `2d` | `bp_wh` | `nv-warehouse-4cams` | 4 | `local` / `local_shared` / `remote` / `none` | **always local** |
 | 3D Vision AI Profile | `3d` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
 | MV3DT Vision AI Profile | `mv3dt` | `bp_wh_kafka` or `bp_wh_redis` | `warehouse-4cams-20mx20m-synthetic` | 4 | none | none |
-| Auto-Calibration Only | `2d` / `3d` / `mv3dt` | `auto_calib` | (same as mode default) | (same as mode default) | none | none |
+| Warehouse Auto-Calibration | `2d` / `3d` / `mv3dt` | `bp_wh_auto_calib` | (same as mode default) | (same as mode default) | none | none |
+| Standalone Auto-Calibration | any | `auto_calib` | n/a | n/a | none | none |
 
 `COMPOSE_PROFILES` is computed automatically: `${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG}`. No `vlm_*` slice — `vss-rtvi-vlm` is always deployed for `bp_wh` and there is no VLM NIM.
 
@@ -71,9 +72,9 @@ MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
 | `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
-### Auto-Calibration Only (`auto_calib`)
+### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
 
-Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`auto_calib_2d`, `auto_calib_3d`, `auto_calib_mv3dt`). Skips broker health check.
+Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check.
 
 | Container | Purpose |
 |---|---|
@@ -132,7 +133,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 - `local` — LLM NIM on its own GPU (`LLM_DEVICE_ID`)
 - `local_shared` — LLM NIM colocated with RTVI VLM on `SHARED_LLM_VLM_DEVICE_ID` (use when GPU count is limited)
 - `remote` — point at an external LLM endpoint via `LLM_BASE_URL` (no LLM NIM deployed)
-- `none` — no LLM, for `bp_wh_kafka` / `bp_wh_redis` / `auto_calib`
+- `none` — no LLM, for `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`
 
 RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT_VLM_DEVICE_ID` for `bp_wh`. `VLM_MODE` in the warehouse `.env` is set to `none` because warehouse uses RTVI VLM instead of the standalone VLM NIM path.
 
@@ -211,7 +212,7 @@ Ask the user which source they want and whether they already have the assets on 
 - Perception model for `warehouse-loading-dock-3cams-synthetic` is trained on synthetic data — accuracy may vary on custom real-world scenes.
 - `nv-warehouse-4cams` dataset is only valid with `BP_PROFILE=bp_wh` and `MODE=2d`.
 - `warehouse-4cams-20mx20m-synthetic` dataset is valid with `MODE=3d` or `MODE=mv3dt`.
-- MV3DT mode (`MODE=mv3dt`) does not support `bp_wh` (agents) — only `bp_wh_kafka`, `bp_wh_redis`, and `auto_calib`.
+- MV3DT mode (`MODE=mv3dt`) does not support `bp_wh` (agents) — only `bp_wh_kafka`, `bp_wh_redis`, and `bp_wh_auto_calib`.
 - `bp_wh` profile in 2D mode is not supported on IGX-THOR or DGX-SPARK.
 
 ---
@@ -283,7 +284,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
-- `auto_calib`: only nvstreamer, configurator, auto-calibration, and VST subset
+- `bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration, and VST subset
 
 Check FPS (same container for 2D/3D; use `vss-rtvi-cv-mv3dt` for MV3DT):
 
@@ -654,19 +655,19 @@ df -h /  # 500 GB+ SSD
 **MODE=2d:**
 > - **2D Vision AI** — CV-only, no LLM and no VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
 > - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
-> - **Auto-Calibration Only** — calibration workflow only, no perception or analytics. Profile: `auto_calib`.
+> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
 
 **MODE=3d:**
 > - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
-> - **Auto-Calibration Only** — Profile: `auto_calib`.
+> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
 
 **MODE=mv3dt:**
 > - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
-> - **Auto-Calibration Only** — Profile: `auto_calib`.
+> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
 
 #### Q3 — Stream Type
 
-Skip for `bp_wh` and `auto_calib`. For `bp_wh_kafka` / `bp_wh_redis`:
+Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis`:
 
 > "Which broker — **kafka** or **redis**?"
 
@@ -694,13 +695,13 @@ BP_PROFILE=bp_wh_kafka; STREAM_TYPE=kafka; SAMPLE_VIDEO_DATASET="warehouse-4cams
 # MV3DT Vision AI — redis:
 BP_PROFILE=bp_wh_redis; STREAM_TYPE=redis; SAMPLE_VIDEO_DATASET="warehouse-4cams-20mx20m-synthetic"; NUM_STREAMS=4
 
-# Auto-Calibration Only (any mode — dataset/streams match the mode default):
-BP_PROFILE=auto_calib; LLM_MODE=none
+# Warehouse Auto-Calibration (mode-specific — dataset/streams match the mode default):
+BP_PROFILE=bp_wh_auto_calib; LLM_MODE=none
 ```
 
 #### Q4 — Deployment Profile
 
-Skip for `bp_wh` and `auto_calib`. For `bp_wh_kafka` / `bp_wh_redis` (any mode):
+Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis` (any mode):
 
 > "Which profile?
 > - **minimal** — excludes ELK, Video Analytics API, monitoring. Recommended for IGX-THOR.
@@ -744,8 +745,8 @@ Edit `<repo>/deploy/docker/industry-profiles/warehouse-operations/.env`. Keys be
 ```bash
 # --- Deployment selectors (Phase 3 answers go here) ---
 MODE=<2d|3d|mv3dt>
-BP_PROFILE=<bp_wh|bp_wh_kafka|bp_wh_redis|auto_calib>
-STREAM_TYPE=<kafka|redis>           # ignored by bp_wh and auto_calib; set for bp_wh_kafka / bp_wh_redis
+BP_PROFILE=<bp_wh|bp_wh_kafka|bp_wh_redis|bp_wh_auto_calib>
+STREAM_TYPE=<kafka|redis>           # ignored by bp_wh and bp_wh_auto_calib; set for bp_wh_kafka / bp_wh_redis
 MINIMAL_PROFILE="true"              # or "" for extended (bp_wh_kafka / bp_wh_redis only)
 
 SAMPLE_VIDEO_DATASET="<dataset-name>"
@@ -761,7 +762,7 @@ RT_VLM_DEVICE_ID='1'                # RTVI VLM, bp_wh only (always local)
 LLM_DEVICE_ID='2'                   # bp_wh + LLM_MODE=local
 SHARED_LLM_VLM_DEVICE_ID='2'        # bp_wh + LLM_MODE=local_shared (LLM colocated with RTVI VLM)
 
-# --- LLM (bp_wh only; set LLM_MODE=none for bp_wh_kafka / bp_wh_redis / auto_calib) ---
+# --- LLM (bp_wh only; set LLM_MODE=none for bp_wh_kafka / bp_wh_redis / bp_wh_auto_calib) ---
 # RTVI VLM has no mode — it is always deployed locally for bp_wh.
 LLM_MODE=local                      # local | local_shared | remote | none
 LLM_NAME=nvidia/nvidia-nemotron-nano-9b-v2

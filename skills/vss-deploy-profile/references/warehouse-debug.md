@@ -31,7 +31,7 @@ MV3DT variant (MODE=mv3dt) — same dependency shape, all containers use -mv3dt 
     → vss-configurator-mv3dt
     → vss-behavior-analytics-mv3dt
 
-Auto-Calibration Only (BP_PROFILE=auto_calib) — minimal footprint:
+Warehouse Auto-Calibration (BP_PROFILE=bp_wh_auto_calib) — minimal footprint:
   vss-vios-nvstreamer / vss-vios-nvstreamer-mv3dt → vss-configurator / vss-configurator-mv3dt
                       → vss-auto-calibration + vss-auto-calibration-ui
   (no broker, no perception, no analytics)
@@ -57,7 +57,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 
 ## Full Container List by Profile
 
-`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `auto_calib`) select the active compose-profile slice. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (`vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
+`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) select the active mode-specific compose-profile slice. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (`vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
 
 ### Warehouse CV core (2D and 3D profiles)
 
@@ -89,7 +89,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `vss-vios-postgres` / `sensor-ms-mv3dt` / `-streamprocessing` / `-sdr` / `-mcp` / `-ingress` / `-envoy` | VST stack |
 | `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
 
-### Auto-Calibration Only (`auto_calib`)
+### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
 
 | Container | Role |
 |---|---|
@@ -203,7 +203,7 @@ docker exec redis redis-cli XREVRANGE mdx-raw + - COUNT 3
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local` |
 | LLM NIM colocated with RTVI VLM | `SHARED_LLM_VLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local_shared` |
 
-`LLM_MODE`: `local` | `local_shared` | `remote` | `none`. RTVI VLM has no mode — always deployed locally for `bp_wh`. `auto_calib` profile uses no GPU for perception or LLM.
+`LLM_MODE`: `local` | `local_shared` | `remote` | `none`. RTVI VLM has no mode — always deployed locally for `bp_wh`. `bp_wh_auto_calib` profiles uses no GPU for perception or LLM.
 
 Check per-GPU process load:
 
@@ -311,7 +311,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | 2D / 3D profiles | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, the `vss-vios-*` VST stack |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
 | MV3DT profiles | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, the `vss-vios-*` VST stack |
-| `auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, VST stack (subset) — no broker, no perception, no analytics |
+| `bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, VST stack (subset) — no broker, no perception, no analytics |
 | `bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, **or** kafka/redis extended (any mode) |
@@ -410,7 +410,7 @@ docker logs --tail 50 vss-rtvi-cv-config-adaptor 2>&1 | grep -E "ERROR|error|fai
 ### 3.5 Configurator
 
 ```bash
-# 2D / 3D / auto_calib:
+# 2D / 3D / mv3dt:
 docker logs --tail 50 vss-configurator 2>&1 | grep -E "ERROR|error|fail" | tail -20
 # MV3DT:
 docker logs --tail 50 vss-configurator-mv3dt 2>&1 | grep -E "ERROR|error|fail" | tail -20
@@ -438,7 +438,7 @@ done
 
 ### 3.8 `bp_wh` extras (RTVI VLM + agent)
 
-Skip if `BP_PROFILE` is `bp_wh_kafka` or `bp_wh_redis`.
+Skip unless `BP_PROFILE=bp_wh`.
 
 ```bash
 docker logs --tail 50 vss-rtvi-vlm     2>&1 | grep -E "ERROR|error|fail|CUDA" | tail -20

@@ -68,8 +68,8 @@ The **warehouse** blueprint is driven by **`industry-profiles/warehouse-operatio
 1. **Edit environment**  
    Update **`deploy/docker/industry-profiles/warehouse-operations/.env`** for your deployment:
 
-   - **`MODE`**: `2d` or `3d`
-   - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, or `bp_wh_auto_calib` (see comments in that file for 2d vs 3d combinations)
+   - **`MODE`**: `2d`, `3d`, or `mv3dt`
+   - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` (see comments in that file for 2d, 3d, and mv3dt combinations)
    - **`MINIMAL_PROFILE`**, GPU hosts, API keys, and any other variables described in the file header
 
 2. **Start the stack**
