@@ -8,7 +8,7 @@ This reference lists every variable the Compose service consumes and how host-le
 |---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | Compose uses `${RTVI_EMBED_PORT?}`, so a missing value fails `docker compose config`. |
 | `VSS_DATA_DIR` | Host root for VSS shared data. | `${VSS_DATA_DIR}/data_log/vst/clip_storage` is bind-mounted into the container at `/home/vst/vst_release/streamer_videos`. |
-| `HOST_IP` | Host IP used to construct Kafka bootstrap servers. | Only required when `KAFKA_ENABLED=true`. |
+| `HOST_IP` | Host IP used to construct Kafka bootstrap servers. | Only required when `RTVI_EMBED_KAFKA_ENABLED=true` is set on the host (Compose injects this as `KAFKA_ENABLED` inside the container). Setting `KAFKA_ENABLED` directly on the host has no effect. |
 | `NGC_API_KEY` | NGC API key for asset downloads. | Required for first-boot model fetches from NGC. |
 | `HF_TOKEN` | Hugging Face token. | Optional. Recommended to avoid Hugging Face 429 rate-limit errors during the first-boot Cosmos-Embed1 weights download. |
 
@@ -85,4 +85,4 @@ The following are credentials. Set them through `.env`, a secrets manager, or yo
 
 ## OpenTelemetry Defaults
 
-When `ENABLE_OTEL_MONITORING=true`, the service exports OTLP traces and metrics to `OTEL_EXPORTER_OTLP_ENDPOINT` (default `http://otel-collector:4318`). The default `OTEL_METRIC_EXPORT_INTERVAL=60000` is in milliseconds. Configure `OTEL_RESOURCE_ATTRIBUTES` to tag traces with deployment-specific labels.
+When `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` is set on the host (Compose injects this as `ENABLE_OTEL_MONITORING` inside the container), the service exports OTLP traces and metrics to the endpoint named by `RTVI_EMBED_OTEL_EXPORTER_OTLP_ENDPOINT` (injected as `OTEL_EXPORTER_OTLP_ENDPOINT`; default `http://otel-collector:4318`). The default `RTVI_EMBED_OTEL_METRIC_EXPORT_INTERVAL=60000` (injected as `OTEL_METRIC_EXPORT_INTERVAL`) is in milliseconds. Set `RTVI_EMBED_OTEL_RESOURCE_ATTRIBUTES` on the host (injected as `OTEL_RESOURCE_ATTRIBUTES`) to tag traces with deployment-specific labels. Setting any of the container-side names (`ENABLE_OTEL_MONITORING`, `OTEL_*`) directly on the host has no effect.

@@ -153,7 +153,7 @@ If `RTVI_EMBED_LOG_DIR` is bound to a host directory, log files are also availab
 ## Integration Surface
 
 - **Inputs:** REST API on `:${RTVI_EMBED_PORT}` (`POST /v1/files`, `POST /v1/generate_text_embeddings`, `POST /v1/generate_video_embeddings`, live-stream control endpoints).
-- **Outputs:** Synchronous REST responses, optional SSE for chunked video embeddings, optional Kafka messages on `KAFKA_TOPIC` and `ERROR_MESSAGE_TOPIC` when Kafka is enabled (host: `RTVI_EMBED_KAFKA_ENABLED=true`, which Compose maps to container `KAFKA_ENABLED`).
+- **Outputs:** Synchronous REST responses, optional SSE for chunked video embeddings, optional Kafka messages on the topics named by `RTVI_EMBED_KAFKA_TOPIC` (container `KAFKA_TOPIC`) and `RTVI_EMBED_ERROR_MESSAGE_TOPIC` (container `ERROR_MESSAGE_TOPIC`) when Kafka is enabled (host: `RTVI_EMBED_KAFKA_ENABLED=true`, which Compose maps to container `KAFKA_ENABLED`).
 - **Optional peers:** Redis (`ENABLE_REDIS_ERROR_MESSAGES=true`), Kafka (host: `RTVI_EMBED_KAFKA_ENABLED=true` → container `KAFKA_ENABLED`), OpenTelemetry collector (host: `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` → container `ENABLE_OTEL_MONITORING`).
 
 `references/integrate-vss-deploy-video-embedding.md` documents the full integration contract.
