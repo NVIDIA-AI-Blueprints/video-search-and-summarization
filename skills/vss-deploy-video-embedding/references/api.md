@@ -310,5 +310,5 @@ curl -fsS "$BASE_URL/v1/metrics"
 | `409` | File is in use and cannot be deleted (on `DELETE /v1/files/{file_id}`). | Stop or finish any embedding request that references the file before deleting. |
 | `422` | Request failed semantic validation. | Inspect the response `message` for the failing field. |
 | `429` | Rate limiting exceeded. | Back off and retry with exponential delay. |
-| `500` | Internal server error. | Check `docker compose logs -f rtvi-embed`. |
+| `500` | Internal server error. | Check `docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed`. |
 | `503` | Service is busy or unhealthy. | For `/v1/ready`, wait for the service to finish warming up. For embedding endpoints, retry after a short delay. |

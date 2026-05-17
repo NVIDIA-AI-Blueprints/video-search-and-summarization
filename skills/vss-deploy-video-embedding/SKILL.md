@@ -59,7 +59,7 @@ docker compose -f rtvi-embed-docker-compose.yml \
   --profile bp_developer_search_2d up -d rtvi-embed
 
 # Watch logs while the model downloads and Triton repo builds.
-docker compose logs -f rtvi-embed
+docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed
 ```
 
 First-boot startup may take 20 minutes for the Cosmos-Embed1 download and Triton model repository build. Do not shorten the `start_period: 1200s` healthcheck during the first boot or the container will be marked unhealthy while still warming up.
@@ -140,8 +140,8 @@ See `references/api.md` for the full endpoint catalog, SSE streaming, and single
 ## Logs, Metrics, And Status
 
 ```bash
-docker compose ps
-docker compose logs -f rtvi-embed
+docker compose -f rtvi-embed-docker-compose.yml ps
+docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed
 docker stats vss-rtvi-embed
 
 curl -fsS "$BASE_URL/v1/metrics"          # Prometheus.
@@ -169,8 +169,8 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 ## Upgrade And Rollback
 
 1. Update `RTVI_EMBED_IMAGE` and `RTVI_EMBED_TAG` to the target build.
-2. `docker compose pull rtvi-embed`.
-3. `docker compose up -d rtvi-embed`.
+2. `docker compose -f rtvi-embed-docker-compose.yml pull rtvi-embed`.
+3. `docker compose -f rtvi-embed-docker-compose.yml --profile bp_developer_search_2d up -d rtvi-embed`.
 4. Watch `/v1/ready` until it returns 200.
 5. To roll back, re-pin `RTVI_EMBED_TAG` to the previous build and repeat. Named volumes persist across the swap.
 
@@ -178,11 +178,11 @@ For common failure patterns and resolutions, see `references/troubleshooting.md`
 
 ```bash
 # Preserve caches (named volumes survive).
-docker compose down
+docker compose -f rtvi-embed-docker-compose.yml down
 
 # WARNING: removes rtvi-hf-cache, rtvi-ngc-model-cache, rtvi-triton-model-repo.
 # Next start will re-download the model and rebuild the Triton repo (20+ min).
-docker compose down -v
+docker compose -f rtvi-embed-docker-compose.yml down -v
 ```
 
 ## References

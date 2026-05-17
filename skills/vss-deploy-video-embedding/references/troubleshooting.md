@@ -10,7 +10,7 @@ This reference collects the failure modes most often seen when bringing up or op
 | Compose parser fails on the conditional `volumes:` entries. | The compose file uses the `${VAR:+value}` substitution for `ASSET_STORAGE_DIR` and `RTVI_EMBED_LOG_DIR`. | Upgrade the Docker Compose plugin to a version that supports conditional substitution. |
 | Container exits during the first 30 seconds with permission errors on `/tmp/huggingface`, `/opt/nvidia/rtvi/.rtvi/ngc_model_cache`, or `/tmp/triton_model_repo`. | The host directories bound to those paths are not writable by UID/GID `1001:1001`. | `chown -R 1001:1001 <host-path>` or switch back to the named volumes (`rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo`) which are provisioned with the correct ownership. |
 | Container is healthy for several minutes, then flips to unhealthy. | Health check `start_period` was shortened below the model warmup. | Restore `start_period: 1200s` (20 minutes) for first boots. Subsequent boots can be reduced once the caches are warm. |
-| `/v1/ready` returns 503 indefinitely even after warmup. | A peer service (Redis, Kafka) is enabled but unreachable, or the model failed to download. | Inspect `docker compose logs -f rtvi-embed` for model-download errors or `connection refused` against Redis/Kafka; disable the feature flag or fix the peer. |
+| `/v1/ready` returns 503 indefinitely even after warmup. | A peer service (Redis, Kafka) is enabled but unreachable, or the model failed to download. | Inspect `docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed` for model-download errors or `connection refused` against Redis/Kafka; disable the feature flag or fix the peer. |
 
 ## Model And Cache Issues
 
@@ -33,7 +33,7 @@ This reference collects the failure modes most often seen when bringing up or op
 
 ## Observability
 
-- Tail logs: `docker compose logs -f rtvi-embed`.
+- Tail logs: `docker compose -f rtvi-embed-docker-compose.yml logs -f rtvi-embed`.
 - Scrape Prometheus metrics: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/metrics"`.
 - Detailed component status: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/ready?detailed=true"`.
 - Asset storage stats: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/assets/stats"`.
