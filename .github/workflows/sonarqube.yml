@@ -91,7 +91,6 @@ jobs:
             echo "sonar.projectVersion=1.0.0"
             echo "sonar.sourceEncoding=UTF-8"
             echo "sonar.scm.provider=git"
-            echo "sonar.qualitygate.wait=true"
             echo "sonar.sources=${SONAR_SOURCES}"
             echo "sonar.exclusions=${exclusions}"
           } > sonar-project.properties
@@ -109,6 +108,7 @@ jobs:
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
             {
+              echo "sonar.qualitygate.wait=true"
               echo "sonar.pullrequest.key=${PR_NUMBER}"
               echo "sonar.pullrequest.branch=${PR_HEAD_REF}"
               echo "sonar.pullrequest.base=${PR_BASE_REF}"
@@ -126,6 +126,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Check SonarQube quality gate
+        if: github.event_name == 'pull_request'
         uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496 # v1
         timeout-minutes: 5
         env:
