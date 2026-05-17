@@ -114,7 +114,7 @@ curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 | `MODEL_REPOSITORY_SCRIPT_PATH` | Script that builds the Triton model repository. | `/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py` | No |
 | `NGC_API_KEY` | NGC API key for asset downloads. | (empty) | Yes for first boot |
 | `NVIDIA_API_KEY` | NVIDIA API key for downstream calls. | `NOAPIKEYSET` | Yes if downstream calls require it |
-| `HF_TOKEN` | Hugging Face token used during model download. | (empty) | Yes for gated weights |
+| `HF_TOKEN` | Hugging Face token used during model download. | (empty) | No; recommended to avoid Hugging Face 429 rate limits |
 | `INSTALL_PROPRIETARY_CODECS` | Install proprietary codecs at startup. | `false` | No |
 | `FORCE_SW_AV1_DECODER` | Force software AV1 decoding. | (unset) | No |
 | `RTVI_EMBED_LOG_LEVEL` | Maps to `LOG_LEVEL` inside the container. | `INFO` | No |
@@ -159,7 +159,7 @@ curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 - The Compose service hardcodes `container_name: vss-rtvi-embed`, so only one instance can run per Docker engine without overriding the name.
 - The service is profile-gated by `bp_developer_search_2d`; bring it up with `--profile bp_developer_search_2d` or include it in a Compose project that activates that profile.
 - `${RTVI_EMBED_PORT?}` is a required-variable substitution; missing the variable fails the `compose config` parse.
-- First-boot model download requires reachable Hugging Face/NGC and valid `HF_TOKEN` / `NGC_API_KEY`. Without them, the service starts but `/v1/ready` will not transition to 200.
+- First-boot model download requires reachable Hugging Face/NGC and a valid `NGC_API_KEY`. `HF_TOKEN` is optional but recommended — without it, anonymous Hugging Face pulls of `nvidia/Cosmos-Embed1-448p` can be rate-limited (HTTP 429), which leaves the service running but keeps `/v1/ready` from transitioning to 200.
 - The container runs as UID/GID `1001:1001`. Bind-mounted host directories must already be writable by that UID/GID; the service does not chown at startup.
 - Kafka and Redis integration flags must match the peer service's reachability — enabling them without a reachable broker will leave `/v1/ready` reporting 503.
 - Embedding model defaults to `cosmos-embed1-448p`. Callers must use the model id returned by `GET /v1/models` in their request bodies.

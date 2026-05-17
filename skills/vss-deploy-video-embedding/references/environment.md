@@ -10,7 +10,7 @@ This reference lists every variable the Compose service consumes and how host-le
 | `VSS_DATA_DIR` | Host root for VSS shared data. | `${VSS_DATA_DIR}/data_log/vst/clip_storage` is bind-mounted into the container at `/home/vst/vst_release/streamer_videos`. |
 | `HOST_IP` | Host IP used to construct Kafka bootstrap servers. | Only required when `KAFKA_ENABLED=true`. |
 | `NGC_API_KEY` | NGC API key for asset downloads. | Required for first-boot model fetches from NGC. |
-| `HF_TOKEN` | Hugging Face token. | Required when the embedding model is gated. |
+| `HF_TOKEN` | Hugging Face token. | Optional. Recommended to avoid Hugging Face 429 rate-limit errors during the first-boot Cosmos-Embed1 weights download. |
 
 ## Optional Host Variables That Rename On The Container Boundary
 

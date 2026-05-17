@@ -46,7 +46,7 @@ Before bringing the service up:
 1. NVIDIA driver + NVIDIA Container Toolkit installed; default runtime set to `nvidia`.
 2. Docker Engine and Docker Compose plugin recent enough to support `${VAR:+value}` conditional volume substitution.
 3. `docker login nvcr.io` completed with `$oauthtoken` and a valid NGC API key.
-4. Host environment provides at minimum: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, `NGC_API_KEY`, and `HF_TOKEN` (for the gated Cosmos-Embed1 weights).
+4. Host environment provides at minimum: `RTVI_EMBED_PORT`, `VSS_DATA_DIR`, `NGC_API_KEY`, and optionally `HF_TOKEN` to avoid Hugging Face 429 rate-limit errors during the Cosmos-Embed1 weights download.
 5. Free disk space for persistent caches: `rtvi-hf-cache`, `rtvi-ngc-model-cache`, `rtvi-triton-model-repo` (multi-GB).
 
 See `references/deploy-vss-deploy-video-embedding.md` for the full prerequisite list and `references/environment.md` for the variable matrix.
@@ -162,7 +162,7 @@ If `RTVI_EMBED_LOG_DIR` is bound to a host directory, log files are also availab
 
 For common failure patterns and resolutions, see `references/troubleshooting.md`. Frequent issues:
 
-- `/v1/ready` stuck at 503 → check for missing `HF_TOKEN`/`NGC_API_KEY`, or unreachable Redis/Kafka peers when those flags are enabled.
+- `/v1/ready` stuck at 503 → check for missing `NGC_API_KEY`, Hugging Face 429 rate-limit failures during the first-boot model download (set `HF_TOKEN` to avoid), or unreachable Redis/Kafka peers when those flags are enabled.
 - Healthcheck flipping unhealthy in the first 20 minutes → restore `start_period: 1200s`.
 - Permission errors on bind-mounted cache directories → `chown -R 1001:1001` on the host paths.
 

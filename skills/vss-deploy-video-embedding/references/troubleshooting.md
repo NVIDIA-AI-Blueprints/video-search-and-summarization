@@ -16,7 +16,7 @@ This reference collects the failure modes most often seen when bringing up or op
 
 | Symptom | What to check | Resolution |
 |---|---|---|
-| Model download stops at 401/403 from Hugging Face. | `HF_TOKEN` is empty or does not authorize `nvidia/Cosmos-Embed1-448p`. | Set `HF_TOKEN` to a token with access. As a fallback, pre-populate `rtvi-hf-cache` (or the host-bound `RTVI_EMBED_HF_CACHE`). |
+| Model download stops at 429 from Hugging Face. | Anonymous Hugging Face downloads are being rate-limited while pulling `nvidia/Cosmos-Embed1-448p`. | Set `HF_TOKEN` to a valid Hugging Face token to lift the rate limit. As a fallback, pre-populate `rtvi-hf-cache` (or the host-bound `RTVI_EMBED_HF_CACHE`) so first boot does not refetch the weights. |
 | Model download stops at 401/403 from NGC. | `NGC_API_KEY` is empty or invalid; `docker login nvcr.io` was never run on the host. | Set `NGC_API_KEY` to a valid key and ensure the host is logged in to `nvcr.io`. |
 | First boot is dramatically faster than expected and `/v1/ready` returns 200 unexpectedly. | A stale or partial Triton model repository in `rtvi-triton-model-repo` was reused. | Stop the service, `docker volume rm rtvi-triton-model-repo`, and bring the service back up to force a clean rebuild. |
 | Disk fills up under `/var/lib/docker/volumes/`. | The named caches accumulate model weights and Triton artifacts. | Confirm volume sizes with `docker system df -v`; prune old caches when switching model versions. |
