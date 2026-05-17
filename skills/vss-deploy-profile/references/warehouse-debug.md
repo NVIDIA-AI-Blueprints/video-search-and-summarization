@@ -44,7 +44,7 @@ elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), O
 NOTE: minimal does NOT deploy ES — so the mdx-bev index isn't persisted and Phase 5 BEV-sync check has no data to read (applies to 3D and MV3DT).
 
 bp_wh-only stack (RTVI VLM + agent):
-  vss-rtvi-vlm                                  (always local — hardcoded in compose profile bp_wh_2d)
+  vss-rtvi-vlm                                  (RTVI VLM — always local, hardcoded in compose profile bp_wh_2d; VLM_MODE=none)
   vss-alert-bridge ← depends on vss-rtvi-vlm
   LLM NIM (varies — see below)
   vss-agent ← depends on LLM, vios
@@ -112,7 +112,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 
 | Container | Role |
 |---|---|
-| `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**, hardcoded in compose profile `bp_wh_2d`. `VLM_MODE` in `.env` is a config flag for agent/alert-bridge, not a deployment switch |
+| `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**, hardcoded in compose profile `bp_wh_2d`. Warehouse uses RTVI VLM instead of the standalone VLM NIM path, so `VLM_MODE=none` and `VLM_NAME_SLUG=none`. `vss-agent` connects to RTVI VLM directly |
 | `vss-alert-bridge` | Drives realtime VLM alerts (POST/DELETE `/api/v1/realtime`) |
 | LLM NIM (container name = `LLM_NAME_SLUG`, e.g. `nvidia-nemotron-nano-9b-v2`) | LLM inference — only when `LLM_MODE=local` / `local_shared` |
 | `vss-agent` | Orchestrator |
@@ -121,7 +121,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies VST + kibana + analytics API there) |
 | `phoenix` | Telemetry / observability |
 
-> **No `vlm-nim` container.** The warehouse blueprint runs **only `vss-rtvi-vlm`** for vision-language inference, and it is always local. Do not search for a VLM NIM container — it does not exist in this stack.
+> **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). Warehouse uses **RTVI VLM only** — `vss-agent` connects to it directly. `VLM_MODE=none` in the warehouse `.env`. Do not search for a VLM NIM container — it does not exist in this stack.
 
 ## Container Health Check Settings
 

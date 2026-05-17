@@ -109,7 +109,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | `vss-rtvi-vlm` (real-time VLM) | 8018 | **Always** deployed for `bp_wh` — hardcoded in compose profile `bp_wh_2d` |
 | `vss-alert-bridge` | `ALERT_BRIDGE_PORT` (default `9080`) | Always deployed for `bp_wh` |
 
-> **No VLM NIM container.** The warehouse blueprint runs **only `vss-rtvi-vlm`** for vision-language inference, and it is **always local** — there is no `VLM_MODE`, no remote-VLM endpoint, the same way perception is always local.
+> **No VLM NIM container.** VSS has two VLM paths: a standalone **VLM NIM** (controlled by `VLM_MODE` / `VLM_NAME_SLUG`, used by base/alerts/lvs/search profiles) and an integrated **RTVI VLM** (`vss-rtvi-vlm`). The warehouse blueprint uses **RTVI VLM only** — `vss-rtvi-vlm` is always deployed via the hardcoded compose profile `bp_wh_2d`, and `vss-agent` connects to it directly. Because warehouse does not use the standalone VLM NIM path, `VLM_MODE=none` and `VLM_NAME_SLUG=none` in the warehouse `.env`. There is no `vlm_*` slice in `COMPOSE_PROFILES`, so VLM NIM containers (e.g. `cosmos-reason2-8b` on port 30082) are never deployed.
 
 ## Perception Model
 
@@ -134,7 +134,7 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 - `remote` — point at an external LLM endpoint via `LLM_BASE_URL` (no LLM NIM deployed)
 - `none` — no LLM, for `bp_wh_kafka` / `bp_wh_redis` / `auto_calib`
 
-RTVI VLM has no equivalent setting — like perception, it is always deployed locally on `RT_VLM_DEVICE_ID`.
+RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT_VLM_DEVICE_ID` for `bp_wh`. `VLM_MODE` in the warehouse `.env` is set to `none` because warehouse uses RTVI VLM instead of the standalone VLM NIM path.
 
 ## Access Points
 
