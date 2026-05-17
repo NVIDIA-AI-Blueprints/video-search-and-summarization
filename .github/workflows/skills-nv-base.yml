@@ -103,7 +103,10 @@ jobs:
           python3 .github/skills-nv-base/run_check.py skills/
 
       - name: Step 2 — playbook compliance (naming + frontmatter + structure)
-        if: steps.changes.outputs.relevant == 'true'
+        # `!cancelled()` overrides the implicit `success()` so Step 2 still
+        # runs when Step 1 fails — both gates should surface findings in
+        # the same CI run, not block each other.
+        if: steps.changes.outputs.relevant == 'true' && !cancelled()
         run: |
           python3 .github/skills-nv-base/skill_compliance_check.py \
             --skills-dir skills/ --no-color
