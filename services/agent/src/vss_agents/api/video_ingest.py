@@ -232,6 +232,7 @@ class _VideoUploadConfig(BaseModel):
     rtvi_cv_base_url: str = ""
     rtvi_embed_model: str = "cosmos-embed1-448p"
     rtvi_embed_chunk_duration: int = 5
+    disable_audio: bool = True
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS
     vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS
@@ -253,6 +254,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url = getattr(streaming_config, "rtvi_cv_base_url", None) or ""
         rtvi_embed_model = getattr(streaming_config, "rtvi_embed_model", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = getattr(streaming_config, "rtvi_embed_chunk_duration", 5)
+        disable_audio = not bool(getattr(streaming_config, "enable_audio", False))
     else:
         # NAT may strip unknown config sections — fall back to env vars set by
         # the deploy template. Empty RTVI_*_PORT (base profile, where RTVI
@@ -267,6 +269,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
         rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = 5
+        disable_audio = os.getenv("ENABLE_AUDIO", "false").strip().lower() not in ("true", "1", "yes")
 
     if not vst_internal_url:
         return None
@@ -303,6 +306,7 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         rtvi_cv_base_url=rtvi_cv_base_url,
         rtvi_embed_model=rtvi_embed_model,
         rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+        disable_audio=disable_audio,
         rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
         rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
         vst_storage_timeout_seconds=vst_storage_timeout_seconds,
@@ -437,6 +441,7 @@ async def _run_post_upload_processing(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
     vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
@@ -487,7 +492,7 @@ async def _run_post_upload_processing(
         "startTime": timeline_start_time,
         "endTime": timeline_end_time,
         "container": "mp4",
-        "configuration": json.dumps({"disableAudio": True}),
+        "configuration": json.dumps({"disableAudio": disable_audio}),
     }
     logger.info(f"Calling Storage API: GET {storage_url}")
 
@@ -626,6 +631,7 @@ def create_video_upload_complete_router(
     rtvi_cv_base_url: str = "",
     rtvi_embed_model: str = "cosmos-embed1-448p",
     rtvi_embed_chunk_duration: int = 5,
+    disable_audio: bool = True,
     rtvi_cv_timeout_seconds: float = DEFAULT_RTVI_CV_TIMEOUT_SECONDS,
     rtvi_embed_timeout_seconds: float = DEFAULT_RTVI_EMBED_TIMEOUT_SECONDS,
     vst_storage_timeout_seconds: float = DEFAULT_VST_STORAGE_TIMEOUT_SECONDS,
@@ -672,6 +678,7 @@ def create_video_upload_complete_router(
                 rtvi_cv_base_url=rtvi_cv_base_url,
                 rtvi_embed_model=rtvi_embed_model,
                 rtvi_embed_chunk_duration=rtvi_embed_chunk_duration,
+                disable_audio=disable_audio,
                 rtvi_cv_timeout_seconds=rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=rtvi_embed_timeout_seconds,
                 vst_storage_timeout_seconds=vst_storage_timeout_seconds,
@@ -725,6 +732,7 @@ def register_video_upload_complete(app: "FastAPI", config: "Any") -> None:
                 rtvi_cv_base_url=cfg.rtvi_cv_base_url,
                 rtvi_embed_model=cfg.rtvi_embed_model,
                 rtvi_embed_chunk_duration=cfg.rtvi_embed_chunk_duration,
+                disable_audio=cfg.disable_audio,
                 rtvi_cv_timeout_seconds=cfg.rtvi_cv_timeout_seconds,
                 rtvi_embed_timeout_seconds=cfg.rtvi_embed_timeout_seconds,
                 vst_storage_timeout_seconds=cfg.vst_storage_timeout_seconds,

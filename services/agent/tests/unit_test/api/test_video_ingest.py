@@ -392,6 +392,36 @@ class TestRunPostUploadProcessing:
         assert exc_info.value.status_code == 502
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("disable_audio", [True, False])
+    async def test_disable_audio_flag_passed_to_vst_storage(self, disable_audio):
+        """``disable_audio=False`` is the audio-aware-VLM path - VST must
+        keep the audio track, so the storage GET's ``disableAudio`` flag has
+        to mirror the param."""
+        import json as _json
+
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = AsyncMock()
+
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+            await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="",
+                rtvi_cv_base_url="",
+                disable_audio=disable_audio,
+            )
+
+        params = client.get.call_args.kwargs["params"]
+        assert _json.loads(params["configuration"]) == {"disableAudio": disable_audio}
+
+    @pytest.mark.asyncio
     async def test_invalid_vst_url_is_500(self):
         storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
         cv_resp = self._mock_response(200, {"ok": True})
@@ -506,6 +536,23 @@ class TestUploadCompleteRoute:
         kwargs = mock_post.call_args.kwargs
         assert kwargs["filename"] == "sensor-xyz"
         assert kwargs["camera_name"] == "sensor-xyz"
+
+    @pytest.mark.asyncio
+    async def test_handler_passes_disable_audio_to_processing(self):
+        """``disable_audio`` flows from the router constructor straight into
+        ``_run_post_upload_processing`` so audio-aware VLMs keep audio."""
+        route = create_video_upload_complete_router(
+            vst_internal_url="http://vst:30888",
+            disable_audio=False,
+        ).routes[0]
+
+        with patch(
+            "vss_agents.api.video_ingest._run_post_upload_processing",
+            new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="clip.mp4")),
+        ) as mock_post:
+            await route.endpoint(sensor_id="sensor-xyz", body=VideoUploadCompleteInput(filename="clip.mp4"))
+
+        assert mock_post.call_args.kwargs["disable_audio"] is False
 
     @pytest.mark.asyncio
     async def test_handler_passes_timeout_config_to_processing(self):
@@ -642,6 +689,57 @@ class TestResolveVideoUploadConfig:
         assert resolved.vst_storage_timeout_seconds == 45.5
         assert resolved.rtvi_cv_timeout_seconds == 46.0
         assert resolved.rtvi_embed_timeout_seconds == 447.25
+
+    def test_enable_audio_yaml_flips_disable_audio_off(self):
+        """``streaming_ingest.enable_audio=True`` must invert to
+        ``disable_audio=False`` so VST keeps the audio track."""
+        cfg = SimpleNamespace(
+            vst_internal_url="http://vst:8080",
+            vst_external_url="",
+            rtvi_embed_base_url="",
+            rtvi_cv_base_url="",
+            rtvi_embed_model="cosmos-embed1-448p",
+            rtvi_embed_chunk_duration=5,
+            enable_audio=True,
+        )
+        config = SimpleNamespace(general=SimpleNamespace(front_end=SimpleNamespace(streaming_ingest=cfg)))
+
+        resolved = _resolve_video_upload_config(config)
+        assert resolved is not None
+        assert resolved.disable_audio is False
+
+    def test_enable_audio_defaults_to_disable_audio_true(self):
+        """Omitting ``enable_audio`` must keep the legacy ``disable_audio=True``
+        default — audio-aware VLMs are opt-in, not the default."""
+        cfg = SimpleNamespace(
+            vst_internal_url="http://vst:8080",
+            vst_external_url="",
+            rtvi_embed_base_url="",
+            rtvi_cv_base_url="",
+            rtvi_embed_model="cosmos-embed1-448p",
+            rtvi_embed_chunk_duration=5,
+        )
+        config = SimpleNamespace(general=SimpleNamespace(front_end=SimpleNamespace(streaming_ingest=cfg)))
+
+        resolved = _resolve_video_upload_config(config)
+        assert resolved is not None
+        assert resolved.disable_audio is True
+
+    def test_enable_audio_env_fallback_when_streaming_ingest_missing(self):
+        """When NAT strips ``streaming_ingest``, ``ENABLE_AUDIO=true`` env still
+        keeps audio on. Pairs with the deploy compose env-var contract."""
+        config = MagicMock()
+        config.general.front_end.streaming_ingest = None
+
+        env = {
+            "VST_INTERNAL_URL": "http://vst:30888",
+            "ENABLE_AUDIO": "true",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            resolved = _resolve_video_upload_config(config)
+
+        assert resolved is not None
+        assert resolved.disable_audio is False
 
     def test_returns_none_when_vst_url_unavailable(self):
         config = MagicMock()
