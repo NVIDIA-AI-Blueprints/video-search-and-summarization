@@ -27,7 +27,7 @@ This reference collects the failure modes most often seen when bringing up or op
 |---|---|---|
 | `POST /v1/generate_video_embeddings` returns 503 with "Server is busy processing another file or text". | The service is already handling a request. | Retry with exponential backoff; consider sharding work across multiple instances if sustained 503 is observed. |
 | `POST /v1/generate_video_embeddings` returns 422 with a message about `url`. | The `url` scheme is unsupported, or `file://` is used without `FILE_URL_ALLOWED_DIRS` configured. | Use `http(s)://`, `s3://`, an allowed `file://` path, or a `data:` URI, or upload first via `POST /v1/files`. |
-| Embedding requests succeed but downstream consumers see no Kafka messages. | `KAFKA_ENABLED` is `false` or `HOST_IP` is unset, so `KAFKA_BOOTSTRAP_SERVERS` resolves to `:9092`. | Set `KAFKA_ENABLED=true` and `HOST_IP` to the broker-reachable host IP. |
+| Embedding requests succeed but downstream consumers see no Kafka messages. | Host `RTVI_EMBED_KAFKA_ENABLED` is unset (Compose substitution `${RTVI_EMBED_KAFKA_ENABLED:-false}` resolves to `false`, so the container's `KAFKA_ENABLED` is `false`), or `HOST_IP` is unset so `KAFKA_BOOTSTRAP_SERVERS` resolves to `:9092`. | Set `RTVI_EMBED_KAFKA_ENABLED=true` on the host (this maps to the container's `KAFKA_ENABLED`) and `HOST_IP` to the broker-reachable host IP. |
 | RTSP streams keep reconnecting. | `RTVI_RTSP_RECONNECTION_INTERVAL`/`WINDOW`/`MAX_ATTEMPTS` are too aggressive for the network. | Tune the reconnection envelope; raise `RTVI_RTSP_TIMEOUT` if the upstream stream has high latency. |
 | GPU disappears from `nvidia-smi` inside the container. | NVIDIA Container Toolkit misconfiguration or driver mismatch. | Reinstall NVIDIA Container Toolkit, ensure the default runtime is `nvidia`, and confirm the host driver matches the CUDA stack baked into the image. |
 
@@ -37,7 +37,7 @@ This reference collects the failure modes most often seen when bringing up or op
 - Scrape Prometheus metrics: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/metrics"`.
 - Detailed component status: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/ready?detailed=true"`.
 - Asset storage stats: `curl -fsS "http://localhost:${RTVI_EMBED_PORT}/v1/assets/stats"`.
-- OTLP traces and metrics: enable `ENABLE_OTEL_MONITORING=true` and point `OTEL_EXPORTER_OTLP_ENDPOINT` at a reachable collector.
+- OTLP traces and metrics: enable on the host with `RTVI_EMBED_ENABLE_OTEL_MONITORING=true` (Compose maps this to the container's `ENABLE_OTEL_MONITORING`) and point `RTVI_EMBED_OTEL_EXPORTER_OTLP_ENDPOINT` at a reachable collector.
 
 ## When To Wipe State
 
