@@ -844,6 +844,16 @@ See [Access Points](#access-points) for service URLs.
 
 ---
 
+## Calibration Generation
+
+### BEV Group Origin Calculation
+
+When generating calibration files for multi-camera deployments (3D / MV3DT), use `calculate_origin.py` to compute BEV origin, dimensions, and FOV visualizations for camera groups. This is integrated into the Blueprint configurator but can be run standalone for debugging or batch processing.
+
+Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-grouping-utilities
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
