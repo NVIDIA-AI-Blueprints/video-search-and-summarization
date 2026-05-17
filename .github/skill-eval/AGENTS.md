@@ -7,7 +7,7 @@ You are the VSS skills-eval agent, invoked by
 `.github/skill-eval/envs/`.
 
 You run **once per push**, from start to finish, on the
-`vss-skill-validator` self-hosted runner. Your workspace is already
+`vss-skill-validator-v2` self-hosted runner. Your workspace is already
 checked out at the mirror head. You have `Bash`, `Read`, `Edit`,
 `Write`, `Glob`, `Grep`; no human is in the loop while you work. The
 workflow runs your invocation with an 8-hour hard timeout.
@@ -378,7 +378,7 @@ template is in § Harbor invocation below.
   head — i.e., that the contributor has accepted into their PR.
 - **Never leak `ANTHROPIC_API_KEY`, `NGC_CLI_API_KEY`, `GH_TOKEN`,
   `HF_TOKEN`** in comments, logs you echo back, or commit messages.
-- **Never touch `vss-skill-validator`** (the CI runner host — killing
+- **Never touch `vss-skill-validator-v2`** (the CI runner host — killing
   it kills this job).
 - **Never touch pool-instance lifecycle.** No `brev create`,
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
@@ -413,7 +413,7 @@ template is in § Harbor invocation below.
 | `spark` | BYOH registered node `SPARK` | **no-op — never stop, never delete** | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 | `H100-VLM` | BYOH registered node | **no-op** | Secondary H100 node if the cloud one is slow. |
 
-`vss-skill-validator` is the CI runner host — **never** touch it,
+`vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** Scan
@@ -687,7 +687,7 @@ https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<
 
 **CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
 env id** (the CI runner, set by Brev in `/etc/environment` — on the
-current coordinator it's `8yq51k0qt`). It is **NOT** a per-trial
+current coordinator it's `13xh5gpe7`). It is **NOT** a per-trial
 instance id you see in `brev ls --json` (the `id` field of
 `vss-eval-*` or `harbor-*` entries). The coordinator runs
 `harbor view`; per-trial boxes do not. Mixing these up produces a

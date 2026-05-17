@@ -105,7 +105,7 @@ jobs:
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         if: steps.changes.outputs.relevant == 'true'
         run: |
-          # The runner lives on vss-skill-validator; the coordinator keeps
+          # The runner lives on vss-skill-validator-v2; the coordinator keeps
           # its secrets in a single .env file there. Don't echo contents.
           set -a
           source /home/ubuntu/eval-coordinator/.env
