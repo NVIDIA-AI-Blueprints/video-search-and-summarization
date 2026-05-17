@@ -1,10 +1,16 @@
 ---
 name: vss-deploy-video-embedding
-owner: vss
-service: vss
-version: 1.0.0
-reviewed: 2026-05-14
-description: Deploy, operate, and integrate the VSS 3.2 GA Video Embedding microservice (legacy name RT-Embed, Compose service `rtvi-embed`). Covers Docker Compose bring-up, GPU and storage prerequisites, the `/v1` REST API (file uploads, text and video embeddings, live RTSP streams, health and metrics), Redis/Kafka/OTel integration, common failure modes, and teardown.
+description: >
+  Deploy, operate, and integrate the VSS 3.2 GA RT-Embed Video Embedding
+  microservice. Covers Docker Compose bring-up, 
+  GPU and storage prerequisites, the `/v1` REST API (file uploads,
+  text and video embeddings, live RTSP streams, health and metrics),
+  Redis/Kafka/OTel integration, common failure modes, and teardown.
+license: Apache-2.0
+metadata:
+  version: "3.2.0"
+  github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  tags: "nvidia blueprint operational deployment"
 ---
 
 # VSS Video Embedding (RT-Embed)
