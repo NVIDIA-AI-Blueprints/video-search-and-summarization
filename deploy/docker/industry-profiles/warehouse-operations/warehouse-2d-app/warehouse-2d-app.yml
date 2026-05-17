@@ -48,7 +48,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
-    profiles: ["bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_2d", "auto_calib_2d"]
+    profiles: ["bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -103,7 +103,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/infra/compose.yml
       service: broker-health-check
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "auto_calib_2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     container_name: vss-configurator-2d-init
     network_mode: "host"
     environment:
@@ -138,15 +138,15 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        if [ "$${BP_PROFILE}" = "auto_calib" ]; then
-          echo "BP_PROFILE is auto_calib. Broker health check is not required"
+        if [ "$${BP_PROFILE}" = "bp_wh_auto_calib" ]; then
+          echo "BP_PROFILE is bp_wh_auto_calib. Broker health check is not required"
         else
           exec /scripts/check-$${STREAM_TYPE}-health.sh
         fi
 
   bp-configurator-2d:
     image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "auto_calib_2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     container_name: vss-configurator
     network_mode: "host"
     user: "0:0"
