@@ -84,7 +84,7 @@ vlm:
   max_pixels: 8388608
   enable_sampling: true
   sampling_fps: 4
-  request_timeout: 60
+  request_timeout: {{ .Values.vlmRequestTimeout | default 60 }}
   use_vlm_media_defaults: true
 
 event_bridge:
@@ -130,7 +130,7 @@ prompt:
 alert_type_config_file: "alert_type_config.json"
 
 alert_agent:
-  num_workers: 10
+  num_workers: {{ .Values.alertAgentNumWorkers | default 10 }}
   max_allowed_stream_size: 2
   default_stream_interval: 1
   vst_pass_through_mode: false

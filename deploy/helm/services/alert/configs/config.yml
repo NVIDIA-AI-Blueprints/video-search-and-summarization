@@ -88,7 +88,7 @@ vlm:
   base_url: "{{ $vlmUrl | default (printf "http://%s:8000" $cosmosHost) }}/v1"
   model: "{{ $vlmNameStr }}"
   max_tokens: 4096
-  request_timeout: 5
+  request_timeout: {{ .Values.vlmRequestTimeout | default 5 }}
   vlm_media_source_using_base64: false
   response_format: "auto"
   use_vlm_media_defaults: false
@@ -142,7 +142,7 @@ prompt:
 alert_type_config_file: "alert_type_config.json"
 
 alert_agent:
-  num_workers: 10
+  num_workers: {{ .Values.alertAgentNumWorkers | default 10 }}
   max_allowed_stream_size: 2
   default_stream_interval: 1
   vst_pass_through_mode: false
