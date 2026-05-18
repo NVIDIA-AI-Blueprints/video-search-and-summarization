@@ -42,10 +42,12 @@ all of the following before `docker compose up`:
    - (same pair for VLM if they also said "remote VLM")
    - An `NVIDIA_API_KEY` if the endpoint requires one
 3. Write `LLM_MODE=remote` + `LLM_BASE_URL=<url>` + `LLM_NAME=<model>` into
-   `deployments/developer-workflow/dev-profile-<profile>/.env`. Do the
-   same pair for VLM if the user said remote VLM. Use `sed -i
-   "s|^KEY=.*|KEY=VALUE|"` — the `.env` template ships with placeholder
-   rows for these keys.
+   `deploy/docker/developer-profiles/dev-profile-<profile>/generated.env`
+   (the skill's per-deploy working copy — see [`SKILL.md`](../SKILL.md)
+   Step 1c). Do the same pair for VLM if the user said remote VLM. Use
+   `sed -i "s|^KEY=.*|KEY=VALUE|"` — the source `.env` template ships
+   with placeholder rows for these keys, which `cp` to `generated.env`
+   so the same `sed` patterns work.
 4. After writing, `grep -E '^(HARDWARE_PROFILE|LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL)=' <env-file>`
    and verify every line shows the value you intended. A silent miss on
    `LLM_MODE` / `VLM_MODE` is the #1 cause of deployments coming up with
