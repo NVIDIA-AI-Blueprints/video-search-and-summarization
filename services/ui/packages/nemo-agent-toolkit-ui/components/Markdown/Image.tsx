@@ -1,8 +1,10 @@
 import {
   IconDownload,
   IconExclamationCircle,
+  IconX,
 } from '@tabler/icons-react';
 import React, { memo, useRef, useState, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
 
 import { downloadImageFromUrl } from '@/utils/media/download';
@@ -31,10 +33,34 @@ export const Image = memo(
       setIsLoaded(true);
     }, []);
 
-    const toggleFullscreen = useCallback((e: React.MouseEvent) => {
-      e.stopPropagation();
+    const toggleFullscreen = useCallback((e?: React.MouseEvent) => {
+      e?.stopPropagation();
       setIsFullscreen((prev) => !prev);
     }, []);
+
+    const closeFullscreen = useCallback(() => {
+      setIsFullscreen(false);
+    }, []);
+
+    // Lock page scroll and handle Escape while fullscreen is open (overlay is portaled to body).
+    useEffect(() => {
+      if (!isFullscreen) return;
+
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          closeFullscreen();
+        }
+      };
+      document.addEventListener('keydown', onKeyDown);
+
+      return () => {
+        document.body.style.overflow = previousOverflow;
+        document.removeEventListener('keydown', onKeyDown);
+      };
+    }, [isFullscreen, closeFullscreen]);
 
     const handleDownload = useCallback(
       async (e: React.MouseEvent) => {
@@ -158,38 +184,54 @@ export const Image = memo(
                 </div>
               </div>
             )}
-            {/* Fullscreen Mode - this is fine as it's positioned fixed outside normal flow */}
-            {isFullscreen && !error && isLoaded && (
-              <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
-                onClick={toggleFullscreen}
-                onKeyDown={(e) => e.key === 'Escape' && toggleFullscreen(e as any)}
-                role="dialog"
-                aria-modal="true"
-                tabIndex={-1}
-              >
-                <div className="relative max-h-[90vh] max-w-[90vw]">
-                  {showDownload && (
+            {/* Portal to document.body: chat sidebar transform traps in-panel position:fixed overlays. */}
+            {isFullscreen &&
+              !error &&
+              isLoaded &&
+              typeof document !== 'undefined' &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/95"
+                  onClick={closeFullscreen}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={alt || 'Image preview'}
+                >
+                  <div
+                    className="relative flex max-h-[95vh] max-w-[95vw] items-center justify-center p-4"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <button
                       type="button"
-                      className="absolute right-3 top-3 z-[2] rounded-md bg-white/90 p-2 text-neutral-900 shadow-md ring-1 ring-black/10 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#76b900] dark:bg-neutral-800 dark:text-white dark:ring-white/20"
-                      onClick={handleDownload}
-                      aria-label="Download image"
-                      title="Download image"
+                      className="absolute right-2 top-2 z-[2] rounded-md bg-white/90 p-2 text-neutral-900 shadow-md ring-1 ring-black/10 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#76b900] dark:bg-neutral-800 dark:text-white dark:ring-white/20"
+                      onClick={closeFullscreen}
+                      aria-label="Close fullscreen"
+                      title="Close"
                     >
-                      <IconDownload size={20} />
+                      <IconX size={20} />
                     </button>
-                  )}
-                  <img
-                    src={src}
-                    alt={alt || 'image'}
-                    decoding="async"
-                    className="max-h-full max-w-full rounded-lg object-contain"
-                    style={{ maxWidth: '90vw', maxHeight: '90vh' }}
-                  />
-                </div>
-              </div>
-            )}
+                    {showDownload && (
+                      <button
+                        type="button"
+                        className="absolute right-14 top-2 z-[2] rounded-md bg-white/90 p-2 text-neutral-900 shadow-md ring-1 ring-black/10 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#76b900] dark:bg-neutral-800 dark:text-white dark:ring-white/20"
+                        onClick={handleDownload}
+                        aria-label="Download image"
+                        title="Download image"
+                      >
+                        <IconDownload size={20} />
+                      </button>
+                    )}
+                    <img
+                      src={src}
+                      alt={alt || 'image'}
+                      decoding="async"
+                      className="max-h-[95vh] max-w-[95vw] cursor-zoom-out rounded-lg object-contain"
+                      onClick={closeFullscreen}
+                    />
+                  </div>
+                </div>,
+                document.body,
+              )}
           </span>
         )}
       </span>
