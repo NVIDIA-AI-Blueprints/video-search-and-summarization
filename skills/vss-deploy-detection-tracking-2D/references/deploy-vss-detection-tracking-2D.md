@@ -518,24 +518,12 @@ flag rather than splitting into two calls.
 just the final deploy summary.** The box is the user's "step receipt" — at a
 glance they see what was decided in that step before the next step starts.
 
-Geometry (enforce strictly — same shape across every box):
-
-- Width: **128 chars** (corner-to-corner — `┌` at column 1, `┐` at column 128).
-  Wider terminals leave the box flush-left; do not stretch it. Inner
-  content area is **124 chars** (with one space margin on each side
-  inside the `│` borders).
-- Light box-drawing chars only: `┌ ─ ┐ │ └ ┘`. No `+`, `-`, `=`, `*` ASCII
-  fallbacks.
-- **Top border — title CENTERED**: `┌` + N₁ dashes + `␣` + title + `␣` +
-  N₂ dashes + `┐`, where N₁ + N₂ + len(title) + 2 = 126. Distribute the
-  pad: `N₁ = floor((126 − len(title) − 2) / 2)`, `N₂ = 126 − len(title) − 2 − N₁`.
-  N₁ and N₂ differ by at most 1.
-- Body: one `│ <content padded to inner-content 124> │` per fact. Each
-  fact line uses the `  ✔ <key-padded-to-13>  <value>` form (two spaces
-  in, glyph, key right-padded to 13, two spaces, value).
-- **Blank lines between groups.** Render `│ <92 spaces> │` between Identity,
-  Model, and Videos groups so the user can scan the box at a glance.
-- Bottom: `└` + 94 dashes + `┘` — solid border, no title.
+The geometry contract (width 128, centered title, light box-drawing
+chars, blank-line group separators, etc.) lives in **SKILL.md
+§ "Universal box format"** — the single source of truth that the rest
+of the reference docs (`ux-conventions.md`, `pipeline-config.md`,
+`apply-config.md`, `start-app.md`) cross-reference. The per-step
+**content rules** below specify what rows go inside each box.
 
 **Step 1 box content rule.** Show the NGC resource source under each
 asset (Model, Videos) using a continuation row `from  <NGC_REF>`

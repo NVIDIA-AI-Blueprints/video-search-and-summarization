@@ -102,6 +102,124 @@ All scripts are invoked from the skill root via `$SKILL_DIR/scripts/<name>` — 
 
 ---
 
+## Output contract — DEPLOY flow
+
+When running the DEPLOY / TEARDOWN / DEBUG flow, the agent MUST honour
+all four items below on every successful deploy. These are the user's
+only feedback channel between steps; skipping any of them is a
+behaviour regression.
+
+1. **Render every step's exit in a fixed-width box** — Step 1 *Deploy
+   targets*, Step 2 *Pipeline configuration*, Step 3 *Container*, Step 4
+   *Apply configuration*, Step 5 *Plan* + *Results*. Not just the final
+   summary. The box is the user's step receipt. Geometry is fixed (see
+   § "Universal box format" below). Per-step **content** rules (what
+   rows go inside each box) live in [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md)
+   under "Step N box content rule".
+2. **After the Step 5 Results box, issue the Step 6 `AskUserQuestion`**
+   from [`references/next-steps.md`](references/next-steps.md) § "11.c"
+   — never replace it with a free-form *Next steps* bullet list. The
+   menu is the deploy's exit handle: it lets the user run metrics,
+   manage streams, tail logs, or tear down with one click instead of
+   having to remember curl URLs.
+3. **After the user picks a Step 6 bucket, issue the follow-up
+   `AskUserQuestion`** from [`references/next-steps.md`](references/next-steps.md)
+   § "11.d" — never substitute prose + ready-to-copy curl examples + a
+   free-text "want me to run X?" question. Each bucket has its own
+   menu of concrete actions; the user picks the action, then the skill
+   emits the API box and runs the curl. Per-bucket follow-ups:
+   - **Manage streams** → Add / Remove / List. **Remove builds its
+     options dynamically from `/stream/get-stream-info`** — one option
+     per active stream labelled `<camera_id> · <camera_url>` plus
+     "Remove ALL" when `ACTIVE > 1` (full spec: § "`remove_streams`
+     sub-flow").
+   - **Stop the deployment** → Stop app / Stop container / Full teardown.
+   - **Check metrics & FPS** → no follow-up; run `collect_metrics.sh`
+     directly after printing the `/api/v1/metrics` API box.
+   - **Check liveness / readiness** → no follow-up; probe all three
+     health endpoints after printing their API boxes.
+4. **Render the FULL per-step content, not an overview row** —
+   rendering the box is necessary but not sufficient. Each step has a
+   row composition spec in
+   [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md)
+   under "Step N box content rule". **Step 4 (Apply configuration) is
+   where the agent collapses most often** — its canonical
+   per-use-case key list lives in
+   [`references/apply-config.md`](references/apply-config.md)
+   § "Per-use-case complete edit list", and the agent MUST emit one
+   `✔ [section] key=value  — annotation` row per key in that table for
+   the active use case + settings. A section with 5 keys → 5 rows; a
+   section with 6 keys → 6 rows. Never one overview row per section.
+
+Forbidden (these are the shortcuts the agent falls back to under
+pressure, and they break the user's UX):
+
+- ❌ A one-line `✔ App ready in Ns, N streams, fps total Y` in place of
+  the Step 5 Results box.
+- ❌ ASCII box-drawing chars (`+`, `-`, `=`, `*`) instead of light
+  box-drawing chars (`┌ ─ ┐ │ └ ┘`).
+- ❌ Skipping Step 6 on the assumption "the user knows what to do next".
+- ❌ After Step 6, dumping a markdown wall of prose + multiple curl
+  blocks + a closing "want me to run any of these?" — that's the
+  shape the agent falls back to and it bypasses both the 11.d menu
+  and the per-API-call box. The user picks from a menu; the skill
+  shows the resolved API box; the skill runs it. No free-text Q.
+- ❌ Step 4 overview collapses — these are explicitly banned by the
+  deploy doc's Step 4 content rule:
+    - `✔ Batch size 3 (tile grid: 1×3)` → required: 5 separate rows
+      (`[streammux] batch-size=3`, `[primary-gie] batch-size=3`,
+      `[source-list] max-batch-size=3`, `[tiled-display] rows=1`,
+      `[tiled-display] columns=3`).
+    - `✔ Output sink eglsink` → required: one row per sink key
+      (4 keys for eglsink, e.g. `[sink0] enable=1`, `type=2`,
+      `sync=0`, `qos=0` — read apply-config.md for the exact list).
+    - `✔ Sources static (3 streams, http-port=9000)` → required: six
+      annotated `[source-list]` rows.
+    - `✔ Tile grid 1 row × 3 cols` (single row) → required: two
+      rows, `[tiled-display] rows=1` and `[tiled-display] columns=3`.
+
+## Universal box format
+
+The geometry contract for every step-exit box (Step 1 through Step 5
+Results). The same shape across every box; only the **title** and the
+**body rows** change per step.
+
+- **Width: 128 chars** corner-to-corner — `┌` at column 1, `┐` at
+  column 128. Wider terminals leave the box flush-left; do not stretch
+  it. Inner content area is **124 chars** (with one space margin on
+  each side inside the `│` borders).
+- **Light box-drawing chars only**: `┌ ─ ┐ │ └ ┘`. No `+`, `-`, `=`,
+  `*` ASCII fallbacks.
+- **Top border — title CENTERED**: `┌` + N₁ dashes + `␣` + title + `␣`
+  + N₂ dashes + `┐`, where `N₁ + N₂ + len(title) + 2 = 126`. Distribute
+  the pad: `N₁ = floor((126 − len(title) − 2) / 2)`,
+  `N₂ = 126 − len(title) − 2 − N₁`. N₁ and N₂ differ by at most 1.
+- **Body**: one `│ <content padded to inner-content 124> │` per fact.
+  Each fact line uses the `  ✔ <key-padded-to-13>  <value>` form (two
+  spaces in, glyph, key right-padded to 13, two spaces, value).
+- **Blank lines between groups**: render `│ <124 spaces> │` between
+  logical groups (e.g. Identity / Model / Videos in Step 1) so the
+  user can scan the box at a glance.
+- **Bottom border**: `└` + 126 dashes + `┘` — solid border, no title.
+
+Standard step titles (used at the top of each step's box):
+
+```
+┌─────────────────────────────────────────────────────── Deploy targets ───────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────── Pipeline configuration ───────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────── Container ──────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────── Apply configuration ─────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────── Perception Application — Plan ───────────────────────────────────────────────┐
+┌────────────────────────────────────────────── Perception Application — Results ──────────────────────────────────────────────┐
+```
+
+Per-step content rules (which rows go in which box, mode-aware row
+hiding, the apply-config sectioned layout, the Step 5 PLAN-then-RESULT
+pattern, the Step 3 `docker run` synthesis requirement) live in
+[`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md)
+under "Step N box content rule" — read those when rendering the
+corresponding step.
+
 ## Quick triggers (mnemonic)
 
 | Phrase | Flow |
