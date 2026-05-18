@@ -1020,6 +1020,13 @@ function state_up() {
   cp "${_source_env}" "${_generated_env}"
   echo "[INFO] Copied ${_source_env} to ${_generated_env}"
 
+  ensure_generated_env_trailing_newline() {
+    if [[ -s "${_generated_env}" ]] && [[ "$(tail -c 1 "${_generated_env}" | wc -l)" -eq 0 ]]; then
+      printf '\n' >> "${_generated_env}"
+    fi
+  }
+  ensure_generated_env_trailing_newline
+
   # Append compose-wide defaults for variables not already defined in the profile
   local _compose_defaults="${deployment_directory}/vst/compose-defaults.env"
   if [[ -f "${_compose_defaults}" ]]; then

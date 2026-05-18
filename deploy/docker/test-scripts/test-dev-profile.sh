@@ -729,6 +729,19 @@ run_dry_run_up_and_check_generated_env "generated.env alerts UI subtitle follows
   "MODE" "2d_vlm" \
   "NEXT_PUBLIC_APP_SUBTITLE" '"Vision (Alerts - VLM)"'
 
+_alerts_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env"
+_alerts_env_backup="$(mktemp)"
+cp "${_alerts_env}" "${_alerts_env_backup}"
+CLEANUP_RESTORES+=("${_alerts_env_backup}|${_alerts_env}")
+_alerts_env_without_newline="$(mktemp)"
+printf '%s' "$(cat "${_alerts_env}")" > "${_alerts_env_without_newline}"
+mv "${_alerts_env_without_newline}" "${_alerts_env}"
+LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env appends vars after profile .env without trailing newline" "alerts" \
+ -i 127.0.0.1 -H RTXPRO6000BW -m verification --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
+  "SDR_CONTROLLER_CONFIG_PATH" '${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/sdrc/${MODE}' \
+  "VST_CONFIG_PATH" "${REPO_ROOT}/deploy/docker/services/vios/configs"
+mv "${_alerts_env_backup}" "${_alerts_env}"
+
 # Base profile: when LLM_DEVICE_ID and VLM_DEVICE_ID match (e.g. both 0), derived modes are local_shared for both; when they differ, both are local
 run_dry_run_up_and_check_generated_env "generated.env LLM_MODE VLM_MODE HOST_IP (base defaults)" "base" \
  -i 127.0.0.1 -d -- \
