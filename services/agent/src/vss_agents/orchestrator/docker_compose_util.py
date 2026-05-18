@@ -79,6 +79,10 @@ SUPPORTED_RUNTIME_MODES: Final[frozenset[str]] = frozenset({MODE_LOCAL, MODE_LOC
 MODEL_SLUG_NONE: Final[str] = "none"
 THOR_VLM_PORT: Final[int] = 8018
 DEFAULT_ALERTS_VLM_PORT: Final[int] = 30082
+# Scheme for intra-host service URLs (rtvi-vlm, NIM containers). Plain HTTP
+# because these containers do not terminate TLS and traffic stays within the
+# host loopback/LAN trust boundary.
+INTERNAL_URL_SCHEME: Final[str] = "http"  # NOSONAR S5332
 EDGE_ALERTS_RTVI_INPUT_WIDTH: Final[str] = "860"
 EDGE_ALERTS_RTVI_INPUT_HEIGHT: Final[str] = "467"
 EDGE_ALERTS_RTVI_FPS: Final[str] = "20"
@@ -613,7 +617,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         and not merged.get("VLM_BASE_URL", "").strip()
     ):
         vlm_port = merged.get("VLM_PORT", "").strip() or str(THOR_VLM_PORT)
-        merged["VLM_BASE_URL"] = f"http://{host_ip}:{vlm_port}"
+        merged["VLM_BASE_URL"] = f"{INTERNAL_URL_SCHEME}://{host_ip}:{vlm_port}"
 
     if config.profile == PROFILE_ALERTS:
         if merged.get("HARDWARE_PROFILE", "") in config.edge_hardware_profiles:
@@ -626,7 +630,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
 
         if merged["MODE"] == MODE_2D_VLM and merged["VLM_MODE"] != MODE_REMOTE:
             vlm_port = merged.get("VLM_PORT", "").strip() or str(DEFAULT_ALERTS_VLM_PORT)
-            merged["RTVI_VLM_ENDPOINT"] = f"http://{host_ip}:{vlm_port}/v1"
+            merged["RTVI_VLM_ENDPOINT"] = f"{INTERNAL_URL_SCHEME}://{host_ip}:{vlm_port}/v1"
 
     if not all(merged.get(key, "") for key in COMPOSE_PROFILE_REQUIRED_KEYS):
         raise ValidationError("Could not compute COMPOSE_PROFILES due to missing required env keys.")
