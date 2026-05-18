@@ -94,7 +94,7 @@ class ReportAgentInput(BaseModel):
 
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default.",
+        description="Enable VLM reasoning mode for video analysis. If None, uses the VLM profile or video_understanding config default.",
     )
 
     llm_reasoning: bool | None = Field(
@@ -139,7 +139,7 @@ class VideoReportAgentInput(BaseModel):
     )
     vlm_reasoning: bool | None = Field(
         default=None,
-        description="Enable VLM reasoning mode for video analysis. If None, uses video_understanding config default. Ignored for RTSP streams.",
+        description="Enable VLM reasoning mode for video analysis. If None, uses the VLM profile or video_understanding config default. Ignored for RTSP streams.",
     )
     media_type: Literal["video", "rtsp"] = Field(
         default="video",
