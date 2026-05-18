@@ -63,7 +63,7 @@ If even the per-GPU default doesn't fit (very large VLM, or smaller GPU than the
 
 ### Path A — Remote VLM (user supplied)
 
-Triggered when the user provides a VLM endpoint URL or asks for `remote-vlm` / `remote-all`. Edit `dev-profile-search/.env`:
+Triggered when the user provides a VLM endpoint URL or asks for `remote-vlm` / `remote-all`. Edit `dev-profile-search/generated.env`:
 
 ```bash
 VLM_MODE=remote
@@ -89,7 +89,7 @@ This is the default placement for any 2- or 3-GPU host without a remote VLM. Put
 | A40 (48 GB) | **8** | Same |
 | Thor / GB10 (DGX Spark, ≤ 64 GB unified) | **8** | Edge — unified memory, smaller VLM headroom |
 
-Edit `dev-profile-search/.env`:
+Edit `dev-profile-search/generated.env`:
 
 ```bash
 RT_CV_DEVICE_ID=0
@@ -114,7 +114,7 @@ NUM_STREAMS=16                                           # 16 on H100/RTX PRO 60
 
 ### Path C — VLM on a dedicated 3rd GPU (full RT-CV throughput)
 
-Use this when the user explicitly wants the full `NUM_STREAMS=16` perception throughput **and** has a 3rd GPU free. Edit `dev-profile-search/.env`:
+Use this when the user explicitly wants the full `NUM_STREAMS=16` perception throughput **and** has a 3rd GPU free. Edit `dev-profile-search/generated.env`:
 
 ```bash
 RT_CV_DEVICE_ID=0
@@ -219,7 +219,7 @@ Two writes:
 # 1. In deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/hw-H100-shared.env
 NIM_KVCACHE_PERCENT=0.72             # LLM gets ~58 GB; leaves 10 GB for RT-Embed + 12 GB framework
 
-# 2. In deploy/docker/developer-profiles/dev-profile-search/.env
+# 2. In deploy/docker/developer-profiles/dev-profile-search/generated.env
 RT_EMBED_DEVICE_ID=1
 LLM_DEVICE_ID=1
 LLM_MODE=local_shared
@@ -269,7 +269,8 @@ For Path B (default — VLM on GPU 0 with RT-CV), the math is on GPU 0 instead: 
 ## Env file location
 
 ```
-deploy/docker/developer-profiles/dev-profile-search/.env
+deploy/docker/developer-profiles/dev-profile-search/.env            # source defaults (read-only)
+deploy/docker/developer-profiles/dev-profile-search/generated.env   # skill's working copy (apply overrides here)
 ```
 
 ## Stage perception models (RT-DETR warehouse)

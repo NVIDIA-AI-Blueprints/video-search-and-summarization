@@ -32,7 +32,7 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 
 ## Sizing — GPU memory per model
 
-Sizing for `base` is per-model. The default pair is `cosmos-reason2-8b` (VLM) + `nvidia-nemotron-nano-9b-v2` (LLM); the user can swap either by editing `LLM_NAME` / `LLM_NAME_SLUG` / `VLM_NAME` / `VLM_NAME_SLUG` in the `dev-profile-base/.env` file. The compose system auto-resolves to the right service via the computed `COMPOSE_PROFILES` (`llm_<mode>_<slug>` and `vlm_<mode>_<slug>`).
+Sizing for `base` is per-model. The default pair is `cosmos-reason2-8b` (VLM) + `nvidia-nemotron-nano-9b-v2` (LLM); the user can swap either by editing `LLM_NAME` / `LLM_NAME_SLUG` / `VLM_NAME` / `VLM_NAME_SLUG` in `dev-profile-base/generated.env` (the skill's per-deploy working copy; see [`SKILL.md`](../SKILL.md) Step 1c). The compose system auto-resolves to the right service via the computed `COMPOSE_PROFILES` (`llm_<mode>_<slug>` and `vlm_<mode>_<slug>`).
 
 The tables below give the **VRAM cost per model** (weights × 1.3 overhead). Use this with the [Sizing math](#sizing-math) section to decide whether a (LLM, VLM, GPU) combo fits. 
 
@@ -142,7 +142,7 @@ Two — and only two — triggers should put either side into `remote` mode.
 
 The user's prompt names an LLM and/or VLM endpoint URL (e.g. *"deploy with remote LLM at `http://launchpad:11571` serving `nvidia/nvidia-nemotron-nano-9b-v2`"*) or asks for `remote-all`. Action:
 
-- Set `LLM_MODE=remote` (and/or `VLM_MODE=remote`) in `dev-profile-base/.env`.
+- Set `LLM_MODE=remote` (and/or `VLM_MODE=remote`) in `dev-profile-base/generated.env`.
 - Set `LLM_BASE_URL` (no trailing `/v1`), `LLM_NAME`, and `NVIDIA_API_KEY` if the endpoint requires auth.
 - Local sizing math doesn't apply for the remote side.
 - See [Env Overrides — Common Scenarios](#env-overrides--common-scenarios) below for full recipes.
@@ -197,7 +197,7 @@ In-tree slugs are the directory names under `deploy/docker/services/nim/`:
 - **LLMs:** `nvidia-nemotron-nano-9b-v2`, `nvidia-nemotron-nano-9b-v2-fp8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`
 - **VLMs:** `cosmos-reason2-8b`, `cosmos-reason1-7b`, `qwen3-vl-8b-instruct`
 
-If yes → set the four env vars in `deploy/docker/developer-profiles/dev-profile-base/.env`:
+If yes → set the four env vars in `deploy/docker/developer-profiles/dev-profile-base/generated.env`:
 
 ```bash
 # Example: switch LLM to Nano 9B FP8
@@ -220,7 +220,7 @@ If yes (NGC catalog has an `nvcr.io/nim/<org>/<model>:<tag>` image): create a ne
    - `<your-slug>-shared-gpu` with `profiles: [llm_local_shared_<slug>]` (or `vlm_local_shared_<slug>`) and `device_ids: ["${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"]`.
 2. Add `hw-<HARDWARE_PROFILE>.env` and `hw-<HARDWARE_PROFILE>-shared.env` files. Compute the starting fraction from the formula in [Sizing math](#sizing-math). Set both forms per the v1.x↔v2.x table above: **LLM** → `NIM_KVCACHE_PERCENT=<v>` and `NIM_GPU_MEM_FRACTION=<v>`; **VLM** → `NIM_KVCACHE_PERCENT=<v>` and `NIM_PASSTHROUGH_ARGS="--gpu-memory-utilization <v>"`. Add `NIM_MAX_MODEL_LEN` and `NIM_MAX_NUM_SEQS` per the model's documented limits.
 3. Add the new compose file to the `include:` list in `deploy/docker/services/nim/compose.yml`.
-4. Edit `dev-profile-base/.env` to set `LLM_NAME` / `LLM_NAME_SLUG` (or VLM equivalents).
+4. Edit `dev-profile-base/generated.env` to set `LLM_NAME` / `LLM_NAME_SLUG` (or VLM equivalents).
 5. Run the [Tuning workflow](#tuning-workflow) above.
 
 ### Step 3 — No NIM available → use a DLFW (vLLM) container
@@ -281,7 +281,7 @@ services:
               device_ids: ["${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"]
 ```
 
-Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-base/.env` to set `LLM_NAME` / `LLM_NAME_SLUG`. Use the [Tuning workflow](#tuning-workflow) to dial in `--gpu-memory-utilization`.
+Then add the file to `nim/compose.yml`'s `include:` list and edit `dev-profile-base/generated.env` to set `LLM_NAME` / `LLM_NAME_SLUG`. Use the [Tuning workflow](#tuning-workflow) to dial in `--gpu-memory-utilization`.
 
 > **Edge note.** On DGX-Spark / Thor, follow [`edge.md`](edge.md) instead — the Edge 4B currently runs as a standalone container outside the compose stack (with `--use-remote-llm` pointing the agent at port 30081). Folding it into a compose file is on the roadmap but not done yet.
 
@@ -368,7 +368,7 @@ exact URL they gave you.
 Post-write sanity check:
 ```bash
 grep -E '^(LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL|LLM_NAME|VLM_NAME)=' \
-  deploy/docker/developer-profiles/dev-profile-base/.env
+  deploy/docker/developer-profiles/dev-profile-base/generated.env
 ```
 Expect six lines, all non-empty; `LLM_MODE=remote` and `VLM_MODE=remote`
 must both appear. If either is `local`, you didn't overwrite the
@@ -427,7 +427,8 @@ The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automati
 ## Env File Location
 
 ```
-<repo>/deploy/docker/developer-profiles/dev-profile-base/.env
+<repo>/deploy/docker/developer-profiles/dev-profile-base/.env            # source defaults (read-only)
+<repo>/deploy/docker/developer-profiles/dev-profile-base/generated.env   # skill's working copy (apply overrides here)
 ```
 
 ## Debugging

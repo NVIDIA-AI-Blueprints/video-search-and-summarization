@@ -44,5 +44,7 @@ Use the bundled cleanup helper. It clears every directory whose stale state can 
 
 ```bash
 sudo bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" \
-    --env-file "$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/.env"
+    --env-file "$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env"
 ```
+
+If `generated.env` doesn't exist (no prior deploy via this skill), fall back to the source `.env`. The cleanup script reads paths from whichever file you point it at.

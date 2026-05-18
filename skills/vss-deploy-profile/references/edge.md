@@ -74,7 +74,7 @@ Key flags:
   must match the template.
 - `--enable-auto-tool-choice` — agent workflow uses tool-calls.
 
-Then apply env overrides to `dev-profile-base/.env` (LLM is a standalone vLLM at `localhost:30081`, treated as "remote"; VLM stays local but on the shared edge GPU):
+Then apply env overrides to `dev-profile-base/generated.env` (LLM is a standalone vLLM at `localhost:30081`, treated as "remote"; VLM stays local but on the shared edge GPU):
 
 | Key | Value | Why |
 |---|---|---|
@@ -97,7 +97,7 @@ Make sure the Edge vLLM container is not running:
 docker stop nemotron-edge && docker rm nemotron-edge   # only if running
 ```
 
-Env overrides for `dev-profile-base/.env`:
+Env overrides for `dev-profile-base/generated.env`:
 
 | Key | Value |
 |---|---|
@@ -135,7 +135,7 @@ docker run --gpus all -d --name nemotron-edge -p 30081:8000 \
     --port 8000
 ```
 
-Then apply env overrides to `dev-profile-base/.env`:
+Then apply env overrides to `dev-profile-base/generated.env`:
 
 | Key | Value |
 |---|---|
@@ -158,7 +158,7 @@ For **IGX Thor**: swap `HARDWARE_PROFILE=AGX-THOR` for `HARDWARE_PROFILE=IGX-THO
 docker stop nemotron-edge && docker rm nemotron-edge   # only if running
 ```
 
-Env overrides for `dev-profile-base/.env`:
+Env overrides for `dev-profile-base/generated.env`:
 
 | Key | Value |
 |---|---|
