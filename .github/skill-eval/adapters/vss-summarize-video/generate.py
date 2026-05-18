@@ -211,11 +211,22 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
 
-        # skills/ — primary + deploy + VIOS (the spec env mentions seeding
-        # the sample video via VIOS upload before these checks run).
-        copies = [(skill_dir, "vss-summarize-video"),
-                  (deploy_skill_dir, "vss-deploy-profile"),
-                  (video_io_skill_dir, "vss-manage-video-io-storage")]
+        # skills/ — only include skill directories that appear in the spec's
+        # `skills` list.  vss-summarize-video is always included (it is the
+        # primary skill under test).  vss-manage-video-io-storage and
+        # vss-deploy-profile are included only when the spec declares them —
+        # this prevents the brev-exec ARG_MAX / MAX_ARG_STRLEN overflow
+        # (Linux caps a single execve argument at 131 072 bytes; the full
+        # base64 tarball of all three skills exceeds that limit as of PR #520
+        # which expanded the skill references).
+        spec_skills: set[str] = set(spec.get("skills") or [])
+        all_copies = [
+            (skill_dir, "vss-summarize-video"),
+            (video_io_skill_dir, "vss-manage-video-io-storage"),
+            (deploy_skill_dir, "vss-deploy-profile"),
+        ]
+        copies = [(src, name) for src, name in all_copies
+                  if name == "vss-summarize-video" or name in spec_skills]
         for src, name in copies:
             if src and src.exists():
                 dst = step_dir / "skills" / name
