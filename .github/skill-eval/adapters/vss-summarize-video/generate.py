@@ -25,14 +25,21 @@ this in `resources.platforms`.
         tests/generic_judge.py
         solution/solve.sh
         skills/vss-summarize-video/
-        skills/vss-deploy-profile/                (for prerequisite diagnostics)
-        skills/vss-manage-video-io-storage/                  (the spec's env mentions seeding the
-                                       sample video via VIOS upload first)
+        skills/vss-manage-video-io-storage/       (when listed in spec["skills"])
         environment/Dockerfile        (FROM scratch; BrevEnvironment takes over)
 
 `<profile>` comes from `spec.profile` (here: `lvs`). `<k>` is the
 1-based index into `expects[]`; single-step specs collapse the step
 subdir.
+
+## Skills bundling
+
+Only skill directories that appear in `spec["skills"]` are copied into
+the trial's `skills/` tree (plus `vss-summarize-video` which is always
+included as the primary skill under test). This prevents the
+brev-exec `MAX_ARG_STRLEN` overflow (Linux caps a single execve argument
+at 131 072 bytes; the full base64 tarball of three skills exceeds that
+limit).
 
 Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-summarize-video/generate.py \\
@@ -254,7 +261,7 @@ def main() -> None:
     if any(arg == "--vios-skill-dir" or arg.startswith("--vios-skill-dir=") for arg in sys.argv[1:]):
         print("WARNING: --vios-skill-dir is deprecated; use --video-io-skill-dir.", file=sys.stderr)
     parser.add_argument("--spec", default=None,
-                        help="Path to lvs_profile_summarize.json "
+                        help="Path to a spec JSON file "
                              "(default: <skill-dir>/evals/lvs_profile_summarize.json)")
     parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()),
                         help=f"Generate for one platform only (overrides spec.resources.platforms)")
