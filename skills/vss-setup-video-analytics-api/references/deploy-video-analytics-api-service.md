@@ -216,7 +216,7 @@ The container will keep retrying until ES is reachable (up to the configured `re
 docker compose -f services/analytics/video-analytics-api/compose.yml down
 ```
 
-For a multi-service teardown (broker, ES, etc.) see [`teardown.md`](teardown.md).
+For a multi-service teardown (broker, ES, etc.) see [`teardown.md`](../../vss-deploy-profile/references/teardown.md).
 
 ---
 
