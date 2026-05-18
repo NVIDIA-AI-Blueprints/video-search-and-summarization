@@ -376,7 +376,6 @@ analytics:
             {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "objectConfidenceThreshold", "value": "0.5"},
-            {"name": "coordinateSystem", "value": "euclidean"},
             {"name": "embedEnableDownsampling", "value": "false"},
             {"name": "embedDownsamplerType", "value": "window"},
             {"name": "embedSensorTTLSec", "value": "3600"},
