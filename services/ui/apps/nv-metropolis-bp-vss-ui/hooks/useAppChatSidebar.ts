@@ -10,7 +10,10 @@ export type AppChatSidebarApi = {
   collapsed: boolean;
   setCollapsed: (value: boolean) => void;
   effectiveWidth: number;
-  handleResizeStart: (e: React.MouseEvent, startWidthOverride?: number) => void;
+  handleResizeStart: (
+    e: React.PointerEvent<HTMLElement>,
+    startWidthOverride?: number,
+  ) => void;
   contentAreaCallbackRef: (el: HTMLDivElement | null) => void;
 };
 
@@ -56,35 +59,48 @@ export function useAppChatSidebar(): AppChatSidebarApi {
   setContentAreaWidthRef.current = setContentAreaWidth;
   setSidebarStateRef.current = setSidebarState;
 
-  const handleResizeMove = React.useCallback((e: MouseEvent) => {
-    const ref = resizeRef.current;
-    if (!ref) return;
-    const contentWidth = contentAreaRef.current?.clientWidth ?? 0;
-    const minW = contentWidth > 0 ? contentWidth / 3 : 320;
-    const maxW = contentWidth > 0 ? (contentWidth * 2) / 3 : 600;
-    const deltaX = e.clientX - ref.startX;
-    const newWidth = Math.min(maxW, Math.max(minW, ref.startWidth - deltaX));
-    setSidebarState((prev) => ({
-      ...prev,
-      width: newWidth,
-    }));
-  }, []);
-
-  const handleResizeEnd = React.useCallback(() => {
-    resizeRef.current = null;
-    window.removeEventListener('mousemove', handleResizeMove);
-    window.removeEventListener('mouseup', handleResizeEnd);
-  }, [handleResizeMove]);
-
   const handleResizeStart = React.useCallback(
-    (e: React.MouseEvent, startWidthOverride?: number) => {
+    (e: React.PointerEvent<HTMLElement>, startWidthOverride?: number) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
+      const target = e.currentTarget;
       const startWidth = startWidthOverride ?? sidebarState.width ?? 380;
       resizeRef.current = { startX: e.clientX, startWidth };
-      window.addEventListener('mousemove', handleResizeMove);
-      window.addEventListener('mouseup', handleResizeEnd);
+
+      const onMove = (ev: PointerEvent) => {
+        const ref = resizeRef.current;
+        if (!ref) return;
+        const contentWidth = contentAreaRef.current?.clientWidth ?? 0;
+        const minW = contentWidth > 0 ? contentWidth / 3 : 320;
+        const maxW = contentWidth > 0 ? (contentWidth * 2) / 3 : 600;
+        const deltaX = ev.clientX - ref.startX;
+        const newWidth = Math.min(maxW, Math.max(minW, ref.startWidth - deltaX));
+        setSidebarState((prev) => ({
+          ...prev,
+          width: newWidth,
+        }));
+      };
+
+      const onUp = (ev: PointerEvent) => {
+        resizeRef.current = null;
+        target.removeEventListener('pointermove', onMove);
+        target.removeEventListener('pointerup', onUp);
+        target.removeEventListener('pointercancel', onUp);
+        try {
+          if (target.hasPointerCapture(ev.pointerId)) {
+            target.releasePointerCapture(ev.pointerId);
+          }
+        } catch {
+          /* capture may already be lost */
+        }
+      };
+
+      target.addEventListener('pointermove', onMove);
+      target.addEventListener('pointerup', onUp);
+      target.addEventListener('pointercancel', onUp);
+      target.setPointerCapture(e.pointerId);
     },
-    [sidebarState.width, handleResizeMove, handleResizeEnd],
+    [sidebarState.width],
   );
 
   const contentAreaCallbackRef = React.useCallback(
