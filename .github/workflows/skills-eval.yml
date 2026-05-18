@@ -27,6 +27,17 @@ on:
     branches:
       - "pull-request/[0-9]+"
 
+# Authenticate as github-actions[bot] for all GitHub operations (gh pr
+# comment, gh pr create, git push of eval-bot/* branches). The agent
+# inherits this via env.GH_TOKEN on the run step below. Mirrors how
+# helm-sync.yml does it — no PAT, no rotation, no personal-account
+# binding. The skill-eval bot PRs hit the source PR's headRefName branch
+# in this same repo, so contents:write is enough; pull-requests:write
+# covers gh pr comment + gh pr create.
+permissions:
+  contents: write
+  pull-requests: write
+
 # Only one eval runs per PR at a time. A fresh push cancels the in-flight
 # run (lock on /tmp/brev/<id>.lock will be released by the agent's trap).
 concurrency:
@@ -94,7 +105,7 @@ jobs:
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         if: steps.changes.outputs.relevant == 'true'
         run: |
-          # The runner lives on vss-skill-validator; the coordinator keeps
+          # The runner lives on vss-skill-validator-v2; the coordinator keeps
           # its secrets in a single .env file there. Don't echo contents.
           set -a
           source /home/ubuntu/eval-coordinator/.env
@@ -106,16 +117,23 @@ jobs:
       - name: Run skills eval agent
         id: agent
         if: steps.changes.outputs.relevant == 'true'
+        env:
+          # Auto-injected workflow token, authenticates as
+          # github-actions[bot]. Scoped by the permissions: block at
+          # workflow level (contents:write + pull-requests:write). All
+          # gh / git operations the agent runs (pr comment, pr create,
+          # push eval-bot/* branches) use this — no PAT in the
+          # coordinator .env, no personal-account auth.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -a
-          source /home/ubuntu/eval-coordinator/.env   # re-source; GH step env is isolated
+          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev secrets only
           set +a
           export PR_NUMBER="${{ steps.pr.outputs.number }}"
           export PR_BASE="${{ steps.pr.outputs.base }}"
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
-          export GH_TOKEN="${GITHUB_TOKEN}"
           # `.github` isn't a valid Python package prefix, so we expose the
           # harness via PYTHONPATH. `envs.brev_env:BrevEnvironment` is what
           # `uvx harbor run --environment-import-path` expects.

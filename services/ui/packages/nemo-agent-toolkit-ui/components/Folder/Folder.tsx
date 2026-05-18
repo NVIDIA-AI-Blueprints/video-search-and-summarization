@@ -19,6 +19,11 @@ import { useTranslation } from 'react-i18next';
 import { FolderInterface } from '@/types/folder';
 
 import HomeContext from '@/pages/api/home/home.context';
+import {
+  isFolderDeleteBlocked,
+  isQueryProcessing,
+} from '@/utils/app/queryProcessing';
+import toast from 'react-hot-toast';
 
 import SidebarActionButton from '@/components/Buttons/SidebarActionButton';
 
@@ -44,6 +49,20 @@ const Folder = ({
   }
 
   const { state, dispatch, handleDeleteFolder, handleUpdateFolder, handleNewConversation } = homeContext;
+  const {
+    loading = false,
+    messageIsStreaming = false,
+    selectedConversation,
+    conversations = [],
+  } = state;
+  const newConversationDisabled = isQueryProcessing(loading, messageIsStreaming);
+  const deleteFolderDisabled = isFolderDeleteBlocked(
+    currentFolder.id,
+    conversations,
+    selectedConversation?.id,
+    loading,
+    messageIsStreaming,
+  );
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -157,6 +176,11 @@ const Folder = ({
                 e.stopPropagation();
 
                 if (isDeleting) {
+                  if (deleteFolderDisabled) {
+                    toast.error(t('queryProcessingBlockDeleteFolder', { ns: 'chat' }));
+                    setIsDeleting(false);
+                    return;
+                  }
                   handleDeleteFolder(currentFolder.id);
                 } else if (isRenaming) {
                   handleRename();
@@ -194,8 +218,18 @@ const Folder = ({
             <SidebarActionButton
               handleClick={(e) => {
                 e.stopPropagation();
+                if (deleteFolderDisabled) {
+                  toast.error(t('queryProcessingBlockDeleteFolder', { ns: 'chat' }));
+                  return;
+                }
                 setIsDeleting(true);
               }}
+              disabled={deleteFolderDisabled}
+              title={
+                deleteFolderDisabled
+                  ? t('queryProcessingBlockDeleteFolderTitle')
+                  : undefined
+              }
             >
               <IconTrash size={18} />
             </SidebarActionButton>
@@ -207,9 +241,17 @@ const Folder = ({
         <>
           <button
             type="button"
-            className="ml-5 flex w-full cursor-pointer items-center gap-2 rounded-md border-0 px-2 py-1.5 text-left text-[12.5px] text-gray-600 dark:text-gray-400 transition-colors hover:bg-gray-200 dark:hover:bg-black/90"
+            disabled={newConversationDisabled}
+            title={newConversationDisabled ? t('queryProcessingBlockNewChatTitle') : undefined}
+            aria-disabled={newConversationDisabled}
+            className={`ml-5 flex w-full items-center gap-2 rounded-md border-0 px-2 py-1.5 text-left text-[12.5px] text-gray-600 dark:text-gray-400 transition-colors ${
+              newConversationDisabled
+                ? 'cursor-not-allowed opacity-50'
+                : 'cursor-pointer hover:bg-gray-200 dark:hover:bg-black/90'
+            }`}
             onClick={(e) => {
               e.stopPropagation();
+              if (newConversationDisabled) return;
               handleNewConversation(currentFolder.id);
             }}
           >

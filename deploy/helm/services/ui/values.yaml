@@ -19,7 +19,7 @@ serviceAccount:
   create: false
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-  tag: "3.2.0-26.05.2-2b9b7127c0bb"
+  tag: "3.2.0-26.05.2-328c2d6eacb9"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
@@ -47,7 +47,7 @@ staticEnvConfigMapName: ""
 extraEnvFrom: []
 # Optional: extra container env entries appended last (parent profile values.yaml). Use for NEXT_PUBLIC_* not covered by `env` + `envOverrides`.
 extraEnv: []
-# Optional: list of {name, value} env overrides (appended after env; later vars win). Parent uses for alerts profile.
+# Optional: list of {name, value} env overrides (merged over chart `env` by name in deployment template). Parent uses for alerts profile.
 envOverrides: []
 agentApiUrlBase: ""
 vstApiUrl: ""
@@ -175,7 +175,7 @@ env:
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED
     value: "false"
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_HIDDEN_MESSAGE_TEMPLATE
-    value: "Can you show the video clip of the video {filenames} that I just uploaded?"
+    value: "Let's show the videos just uploaded {filenames}?"
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_SHOW_THEME_TOGGLE_BUTTON
     value: "false"
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_INTERACTION_MODAL_CANCEL_ENABLED
