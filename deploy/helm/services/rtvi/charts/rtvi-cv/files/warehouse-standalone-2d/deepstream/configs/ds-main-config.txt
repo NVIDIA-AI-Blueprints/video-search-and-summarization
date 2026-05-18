@@ -57,7 +57,6 @@ file-loop=1
 num-sources=1
 gpu-id=0
 cudadec-memtype=0
-drop-on-latency=1
 latency=100
 rtsp-reconnect-interval-sec=10
 rtsp-reconnect-attempts=-1
