@@ -146,10 +146,10 @@ The schema for the calibration JSON is vendored from `vss-analytics-api/web-api-
 `vss-behavior-analytics` does **not** require a broker to be present at start time:
 
 - The container starts fine without Kafka/Redis/MQTT reachable.
-- The Kafka client retries the broker connection. You'll see repeated `Connect to ipv4#…:9092 failed: Connection refused` warnings in `docker logs vss-behavior-analytics-base` — that's expected, not a fatal error.
-- `restart: always` is set in the base compose, so even if the process exits it'll come back up. Once the broker becomes reachable the consumer thread starts draining messages normally.
+- The Kafka client retries the broker connection a bounded number of times (with backoff). You'll see repeated `Connect to ipv4#…:9092 failed: Connection refused` warnings in `docker logs vss-behavior-analytics-base` while it tries.
+- Once retries are exhausted, the app process exits and the container's `restart: always` policy brings it back up. The new container starts a fresh retry cycle. This restart loop continues — visible in `docker ps` as the `Status` column counting `Restarting (N)` — until the broker becomes reachable, at which point the consumer thread connects on the next attempt and drains messages normally.
 
-This is convenient for "bring up the analytics container first, broker later" workflows. If you want it to fail-fast when there's no broker (e.g. in CI), wrap with your own healthcheck or override `restart:` to `on-failure`.
+Practical implication: a broker-less analytics container is **not** sitting idle in-process — it's cycling. Fine for "bring up analytics first, broker later" workflows, but expect periodic restarts in the meantime. If you want it to fail-fast instead (e.g. in CI), override `restart:` to `on-failure` or `no`, or wrap with your own healthcheck.
 
 > When a broker **is** reachable, you also get two runtime-update flows — dynamic config and dynamic calibration — that don't require redeploying the container. Those are post-deployment operations and live in the `SKILL.md`'s **Dynamic updates** section, plus [`dynamic-config.md`](dynamic-config.md) and [`dynamic-calibration.md`](dynamic-calibration.md) for full wire contracts.
 
@@ -196,7 +196,7 @@ docker compose -f services/analytics/behavior-analytics/compose.yml down
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `FileNotFoundError: '/resources/...'` on startup | `--config` flag and the volume bind target don't match. | Make the `--config` path equal the container side of the volume bind (the part after the `:`). |
-| Container alive but log just keeps printing `Connect to … failed: Connection refused` | No broker listening on the host. | Expected if you're running broker-less; otherwise start your broker. The container will pick up the connection automatically once it's up. |
+| `docker ps` shows the container in a `Restarting (N)` loop, logs print `Connect to … failed: Connection refused` then exit | No broker listening on the host. Retries are exhausted, app exits, `restart: always` brings it back, repeat. | Expected if you're intentionally running broker-less; otherwise start your broker — the next restart cycle will connect. To stop the restart loop, override `restart:` to `on-failure` or `no`. |
 | `calibration schema violation` after a notification arrives | Producer sent a payload that fails the JSON Schema gate. | Previously-good calibration stays loaded; check the producer's payload against the schema in `src/mdx/analytics/core/transform/calibration/schemas/calibration.schema.json`. |
 | `dropping config message: unrecognized reference-id …` | Inbound dynamic-config `upsert` / `upsert-all` carries a reference-id outside the accepted set. | Reference-id must start with `video-analytics-api-` (web-api), `behavior-analytics-` (bootstrap echo), or equal the active source-type literal (`kafka` / `redis` / `mqtt`). |
 | `dropping config message: no config to update` | Inbound `upsert` had `config: null` or omitted the field. | An `upsert` with no config is a producer bug; `upsert-all` with `config=null` is allowed (it's the bootstrap-failure signal). |
