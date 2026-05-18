@@ -7,9 +7,9 @@
 # 'render-config' service in docker-compose.yaml). POSIX sh on purpose.
 #
 # Usage (host):
-#   HOST_IP=10.57.202.234 ./render-config.sh
-#   HOST_IP=10.57.202.234 NUM_STREAMS=8 ./render-config.sh path/to/tmpl path/to/out
-#   HOST_IP=10.57.202.234 NUM_SENSORS=8 ./render-config.sh path/to/tmpl path/to/out
+#   HOST_IP=127.0.0.1 ./render-config.sh
+#   HOST_IP=127.0.0.1 NUM_STREAMS=8 ./render-config.sh path/to/tmpl path/to/out
+#   HOST_IP=127.0.0.1 NUM_SENSORS=8 ./render-config.sh path/to/tmpl path/to/out
 #
 # Usage (init container):
 #   sh /render-config.sh /tmpl/config.yml.tmpl /out/config.yml
