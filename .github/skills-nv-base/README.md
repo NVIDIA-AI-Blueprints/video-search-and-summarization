@@ -1,15 +1,18 @@
 # Skills NV-BASE CI
 
-Two-step Tier-1 skill gate that runs on every PR touching `skills/` or
-this harness. Fails the check if either step reports a blocking finding.
+Three-step Tier-1 skill gate that runs on every PR touching `skills/` or
+this harness. Fails the check if Step 1 or Step 2 reports a blocking
+finding. Step 3 posts a sticky PR comment summarising all findings (kept
+in sync across pushes by a hidden marker).
 
 ## Files
 
 | File | Role |
 |---|---|
 | [`../workflows/skills-nv-base.yml`](../workflows/skills-nv-base.yml) | GitHub Actions workflow definition |
-| [`run_check.py`](run_check.py) | Step 1 — driver for `nv-base validate` (parses JSON report, emits annotations) |
-| [`skill_compliance_check.py`](skill_compliance_check.py) | Step 2 — vendored playbook compliance checker (NAM / FM / STR / SEC) |
+| [`run_check.py`](run_check.py) | Step 1 — driver for `nv-base validate` (parses JSON report, emits annotations, dumps findings to `$NVBASE_FINDINGS_JSON`) |
+| [`skill_compliance_check.py`](skill_compliance_check.py) | Step 2 — vendored playbook compliance checker (NAM / FM / STR / SEC). `--json-out` dumps findings for the comment poster |
+| [`post_comment.py`](post_comment.py) | Step 3 — composes a markdown summary from both JSON inputs and posts/updates a sticky PR comment via REST API |
 | `README.md` | this file |
 
 ## What each step covers
@@ -109,8 +112,22 @@ as a required status check on `develop` (and `main`, once synced) under
 Settings → Branches / Rulesets. Without that, a failing finding shows a
 red X but doesn't prevent merge.
 
+## PR comment poster (Step 3)
+
+`post_comment.py` walks the two JSON inputs from Steps 1 and 2, builds a
+markdown summary, and posts a sticky comment on the PR. Subsequent runs
+update the same comment in place (matched by the hidden HTML marker
+`<!-- skills-nv-base-bot:v1 -->`). The comment has two sections (one per
+step), each with a count summary and a table of findings (capped at 30
+rows per table; the full list remains in the job annotations + log).
+
+Failures inside the poster (network errors, missing token, etc.) surface
+as `::warning` annotations and the script exits 0 — the comment is best-
+effort and should never block the gate. Requires `pull-requests: write`
+in the workflow permissions; the GHA-issued `${{ github.token }}` is
+enough, no PAT.
+
 ## What's NOT in v1
 
-- **No PR comment.** Findings surface as inline annotations only.
 - **No Tier-2/3 nv-base checks** (`quality`, `inter-skill`, `lint`, dedup, agent-eval). Those need an Anthropic / inference-api credential on the runner and are a separate decision. The existing `skills-eval` workflow handles agent-eval.
 - **No gitleaks / bandit / pip-audit** (the playbook's GitLab pipeline runs those separately). Step 1's `secrets` check covers the credential-scan surface.
