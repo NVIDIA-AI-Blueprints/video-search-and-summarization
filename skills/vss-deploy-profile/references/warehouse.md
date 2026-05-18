@@ -880,8 +880,6 @@ Both paths deploy `vss-auto-calibration` + `vss-auto-calibration-ui` and produce
 
 Use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. Use `--n_clusters 1` for a single group. Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-clustering
 
-Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-grouping-utilities
-
 ---
 
 ## Troubleshooting
