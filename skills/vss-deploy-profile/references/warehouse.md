@@ -718,8 +718,6 @@ MINIMAL_PROFILE=""       # extended
 
 #### Q5 — Data Source & Calibration (3D / MV3DT only)
 
-Skip for `MODE=2d`. For `MODE=3d` or `MODE=mv3dt`:
-
 > "Are you using the **sample dataset** or your **own data** (custom videos / live RTSP streams)?"
 
 **Sample dataset** — calibration files ship with the app data. No extra step needed; proceed to Phase 4.
@@ -736,7 +734,7 @@ Skip for `MODE=2d`. For `MODE=3d` or `MODE=mv3dt`:
   | **Video files on disk** | `auto_calib` | Standalone auto-calibration. Upload videos directly to the calibration UI — no nvstreamer, no VST stack needed. |
   | **Live RTSP streams** (or want to use nvstreamer) | `bp_wh_auto_calib_2d` / `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
 
-  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`), then return here and redeploy with the full warehouse profile. For BEV origin calculation, see [Calibration Generation](#calibration-generation).
+  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`), then return here and redeploy with the full warehouse profile. For BEV origin calculation (3D / MV3DT only), see [Calibration Generation](#calibration-generation).
 
 ---
 
@@ -872,7 +870,7 @@ See [Access Points](#access-points) for service URLs.
 
 ## Calibration Generation
 
-3D and MV3DT deployments require calibration files before the perception and analytics pipeline can produce meaningful results. Two paths are available depending on your video source:
+Two paths are available to generate calibration files depending on your video source:
 
 | Path | Profile | When to use |
 |---|---|---|
