@@ -4,6 +4,7 @@ auto_sync_ready: true
 additional_vetters:
   - abhishek-ak-nv
   - akshayanv
+  - ashan-nv
   - ashwind-nvidia
   - asonny02
   - ayyappa-dev
