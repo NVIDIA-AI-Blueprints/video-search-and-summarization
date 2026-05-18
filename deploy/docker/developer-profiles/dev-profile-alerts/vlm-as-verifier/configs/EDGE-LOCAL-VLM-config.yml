@@ -63,7 +63,7 @@ vlm:
   base_url: ${VLM_BASE_URL}/v1
   model: "${VLM_NAME}"
   max_tokens: 4096
-  request_timeout: ${VLM_AS_VERIFIER_REQUEST_TIMEOUT}
+  request_timeout: 5
 
   # VLM Media Source: how to send video to VLM endpoint
   # false (default) - Pass video URL to VLM (VLM fetches from URL)
@@ -138,7 +138,7 @@ alert_type_config_file: "alert_type_config.json"
 
 # Alert Agent Configuration - Processing Settings
 alert_agent:
-  num_workers: ${ALERT_AGENT_NUM_WORKERS}        # Number of worker threads (env-overridable; Spark: tuned for cosmos+qwen co-tenancy)
+  num_workers: 10                                # Number of worker threads
   max_allowed_stream_size: 2                    # Maximum stream size in minutes
   default_stream_interval: 1                    # Default stream interval in minutes
   vst_pass_through_mode: false                   # Use local media files instead of VST stream lookup

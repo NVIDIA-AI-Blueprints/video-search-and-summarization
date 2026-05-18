@@ -110,14 +110,14 @@ function_groups:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
               RTVI_VLM_MAX_MODEL_LEN: "8192"  # can raise to 16384 if VLLM_ENFORCE_EAGER=true
               RTVI_VLLM_MAX_NUM_SEQS: "8"
-              VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
-              ALERT_AGENT_NUM_WORKERS: "4"
+              # VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
+              # ALERT_AGENT_NUM_WORKERS: "4"
             alerts.real-time:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.3"
               RTVI_VLM_MAX_MODEL_LEN: "8192"
               RTVI_VLLM_MAX_NUM_SEQS: "8"
-              VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
-              ALERT_AGENT_NUM_WORKERS: "4"
+              # VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
+              # ALERT_AGENT_NUM_WORKERS: "4"
           IGX-THOR:
             VLM_NAME_SLUG: none
             VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
