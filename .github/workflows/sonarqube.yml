@@ -74,8 +74,12 @@ jobs:
             should_scan=false
             git diff --name-only "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA" > changed-files.txt
 
-            if grep -q "^${SERVICE_PATHS}" changed-files.txt ||
-              grep -q '^\.github/workflows/sonarqube\.yml$' changed-files.txt; then
+            if awk -v prefix="$SERVICE_PATHS" '
+              index($0, prefix) == 1 || $0 == ".github/workflows/sonarqube.yml" {
+                found = 1
+              }
+              END { exit found ? 0 : 1 }
+            ' changed-files.txt; then
               should_scan=true
             fi
           fi
