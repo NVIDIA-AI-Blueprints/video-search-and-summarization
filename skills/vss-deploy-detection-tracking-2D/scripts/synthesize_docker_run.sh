@@ -49,7 +49,7 @@ docker inspect "$CONTAINER" >/dev/null 2>&1 \
     || { echo "✖ container not found: $CONTAINER" >&2; exit 2; }
 
 exec python3 - "$CONTAINER" <<'PY'
-import json, re, subprocess, sys
+import json, re, shlex, subprocess, sys
 
 name = sys.argv[1]
 raw  = subprocess.check_output(["docker", "inspect", name], text=True)
@@ -182,13 +182,15 @@ for kv in env:
     else:
         lines.append(f"  -e {kv}")
 
-# Volume mounts (bind / volume).
+# Volume mounts (bind / volume). shlex.quote keeps the output copy-paste
+# correct when host or container paths contain spaces or shell metacharacters
+# (returns the input unchanged when no quoting is needed).
 for m in mounts:
     src  = m.get("Source", "")
     dst  = m.get("Destination", "")
     rw   = "" if m.get("RW", True) else ":ro"
     if src and dst:
-        lines.append(f"  -v {src}:{dst}{rw}")
+        lines.append(f"  -v {shlex.quote(f'{src}:{dst}{rw}')}")
 
 # Hostname / user / workdir overrides.
 if hostname and not hostname.startswith(name[:8]):

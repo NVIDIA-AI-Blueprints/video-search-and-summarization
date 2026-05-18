@@ -258,7 +258,10 @@ done
 
 # ── Average helper ───────────────────────────────────────────────────
 avg() {
-    awk 'BEGIN{s=0;n=0} {s+=$1;n++} END{if(n==0){print "n/a"}else{printf "%.1f",s/n}}' \
+    # Skip "n/a" sentinels from the REST API so they don't get coerced to 0
+    # by awk's numeric coercion and pull the average toward zero. Returns
+    # "n/a" only when no numeric samples remain (empty input OR all "n/a").
+    awk 'BEGIN{s=0;n=0} { if ($1=="n/a") next; s+=$1; n++ } END{if(n==0){print "n/a"}else{printf "%.1f",s/n}}' \
         <<< "$(printf '%s\n' "$@")"
 }
 
@@ -322,24 +325,36 @@ fi
 
 # Optional JSON dump
 if [[ -n "$JSON_OUT" ]]; then
-    {
-        printf '{'
-        printf '"samples":%d,"interval":%d,' "$SAMPLES" "$INTERVAL"
-        printf '"gpu_util_pct":"%s",'   "$(avg "${GPU_UTILS[@]}")"
-        printf '"gpu_memory_gb":"%s",'  "$(avg "${GPU_MEM_GB[@]}")"
-        printf '"cpu_busy_pct":"%s",'   "$(avg "${CPU_UTILS[@]}")"
-        printf '"system_ram_gb":"%s",'  "$(avg "${RAM_GB[@]}")"
-        printf '"per_stream_fps":{'
-        first=1
-        for id in "${!FPS_SUM[@]}"; do
-            n="${FPS_COUNT[$id]:-1}"; s="${FPS_SUM[$id]:-0}"
-            v=$(awk -v s="$s" -v n="$n" 'BEGIN{printf "%.1f",s/n}')
-            [[ $first -eq 0 ]] && printf ','
-            printf '"%s":%s' "$id" "$v"
-            first=0
-        done
-        printf '}}'
-    } > "$JSON_OUT"
+    # Build the JSON body via python so camera IDs (from the REST API)
+    # that contain `"`, `\`, or control chars can't escape the JSON
+    # string. Same pattern as add_streams.sh uses for /stream/add.
+    PER_STREAM_ARGS=()
+    for id in "${!FPS_SUM[@]}"; do
+        n="${FPS_COUNT[$id]:-1}"; s="${FPS_SUM[$id]:-0}"
+        v=$(awk -v s="$s" -v n="$n" 'BEGIN{printf "%.1f",s/n}')
+        PER_STREAM_ARGS+=("$id" "$v")
+    done
+    python3 -c '
+import json, sys
+samples, interval = int(sys.argv[1]), int(sys.argv[2])
+gpu_util, gpu_mem, cpu_busy, ram = sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
+per_stream = {}
+args = sys.argv[7:]
+for i in range(0, len(args), 2):
+    per_stream[args[i]] = float(args[i+1])
+print(json.dumps({
+    "samples":        samples,
+    "interval":       interval,
+    "gpu_util_pct":   gpu_util,
+    "gpu_memory_gb":  gpu_mem,
+    "cpu_busy_pct":   cpu_busy,
+    "system_ram_gb":  ram,
+    "per_stream_fps": per_stream,
+}))
+' "$SAMPLES" "$INTERVAL" \
+    "$(avg "${GPU_UTILS[@]}")"  "$(avg "${GPU_MEM_GB[@]}")" \
+    "$(avg "${CPU_UTILS[@]}")"  "$(avg "${RAM_GB[@]}")" \
+    "${PER_STREAM_ARGS[@]}" > "$JSON_OUT"
     echo "  (JSON saved to $JSON_OUT)"
 fi
 

@@ -183,11 +183,13 @@ case "$FORMAT" in
         done
         ;;
     json)
-        printf '['
-        for (( i=0; i<BATCH; i++ )); do
-            (( i > 0 )) && printf ','
-            printf '{"id":"%s","url":"%s"}' "${IDS[$i]}" "${URLS[$i]}"
-        done
-        printf ']\n'
+        # Use python3 json.dumps so ids/urls containing `"`, `\`, or
+        # control chars can't break the JSON output. Argv layout:
+        # IDs first, then URLs — both BATCH elements long.
+        python3 -c '
+import json, sys
+n = (len(sys.argv) - 1) // 2
+print(json.dumps([{"id": sys.argv[1+i], "url": sys.argv[1+n+i]} for i in range(n)]))
+' "${IDS[@]:0:$BATCH}" "${URLS[@]:0:$BATCH}"
         ;;
 esac
