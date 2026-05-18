@@ -28,4 +28,4 @@ services:
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-    command: python3 apps/warehouse/main_warehouse_2d_app.py --config resources/warehouse_2d_config.json
+    command: python3 apps/analytics/main_analytics_2d_app.py --config resources/warehouse_2d_config.json

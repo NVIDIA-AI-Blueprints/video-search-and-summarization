@@ -36,12 +36,12 @@ Set the first half of `command:` to one of the following:
 
 | Entrypoint | Class | What it does |
 |---|---|---|
-| `apps/warehouse/main_warehouse_2d_app.py` | `Warehouse2DApp` | 2D spatial pipeline: object tracking → behavior creation, ROI / tripwire / FOV-count / restricted-area / confined-area / proximity-violation events, plus map-matching. Single Kafka/Redis source, single sink. **The default.** |
-| `apps/warehouse/main_warehouse_3d_app.py` | `Warehouse3DApp` | Same as 2D plus a **space-analyzer** processor (estimates space utilization per region) and a **frame-enhancement** processor (3D BEV-style metadata). Three parallel processors instead of one. Use this for 3D warehouse / multi-view 3D tracking (mv3dt). |
+| `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` | 2D spatial pipeline: object tracking → behavior creation, ROI / tripwire / FOV-count / restricted-area / confined-area / proximity-violation events, plus map-matching. Single Kafka/Redis source, single sink. **The default.** |
+| `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` | Same as 2D plus a **space-analyzer** processor (estimates space utilization per region) and a **frame-enhancement** processor (3D BEV-style metadata). Three parallel processors instead of one. Use this for 3D warehouse / multi-view 3D tracking (mv3dt). |
 | `apps/dev_example/main_dev_example_app.py` | `DevExampleApp` | Smaller app that focuses on **FOV-count violation** and **restricted-area violation** detection. No behavior creation, no map-matching. Good starting point for new incident types — also the entrypoint used by `dev-profile-alerts`. |
 | `apps/fusion_search/main_fusion_search_analytics_app.py` | `FusionSearchAnalyticsApp` | Two-path app: (a) behavior creation from raw frames, like 2D but without the FOV-count / ROI / tripwire events; (b) **video-embedding downsampling** — reads chunked video embeddings, optionally downsamples them (SDT / fixed-window), writes filtered embeddings. Use this with the VSS search profile. |
 
-**mv3dt** uses `main_warehouse_3d_app.py` (the multi-view 3D tracker is a perception-side variant — the analytics pipeline is the same as 3D). There is no separate `main_mv3dt_app.py`.
+**mv3dt** uses `main_analytics_3d_app.py` (the multi-view 3D tracker is a perception-side variant — the analytics pipeline is the same as 3D). There is no separate `main_mv3dt_app.py`.
 
 ---
 
@@ -55,15 +55,15 @@ Cheapest path. The image ships defaults at `/behavior-analytics/resources/*.json
 
 | Entrypoint | Image-baked config flag |
 |---|---|
-| `main_warehouse_2d_app.py` | `--config resources/warehouse_2d_config.json` |
-| `main_warehouse_3d_app.py` | `--config resources/warehouse_3d_config.json` |
+| `main_analytics_2d_app.py` | `--config resources/warehouse_2d_config.json` |
+| `main_analytics_3d_app.py` | `--config resources/warehouse_3d_config.json` |
 | `main_dev_example_app.py` | `--config resources/dev_example_config.json` |
 | `main_fusion_search_analytics_app.py` | `--config resources/fusion_search_analytics_config.json` |
 
 The defaults assume Kafka at `localhost:9092` and the standard `mdx-*` topic names (`mdx-raw`, `mdx-behavior`, `mdx-frames`, `mdx-notification`, `mdx-events`, `mdx-incidents`). Edit the `command:` accordingly:
 
 ```yaml
-command: python3 apps/warehouse/main_warehouse_3d_app.py --config resources/warehouse_3d_config.json
+command: python3 apps/analytics/main_analytics_3d_app.py --config resources/warehouse_3d_config.json
 ```
 
 You can also drop the volume mount entirely in this case — the base file's mount becomes unused.
@@ -76,9 +76,9 @@ Recommended pairings (entrypoint → existing config):
 
 | Entrypoint | Recommended existing config |
 |---|---|
-| `main_warehouse_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_warehouse_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_warehouse_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
+| `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
+| `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
+| `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_dev_example_app.py` | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_fusion_search_analytics_app.py` | the search profile's own config (lives outside `behavior-analytics/`; see [`search.md`](search.md)) |
 
@@ -89,7 +89,7 @@ services:
   vss-behavior-analytics-base:
     volumes:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-    command: python3 apps/warehouse/main_warehouse_3d_app.py --config /resources/vss-behavior-analytics-config.json
+    command: python3 apps/analytics/main_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json
 ```
 
 ### Option C — Use your own custom config
@@ -99,7 +99,7 @@ Drop in any absolute host path; copy one of the above as a starting point and ed
 ```yaml
 volumes:
   - /abs/path/to/my-config.json:/resources/vss-behavior-analytics-config.json
-command: python3 apps/warehouse/main_warehouse_2d_app.py --config /resources/vss-behavior-analytics-config.json
+command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json
 ```
 
 ### Config — what's in it
@@ -150,9 +150,9 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
 
   | Entrypoint | Recommended existing calibration |
   |---|---|
-  | `main_warehouse_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/<dataset>/calibration.json` |
-  | `main_warehouse_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<dataset>/calibration.json` |
-  | `main_warehouse_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<dataset>/calibration.json` |
+  | `main_analytics_2d_app.py` | `industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/<dataset>/calibration.json` |
+  | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<dataset>/calibration.json` |
+  | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/<dataset>/calibration.json` |
   | `main_dev_example_app.py` | the dev profile may not need one. |
 - **Bring your own.** Any absolute host path that conforms to the calibration JSON schema. If you're hand-rolling one, start from the `"cartesian"` type — that's the path the rest of the pipeline is tuned for.
 
@@ -163,7 +163,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
     - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     - /abs/path/to/calibration.json:/resources/calibration.json   # or a profile sample-data path
   command: >
-    python3 apps/warehouse/main_warehouse_2d_app.py
+    python3 apps/analytics/main_analytics_2d_app.py
     --config /resources/vss-behavior-analytics-config.json
     --calibration /resources/calibration.json
   ```
@@ -233,7 +233,7 @@ docker logs -f vss-behavior-analytics-base
 Healthy log lines include:
 
 ```
-[Warehouse2DApp] starting with N worker processes
+[Analytics2DApp] starting with N worker processes
 [CalibrationListener] subscribed to mdx-notification (key=calibration)
 [ConfigListener] request-config published (bootstrap_ref=behavior-analytics-<uuid>)
 ```
