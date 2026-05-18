@@ -614,9 +614,10 @@ class TopAgent(AsyncMixin):
 
         # TODO: Hack for UI to show the uploaded video, use commands "/show" to by pass plan in next release.
         lowered_question = question.lower()
-        if lowered_question.startswith("let's show the videos just uploaded"):
+        show_video_prefix = "let's show the videos just uploaded"
+        if lowered_question.startswith(show_video_prefix):
             logger.info("Plan node: by pass plan for showing uploaded video")
-            names_raw = lowered_question.removeprefix("let's show the videos just uploaded").removesuffix("?").strip()
+            names_raw = question[len(show_video_prefix) :].removesuffix("?").strip()
             state.plan = (
                 f"1. You MUST call the vst_video_clip tool in parallel, once for each name in: {names_raw}. "
                 "Pass the name as the sensor_id argument. "
