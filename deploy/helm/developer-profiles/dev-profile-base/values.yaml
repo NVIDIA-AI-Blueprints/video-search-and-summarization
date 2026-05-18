@@ -233,8 +233,6 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vstHttp := ternary (printf "http://%s-vss-vios-ingress:30888" .Release.Name) "http://vss-vios-ingress:30888" $pfx }}{{ coalesce .Values.vstInternalUrl $vstHttp }}'
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
-      - name: LLM_ENABLE_THINKING
-        value: '{{ .Values.llmEnableThinking | default "false" }}'
       - name: VLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.vlmName ((index $g "vlmName") | default "") "nvidia/cosmos-reason2-8b") }}'
       - name: EVAL_LLM_JUDGE_NAME
