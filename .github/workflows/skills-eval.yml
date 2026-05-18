@@ -221,7 +221,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # `pr-<N>-<run>` for push, `manual-<run>` for workflow_dispatch.
-          name: ${{ github.event_name == 'workflow_dispatch' && format('skills-eval-results-manual-{0}', github.run_id) || format('skills-eval-results-pr-{0}-{1}', steps.pr.outputs.number, github.run_id) }}
+          # Folded scalar to stay under yamllint's 200-char line cap.
+          name: >-
+            ${{ github.event_name == 'workflow_dispatch'
+              && format('skills-eval-results-manual-{0}', github.run_id)
+              || format('skills-eval-results-pr-{0}-{1}', steps.pr.outputs.number, github.run_id) }}
           path: /tmp/skills-eval-results.tar.gz
           if-no-files-found: ignore
           retention-days: 7
