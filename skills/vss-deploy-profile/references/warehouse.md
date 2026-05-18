@@ -660,10 +660,14 @@ df -h /  # 500 GB+ SSD
 **MODE=3d:**
 > - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
 > - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
+>
+> **Note:** 3D deployments require calibration files with BEV origin and camera group data. See [Calibration Generation](#calibration-generation) before deploying.
 
 **MODE=mv3dt:**
 > - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
 > - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
+>
+> **Note:** MV3DT deployments require calibration files with BEV origin and camera group data. See [Calibration Generation](#calibration-generation) before deploying.
 
 #### Q3 — Stream Type
 
