@@ -109,31 +109,35 @@ spec:
               mountPath: /tmp/model_cache
             {{- end }}
           env:
+            {{- /*
+              Merge env from three sources, deduplicating by name.
+              Precedence (later sources override earlier ones):
+                1. .Values.env                  — service-chart defaults
+                2. hardcoded computed values    — wired-in template values
+                3. .Values.extraEnv             — profile-chart overrides
+              Without this dedup, a profile that overlays a base key (e.g.
+              LVS_ENABLE_LLM_MERGING) produces a Deployment with two entries
+              for the same name, which kubectl server-side apply rejects.
+            */}}
+            {{- $envMap := dict }}
             {{- range .Values.env }}
-            - name: {{ .name }}
-              value: {{ .value | quote }}
+            {{- $_ := set $envMap .name (.value | default "" | toString) }}
             {{- end }}
-            - name: KAFKA_BOOTSTRAP_SERVERS
-              value: {{ $kafkaBootstrap | quote }}
-            - name: ES_HOST
-              value: {{ $esHost | quote }}
-            - name: ES_PORT
-              value: {{ $esPort | quote }}
-            - name: ES_TRANSPORT_PORT
-              value: {{ $esTransportPort | quote }}
-            - name: LVS_LLM_BASE_URL
-              value: {{ $llmBaseUrl | quote }}
-            - name: LVS_LLM_MODEL_NAME
-              value: {{ $llmModelName | quote }}
-            - name: VIA_VLM_ENDPOINT
-              value: {{ $vlmBaseUrl | quote }}
-            - name: VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME
-              value: {{ $vlmModelName | quote }}
-            - name: VST_INTERNAL_URL
-              value: {{ $vstInternalUrl | quote }}
+            {{- $_ := set $envMap "KAFKA_BOOTSTRAP_SERVERS"              ($kafkaBootstrap  | toString) }}
+            {{- $_ := set $envMap "ES_HOST"                              ($esHost          | toString) }}
+            {{- $_ := set $envMap "ES_PORT"                              ($esPort          | toString) }}
+            {{- $_ := set $envMap "ES_TRANSPORT_PORT"                    ($esTransportPort | toString) }}
+            {{- $_ := set $envMap "LVS_LLM_BASE_URL"                     ($llmBaseUrl      | toString) }}
+            {{- $_ := set $envMap "LVS_LLM_MODEL_NAME"                   ($llmModelName    | toString) }}
+            {{- $_ := set $envMap "VIA_VLM_ENDPOINT"                     ($vlmBaseUrl      | toString) }}
+            {{- $_ := set $envMap "VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME" ($vlmModelName    | toString) }}
+            {{- $_ := set $envMap "VST_INTERNAL_URL"                     ($vstInternalUrl  | toString) }}
             {{- range (.Values.extraEnv | default list) }}
-            - name: {{ .name }}
-              value: {{ tpl (.value | default "" | toString) $ | quote }}
+            {{- $_ := set $envMap .name (tpl (.value | default "" | toString) $) }}
+            {{- end }}
+            {{- range $k, $v := $envMap }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
             {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
