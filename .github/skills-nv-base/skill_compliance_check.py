@@ -908,6 +908,11 @@ def main() -> None:
         "--no-color", action="store_true",
         help="Disable ANSI color (auto-disabled when stdout is not a TTY)",
     )
+    parser.add_argument(
+        "--json-out", metavar="PATH",
+        help="Write all findings to PATH as JSON for downstream consumers "
+             "(e.g. PR-comment poster). The text report still prints to stdout.",
+    )
     args = parser.parse_args()
 
     use_color = not args.no_color and sys.stdout.isatty()
@@ -941,6 +946,30 @@ def main() -> None:
     # Cross-skill rules run once over the full result set.
     check_collisions(results)
     exit_code = print_report(results, use_color=use_color, strict=args.strict)
+
+    if args.json_out:
+        import json as _json
+        out = []
+        for r in results:
+            for f in r.findings:
+                out.append({
+                    "skill": r.skill_name,
+                    "rule": f.rule,
+                    "severity": f.severity,
+                    "message": f.message,
+                    "file": f.file or "",
+                    "line": f.line or 0,
+                })
+        try:
+            Path(args.json_out).write_text(_json.dumps({
+                "skills_checked": len(results),
+                "findings": out,
+            }, indent=2))
+            print(f"\nWrote findings JSON to {args.json_out}")
+        except OSError as exc:
+            print(f"WARNING: could not write --json-out {args.json_out}: {exc}",
+                  file=sys.stderr)
+
     sys.exit(exit_code)
 
 

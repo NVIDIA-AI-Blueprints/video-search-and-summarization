@@ -124,9 +124,14 @@ def annotate_finding(validator: str, f: dict) -> str:
 
 
 def emit_from_report(report: dict) -> int:
-    """Walk the report and emit annotations. Return blocking count."""
+    """Walk the report and emit annotations. Return blocking count.
+
+    If $NVBASE_FINDINGS_JSON is set, also dump a per-finding JSON list to
+    that path for downstream consumption (PR comment poster).
+    """
     blocking = 0
     counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    out_findings: list[dict] = []
 
     for v in report.get("results", []) or []:
         validator = v.get("validator") or "?"
@@ -135,6 +140,15 @@ def emit_from_report(report: dict) -> int:
             counts[sev] = counts.get(sev, 0) + 1
             if sev in ("critical", "high"):
                 blocking += 1
+            out_findings.append({
+                "validator": validator,
+                "check": f.get("check_name") or f.get("check") or "unknown",
+                "severity": sev,
+                "file": _normalize_path(f.get("file_path") or ""),
+                "line": f.get("line_number") or 0,
+                "message": f.get("message") or "",
+                "suggestion": f.get("suggestion") or "",
+            })
 
     print(
         f"\nNV-BASE summary: critical={counts['critical']} "
@@ -142,6 +156,21 @@ def emit_from_report(report: dict) -> int:
         f"low={counts['low']}  blocking={blocking}",
         flush=True,
     )
+
+    findings_path = os.environ.get("NVBASE_FINDINGS_JSON", "").strip()
+    if findings_path:
+        try:
+            Path(findings_path).write_text(json.dumps({
+                "counts": counts,
+                "blocking": blocking,
+                "findings": out_findings,
+            }, indent=2))
+            print(f"::notice::Wrote findings JSON to {findings_path}",
+                  flush=True)
+        except OSError as exc:
+            print(f"::warning::Could not write NVBASE_FINDINGS_JSON "
+                  f"({findings_path}): {exc}", flush=True)
+
     return blocking
 
 
