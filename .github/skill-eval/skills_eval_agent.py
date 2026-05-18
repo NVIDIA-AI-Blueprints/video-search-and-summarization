@@ -22,12 +22,15 @@ Env (set by the workflow step):
                           page. The agent writes per-spec results tables here in
                           manual-sweep mode (no PR to comment on).
     MANUAL_FULL_SWEEP     "1" when workflow_dispatch fired. Swaps user prompt:
-                          enumerate every skills/<skill>/eval/*.json filtered by
-                          the two MANUAL_*_FILTER env vars, write results to
-                          $GITHUB_STEP_SUMMARY, never post `gh pr comment`, never
-                          raise bot PRs (missing adapter is a BLOCKED outcome).
-    MANUAL_SKILLS_FILTER  Comma-separated skill names or "*" for all (default "*").
-    MANUAL_SPECS_FILTER   Comma-separated spec stems or "*" for all (default "*").
+                          enumerate every skills/<skill>/eval/*.json for the
+                          skill named in MANUAL_SKILLS_FILTER (or all skills when
+                          `*`), write results to $GITHUB_STEP_SUMMARY, never
+                          post `gh pr comment`, never raise bot PRs (missing
+                          adapter is a BLOCKED outcome). Every spec on the
+                          chosen skill(s) runs — no spec-level filter knob.
+    MANUAL_SKILLS_FILTER  Single skill name from the dispatch dropdown, or "*"
+                          for all (default "*"). Validated server-side by GH
+                          Actions against the type:choice enum.
     ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
     GH_TOKEN              PR comment posting (push mode only)
     NGC_CLI_API_KEY       Local NIM pulls in trials
@@ -129,14 +132,17 @@ async def run_agent() -> int:
         # interpolation still works.
         pr_number = os.environ.get("PR_NUMBER", "") or f"manual-{run_id}"
         pr_base = os.environ.get("PR_BASE", "") or "(manual)"
-        skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip() or "*"
-        specs_filter = os.environ.get("MANUAL_SPECS_FILTER", "*").strip() or "*"
+        # `type: choice` already constrains the value server-side, but
+        # strip whitespace + newlines defensively before splicing into
+        # the agent's user prompt. The agent runs with bypassPermissions
+        # and full filesystem tools, so any prompt-templated user data is
+        # worth scrubbing regardless of the upstream guard.
+        skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip().splitlines()[0] if os.environ.get("MANUAL_SKILLS_FILTER", "").strip() else "*"
         step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
     else:
         pr_number = _require("PR_NUMBER")
         pr_base = _require("PR_BASE")
         skills_filter = "*"
-        specs_filter = "*"
         step_summary = ""
 
     if not AGENTS_MD.exists():
@@ -155,16 +161,15 @@ Context:
   workflow run        = {run_id}
   working dir         = {REPO_ROOT}
   skills filter       = {skills_filter}   (single skill name from the dispatch dropdown, or `*` = all)
-  specs filter        = {specs_filter}   (comma-separated spec stems, or `*` = all)
   GITHUB_STEP_SUMMARY = {step_summary or '(unset — fall back to stdout)'}
 
 Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
 
   Step 1 (override): skip the diff entirely. Enumerate `skills/*/eval/*.json`
     on the checked-out workspace. Keep only the skill named in `skills filter`
-    (the dispatch dropdown is single-select; `*` matches all). Drop any spec
-    whose stem doesn't match `specs filter` (CSV or `*` for all). Skills with
-    no eval/ dir are runtime libraries — skip them as in the normal path.
+    (the dispatch dropdown is single-select; `*` matches all). All specs on the
+    chosen skill(s) run — there is no spec-level filter. Skills with no eval/
+    dir are runtime libraries and are skipped as in the normal path.
 
   Step 3 (override): the bot-PR flow is OFF in manual mode (there's no
     contributor branch to target). If an adapter is missing or stale for a

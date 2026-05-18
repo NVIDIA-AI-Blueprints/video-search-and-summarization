@@ -48,11 +48,6 @@ on:
           - vss-manage-video-io-storage
           - vss-search-archive
           - vss-summarize-video
-      specs:
-        description: "Comma-separated spec stems (filename without .json) to run, or `*` for every spec on the picked skill(s)."
-        required: false
-        default: "*"
-        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -156,6 +151,15 @@ jobs:
           # push eval-bot/* branches) use this — no PAT in the
           # coordinator .env, no personal-account auth.
           GH_TOKEN: ${{ github.token }}
+          # Route the workflow_dispatch input through env: instead of
+          # ${{ inputs.skills }} inline in the run: script. `type: choice`
+          # already enum-validates the value (no free-form attacker input
+          # possible today), but env-passthrough is the defense-in-depth
+          # pattern GH Actions docs recommend for any user-controllable
+          # input — keeps the run: body free of templated user data so
+          # future input additions don't accidentally reintroduce a
+          # shell-injection vector.
+          INPUT_SKILLS: ${{ inputs.skills }}
         run: |
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev secrets only
@@ -167,14 +171,15 @@ jobs:
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
-          # Manual full-sweep mode passthrough. Agent reads these and
-          # swaps its user prompt: no diff, enumerate skills/*/eval/*.json
-          # filtered by these globs, write results to $GITHUB_STEP_SUMMARY
-          # instead of `gh pr comment`.
+          # Manual sweep passthrough. Agent reads MANUAL_FULL_SWEEP +
+          # MANUAL_SKILLS_FILTER and swaps its user prompt: no diff,
+          # enumerate skills/<skill>/eval/*.json under the picked skill
+          # (or every skill when `*`), write results to
+          # $GITHUB_STEP_SUMMARY instead of `gh pr comment`. All specs on
+          # the chosen skill(s) run — no spec-level filter knob.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             export MANUAL_FULL_SWEEP=1
-            export MANUAL_SKILLS_FILTER="${{ inputs.skills }}"
-            export MANUAL_SPECS_FILTER="${{ inputs.specs }}"
+            export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
           fi
           # `.github` isn't a valid Python package prefix, so we expose the
           # harness via PYTHONPATH. `envs.brev_env:BrevEnvironment` is what

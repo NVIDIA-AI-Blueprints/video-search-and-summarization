@@ -825,15 +825,13 @@ separate; don't conflate the two.
 The workflow also exposes a `workflow_dispatch` trigger that fires this
 agent against the **current head of whatever branch the operator dispatched
 from** (typically `develop`), with no diff and no PR. The wrapper sets
-`MANUAL_FULL_SWEEP=1`, blanks `PR_NUMBER`/`PR_BASE`, and passes two filter
-globs:
+`MANUAL_FULL_SWEEP=1`, blanks `PR_NUMBER`/`PR_BASE`, and passes a single
+skill filter:
 
-  - `MANUAL_SKILLS_FILTER` — single skill name (the dispatch UI is a
-    `type: choice` dropdown), or `*` for all. The agent's matcher tolerates
-    CSV for the rare hand-edit case, but the workflow form only ever emits
-    one value.
-  - `MANUAL_SPECS_FILTER`  — comma-separated spec stems (`.json` dropped),
-    or `*` for all.
+  - `MANUAL_SKILLS_FILTER` — one skill name from the `type: choice`
+    dispatch dropdown, or `*` for every skill. There is intentionally no
+    spec-level filter — once a skill is picked, every spec under
+    `skills/<skill>/eval/*.json` runs.
 
 When you see `MANUAL_FULL_SWEEP=1` in the env (the user prompt also says so
 explicitly), apply these step overrides — everything else in this file
@@ -841,8 +839,8 @@ applies unchanged:
 
 - **Step 1 (override):** skip the diff. Enumerate `skills/*/eval/*.json` on
   the checked-out workspace, then drop any skill not matching the filter
-  and any spec whose stem doesn't match. Skills with no `eval/` dir remain
-  runtime libraries and are skipped as in the normal path.
+  (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
+  are skipped as in the normal path. Every spec on the kept skill(s) runs.
 
 - **Step 3 (override):** the bot-PR flow in §§ 3c/3d is **off** — there is
   no contributor branch to target. If an adapter is missing or stale for a
