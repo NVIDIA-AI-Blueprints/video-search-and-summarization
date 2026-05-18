@@ -731,7 +731,7 @@ MINIMAL_PROFILE=""       # extended
 
   > **Note:** For 3D / MV3DT with own data, calibration files additionally require BEV clustering — see [Calibration Generation](#calibration-generation).
 
-  Once the calibration file is ready, return here and redeploy with the full warehouse profile.
+  Once the calibration file is ready and redeploy with the full warehouse profile.
 
 ---
 
