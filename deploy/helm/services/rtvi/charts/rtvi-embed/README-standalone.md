@@ -10,7 +10,7 @@ For chart internals (templates, values), see `charts/rtvi-embed/`.
 
 - Kubernetes cluster with **NVIDIA GPU** nodes and the NVIDIA device plugin (workload requests `nvidia.com/gpu: 1`).
 - **`helm`** (v3) with network access to pull images (`nvcr.io`, `docker.io`, …).
-- **Hugging Face token** in a Secret (default name/key below) for model `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p`.
+- **Hugging Face token** in a Secret (default name/key below) for [nvidia/Cosmos-Embed1-448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p). The chart **`modelPath`** value is `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` (runtime download specifier for the embed service—not a URL to open in a browser).
 - A **StorageClass** for RWO volumes (or leave `persistence.storageClass` empty to use the cluster default).
 - **`ngc-image-pull-secret`** (or equivalent) if your cluster requires pull secrets for private images (`imagePullSecrets` in `overrides_rtvi_embed.yaml`). Base `values.yaml` defaults to **`ngc-docker-reg-secret`** instead—use one name consistently.
 - On **MicroK8s / GPU Operator** clusters, GPU scheduling may require extra node setup (device plugin, `nvidia.com/gpu` allocatable); this chart version does not expose `runtimeClassName` in `templates/deployment.yaml`.
