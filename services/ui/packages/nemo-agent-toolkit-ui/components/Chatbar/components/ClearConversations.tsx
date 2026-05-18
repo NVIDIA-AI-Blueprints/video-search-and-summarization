@@ -8,9 +8,14 @@ import { SidebarButton } from '@/components/Sidebar/SidebarButton';
 interface Props {
   onClearConversations: () => void;
   disabled?: boolean;
+  disabledTitle?: string;
 }
 
-export const ClearConversations: FC<Props> = ({ onClearConversations, disabled = false }) => {
+export const ClearConversations: FC<Props> = ({
+  onClearConversations,
+  disabled = false,
+  disabledTitle,
+}) => {
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
 
   const { t } = useTranslation('sidebar');
@@ -52,8 +57,12 @@ export const ClearConversations: FC<Props> = ({ onClearConversations, disabled =
     <SidebarButton
       text={t('Clear conversations')}
       icon={<IconTrash size={18} />}
-      onClick={() => setIsConfirming(true)}
+      onClick={() => {
+        if (disabled) return;
+        setIsConfirming(true);
+      }}
       disabled={disabled}
+      title={disabled ? disabledTitle : undefined}
     />
   );
 };

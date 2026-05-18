@@ -1,0 +1,6 @@
+{
+  "queryProcessingBlockNewChat": "Please wait for the current response to finish before starting a new conversation.",
+  "queryProcessingBlockDeleteConversation": "Please wait for the current response to finish before deleting this conversation.",
+  "queryProcessingBlockClearConversations": "Please wait for the current response to finish before clearing conversations.",
+  "queryProcessingBlockDeleteFolder": "Please wait for the current response to finish before deleting this folder."
+}

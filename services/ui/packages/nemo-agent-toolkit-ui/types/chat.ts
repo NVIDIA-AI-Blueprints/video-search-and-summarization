@@ -50,6 +50,8 @@ export interface Conversation {
   messages: Message[];
   folderId: string | null;
   isHomepageConversation?: boolean; // Flag to track homepage conversations before first message
+  /** True while this conversation has an in-flight agent query (e.g. background processing). */
+  isQueryInFlight?: boolean;
 }
 
 // WebSocket Message Types

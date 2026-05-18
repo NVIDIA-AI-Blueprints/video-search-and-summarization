@@ -33,9 +33,12 @@ import { Chatbar } from '@/components/Chatbar/Chatbar';
 import { Navbar } from '@/components/Mobile/Navbar';
 
 import { getStorageKey, useRuntimeConfig } from '@/contexts/RuntimeConfigContext';
+import { isFolderDeleteBlocked, isQueryProcessing } from '@/utils/app/queryProcessing';
 
 import HomeContext from './home.context';
 import { HomeInitialState, initialState } from './home.state';
+
+import toast from 'react-hot-toast';
 
 import { v4 as uuidv4 } from 'uuid';
 
@@ -141,7 +144,14 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
   });
 
   const {
-    state: { lightMode, folders, conversations, selectedConversation },
+    state: {
+      lightMode,
+      folders,
+      conversations,
+      selectedConversation,
+      loading,
+      messageIsStreaming,
+    },
     dispatch,
   } = contextValue;
 
@@ -195,6 +205,19 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
   }, [folders, dispatch, storageKeyPrefix]);
 
   const handleDeleteFolder = useCallback((folderId: string) => {
+    if (
+      isFolderDeleteBlocked(
+        folderId,
+        conversations,
+        selectedConversation?.id,
+        loading,
+        messageIsStreaming,
+      )
+    ) {
+      toast.error(t('queryProcessingBlockDeleteFolder'));
+      return;
+    }
+
     const updatedFolders = folders.filter((f) => f.id !== folderId);
     dispatch({ field: 'folders', value: updatedFolders });
     saveFolders(updatedFolders, storageKeyPrefix);
@@ -236,6 +259,8 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     dispatch,
     storageKeyPrefix,
     t,
+    loading,
+    messageIsStreaming,
   ]);
 
   const handleUpdateFolder = useCallback((folderId: string, name: string) => {
@@ -258,6 +283,11 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
   // CONVERSATION OPERATIONS  --------------------------------------------
 
   const handleNewConversation = useCallback((folderId?: string | null) => {
+    if (isQueryProcessing(loading, messageIsStreaming)) {
+      toast.error(t('queryProcessingBlockNewChat'));
+      return;
+    }
+
     // When creating in a folder, always create a new conversation. Otherwise reuse empty homepage conversation when applicable.
     const createInFolder = folderId != null && folderId !== '';
 
@@ -304,7 +334,15 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     saveConversations(updatedConversations, storageKeyPrefix);
 
     dispatch({ field: 'loading', value: false });
-  }, [selectedConversation, conversations, dispatch, t, storageKeyPrefix]);
+  }, [
+    selectedConversation,
+    conversations,
+    dispatch,
+    t,
+    storageKeyPrefix,
+    loading,
+    messageIsStreaming,
+  ]);
 
   const handleUpdateConversation = useCallback((
     conversation: Conversation,
@@ -505,6 +543,8 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
               <Navbar
                 selectedConversation={selectedConversation}
                 onNewConversation={handleNewConversation}
+                newConversationDisabled={isQueryProcessing(loading, messageIsStreaming)}
+                newConversationDisabledTitle={t('queryProcessingBlockNewChatTitle', { ns: 'sidebar' })}
               />
             </div>
           )}

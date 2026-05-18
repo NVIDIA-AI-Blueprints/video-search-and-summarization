@@ -2,6 +2,7 @@ import { IconFileExport, IconSettings } from '@tabler/icons-react';
 import { useContext, useState } from 'react';
 
 import { useTranslation } from 'next-i18next';
+import { isQueryProcessing } from '@/utils/app/queryProcessing';
 
 import HomeContext from '@/pages/api/home/home.context';
 
@@ -34,6 +35,15 @@ export const ChatbarSettings = ({
 
   // Use props if provided, otherwise fall back to context
   const conversations = conversationsProp ?? homeContext?.state?.conversations ?? [];
+  const loading = homeContext?.state?.loading ?? false;
+  const messageIsStreaming = homeContext?.state?.messageIsStreaming ?? false;
+  const hasClearableConversations =
+    conversations.filter((conversation) => !conversation.isHomepageConversation).length > 0;
+  const queryProcessing = isQueryProcessing(loading, messageIsStreaming);
+  const clearConversationsDisabled = !hasClearableConversations || queryProcessing;
+  const clearConversationsDisabledTitle = queryProcessing
+    ? t('queryProcessingBlockClearConversationsTitle')
+    : undefined;
   const handleClearConversations = onClearConversationsProp ?? chatbarContext?.handleClearConversations;
   const handleImportConversations = onImportConversationsProp ?? chatbarContext?.handleImportConversations;
   const handleExportData = onExportDataProp ?? chatbarContext?.handleExportData;
@@ -47,7 +57,8 @@ export const ChatbarSettings = ({
     <div className="flex flex-col items-center space-y-1 border-t border-gray-300 dark:border-white/20 pt-1 text-sm">
       <ClearConversations
         onClearConversations={handleClearConversations}
-        disabled={conversations.filter((conversation) => !conversation.isHomepageConversation).length === 0}
+        disabled={clearConversationsDisabled}
+        disabledTitle={clearConversationsDisabledTitle}
       />
 
       <Import onImport={handleImportConversations} />

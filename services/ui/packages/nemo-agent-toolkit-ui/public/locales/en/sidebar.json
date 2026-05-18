@@ -1,3 +1,7 @@
 {
-  "New conversation": "New conversation"
+  "New conversation": "New conversation",
+  "queryProcessingBlockNewChatTitle": "A response is in progress",
+  "queryProcessingBlockDeleteConversationTitle": "Cannot delete while a response is in progress",
+  "queryProcessingBlockClearConversationsTitle": "Cannot clear conversations while a response is in progress",
+  "queryProcessingBlockDeleteFolderTitle": "Cannot delete folder while a conversation in it is processing"
 }
