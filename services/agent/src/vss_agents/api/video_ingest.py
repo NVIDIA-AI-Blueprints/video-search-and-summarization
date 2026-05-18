@@ -72,6 +72,18 @@ ENV_RTVI_EMBED_TIMEOUT_SECONDS = "VIDEO_INGEST_RTVI_EMBED_TIMEOUT_SECONDS"
 ENV_VST_STORAGE_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_STORAGE_TIMEOUT_SECONDS"
 ENV_VST_UPLOAD_TIMEOUT_SECONDS = "VIDEO_INGEST_VST_UPLOAD_TIMEOUT_SECONDS"
 
+# Sensor ids arrive on the request path and flow into logs and the VST
+# storage URL, so restrict them to an allowlist at the boundary.
+_SENSOR_ID_RE = re.compile(r"\A[A-Za-z0-9._-]{1,128}\Z")
+
+
+def _validate_sensor_id(sensor_id: str) -> str:
+    if not sensor_id or not _SENSOR_ID_RE.match(sensor_id):
+        raise HTTPException(status_code=400, detail="invalid sensor_id")
+    # Belt-and-braces CR/LF strip for static-analysis taint trackers; the
+    # allowlist above already excludes these chars, so it is a runtime no-op.
+    return re.sub(r"[\r\n]", "", sensor_id)
+
 
 def _parse_optional_http_url(url: str | None) -> urllib.parse.ParseResult | None:
     """
@@ -487,7 +499,7 @@ async def _run_post_upload_processing(
     )
 
     # Get video URL via storage API
-    storage_url = f"{vst_url}/vst/api/v1/storage/file/{sensor_id}/url"
+    storage_url = f"{vst_url}/vst/api/v1/storage/file/{urllib.parse.quote(sensor_id, safe='')}/url"
     storage_params = {
         "startTime": timeline_start_time,
         "endTime": timeline_end_time,
@@ -660,8 +672,7 @@ def create_video_upload_complete_router(
         tags=["Video Ingest"],
     )
     async def upload_complete(sensor_id: str, body: VideoUploadCompleteInput) -> VideoIngestResponse:
-        if not sensor_id:
-            raise HTTPException(status_code=400, detail="sensor_id is required")
+        sensor_id = _validate_sensor_id(sensor_id)
         # ``filename`` comes from the VST upload response the UI forwards. Fall
         # back to ``sensor_id`` when missing so RTVI-CV's camera_name is at
         # least populated (lookups by sensor id keep working either way).

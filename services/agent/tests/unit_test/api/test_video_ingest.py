@@ -538,6 +538,36 @@ class TestUploadCompleteRoute:
         assert kwargs["camera_name"] == "sensor-xyz"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_sensor_id", ["", "a/b", "a b", "../etc", "a\nb", "id?x=1"])
+    async def test_rejects_unsafe_sensor_id(self, bad_sensor_id):
+        """sensor_id is on the URL path and feeds logs + VST storage URL, so
+        the route enforces an allowlist at the boundary."""
+        route = self._build_router().routes[0]
+        with pytest.raises(HTTPException) as exc_info:
+            await route.endpoint(sensor_id=bad_sensor_id, body=VideoUploadCompleteInput(filename="clip.mp4"))
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "ok_sensor_id",
+        [
+            "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b",  # VST UUID
+            "Camera_03",  # underscored camera name
+            "cam.lobby.front",  # dotted camera name
+            "chat-sensor-1",  # dashed
+        ],
+    )
+    async def test_accepts_allowlisted_sensor_id(self, ok_sensor_id):
+        """The allowlist must cover VST UUIDs and dotted/underscored camera names."""
+        route = self._build_router().routes[0]
+        with patch(
+            "vss_agents.api.video_ingest._run_post_upload_processing",
+            new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id=ok_sensor_id, filename="clip.mp4")),
+        ) as mock_post:
+            await route.endpoint(sensor_id=ok_sensor_id, body=VideoUploadCompleteInput(filename="clip.mp4"))
+        assert mock_post.call_args.kwargs["sensor_id"] == ok_sensor_id
+
+    @pytest.mark.asyncio
     async def test_handler_passes_disable_audio_to_processing(self):
         """``disable_audio`` flows from the router constructor straight into
         ``_run_post_upload_processing`` so audio-aware VLMs keep audio."""
