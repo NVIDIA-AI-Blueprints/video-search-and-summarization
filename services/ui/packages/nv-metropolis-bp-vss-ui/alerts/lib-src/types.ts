@@ -161,7 +161,6 @@ export const VLM_VERDICT = {
   CONFIRMED: 'confirmed',
   REJECTED: 'rejected',
   VERIFICATION_FAILED: 'verification-failed',
-  NOT_CONFIRMED: 'not-confirmed'
 } as const;
 
 /**
