@@ -1,0 +1,58 @@
+{
+  "skills": ["vss-deploy-detection-tracking-2D"],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["standalone"]
+      }
+    }
+  },
+  "env": "A GPU host matching `{{platform}}` with a running RTVI-CV container reachable at `http://localhost:9000/api/v1` (start it with the DEPLOY flow before running these checks — see `eval/deploy-evals.json`). The container must already have at least the readiness, liveness, startup, metrics, and stream-management endpoints reachable. `docker`, `curl`, and `jq` available on the host. This eval exercises the API USAGE flow of the `vss-deploy-detection-tracking-2D` skill against the live REST endpoint — it must not invoke `/deploy`, redeploy the container, or call any VSS profile.",
+  "expects": [
+    {
+      "query": "Add a stream rtsp://10.0.0.1:8554/cam1 with id cam_entrance to rtvi-cv.",
+      "checks": [
+        "The agent calls `POST http://localhost:9000/api/v1/stream/add` against the live RTVI-CV instance.",
+        "The request body contains `liveStreamUrl` exactly equal to `rtsp://10.0.0.1:8554/cam1` and a camera/sensor id of `cam_entrance`.",
+        "The agent renders the curl command in a confirmation box BEFORE executing the POST (per the skill's universal API-box rule).",
+        "The agent renders the API response as a formatted table or structured block.",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "Is rtvi-cv ready? Check the health.",
+      "checks": [
+        "The agent calls all three readiness endpoints: `GET http://localhost:9000/api/v1/live`, `/api/v1/ready`, and `/api/v1/startup`.",
+        "The agent uses GET requests (read-only) and does not require per-call user confirmation.",
+        "The final response is a combined summary of the live, ready, and startup states (e.g. all three returned 200, or which one failed).",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "What is the FPS on all streams? Get rtvi-cv metrics.",
+      "checks": [
+        "The agent calls `GET http://localhost:9000/api/v1/metrics`.",
+        "The final response presents per-stream FPS plus at least one of {GPU utilization, GPU memory, CPU usage} in a formatted table or structured block.",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "List all active streams in rtvi-cv.",
+      "checks": [
+        "The agent calls `GET http://localhost:9000/api/v1/stream/get-stream-info`.",
+        "The final response presents active streams as a formatted table with at least camera id and stream URL columns (status when available).",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "Add a stream to rtvi-cv running at http://10.99.99.99:9000.",
+      "checks": [
+        "The agent probes the user-supplied URL `http://10.99.99.99:9000` (not localhost) when attempting service discovery.",
+        "The agent reports the connectivity failure clearly with an error message such as `could not reach`, `connection refused`, `unreachable`, or `service not running`.",
+        "The agent suggests verifying that the RTVI-CV container is running and that port 9000 is reachable on the supplied host.",
+        "The agent does NOT silently fall back to `http://localhost:9000` and issue `/stream/add` against it.",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    }
+  ]
+}

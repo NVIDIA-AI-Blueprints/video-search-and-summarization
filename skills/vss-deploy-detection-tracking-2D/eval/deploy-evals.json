@@ -1,0 +1,69 @@
+{
+  "skills": ["vss-deploy-detection-tracking-2D"],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["standalone"]
+      }
+    }
+  },
+  "env": "A GPU host matching `{{platform}}` with Docker, NVIDIA Container Toolkit, NGC credentials at `~/.ngc/config` (the skill bootstraps `~/.ngc/config` from `NGC_CLI_API_KEY` if needed), an X11 server for `eglsink` display cases, and at least 30 GB free disk for the container image plus NGC-staged models and videos. Free TCP port 9000 for the RTVI-CV REST API. This eval exercises the DEPLOY/TEARDOWN flows of the `vss-deploy-detection-tracking-2D` skill against the host directly — it does not use `/deploy`, `scripts/dev-profile.sh`, or any VSS profile. The skill launches its own `rtvicv-perception-docker` container via `docker run` from a user-supplied RTVI-CV image (`nvcr.io/<org>/<repo>:<tag>`) and starts `metropolis_perception_app` inside it.",
+  "expects": [
+    {
+      "query": "Deploy rtvi-cv warehouse 2d with 4 streams and display the output.",
+      "checks": [
+        "The agent identifies the `warehouse-2d` use case (RT-DETR + NvDCF tracker on the `nvinfer` PGIE) from the query without re-asking.",
+        "The agent creates a TodoWrite plan that covers at least platform detection, NGC resource staging, container launch, in-container config apply, and app start.",
+        "The agent prompts for the RTVI-CV docker image (`nvcr.io/<org>/<repo>:<tag>`) and the warehouse NGC resource reference if they are not already in env vars or defaults.",
+        "The agent launches the container with `docker run` against the user-supplied image and names it (default `rtvicv-perception-docker`).",
+        "The DS main config applied inside the container uses `batch-size=4` and an `eglsink`-based output (matching the user's `display the output` request).",
+        "The agent starts `metropolis_perception_app -c <config>` inside the running container with output redirected to a deployment log under `~/rtvicv-storage/logs/`.",
+        "The agent reports the REST endpoint as `http://localhost:9000` in its final summary.",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "Stop rtvi-cv and clean up the deployment.",
+      "checks": [
+        "The agent enters the TEARDOWN flow and does not start a new deployment.",
+        "The agent discovers running RTVI-CV containers via `docker ps` (filtering on `rtvicv-perception-docker` or the running image).",
+        "The agent asks the user which container(s) to stop before executing any destructive command when more than one matching container exists.",
+        "The agent executes `docker stop` (graceful by default) on the selected container(s).",
+        "NGC credentials at `~/.ngc/config` are preserved — the agent does not delete or chmod them away.",
+        "The engine cache directory and NGC-staged resources are NOT deleted unless the user explicitly requested a full cleanup.",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "Deploy rtvi-cv smartcity gdino with 2 streams and fakesink for benchmarking.",
+      "checks": [
+        "The agent identifies the `smartcity-gdino` use case (Grounding DINO served by `nvinferserver`/Triton, with engine cached as a `.plan` file).",
+        "The agent collects the RTVI-CV docker image and the GDINO model NGC reference.",
+        "The agent invokes `scripts/setup_gdino.sh` (or the equivalent in-container flow) to build/cache the Triton `.plan` engine before app start.",
+        "The DS main config applied inside the container uses `batch-size=2` and a `fakesink` output (matching the `for benchmarking` intent).",
+        "The agent starts `metropolis_perception_app` inside the running container.",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "Deploy rtvi-cv warehouse 2d with 4 streams, fakesink, using image nvcr.io/testorg/rtvicv:1.0, NGC resource testorg/testteam/wh-data:v1, local ONNX at /data/model.onnx, videos at /data/videos.",
+      "checks": [
+        "The agent does NOT issue a multi-question AskQuestion prompt for use case, batch size, sink, image, NGC resource, ONNX, or videos — all are supplied in the query.",
+        "The agent uses image `nvcr.io/testorg/rtvicv:1.0` verbatim in the `docker run` command.",
+        "The agent identifies the `warehouse-2d` use case.",
+        "The DS main config applied inside the container uses `batch-size=4` and `fakesink`.",
+        "The agent uses the local ONNX path `/data/model.onnx` and the local videos directory `/data/videos` instead of downloading those assets from NGC (the NGC resource is still referenced for any remaining assets).",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    },
+    {
+      "query": "Deploy rtvi-cv.",
+      "checks": [
+        "The agent asks the user to select a use case from `warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, or `smartcity-gdino` before proceeding.",
+        "The agent does NOT issue a `docker run` command until the use case is supplied.",
+        "The agent does NOT silently default to one of the four use cases.",
+        "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
+      ]
+    }
+  ]
+}
