@@ -13,7 +13,7 @@
       "query": "Add a stream rtsp://10.0.0.1:8554/cam1 with id cam_entrance to rtvi-cv.",
       "checks": [
         "The agent calls `POST http://localhost:9000/api/v1/stream/add` against the live RTVI-CV instance.",
-        "The request body contains `liveStreamUrl` exactly equal to `rtsp://10.0.0.1:8554/cam1` and a camera/sensor id of `cam_entrance`.",
+        "The request body contains `camera_url` exactly equal to `rtsp://10.0.0.1:8554/cam1` and a `camera_id` of `cam_entrance`.",
         "The agent renders the curl command in a confirmation box BEFORE executing the POST (per the skill's universal API-box rule).",
         "The agent renders the API response as a formatted table or structured block.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."

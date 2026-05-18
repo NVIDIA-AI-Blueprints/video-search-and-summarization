@@ -128,10 +128,36 @@ resolve_or_override() {
     fi
 }
 
+# Videos-specific resolver — uses find_video_dirs as the candidate source.
+# Can't go through resolve_unique because find_video_dirs emits a list
+# of directories (it filters by *.mp4/*.mkv content), not raw find args.
+# Wrapping it in <(...) for resolve_unique would expand to /dev/fd/N
+# which `find` treats as a single non-directory match and "resolves" to
+# itself — silent failure downstream. mapfile reads the list properly.
+resolve_videos() {
+    local override="$1"
+    if [[ -n "$override" ]]; then
+        echo "RESOLVE_OK: videos=$override" >&2
+        printf '%s' "$override"
+        return 0
+    fi
+    local -a CANDS=()
+    mapfile -t CANDS < <(find_video_dirs "$RESOURCES")
+    case ${#CANDS[@]} in
+        0) echo "RESOLVE_AMBIGUOUS: videos count=0" >&2; return 2 ;;
+        1) echo "RESOLVE_OK: videos=${CANDS[0]}" >&2; printf '%s' "${CANDS[0]}" ;;
+        *) echo "RESOLVE_AMBIGUOUS: videos count=${#CANDS[@]}" >&2
+           for i in "${!CANDS[@]}"; do
+               printf '  [%d] %s\n' "$i" "${CANDS[$i]}" >&2
+           done
+           return 3 ;;
+    esac
+}
+
 case "$USECASE" in
   warehouse-2d|smartcity-rtdetr)
     ONNX=$(resolve_or_override 'onnx'   "$ONNX_OVERRIDE"   "$RESOURCES" -type f -name '*.onnx') || exit $?
-    VIDEOS=$(resolve_or_override 'videos' "$VIDEOS_OVERRIDE" <(find_video_dirs "$RESOURCES"))      || exit $?
+    VIDEOS=$(resolve_videos "$VIDEOS_OVERRIDE")      || exit $?
     ;;
   warehouse-3d)
     # Co-locate labels.txt and *.npy with the ONNX when --onnx is given but
@@ -155,7 +181,7 @@ case "$USECASE" in
     ANCHOR=$(resolve_or_override 'anchor'        "$ANCHOR_OVERRIDE" "$RESOURCES" -type f -name '*.npy')       || exit $?
     CALIB=$(resolve_unique     'calibration'                        "$RESOURCES" -type f -name 'calibration.json') \
         || CALIB="$CONFIGS/warehouse-3d/calibration.json"
-    VIDEOS=$(resolve_or_override 'videos' "$VIDEOS_OVERRIDE" <(find_video_dirs "$RESOURCES"))      || exit $?
+    VIDEOS=$(resolve_videos "$VIDEOS_OVERRIDE")      || exit $?
     ;;
   smartcity-gdino)
     # Use override if given; otherwise look for the known gdino filename specifically
@@ -172,7 +198,7 @@ case "$USECASE" in
             exit 3
         fi
     fi
-    VIDEOS=$(resolve_or_override 'videos'   "$VIDEOS_OVERRIDE" <(find_video_dirs "$RESOURCES"))      || exit $?
+    VIDEOS=$(resolve_videos "$VIDEOS_OVERRIDE")      || exit $?
     ;;
 esac
 echo "    ✔ 4.a: assets resolved"
