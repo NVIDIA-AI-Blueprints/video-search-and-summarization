@@ -77,9 +77,11 @@ echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
 ## Verify Access
 
 ```bash
-ngc registry resource info nvidia/vss-developer/dev-profile-compose:3.2.0
-ngc registry image info nvidia/vss-core/vss-agent:3.2.0
+ngc registry resource info nvstaging/vss-developer/dev-profile-compose:3.2.0-26.05.2
+ngc registry image info nvcr.io/nvstaging/vss-core/vss-agent:3.2.0-26.05.2
 ```
+
+> **`nvstaging` not `nvidia`** on develop. develop pulls every VSS image from the staging org (`nvcr.io/nvstaging/vss-core/...` per the compose files), so the verify-access check must use the same org — `nvidia/vss-core/*` will 404 for a develop-side deploy. The tag is the full `3.2.0-26.05.2` from `release_metadata.yaml`; a bare `3.2.0` alias is not guaranteed to exist in nvstaging. For main-branch deploys (published org), swap `nvstaging` → `nvidia`.
 
 Both should return resource info without errors.
 
