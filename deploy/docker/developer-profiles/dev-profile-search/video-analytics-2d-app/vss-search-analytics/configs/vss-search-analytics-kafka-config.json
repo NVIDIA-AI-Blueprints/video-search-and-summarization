@@ -57,10 +57,6 @@
 			"value": "0.5"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
-		},
-		{
 			"name": "embedEnableDownsampling",
 			"value": "false"
 		},
