@@ -3,7 +3,7 @@
 Deploy **just** `vss-behavior-analytics` (no agent, no perception, no UI) — useful when you want to:
 
 - Run a behavior-analytics pipeline against an existing broker (or no broker at all).
-- Pick a different entrypoint (warehouse 2D / 3D / mv3dt, dev_example, fusion_search) without modifying the image.
+- Pick a different entrypoint (analytics 2D / 3D, dev_example, fusion_search) without modifying the image.
 
 ---
 
@@ -19,14 +19,7 @@ You only edit the existing service compose:
 2. **`volumes:`** — what config (required) and what calibration (optional) to mount.
 3. The `--config` and optional `--calibration` flags inside the same `command:` line.
 
-After editing, deploy with:
-
-```bash
-cd <repo>/deploy/docker
-export VSS_APPS_DIR=$(pwd)
-docker compose -f services/analytics/behavior-analytics/compose.yml \
-    up -d vss-behavior-analytics-base
-```
+Walk steps 1-4 below to decide each one; the bring-it-up command lives in [Deploy + verify](#deploy--verify) at the end.
 
 ---
 
@@ -36,8 +29,8 @@ Set the first half of `command:` to one of the following:
 
 | Entrypoint | Class | What it does |
 |---|---|---|
-| `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` | 2D spatial pipeline: object tracking → behavior creation, ROI / tripwire / FOV-count / restricted-area / confined-area / proximity-violation events, plus map-matching. Single Kafka/Redis source, single sink. **The default.** |
-| `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` | Same as 2D plus a **space-analyzer** processor (estimates space utilization per region) and a **frame-enhancement** processor (3D BEV-style metadata). Three parallel processors instead of one. Use this for 3D warehouse / multi-view 3D tracking (mv3dt). |
+| `apps/analytics/main_analytics_2d_app.py` | `Analytics2DApp` | 2D spatial pipeline — operates on **(X, Y) world-plane coordinates** lifted from the image plane via per-sensor homography. Two parallel processors: **behavior creation** (object tracking → behavior + ROI / tripwire / proximity events, plus map-matching) and **frame enhancement** (calibration transform → per-frame state → FOV-count / restricted-area / confined-area incidents). **The default.** |
+| `apps/analytics/main_analytics_3d_app.py` | `Analytics3DApp` | Operates on **full (X, Y, Z) 3D world coordinates** — fed from upstream multi-view 3D tracking (mv3dt) that produces 3D bounding boxes. Same two processors as 2D (with the 3D calibration class), plus a third **space-analyzer** processor that estimates space utilization per region on a periodic interval. Use this for 3D warehouse / multi-view 3D tracking (mv3dt). |
 | `apps/dev_example/main_dev_example_app.py` | `DevExampleApp` | Smaller app that focuses on **FOV-count violation** and **restricted-area violation** detection. No behavior creation, no map-matching. Good starting point for new incident types — also the entrypoint used by `dev-profile-alerts`. |
 | `apps/fusion_search/main_fusion_search_analytics_app.py` | `FusionSearchAnalyticsApp` | Two-path app: (a) behavior creation from raw frames, like 2D but without the FOV-count / ROI / tripwire events; (b) **video-embedding downsampling** — reads chunked video embeddings, optionally downsamples them (SDT / fixed-window), writes filtered embeddings. Use this with the VSS search profile. |
 
@@ -47,28 +40,9 @@ Set the first half of `command:` to one of the following:
 
 ## Step 2 — Choose a config (required)
 
-Every entrypoint requires `--config <path>`. The container has three viable sources:
+Every entrypoint requires `--config <path>`. The container has two viable sources:
 
-### Option A — Use the image-baked default
-
-Cheapest path. The image ships defaults at `/behavior-analytics/resources/*.json`. No volume mount needed. Match the config to the entrypoint:
-
-| Entrypoint | Image-baked config flag |
-|---|---|
-| `main_analytics_2d_app.py` | `--config resources/warehouse_2d_config.json` |
-| `main_analytics_3d_app.py` | `--config resources/warehouse_3d_config.json` |
-| `main_dev_example_app.py` | `--config resources/dev_example_config.json` |
-| `main_fusion_search_analytics_app.py` | `--config resources/fusion_search_analytics_config.json` |
-
-The defaults assume Kafka at `localhost:9092` and the standard `mdx-*` topic names (`mdx-raw`, `mdx-behavior`, `mdx-frames`, `mdx-notification`, `mdx-events`, `mdx-incidents`). Edit the `command:` accordingly:
-
-```yaml
-command: python3 apps/analytics/main_analytics_3d_app.py --config resources/warehouse_3d_config.json
-```
-
-You can also drop the volume mount entirely in this case — the base file's mount becomes unused.
-
-### Option B — Use a profile's existing config
+### Option A — Use a profile's existing config
 
 If you want the behavior/topic/sensor wiring a specific blueprint uses (already tuned to its dataset), point the volume mount at one of the profile-shipped configs and reference the mounted path on the `--config` flag.
 
@@ -80,7 +54,7 @@ Recommended pairings (entrypoint → existing config):
 | `main_analytics_3d_app.py` | `industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_analytics_3d_app.py` (mv3dt) | `industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
 | `main_dev_example_app.py` | `developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` |
-| `main_fusion_search_analytics_app.py` | the search profile's own config (lives outside `behavior-analytics/`; see [`search.md`](search.md)) |
+| `main_fusion_search_analytics_app.py` | the search profile's own config (lives outside `behavior-analytics/`) |
 
 Compose change:
 
@@ -92,9 +66,9 @@ services:
     command: python3 apps/analytics/main_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json
 ```
 
-### Option C — Use your own custom config
+### Option B — Use your own custom config
 
-Drop in any absolute host path; copy one of the above as a starting point and edit. Compose change is identical to Option B but with `/abs/path/to/my-config.json` as the bind source.
+Drop in any absolute host path; copy one of the above as a starting point and edit. Compose change is identical to Option A but with `/abs/path/to/my-config.json` as the bind source.
 
 ```yaml
 volumes:
@@ -112,14 +86,9 @@ Top-level shape (every config has all of these):
 | `app[]` | List of `{name, value}` strings. Knobs like `behaviorWatermarkSec`, `numWorkersForBehaviorCreation`, `stateManagementFilter`, `clusterThreshold`, `trajDirectionMode`, plus per-incident-type toggles (`fovCountViolationIncidentEnable`, `restrictedAreaViolationIncidentEnable`, etc.). |
 | `sensors[]` | Per-sensor entries with `{id, configs: [{name, value}]}` — per-sensor overrides for things like `tripwireMinPoints`, `proximityDetectionEnable`, `anomalySpeedViolation`. |
 
-For the full schema (every field, type, default), the authoritative source is the Pydantic model in the repo:
-
-- `behavior-analytics/src/mdx/analytics/core/schema/config.py` — `AppConfig` + subsection models.
-- `behavior-analytics/src/mdx/analytics/core/transform/config/config_validator.py` — `ALLOWED_APP_KEYS` / `ALLOWED_SENSOR_KEYS` allowlists (for dynamic updates).
-
 Higher-level docs:
 
-- `readmes/configuration.md` — config field guide.
+- [`configuration.md`](configuration.md) — config field guide.
 
 ---
 
@@ -129,7 +98,7 @@ Calibration tells the app the sensor map, ROIs, tripwires, geo-locations, homogr
 
 ### Calibration types
 
-The type is encoded in the calibration JSON itself, on the top-level `calibrationType` field. There are three values, and the app picks its calibration class accordingly (`CalibrationType` enum in `behavior-analytics/src/mdx/analytics/core/transform/calibration/calibration_base.py`):
+The type is encoded in the calibration JSON itself, on the top-level `calibrationType` field. There are three values:
 
 | `calibrationType` | Class | What it does |
 |---|---|---|
@@ -146,7 +115,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
 
 ### Pick a calibration source
 
-- **Use one of the profile-shipped calibrations.** Same pattern as config Option B:
+- **Use one of the profile-shipped calibrations.** Same pattern as config Option A:
 
   | Entrypoint | Recommended existing calibration |
   |---|---|
@@ -156,7 +125,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
   | `main_dev_example_app.py` | the dev profile may not need one. |
 - **Bring your own.** Any absolute host path that conforms to the calibration JSON schema. If you're hand-rolling one, start from the `"cartesian"` type — that's the path the rest of the pipeline is tuned for.
 
-  Compose change for either of the last two:
+  Compose change:
 
   ```yaml
   volumes:
@@ -168,7 +137,7 @@ Don't add a `--calibration` flag and don't mount one. The app starts with a `Dyn
     --calibration /resources/calibration.json
   ```
 
-The schema for the calibration JSON is vendored from `vss-analytics-api/web-api-core/schemas/ajv/calibration.json` and lives at `behavior-analytics/src/mdx/analytics/core/transform/calibration/schemas/calibration.schema.json` — read `readmes/dynamic-calibration.md` for the per-action policy and the sensor/ROI/tripwire field semantics.
+The schema for the calibration JSON is vendored from `vss-analytics-api/web-api-core/schemas/ajv/calibration.json` and lives at `behavior-analytics/src/mdx/analytics/core/transform/calibration/schemas/calibration.schema.json`.
 
 ---
 
@@ -182,37 +151,7 @@ The schema for the calibration JSON is vendored from `vss-analytics-api/web-api-
 
 This is convenient for "bring up the analytics container first, broker later" workflows. If you want it to fail-fast when there's no broker (e.g. in CI), wrap with your own healthcheck or override `restart:` to `on-failure`.
 
-### When a broker IS present — dynamic updates
-
-If Kafka is up and reachable (the same broker the producer / `video-analytics-api` uses), two runtime-update flows become available — no container restart needed:
-
-#### Dynamic config
-
-Publish an `upsert` (per-key patch) or `upsert-all` (full snapshot) message to topic `mdx-notification` with Kafka key `behavior-analytics-config` and headers:
-
-- `event.type`: `upsert` | `upsert-all` | `request-config` | `ack`
-- `reference-id`: `video-analytics-api-<uuid>` (web-api originated) or `behavior-analytics-<uuid>` (bootstrap reply) or the source-type literal (`kafka` / `redis` / `mqtt`) for direct-publisher upserts.
-
-Body: `{"status": ..., "config": <patch>, "error": ...}`.
-
-The listener validates each message at the envelope layer (rejects unknown keys, missing config, malformed status/error) and at the per-payload layer (rejects forbidden sections, bad item shapes). Successful upserts are persisted to disk, applied to every worker, and ACK'd back over the topic.
-
-Full wire contract + ack semantics: `readmes/dynamic-config.md` in the behavior-analytics repo.
-
-#### Dynamic calibration
-
-Publish to the same topic with Kafka key `calibration` and headers:
-
-- `event.type`: `upsert-all` (full snapshot) | `upsert` (per-sensor merge) | `delete` (per-sensor removal)
-- `timestamp`: ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SS.fffZ`).
-
-Body: JSON sensor list (and ROIs/tripwires/homographies for `upsert-all`).
-
-The listener validates against the vendored AJV schema before persisting. Schema violations log a `calibration schema violation` warning and are dropped — the previously-good calibration stays loaded.
-
-Full wire contract + per-action validation policy: `readmes/dynamic-calibration.md`.
-
-Both flows live entirely on the broker — the producer can be `video-analytics-api`, your own script, or any Kafka client that mirrors the wire shape. They're the recommended way to change configuration after the container is running, so you don't have to redeploy.
+> When a broker **is** reachable, you also get two runtime-update flows — dynamic config and dynamic calibration — that don't require redeploying the container. Those are post-deployment operations and live in the `SKILL.md`'s **Dynamic updates** section, plus [`dynamic-config.md`](dynamic-config.md) and [`dynamic-calibration.md`](dynamic-calibration.md) for full wire contracts.
 
 ---
 
@@ -250,15 +189,13 @@ DynamicCalibration: no --calibration provided; waiting for first calibration not
 docker compose -f services/analytics/behavior-analytics/compose.yml down
 ```
 
-For a multi-service teardown (broker, ES, etc.) see [`teardown.md`](teardown.md).
-
 ---
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `FileNotFoundError: '/resources/...'` on startup | `--config` flag and the volume bind target don't match. | Either point both at the same container path, or drop the mount and use the image-baked `resources/<config>.json`. |
+| `FileNotFoundError: '/resources/...'` on startup | `--config` flag and the volume bind target don't match. | Make the `--config` path equal the container side of the volume bind (the part after the `:`). |
 | Container alive but log just keeps printing `Connect to … failed: Connection refused` | No broker listening on the host. | Expected if you're running broker-less; otherwise start your broker. The container will pick up the connection automatically once it's up. |
 | `calibration schema violation` after a notification arrives | Producer sent a payload that fails the JSON Schema gate. | Previously-good calibration stays loaded; check the producer's payload against the schema in `src/mdx/analytics/core/transform/calibration/schemas/calibration.schema.json`. |
 | `dropping config message: unrecognized reference-id …` | Inbound dynamic-config `upsert` / `upsert-all` carries a reference-id outside the accepted set. | Reference-id must start with `video-analytics-api-` (web-api), `behavior-analytics-` (bootstrap echo), or equal the active source-type literal (`kafka` / `redis` / `mqtt`). |
