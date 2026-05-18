@@ -74,37 +74,44 @@ Key flags:
   must match the template.
 - `--enable-auto-tool-choice` — agent workflow uses tool-calls.
 
-Then deploy the agent workflow (LLM treated as "remote" since it's a
-standalone vLLM, not a NIM):
+Then apply env overrides to `dev-profile-base/.env` (LLM is a standalone vLLM at `localhost:30081`, treated as "remote"; VLM stays local but on the shared edge GPU):
 
-```bash
-export NVIDIA_API_KEY=$NVIDIA_API_KEY
-export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
-export LLM_ENDPOINT_URL=http://localhost:30081
-export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
+| Key | Value | Why |
+|---|---|---|
+| `LLM_MODE` | `remote` | Edge 4B is a standalone vLLM, not a NIM |
+| `LLM_BASE_URL` | `http://localhost:30081` | The vLLM started above |
+| `LLM_NAME` | `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` | The model loaded by vLLM |
+| `LLM_NAME_SLUG` | `none` | Remote mode |
+| `HARDWARE_PROFILE` | `DGX-SPARK` | Auto-selects `hw-DGX-SPARK-shared.env` for cosmos-reason2-8b — caps VLM KV cache so both models coexist |
+| `LLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
+| `VLM_DEVICE_ID` | `0` | Edge platforms share GPU 0 |
+| `VSS_AGENT_CONFIG_FILE` | `./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml` | Edge planning prompt |
 
-deploy/docker/scripts/dev-profile.sh up -p base \
-    --use-remote-llm \
-    --llm nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8 \
-    --hardware-profile DGX-SPARK \
-    --vlm-env-file deploy/docker/services/nim/cosmos-reason2-8b/hw-DGX-SPARK-shared.env
-```
-
-The `--vlm-env-file` caps the VLM's KV cache at 40% so both models coexist.
+Then follow [`SKILL.md`](../SKILL.md) Steps 3–5 (resolve compose → normalize → `up -d`). The `cosmos-reason2-8b` NIM compose automatically loads `hw-${HARDWARE_PROFILE}-shared.env`, so the matching `hw-DGX-SPARK-shared.env` ships the right `NIM_KVCACHE_PERCENT=0.4` cap without a separate flag.
 
 ## DGX Spark — Nano 9B v2 FP8 (both NIMs, no standalone vLLM)
 
-```bash
-# Make sure the Edge vLLM container is not running:
-# docker stop nemotron-edge && docker rm nemotron-edge
+Make sure the Edge vLLM container is not running:
 
-deploy/docker/scripts/dev-profile.sh up -p base \
-    --hardware-profile DGX-SPARK \
-    --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 \
-    --vlm nvidia/cosmos-reason2-8b
+```bash
+docker stop nemotron-edge && docker rm nemotron-edge   # only if running
 ```
 
-Uses the default `config.yml` (full planning prompt with clarifying questions).
+Env overrides for `dev-profile-base/.env`:
+
+| Key | Value |
+|---|---|
+| `HARDWARE_PROFILE` | `DGX-SPARK` |
+| `LLM_NAME` | `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` |
+| `LLM_NAME_SLUG` | `nvidia-nemotron-nano-9b-v2-fp8` |
+| `LLM_MODE` | `local_shared` |
+| `VLM_NAME` | `nvidia/cosmos-reason2-8b` |
+| `VLM_NAME_SLUG` | `cosmos-reason2-8b` |
+| `VLM_MODE` | `local_shared` |
+| `LLM_DEVICE_ID` | `0` |
+| `VLM_DEVICE_ID` | `0` |
+
+Uses the default `config.yml` (full planning prompt with clarifying questions). Then [`SKILL.md`](../SKILL.md) Steps 3–5.
 
 ## AGX Thor / IGX Thor — Edge 4B + rtvi-vlm
 
@@ -128,31 +135,41 @@ docker run --gpus all -d --name nemotron-edge -p 30081:8000 \
     --port 8000
 ```
 
-Then:
+Then apply env overrides to `dev-profile-base/.env`:
 
-```bash
-export NVIDIA_API_KEY=$NVIDIA_API_KEY
-export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
-export LLM_ENDPOINT_URL=http://localhost:30081
-export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
+| Key | Value |
+|---|---|
+| `LLM_MODE` | `remote` |
+| `LLM_BASE_URL` | `http://localhost:30081` |
+| `LLM_NAME` | `nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8` |
+| `LLM_NAME_SLUG` | `none` |
+| `HARDWARE_PROFILE` | `AGX-THOR` (or `IGX-THOR`) |
+| `LLM_DEVICE_ID` | `0` |
+| `VLM_DEVICE_ID` | `0` |
+| `VSS_AGENT_CONFIG_FILE` | `./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml` |
 
-# Uses the default 35% GPU budget for rtvi-vlm on Thor
-deploy/docker/scripts/dev-profile.sh up -p base \
-    --use-remote-llm \
-    --llm nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8 \
-    --hardware-profile AGX-THOR
-```
+Then [`SKILL.md`](../SKILL.md) Steps 3–5. Thor uses the default 35% GPU budget for `rtvi-vlm`.
 
-For **IGX Thor**: replace `AGX-THOR` with `IGX-THOR` in the `--hardware-profile` flag.
+For **IGX Thor**: swap `HARDWARE_PROFILE=AGX-THOR` for `HARDWARE_PROFILE=IGX-THOR`.
 
 ## AGX/IGX Thor — Nano 9B v2 FP8
 
 ```bash
-# docker stop nemotron-edge && docker rm nemotron-edge
-deploy/docker/scripts/dev-profile.sh up -p base \
-    --hardware-profile AGX-THOR \
-    --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
+docker stop nemotron-edge && docker rm nemotron-edge   # only if running
 ```
+
+Env overrides for `dev-profile-base/.env`:
+
+| Key | Value |
+|---|---|
+| `HARDWARE_PROFILE` | `AGX-THOR` (or `IGX-THOR`) |
+| `LLM_NAME` | `nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8` |
+| `LLM_NAME_SLUG` | `nvidia-nemotron-nano-9b-v2-fp8` |
+| `LLM_MODE` | `local_shared` |
+| `LLM_DEVICE_ID` | `0` |
+| `VLM_DEVICE_ID` | `0` |
+
+Then [`SKILL.md`](../SKILL.md) Steps 3–5.
 
 ## Caveats
 
@@ -162,8 +179,9 @@ deploy/docker/scripts/dev-profile.sh up -p base \
   agent won't ask back — it'll pick one or fail. Switch to Nano 9B v2 FP8
   if this matters for your use case.
 - **Edge 4B is not a NIM.** It's a plain vLLM container — no
-  `nvcr.io/nim/...` tag. `dev-profile.sh --use-remote-llm` points the
-  agent at the local port 30081 as if it were a remote endpoint.
+  `nvcr.io/nim/...` tag. The agent reaches it via `LLM_MODE=remote` +
+  `LLM_BASE_URL=http://localhost:30081`, treating the local vLLM as if
+  it were a remote endpoint.
 - **Tool-call parser.** Edge 4B requires `--tool-call-parser qwen3_coder`
   (Qwen3-lineage). Omitting it or using `llama3_json` breaks the agent's
   tool calls.
