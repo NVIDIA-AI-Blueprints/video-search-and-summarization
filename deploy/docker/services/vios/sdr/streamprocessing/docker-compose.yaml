@@ -49,7 +49,7 @@ services:
       restart_policy:
         condition: always
     healthcheck:
-      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/${HTTP_PORT:-30001}'"]
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30001}'"]
       # Handle slow apt mirrors which delays package installs and service startup
       # Hence widen retries x interval ~ 25min so healthcheck outlasts apt
       interval: 20s
@@ -64,7 +64,7 @@ services:
 
   streamprocessing-ms-2d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","auto_calib_2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_auto_calib_2d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -111,7 +111,7 @@ services:
 
   streamprocessing-ms-3d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "auto_calib_3d"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -160,7 +160,7 @@ services:
 
   streamprocessing-ms-mv3dt:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_mv3dt"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
