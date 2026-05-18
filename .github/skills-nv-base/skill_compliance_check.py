@@ -164,10 +164,13 @@ RESERVED_BARE_NAMES = {
 MAX_NAME_TOKENS = 4
 MAX_NAME_CHARS  = 30
 
-# Trigger-clause keywords (used by FM-010 to find the "Use when…" substring)
+# Trigger-clause keywords (used by FM-010 to find the "Use when…" substring).
+# "load when" / "load this when" / "load this skill when" are equally valid per
+# the playbook — the skill is "loaded" when its trigger conditions are met.
 TRIGGER_CLAUSE_KEYWORDS = (
     "use when", "trigger when", "use this skill when", "use this when",
     "trigger this skill when",
+    "load when", "load this when", "load this skill when",
 )
 
 # Description anti-patterns (FM-011) — leading sentence reads as
@@ -651,13 +654,13 @@ def check_frontmatter(skill_path: Path, result: SkillResult) -> None:
             "Include specific trigger phrases (e.g. 'Trigger when the user says...') "
             "so the skill activates reliably.",
         ))
-    trigger_words = {"trigger", "use when", "use this", "invoke"}
+    trigger_words = {"trigger", "use when", "use this", "invoke", "load when", "load this"}
     if desc and not any(w in desc.lower() for w in trigger_words):
         result.findings.append(Finding(
             WARNING, "FM-009",
             "Frontmatter 'description' has no trigger guidance. "
-            "Add a phrase like 'Use this skill when...' or 'Trigger when...' "
-            "so Claude knows when to invoke it.",
+            "Add a phrase like 'Use this skill when...', 'Trigger when...', "
+            "or 'Load when...' so Claude knows when to invoke it.",
         ))
 
     # FM-010: the "Use when…" clause should list multiple user-phrasing examples.
