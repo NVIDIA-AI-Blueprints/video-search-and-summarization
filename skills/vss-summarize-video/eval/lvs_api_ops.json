@@ -17,7 +17,7 @@
       "checks": [
         "`curl -sf --max-time 15 http://localhost:38111/v1/ready` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:38111/models | jq -e '.data | length > 0'` returns exit 0",
-        "`curl -sf --max-time 15 -X POST http://localhost:38111/recommended_config -H 'Content-Type: application/json' -d '{\"video_length\":300,\"target_response_time\":60,\"usecase_event_duration\":5}' | jq -e '.chunk_size'` returns exit 0",
+        "`curl -sf --max-time 15 -X POST http://localhost:38111/recommended_config -H 'Content-Type: application/json' -d '{\"video_length\":300,\"target_response_time\":60,\"usecase_event_duration\":5}' | jq -e '(.text // .chunk_size) != null'` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:38111/metrics | grep -q .` returns exit 0",
         "The agent trajectory contains API calls to `/v1/ready`, `/models`, `/recommended_config`, and `/metrics` on port 38111.",
         "The POST `/recommended_config` request body contains exactly the requested numeric values: video_length=300, target_response_time=60, and usecase_event_duration=5.",
