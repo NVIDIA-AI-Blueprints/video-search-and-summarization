@@ -186,6 +186,16 @@ def _remove_som_markers(prompt: str) -> str:
     return cleaned
 
 
+def _vst_playback_url_for_clients(video_url: str, vst_external_url: str | None) -> str:
+    """Rewrite a VST /vst/... clip URL to the external base for browser-facing report links."""
+    if not video_url or not vst_external_url:
+        return video_url
+    path = urllib.parse.urlparse(video_url).path or ""
+    if "/vst/" not in path:
+        return video_url
+    return f"{vst_external_url.rstrip('/')}{path}"
+
+
 def _replace_public_urls_with_private(
     markdown_content: str, vst_internal_url: str | None, vst_external_url: str | None
 ) -> str:
@@ -1891,8 +1901,9 @@ Enter your choice or press Submit to keep current value:"""
             except Exception as e:
                 logger.warning(f"Failed to fetch video URL for '{sensor_id}': {e}")
 
-        # Append video URL to report
+        # Append video URL to report (external base so the link opens in a browser)
         if video_url:
+            video_url = _vst_playback_url_for_clients(video_url, config.vst_external_url)
             markdown_content += "\n\n## Resources\n\n"
             markdown_content += f"**Video Playback:**\n\n{video_url}\n\n"
 
