@@ -35,18 +35,21 @@ jobs:
             project_key: TEGRASW_metropolis_video-search-and-summarization-agent_video-search-and-summarization
             project_name: video-search-and-summarization-agent
             sources: services/agent
+            paths: services/agent/
             tests: services/agent/tests
             python_version: "3.13"
           - name: ui
             project_key: TEGRASW_metropolis_video-search-and-summarization-ui_video-search-and-summarization
             project_name: video-search-and-summarization-ui
             sources: services/ui
+            paths: services/ui/
             tests: ""
             python_version: ""
           - name: skills
             project_key: TEGRASW_metropolis_video-search-and-summarization-skills_video-search-and-summarization
             project_name: video-search-and-summarization-skills
             sources: skills
+            paths: skills/
             tests: ""
             python_version: ""
 
@@ -57,7 +60,35 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Detect service changes
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SERVICE_PATHS: ${{ matrix.paths }}
+        run: |
+          should_scan=true
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            should_scan=false
+            git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed-files.txt
+
+            if grep -q "^${SERVICE_PATHS}" changed-files.txt ||
+              grep -q '^\.github/workflows/sonarqube\.yml$' changed-files.txt; then
+              should_scan=true
+            fi
+          fi
+
+          echo "should_scan=${should_scan}" >> "$GITHUB_OUTPUT"
+          if [ "$should_scan" = "true" ]; then
+            echo "Scanning ${{ matrix.name }}."
+          else
+            echo "Skipping ${{ matrix.name }}; no matching service changes."
+          fi
+
       - name: Validate SonarQube secrets
+        if: steps.changes.outputs.should_scan == 'true'
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -72,6 +103,7 @@ jobs:
           fi
 
       - name: Write SonarQube configuration
+        if: steps.changes.outputs.should_scan == 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -119,6 +151,7 @@ jobs:
           sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
 
       - name: Run SonarQube scanner
+        if: steps.changes.outputs.should_scan == 'true'
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
