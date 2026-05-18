@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A full-remote deployed VSS lvs profile (deploy mode = `remote-all` - the agent LLM and LVS VLM dependencies are served by remote endpoints, no local NIMs). Run on one platform only: the LVS API surface tested here is independent of GPU model once the lvs profile is deployed. Required: LVS REST API reachable at http://localhost:38111, VSS Agent reachable at http://localhost:8000/docs, Docker available for non-destructive service status checks, and `jq` available for response validation. These checks intentionally avoid full video summarization because `skills/vss-summarize-video/eval/lvs_profile_summarize.json` owns end-to-end summarization coverage.",
+  "env": "A full-remote deployed VSS lvs profile (deploy mode = `remote-all` - the agent LLM and LVS VLM dependencies are served by remote endpoints, no local NIMs). Run on one platform only: the LVS API surface tested here is independent of GPU model once the lvs profile is deployed. Required: LVS REST API reachable at http://localhost:38111, VSS Agent reachable at http://localhost:8000/docs, Docker available for non-destructive service status checks, and `jq` available for response validation. These checks intentionally avoid full video summarization because `skills/vss-summarize-video/evals/lvs_profile_summarize.json` owns end-to-end summarization coverage.",
   "expects": [
     {
       "query": "Using the `vss-summarize-video` skill's LVS API reference, verify the running LVS service without summarizing a video: check readiness, list available models, request a recommended config for a 300-second video with a 60-second target response time and a 5-second target event duration, fetch metrics, and report the key results.",
