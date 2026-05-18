@@ -13,10 +13,13 @@ import {
   useEffect,
   useState,
 } from 'react';
+import { useTranslation } from 'next-i18next';
 
 import { Conversation } from '@/types/chat';
 
 import HomeContext from '@/pages/api/home/home.context';
+import { isActiveConversationProcessing } from '@/utils/app/queryProcessing';
+import toast from 'react-hot-toast';
 
 import SidebarActionButton from '@/components/Buttons/SidebarActionButton';
 import ChatbarContext from '@/components/Chatbar/Chatbar.context';
@@ -26,6 +29,7 @@ interface Props {
 }
 
 export const ConversationComponent = ({ conversation }: Props) => {
+  const { t } = useTranslation('chat');
   const homeContext = useContext(HomeContext);
   const chatbarContext = useContext(ChatbarContext);
 
@@ -35,10 +39,17 @@ export const ConversationComponent = ({ conversation }: Props) => {
   }
 
   const {
-    state: { selectedConversation, messageIsStreaming },
+    state: { selectedConversation, messageIsStreaming, loading },
     handleSelectConversation,
     handleUpdateConversation,
   } = homeContext;
+
+  const deleteConversationDisabled = isActiveConversationProcessing(
+    conversation.id,
+    selectedConversation?.id,
+    loading,
+    messageIsStreaming,
+  );
 
   const { handleDeleteConversation } = chatbarContext;
 
@@ -97,6 +108,10 @@ export const ConversationComponent = ({ conversation }: Props) => {
   };
   const handleOpenDeleteModal: MouseEventHandler<HTMLButtonElement> = (e) => {
     e.stopPropagation();
+    if (deleteConversationDisabled) {
+      toast.error(t('queryProcessingBlockDeleteConversation'));
+      return;
+    }
     setIsDeleting(true);
   };
 
@@ -166,7 +181,15 @@ export const ConversationComponent = ({ conversation }: Props) => {
             <SidebarActionButton handleClick={handleOpenRenameModal}>
               <IconPencil size={18} />
             </SidebarActionButton>
-            <SidebarActionButton handleClick={handleOpenDeleteModal}>
+            <SidebarActionButton
+              handleClick={handleOpenDeleteModal}
+              disabled={deleteConversationDisabled}
+              title={
+                deleteConversationDisabled
+                  ? t('queryProcessingBlockDeleteConversationTitle', { ns: 'sidebar' })
+                  : undefined
+              }
+            >
               <IconTrash size={18} />
             </SidebarActionButton>
           </div>
