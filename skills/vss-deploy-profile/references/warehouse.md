@@ -655,15 +655,12 @@ df -h /  # 500 GB+ SSD
 **MODE=2d:**
 > - **2D Vision AI** — CV-only, no LLM and no VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
 > - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
 
 **MODE=3d:**
 > - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
 
 **MODE=mv3dt:**
 > - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
 
 #### Q3 — Stream Type
 
@@ -711,6 +708,26 @@ Skip for `bp_wh` and `bp_wh_auto_calib`. For `bp_wh_kafka` / `bp_wh_redis` (any 
 MINIMAL_PROFILE="true"   # minimal
 MINIMAL_PROFILE=""       # extended
 ```
+
+#### Q5 — Data Source & Calibration
+
+> "Are you using the **sample dataset** or your **own data** (custom videos / live RTSP streams)?"
+
+**Sample dataset** — calibration files ship with the app data. No extra step needed; proceed to Phase 4.
+
+**Own data** — you need a calibration file before the analytics pipeline can produce meaningful results.
+
+> "Do you already have a calibration JSON file, or do you need to generate one first?"
+
+- **Already have a calibration file** — proceed to Phase 4. You'll mount it in Phase 5 (`.env` config).
+- **Need to generate a calibration file** — pick a calibration path based on your video source:
+
+  | You have… | Profile to deploy | What it does |
+  |---|---|---|
+  | **Video files on disk** | `auto_calib` | Standalone auto-calibration. Upload videos directly to the calibration UI — no nvstreamer, no VST stack needed. |
+  | **Live RTSP streams** (or want to use nvstreamer) | `bp_wh_auto_calib_2d` / `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
+
+  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`), then return here and redeploy with the full warehouse profile. For 3D / MV3DT with own data, calibration files additionally require BEV origin calculation — see [Calibration Generation](#calibration-generation).
 
 ---
 
@@ -845,6 +862,15 @@ See [Access Points](#access-points) for service URLs.
 ---
 
 ## Calibration Generation
+
+Two paths are available to generate calibration files depending on your video source:
+
+| Path | Profile | When to use |
+|---|---|---|
+| **Standalone Auto-Calibration** (`auto_calib`) | `auto_calib` | You have video files on disk and want to upload them directly to the calibration UI. No nvstreamer or VST stack needed. |
+| **Warehouse Auto-Calibration** (`bp_wh_auto_calib`) | `bp_wh_auto_calib_2d` / `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` | You want to calibrate against live RTSP streams served by nvstreamer (using the warehouse dataset and VST stack). |
+
+Both paths deploy `vss-auto-calibration` + `vss-auto-calibration-ui` and produce calibration JSON files consumable by behavior-analytics.
 
 ### BEV Group Origin Calculation
 
