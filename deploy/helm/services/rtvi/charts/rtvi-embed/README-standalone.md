@@ -200,7 +200,7 @@ kubectl delete namespace "${NAMESPACE}"
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 - **Pod `Pending`**: insufficient **`nvidia.com/gpu`** or missing device plugin — `kubectl describe pod -n "${NAMESPACE}"`.
 - **`ImagePullBackOff`**: check **`ngc-image-pull-secret`**, image repository/tag, registry reachability.
