@@ -727,7 +727,11 @@ MINIMAL_PROFILE=""       # extended
   | **Video files on disk** | `auto_calib` | Standalone auto-calibration. Upload videos directly to the calibration UI — no nvstreamer, no VST stack needed. |
   | **Live RTSP streams** (or want to use nvstreamer) | `bp_wh_auto_calib_2d` / `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
 
-  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`), then return here and redeploy with the full warehouse profile. For 3D / MV3DT with own data, calibration files additionally require BEV origin calculation — see [Calibration Generation](#calibration-generation).
+  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`).
+
+  > **Note:** For 3D / MV3DT with own data, calibration files additionally require BEV clustering — see [Calibration Generation](#calibration-generation).
+
+  Once the calibration file is ready, return here and redeploy with the full warehouse profile.
 
 ---
 
@@ -872,9 +876,9 @@ Two paths are available to generate calibration files depending on your video so
 
 Both paths deploy `vss-auto-calibration` + `vss-auto-calibration-ui` and produce calibration JSON files consumable by behavior-analytics.
 
-### BEV Group Origin Calculation
+### Camera Clustering (3D / MV3DT only)
 
-When generating calibration files for multi-camera deployments (3D / MV3DT), use `calculate_origin.py` to compute BEV origin, dimensions, and FOV visualizations for camera groups. This is integrated into the Blueprint configurator but can be run standalone for debugging or batch processing.
+Use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. Use `--n_clusters 1` for a single group. Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-clustering
 
 Docs: https://docs.nvidia.com/vss/3.1.0/warehouse-docs/3D-profile.html#camera-grouping-utilities
 
