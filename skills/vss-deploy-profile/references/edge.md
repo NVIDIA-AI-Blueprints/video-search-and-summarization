@@ -189,8 +189,7 @@ Then [`SKILL.md`](../SKILL.md) Steps 3–5.
   run; a gated model, so your token needs access.
 - **`config_edge.yml` may not be present** in older checkouts — verify
   `deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml`
-  exists before running. If missing, pull the latest `feat/skills` or
-  main branch.
+  exists before running. If missing, pull the latest `develop` branch.
 - **The planning prompt in `config_edge.yml` must go BEYOND "don't ask
   clarifying questions".** Edge 4B's default behavior on terse planning
   prompts is to emit `[USER] <template>` — which `vss_agents/agents/top_agent.py`
