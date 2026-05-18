@@ -35,7 +35,7 @@ The full operational walkthrough — entrypoint table, config-source options, ca
 
 1. **Repo checkout** with `$VSS_APPS_DIR` pointing at `<repo>/deploy/docker/`. Required by the service compose's volume binds.
 2. **NGC credentials** — `$NGC_CLI_API_KEY` set so docker can pull the image. See [`../vss-deploy-profile/references/ngc.md`](../vss-deploy-profile/references/ngc.md).
-3. **Optional broker** (Kafka / Redis Streams / MQTT). The container starts fine **without** one — `restart: always` keeps it alive while the Kafka client retries. With a broker, dynamic config / dynamic calibration over `mdx-notification` become available.
+3. **Optional broker** (Kafka / Redis Streams / MQTT). The container starts fine **without** one — the Kafka client retries a bounded number of times, then the app exits and `restart: always` cycles the container. Status will show `Restarting (N)` in `docker ps` until a broker is reachable. With a broker, dynamic config / dynamic calibration over `mdx-notification` become available.
 4. **Optional config / calibration files on disk** if the user is bringing their own.
 
 If $1 or $2 fails, surface the gap before going further.
