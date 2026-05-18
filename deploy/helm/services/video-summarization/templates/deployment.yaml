@@ -135,9 +135,15 @@ spec:
             {{- range (.Values.extraEnv | default list) }}
             {{- $_ := set $envMap .name (tpl (.value | default "" | toString) $) }}
             {{- end }}
-            {{- range $k, $v := $envMap }}
+            {{- /*
+              Emit alphabetically. Go's text/template already sorts map keys
+              implicitly when ranging, but pinning the order explicitly with
+              sortAlpha documents the intent and prevents accidental
+              re-ordering if the template is refactored to a helper later.
+            */}}
+            {{- range $k := (keys $envMap | sortAlpha) }}
             - name: {{ $k }}
-              value: {{ $v | quote }}
+              value: {{ index $envMap $k | quote }}
             {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
