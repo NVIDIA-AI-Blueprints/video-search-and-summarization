@@ -125,7 +125,16 @@ jobs:
           # push eval-bot/* branches) use this — no PAT in the
           # coordinator .env, no personal-account auth.
           GH_TOKEN: ${{ github.token }}
+          # gh CLI checks `~/.config/gh/hosts.yml` BEFORE GH_TOKEN; if
+          # the self-hosted runner host has a stored OAuth from a prior
+          # `gh auth login` (e.g. migrated from the operator's
+          # vss-skill-validator coordinator setup), that token wins
+          # over the env GH_TOKEN and bot-PR comments end up authored
+          # by the personal account. Same gotcha helm-sync.yml solved
+          # by pointing gh at a per-run scratch dir with no hosts.yml.
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
         run: |
+          mkdir -p "$GH_CONFIG_DIR"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev secrets only
           set +a
