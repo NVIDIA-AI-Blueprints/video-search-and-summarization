@@ -655,19 +655,12 @@ df -h /  # 500 GB+ SSD
 **MODE=2d:**
 > - **2D Vision AI** — CV-only, no LLM and no VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
 > - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib` (compose profile: `bp_wh_auto_calib_2d`).
 
 **MODE=3d:**
 > - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib` (compose profile: `bp_wh_auto_calib_3d`).
->
-> **Note:** 3D requires a calibration file. See [Q5](#q5--data-source--calibration-3d--mv3dt-only).
 
 **MODE=mv3dt:**
 > - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib` (compose profile: `bp_wh_auto_calib_mv3dt`).
->
-> **Note:** MV3DT requires a calibration file. See [Q5](#q5--data-source--calibration-3d--mv3dt-only).
 
 #### Q3 — Stream Type
 
@@ -716,7 +709,7 @@ MINIMAL_PROFILE="true"   # minimal
 MINIMAL_PROFILE=""       # extended
 ```
 
-#### Q5 — Data Source & Calibration (3D / MV3DT only)
+#### Q5 — Data Source & Calibration
 
 > "Are you using the **sample dataset** or your **own data** (custom videos / live RTSP streams)?"
 
@@ -734,7 +727,7 @@ MINIMAL_PROFILE=""       # extended
   | **Video files on disk** | `auto_calib` | Standalone auto-calibration. Upload videos directly to the calibration UI — no nvstreamer, no VST stack needed. |
   | **Live RTSP streams** (or want to use nvstreamer) | `bp_wh_auto_calib_2d` / `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` | Warehouse auto-calibration. Calibrate against RTSP streams served by nvstreamer + VST stack. |
 
-  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`), then return here and redeploy with the full warehouse profile. For BEV origin calculation (3D / MV3DT only), see [Calibration Generation](#calibration-generation).
+  Deploy the chosen calibration profile first, generate the calibration JSON via the Auto-Calibration UI (`http://<HOST_IP>:5000`), then return here and redeploy with the full warehouse profile. For 3D / MV3DT with own data, calibration files additionally require BEV origin calculation — see [Calibration Generation](#calibration-generation).
 
 ---
 
