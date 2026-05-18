@@ -25,7 +25,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics-mv3dt
-    command: python3 apps/spatial_analytics/main_spatial_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    command: python3 apps/analytics/main_analytics_3d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
