@@ -111,7 +111,6 @@
 		"nv_streamer_rtsp_server_output_buffer_size_kb": 1000,
 		"supported_video_codecs": ["h264", "h265"],
 		"supported_audio_codecs": ["pcmu","pcma","mpeg4-generic"],
-		"enable_aging_policy": false,
 		"max_video_download_size_MB":1000,
 		"always_recording": true,
 		"event_recording": false,
