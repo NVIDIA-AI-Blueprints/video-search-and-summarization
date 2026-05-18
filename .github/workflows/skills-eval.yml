@@ -26,9 +26,24 @@ on:
   push:
     branches:
       - "pull-request/[0-9]+"
+  # The "Run workflow" button in the Actions UI only appears when
+  # `workflow_dispatch:` is configured on the repo's default branch
+  # (`main`). The full manual-sweep harness — skills dropdown input,
+  # agent prompt overrides, $GITHUB_STEP_SUMMARY result table — lives
+  # on `develop` (PR #524). When the operator clicks "Run workflow"
+  # and picks `develop` in the ref dropdown, GitHub runs develop's
+  # version of this file (inputs, env passthrough, agent invocation
+  # all come from develop). No other harness state needs to be ported
+  # back to main; the skills/ tree, adapter names, and agent script
+  # have diverged enough that a full backport would create more churn
+  # than value. If anyone accidentally dispatches against `main`
+  # itself, the job's `if:` guard below (only true for
+  # `pull-request/<N>` refs) makes the job a clean no-op.
+  workflow_dispatch:
 
-# Only one eval runs per PR at a time. A fresh push cancels the in-flight
-# run (lock on /tmp/brev/<id>.lock will be released by the agent's trap).
+# Only one eval runs per PR (or per manual sweep) at a time. A fresh push
+# cancels the in-flight run (lock on /tmp/brev/<id>.lock will be released
+# by the agent's trap).
 concurrency:
   group: skills-eval-${{ github.ref }}
   cancel-in-progress: true
