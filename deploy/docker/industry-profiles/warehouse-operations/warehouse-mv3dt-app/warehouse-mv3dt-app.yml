@@ -46,7 +46,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     runtime: nvidia
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "auto_calib_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -77,7 +77,7 @@ services:
     extends:
       file: ${VSS_APPS_DIR}/services/infra/compose.yml
       service: broker-health-check
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "auto_calib_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
     container_name: vss-configurator-mv3dt-init
     network_mode: "host"
     environment:
@@ -112,8 +112,8 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        if [ "$${BP_PROFILE}" = "auto_calib" ]; then
-          echo "BP_PROFILE is auto_calib. Broker health check is not required"
+        if [ "$${BP_PROFILE}" = "bp_wh_auto_calib" ]; then
+          echo "BP_PROFILE is bp_wh_auto_calib. Broker health check is not required"
         else
           exec /scripts/check-$${STREAM_TYPE}-health.sh
         fi
@@ -122,7 +122,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.04
     container_name: vss-configurator-mv3dt
     network_mode: "host"
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "auto_calib_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt", "bp_wh_auto_calib_mv3dt"]
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
@@ -169,7 +169,7 @@ services:
         import sys
 
         os.environ["SEND_CONFIG_TO_SDR"] = (
-            "false" if os.environ.get("BP_PROFILE") == "auto_calib" else "true"
+            "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
         )
         os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
@@ -193,28 +193,28 @@ services:
       retries: 30
       start_period: 60s
 
-  perception-sdr-mv3dt:
-    extends:
-      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: perception-sdr
-    profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
-    container_name: vss-rtvi-cv-sdr-mv3dt
-    volumes:
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/sdr:/wdm-configs
-      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/sdr:/wdm-data
-    environment:
-      WDM_INITIALIZE_FROM_VST: false
-      WDM_KFK_ENABLE: true
-      WDM_PRELOAD_DELAY_FOR_DS_API: false
-      WDM_WL_THRESHOLD: 10
-      WDM_POD_WATCH_DOCKER_DELAY: 0.5
-      WDM_WL_OBJECT_NAME: sdr-perception
-      WDM_CONSUMER_GRP_ID: sdr-perception-mv3dt-cg
-      WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv-mv3dt"]'
-      WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv-mv3dt"]'
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
+  # perception-sdr-mv3dt:
+  #   extends:
+  #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+  #     service: perception-sdr
+  #   profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
+  #   container_name: vss-rtvi-cv-sdr-mv3dt
+  #   volumes:
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/sdr:/wdm-configs
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/sdr:/wdm-data
+  #   environment:
+  #     WDM_INITIALIZE_FROM_VST: false
+  #     WDM_KFK_ENABLE: true
+  #     WDM_PRELOAD_DELAY_FOR_DS_API: false
+  #     WDM_WL_THRESHOLD: 10
+  #     WDM_POD_WATCH_DOCKER_DELAY: 0.5
+  #     WDM_WL_OBJECT_NAME: sdr-perception
+  #     WDM_CONSUMER_GRP_ID: sdr-perception-mv3dt-cg
+  #     WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv-mv3dt"]'
+  #     WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv-mv3dt"]'
+  #   depends_on:
+  #     broker-health-check:
+  #       condition: service_completed_successfully
 
   kibana-init-container-mv3dt:
     build:
@@ -273,7 +273,7 @@ services:
     image: ${PERCEPTION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-cv}:${PERCEPTION_TAG:-3.2.0-26.05.1}
     profiles: ["bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt"]
     container_name: vss-rtvi-cv-mv3dt
-    
+
     volumes:
       - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
       - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
@@ -297,10 +297,12 @@ services:
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
     command: ["bash", "-c", "./ds-start-mv3dt.sh"]
     depends_on:
-      sdr-streamprocessing:
-        condition: service_started
-      perception-sdr-mv3dt:
-        condition: service_started
+      # sdr-streamprocessing:
+      #   condition: service_started
+      #   required: false
+      # sdr-controller:
+      #   condition: service_started
+      #   required: false
       sensor-ms-mv3dt:
         condition: service_started
       broker-health-check:
