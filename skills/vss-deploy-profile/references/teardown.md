@@ -43,8 +43,14 @@ Ask user to confirm to clean up before you proceed.
 Use the bundled cleanup helper. It clears every directory whose stale state can poison a fresh deploy: kafka logs, elasticsearch data + logs, redis data + log, behavior-learning data, video-analytics API state, calibration toolkit, VST/nvstreamer recordings, and any blueprint-configurator backup files. The same logic `dev-profile.sh` runs internally between deploys.
 
 ```bash
-sudo bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" \
-    --env-file "$REPO/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env"
-```
+# Step 0 (teardown) runs BEFORE Step 1c initializes generated.env,
+# so on a fresh checkout / first deploy generated.env doesn't exist
+# yet — fall back to the source .env. Once a prior deploy via this
+# skill has run, generated.env carries the actually-deployed paths.
+PROFILE_DIR="$REPO/deploy/docker/developer-profiles/dev-profile-<profile>"
+ENV_FILE="$PROFILE_DIR/generated.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="$PROFILE_DIR/.env"
 
-If `generated.env` doesn't exist (no prior deploy via this skill), fall back to the source `.env`. The cleanup script reads paths from whichever file you point it at.
+sudo bash "$REPO/deploy/docker/scripts/cleanup_all_datalog.sh" \
+    --env-file "$ENV_FILE"
+```
