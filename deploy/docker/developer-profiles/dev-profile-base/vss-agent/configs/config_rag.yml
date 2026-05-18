@@ -217,9 +217,10 @@ llms:
     temperature: 0.0
     max_tokens: 4096
 
+  # RTVI pipeline VLM (search/alerts). Endpoint: ${RTVI_VLM_BASE_URL}; model: ${VLM_NAME}. Keep in sync with config.yml.
   rtvi_vlm:
     _type: openai
-    model_name: nvidia/cosmos-reason2-8b
+    model_name: ${VLM_NAME}
     base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
