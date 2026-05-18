@@ -17,7 +17,7 @@ metadata:
 
 # VSS Setup Video Analytics API — Standalone
 
-Deploy **just** the `vss-video-analytics-api` container (the Node.js REST API from the upstream `web-apis` repo), not as part of the full warehouse blueprint stack.
+Deploy **just** the `vss-video-analytics-api` container (the Node.js REST API from the upstream `video-analytics-api` repo), not as part of the full warehouse blueprint stack.
 
 The full operational walkthrough — config options, infrastructure dependencies, REST API endpoints, deploy + verify, troubleshooting — is [`references/deploy-video-analytics-api-service.md`](references/deploy-video-analytics-api-service.md). This SKILL.md only handles routing and prerequisites.
 
@@ -92,4 +92,4 @@ The API consumes real-time location (`mdx-rtls`) and AMR (`mdx-amr`) messages fr
 - If the user wants "the full stack" (UI / agent / perception): hand off to [`vss-deploy-profile`](../vss-deploy-profile/SKILL.md) with profile `warehouse` (or `alerts`). Don't run this skill in parallel.
 - If the user wants to deploy the analytics pipeline (behavior creation, incident detection): hand off to [`vss-setup-behavior-analytics`](../vss-setup-behavior-analytics/SKILL.md).
 - If the user wants to understand the dynamic config / dynamic calibration wire contract from the **consumer** (behavior-analytics) side: point them at [`../vss-setup-behavior-analytics/references/dynamic-config.md`](../vss-setup-behavior-analytics/references/dynamic-config.md) and [`../vss-setup-behavior-analytics/references/dynamic-calibration.md`](../vss-setup-behavior-analytics/references/dynamic-calibration.md).
-- If the user wants to query or interact with the REST API endpoints: the endpoint table above and the deploy reference cover what's available. For the full OpenAPI spec, see `src/app/specification/openapi.json` in the `web-apis` repo.
+- If the user wants to query or interact with the REST API endpoints: the endpoint table above and the deploy reference cover what's available. For the full OpenAPI spec, see `src/app/specification/openapi.json` in the `video-analytics-api` repo.
