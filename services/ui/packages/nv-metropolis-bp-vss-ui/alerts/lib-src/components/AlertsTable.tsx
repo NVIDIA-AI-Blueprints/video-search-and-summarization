@@ -194,13 +194,11 @@ const VERDICT_STYLES_DARK: Record<string, string> = {
   [VLM_VERDICT.CONFIRMED]: 'text-green-400 bg-green-500/10 border-green-500/30',
   [VLM_VERDICT.REJECTED]: 'text-red-400 bg-red-500/10 border-red-500/30',
   [VLM_VERDICT.VERIFICATION_FAILED]: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
-  [VLM_VERDICT.NOT_CONFIRMED]: 'text-gray-400 bg-gray-500/10 border-gray-500/30',
 };
 const VERDICT_STYLES_LIGHT: Record<string, string> = {
   [VLM_VERDICT.CONFIRMED]: 'text-green-700 bg-green-50 border-green-200',
   [VLM_VERDICT.REJECTED]: 'text-red-700 bg-red-50 border-red-200',
   [VLM_VERDICT.VERIFICATION_FAILED]: 'text-yellow-700 bg-yellow-50 border-yellow-200',
-  [VLM_VERDICT.NOT_CONFIRMED]: 'text-gray-700 bg-gray-50 border-gray-200',
 };
 const VERDICT_FALLBACK_DARK = 'text-gray-400 bg-gray-500/10 border-gray-500/30';
 const VERDICT_FALLBACK_LIGHT = 'text-gray-700 bg-gray-50 border-gray-200';
