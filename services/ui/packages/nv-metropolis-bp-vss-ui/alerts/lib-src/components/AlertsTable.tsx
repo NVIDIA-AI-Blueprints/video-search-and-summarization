@@ -656,7 +656,7 @@ function AlertsTableContent({
                 htmlFor="table-page-size-select"
                 className={`text-xs font-medium whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-700'}`}
               >
-                Rows per page
+                Max rows per page
               </label>
               {showCustomPageInput ? (
                 <div className="flex items-center gap-1">
