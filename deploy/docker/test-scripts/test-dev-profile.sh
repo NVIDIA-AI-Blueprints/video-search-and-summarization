@@ -504,14 +504,28 @@ RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "gen
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.6 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.6"
-# Alerts on DGX-SPARK (edge, forced device 0 → local_shared): RTVI_VLLM_GPU_MEMORY_UTILIZATION hardcoded to 0.35 (shared), mirrors NIM hw-DGX-SPARK-shared.env pattern (hardcoded KV cache).
-run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35 (local_shared hardcoded)" "alerts" \
+# Alerts RT-VLM local VLM memory sizing.
+run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
   -i 127.0.0.1 -m verification -H DGX-SPARK -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-# Alerts on OTHER (no NIM hw env file counterpart): RTVI_VLLM_GPU_MEMORY_UTILIZATION not set by script (stays as profile .env default, which is empty).
-run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION not set by script" "alerts" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+run_dry_run_up_and_check_generated_env "generated.env alerts H100 shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+run_dry_run_up_and_check_generated_env "generated.env alerts H100 local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 --llm-device-id 2 --vlm-device-id 1 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
+run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO6000BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO6000BW --llm-device-id 2 --vlm-device-id 1 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
+run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
+  -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
+run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" ""
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
 run_negative_test "alerts on IGX-THOR rejects --use-remote-vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H IGX-THOR --use-remote-vlm --vlm y -d
 run_negative_test "alerts on AGX-THOR rejects --use-remote-vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H AGX-THOR --use-remote-vlm --vlm y -d
 run_negative_test "alerts on IGX-THOR rejects --vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H IGX-THOR --vlm nvidia/cosmos-reason2-8b -d
