@@ -26,6 +26,28 @@ on:
   push:
     branches:
       - "pull-request/[0-9]+"
+  # Manual full-sweep trigger. Runs every eval spec on every changed-and-
+  # unchanged skill, regardless of diff. There's no PR to comment on, so
+  # the agent writes its per-spec results table to $GITHUB_STEP_SUMMARY
+  # (rendered on the Actions run page) instead of `gh pr comment`. See
+  # .github/skill-eval/AGENTS.md § "Manual full-sweep mode".
+  workflow_dispatch:
+    inputs:
+      skills:
+        description: "Which skill to eval (single-select). Pick `*` to sweep every skill under skills/. Keep this list in sync with .github/skill-eval/adapters/."
+        required: false
+        default: "*"
+        type: choice
+        options:
+          - "*"
+          - vss-ask-video
+          - vss-deploy-dense-captioning
+          - vss-deploy-profile
+          - vss-generate-video-report
+          - vss-manage-alerts
+          - vss-manage-video-io-storage
+          - vss-search-archive
+          - vss-summarize-video
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -38,8 +60,9 @@ permissions:
   contents: write
   pull-requests: write
 
-# Only one eval runs per PR at a time. A fresh push cancels the in-flight
-# run (lock on /tmp/brev/<id>.lock will be released by the agent's trap).
+# Only one eval runs per PR (or per manual sweep) at a time. A fresh push
+# cancels the in-flight run (lock on /tmp/brev/<id>.lock will be released
+# by the agent's trap).
 concurrency:
   group: skills-eval-${{ github.ref }}
   cancel-in-progress: true
@@ -68,17 +91,19 @@ jobs:
     # (flock -w) is set in lockstep below.
     timeout-minutes: 480
 
-    # Extra safety: only run on the mirror branches, never on develop/main.
-    if: startsWith(github.ref, 'refs/heads/pull-request/')
+    # Allow mirror-branch pushes OR manual full-sweep dispatch. Never run
+    # on develop/main pushes — those aren't covered by either trigger.
+    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout mirror head
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # agent needs full history to diff against base
+          fetch-depth: 0   # agent needs full history to diff against base (push mode)
 
       - name: Extract PR number + base
         id: pr
+        if: github.event_name == 'push'
         run: |
           REF="${{ github.ref_name }}"         # "pull-request/100"
           PR="${REF##pull-request/}"
@@ -93,6 +118,7 @@ jobs:
 
       - name: Detect relevant changes vs PR base
         id: changes
+        if: github.event_name == 'push'
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
           base: ${{ steps.pr.outputs.base }}
@@ -103,7 +129,7 @@ jobs:
               - '.github/workflows/skills-eval.yml'
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
-        if: steps.changes.outputs.relevant == 'true'
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true'
         run: |
           # The runner lives on vss-skill-validator-v2; the coordinator keeps
           # its secrets in a single .env file there. Don't echo contents.
@@ -116,7 +142,7 @@ jobs:
 
       - name: Run skills eval agent
         id: agent
-        if: steps.changes.outputs.relevant == 'true'
+        if: github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true'
         env:
           # Auto-injected workflow token, authenticates as
           # github-actions[bot]. Scoped by the permissions: block at
@@ -133,16 +159,37 @@ jobs:
           # by the personal account. Same gotcha helm-sync.yml solved
           # by pointing gh at a per-run scratch dir with no hosts.yml.
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
+          # Route the workflow_dispatch input through env: instead of
+          # ${{ inputs.skills }} inline in the run: script. `type: choice`
+          # already enum-validates the value (no free-form attacker input
+          # possible today), but env-passthrough is the defense-in-depth
+          # pattern GH Actions docs recommend for any user-controllable
+          # input — keeps the run: body free of templated user data so
+          # future input additions don't accidentally reintroduce a
+          # shell-injection vector.
+          INPUT_SKILLS: ${{ inputs.skills }}
         run: |
           mkdir -p "$GH_CONFIG_DIR"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev secrets only
           set +a
+          # PR_NUMBER/PR_BASE are blank for workflow_dispatch — the agent
+          # script detects MANUAL_FULL_SWEEP and skips the diff path.
           export PR_NUMBER="${{ steps.pr.outputs.number }}"
           export PR_BASE="${{ steps.pr.outputs.base }}"
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
+          # Manual sweep passthrough. Agent reads MANUAL_FULL_SWEEP +
+          # MANUAL_SKILLS_FILTER and swaps its user prompt: no diff,
+          # enumerate skills/<skill>/eval/*.json under the picked skill
+          # (or every skill when `*`), write results to
+          # $GITHUB_STEP_SUMMARY instead of `gh pr comment`. All specs on
+          # the chosen skill(s) run — no spec-level filter knob.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            export MANUAL_FULL_SWEEP=1
+            export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
+          fi
           # `.github` isn't a valid Python package prefix, so we expose the
           # harness via PYTHONPATH. `envs.brev_env:BrevEnvironment` is what
           # `uvx harbor run --environment-import-path` expects.
@@ -151,7 +198,7 @@ jobs:
           python3 .github/skill-eval/skills_eval_agent.py
 
       - name: Collect results for workflow artifact
-        if: always() && steps.changes.outputs.relevant == 'true'
+        if: always() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true')
         run: |
           # Agent writes harbor output to /tmp/skill-eval/results/<run_id>/
           # (runtime-only; not tracked under the repo). Blocker paths
@@ -170,10 +217,15 @@ jobs:
           fi
 
       - name: Upload results artifact
-        if: always() && steps.changes.outputs.relevant == 'true'
+        if: always() && (github.event_name == 'workflow_dispatch' || steps.changes.outputs.relevant == 'true')
         uses: actions/upload-artifact@v4
         with:
-          name: skills-eval-results-pr-${{ steps.pr.outputs.number }}-${{ github.run_id }}
+          # `pr-<N>-<run>` for push, `manual-<run>` for workflow_dispatch.
+          # Folded scalar to stay under yamllint's 200-char line cap.
+          name: >-
+            ${{ github.event_name == 'workflow_dispatch'
+              && format('skills-eval-results-manual-{0}', github.run_id)
+              || format('skills-eval-results-pr-{0}-{1}', steps.pr.outputs.number, github.run_id) }}
           path: /tmp/skills-eval-results.tar.gz
           if-no-files-found: ignore
           retention-days: 7
