@@ -132,9 +132,9 @@ function usage() {
   echo "                                   • warehouse — .env under industry-profiles/warehouse-operations/"
   echo "  -m, --mode                       Deployment mode."
   echo "                                   • Default: 2d"
-  echo "                                   • Pass -m 3d for 3D deployment"
+  echo "                                   • Pass -m 3d for 3D deployment or -m mv3dt for MV3DT"
   echo "  -p, --bp-profile                Blueprint profile."
-  echo "                                   • bp_wh (default), bp_wh_kafka, bp_wh_redis"
+  echo "                                   • bp_wh (default), bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
   echo "  -e, --external-ip                Externally accessible IP."
@@ -438,14 +438,14 @@ function process_args() {
       fi
 
       if [[ "${deployment}" == "warehouse" ]]; then
-        _valid_modes=('2d' '3d')
+        _valid_modes=('2d' '3d' 'mv3dt')
         if [[ -n "${mode}" ]] && ! contains_element "${mode}" "${_valid_modes[@]}"; then
-          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d"
+          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d, mv3dt"
           ((_all_good++))
         fi
-        _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis')
+        _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis' 'bp_wh_auto_calib')
         if [[ -n "${bp_profile}" ]] && ! contains_element "${bp_profile}" "${_valid_wh_profiles[@]}"; then
-          echo "[ERROR] Invalid bp-profile for warehouse: ${bp_profile}. Must be one of: bp_wh, bp_wh_kafka, bp_wh_redis"
+          echo "[ERROR] Invalid bp-profile for warehouse: ${bp_profile}. Must be one of: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
           ((_all_good++))
         fi
       fi
@@ -603,7 +603,7 @@ function state_up() {
   fi
 
   # Warehouse 3d: LLM/VLM not used; set to none
-  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]; }; then
+  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]] || [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; }; then
     set_env_var "LLM_MODE" "none"
     set_env_var "VLM_MODE" "none"
   fi
@@ -711,7 +711,7 @@ function state_up() {
       _sample_dataset="${sample_video_dataset}"
       _num_streams="$(get_env_value "${_source_env}" "NUM_STREAMS")"
       _num_streams="${_num_streams:-4}"
-    elif [[ "${mode}" == "3d" ]]; then
+    elif [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]]; then
       _sample_dataset="warehouse-4cams-20mx20m-synthetic"
       _num_streams="4"
     elif [[ "${bp_profile}" == "bp_wh" ]]; then
@@ -757,7 +757,7 @@ function state_up() {
     local _sample_dataset _num_streams
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
-    elif [[ "${mode}" == "3d" ]]; then
+    elif [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]]; then
       _sample_dataset="warehouse-4cams-20mx20m-synthetic"
     elif [[ "${bp_profile}" == "bp_wh" ]]; then
       _sample_dataset="nv-warehouse-4cams"

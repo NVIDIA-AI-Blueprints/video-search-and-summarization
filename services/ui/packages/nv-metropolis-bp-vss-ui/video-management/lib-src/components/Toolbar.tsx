@@ -77,7 +77,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       onSearch();
     }
@@ -96,74 +96,67 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return 'Select File Type';
   };
 
-  return (
-    <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4 border-b border-gray-200 dark:border-gray-800">
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept=".mp4,.mkv"
-        onChange={handleFileInputChange}
-        className="hidden"
-      />
+  const clearSearchSlot = searchQuery ? (
+    <button
+      type="button"
+      aria-label="Clear search"
+      onClick={() => onSearchChange('')}
+      className="inline-flex rounded p-0.5 text-gray-400 transition-colors hover:bg-neutral-700 hover:text-white dark:text-gray-400 dark:hover:bg-neutral-700 dark:hover:text-white"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  ) : undefined;
 
-      {/* Left: primary actions */}
-      <div className="flex items-center gap-3">
+  return (
+    <div className="min-w-0 max-w-full overflow-x-auto border-b border-gray-200 dark:border-gray-800">
+      {/* One wrapping flex row — no flex-1 + justify-end strip */}
+      <div className="flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-6 pt-6 pb-4">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".mp4,.mkv"
+          onChange={handleFileInputChange}
+          className="hidden"
+        />
+
         {enableVideoUpload && (
-          <Button
-            kind="primary"
-            onClick={handleUploadClick}
-          >
+          <Button kind="primary" onClick={handleUploadClick}>
             + Upload Video
           </Button>
         )}
         {enableAddRtspButton && (
-          <Button
-            kind="secondary"
-            onClick={onAddRtspClick}
-          >
+          <Button kind="secondary" onClick={onAddRtspClick}>
             + Add RTSP
           </Button>
         )}
-      </div>
 
-      {/* Right: search + display filter + delete */}
-      <div className="flex items-center gap-2">
-        {/* Search input with clear button */}
-        <div className="relative">
-          <TextInput
-            data-testid="search-video-input"
-            value={searchQuery}
-            onValueChange={(val: string) => onSearchChange(val)}
-            onKeyPress={handleKeyPress}
-            placeholder="Search Files"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => onSearchChange('')}
-              className="p-1.5 rounded transition-colors text-gray-400 hover:text-white hover:bg-neutral-700 dark:text-gray-400 dark:hover:text-white dark:hover:bg-neutral-700"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
+        <div className="flex min-w-0 max-w-full items-center gap-2">
+          <div className="min-w-0 w-[min(100%,14rem)] max-w-sm sm:w-56">
+            <TextInput
+              data-testid="search-video-input"
+              value={searchQuery}
+              onValueChange={(val: string) => onSearchChange(val)}
+              onKeyDown={handleSearchKeyDown}
+              placeholder="Search Files"
+              slotRight={clearSearchSlot}
+            />
+          </div>
+          <Button
+            data-testid="search-video-button"
+            kind="secondary"
+            onClick={onSearch}
+            className="shrink-0"
+          >
+            Search
+          </Button>
         </div>
 
-        {/* Search button */}
-        <Button
-          data-testid="search-video-button"
-          kind="secondary"
-          onClick={onSearch}
-        >
-          Search
-        </Button>
-
         {showDisplayFilter && (
-          /* Display filter dropdown - multi-select */
-          <div className="relative flex items-center gap-2 ml-2">
+          <div className="relative flex shrink-0 flex-wrap items-center gap-2">
             <label htmlFor="display-filter-toggle" className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Display:
             </label>
@@ -191,77 +184,82 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 </svg>
               </Button>
 
-              {/* Dropdown menu - multi-select checkboxes */}
               {isFilterDropdownOpen && (
                 <div
                   role="group"
                   aria-label="Display file type"
                   className="w-40 absolute left-0 top-full mt-1 rounded-md border shadow-lg z-50 py-1 bg-white dark:bg-black border-gray-200 dark:border-gray-600"
                 >
-                    {showVideoOption && (
-                      <label
-                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={showVideos}
-                          onChange={() => onShowVideosChange(!showVideos)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="sr-only"
-                          aria-label="Video"
-                        />
-                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                  {showVideoOption && (
+                    <label
+                      className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={showVideos}
+                        onChange={() => onShowVideosChange(!showVideos)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="sr-only"
+                        aria-label="Video"
+                      />
+                      <span
+                        className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
                           showVideos
                             ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
                             : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
-                        }`} aria-hidden>
-                          {showVideos && (
-                            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </span>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">Video</span>
-                      </label>
-                    )}
-
-                    {showRtspOption && (
-                      <label
-                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
+                        }`}
+                        aria-hidden
                       >
-                        <input
-                          type="checkbox"
-                          checked={showRtsps}
-                          onChange={() => onShowRtspsChange(!showRtsps)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="sr-only"
-                          aria-label="RTSP"
-                        />
-                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                        {showVideos && (
+                          <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Video</span>
+                    </label>
+                  )}
+
+                  {showRtspOption && (
+                    <label
+                      className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={showRtsps}
+                        onChange={() => onShowRtspsChange(!showRtsps)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="sr-only"
+                        aria-label="RTSP"
+                      />
+                      <span
+                        className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
                           showRtsps
                             ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
                             : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
-                        }`} aria-hidden>
-                          {showRtsps && (
-                            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </span>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">RTSP</span>
-                      </label>
-                    )}
-                  </div>
+                        }`}
+                        aria-hidden
+                      >
+                        {showRtsps && (
+                          <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">RTSP</span>
+                    </label>
+                  )}
+                </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Delete Selected button */}
         <Button
           kind="secondary"
           onClick={onDeleteSelected}
           disabled={selectedCount === 0 || isDeleting}
+          className="shrink-0"
         >
           {isDeleting ? (
             <svg

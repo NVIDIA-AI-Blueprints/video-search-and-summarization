@@ -160,6 +160,8 @@ functions:
     conn_timeout_ms: 5000
     read_timeout_ms: 600000
     chunk_duration: 10
+    num_frames_per_chunk: 10
+    use_fps_for_chunking: false
     vlm_input_width: 1280
     vlm_input_height: 720
     # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.

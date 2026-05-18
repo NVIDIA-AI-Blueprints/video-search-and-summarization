@@ -176,10 +176,6 @@
 			"value": "90"
 		},
 		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
-		},
-		{
 			"name": "sourceType",
 			"value": "kafka"
 		},

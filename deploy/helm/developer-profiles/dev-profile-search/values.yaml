@@ -376,7 +376,6 @@ analytics:
             {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "objectConfidenceThreshold", "value": "0.5"},
-            {"name": "coordinateSystem", "value": "euclidean"},
             {"name": "embedEnableDownsampling", "value": "false"},
             {"name": "embedDownsamplerType", "value": "window"},
             {"name": "embedSensorTTLSec", "value": "3600"},
@@ -437,7 +436,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.2-2b9b7127c0bb
+    vssAgentVersion: 3.2.0-26.05.2-7be943fe0e54
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -537,7 +536,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-2b9b7127c0bb" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-7be943fe0e54" }}'
 
 vss-agent-ui:
   enabled: true
@@ -549,7 +548,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.05.2-2b9b7127c0bb"
+    tag: "3.2.0-26.05.2-328c2d6eacb9"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
