@@ -655,17 +655,17 @@ df -h /  # 500 GB+ SSD
 **MODE=2d:**
 > - **2D Vision AI** — CV-only, no LLM and no VLM. Profile: `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-loading-dock-3cams-synthetic` (3 streams).
 > - **2D Vision AI with Agents** — LLM NIM (local/local_shared/remote) + RTVI VLM (always local). Profile: `bp_wh`. Dataset: `nv-warehouse-4cams` (4 streams).
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
+> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib` (compose profile: `bp_wh_auto_calib_2d`).
 
 **MODE=3d:**
 > - **3D Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams).
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
+> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib` (compose profile: `bp_wh_auto_calib_3d`).
 >
 > **Note:** 3D requires a calibration file. See [Q5](#q5--data-source--calibration-3d--mv3dt-only).
 
 **MODE=mv3dt:**
 > - **MV3DT Vision AI** — `bp_wh_kafka` or `bp_wh_redis`. Dataset: `warehouse-4cams-20mx20m-synthetic` (4 streams). No agents profile (`bp_wh`) available.
-> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib`.
+> - **Warehouse Auto-Calibration** — calibration workflow with warehouse stream/config support, no perception or analytics. Profile: `bp_wh_auto_calib` (compose profile: `bp_wh_auto_calib_mv3dt`).
 >
 > **Note:** MV3DT requires a calibration file. See [Q5](#q5--data-source--calibration-3d--mv3dt-only).
 
