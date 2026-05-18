@@ -19,6 +19,8 @@ interface Props<T> {
   handleSearchTerm: (searchTerm: string) => void;
   toggleOpen: () => void;
   handleCreateItem: () => void;
+  createItemDisabled?: boolean;
+  createItemDisabledTitle?: string;
   handleCreateFolder: () => void;
   handleDrop: (e: any) => void;
   /** When true, folder section is shown even when items is empty. */
@@ -37,6 +39,8 @@ const Sidebar = <T,>({
   handleSearchTerm,
   toggleOpen,
   handleCreateItem,
+  createItemDisabled,
+  createItemDisabledTitle,
   handleCreateFolder,
   handleDrop,
   showFolderSection = false,
@@ -60,6 +64,8 @@ const Sidebar = <T,>({
           searchTerm={searchTerm}
           handleSearchTerm={handleSearchTerm}
           handleCreateItem={handleCreateItem}
+          createItemDisabled={createItemDisabled}
+          createItemDisabledTitle={createItemDisabledTitle}
           handleCreateFolder={handleCreateFolder}
           handleDrop={handleDrop}
           enableDragDrop={true}

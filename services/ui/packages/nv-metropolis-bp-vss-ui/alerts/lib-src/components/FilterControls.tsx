@@ -139,7 +139,6 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
               >
                 <option value={VLM_VERDICT.ALL}>All</option>
                 <option value={VLM_VERDICT.CONFIRMED}>Confirmed</option>
-                <option value={VLM_VERDICT.NOT_CONFIRMED}>Not Confirmed</option>
                 <option value={VLM_VERDICT.REJECTED}>Rejected</option>
                 <option value={VLM_VERDICT.VERIFICATION_FAILED}>Verification Failed</option>
               </select>
