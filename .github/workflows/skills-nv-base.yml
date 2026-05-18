@@ -39,6 +39,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write   # Step 3 posts/updates a sticky comment
 
 concurrency:
   group: skills-nv-base-${{ github.ref }}
@@ -99,6 +100,9 @@ jobs:
         env:
           # Path to the pre-installed nv-base binary on the runner.
           NVBASE_BIN: /opt/nvbase-venv/bin/nv-base
+          # Tells run_check.py to dump structured findings here; consumed
+          # by Step 3 to compose the sticky PR comment.
+          NVBASE_FINDINGS_JSON: ${{ runner.temp }}/nvbase-findings.json
         run: |
           python3 .github/skills-nv-base/run_check.py skills/
 
@@ -109,7 +113,21 @@ jobs:
         if: steps.changes.outputs.relevant == 'true' && !cancelled()
         run: |
           python3 .github/skills-nv-base/skill_compliance_check.py \
-            --skills-dir skills/ --no-color
+            --skills-dir skills/ --no-color \
+            --json-out "${{ runner.temp }}/playbook-findings.json"
+
+      - name: Step 3 — post sticky PR comment with findings
+        # Always run (even when prior steps failed) so warnings surface
+        # alongside any blocking findings. Comment poster swallows its own
+        # errors via ::warning so it never fails the gate.
+        if: steps.changes.outputs.relevant == 'true' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          NVBASE_FINDINGS_JSON: ${{ runner.temp }}/nvbase-findings.json
+          PLAYBOOK_FINDINGS_JSON: ${{ runner.temp }}/playbook-findings.json
+        run: |
+          python3 .github/skills-nv-base/post_comment.py
 
       - name: Skip note when no skills/ changes
         if: steps.changes.outputs.relevant != 'true'
