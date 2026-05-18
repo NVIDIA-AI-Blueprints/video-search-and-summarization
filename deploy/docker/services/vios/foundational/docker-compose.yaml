@@ -23,7 +23,7 @@ services:
       - POSTGRES_DB=${CENTRALIZE_DB_NAME}
       - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
-      - ${VST_VOLUME}/postgres/db:/var/lib/postgresql/data
+      - vios_pg_data:/var/lib/postgresql/data
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}/postgresql.conf:/etc/postgresql/postgresql.conf
       - ${VST_DATA_PATH}:/var/run/postgresql
     network_mode: host
@@ -71,3 +71,6 @@ services:
       sensor-ms-3d:
         condition: service_healthy
         required: false
+
+volumes:
+  vios_pg_data:

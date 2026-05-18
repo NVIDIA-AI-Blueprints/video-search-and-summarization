@@ -88,7 +88,6 @@
 		"pcma",
 		"mpeg4-generic"
 	  ],
-	  "enable_aging_policy": false,
 	  "max_video_download_size_MB": 1000,
 	  "always_recording": false,
 	  "event_recording": false,
