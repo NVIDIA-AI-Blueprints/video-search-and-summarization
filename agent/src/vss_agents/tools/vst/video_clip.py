@@ -28,6 +28,8 @@ import logging
 import os
 from typing import Literal
 import urllib.parse
+from urllib.parse import urlparse
+from urllib.parse import urlunparse
 
 import aiohttp
 from nat.builder.builder import Builder
@@ -60,6 +62,14 @@ class VSTVideoClipConfig(FunctionBaseConfig, name="vst.video_clip"):
         ...,
         description="The external VST URL for client-facing URLs (e.g., http://${EXTERNAL_IP}:30888)",
     )
+    use_external_playback_url: bool = Field(
+        True,
+        description=(
+            "If True (default), rewrite the VST videoUrl to use vst_external_url so browsers can open it. "
+            "Set False when the external host is behind Cloudflare Access (or similar) and unauthenticated "
+            "server-side downloads must use the internal VST URL (e.g. video_understanding frame extraction)."
+        ),
+    )
     overlay_config: bool = Field(
         False,
         description="Whether to enable overlay configuration for object detection bounding box overlays",
@@ -69,6 +79,11 @@ class VSTVideoClipConfig(FunctionBaseConfig, name="vst.video_clip"):
         description="Timestamp input format: 'iso' for ISO 8601 UTC strings (e.g. '2025-08-25T03:05:55Z'), "
         "'offset' for seconds since stream start. "
         "Must match across video_understanding, vst.video_clip, vst.snapshot, and critic_agent configs.",
+    )
+    disable_audio: bool = Field(
+        True,
+        description="When True, VST clip requests pass disableAudio=true (audio stripped; CR2-compatible). "
+        "Set False for VLMs that accept audio (e.g. Nemotron Omni NIM) to passthrough audio from VIOS/VST.",
     )
 
 
@@ -169,6 +184,7 @@ async def get_video_url(
     vst_internal_url: str | None = None,
     overlay_enabled: bool = False,
     object_ids: list[str] | None = None,
+    disable_audio: bool = True,
 ) -> str:
     """Get the video URL for a given stream ID.
 
@@ -179,6 +195,8 @@ async def get_video_url(
         vst_internal_url: Internal VST URL.
         overlay_enabled: Whether to add bounding box overlay configuration.
         object_ids: Optional list of object IDs for overlay filtering.
+        disable_audio: When True (default), sets VST query disableAudio=true. When False, sets disableAudio=false
+            so audio can reach audio-capable VLMs (e.g. Nemotron Omni).
 
     Returns:
         The video URL from VST.
@@ -238,7 +256,7 @@ async def get_video_url(
             "startTime": start_time_iso,
             "endTime": end_time_iso,
             "blocking": "true",
-            "disableAudio": "true",
+            "disableAudio": "true" if disable_audio else "false",
         }
     )
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/storage/file/{stream_id}/url?{query_params}"
@@ -288,10 +306,34 @@ async def vst_video_clip(config: VSTVideoClipConfig, _: Builder) -> AsyncGenerat
             config.vst_internal_url,
             overlay_enabled=config.overlay_config,
             object_ids=vst_video_clip_input.object_ids,
+            disable_audio=config.disable_audio,
         )
         await validate_video_url(video_clip_url)
-        # Replace internal URL with external URL for client access
-        video_clip_url = f"{config.vst_external_url}{urllib.parse.urlparse(video_clip_url).path}"
+        # VST JSON may return a browser/proxy HTTPS URL (e.g. Brev). Server-side download (frame
+        # extraction, reports) must use vst_internal_url or aiohttp gets HTML, not MP4 bytes.
+        if not config.use_external_playback_url:
+            internal_base = config.vst_internal_url.rstrip("/")
+            parsed_cv = urlparse(video_clip_url)
+            if "/vst/" in (parsed_cv.path or "") and not video_clip_url.startswith(internal_base):
+                base_p = urlparse(internal_base)
+                video_clip_url = urlunparse(
+                    (
+                        base_p.scheme,
+                        base_p.netloc,
+                        parsed_cv.path,
+                        parsed_cv.params,
+                        parsed_cv.query,
+                        parsed_cv.fragment,
+                    )
+                )
+                logger.info(
+                    "vst_video_clip: normalized playback URL to internal VST base (VST returned proxy/external host)"
+                )
+                await validate_video_url(video_clip_url)
+        if config.use_external_playback_url:
+            ext_base = config.vst_external_url.rstrip("/")
+            path_only = urllib.parse.urlparse(video_clip_url).path
+            video_clip_url = f"{ext_base}{path_only}"
         return VSTVideoClipOutput(video_url=video_clip_url, stream_id=stream_id)
 
     # Register the tool with the appropriate input schema based on time_format:

@@ -419,6 +419,12 @@ class VideoReportGenConfig(FunctionBaseConfig, name="video_report_gen"):
         description="External VST URL for client-facing URLs (e.g., 'http://${EXTERNAL_IP}:30888'). If not provided, uses VST_EXTERNAL_URL env var.",
     )
 
+    disable_audio: bool = Field(
+        default=True,
+        description="When True, injected VST clip URLs use disableAudio=true (audio stripped). "
+        "Set False for audio-capable VLMs (e.g. Nemotron Omni); align with vst.video_clip.disable_audio.",
+    )
+
     # HITL Configuration (optional - if not set, HITL is disabled)
     hitl_enabled: bool = Field(
         default=False,
@@ -788,6 +794,7 @@ async def _inject_video_clips(
     sensor_id: str,
     vst_internal_url: str | None,
     vst_external_url: str | None,
+    disable_audio: bool = True,
 ) -> str:
     """
     Parse timestamps from content and inject video clip links.
@@ -848,6 +855,7 @@ async def _inject_video_clips(
                 start_time=start_time,
                 end_time=end_time,
                 vst_internal_url=vst_internal_url,
+                disable_audio=disable_audio,
             )
             # Replace internal URL with external URL for client access
             clip_url = f"{vst_external_url}{urllib.parse.urlparse(clip_url).path}"
@@ -1755,6 +1763,7 @@ Enter your choice or press Submit to keep current value:"""
                 report_input.sensor_id,
                 config.vst_internal_url,
                 config.vst_external_url,
+                config.disable_audio,
             )
 
         markdown_content = report_header + vlm_content

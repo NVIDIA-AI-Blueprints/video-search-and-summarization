@@ -33,6 +33,7 @@ class TestVSTVideoClipConfig:
         assert config.vst_external_url == "http://localhost:30888"
         assert config.overlay_config is False
         assert config.time_format == "offset"
+        assert config.disable_audio is True
 
     def test_config_with_overlay(self):
         """Test config with overlay enabled."""

@@ -125,6 +125,43 @@ class TestGetVideoUrl:
                     vst_internal_url="http://vst:30888",
                 )
                 assert result == "http://vst/clip.mp4"
+                actual_url = mock_session.get.call_args[0][0]
+                assert "disableAudio=true" in actual_url
+
+    @pytest.mark.asyncio
+    async def test_get_video_url_disable_audio_false(self):
+        """When disable_audio=False, VST URL must request audio passthrough."""
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.text = AsyncMock(return_value=json.dumps({"videoUrl": "http://vst/clip.mp4"}))
+        mock_response_cm = AsyncMock()
+        mock_response_cm.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response_cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_response_cm
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("vss_agents.tools.vst.video_clip.aiohttp.ClientSession", return_value=mock_session_cm):
+            with patch("vss_agents.tools.vst.video_clip.create_retry_strategy") as mock_retry:
+
+                async def fake_retry(*args, **kwargs):
+                    yield MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False))
+
+                mock_retry.return_value = fake_retry()
+
+                result = await get_video_url(
+                    "stream1",
+                    start_time="2025-01-01T00:00:00.000Z",
+                    end_time="2025-01-01T00:10:00.000Z",
+                    vst_internal_url="http://vst:30888",
+                    disable_audio=False,
+                )
+                assert result == "http://vst/clip.mp4"
+                actual_url = mock_session.get.call_args[0][0]
+                assert "disableAudio=false" in actual_url
 
     @pytest.mark.asyncio
     async def test_get_video_url_invalid_range(self):
@@ -264,4 +301,27 @@ class TestVSTVideoClipInner:
                         "http://10.0.0.1:30888",
                         overlay_enabled=True,
                         object_ids=["obj-1", "obj-2"],
+                        disable_audio=True,
                     )
+
+    @pytest.mark.asyncio
+    async def test_video_clip_rewrites_proxy_https_to_internal_when_use_internal_playback(self, mock_builder):
+        """VST may return a Brev/proxy HTTPS URL; server-side consumers need internal VST host."""
+        cfg = VSTVideoClipConfig(
+            vst_internal_url="http://10.0.0.1:30888",
+            vst_external_url="https://77770-proxy.example.com",
+            use_external_playback_url=False,
+        )
+        proxy_clip = "https://77770-proxy.example.com/vst/storage/temp_files/clip.mp4"
+        with patch("vss_agents.tools.vst.video_clip.get_stream_id", new_callable=AsyncMock) as mock_get_id:
+            mock_get_id.return_value = "stream-uuid"
+            with patch("vss_agents.tools.vst.video_clip.get_video_url", new_callable=AsyncMock) as mock_get_url:
+                mock_get_url.return_value = proxy_clip
+                with patch("vss_agents.tools.vst.video_clip.validate_video_url", new_callable=AsyncMock):
+                    gen = vst_video_clip.__wrapped__(cfg, mock_builder)
+                    fi = await gen.__anext__()
+                    inner_fn = fi.single_fn
+                    result = await inner_fn(
+                        VSTVideoClipOffsetInput(sensor_id="camera1", start_time=0.0, end_time=5.0)
+                    )
+        assert result.video_url == "http://10.0.0.1:30888/vst/storage/temp_files/clip.mp4"

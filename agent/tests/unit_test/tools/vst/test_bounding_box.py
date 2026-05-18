@@ -341,3 +341,4 @@ class TestVideoClipBoundingBox:
 
                 actual_url = mock_session.get.call_args[0][0]
                 assert "configuration=" not in actual_url
+                assert "disableAudio=true" in actual_url

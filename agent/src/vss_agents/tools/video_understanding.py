@@ -20,6 +20,8 @@ import logging
 import tempfile
 from typing import Any
 from typing import Literal
+from urllib.parse import urlparse
+from urllib.parse import urlunparse
 
 import aiohttp
 import boto3
@@ -41,6 +43,7 @@ from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.utils.frame_select import frame_select
 from vss_agents.utils.reasoning_parsing import parse_content_blocks
 from vss_agents.utils.retry import create_retry_strategy
+from vss_agents.utils.url_translation import rewrite_url_host
 from vss_agents.utils.url_translation import translate_url
 
 logger = logging.getLogger(__name__)
@@ -82,6 +85,61 @@ def _parse_thinking_from_content(content: str) -> tuple[str | None, str]:
 
     # No thinking tags found, return original content
     return None, content
+
+
+def _query_looks_like_signed_object_storage(query: str) -> bool:
+    """True if changing the URL host would typically invalidate the signature (S3 / MinIO / similar)."""
+    q = (query or "").lower()
+    return (
+        "x-amz-credential" in q
+        or "x-amz-signature" in q
+        or "x-amz-algorithm" in q
+        or "awsaccesskeyid" in q
+        or ("signature" in q and "expires" in q)
+    )
+
+
+def _rebuild_vst_clip_url_with_internal_base(video_url: str, vst_internal_url: str | None) -> str | None:
+    """If *video_url* is a /vst/... playback URL, rebuild it using *vst_internal_url* (scheme+host+port)."""
+    if not vst_internal_url:
+        return None
+    parsed = urlparse(video_url)
+    path = parsed.path or ""
+    if "/vst/" not in path:
+        return None
+    base = urlparse(vst_internal_url.rstrip("/"))
+    return urlunparse((base.scheme, base.netloc, path, parsed.params, parsed.query, parsed.fragment))
+
+
+def _response_body_looks_like_video_error(video_url: str, video_data: bytes, content_type: str | None) -> None:
+    """Raise a clear error when the clip download is not binary video (common when URL rewrite breaks signing)."""
+    ct = (content_type or "").lower()
+    if len(video_data) == 0:
+        raise ValueError(f"Empty HTTP body when downloading clip from {video_url!r}")
+    if len(video_data) < 32:
+        preview = video_data.decode("utf-8", errors="replace")
+        raise ValueError(
+            f"Clip download too small ({len(video_data)} bytes) from {video_url!r}; "
+            f"content-type={content_type!r}; body={preview!r}"
+        )
+    head = video_data[:512].lstrip()
+    if "text/html" in ct or head.startswith(b"<") or head.startswith(b"<!"):
+        preview = video_data[:800].decode("utf-8", errors="replace")
+        raise ValueError(
+            f"Clip URL returned HTML, not video (check URL / auth / presigned host). url={video_url!r}, "
+            f"content-type={content_type!r}, preview={preview[:400]!r}"
+        )
+    if head.startswith(b"{") or head.startswith(b"["):
+        preview = video_data[:800].decode("utf-8", errors="replace")
+        raise ValueError(
+            f"Clip URL returned JSON, not video. url={video_url!r}, content-type={content_type!r}, preview={preview[:400]!r}"
+        )
+    if b"ftyp" not in video_data[:64] and not video_data.startswith(b"\x1a\x45\xdf\xa3"):
+        logger.warning(
+            "Downloaded clip does not start with MP4/WebM magic bytes (OpenCV may still open): url=%s first8=%r",
+            video_url,
+            video_data[:8],
+        )
 
 
 class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
@@ -290,12 +348,16 @@ async def _build_vlm_messages(
         async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
             resp.raise_for_status()
             video_data = await resp.read()
+            _response_body_looks_like_video_error(video_url, video_data, resp.headers.get("Content-Type"))
 
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as tmp:
             tmp.write(video_data)
             tmp.flush()
             step_size = max(video_length_seconds / num_frames, 1.0 / max_fps)
             base64_frames = frame_select(tmp.name, 0.0, video_length_seconds, step_size)
+            # Discrete frame indices can yield one extra JPEG vs. num_targets (API image limits are strict).
+            if len(base64_frames) > num_frames:
+                base64_frames = base64_frames[:num_frames]
 
         return [
             HumanMessage(
@@ -317,6 +379,7 @@ async def _build_vlm_messages(
         async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
             resp.raise_for_status()
             video_data = await resp.read()
+            _response_body_looks_like_video_error(video_url, video_data, resp.headers.get("Content-Type"))
             video_base64 = base64.b64encode(video_data).decode("utf-8")
             video_url = f"data:video/mp4;base64,{video_base64}"
 
@@ -535,16 +598,62 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                 video_url = vst_video_url_result.video_url
                 logger.debug(f"Video URL from VST: {video_url}")
 
-            # Translate URL for VLM based on vlm_mode:
-            # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
-            # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
-            video_url = translate_url(
-                video_url,
-                config.vlm_mode,
-                config.internal_ip,
-                config.external_ip,
-                config.vst_internal_url,
-            )
+            # Clip URL handling depends on how the VLM consumes video:
+            # - Frame mode (openai_*): this process downloads the clip (OpenCV). The VLM is only
+            #   contacted via VLM_BASE_URL — it never fetches ``video_url``. Do NOT run
+            #   translate_url for remote mode here: that swaps INTERNAL_IP -> EXTERNAL_IP, which
+            #   often breaks (SG blocks public :30888, wrong interface) or returns HTML behind
+            #   proxies, yielding "Could not open video file" on the temp mp4.
+            # - Presigned MinIO/S3 URLs must not have their host rewritten or the signature breaks
+            #   (HTTP 200 with an XML/HTML error body → OpenCV cannot open the temp file).
+            # - Non-frame / base64 / NIM: translate_url may still be needed so a remote runtime
+            #   can fetch the clip from a reachable URL.
+            if use_frame_images:
+                parsed_clip = urlparse(video_url)
+                signed_q = _query_looks_like_signed_object_storage(parsed_clip.query or "")
+                rebuilt = (
+                    None
+                    if signed_q
+                    else _rebuild_vst_clip_url_with_internal_base(video_url, config.vst_internal_url)
+                )
+                if signed_q:
+                    logger.info(
+                        "Frame mode: presigned/object URL detected; skipping host rewrite so the "
+                        "agent download keeps the original host and query string."
+                    )
+                else:
+                    download_host = (config.internal_ip or "").strip()
+                    if not download_host and config.vst_internal_url:
+                        _parsed = urlparse(config.vst_internal_url.rstrip("/"))
+                        download_host = (_parsed.hostname or "").strip()
+                    if download_host:
+                        video_url = rewrite_url_host(video_url, download_host)
+                    elif rebuilt:
+                        video_url = rebuilt
+                        logger.info(
+                            "Frame mode: internal_ip unset; using vst_internal_url host for VST clip download."
+                        )
+                # Brev / reverse-proxy HTTPS clip URLs validate with HEAD but return HTML (or non-video)
+                # to unauthenticated GET — always download /vst/ temp files via vst_internal_url.
+                if (
+                    not signed_q
+                    and rebuilt
+                    and (config.vst_internal_url or "").strip()
+                    and not video_url.startswith(config.vst_internal_url.rstrip("/"))
+                ):
+                    video_url = rebuilt
+                    logger.info(
+                        "Frame mode: coerced clip download to VST internal URL (proxy/https external URLs "
+                        "are not reliable for raw MP4 bytes)."
+                    )
+            else:
+                video_url = translate_url(
+                    video_url,
+                    config.vlm_mode,
+                    config.internal_ip,
+                    config.external_ip,
+                    config.vst_internal_url,
+                )
 
         logger.info(f"[Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
 
