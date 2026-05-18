@@ -72,7 +72,7 @@ jobs:
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
             should_scan=false
-            git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed-files.txt
+            git diff --name-only "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA" > changed-files.txt
 
             if grep -q "^${SERVICE_PATHS}" changed-files.txt ||
               grep -q '^\.github/workflows/sonarqube\.yml$' changed-files.txt; then
