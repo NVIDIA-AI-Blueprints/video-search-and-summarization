@@ -158,6 +158,8 @@ functions:
     conn_timeout_ms: 5000
     read_timeout_ms: 600000
     chunk_duration: 10
+    num_frames_per_chunk: 10
+    use_fps_for_chunking: false
     vlm_input_width: 1280
     vlm_input_height: 720
     # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
@@ -376,6 +378,7 @@ workflow:
       - CRITICAL: For multiple uploaded videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
       - For uploaded videos: pass sensor_id (str or list[str]) and user_query.
       - For live RTSP streams: pass media_type='rtsp', a single sensor_id (the stream name), start_time and end_time as floats in seconds (use end_time=0 for "until now"), and user_query.
+      - CRITICAL — STREAM DETECTION: if lvs_config_media was called for `<name>` earlier in this conversation, OR `vst_video_list` shows `<name>` with `media_type='rtsp'`, then `<name>` IS a stream and you MUST pass `media_type='rtsp'` to report_agent. Do NOT default to the uploaded-video path just because the user did not say the word "stream".
       - Examples: "Generate a report for video1" -> ONE call report_agent(sensor_id='video1', user_query=...). "Generate a report using long video summarization for warehouse_sample" -> ONE call report_agent(sensor_id='warehouse_sample', user_query=...). "Generate a report for stream CAM_1 from 0 to 60 seconds" -> ONE call report_agent(media_type='rtsp', sensor_id='CAM_1', start_time=0, end_time=60, user_query=...).
       **lvs_caption_retrieval** - DEFAULT path for content questions about a captioned live stream.
       - REQUIRED args: `query` (keyword string, e.g. "PPE violations") AND `collection` (stream's friendly name, e.g. "warehouse_sample_test"). Missing `query` will fail validation.
@@ -401,6 +404,7 @@ workflow:
       - Do NOT call this tool just because a previous tool's response said the stream is "not configured" — surface that response to the user and wait for an explicit start request.
       - Do NOT call speculatively or as a pre-check.
       - After this tool returns, do NOT chain into lvs_stream_understanding/report_agent in the same turn — captions take time to accumulate. Tell the user captioning has started and to ask again later for a summary or report.
+      - Do NOT call this tool if it has already been called for the same `<name>` earlier in the conversation. Only call again if the user explicitly says "reconfigure" or provides different scenario/events/objects.
       **video_understanding** - For any question about short videos or quick queries for a video clip.
       - Use when video is less than 1 minute.
       - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"

@@ -98,4 +98,3 @@ PoseEstimator:
   onnxFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx
   modelEngineFile: /opt/storage/BodyPose3DNet/bodypose3dnet_accuracy.onnx_b1_gpu0_fp16.engine
   poseInferenceInterval: -1
-

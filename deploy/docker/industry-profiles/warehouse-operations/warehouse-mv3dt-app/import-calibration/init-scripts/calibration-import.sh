@@ -80,7 +80,7 @@ fetchstatus() {
     --head \
     --write-out '%{http_code}' \
     "${video_analytics_api_url}/livez"
-    
+
     echo ""
 }
 
@@ -89,7 +89,7 @@ fetchstatus() {
 ######################
 main(){
 
-    # Wait for API initialization to avoid startup raise conditions.  
+    # Wait for API initialization to avoid startup raise conditions.
     sleep 10
     echo "Checking if API service is reachable"
     apistatus=$(fetchstatus)          # initialize to actual value before we sleep even once
@@ -100,7 +100,7 @@ main(){
 	  echo "apistatus: $apistatus"
 	done
 	echo "apistatus: $apistatus"
-	
+
 	echo "importing calibration ..."
     import_calibration
     sleep 2

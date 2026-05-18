@@ -265,8 +265,12 @@ function mask_secret() {
 
 # Apply VSS kernel settings (IPv6 disable, TCP buffer sizes). Persistent across reboots via /etc/sysctl.d/99-vss.conf.
 function set_vss_linux_kernel_settings() {
-  sudo mkdir -p /etc/sysctl.d
-  sudo bash -c "printf '%s\n' \
+  local _sudo=""
+  if [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+    _sudo="sudo"
+  fi
+  $_sudo mkdir -p /etc/sysctl.d
+  $_sudo bash -c "printf '%s\n' \
     'net.ipv6.conf.all.disable_ipv6 = 1' \
     'net.ipv6.conf.default.disable_ipv6 = 1' \
     'net.ipv6.conf.lo.disable_ipv6 = 1' \
@@ -275,7 +279,7 @@ function set_vss_linux_kernel_settings() {
     'net.ipv4.tcp_rmem = 4096 87380 16777216' \
     'net.ipv4.tcp_wmem = 4096 65536 16777216' \
     > /etc/sysctl.d/99-vss.conf"
-  sudo sysctl --system
+  $_sudo sysctl --system
 }
 
 function usage() {
@@ -1016,6 +1020,13 @@ function state_up() {
   cp "${_source_env}" "${_generated_env}"
   echo "[INFO] Copied ${_source_env} to ${_generated_env}"
 
+  ensure_generated_env_trailing_newline() {
+    if [[ -s "${_generated_env}" ]] && [[ "$(tail -c 1 "${_generated_env}" | wc -l)" -eq 0 ]]; then
+      printf '\n' >> "${_generated_env}"
+    fi
+  }
+  ensure_generated_env_trailing_newline
+
   # Append compose-wide defaults for variables not already defined in the profile
   local _compose_defaults="${deployment_directory}/vst/compose-defaults.env"
   if [[ -f "${_compose_defaults}" ]]; then
@@ -1058,6 +1069,11 @@ function state_up() {
   set_env_var "VSS_APPS_DIR" "${deployment_directory}"
   set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
+  set_env_var "VST_CONFIG_PATH" "${deployment_directory}/services/vios/configs"
+  set_env_var "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/config.yml"
+  if [[ -f "${_profile_dir}/vss-agent/configs/va_mcp_server_config.yml" ]]; then
+    set_env_var "VSS_VA_MCP_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/va_mcp_server_config.yml"
+  fi
   if [[ -n "${external_ip}" ]]; then
     set_env_var "EXTERNAL_IP" "${external_ip}"
   fi
