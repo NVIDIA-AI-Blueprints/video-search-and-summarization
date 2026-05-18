@@ -155,7 +155,7 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
-            _check_instance_matches(instance, requirements)
+            await _check_instance_matches(instance, requirements)
         else:
             # Mode 2: auto-provision via brev search + create.
             # Some platforms (DGX-SPARK, IGX-THOR) aren't provisionable as
@@ -428,23 +428,35 @@ class BrevEnvironment(BaseEnvironment):
 
         if not desired:
             # Profile-less trial wants a clean box. Tear down all
-            # containers without touching the vss-deploy-profile skill; keeps the
-            # docker image cache, named volumes (postgres / ES / kafka
-            # data), repo clone, and sample-data extract warm for the
-            # next deploy trial. Container teardown is fast (<10s
-            # typically) so the timeout is short.
+            # containers, networks, AND volumes so the deploy starts
+            # against a guaranteed-empty state — postgres / ES / kafka /
+            # agent-eval volumes from a prior profile's run would
+            # otherwise be reused and could leak schema or stale rows
+            # into the next deploy. Keeps the docker image cache, repo
+            # clone, and sample-data extract (~/data) warm; those are
+            # profile-agnostic and slow to re-pull from NGC.
             #
-            # No `|| true` on the docker commands by design — if either
-            # exits non-zero (stuck container, daemon transient error)
-            # the `&&` chain short-circuits and the marker is left as
-            # it was, so the next trial re-runs the reconcile rather
-            # than silently treating a partially-dirty box as clean.
-            # `xargs -r` already handles the "no containers to remove"
-            # case (skips invoking docker rm at all, exit 0).
+            # `docker volume prune -af` removes all unused volumes
+            # (including named ones like `agent-eval`); becomes safe to
+            # run only after `docker rm -f` releases the references.
+            # For volumes whose `driver_opts` bind a host path (e.g.
+            # `agent-eval` → `$VSS_DATA_DIR/agent_eval`), prune
+            # unregisters the docker volume but does NOT wipe the bind
+            # directory contents — that's an operator-managed dir and
+            # the next deploy re-binds to it.
+            #
+            # No `|| true` on the docker commands by design — if any
+            # step exits non-zero (stuck container, daemon transient
+            # error) the `&&` chain short-circuits and the marker is
+            # left as it was, so the next trial re-runs the reconcile
+            # rather than silently treating a partially-dirty box as
+            # clean. `xargs -r` already handles the "no containers to
+            # remove" case (skips invoking docker rm at all, exit 0).
             cmd = (
                 "mkdir -p /tmp/skill-eval && "
                 "docker ps -aq | xargs -r docker rm -f >/dev/null && "
                 "docker network prune -f >/dev/null && "
+                "docker volume prune -af >/dev/null && "
                 f"printf '' > {shlex.quote(marker_path)}"
             )
             logger.info(
@@ -1065,12 +1077,74 @@ async def _find_brev_instance(name: str) -> dict | None:
     return None
 
 
-def _check_instance_matches(instance: dict, req: dict) -> None:
+async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None:
+    """Look up an instance type's gpu_count via `brev search gpu --json`.
+
+    Returns None when the SKU isn't in the current catalog (temporarily
+    out of stock, retired, or never listed). Callers should warn and fall
+    back to a live nvidia-smi check.
+    """
+    if not instance_type:
+        return None
+    try:
+        result = await _run_brev("search", "gpu", "--json", timeout=30)
+    except Exception as exc:
+        logger.warning("brev search gpu --json failed: %s", exc)
+        return None
+    if result.return_code != 0:
+        return None
+    for row in _parse_brev_json(result.stdout):
+        if row.get("type") == instance_type:
+            try:
+                return int(row.get("gpu_count", 0) or 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
+    """SSH in and count GPUs via nvidia-smi. Raises on mismatch."""
+    result = await _run_brev_exec(
+        instance_name,
+        "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
+        timeout=30,
+    )
+    if result.return_code != 0 or not result.stdout.strip():
+        logger.warning(
+            "nvidia-smi count failed on '%s'; cannot enforce gpu_count. "
+            "stderr: %s",
+            instance_name, (result.stderr or "")[:200],
+        )
+        return
+    try:
+        actual = int(result.stdout.strip().split("\n")[0])
+    except ValueError:
+        logger.warning(
+            "Could not parse nvidia-smi count output for '%s': %r",
+            instance_name, result.stdout,
+        )
+        return
+    if actual != required_count:
+        raise RuntimeError(
+            f"Brev instance '{instance_name}' has {actual} GPU(s) (live "
+            f"nvidia-smi); task requires exactly {required_count}. Pool "
+            f"partition mismatch — pick a fleet member with the matching "
+            f"GPU count (e.g. vss-eval-l40s-1g for 1-GPU, vss-eval-l40s* "
+            f"for 2-GPU)."
+        )
+    logger.info(
+        "Instance '%s' live gpu_count: %d (matches required %d)",
+        instance_name, actual, required_count,
+    )
+
+
+async def _check_instance_matches(instance: dict, req: dict) -> None:
     """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
     `brev ls --json` only returns {name, gpu (string), instance_type, status}
     — no gpu_count / total_vram_gb.  So we do a loose name match here and
-    defer stricter checks to the search catalog when available.
+    defer stricter checks to the search catalog when available, falling
+    back to a live nvidia-smi count if the SKU isn't in the catalog.
 
     For registered external nodes, `gpu` may be empty (not reported by
     `brev ls nodes`).  Skip the string match in that case and defer to the
@@ -1132,6 +1206,33 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
                 f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
             )
 
+    # gpu_count check — strict equality so pool partitioning works.
+    # A 1-GPU task on a 2-GPU box wastes capacity (the other GPU could
+    # serve a sibling 1-GPU trial in parallel); a 2-GPU task on a 1-GPU
+    # box can't even launch the second LLM/VLM. Strict match makes both
+    # cases loud at validate time instead of mid-trial.
+    required_count = int(req.get("gpu_count", 1) or 0)
+    if required_count > 0:
+        catalog_count = await _get_instance_gpu_count_from_catalog(
+            instance.get("instance_type") or ""
+        )
+        if catalog_count is None:
+            logger.warning(
+                "Instance '%s' instance_type=%r not in `brev search gpu --json` "
+                "catalog (SKU may be temporarily out of stock); falling back to "
+                "live nvidia-smi for gpu_count check",
+                instance.get("name"), instance.get("instance_type"),
+            )
+            try:
+                await _check_live_gpu_count(instance.get("name"), required_count)
+            except RuntimeError as exc:
+                errors.append(str(exc))
+        elif catalog_count != required_count:
+            errors.append(
+                f"gpu_count: want exactly {required_count}, instance has "
+                f"{catalog_count} (instance_type={instance.get('instance_type')})"
+            )
+
     if errors:
         raise RuntimeError(
             f"Brev instance '{instance.get('name')}' does not meet task "
@@ -1140,8 +1241,8 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
         )
 
     logger.info(
-        "Instance '%s' GPU name matches (%s ~= %s); vram/count not "
-        "verified (not returned by `brev ls --json`)",
+        "Instance '%s' GPU name matches (%s ~= %s); gpu_count verified "
+        "against catalog or live nvidia-smi",
         instance.get("name"), gpu, required_type,
     )
 
