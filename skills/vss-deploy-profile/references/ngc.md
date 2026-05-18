@@ -78,12 +78,13 @@ echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
 
 ```bash
 ngc registry resource info nvstaging/vss-developer/dev-profile-compose:3.2.0-26.05.2
-ngc registry image info nvcr.io/nvstaging/vss-core/vss-agent:3.2.0-26.05.2
 ```
 
-> **`nvstaging` not `nvidia`** on develop. develop pulls every VSS image from the staging org (`nvcr.io/nvstaging/vss-core/...` per the compose files), so the verify-access check must use the same org — `nvidia/vss-core/*` will 404 for a develop-side deploy. The tag is the full `3.2.0-26.05.2` from `release_metadata.yaml`; a bare `3.2.0` alias is not guaranteed to exist in nvstaging. For main-branch deploys (published org), swap `nvstaging` → `nvidia`.
+Should return resource info without errors.
 
-Both should return resource info without errors.
+> **`nvstaging` not `nvidia`** on develop. develop pulls every VSS image from the staging org (`nvcr.io/nvstaging/vss-core/...` per the compose files), so the verify-access check must use the same org — `nvstaging/vss-developer/dev-profile-compose:<release-tag>` exercises that exact path. For main-branch deploys (published org), swap `nvstaging` → `nvidia`.
+>
+> **Why resource and not image?** Image tags on develop carry the build's commit SHA (e.g. `vss-agent:3.2.0-26.05.2-7be943fe0e54` from `VSS_AGENT_VERSION` in `dev-profile-base/.env`), which churns every weekly cut and would make this doc stale immediately. The `dev-profile-compose` resource is versioned with the bare release tag and is stable across SHA-stamped image rebuilds.
 
 **Common error:** `Missing org — If Authenticated, org is also required.`
 → Fix: run `ngc config set` and ensure the org matches the one selected when generating the key.
