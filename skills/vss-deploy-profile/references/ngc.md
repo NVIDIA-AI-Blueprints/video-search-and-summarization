@@ -77,8 +77,8 @@ echo "export NGC_CLI_API_KEY='<key>'" >> ~/.bashrc
 ## Verify Access
 
 ```bash
-ngc registry resource info nvidia/vss-developer/dev-profile-compose:3.0.0
-ngc registry image info nvidia/vss-core/vss-agent:3.0.0
+ngc registry resource info nvidia/vss-developer/dev-profile-compose:3.2.0
+ngc registry image info nvidia/vss-core/vss-agent:3.2.0
 ```
 
 Both should return resource info without errors.

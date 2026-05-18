@@ -137,7 +137,7 @@ Produce an `env_overrides` dict from the user request and the gathered context: 
 
 ### Step 3 — Config / dry-run
 
-**Env file location:** `<repo>/deployments/developer-workflow/dev-profile-<profile>/.env`
+**Env file location:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/.env`
 
 > **This is the authoritative `.env`.** Every verifier, healthcheck, and post-deploy tool reads from this path. When you apply env overrides (from Step 2 or from the user's prompt), write them **directly to this file** — not to `generated.env`.
 >
@@ -146,17 +146,17 @@ Produce an `env_overrides` dict from the user request and the gathered context: 
 ```bash
 REPO=/path/to/video-search-and-summarization
 PROFILE=base
-ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
+ENV_FILE=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/.env
 
 # Read current .env, apply overrides, write back
 # (read lines, update matching keys, append new keys, write)
 
 # Resolve compose
-cd $REPO/deployments
+cd $REPO/deploy/docker
 docker compose --env-file $ENV_FILE config > resolved.yml
 ```
 
-The resolved YAML is saved to `<repo>/deployments/resolved.yml`.
+The resolved YAML is saved to `<repo>/deploy/docker/resolved.yml`.
 
 ### Step 3b — Verify resolved.yml has no unexpanded ${...} tokens
 
@@ -170,13 +170,13 @@ Normalize - drop optional dependencies for services filtered out from resolved.y
 
 ```bash
 # From the repo root
-uv run skills/vss-deploy-profile/scripts/normalize_resolved_yml.py "$REPO/deployments/resolved.yml"
+uv run skills/vss-deploy-profile/scripts/normalize_resolved_yml.py "$REPO/deploy/docker/resolved.yml"
 ```
 If `uv` isn't on the host, install it once with `curl -LsSf https://astral.sh/uv/install.sh | sh` (no root needed).
 **Re-validate** before `up -d`:
 
 ```bash
-docker compose -f "$REPO/deployments/resolved.yml" config --quiet && echo "resolved.yml OK"
+docker compose -f "$REPO/deploy/docker/resolved.yml" config --quiet && echo "resolved.yml OK"
 ```
 
 If validation still fails after the normalizer runs, capture the error and inspect — that's a different bug (a dependency that's not optional, or another schema violation), not the dangling-depends_on case.
@@ -198,7 +198,7 @@ Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 ### Step 5 — Deploy
 
 ```bash
-cd $REPO/deployments
+cd $REPO/deploy/docker
 docker compose -f resolved.yml up -d
 ```
 
@@ -211,7 +211,7 @@ Deploy takes ~10–20 min on first run (image pulls + model downloads). Monitor:
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 # Logs for a specific service
-docker compose -f $REPO/deployments/resolved.yml logs --tail 50 <service>
+docker compose -f $REPO/deploy/docker/resolved.yml logs --tail 50 <service>
 ```
 
 Deploy is complete when all `mdx-*` containers show `Up` status.
@@ -223,7 +223,7 @@ Fron
 ## Tear Down
 
 ```bash
-cd $REPO/deployments
+cd $REPO/deploy/docker
 docker compose -f resolved.yml down
 ```
 

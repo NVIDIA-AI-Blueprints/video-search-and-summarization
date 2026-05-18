@@ -197,7 +197,7 @@ In-tree slugs are the directory names under `deploy/docker/services/nim/`:
 - **LLMs:** `nvidia-nemotron-nano-9b-v2`, `nvidia-nemotron-nano-9b-v2-fp8`, `nemotron-3-nano`, `llama-3.3-nemotron-super-49b-v1.5`, `gpt-oss-20b`
 - **VLMs:** `cosmos-reason2-8b`, `cosmos-reason1-7b`, `qwen3-vl-8b-instruct`
 
-If yes → set the four env vars in `deployments/developer-workflow/dev-profile-base/.env`:
+If yes → set the four env vars in `deploy/docker/developer-profiles/dev-profile-base/.env`:
 
 ```bash
 # Example: switch LLM to Nano 9B FP8
@@ -368,7 +368,7 @@ exact URL they gave you.
 Post-write sanity check:
 ```bash
 grep -E '^(LLM_MODE|VLM_MODE|LLM_BASE_URL|VLM_BASE_URL|LLM_NAME|VLM_NAME)=' \
-  deployments/developer-workflow/dev-profile-base/.env
+  deploy/docker/developer-profiles/dev-profile-base/.env
 ```
 Expect six lines, all non-empty; `LLM_MODE=remote` and `VLM_MODE=remote`
 must both appear. If either is `local`, you didn't overwrite the
@@ -427,7 +427,7 @@ The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automati
 ## Env File Location
 
 ```
-<repo>/deployments/developer-workflow/dev-profile-base/.env
+<repo>/deploy/docker/developer-profiles/dev-profile-base/.env
 ```
 
 ## Debugging

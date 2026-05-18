@@ -81,13 +81,13 @@ standalone vLLM, not a NIM):
 export NVIDIA_API_KEY=$NVIDIA_API_KEY
 export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
 export LLM_ENDPOINT_URL=http://localhost:30081
-export VSS_AGENT_CONFIG_FILE=./deployments/developer-workflow/dev-profile-base/vss-agent/configs/config_edge.yml
+export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
 
-deployments/dev-profile.sh up -p base \
+deploy/docker/scripts/dev-profile.sh up -p base \
     --use-remote-llm \
     --llm nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8 \
     --hardware-profile DGX-SPARK \
-    --vlm-env-file deployments/nim/cosmos-reason2-8b/hw-DGX-SPARK-shared.env
+    --vlm-env-file deploy/docker/services/nim/cosmos-reason2-8b/hw-DGX-SPARK-shared.env
 ```
 
 The `--vlm-env-file` caps the VLM's KV cache at 40% so both models coexist.
@@ -98,7 +98,7 @@ The `--vlm-env-file` caps the VLM's KV cache at 40% so both models coexist.
 # Make sure the Edge vLLM container is not running:
 # docker stop nemotron-edge && docker rm nemotron-edge
 
-deployments/dev-profile.sh up -p base \
+deploy/docker/scripts/dev-profile.sh up -p base \
     --hardware-profile DGX-SPARK \
     --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 \
     --vlm nvidia/cosmos-reason2-8b
@@ -134,10 +134,10 @@ Then:
 export NVIDIA_API_KEY=$NVIDIA_API_KEY
 export NGC_CLI_API_KEY=$NGC_CLI_API_KEY
 export LLM_ENDPOINT_URL=http://localhost:30081
-export VSS_AGENT_CONFIG_FILE=./deployments/developer-workflow/dev-profile-base/vss-agent/configs/config_edge.yml
+export VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml
 
 # Uses the default 35% GPU budget for rtvi-vlm on Thor
-deployments/dev-profile.sh up -p base \
+deploy/docker/scripts/dev-profile.sh up -p base \
     --use-remote-llm \
     --llm nvidia/NVIDIA-Nemotron-Edge-4B-v2.1-EA-020126_FP8 \
     --hardware-profile AGX-THOR
@@ -149,7 +149,7 @@ For **IGX Thor**: replace `AGX-THOR` with `IGX-THOR` in the `--hardware-profile`
 
 ```bash
 # docker stop nemotron-edge && docker rm nemotron-edge
-deployments/dev-profile.sh up -p base \
+deploy/docker/scripts/dev-profile.sh up -p base \
     --hardware-profile AGX-THOR \
     --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8
 ```
@@ -170,7 +170,7 @@ deployments/dev-profile.sh up -p base \
 - **HF_TOKEN gate.** Edge 4B weights are pulled from Hugging Face at first
   run; a gated model, so your token needs access.
 - **`config_edge.yml` may not be present** in older checkouts — verify
-  `deployments/developer-workflow/dev-profile-base/vss-agent/configs/config_edge.yml`
+  `deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config_edge.yml`
   exists before running. If missing, pull the latest `feat/skills` or
   main branch.
 - **The planning prompt in `config_edge.yml` must go BEYOND "don't ask

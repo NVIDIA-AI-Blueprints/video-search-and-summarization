@@ -42,7 +42,7 @@ all of the following before `docker compose up`:
    - (same pair for VLM if they also said "remote VLM")
    - An `NVIDIA_API_KEY` if the endpoint requires one
 3. Write `LLM_MODE=remote` + `LLM_BASE_URL=<url>` + `LLM_NAME=<model>` into
-   `deployments/developer-workflow/dev-profile-<profile>/.env`. Do the
+   `deploy/docker/developer-profiles/dev-profile-<profile>/.env`. Do the
    same pair for VLM if the user said remote VLM. Use `sed -i
    "s|^KEY=.*|KEY=VALUE|"` — the `.env` template ships with placeholder
    rows for these keys.
