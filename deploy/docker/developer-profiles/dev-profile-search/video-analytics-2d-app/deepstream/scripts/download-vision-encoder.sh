@@ -37,7 +37,7 @@ set -euo pipefail
 MODEL="${VISION_ENCODER_MODEL:?must be set}"
 VERSION="${VISION_ENCODER_VERSION:?must be set}"
 
-NGC_ORG="nvstaging"  #"nvidia"
+NGC_ORG="nvstaging"
 NGC_TEAM="tao"
 ONNX_FILE="${MODEL}_${VERSION}.onnx"
 TOKENIZER_DIR="${MODEL}_${VERSION}_tokenizer"
