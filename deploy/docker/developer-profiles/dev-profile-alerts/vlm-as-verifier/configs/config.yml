@@ -71,18 +71,98 @@ vlm:
   vlm_media_source_using_base64: false
 
   # Response format: auto | cosmos-reason | json | other | <custom>  (default: auto)
+  #
+  # Case 1 — Auto-detect (default, no change needed):
+  #   "auto" detects from model name: cosmos-reason1/2 → cosmos-reason, else → other.
+  #
+  # Case 2 — Cosmos Reason (explicit):
+  #   "cosmos-reason" handles both <answer>-tagged and bare verdict formats from any
+  #   Cosmos Reason model (CR1 or CR2). Use when model name doesn't match auto-detect.
+  #   "cr1" and "cr2" are accepted as aliases for backward compatibility.
+  #
+  # Case 3 — JSON output (field names configurable via json_parser):
+  #   Set response_format: "json". Prompt must ask VLM to return JSON.
+  #   All json_parser fields are optional; defaults shown below.
+  #   For nested fields use dot-notation (e.g. "hazard_detection.is_hazardous").
+  #   For non-string verdicts (boolean/integer) add verdict_mapping.
+  #
+  # Case 4 — Custom parser:
+  #   1. Create a Python module that calls register_parser("name", fn)
+  #   2. Set custom_parser_module to its dotted import path
+  #   3. Set response_format to the registered name
+  #   Example:
+  #     response_format: "xml-verdict"
+  #     custom_parser_module: "custom_parsers.xml_verdict_parser"
+  #   The module is auto-imported at startup. The parser function must accept
+  #   (text: str, json_config: Optional[Dict]) and return a VLMResponse.
+  #
   response_format: "auto"
+  # custom_parser_module: "custom_parsers.my_parser"  # dotted Python module path
+
+  # Pluggable response parser: external parser class for custom use cases.
+  # When set, it fully replaces the default CR1/CR2 verification parsing.
+  # The class must expose parse(raw_response: str) -> dict; its output is
+  # JSON-stringified into info["vlm_response"] with info["verdict"] = "".
+  # Parser modules live outside the AB repo; AB loads the class at startup.
+  # IMPORTANT: parser classes MUST be thread-safe — Alert Bridge shares one
+  # instance across all worker threads + the async dispatcher.
+  #
+  # Output-schema contract:
+  #   * When UNSET (default) — output schema is unchanged; VLM free-form
+  #     text lands in info["reasoning"] via the built-in verification path.
+  #   * When SET               — output schema swaps: parser JSON lands in
+  #     info["vlm_response"] instead of info["reasoning"]. This is the only
+  #     way to opt into the new field name; deployments that never set this
+  #     key see zero wire change.
+  #
+  # response_parser: "my_package.parsers.FireClassifier"
+
+  # ─ Precedence note ────────────────────────────────────────
+  # When both `custom_parser_module` and `response_parser` are set, Alert
+  # Bridge emits a startup WARN. `response_parser` always wins on the
+  # default VLM path; `custom_parser_module` is still consulted anywhere
+  # VLMResponse.model_validate_text is called directly. Prefer
+  # `response_parser` for new integrations.
+
+  # JSON parser config (only used when response_format: "json").
+  # The prompt must ask the VLM to return JSON with matching field names.
+  #
+  # json_parser:
+  #   verdict_field: "prediction_answer"                # default; or "hazard_detection.is_hazardous" for nested
+  #   reasoning_fields:                                 # first match wins
+  #     - "reasoning"
+  #     - "thinking"
+  #     - "explanation"
+  #     - "video_description"
+  #   verdict_mapping:                                  # optional; map non-string values to YES/NO
+  #     "true": "YES"
+  #     "false": "NO"
 
   # Media Processing Parameters Toggle
   # When true: Alert Bridge omits these parameters, letting VLM use its server-side defaults
+  #            (e.g., VLM defaults: 4 FPS, larger pixel limits for models like CR2)
   use_vlm_media_defaults: false
   # Custom media processing parameters (only used when use_vlm_media_defaults: false)
+  # CR2 recommended: 0.6 (with reasoning/think tags), 0.7 (without reasoning)
   temperature: 0.6
+  # do_resize: when true (default) Alert Bridge sends mm_processor_kwargs.size built from
+  # min_pixels/max_pixels. When false, the size kwarg is omitted and the model uses its
+  # server-side default size — useful when the caller-supplied bounds hurt accuracy.
+  # Note: the model's per-frame token cost is much higher without size; long high-resolution
+  # clips can exceed the NIM's 1B-pixel cap and return 400.
+  do_resize: true
   # Beware that these parameters need to be set in accordance with the VLM max context window
   min_pixels: 1568
   max_pixels: 3960000
+  num_frames: 5
   enable_sampling: true
   sampling_fps: 4
+  # Warmup tuning — override defaults for slow GPUs or large models
+  # warmup:
+  #   poll_timeout: 300       # seconds to wait for NIM readiness
+  #   poll_interval: 10       # seconds between readiness polls
+  #   inference_timeout: 120  # seconds for first (cold) inference
+  #   num_requests: 3         # number of warmup inferences to send
 
 # Event Bridge Configuration - Choose between kafka and redisStream
 event_bridge:
@@ -178,10 +258,23 @@ alert_agent:
   always_on: false
 
 # RTVI VLM Configuration - Real-time VLM alert management
+# Alert Bridge calls this service to start/stop real-time RTSP analysis
 rtvi_vlm:
   base_url: ${RTVI_VLM_BASE_URL}/v1
   timeout: 10                                # HTTP request timeout (seconds)
   default_model: "${VLM_NAME}"  # Default VLM model for caption/alert generation
+  captions_ack_timeout: 2.0                  # Seconds to wait for generate_captions initial HTTP ack
+  # Stream readiness timeout: after the captions ack window expires
+  # (streaming mode), the HTTP response is held open for this many
+  # additional seconds while the generate_captions task is monitored
+  # inline.  If the task raises during this window (e.g. GStreamer
+  # cannot open the RTSP source), the rule is rolled back (marked
+  # FAILED in ES, RTVI stream stopped) and a 502 is returned.
+  # Total worst-case response latency: captions_ack_timeout +
+  # stream_readiness_timeout (default 12 s).
+  # Set to 0 to disable the readiness check and return immediately
+  # after the ack window.
+  stream_readiness_timeout: 10.0
   rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage
   pending_ttl_seconds: 300                   # Stale pending rules older than this are cleaned at startup
   health_check_interval_seconds: 30          # RTVI /ready poll interval; triggers reconcile on recovery
@@ -192,6 +285,18 @@ rtvi_vlm:
   # persistence layer (alert configs, prompts, realtime) off, while this
   # one only disables the realtime-rules path.
   enable_realtime_persistence: true
+
+# Webhook Notification — fire-and-forget POST on VLM-verified incidents
+# When enabled, every successfully verified incident is POSTed to the
+# configured URL (e.g. OpenClaw).  No retry / no queue / no dead-letter.
+webhook:
+  openclaw:
+    enabled: false                               # Master switch (default OFF)
+    url: "http://localhost:9090/webhook/alert-notify-slack"                                      # OpenClaw webhook endpoint
+    topic: "mdx-vlm-incidents"                   # Kafka topic to consume and forward to webhook
+    group_id: "openclaw-webhook-group"            # Kafka consumer group (independent from main AB consumer)
+    timeout_seconds: 5                            # HTTP POST timeout
+    max_pending: 100                              # Max queued deliveries before dropping
 
 # WebSocket Configuration - Real-time alert broadcasting
 websocket:
