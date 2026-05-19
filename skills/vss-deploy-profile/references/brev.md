@@ -16,7 +16,7 @@ access pattern from [`base.md`](base.md).
 ## Architecture
 
 ```
-Browser  ──https──>  77770-<BREV_ENV_ID>.brevlab.com  (Cloudflare Access)
+Browser  ──https──>  7777-<BREV_ENV_ID>.brevlab.com  (Cloudflare Access)
                              │
                              ▼
                    Brev network tunnel
@@ -32,11 +32,11 @@ Browser  ──https──>  77770-<BREV_ENV_ID>.brevlab.com  (Cloudflare Access
 ## Secure-link URL format
 
 ```
-https://77770-<BREV_ENV_ID>.brevlab.com
+https://7777-<BREV_ENV_ID>.brevlab.com
 ```
 
 - `<BREV_ENV_ID>` is the instance's ID from `/etc/environment`.
-- `77770` is the launchable-created secure-link prefix (port 7777 + trailing `0`). This is the canonical setup the skill assumes. Manually-created links can drop the trailing `0`; that's a deviation handled in [Troubleshooting](#troubleshooting), not the default flow.
+- `7777` is the haproxy ingress port that VSS exposes on the instance — Brev's secure-link domain just prefixes it. (Older Brev launchables used to add a trailing `0` giving `77770-...`; that's gone in current Brev, but if you inherit an older instance and find a `77770-...` link still works, see [Troubleshooting](#troubleshooting).)
 
 ## Per-profile secure link requirements
 
@@ -60,7 +60,7 @@ haproxy and the agent's URL renders.
 
 ```bash
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=77770-${brev_env_id}.brevlab.com|" \
+sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=7777-${brev_env_id}.brevlab.com|" \
   deploy/docker/developer-profiles/dev-profile-<profile>/generated.env
 ```
 
@@ -77,7 +77,7 @@ curl -sfI http://localhost:7777/ | head -1
 
 # 3. Print the browser URL the user should open
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-echo "https://77770-${brev_env_id}.brevlab.com"
+echo "https://7777-${brev_env_id}.brevlab.com"
 ```
 
 If step 1 fails, the haproxy container (`vss-haproxy-ingress`) hasn't come up — check
@@ -90,8 +90,8 @@ request as 404 from the browser even though `curl localhost:7777` works).
 
 | Symptom | Cause |
 |---|---|
-| User says the Brev link won't load at all | Ask how the secure link was exposed. The skill's default assumes a Brev **launchable** which creates `77770-<id>.brevlab.com` (port 7777 + trailing `0`). A link created **manually** via the Brev dashboard may use `7777-<id>.brevlab.com` (no trailing `0`) or a different port entirely — in that case set `EXTERNAL_IP` to whatever the actual secure-link domain is and redeploy. |
+| User says the Brev link won't load at all | Ask how the secure link was exposed. The skill's default assumes the current Brev secure-link convention: `7777-<id>.brevlab.com` (no trailing `0`). An older inherited launchable may still serve `77770-<id>.brevlab.com` (legacy trailing-`0` form), or a manually-created link may use a different port entirely — in that case set `EXTERNAL_IP` to whatever the actual secure-link domain is and redeploy. |
 | UI loads but AJAX calls to `/api/*` CORS-fail | A second secure link was created for port 8000 → browser treats it as a different origin. Delete the extra link; the UI should use the proxy only. |
-| `curl https://77770-...brevlab.com` → 502 | nginx container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
-| `curl https://77770-...brevlab.com` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
-| Agent-generated report URLs don't open | `EXTERNAL_IP` in the profile `.env` is still the internal `${HOST_IP}` default → reports hard-code internal IPs. Set `EXTERNAL_IP=77770-${BREV_ENV_ID}.brevlab.com` in the profile `.env` (see [Setup flow](#setup-flow)) and redeploy. |
+| `curl https://7777-...brevlab.com` → 502 | nginx container (`vss-haproxy-ingress`) is down — `docker logs vss-haproxy-ingress` |
+| `curl https://7777-...brevlab.com` → Cloudflare Access login page forever | User hasn't been granted access in the Brev org; not a deploy issue |
+| Agent-generated report URLs don't open | `EXTERNAL_IP` in the profile `generated.env` is still the internal `${HOST_IP}` default → reports hard-code internal IPs. Set `EXTERNAL_IP=7777-${BREV_ENV_ID}.brevlab.com` in the profile `generated.env` (see [Setup flow](#setup-flow)) and redeploy. |

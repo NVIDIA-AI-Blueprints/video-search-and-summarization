@@ -1097,16 +1097,18 @@ function state_up() {
   fi
 
   # ===== Brev secure links =====
-  # Brev launchables use a hostname of the form <port>0-<env>.brevlab.com (e.g. 77770-<id>.brevlab.com).
-  # Point HAProxy and browser-facing compose vars at that host with https/wss; keep URL templates in
-  # profile .env (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
+  # Brev secure links use a hostname of the form <port>-<env>.brevlab.com (e.g. 7777-<id>.brevlab.com)
+  # — the haproxy port is prefixed directly. Older launchables used to add a trailing "0" giving
+  # 77770-<id>.brevlab.com; that form is legacy. Point HAProxy and browser-facing compose vars at the
+  # current-form host with https/wss; keep URL templates in profile .env
+  # (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
-    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port}0)..."
+    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port})..."
     set_env_var "HAPROXY_PORT" '${PROXY_PORT:-7777}'
     set_env_var "VSS_PUBLIC_HTTP_PROTOCOL" "https"
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
-    set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}0-${BREV_ENV_ID}.brevlab.com'
+    set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
     set_env_var "VSS_PUBLIC_PORT" "443"
   fi
 
