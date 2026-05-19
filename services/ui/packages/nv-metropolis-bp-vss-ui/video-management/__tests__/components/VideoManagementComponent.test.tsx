@@ -117,7 +117,7 @@ describe('VideoManagementComponent — video playback', () => {
     });
   });
 
-  it('calls openVideoModal with last timeline segment for uploaded video', async () => {
+  it('calls openVideoModal with full last timeline segment for uploaded video', async () => {
     renderComponent();
 
     await waitFor(() => {
@@ -133,7 +133,7 @@ describe('VideoManagementComponent — video playback', () => {
     expect(callArgs.video_name).toBe('test_video');
     expect(callArgs.sensor_id).toBe('sensor-vid');
     expect(callArgs.start_time).toBe('2025-01-01T01:00:00Z');
-    expect(callArgs.end_time).toBe('2025-01-01T01:00:30.000Z');
+    expect(callArgs.end_time).toBe('2025-01-01T01:03:30Z');
   });
 
   it('calls openVideoModal with recent 30s window for RTSP stream', async () => {
