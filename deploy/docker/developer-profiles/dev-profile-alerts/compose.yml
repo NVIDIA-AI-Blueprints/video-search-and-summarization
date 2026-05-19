@@ -19,7 +19,7 @@ services:
     extends:
       file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["vss-behavior-analytics-alerts"]
     volumes:
       - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
     container_name: vss-behavior-analytics
@@ -28,7 +28,7 @@ services:
   nvstreamer-alerts:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
-    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["nvstreamer-alerts"]
     entrypoint: [ "/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst" ]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -54,7 +54,7 @@ services:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception-sdr
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["perception-sdr-alerts"]
     container_name: vss-rtvi-cv-sdr
     volumes:
       - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/sdr:/wdm-configs
@@ -73,7 +73,7 @@ services:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_developer_alerts_2d_cv"]
+    profiles: ["perception-alerts"]
     container_name: vss-rtvi-cv
     volumes:
       - $MDX_DATA_DIR/models/:/opt/storage/
@@ -101,7 +101,7 @@ services:
       context: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts
       dockerfile: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
     network_mode: "host"
-    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["kibana-init-container-alerts"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     depends_on:
@@ -112,7 +112,7 @@ services:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["vss-video-analytics-api-alerts"]
     container_name: vss-video-analytics-api
     volumes:
       - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json

@@ -21,7 +21,7 @@ services:
     image: ${RTVI_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-embed}:${RTVI_EMBED_TAG:-3.2.0-26.04.2}
     container_name: vss-rtvi-embed
     user: "1001:1001"
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["rtvi-embed"]
     deploy:
       resources:
         reservations:

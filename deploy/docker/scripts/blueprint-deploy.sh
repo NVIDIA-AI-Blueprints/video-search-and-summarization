@@ -725,6 +725,25 @@ function state_up() {
     fi
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
+
+    # Select the appropriate COMPOSE_PROFILES variable based on BP_PROFILE, MODE, and MINIMAL_PROFILE
+    local _minimal_profile _cp_var
+    _minimal_profile="$(get_env_value "${_source_env}" "MINIMAL_PROFILE")"
+    case "${bp_profile}_${mode}" in
+      bp_wh_2d)       _cp_var="COMPOSE_PROFILES_WH_2D" ;;
+      bp_wh_kafka_2d) _cp_var="COMPOSE_PROFILES_WH_KAFKA_2D" ;;
+      bp_wh_redis_2d) _cp_var="COMPOSE_PROFILES_WH_REDIS_2D" ;;
+      bp_wh_kafka_3d) _cp_var="COMPOSE_PROFILES_WH_KAFKA_3D" ;;
+      bp_wh_redis_3d) _cp_var="COMPOSE_PROFILES_WH_REDIS_3D" ;;
+      *)
+        echo "[ERROR] Unknown bp_profile/mode combination: ${bp_profile}/${mode}"
+        return 1
+        ;;
+    esac
+    if [[ -n "${_minimal_profile}" ]] && [[ "${bp_profile}" != "bp_wh" ]]; then
+      _cp_var="${_cp_var}_MINIMAL"
+    fi
+    set_env_var "COMPOSE_PROFILES" "\${${_cp_var}}"
   fi
 
   # When hardware profile is DGX-SPARK: for any env var that has a commented line with sbsa in the value,

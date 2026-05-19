@@ -16,7 +16,7 @@
 services:
   streamprocessing-ms:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["streamprocessing-ms"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -64,7 +64,7 @@ services:
 
   streamprocessing-ms-2d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
+    profiles: ["streamprocessing-ms-2d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -111,7 +111,7 @@ services:
 
   streamprocessing-ms-3d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["streamprocessing-ms-3d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -160,7 +160,7 @@ services:
 
   sdr-streamprocessing:
     image: ${SDR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["sdr-streamprocessing"]
     user: "0:0"
     network_mode: "host"
     logging:
@@ -238,7 +238,7 @@ services:
 
   envoy-streamprocessing:
     image: ${ENVOY_PROXY_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["envoy-streamprocessing"]
     user: "0:0"
     command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
     network_mode: "host"

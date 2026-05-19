@@ -16,7 +16,7 @@
 services:
   centralizedb:
     image: ${POSTGRES_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["centralizedb"]
     user: "0:0"
     environment:
       - POSTGRES_USER=${CENTRALIZE_DB_USERNAME}
@@ -44,7 +44,7 @@ services:
 
   vst-ingress:
     image: ${NGINX_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["vst-ingress"]
     user: "0:0"
     environment:
       - VST_INGRESS_HTTP_PORT=${VST_INGRESS_HTTP_PORT}
@@ -74,7 +74,7 @@ services:
 
   vst-mcp:
     image: ${VST_MCP_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["vst-mcp"]
     user: "0:0"
     environment:
       - MCP_GATEWAY_CPP_API_BASE_URL=${MCP_GATEWAY_CPP_API_BASE_URL}

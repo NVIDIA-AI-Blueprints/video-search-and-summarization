@@ -19,7 +19,7 @@ services:
     extends:
       file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["vss-search-analytics-2d-fusion"]
     volumes:
       - $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
     container_name: vss-behavior-analytics
@@ -29,7 +29,7 @@ services:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["vss-video-analytics-api-fusion"]
     container_name: vss-video-analytics-api
     volumes:
       - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
@@ -41,7 +41,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["nvstreamer-2d-fusion"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -130,7 +130,7 @@ services:
 
   perception-2d-init:
     image: debian:12-slim
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["perception-2d-init"]
     container_name: vss-rtvi-cv-init
     network_mode: "host"
     deploy:
@@ -165,7 +165,7 @@ services:
     extends:
       file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["perception-2d-fusion"]
     container_name: vss-rtvi-cv
     volumes:
         # Config file mounts (read-only staging; ds-search-start.sh copies to the writable app dir)

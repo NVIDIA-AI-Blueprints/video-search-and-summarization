@@ -22,7 +22,7 @@ services:
       dockerfile: $MDX_SAMPLE_APPS_DIR/developer-profiles/dev-profile-search/Dockerfiles/kibana-dashboard.Dockerfile
       network: "host"
     network_mode: "host"
-    profiles: ["bp_developer_search_2d"]
+    profiles: ["kibana-init-container-search"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     depends_on:
