@@ -49,11 +49,12 @@ export interface RealtimeAlertRule {
   alert_type: string;
   prompt: string;
   /**
-   * Friendly label for the sensor behind `live_stream_url`. Added in the
-   * updated vss-alert-bridge spec; optional because the API docs currently
-   * only show it in request examples, not in the Input Parameters table.
+   * Friendly label for the sensor behind `live_stream_url` (`name` in VST
+   * `/v1/sensor/list`). Resolved from the live stream URL before POST.
    */
   sensor_name?: string;
+  /** VST sensor id (`sensorId` in `/v1/sensor/list`). Resolved before POST. */
+  sensor_id?: string;
   status?: string; // typically "active"
   created_at?: string; // ISO-8601 UTC
   // The API also returns the following fields; we keep them as optional for
