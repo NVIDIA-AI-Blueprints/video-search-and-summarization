@@ -52,9 +52,11 @@ template is in § Harbor invocation below.
    and exit cleanly. No PR comment.
 
 2. **For each changed skill, decide whether it has a dispatchable
-   eval spec** — any `skills/<skill>/eval/<name>.json`. The filename
-   is free; it doesn't need to match a deploy profile or any
-   convention. A skill can ship multiple specs side-by-side.
+   eval spec** — any `skills/<skill>/evals/<name>.json`. For legacy
+   skills that have not moved yet, also accept
+   `skills/<skill>/eval/<name>.json`. The filename is free; it
+   doesn't need to match a deploy profile or any convention. A skill
+   can ship multiple specs side-by-side.
 
    Hard requirements on a spec: `skills` (list), `resources.platforms`
    (matrix), `env` (prose), `expects` (ordered query/checks list).
@@ -760,7 +762,7 @@ One comment per `(PR, eval_spec)` batch, posted only after every
 (platform) tuple in the spec's matrix has a recorded result.
 
 ```markdown
-## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
 Head: `<short-sha>` · N platforms · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`

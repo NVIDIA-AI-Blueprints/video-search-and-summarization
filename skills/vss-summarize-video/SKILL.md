@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Summarize a video by calling the VLM NIM or the Long Video Summarization (LVS) microservice directly. For short videos (under 60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (60s or longer) call the LVS microservice. Use when asked to summarize a video, describe what happens in a video, or analyze a recording.
+description: Summarize a video by calling the VLM NIM or the Long Video Summarization (LVS) microservice directly. For short videos (under 60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (60s or longer) call the LVS microservice. Use when asked to summarize a video, describe what happens in a video, analyze a recording, call or debug LVS summarize/model/health/recommended-config/metrics endpoints, or configure and troubleshoot the LVS service that backs long-video summarization.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -11,7 +11,44 @@ metadata:
 You are a video summarization assistant. You call the VLM NIM or the LVS
 microservice **directly**. Always run `curl` commands yourself; never instruct the user to run them.
 
-Single query type: **"Summarize this video."**
+Primary video workflow query type: **"Summarize this video."** Direct LVS API
+and service-ops requests are handled by the reference-routed sections below.
+
+## Reference Map
+
+Use these references only when the user asks for the relevant detail, or when
+the core workflow below needs deeper LVS information:
+
+- **LVS API details**: [`references/lvs-api.md`](references/lvs-api.md) for
+  `/v1/summarize`, `/summarize`, `/v1/generate_captions`,
+  `/v1/stream_summarize`, health probes, `/models`, `/recommended_config`,
+  `/metrics`, request fields, response shapes, and API gotchas.
+- **LVS service configuration and ops**:
+  [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md) for
+  the VSS `lvs` profile, ports, required env vars, logs, status, dry-runs,
+  teardown, model/backend swaps, and service-level troubleshooting.
+- **Extended LVS ops references**:
+  [`references/lvs-environment-variables.md`](references/lvs-environment-variables.md),
+  [`references/lvs-debugging.md`](references/lvs-debugging.md), and
+  [`references/lvs.env.example`](references/lvs.env.example).
+
+Do not load these references for routine short-video VLM summaries. Load
+`lvs-api.md` for long-video LVS request details or direct LVS API requests.
+Load `deploy-lvs-service.md` only for deployment, configuration, or service
+operations.
+
+## LVS API And Service Ops Requests
+
+If the user asks to call or debug LVS endpoints directly, answer from
+[`references/lvs-api.md`](references/lvs-api.md) instead of running the
+end-to-end video summarization workflow. Examples: list LVS models, check
+readiness, get recommended chunking config, inspect metrics, explain a 422
+response, or build a `/v1/summarize` request body.
+
+If the user asks to configure, deploy, restart, tear down, or troubleshoot the
+LVS service, prefer the `vss-deploy-profile` skill for full VSS profile
+deployment and use [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md)
+for LVS-specific service details.
 
 ## Routing
 
@@ -20,9 +57,9 @@ skill, then do the math — see Step 1):
 
 | Video duration | Backend | Endpoint |
 |---|---|---|
-| `< 60s` (short) | **VLM NIM** (OpenAI-compatible) | `POST ${VLM_BASE_URL}/v1/chat/completions` |
-| `>= 60s` (long), LVS available | **LVS microservice** | `POST ${LVS_BACKEND_URL}/summarize` |
-| `>= 60s`, LVS **not** reachable | **VLM NIM** + tell the user | `POST ${VLM_BASE_URL}/v1/chat/completions` |
+| `< 60s` (short) | **VLM / RT-VLM** (OpenAI-compatible) | `POST ${VLM_BASE_URL}/v1/chat/completions` |
+| `>= 60s` (long), LVS available | **LVS microservice** | `POST ${LVS_BACKEND_URL}/v1/summarize` |
+| `>= 60s`, LVS **not** reachable | **VLM / RT-VLM** + tell the user | `POST ${VLM_BASE_URL}/v1/chat/completions` |
 
 Fallback message when LVS is unreachable for a long video (copy verbatim
 into the response, before the summary):
@@ -38,8 +75,8 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 
 1. Probe the LVS microservice:
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:8000/docs" >/dev/null \
-     && curl -sf --max-time 5 "http://${HOST_IP}:38111/v1/ready" >/dev/null
+   LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+   curl -sf --max-time 5 "$LVS/v1/ready" >/dev/null
    ```
    (Port 38111 is LVS. HTTP 200 → ready; 503 → still warming, retry in a moment.)
 
@@ -61,23 +98,29 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 
 ## Setup
 
-**Endpoints (defaults for a local VSS deployment):**
+**Endpoints (defaults for a local VSS `lvs` deployment):**
 
-- VLM NIM: `${VLM_BASE_URL}` — default `http://localhost:30082`
+- VLM / RT-VLM: `${VLM_BASE_URL}` — default
+  `${RTVI_VLM_BASE_URL:-http://localhost:8018}` for the `lvs` profile
 - LVS MS: `${LVS_BACKEND_URL}` — default `http://localhost:38111`
 - VIOS: owned by the `vss-manage-video-io-storage` skill; refer there.
 
 **Endpoint resolution order:**
 
-1. If the env vars `VLM_BASE_URL` / `LVS_BACKEND_URL` are set, use them
-   (strip a trailing `/v1` from `VLM_BASE_URL` — NIM exposes `/v1/...` and
-   this skill appends it).
+1. If the env vars `VLM_BASE_URL` / `RTVI_VLM_BASE_URL` / `LVS_BACKEND_URL`
+   are set, use them. Strip a trailing `/v1` from the VLM base because this
+   skill appends `/v1/...`.
 2. Otherwise use the defaults above.
 3. If neither works, ask the user for the endpoints. Do not scan ports or
    read config files to guess them.
 
-**Model name:** read `${VLM_NAME}` (default `nvidia/cosmos-reason2-8b`).
-Both VLM and LVS requests use the same model name.
+**Model name:** read `${VLM_NAME}`. The default VSS `lvs` profile uses
+`nim_nvidia_cosmos-reason2-8b_hf-1208`, which must match the model id returned
+by RT-VLM's `/v1/models`. Do not substitute the friendly model name
+`nvidia/cosmos-reason2-8b` unless the endpoint actually advertises that id.
+
+For full LVS endpoint schemas, optional request fields, response envelopes, and
+error handling, read [`references/lvs-api.md`](references/lvs-api.md).
 
 **Availability checks** (run both before routing):
 
@@ -87,9 +130,12 @@ or inspect the response body — LVS's `/v1/ready` can legitimately return
 "unavailable."
 
 ```bash
-# VLM: 200 on /v1/models
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM%/v1}"
+
+# VLM / RT-VLM: 200 on /v1/models
 vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
-  "${VLM_BASE_URL:-http://localhost:30082}/v1/models")
+  "$VLM/v1/models")
 [ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
 
 # LVS: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
@@ -155,14 +201,16 @@ message. OpenAI-compatible chat completions with the video URL embedded in
 the message content:
 
 ```bash
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM%/v1}"
 PROMPT='<confirmed_prompt_from_hitl>'
 
-curl -s -X POST "${VLM_BASE_URL:-http://localhost:30082}/v1/chat/completions" \
+curl -s -X POST "$VLM/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "$(jq -n \
-        --arg model "${VLM_NAME:-nvidia/cosmos-reason2-8b}" \
+        --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
         --arg text "$PROMPT" \
-        --arg url "<clip_url_from_vios>" \
+        --arg url "<clip_url_from_vss_manage_video_io_storage>" \
         '{
           model: $model,
           temperature: 0.0,
@@ -190,13 +238,43 @@ are applied server-side; no client-side prep is required when you pass a
 
 ## Step 2b — Long video (>= 60s) → LVS microservice direct
 
+This section contains the narrow long-video summarization path. For advanced
+LVS fields such as `media_info`, `schema`, structured output, stream
+captioning, metrics, or recommended config, read
+[`references/lvs-api.md`](references/lvs-api.md).
+
 ### HITL: collect scenario and events first (REQUIRED — do not skip)
 
 Full scenario/events collection walk-through lives in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run this step before calling LVS.
-# Extract the summary and events in one pipe:
-curl -s -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/summarize" \
+
+Prefer the 3.2 GA versioned route `POST /v1/summarize`. The OpenAPI spec also
+exposes `/summarize` as a compatibility alias, but new examples should use
+`/v1/summarize`.
+
+```bash
+LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+
+# From HITL reply:
+SCENARIO='warehouse monitoring'
+EVENTS_JSON='["notable activity"]'
+OBJECTS_JSON=''  # '' to omit, else '["forklifts","pallets","workers"]'
+
+curl -s -X POST "$LVS/v1/summarize" \
   -H "Content-Type: application/json" \
-  -d @request.json \
+  -d "$(jq -n --arg url "<clip_url_from_vss_manage_video_io_storage>" \
+        --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
+        --arg scenario "$SCENARIO" \
+        --argjson events "$EVENTS_JSON" \
+        --argjson objects "${OBJECTS_JSON:-null}" '{
+    url: $url,
+    model: $model,
+    scenario: $scenario,
+    events: $events,
+    chunk_duration: 10,
+    num_frames_per_second_or_fixed_frames_chunk: 20,
+    use_fps_for_chunking: false,
+    seed: 1
+  } + (if $objects == null then {} else {objects_of_interest: $objects} end)')" \
   | jq -r '.choices[0].message.content' \
   | jq '{video_summary, events}'
 ```
@@ -209,7 +287,11 @@ broader `scenario` rather than reporting "no content."
 
 - `chunk_duration` (default `10`) — seconds per chunk. Smaller = finer
   timestamps, more VLM calls. Use `0` to send the whole video in one chunk.
-- `num_frames_per_chunk` (default `20`) — frames sampled per chunk.
+- `num_frames_per_second_or_fixed_frames_chunk` (default example `20`) —
+  frame sampling control. With `use_fps_for_chunking: false`, it is a fixed
+  frame count per chunk; with `true`, it is frames per second.
+- `num_frames_per_chunk` still exists in the OpenAPI schema for compatibility
+  but is deprecated. Prefer `num_frames_per_second_or_fixed_frames_chunk`.
 - `seed` (default `1`) — reproducibility; change or omit to get variety.
 
 ---
@@ -228,6 +310,8 @@ then set `PROMPT` to the confirmed text. Do not run the curl below until
 that confirmation has arrived.
 
 ```bash
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM%/v1}"
 PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipments, objects,
 actions, and environmental conditions.
@@ -237,10 +321,10 @@ EXAMPLE:
 [0.0s-4.0s] <description of the first event>
 [4.0s-12.0s] <description of the second event>'
 
-curl -s -X POST "${VLM_BASE_URL:-http://localhost:30082}/v1/chat/completions" \
+curl -s -X POST "$VLM/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "$(jq -n --arg url "$CLIP" --arg text "$PROMPT" \
-        --arg model "${VLM_NAME:-nvidia/cosmos-reason2-8b}" '{
+        --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" '{
     model: $model,
     temperature: 0.0,
     max_tokens: 1024,
@@ -275,10 +359,10 @@ for i in $(seq 1 10); do
 done
 
 if [ "$lvs_code" = "200" ]; then
-  curl -s -X POST "$LVS/summarize" \
+  curl -s -X POST "$LVS/v1/summarize" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg url "$CLIP" \
-          --arg model "${VLM_NAME:-nvidia/cosmos-reason2-8b}" \
+          --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
           --arg scenario "$SCENARIO" \
           --argjson events "$EVENTS_JSON" \
           --argjson objects "${OBJECTS_JSON:-null}" '{
@@ -287,7 +371,8 @@ if [ "$lvs_code" = "200" ]; then
       scenario: $scenario,
       events: $events,
       chunk_duration: 10,
-      num_frames_per_chunk: 20,
+      num_frames_per_second_or_fixed_frames_chunk: 20,
+      use_fps_for_chunking: false,
       seed: 1
     } + (if $objects == null then {} else {objects_of_interest: $objects} end)')" \
     | jq -r '.choices[0].message.content' | jq '{video_summary, events}'
@@ -319,7 +404,7 @@ emojis, or re-format into bullets/tables that weren't in the source.
 **Exactly one backend call, exactly one rendering.** A single confirmed
 prompt (Step 2a) or a single confirmed scenario/events set (Step 2b)
 corresponds to exactly one `POST /v1/chat/completions` or `POST
-/summarize` request, and exactly one block of output to the user. Do
+/v1/summarize` request, and exactly one block of output to the user. Do
 NOT fan out parallel calls to hedge (e.g., one call for "full scene"
 plus another for "anomalies"), and do NOT render the same response
 twice with different headers. If the user wants a second pass (e.g.,
@@ -379,6 +464,11 @@ output, not mixed into it.
   compute from the timeline returned by `vss-manage-video-io-storage`.
 - **`jq` twice for LVS.** First unwraps the OpenAI-style envelope, second
   parses the JSON string inside `content`.
+- **Prefer `/v1/summarize` for 3.2 GA.** `/summarize` exists as a
+  compatibility route but should not be the default in new examples.
+- **Use the exact VLM model id advertised by the serving endpoint.** The
+  default VSS `lvs` profile uses `nim_nvidia_cosmos-reason2-8b_hf-1208`.
+- **Do not set or depend on development-only LVS API switches in GA workflows.**
 - **Do not rewrite LVS / VLM output.** The `video_summary` from LVS and
   `choices[0].message.content` from VLM are the deliverables. Render
   them verbatim; don't paraphrase into your own voice or reformat. See
@@ -389,7 +479,9 @@ output, not mixed into it.
 
 ## Cross-reference
 
-- **deploy** — bring up the `base` (VLM only) or `lvs` (VLM + LVS MS) profile
+- **vss-deploy-profile** — bring up the `base` (VLM only) or `lvs` (VLM + LVS MS) profile
 - **vss-manage-video-io-storage** (VIOS API) — upload videos, list streams, get clip URLs
 - **vss-search-archive** — semantic search across the archive (different profile)
 - **vss-query-analytics** — query incidents/events from Elasticsearch
+- **LVS API reference** — [`references/lvs-api.md`](references/lvs-api.md)
+- **LVS service ops reference** — [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md)

@@ -62,7 +62,7 @@ Rules:
 
 ### HITL: collect scenario and events first (REQUIRED — do not skip)
 
-**Before any call to `POST /summarize`, you MUST ask the user for
+**Before any call to `POST /v1/summarize`, you MUST ask the user for
 `scenario`, `events`, and `objects_of_interest`, and wait for their
 response.** Do not call LVS with defaults silently — if the user wants
 defaults, they must say so explicitly (e.g., "use the generic
@@ -112,23 +112,28 @@ explicit opt-in** — the HITL message is the gate.
 **Request:**
 
 ```bash
-curl -s -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/summarize" \
+curl -s -X POST "${LVS_BACKEND_URL:-http://localhost:38111}/v1/summarize" \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "<clip_url_from_vios>",
-    "model": "'"${VLM_NAME:-nvidia/cosmos-reason2-8b}"'",
+    "url": "<clip_url_from_vss_manage_video_io_storage>",
+    "model": "'"${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}"'",
     "scenario": "<scenario>",
     "events": ["<event1>", "<event2>"],
     "chunk_duration": 10,
-    "num_frames_per_chunk": 20,
+    "num_frames_per_second_or_fixed_frames_chunk": 20,
+    "use_fps_for_chunking": false,
     "seed": 1
   }' | jq .
 ```
 
 Omit `objects_of_interest` if the user did not provide any. Include it as a
-JSON array otherwise.
+JSON array otherwise. `num_frames_per_chunk` still exists in the OpenAPI schema
+for compatibility, but it is deprecated in 3.2.0; prefer
+`num_frames_per_second_or_fixed_frames_chunk` with `use_fps_for_chunking`.
 
 **Response shape:** OpenAI-style envelope. `choices[0].message.content` is a
 **JSON string** — parse it to get the actual summary and event list.
 
 ```bash
+jq -r '.choices[0].message.content' response.json | jq '{video_summary, events}'
+```

@@ -4,7 +4,7 @@ Evaluate VSS skills (vss-deploy-profile, vss-deploy-dense-captioning, vss-manage
 
 Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
-1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/eval/<profile>.json`.
+1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` or legacy `skills/<skill>/eval/<name>.json`.
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
 3. Acquires a per-instance `flock` on a Brev GPU host, reusing one that matches the target platform or creating one via the fallback chain in [`AGENTS.md`](AGENTS.md).
 4. Runs `uvx harbor run` against each dataset, one trial at a time, with the canonical invocation captured in [`AGENTS.md § Harbor invocation`](AGENTS.md).
@@ -98,7 +98,7 @@ Each generated task contains:
 
 ## Eval spec format
 
-Each evaluable skill ships a spec at `skills/<skill>/eval/<profile>.json`. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
+Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
 
 The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. This keeps PR authors in control of which `(platform, mode)` combos actually run.
 
