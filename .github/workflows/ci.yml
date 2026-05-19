@@ -421,7 +421,7 @@ jobs:
       - name: Check DCO sign-off
         run: |
           # Only check commits that are authored on this branch — i.e. NOT already
-          # reachable from any long-lived upstream branch (main, develop, release/*,
+          # reachable from any long-lived upstream branch (main, develop, dev/*, release/*,
           # hotfix/*) or from the PR base (when running on a `pull_request` event).
           # This avoids re-checking historical commits that were inherited via a sync
           # or rebase from another branch and that pre-date the DCO requirement.
@@ -435,7 +435,7 @@ jobs:
               git fetch --no-tags --quiet origin \
                 "+refs/heads/$ref:refs/remotes/origin/$ref" 2>/dev/null || true
           done
-          for pattern in 'release/*' 'hotfix/*'; do
+          for pattern in 'dev/*' 'release/*' 'hotfix/*'; do
             git fetch --no-tags --quiet origin \
               "+refs/heads/$pattern:refs/remotes/origin/$pattern" 2>/dev/null || true
           done
@@ -448,6 +448,7 @@ jobs:
           done < <(git for-each-ref --format='%(refname:short)' \
               refs/remotes/origin/main \
               refs/remotes/origin/develop \
+              'refs/remotes/origin/dev/*' \
               'refs/remotes/origin/release/*' \
               'refs/remotes/origin/hotfix/*' 2>/dev/null)
 
