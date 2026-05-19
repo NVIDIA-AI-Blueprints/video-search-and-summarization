@@ -7,8 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 NEMOCLAW_REPO_DIR="${NEMOCLAW_REPO_DIR:-${HOME}/NemoClaw}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
-# Nemoclaw onboard/install only accepts: build, openai, … — "build" is NVIDIA Endpoints (integrate.api.nvidia.com).
-NEMOCLAW_ONBOARD_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER:-build}"
+# NEMOCLAW_PROVIDER selects the Nemoclaw onboard/install provider. Required — no default.
+# Accepted values: "build" (NVIDIA Endpoints / integrate.api.nvidia.com) or "custom" (OpenAI-compatible endpoint).
+NEMOCLAW_PROVIDER="${NEMOCLAW_PROVIDER:?NEMOCLAW_PROVIDER is required}"
+# Custom-provider settings — required when NEMOCLAW_PROVIDER=custom (OpenAI-compatible endpoint).
+NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-}"
+COMPATIBLE_API_KEY="${COMPATIBLE_API_KEY:-}"
 # OpenShell provider display name (separate from Nemoclaw's NEMOCLAW_PROVIDER for onboard).
 OPENCLAW_PLUGIN_VARIANT="${OPENCLAW_PLUGIN_VARIANT:-}"
 OPENSHELL_PROVIDER_NAME="${OPENSHELL_PROVIDER_NAME:-nvidia}"
@@ -52,6 +56,8 @@ Options:
   --sandbox-name NAME         Sandbox name (default: demo)
   --model NAME                NVIDIA model ID (default: nvidia/nemotron-3-super-120b-a12b)
   --nvidia-base-url URL       NVIDIA API base URL (default: https://integrate.api.nvidia.com/v1)
+  --endpoint-url URL          OpenAI-compatible endpoint URL (REQUIRED when --provider=custom)
+  --compatible-api-key KEY    API key for the OpenAI-compatible endpoint (REQUIRED when --provider=custom)
   --nemoclaw-repo-dir PATH    Path to NemoClaw source checkout (default: $HOME/NemoClaw)
   --openclaw-config-script PATH
                               Path to the OpenClaw config update helper
@@ -59,7 +65,9 @@ Options:
   --help                      Show this help
 
 Environment (non-interactive Nemoclaw / OpenShell):
-  NEMOCLAW_ONBOARD_PROVIDER   Nemoclaw onboard/install provider (default: build = NVIDIA Endpoints / integrate.api.nvidia.com)
+  NEMOCLAW_PROVIDER           Nemoclaw onboard/install provider (REQUIRED; must be "build" = NVIDIA Endpoints / integrate.api.nvidia.com, or "custom" = OpenAI-compatible)
+  NEMOCLAW_ENDPOINT_URL       OpenAI-compatible endpoint URL (REQUIRED when NEMOCLAW_PROVIDER=custom)
+  COMPATIBLE_API_KEY          API key for the OpenAI-compatible endpoint (REQUIRED when NEMOCLAW_PROVIDER=custom)
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
   OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
                               (default: <VSS_REPO_DIR>/.openclaw)
@@ -85,6 +93,14 @@ parse_args() {
         ;;
       --nvidia-base-url)
         NVIDIA_BASE_URL="$2"
+        shift 2
+        ;;
+      --endpoint-url)
+        NEMOCLAW_ENDPOINT_URL="$2"
+        shift 2
+        ;;
+      --compatible-api-key)
+        COMPATIBLE_API_KEY="$2"
         shift 2
         ;;
       --nemoclaw-repo-dir)
@@ -199,22 +215,35 @@ configure_openshell_provider() {
     return
   fi
 
-  log "Configuring OpenShell provider $OPENSHELL_PROVIDER_NAME for NVIDIA remote API"
+  # Pick endpoint + key based on NEMOCLAW_PROVIDER. "build" uses NVIDIA Endpoints;
+  # "custom" uses the user-supplied OpenAI-compatible endpoint (e.g. a local vLLM).
+  local openai_base_url openai_api_key
+  case "${NEMOCLAW_PROVIDER}" in
+    build)
+      openai_base_url="${NVIDIA_BASE_URL}"
+      openai_api_key="${NVIDIA_API_KEY}"
+      ;;
+    custom)
+      openai_base_url="${NEMOCLAW_ENDPOINT_URL}"
+      openai_api_key="${COMPATIBLE_API_KEY}"
+      ;;
+    *)
+      log "ERROR: NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER} is not supported by configure_openshell_provider (expected 'build' or 'custom')."
+      return 1
+      ;;
+  esac
+
+  log "Configuring OpenShell provider ${OPENSHELL_PROVIDER_NAME} (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER}, base=${openai_base_url})"
+  local action provider_args
   if openshell provider get "$OPENSHELL_PROVIDER_NAME" >/dev/null 2>&1; then
-    if ! env OPENAI_API_KEY="$NVIDIA_API_KEY" openshell provider update \
-      --credential OPENAI_API_KEY \
-      --config "OPENAI_BASE_URL=$NVIDIA_BASE_URL" \
-      "$OPENSHELL_PROVIDER_NAME"; then
-      log "Provider update failed; continuing with existing provider config"
-    fi
+    action="update"
+    provider_args=(provider update --credential OPENAI_API_KEY --config "OPENAI_BASE_URL=$openai_base_url" "$OPENSHELL_PROVIDER_NAME")
   else
-    if ! env OPENAI_API_KEY="$NVIDIA_API_KEY" openshell provider create \
-      --name "$OPENSHELL_PROVIDER_NAME" \
-      --type openai \
-      --credential OPENAI_API_KEY \
-      --config "OPENAI_BASE_URL=$NVIDIA_BASE_URL"; then
-      log "Provider create failed; continuing"
-    fi
+    action="create"
+    provider_args=(provider create --name "$OPENSHELL_PROVIDER_NAME" --type openai --credential OPENAI_API_KEY --config "OPENAI_BASE_URL=$openai_base_url")
+  fi
+  if ! env OPENAI_API_KEY="$openai_api_key" openshell "${provider_args[@]}"; then
+    log "Provider ${action} failed; continuing with existing provider config"
   fi
 
   openshell inference set --provider "$OPENSHELL_PROVIDER_NAME" --model "$NEMOCLAW_MODEL"
@@ -357,6 +386,37 @@ install_vss_openclaw_plugin() {
   log "VSS OpenClaw plugin installed"
 }
 
+validate_custom_provider() {
+  if [ "${NEMOCLAW_PROVIDER}" != "custom" ]; then
+    return 0
+  fi
+  if [ -z "${NEMOCLAW_ENDPOINT_URL}" ]; then
+    log "ERROR: NEMOCLAW_PROVIDER=custom requires NEMOCLAW_ENDPOINT_URL (or --endpoint-url)."
+    exit 1
+  fi
+  if [ -z "${COMPATIBLE_API_KEY}" ]; then
+    log "ERROR: NEMOCLAW_PROVIDER=custom requires COMPATIBLE_API_KEY (or --compatible-api-key)."
+    exit 1
+  fi
+}
+
+build_provider_env_args() {
+  local -n out=$1
+  out=(
+    "NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER}"
+    "NEMOCLAW_MODEL=${NEMOCLAW_MODEL}"
+    "NEMOCLAW_NON_INTERACTIVE=${NEMOCLAW_NON_INTERACTIVE}"
+    "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE}"
+    "NVIDIA_API_KEY=${NVIDIA_API_KEY}"
+  )
+  if [ "${NEMOCLAW_PROVIDER}" = "custom" ]; then
+    out+=(
+      "NEMOCLAW_ENDPOINT_URL=${NEMOCLAW_ENDPOINT_URL}"
+      "COMPATIBLE_API_KEY=${COMPATIBLE_API_KEY}"
+    )
+  fi
+}
+
 run_onboard() {
   local nemoclaw_cmd
   nemoclaw_cmd="$(resolve_nemoclaw)" || {
@@ -364,14 +424,10 @@ run_onboard() {
     exit 1
   }
 
-  log "Running nemoclaw onboard (NEMOCLAW_PROVIDER=${NEMOCLAW_ONBOARD_PROVIDER})"
-  env \
-    NEMOCLAW_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER}" \
-    NEMOCLAW_MODEL="${NEMOCLAW_MODEL}" \
-    NEMOCLAW_NON_INTERACTIVE="${NEMOCLAW_NON_INTERACTIVE}" \
-    NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE}" \
-    NVIDIA_API_KEY="${NVIDIA_API_KEY}" \
-    "$nemoclaw_cmd" onboard --non-interactive
+  log "Running nemoclaw onboard (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
+  local env_args
+  build_provider_env_args env_args
+  env "${env_args[@]}" "$nemoclaw_cmd" onboard --non-interactive
 }
 
 run_install() {
@@ -382,16 +438,12 @@ run_install() {
     exit 1
   fi
 
-  log "Running NemoClaw installer (NEMOCLAW_PROVIDER=${NEMOCLAW_ONBOARD_PROVIDER})"
+  log "Running NemoClaw installer (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
+  local env_args
+  build_provider_env_args env_args
+  env_args+=( "NEMOCLAW_SANDBOX_NAME=${NEMOCLAW_SANDBOX_NAME}" )
   (
-    cd "$NEMOCLAW_REPO_DIR" && env \
-      NEMOCLAW_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER}" \
-      NEMOCLAW_MODEL="${NEMOCLAW_MODEL}" \
-      NEMOCLAW_NON_INTERACTIVE="${NEMOCLAW_NON_INTERACTIVE}" \
-      NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE}" \
-      NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME}" \
-      NVIDIA_API_KEY="${NVIDIA_API_KEY}" \
-      ./install.sh --non-interactive
+    cd "$NEMOCLAW_REPO_DIR" && env "${env_args[@]}" ./install.sh --non-interactive
   )
 }
 
@@ -405,6 +457,7 @@ main() {
 
   if sandbox_exists; then
     log "Sandbox ${NEMOCLAW_SANDBOX_NAME} already exists; skipping NemoClaw onboard/install"
+    configure_openshell_provider
   else
     log "Start installing/onboarding NemoClaw"
     if have nemoclaw; then
@@ -416,7 +469,6 @@ main() {
   fi
 
   refresh_path
-  configure_openshell_provider
   ensure_dashboard_forward
   apply_vss_policy
   update_openclaw_allowed_origin
@@ -427,7 +479,9 @@ main() {
 }
 
 parse_args "$@"
-export NEMOCLAW_SANDBOX_NAME NEMOCLAW_ONBOARD_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
+validate_custom_provider
+export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
+export NEMOCLAW_ENDPOINT_URL COMPATIBLE_API_KEY
 export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
 
 main

@@ -6,7 +6,7 @@ This module exposes a NAT MCP function group named `vss_orchestrator` for genera
 
 The MCP server reads its runtime configuration from:
 
-- `src/vss_agents/orchestrator/vss_orchestrator_mcp_config.yml`
+- `<repo-root>/deploy/docker/scripts/vss_orchestrator_mcp_config.yml`
 
 Before starting the server, update these paths in that file for your environment:
 
@@ -17,13 +17,13 @@ If these are left as invalid/non-writable paths, tool execution will fail early 
 
 ## Start the server
 
-From `agent/`:
+From `services/agent/`:
 
 ```bash
 export HARDWARE_PROFILE=RTXPRO6000BW  # optional deployment-wide override
 export NGC_CLI_API_KEY="<your-ngc-key>"  # required only when pulling/downloading NGC/NIM artifacts
 export NVIDIA_API_KEY="<your-nvidia-key>"  # required only for NVIDIA-hosted remote endpoints
-uv run nat mcp serve --config_file src/vss_agents/orchestrator/vss_orchestrator_mcp_config.yml --port 9902
+uv run nat mcp serve --config_file ../../deploy/docker/scripts/vss_orchestrator_mcp_config.yml --port 9902
 ```
 
 For profile `.env` values and MCP startup values, `docker_generate` resolves in this order, with later entries overriding earlier ones:
