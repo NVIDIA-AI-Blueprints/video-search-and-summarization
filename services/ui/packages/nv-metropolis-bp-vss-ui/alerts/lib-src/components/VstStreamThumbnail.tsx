@@ -7,6 +7,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { IconCamera, IconAlertTriangle, IconLoader2 } from '@tabler/icons-react';
+import { fetchSensorMap } from '../utils/vstSensorList';
+
+export { clearSensorListCache } from '../utils/vstSensorList';
 
 interface VstStreamThumbnailProps {
   vstApiUrl?: string;
@@ -17,76 +20,6 @@ interface VstStreamThumbnailProps {
 }
 
 const THUMBNAIL_BOX_STYLE: React.CSSProperties = { width: '128px', height: '72px' };
-
-interface VstSensorListEntry {
-  name?: string;
-  sensorId?: string;
-  state?: string;
-}
-
-// TTL ensures sensors registered elsewhere appear without a hard reload.
-const SENSOR_LIST_TTL_MS = 60_000;
-
-interface SensorMapCacheEntry {
-  promise: Promise<Map<string, string>>;
-  createdAt: number;
-}
-
-const sensorListCache = new Map<string, SensorMapCacheEntry>();
-
-export const clearSensorListCache = (vstApiUrl?: string): void => {
-  if (vstApiUrl) {
-    sensorListCache.delete(vstApiUrl);
-  } else {
-    sensorListCache.clear();
-  }
-};
-
-const fetchSensorMap = (
-  vstApiUrl: string,
-  options?: { forceRefresh?: boolean },
-): Promise<Map<string, string>> => {
-  const now = Date.now();
-  const cached = sensorListCache.get(vstApiUrl);
-  if (
-    cached &&
-    !options?.forceRefresh &&
-    now - cached.createdAt < SENSOR_LIST_TTL_MS
-  ) {
-    return cached.promise;
-  }
-
-  const promise = fetch(`${vstApiUrl.replace(/\/+$/, '')}/v1/sensor/list`)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`VST /v1/sensor/list returned ${response.status}`);
-      }
-      return response.json();
-    })
-    .then((data) => {
-      const map = new Map<string, string>();
-      if (Array.isArray(data)) {
-        for (const entry of data as VstSensorListEntry[]) {
-          // Online-only — same convention as useAlerts/useFilter.
-          if (entry?.name && entry?.sensorId && entry.state === 'online') {
-            map.set(entry.name, entry.sensorId);
-          }
-        }
-      }
-      return map;
-    })
-    .catch((err) => {
-      // Evict failed entry so subsequent renders can retry before TTL.
-      const existing = sensorListCache.get(vstApiUrl);
-      if (existing && existing.promise === promise) {
-        sensorListCache.delete(vstApiUrl);
-      }
-      throw err;
-    });
-
-  sensorListCache.set(vstApiUrl, { promise, createdAt: now });
-  return promise;
-};
 
 const Placeholder: React.FC<{
   isDark: boolean;
