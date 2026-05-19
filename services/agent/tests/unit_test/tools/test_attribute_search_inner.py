@@ -23,6 +23,7 @@ from vss_agents.tools.attribute_search import AttributeSearchMetadata
 from vss_agents.tools.attribute_search import AttributeSearchResult
 from vss_agents.tools.attribute_search import _search_behavior
 from vss_agents.tools.attribute_search import enrich_attribute_results
+from vss_agents.tools.attribute_search import resolve_index_by_source_type
 
 
 def _make_result(
@@ -137,3 +138,36 @@ class TestSearchBehaviorFilters:
         assert {"terms": {"sensor.id.keyword": [stream_id]}} not in should_clauses
         assert {"term": {"sensor.id.keyword": stream_id}} in should_clauses
         assert {"wildcard": {"sensor.info.url.keyword": f"*{stream_id}*"}} in should_clauses
+
+
+class TestResolveIndexBySourceType:
+    """Tests for the shared video_file/rtsp index resolver."""
+
+    def test_video_file_returns_base_index_unchanged(self) -> None:
+        assert (
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="video_file",
+                wildcard_pattern="mdx-behavior-*",
+            )
+            == "mdx-behavior-2025-01-01"
+        )
+
+    def test_rtsp_returns_wildcard_with_video_file_exclusion(self) -> None:
+        assert resolve_index_by_source_type(
+            base_index="mdx-behavior-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-behavior-*",
+        ) == ["mdx-behavior-*", "-mdx-behavior-2025-01-01"]
+
+    def test_rtsp_works_for_other_index_families(self) -> None:
+        assert resolve_index_by_source_type(
+            base_index="mdx-embed-filtered-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-embed-filtered-*",
+        ) == ["mdx-embed-filtered-*", "-mdx-embed-filtered-2025-01-01"]
+        assert resolve_index_by_source_type(
+            base_index="mdx-raw-2025-01-01",
+            source_type="rtsp",
+            wildcard_pattern="mdx-raw-*",
+        ) == ["mdx-raw-*", "-mdx-raw-2025-01-01"]

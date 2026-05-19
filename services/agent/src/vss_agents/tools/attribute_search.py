@@ -20,6 +20,7 @@ from datetime import timedelta
 import logging
 import re
 from typing import Any
+from typing import Literal
 from typing import cast
 
 from elasticsearch import AsyncElasticsearch
@@ -51,6 +52,37 @@ MIN_CLIP_DURATION_SECONDS = 1.0
 
 # Default behavior index name — shared across SearchConfig, SearchAgentConfig, AttributeSearchConfig
 DEFAULT_BEHAVIOR_INDEX = "mdx-behavior-2025-01-01"
+
+
+def resolve_index_by_source_type(
+    base_index: str,
+    source_type: Literal["video_file", "rtsp"],
+    wildcard_pattern: str,
+) -> str | list[str]:
+    """Resolve the ES index(es) to query for the given ``source_type``.
+
+    Uploaded ``video_file`` content lives in a single fixed, date-stamped index
+    (the configured default, e.g. ``mdx-behavior-2025-01-01``). Live ``rtsp``
+    sources write to date-based indexes created at ingestion time
+    (e.g. ``mdx-behavior-2026-05-19``), so the search must span the wildcard
+    pattern for the family while excluding the video_file index.
+
+    - ``video_file`` -> ``base_index`` unchanged.
+    - ``rtsp``       -> ``[wildcard_pattern, "-" + base_index]``.
+
+    Args:
+        base_index: The configured video_file index (e.g. ``mdx-behavior-2025-01-01``).
+        source_type: ``"video_file"`` or ``"rtsp"``.
+        wildcard_pattern: Family-wide wildcard, e.g. ``"mdx-behavior-*"``,
+            ``"mdx-embed-filtered-*"``, ``"mdx-raw-*"``.
+
+    Returns:
+        Either ``base_index`` (str) or a two-element index expression list
+        suitable for ``AsyncElasticsearch.search(index=...)``.
+    """
+    if source_type == "video_file":
+        return base_index
+    return [wildcard_pattern, "-" + base_index]
 
 
 class AttributeSearchInput(BaseModel):
