@@ -227,51 +227,23 @@ docker compose -f resolved.yml up -d
 
 ### Step 5b — Wait until the stack is actually healthy
 
-Do **not** declare the deploy done after `up -d` returns. Poll the agent's REST API until it responds, then verify the supporting containers. Cold deploys (first-time NIM image pulls + model warmup) can legitimately take 10–20 min, so the timeouts below are generous on purpose.
+Do **not** declare the deploy done after `up -d` returns. Cold deploys (first-time NIM image pulls + model warmup) can legitimately take 10–20 min, so the timeouts in the probes below are generous on purpose.
+
+First, wait for the compose project to settle. Every container must be either `running` or cleanly `exited 0` — one-shot init jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy failure even though `up -d` returned 0.
 
 ```bash
-# Required for every profile — vss-agent's REST API is the canonical
-# readiness signal. Polls every 10s for up to 15 min.
-DEADLINE=$(( $(date +%s) + 900 ))
-until curl -sf --max-time 5 http://localhost:8000/docs >/dev/null 2>&1; do
-  [ "$(date +%s)" -lt "$DEADLINE" ] || { echo "TIMEOUT: vss-agent not ready after 15 min"; exit 1; }
-  echo "[$(date -u +%H:%M:%S)] waiting for vss-agent on :8000…"
-  sleep 10
-done
-echo "[$(date -u +%H:%M:%S)] vss-agent ready"
-
-# Profiles that ship a UI (base, lvs, search, alerts) — verify the UI
-# port too. Skip this block if the profile doesn't deploy `vss-agent-ui`.
-DEADLINE=$(( $(date +%s) + 300 ))
-until curl -sf --max-time 5 http://localhost:3000/ >/dev/null 2>&1; do
-  [ "$(date +%s)" -lt "$DEADLINE" ] || { echo "TIMEOUT: vss-agent-ui not ready after 5 min"; exit 1; }
-  echo "[$(date -u +%H:%M:%S)] waiting for vss-agent-ui on :3000…"
-  sleep 10
-done
-echo "[$(date -u +%H:%M:%S)] vss-agent-ui ready"
-
-# Final sanity: every container in the compose project must be either
-# `running` or `exited 0` (some one-shot init jobs like vss-kibana-init
-# legitimately exit 0 and stay exited). Anything `restarting`,
-# `unhealthy`, or `exited <N>` (N≠0) is a deploy failure even though
-# `up -d` returned 0.
 docker compose -f resolved.yml ps --format json \
   | jq -r '.[] | select(.State != "running" and .State != "exited") | "\(.Name)\t\(.State)\t\(.Status)"' \
   | { mapfile -t bad; if [ "${#bad[@]}" -gt 0 ]; then
         printf 'FAIL: %s\n' "${bad[@]}" >&2; exit 1;
       fi; }
-echo "[$(date -u +%H:%M:%S)] deploy healthy: every container running or cleanly exited"
 ```
 
-Profiles with a heavyweight local model also need an inference-endpoint probe before traffic actually works:
+Container state alone isn't enough — the processes inside may still be importing modules, loading models, and binding ports. Probe the profile's documented readiness endpoints next.
 
-- **lvs**: `curl -sf --max-time 5 http://localhost:38111/v1/ready` (LVS REST API)
-- **search**: `curl -sf --max-time 5 http://localhost:7777/health` (Cosmos Embed1)
-- **alerts (real-time / VLM)**: `curl -sf --max-time 5 http://localhost:8018/v1/models` (rtvi-vlm)
+**Each `references/<profile>.md` lists the endpoints that must be reachable** for that profile (agent REST API, UI, inference NIMs, etc., on the ports the profile actually opens). Run those `curl` checks with a generous deadline (15 min is reasonable for cold NIM warmup) and only declare the deploy done once every documented endpoint returns the expected success exit code.
 
-Run the matching one **after** the agent + UI probes pass. These NIM ports vary by model; see the per-profile `references/<profile>.md` for the authoritative list.
-
-Only declare the deploy done once **all** applicable probes return 0. If any probe times out, dump `docker compose ps` + `docker compose logs --tail 100 <slow-service>` and report the slow container — don't claim success on a half-warm stack.
+If any probe times out, dump `docker compose ps` + `docker compose logs --tail 100 <slow-service>` and report the slow container — don't claim success on a half-warm stack.
 
 ### Step 6 — 
 Fron
