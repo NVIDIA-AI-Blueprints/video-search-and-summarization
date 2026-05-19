@@ -260,7 +260,8 @@ done
 avg() {
     # Skip "n/a" sentinels from the REST API so they don't get coerced to 0
     # by awk's numeric coercion and pull the average toward zero. Returns
-    # "n/a" only when no numeric samples remain (empty input OR all "n/a").
+    # "n/a" when called with no args OR every sample is "n/a".
+    [[ $# -eq 0 ]] && { echo "n/a"; return; }
     awk 'BEGIN{s=0;n=0} { if ($1=="n/a") next; s+=$1; n++ } END{if(n==0){print "n/a"}else{printf "%.1f",s/n}}' \
         <<< "$(printf '%s\n' "$@")"
 }
