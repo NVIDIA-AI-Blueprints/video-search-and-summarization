@@ -532,7 +532,7 @@ Notes that have burned prior runs:
   `<platform>` as a placeholder for the full name, gets stuck
   spelunking the codebase, and exhausts its turn budget before
   dispatching the first trial.
-  `-i` / `--include` is a different flag and will silently match
+- `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - **Multi-step specs MUST be dispatched one step at a time, in
   order, with skip-on-prior-fail.** Harbor's default scheduler
