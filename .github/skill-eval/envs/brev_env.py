@@ -390,9 +390,14 @@ class BrevEnvironment(BaseEnvironment):
                   the reconcile instead of running against a
                   partially-dirty box that pretends to be clean.
 
-        vss-deploy-profile/* trials themselves set `profile` but don't request a
-        prereq — their test.sh writes the marker on reward=1.0. They
-        never call this hook.
+        vss-deploy-profile/* trials don't set `profile` in their task.toml
+        [metadata], so they fall into the `desired=""` box-clean branch
+        above — wipes containers/networks/volumes and clears the marker
+        before the trial deploys from scratch. Their test.sh writes the
+        marker on reward=1.0 for downstream warm-reuse. (Earlier the
+        adapter emitted `profile = "<X>"` here, which mistakenly fired
+        the prereq reconcile below before the trial — see commit
+        history on `adapters/vss-deploy-profile/generate.py`.)
 
         claude-code is expected on the box from a prior vss-deploy-profile/* trial's
         harbor agent setup; persists across trials on the reused
