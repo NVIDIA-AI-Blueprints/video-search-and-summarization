@@ -504,8 +504,8 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
     merged.update(config.env_overrides)
 
-    llm_is_remote = bool(config.llm_endpoint_url)
-    vlm_is_remote = bool(config.vlm_endpoint_url)
+    llm_is_remote = bool(config.llm_endpoint_url) or merged.get("LLM_MODE") == MODE_REMOTE
+    vlm_is_remote = bool(config.vlm_endpoint_url) or merged.get("VLM_MODE") == MODE_REMOTE
     reserved = merged.get("RESERVED_DEVICE_IDS", "")
     fixed_shared = merged.get("FIXED_SHARED_DEVICE_IDS", "")
     llm_dev = merged.get("LLM_DEVICE_ID", "").strip()
