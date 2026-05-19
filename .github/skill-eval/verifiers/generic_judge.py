@@ -55,9 +55,14 @@ from pathlib import Path
 # this path itself via its tools, but we still probe here for fast-fail.
 # ---------------------------------------------------------------------------
 
+# Discovery order: prefer the structured `.json` over `.jsonl`. The recipes
+# the judge follows assume the `.json` array schema with a top-level
+# `steps[]`; a `.jsonl` file would `jq`-type-error every recipe and push
+# the judge back toward unbounded Read (the exact hallucination trigger
+# this guarding is meant to avoid). If both exist, pick `.json` first.
 _TRAJECTORY_CANDIDATES = [
-    "/logs/agent/trajectory.jsonl",
     "/logs/agent/trajectory.json",
+    "/logs/agent/trajectory.jsonl",
     "/logs/agent/claude-code.txt",
     "/logs/agent/agent.log",
 ]
@@ -130,18 +135,22 @@ Inside each `steps[].message` (after `fromjson`) you'll find Claude-stream messa
 
 ## Inspection recipes (use these — don't reinvent)
 
+In the recipes below, **substitute `<TRAJ>` with the exact trajectory path printed in the per-check prompt** (typically `/logs/agent/trajectory.json`, but always use what the prompt names — never assume).
+
 | Question | One-liner |
 |---|---|
-| Did the agent ever POST to `<URL>`? | `grep -c 'POST <URL>' /logs/agent/trajectory.json` (counts; 0 means no) |
-| Show the bash commands the agent ran | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Bash") | .input.command' /logs/agent/trajectory.json` |
-| Show distinct tool_use names | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use") | .name' /logs/agent/trajectory.json | sort -u` |
-| Which Skills were invoked? | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Skill") | .input.skill' /logs/agent/trajectory.json | sort -u` |
-| Get the final assistant text (for "final reply" checks) | `jq -r '.steps[].message | fromjson | select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' /logs/agent/trajectory.json | tail -200` |
-| Search the agent's tool results for a string | `grep -nF '<literal string>' /logs/agent/trajectory.json | head -10` (cheap full-file substring search; trajectory is one long line of escaped JSON, so `grep -c` over the whole file works for absence/presence) |
-| How many steps total? | `jq '.steps | length' /logs/agent/trajectory.json` |
-| Get final_metrics (cost, turns) | `jq '.final_metrics' /logs/agent/trajectory.json` |
+| Did the agent ever POST to `<URL>`? | `grep -oF 'POST <URL>' <TRAJ> \| wc -l` (returns the actual occurrence count; `grep -c` only counts matching *lines*, which is 0-or-1 for trajectory.json since the whole file is one long line — use `-oF \| wc -l` for the real call count) |
+| Show the bash commands the agent ran | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Bash") | .input.command' <TRAJ>` |
+| Show distinct tool_use names | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use") | .name' <TRAJ> | sort -u` |
+| Which Skills were invoked? | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Skill") | .input.skill' <TRAJ> | sort -u` |
+| Get the final assistant text (for "final reply" checks) | `jq -r '.steps[].message | fromjson | select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' <TRAJ> | tail -200` |
+| Search the agent's tool results for a string | `grep -nF '<literal string>' <TRAJ> | head -10` |
+| How many steps total? | `jq '.steps | length' <TRAJ>` |
+| Get final_metrics (cost, turns) | `jq '.final_metrics' <TRAJ>` |
 
-If a one-liner above doesn't fit the check, adapt it — but stay grep/jq-only; never `cat` or `Read` the whole file.
+These assume `.json` array form with a top-level `steps[]` (the default on this stack). If the per-check prompt points you at a `.jsonl` file (each line is one step's JSON), drop the `.steps[]` prefix and use line-stream form: `jq -r '. | fromjson | …' <TRAJ>` or `grep`-based recipes that don't depend on top-level structure.
+
+If a one-liner above doesn't fit the check, adapt it — but stay grep/jq-only; never `cat` or do an unbounded `Read` on the whole file.
 
 # Picking the right tool per check
 
