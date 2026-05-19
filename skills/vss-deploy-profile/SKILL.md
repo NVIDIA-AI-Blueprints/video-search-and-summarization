@@ -223,17 +223,33 @@ docker compose -f resolved.yml up -d
 
 > **Do NOT use `--force-recreate` on retries.** It destroys already-warm NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix the root cause (usually perms or an env typo) and just re-run `up -d` — Docker will re-create only the containers whose config changed or that are down.
 
-Deploy takes ~10–20 min on first run (image pulls + model downloads). Monitor:
+`docker compose up -d` returns as soon as the daemon has **created** the containers — it does **not** wait for the processes inside to finish initializing. Polling `docker ps | grep -qx <name>` immediately after returns 0 (container exists) while `curl :8000/docs` returns exit 7 (Python process inside is still importing modules, loading models, binding the port). Eval verifiers and humans both regularly trip on this — declaring "deploy done" right after `up -d` returns probes a half-warm stack, and `vss-agent` / `:8000/docs` / `vss-agent-ui` checks all spuriously fail before the agent has actually bound its ports.
+
+### Step 5b — Wait until the stack is actually healthy
+
+Do **not** declare the deploy done after `up -d` returns. Cold deploys (first-time NIM image pulls + model warmup) can legitimately take 10–20 min, so the timeouts in the probes below are generous on purpose.
+
+First, wait for the compose project to settle. Every container must be either `running` or cleanly `exited 0` — one-shot init jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy failure even though `up -d` returned 0.
 
 ```bash
-# Container status
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-
-# Logs for a specific service
-docker compose -f $REPO/deploy/docker/resolved.yml logs --tail 50 <service>
+# docker compose 2.21+ emits NDJSON (one bare object per line) from
+# `ps --format json`, not a JSON array — so no `.[]` here; jq's default
+# input loop already iterates each line. The filter accepts only
+# `running` and `exited 0`; everything else (restarting, unhealthy,
+# exited with non-zero code) is a failure.
+docker compose -f resolved.yml ps --format json \
+  | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
+           | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"' \
+  | { mapfile -t bad; if [ "${#bad[@]}" -gt 0 ]; then
+        printf 'FAIL: %s\n' "${bad[@]}" >&2; exit 1;
+      fi; }
 ```
 
-Deploy is complete when all `mdx-*` containers show `Up` status.
+Container state alone isn't enough — the processes inside may still be importing modules, loading models, and binding ports. Probe the profile's documented readiness endpoints next.
+
+**Each `references/<profile>.md` lists the endpoints that must be reachable** for that profile (agent REST API, UI, inference NIMs, etc., on the ports the profile actually opens). Run those `curl` checks with a generous deadline (15 min is reasonable for cold NIM warmup) and only declare the deploy done once every documented endpoint returns the expected success exit code.
+
+If any probe times out, dump `docker compose ps` + `docker compose logs --tail 100 <slow-service>` and report the slow container — don't claim success on a half-warm stack.
 
 ### Step 6 — 
 Fron
