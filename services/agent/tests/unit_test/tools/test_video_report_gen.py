@@ -15,6 +15,8 @@
 """Unit tests for video_report_gen module."""
 
 import tempfile
+from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 from pydantic import ValidationError
 import pytest
@@ -24,6 +26,7 @@ from vss_agents.tools.video_report_gen import VideoReportGenInput
 from vss_agents.tools.video_report_gen import VideoReportGenOutput
 from vss_agents.tools.video_report_gen import _convert_markdown_to_pdf
 from vss_agents.tools.video_report_gen import _divide_video_into_chunks
+from vss_agents.tools.video_report_gen import _inject_video_clips
 from vss_agents.tools.video_report_gen import _normalize_chunk_timestamps
 from vss_agents.tools.video_report_gen import _parse_timestamps
 from vss_agents.tools.video_understanding import VideoUnderstandingInput
@@ -395,6 +398,25 @@ class TestResourcesSectionFormatting:
         assert lines[playback_line_idx + 1].strip() == "", "There should be a blank line between the label and the URL"
         # URL should be on a subsequent line
         assert any(video_url in line for line in lines[playback_line_idx + 1 :]), "URL should appear after the label"
+
+    @pytest.mark.asyncio
+    async def test_inject_video_clips_enable_audio_passes_disable_audio_false(self):
+        """enable_audio=True must request VST clip URLs with disableAudio=false."""
+        content = "Event at [5.0s-10.0s] description."
+        with patch("vss_agents.tools.video_report_gen.get_stream_id", new_callable=AsyncMock) as mock_stream:
+            mock_stream.return_value = "stream-1"
+            with patch("vss_agents.tools.video_report_gen.get_video_url", new_callable=AsyncMock) as mock_clip:
+                mock_clip.return_value = "http://vst-internal:30888/vst/storage/temp_files/clip.mp4"
+                result = await _inject_video_clips(
+                    content,
+                    sensor_id="sensor1",
+                    vst_internal_url="http://vst-internal:30888",
+                    vst_external_url="https://external.example",
+                    enable_audio=True,
+                )
+                mock_clip.assert_called_once()
+                assert mock_clip.call_args.kwargs["disable_audio"] is False
+                assert "[[Watch Clip](https://external.example/vst/storage/temp_files/clip.mp4)]" in result
 
     def test_pdf_css_has_word_break_for_links(self):
         """PDF CSS should include word-break rules for <a> tags to handle long URLs."""

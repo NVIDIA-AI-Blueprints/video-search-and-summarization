@@ -30,6 +30,8 @@ general:
       rtvi_cv_base_url: ${RTVI_CV_BASE_URL}
       elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT}
       rtvi_embed_es_index: ${ELASTIC_SEARCH_INDEX}
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     endpoints:
     - path: /api/v1/search
       method: POST
@@ -98,6 +100,8 @@ functions:
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
     time_format: offset
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   embed_search:
     _type: embed_search
