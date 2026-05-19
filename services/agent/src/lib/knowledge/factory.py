@@ -36,7 +36,7 @@ _lock = asyncio.Lock()
 _LAZY_BACKENDS: dict[str, str] = {
     "frag_api": "lib.knowledge.adapters.frag_api",
     "es_caption": "lib.knowledge.adapters.es_caption",
-    "rag_lib": "lib.knowledge.adapters.rag_lib",
+    "frag_lib": "lib.knowledge.adapters.frag_lib",
     "llama_index": "lib.knowledge.adapters.llama_index",
     "langchain": "lib.knowledge.adapters.langchain",
 }

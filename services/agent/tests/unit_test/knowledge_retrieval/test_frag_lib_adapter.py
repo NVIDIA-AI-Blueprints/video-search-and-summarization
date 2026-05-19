@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for lib.knowledge.adapters.rag_lib.
+"""Tests for lib.knowledge.adapters.frag_lib.
 
-The `nvidia-rag` package is an optional extra (`vss-agents[rag_lib]`) and
+The `nvidia-rag` package is an optional extra (`vss-agents[frag_lib]`) and
 isn't installed in the default test environment. The adapter does a deferred
 import inside `__init__`, so we inject fake `nvidia_rag.*` modules into
 `sys.modules` BEFORE constructing the adapter — that way the deferred
@@ -68,7 +68,7 @@ def fake_nvidia_rag(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-class TestRagLibImport:
+class TestFragLibImport:
     """The adapter raises a friendly ImportError when nvidia-rag isn't installed."""
 
     def test_missing_package_raises_clear_error(self, monkeypatch):
@@ -83,22 +83,22 @@ class TestRagLibImport:
         ):
             monkeypatch.setitem(sys.modules, mod, None)
 
-        from lib.knowledge.adapters.rag_lib import RagLibAdapter
-        from lib.knowledge.adapters.rag_lib import RagLibConfig
+        from lib.knowledge.adapters.frag_lib import FragLibAdapter
+        from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        with pytest.raises(ImportError, match=r"vss-agents\[rag_lib\]"):
-            RagLibAdapter(RagLibConfig())
+        with pytest.raises(ImportError, match=r"vss-agents\[frag_lib\]"):
+            FragLibAdapter(FragLibConfig())
 
 
-class TestRagLibConfigOverrides:
+class TestFragLibConfigOverrides:
     """Caller-supplied overrides flow through to NvidiaRAGConfig."""
 
     def test_llm_url_and_model_override(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from lib.knowledge.adapters.rag_lib import RagLibAdapter
-        from lib.knowledge.adapters.rag_lib import RagLibConfig
+        from lib.knowledge.adapters.frag_lib import FragLibAdapter
+        from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        RagLibAdapter(RagLibConfig(llm_base_url="http://nim:8000", llm_model_name="meta/llama-3.1-70b"))
+        FragLibAdapter(FragLibConfig(llm_base_url="http://nim:8000", llm_model_name="meta/llama-3.1-70b"))
 
         rag_config.llm.model_copy.assert_called_once_with(
             update={"server_url": "http://nim:8000", "model_name": "meta/llama-3.1-70b"}
@@ -106,11 +106,11 @@ class TestRagLibConfigOverrides:
 
     def test_embedder_url_and_model_override(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from lib.knowledge.adapters.rag_lib import RagLibAdapter
-        from lib.knowledge.adapters.rag_lib import RagLibConfig
+        from lib.knowledge.adapters.frag_lib import FragLibAdapter
+        from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        RagLibAdapter(
-            RagLibConfig(embedder_base_url="http://embed:8000", embedder_model_name="nvidia/nv-embedqa-e5-v5")
+        FragLibAdapter(
+            FragLibConfig(embedder_base_url="http://embed:8000", embedder_model_name="nvidia/nv-embedqa-e5-v5")
         )
 
         rag_config.embeddings.model_copy.assert_called_once_with(
@@ -119,33 +119,33 @@ class TestRagLibConfigOverrides:
 
     def test_milvus_uri_override(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from lib.knowledge.adapters.rag_lib import RagLibAdapter
-        from lib.knowledge.adapters.rag_lib import RagLibConfig
+        from lib.knowledge.adapters.frag_lib import FragLibAdapter
+        from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        RagLibAdapter(RagLibConfig(milvus_uri="http://milvus:19530"))
+        FragLibAdapter(FragLibConfig(milvus_uri="http://milvus:19530"))
 
         assert rag_config.vector_store.url == "http://milvus:19530"
 
     def test_pipeline_toggles(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from lib.knowledge.adapters.rag_lib import RagLibAdapter
-        from lib.knowledge.adapters.rag_lib import RagLibConfig
+        from lib.knowledge.adapters.frag_lib import FragLibAdapter
+        from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        RagLibAdapter(RagLibConfig(enable_citations=False, enable_guardrails=True))
+        FragLibAdapter(FragLibConfig(enable_citations=False, enable_guardrails=True))
 
         assert rag_config.enable_citations is False
         assert rag_config.enable_guardrails is True
 
 
-class TestRagLibRetrieve:
+class TestFragLibRetrieve:
     """retrieve() builds the right search kwargs and routes citations through
     the shared frag_api normaliser."""
 
     def _make_adapter(self, fake_nvidia_rag, **kwargs):
-        from lib.knowledge.adapters.rag_lib import RagLibAdapter
-        from lib.knowledge.adapters.rag_lib import RagLibConfig
+        from lib.knowledge.adapters.frag_lib import FragLibAdapter
+        from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        return RagLibAdapter(RagLibConfig(**kwargs))
+        return FragLibAdapter(FragLibConfig(**kwargs))
 
     @pytest.mark.asyncio
     async def test_search_kwargs_shape(self, fake_nvidia_rag):
@@ -213,11 +213,11 @@ class TestRagLibRetrieve:
         assert [c.metadata["file_name"] for c in result.chunks] == ["A.pdf"]
 
 
-class TestRagLibHealth:
+class TestFragLibHealth:
     @pytest.mark.asyncio
     async def test_health_check_true_after_init(self, fake_nvidia_rag):
-        from lib.knowledge.adapters.rag_lib import RagLibAdapter
-        from lib.knowledge.adapters.rag_lib import RagLibConfig
+        from lib.knowledge.adapters.frag_lib import FragLibAdapter
+        from lib.knowledge.adapters.frag_lib import FragLibConfig
 
-        adapter = RagLibAdapter(RagLibConfig())
+        adapter = FragLibAdapter(FragLibConfig())
         assert await adapter.health_check() is True

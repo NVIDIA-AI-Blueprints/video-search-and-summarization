@@ -5,7 +5,7 @@ description: Configure, swap, or wire in the VSS agent's pluggable knowledge ret
 
 # Knowledge Retrieval — Configure, Swap, Wire In
 
-The agent has a pluggable retrieval surface registered as `_type: knowledge_retrieval`. A single Python tool, five backends — `frag_api` (HTTP rag-server), `es_caption` (Elasticsearch captions), `rag_lib` (in-process Milvus), `langchain` (embedded Chroma via LangChain), `llama_index` (embedded Chroma via LlamaIndex) — and any number of named instances per deployment. Today the repo ships two named instances:
+The agent has a pluggable retrieval surface registered as `_type: knowledge_retrieval`. A single Python tool, five backends — `frag_api` (HTTP rag-server), `es_caption` (Elasticsearch captions), `frag_lib` (in-process Milvus), `langchain` (embedded Chroma via LangChain), `llama_index` (embedded Chroma via LlamaIndex) — and any number of named instances per deployment. Today the repo ships two named instances:
 
 | Tool name in YAML | `_type` | `backend` | Mainly for |
 |---|---|---|---|
@@ -117,9 +117,9 @@ Three `doc_type` values are written per streamed video — `raw_events` (per VLM
 
 **`collection_name`** — pass the stream's friendly name (or its `stream_id` / UUID). If omitted, the search runs across all streams in the configured index pattern.
 
-## Additional backends (`rag_lib`, `langchain`, `llama_index`)
+## Additional backends (`frag_lib`, `langchain`, `llama_index`)
 
-Three more backends are available behind opt-in Python packages (`vss-agents[rag_lib]`, `vss-agents[langchain]`, `vss-agents[llama_index]`). These are experimental — their transitive deps are **not** pinned in the shipped `uv.lock`, so enabling one requires the build to re-resolve from PyPI.
+Three more backends are available behind opt-in Python packages (`vss-agents[frag_lib]`, `vss-agents[langchain]`, `vss-agents[llama_index]`). These are experimental — their transitive deps are **not** pinned in the shipped `uv.lock`, so enabling one requires the build to re-resolve from PyPI.
 
 ### Enabling one
 
@@ -127,9 +127,9 @@ Three more backends are available behind opt-in Python packages (`vss-agents[rag
    ```
    uv sync --frozen --no-dev --no-editable --link-mode copy
    ```
-   becomes (for `rag_lib`):
+   becomes (for `frag_lib`):
    ```
-   uv sync --no-dev --no-editable --link-mode copy --extra rag_lib
+   uv sync --no-dev --no-editable --link-mode copy --extra frag_lib
    ```
    Dropping `--frozen` lets uv resolve the extra's transitive deps from PyPI at build time. Then rebuild the agent image with the same tag your deploy already uses.
 
@@ -137,7 +137,7 @@ Three more backends are available behind opt-in Python packages (`vss-agents[rag
 
 3. Bring the deployment up as usual.
 
-### `rag_lib`
+### `frag_lib`
 
 In-process equivalent of `frag_api`. Runs the full NVIDIA RAG Blueprint pipeline (retrieve → rerank → optional guardrails) inside the agent against a Milvus you supply. Same `filter_expr` shape as `frag_api`, so the LLM-facing contract is interchangeable.
 

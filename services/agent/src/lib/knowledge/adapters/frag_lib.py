@@ -14,8 +14,8 @@
 # limitations under the License.
 """In-process adapter using the `nvidia-rag` library.
 
-Milvus-backed; same `filter_expr` shape as `frag_api`. Choose `rag_lib` to
-run the full RAG Blueprint pipeline in-process. Requires `vss-agents[rag_lib]`;
+Milvus-backed; same `filter_expr` shape as `frag_api`. Choose `frag_lib` to
+run the full RAG Blueprint pipeline in-process. Requires `vss-agents[frag_lib]`;
 imports are deferred.
 """
 
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class RagLibConfig(BaseModel):
+class FragLibConfig(BaseModel):
     """Caller-supplied knobs that override `NvidiaRAGConfig` defaults.
 
     Each field maps to a section of the upstream config — when unset, we
@@ -67,8 +67,8 @@ class RagLibConfig(BaseModel):
     reranker_top_k: int = Field(default=10, description="Default reranker top_k when caller doesn't override.")
 
 
-@register_adapter("rag_lib", config_type=RagLibConfig)
-class RagLibAdapter(BackendAdapter):
+@register_adapter("frag_lib", config_type=FragLibConfig)
+class FragLibAdapter(BackendAdapter):
     # Identical filter shape to frag_api (both backed by Milvus), so the
     # LLM-facing hint is the same.
     tool_description_hint: ClassVar[str] = (
@@ -77,16 +77,16 @@ class RagLibAdapter(BackendAdapter):
         '  filters={"filter_expr": \'content_metadata["filename"] == "<name>"\'}'
     )
 
-    def __init__(self, config: RagLibConfig) -> None:
+    def __init__(self, config: FragLibConfig) -> None:
         super().__init__(config)
         try:
             from nvidia_rag.rag_server.main import NvidiaRAG
             from nvidia_rag.utils.configuration import NvidiaRAGConfig
         except ImportError as e:
             raise ImportError(
-                "rag_lib backend requires the `nvidia-rag>=2.4.0` package. "
+                "frag_lib backend requires the `nvidia-rag>=2.4.0` package. "
                 "Install via:\n"
-                "  pip install 'vss-agents[rag_lib]'\n"
+                "  pip install 'vss-agents[frag_lib]'\n"
                 "Or switch to the `frag_api` backend if you have a deployed rag-server."
             ) from e
 
@@ -114,7 +114,7 @@ class RagLibAdapter(BackendAdapter):
         self.collection_name: str = config.collection_name
         self._reranker_top_k: int = config.reranker_top_k
         logger.info(
-            "rag_lib initialised: llm=%s embedder=%s milvus=%s collection_name=%s",
+            "frag_lib initialised: llm=%s embedder=%s milvus=%s collection_name=%s",
             config.llm_base_url,
             config.embedder_base_url,
             config.milvus_uri,
@@ -144,7 +144,7 @@ class RagLibAdapter(BackendAdapter):
         try:
             citations = await self._rag_client.search(**search_kwargs)
         except Exception as e:
-            logger.exception("rag_lib search failed")
+            logger.exception("frag_lib search failed")
             return _failure(query, self.backend_name, f"In-process RAG search failed: {str(e)[:100]}")
 
         chunks = _citations_to_chunks(citations)

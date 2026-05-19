@@ -89,7 +89,7 @@ class LlamaIndexAdapter(BackendAdapter):
                 "llama_index backend requires the `vss-agents[llama_index]` extra. "
                 "Install via:\n"
                 "  pip install 'vss-agents[llama_index]'\n"
-                "Or pick a different backend (`frag_api` / `rag_lib` / `es_caption`)."
+                "Or pick a different backend (`frag_api` / `frag_lib` / `es_caption`)."
             ) from e
 
         # Auto-create so first retrieve() against empty path returns [] rather than crashing.
