@@ -232,8 +232,14 @@ Do **not** declare the deploy done after `up -d` returns. Cold deploys (first-ti
 First, wait for the compose project to settle. Every container must be either `running` or cleanly `exited 0` — one-shot init jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy failure even though `up -d` returned 0.
 
 ```bash
+# docker compose 2.21+ emits NDJSON (one bare object per line) from
+# `ps --format json`, not a JSON array — so no `.[]` here; jq's default
+# input loop already iterates each line. The filter accepts only
+# `running` and `exited 0`; everything else (restarting, unhealthy,
+# exited with non-zero code) is a failure.
 docker compose -f resolved.yml ps --format json \
-  | jq -r '.[] | select(.State != "running" and .State != "exited") | "\(.Name)\t\(.State)\t\(.Status)"' \
+  | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
+           | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"' \
   | { mapfile -t bad; if [ "${#bad[@]}" -gt 0 ]; then
         printf 'FAIL: %s\n' "${bad[@]}" >&2; exit 1;
       fi; }
