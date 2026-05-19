@@ -46,10 +46,10 @@ VSS-flavored). Adjust by PR review when the playbook updates.
 
 ## Where it runs
 
-Self-hosted runner labelled **`nv-base`**. NV-BASE is not publicly
-distributed, so Step 1 needs the binary pre-installed; Step 2 is
-stdlib-only and would also run on `ubuntu-latest`, but is kept on the
-same runner to share the checkout.
+Shared brev-CI runner pool labelled **`vss-brev-runner`**. NV-BASE is
+not publicly distributed, so Step 1 needs the binary pre-installed on
+every pool member; Step 2 is stdlib-only and would also run on
+`ubuntu-latest`, but is kept on the same pool to share the checkout.
 
 ## Runner bootstrap (one-time, by operator)
 
