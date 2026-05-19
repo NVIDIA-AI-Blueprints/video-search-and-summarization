@@ -1239,16 +1239,23 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
             )
 
     if errors:
-        required_count = int(req.get("gpu_count", 1) or 0)
         # Actionable hint so the agent doesn't burn its turn budget
         # re-discovering how to find a matching pool member. Stay
         # generic — don't name specific pool boxes here, the pool
         # is operator-managed and naming couples this code to the
-        # current fleet topology.
+        # current fleet topology. `required_count` and `required_type`
+        # are already bound above; reuse them. Build the "require …"
+        # phrase conditionally so an empty `gpu_type` (count-only
+        # specs) doesn't render as `gpu_type='' + gpu_count=N` and
+        # mislead the agent into filtering for a literal empty string.
+        require_clauses = []
+        if required_type:
+            require_clauses.append(f"gpu_type={required_type!r}")
+        require_clauses.append(f"gpu_count={required_count}")
+        require_phrase = " + ".join(require_clauses)
         hint = (
             f"\n\nTo find a matching pool member, scan vss-eval-* "
-            f"candidates and require gpu_type={required_type!r} + "
-            f"gpu_count={required_count}:\n"
+            f"candidates and require {require_phrase}:\n"
             f"  brev ls --json | jq -r '.[] | select(.name | "
             f"startswith(\"vss-eval-\")) | \"\\(.name)\\t\\(.instance_type)"
             f"\\t\\(.gpu)\"'\n"
