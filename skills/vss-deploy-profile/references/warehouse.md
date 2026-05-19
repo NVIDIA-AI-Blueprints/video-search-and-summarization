@@ -476,58 +476,71 @@ If that exact apt version is unavailable, use the NVIDIA archive for 580.105.08:
 
 #### 2.2 Docker
 
-Minimum required: **Docker Engine ≥ 27.2.0** and **Compose plugin ≥ v2.29.1**. If both are already installed and at or above those versions, **leave them alone** — proceed to §2.3.
+Reference versions: **Docker Engine 28.3.3** and **Docker Compose plugin v2.39.1+**. If Docker Engine is already **28.3.3** and the Compose plugin is **v2.39.1 or newer**, proceed to §2.3.
 
 ```bash
-docker --version        # need 27.2.0+
-docker compose version  # need v2.29.1+
+docker --version        # need 28.3.3
+docker compose version  # need v2.39.1+
 docker ps               # must run without sudo
 ```
 
-**Install Docker (if missing):**
+**Install / pin Docker (Ubuntu 24.04):**
+
+The pinned Docker CE packages come from Docker's official apt repository. If `apt` says `docker-ce` or `containerd.io` is unavailable, the Docker apt source is missing; add it first, then install the pinned versions.
+
 ```bash
+# Remove conflicting distro packages if present. It is okay if apt says none are installed.
+sudo apt-get remove -y docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc || true
+
+# Add Docker's official apt repository.
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
+sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo rm -f /etc/apt/sources.list.d/docker.list
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
 sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Optional sanity check: these should print available Docker repo versions.
+apt-cache madison docker-ce | grep '28.3.3'
+apt-cache madison docker-compose-plugin | grep '2.39.1'
+apt-cache madison docker-ce-rootless-extras | grep '28.3.3'
+
+# Install or downgrade to the known-good reference versions.
+sudo systemctl stop docker docker.socket 2>/dev/null || true
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
+  docker-ce=5:28.3.3-1~ubuntu.24.04~noble \
+  docker-ce-cli=5:28.3.3-1~ubuntu.24.04~noble \
+  containerd.io=2.2.2-1~ubuntu.24.04~noble \
+  docker-buildx-plugin \
+  docker-compose-plugin=2.39.1-1~ubuntu.24.04~noble \
+  docker-ce-rootless-extras=5:28.3.3-1~ubuntu.24.04~noble
+sudo systemctl enable --now docker
+
+# Optional: hold so unattended-upgrades doesn't move them back
+sudo apt-mark hold docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-ce-rootless-extras
+
+docker version --format '{{.Server.Version}}'   # -> 28.3.3
+docker compose version --short                  # -> 2.39.1+
 ```
 
-##### When to downgrade to exactly 27.2.0 / 2.29.x
+##### When to pin to Docker 28.3.3 / Compose v2.39.1+
 
-**Only downgrade if you hit this specific failure during `docker compose up --pull always`:**
+Pin Docker if you hit this specific failure during `docker compose up --pull always`:
 
 ```
 error from registry: Incorrect Repository Format
 ```
 
-If you see that, downgrade to the known-good combination matching the reference rig (Docker 27.2.0):
-
-```bash
-sudo systemctl stop docker docker.socket 2>/dev/null || true
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
-  docker-ce=5:27.2.0-1~ubuntu.24.04~noble \
-  docker-ce-cli=5:27.2.0-1~ubuntu.24.04~noble \
-  containerd.io=2.2.2-1~ubuntu.24.04~noble \
-  docker-compose-plugin=2.29.2-1~ubuntu.24.04~noble
-sudo systemctl start docker
-
-# Optional: hold so unattended-upgrades doesn't move them back
-sudo apt-mark hold docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-docker version --format '{{.Server.Version}}'   # → 27.2.0
-docker compose version --short                  # → 2.29.2
-```
-
-Then re-run `docker compose up --pull always` — the tag-pull will succeed.
+Then re-run `docker compose up --pull always` after the pinned install succeeds.
 
 **Non-root Docker:**
 ```bash

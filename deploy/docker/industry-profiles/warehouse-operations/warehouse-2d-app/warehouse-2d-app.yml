@@ -100,9 +100,10 @@ services:
   #       condition: service_completed_successfully
 
   bp-configurator-2d-init:
-    extends:
-      file: ${VSS_APPS_DIR}/services/infra/compose.yml
-      service: broker-health-check
+    build:
+      context: $VSS_APPS_DIR/services/infra
+      dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
+      network: host
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     container_name: vss-configurator-2d-init
     network_mode: "host"

@@ -34,11 +34,12 @@ The full operational walkthrough — config options, infrastructure dependencies
 
 1. **Repo checkout** with `$VSS_APPS_DIR` pointing at `<repo>/deploy/docker/`. Required by the service compose's volume binds.
 2. **NGC credentials** — `$NGC_CLI_API_KEY` set so docker can pull the image. See [`../vss-deploy-profile/references/ngc.md`](../vss-deploy-profile/references/ngc.md).
-3. **Elasticsearch** — must be reachable at the URL configured in `elasticsearch.node`. The server pings ES on startup; if unreachable, it exits (and `restart: always` brings it back). If you need to bring up ES too, use the infra compose: `docker compose -f services/infra/compose.yml up -d elasticsearch`.
-4. **Optional Kafka broker**. The API starts fine without Kafka — Kafka-dependent features (dynamic config, dynamic calibration, RTLS/AMR) are simply unavailable.
-5. **Optional `$VSS_DATA_DIR`** for file upload endpoints (sensor images, calibration files uploaded via REST).
+3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
+4. **Elasticsearch** — must be reachable at the URL configured in `elasticsearch.node`. The server pings ES on startup; if unreachable, it exits (and `restart: always` brings it back). If you need to bring up ES too, use the infra compose: `docker compose -f services/infra/compose.yml up -d elasticsearch`.
+5. **Optional Kafka broker**. The API starts fine without Kafka — Kafka-dependent features (dynamic config, dynamic calibration, RTLS/AMR) are simply unavailable.
+6. **Optional `$VSS_DATA_DIR`** for file upload endpoints (sensor images, calibration files uploaded via REST).
 
-If #1 or #2 fails, surface the gap before going further.
+If any required prerequisite fails, surface the gap before going further.
 
 ## Workflow
 
