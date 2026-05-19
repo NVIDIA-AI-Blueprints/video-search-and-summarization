@@ -63,7 +63,7 @@ spec:
               mv {{ .sourcePath | quote }} "${DEST}/{{ .destPath }}"
               rm -rf $(dirname {{ .sourcePath | quote }})
               {{- end }}
-              chmod -R a+r "${DEST}"
+              chmod -R a+rX "${DEST}"
               echo "[INFO] Models downloaded to ${DEST}"
           volumeMounts:
             - name: models
