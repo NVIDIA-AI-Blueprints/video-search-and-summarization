@@ -12,10 +12,15 @@ match it across runs. If a previous comment with the same marker exists,
 PATCH it in place; otherwise POST a new one. Always posts, even when both
 inputs report zero findings (the green check is useful signal).
 
-Env vars required:
+Env vars required (push mode):
   GITHUB_TOKEN           - auth (provided by Actions)
   GITHUB_REPOSITORY      - owner/repo
   PR_NUMBER              - PR to comment on
+
+Manual-mode fallback (workflow_dispatch):
+  When PR_NUMBER is empty (no PR to comment on), the same composed
+  markdown is appended to $GITHUB_STEP_SUMMARY instead. The Actions run
+  summary page is then the operator's single place to see findings.
 
 Optional:
   GITHUB_SHA             - commit SHA (for the comment footer)
@@ -236,17 +241,59 @@ def compose_body(nv: Optional[dict], pb: Optional[dict]) -> str:
     )
 
 
+def _write_step_summary(body: str) -> bool:
+    """Append the findings body to $GITHUB_STEP_SUMMARY.
+
+    Returns True on success. Renders an ::warning annotation and returns
+    False on any I/O failure — the gate should not fail on a summary
+    write error.
+    """
+    path = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
+    if not path:
+        return False
+    try:
+        # The trailing blank line keeps successive summary blocks from
+        # collapsing into one paragraph if other steps also append.
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(body)
+            if not body.endswith("\n"):
+                fh.write("\n")
+            fh.write("\n")
+        return True
+    except OSError as exc:
+        print(f"::warning::Could not write GITHUB_STEP_SUMMARY ({path}): "
+              f"{exc}", flush=True)
+        return False
+
+
 def main() -> None:
     pr = os.environ.get("PR_NUMBER", "").strip()
     repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
-    if not pr or not repo or not os.environ.get("GITHUB_TOKEN"):
-        print("::warning::PR_NUMBER, GITHUB_REPOSITORY, or GITHUB_TOKEN "
-              "missing; cannot post comment", flush=True)
-        sys.exit(0)  # don't fail the gate
+    token = os.environ.get("GITHUB_TOKEN", "")
 
     nv = _load_json("NVBASE_FINDINGS_JSON")
     pb = _load_json("PLAYBOOK_FINDINGS_JSON")
     body = compose_body(nv, pb)
+
+    # Manual-mode (workflow_dispatch): PR_NUMBER is empty. Route findings
+    # to the Actions run summary page so the operator has a single place
+    # to read results without a PR thread. Repo / token may still be
+    # populated by Actions but are unused in this path.
+    if not pr:
+        if _write_step_summary(body):
+            print("Manual mode: findings appended to $GITHUB_STEP_SUMMARY",
+                  flush=True)
+        else:
+            print("::warning::PR_NUMBER unset and GITHUB_STEP_SUMMARY "
+                  "unavailable; findings printed to stdout only",
+                  flush=True)
+            print(body, flush=True)
+        return
+
+    if not repo or not token:
+        print("::warning::GITHUB_REPOSITORY or GITHUB_TOKEN missing; "
+              "cannot post comment", flush=True)
+        sys.exit(0)  # don't fail the gate
 
     try:
         upsert_comment(repo, pr, body)
