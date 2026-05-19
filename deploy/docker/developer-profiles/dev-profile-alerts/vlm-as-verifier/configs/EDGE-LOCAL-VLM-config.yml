@@ -179,7 +179,7 @@ alert_agent:
 
 # RTVI VLM Configuration - Real-time VLM alert management
 rtvi_vlm:
-  base_url: "http://localhost:8018/v1"          # RTVI VLM microservice URL (env: RTVI_VLM_BASE_URL)
+  base_url: ${RTVI_VLM_BASE_URL}/v1
   timeout: 10                                # HTTP request timeout (seconds)
   default_model: "${VLM_NAME}"  # Default VLM model for caption/alert generation
   rules_collection: "alert-realtime-rules"   # ES collection name for durable rule storage

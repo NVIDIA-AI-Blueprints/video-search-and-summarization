@@ -455,7 +455,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         video_length_seconds = (end_dt - start_dt).total_seconds()
         num_frames = min(int(video_length_seconds) * config.max_fps, config.max_frames)
-        # Ensure at least 1 frame···
+        # Ensure at least 1 frame
         num_frames = max(num_frames, 1)
         logger.info(
             f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={config.max_fps}, max_frames={config.max_frames})"
