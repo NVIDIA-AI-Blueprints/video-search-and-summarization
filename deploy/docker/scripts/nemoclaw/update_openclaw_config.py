@@ -68,6 +68,7 @@ def read_etc_environment() -> dict[str, str]:
 
 
 def get_brev_env_id() -> str:
+    """Return the Brev environment ID, or '' on a non-Brev host."""
     env_id = os.environ.get("BREV_ENV_ID", "").strip()
     if env_id:
         return env_id
@@ -83,19 +84,13 @@ def get_brev_env_id() -> str:
     ]
     for hostname in hostname_candidates:
         host = hostname.strip().lower().rstrip(".")
-        if not host:
+        if not host.endswith(".brevlab.com"):
             continue
-        if host.endswith(".brevlab.com"):
-            host = host[: -len(".brevlab.com")]
-        if not host:
-            continue
+        host = host[: -len(".brevlab.com")]
         if "-" in host:
             return host.split("-", 1)[1]
 
-    raise ValueError(
-        "Unable to resolve Brev environment ID. "
-        "Set BREV_ENV_ID in the environment, add it to /etc/environment, "
-    )
+    return ""
 
 
 def read_remote_file(
@@ -312,7 +307,11 @@ def main() -> int:
     args = parser.parse_args()
 
     env_id = get_brev_env_id()
-    origin = f"https://openclaw0-{env_id}.brevlab.com"
+    if env_id:
+        origin = f"https://openclaw0-{env_id}.brevlab.com"
+    else:
+        port = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
+        origin = f"http://127.0.0.1:{port}"
 
     raw = read_remote_file(
         args.container,
@@ -351,7 +350,7 @@ def main() -> int:
 
     if args.dry_run:
         print("Dry run only. No changes written.")
-        print(f"Derived env_id: {env_id}")
+        print(f"Derived env_id: {env_id or '(local / non-Brev)'}")
         print(f"Target file: {args.config_path}")
         print(f"Origin enabled: {origin}")
         if args.enable_hooks:
@@ -395,22 +394,24 @@ def main() -> int:
         args.sandbox_name,
     )
 
-    print(f"Brev instance ID: {env_id}")
+    if env_id:
+        print(f"Brev instance ID: {env_id}")
     print(f"Origin allowed in OpenClaw: {origin}")
     print(f"agents.defaults.workspace: {DEFAULT_WORKSPACE_DIR}")
     if args.enable_hooks:
         print(f"OpenClaw hooks enabled at: {args.hooks_path}")
     if args.mcp_url:
         print(f"MCP server registered: {args.mcp_name} -> {args.mcp_url}")
-    if dashboard_token:
-        print(f"Dashboard token: {dashboard_token}")
-        ui_url = f"{origin}/#token={dashboard_token}"
-        print()
-        print(highlight_message("=" * 120))
-        print(highlight_message(f"OpenClaw UI at {ui_url}"))
-        print(highlight_message("=" * 120))
-    else:
+    if not dashboard_token:
         print("No dashboard token found")
+        return 0
+
+    print(f"Dashboard token: {dashboard_token}")
+    ui_url = f"{origin}/#token={dashboard_token}"
+    print()
+    print(highlight_message("=" * 120))
+    print(highlight_message(f"OpenClaw UI at {ui_url}"))
+    print(highlight_message("=" * 120))
     return 0
 
 
