@@ -148,7 +148,7 @@ In the recipes below, **substitute `<TRAJ>` with the exact trajectory path print
 | How many steps total? | `jq '.steps | length' <TRAJ>` |
 | Get final_metrics (cost, turns) | `jq '.final_metrics' <TRAJ>` |
 
-These assume `.json` array form with a top-level `steps[]` (the default on this stack). If the per-check prompt points you at a `.jsonl` file (each line is one step's JSON), drop the `.steps[]` prefix and use line-stream form: `jq -r '. | fromjson | …' <TRAJ>` or `grep`-based recipes that don't depend on top-level structure.
+These assume `.json` array form with a top-level `steps[]` (the default on this stack). If the per-check prompt points you at a `.jsonl` file, each line is already one step's JSON object — `jq` iterates lines automatically as separate inputs and the objects are already parsed (no `fromjson` needed). Drop both the `.steps[]` prefix AND the inner `| fromjson` and operate on the per-line object directly: e.g. `jq -r '.message.content[]? | select(.type=="tool_use" and .name=="Bash") | .input.command' <TRAJ>`. Or fall back to `grep`-based recipes, which don't depend on top-level structure at all.
 
 If a one-liner above doesn't fit the check, adapt it — but stay grep/jq-only; never `cat` or do an unbounded `Read` on the whole file.
 
