@@ -343,7 +343,9 @@ def _registry_get_blob(
         return None, f"response from {url} is not valid JSON: {exc}"
 
 
-def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | None, str | None]:
+def read_image_manifest_labels(
+    image_ref: str,
+) -> tuple[ImageManifestLabels | None, str | None, bool]:
     """Read ``com.nvidia.vss.*`` metadata from the image's config blob labels.
 
     Both the agent and the UI Dockerfiles emit ``LABEL com.nvidia.vss.*`` lines
@@ -356,27 +358,35 @@ def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | No
 
     Chain: top-level index/list → first platform manifest → config blob → ``Labels``.
 
-    Returns ``(labels, None)`` on success, or ``(None, reason)`` if the
-    registry rejects auth, no platform manifests are present, the config blob
-    can't be fetched, or the label is absent. Caller falls back to git-SHA
-    resolution in any of those cases.
+    Returns a 3-tuple ``(labels, reason, can_fallback)``:
+
+    * ``(labels, None, False)`` on success.
+    * ``(None, reason, True)`` if the manifest and config blob were fetched
+      successfully but neither carries a ``source_tree_sha`` label — the
+      legacy case for images built before the annotation rollout. The caller
+      may fall back to git-SHA resolution.
+    * ``(None, reason, False)`` for any registry-side failure (404, auth,
+      network, malformed response, missing platform manifest, etc.). These
+      are real bugs — the image is missing, mis-tagged, or unreachable — and
+      the caller must fail rather than mask the issue with a git-SHA fallback
+      that happens to find the tag's commit-SHA suffix in the local checkout.
     """
     parsed = _parse_image_ref(image_ref)
     if parsed is None:
-        return None, f"could not parse image ref: {image_ref}"
+        return None, f"could not parse image ref: {image_ref}", False
     registry, name, reference = parsed
 
     ngc_key = os.environ.get("NGC_CLI_API_KEY") or os.environ.get("NGC_API_KEY")
     token, token_err = _fetch_bearer_token(registry, name, ngc_key)
     if token_err:
-        return None, token_err
+        return None, token_err, False
 
     # 1. Fetch the top-level index/list.
     index, err = _registry_get_json(registry, name, reference, token, _INDEX_ACCEPT)
     if err:
-        return None, f"index fetch failed: {err}"
+        return None, f"index fetch failed: {err}", False
     if index is None:
-        return None, "registry returned empty index"
+        return None, "registry returned empty index", False
 
     # 2. Pick a platform-bearing manifest entry (skip attestation manifests).
     manifests = index.get("manifests") or []
@@ -400,22 +410,26 @@ def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | No
             platform_manifest = platform_manifest_resp
             break
         if platform_manifest is None:
-            return None, "no usable platform manifest in index"
+            return None, "no usable platform manifest in index", False
 
     # 3. Follow config.digest to the config blob, read its Labels.
     config_ref = (platform_manifest.get("config") or {}).get("digest")
     if not config_ref:
-        return None, "platform manifest has no config.digest"
+        return None, "platform manifest has no config.digest", False
     config, err = _registry_get_blob(registry, name, config_ref, token, _CONFIG_ACCEPT)
     if err:
-        return None, f"config blob fetch failed: {err}"
+        return None, f"config blob fetch failed: {err}", False
     if config is None:
-        return None, "registry returned empty config blob"
+        return None, "registry returned empty config blob", False
 
     labels = (config.get("config") or {}).get("Labels") or {}
     tree = labels.get(SOURCE_TREE_SHA_LABEL)
     if not tree:
-        return None, f"image config has no {SOURCE_TREE_SHA_LABEL} label"
+        # Manifest + config were reachable, but the source-tree-SHA label was
+        # never stamped on this image. This is the legacy case (pre-annotation
+        # rollout) and is the only condition where the git-SHA fallback may
+        # legitimately fire.
+        return None, f"image config has no {SOURCE_TREE_SHA_LABEL} label", True
 
     return (
         ImageManifestLabels(
@@ -424,6 +438,7 @@ def read_image_manifest_labels(image_ref: str) -> tuple[ImageManifestLabels | No
             image_name=labels.get(IMAGE_NAME_LABEL),
         ),
         None,
+        False,
     )
 
 
@@ -525,7 +540,7 @@ def check_resolved_image(
     # ci-vss-oss ci/tools/create_manifest.py) and works regardless of whether
     # the original build commit still exists in any git branch — which is the
     # common case after a squash- or rebase-merge orphans the PR-head SHA.
-    labels, oci_reason = read_image_manifest_labels(item.resolved_ref)
+    labels, oci_reason, can_fallback = read_image_manifest_labels(item.resolved_ref)
     if labels:
         if labels.image_name and labels.image_name != config.image_name:
             print(
@@ -552,6 +567,23 @@ def check_resolved_image(
         print(f"         Image's source tree SHA at build time: {labels.source_tree_sha}")
         print(f"         Current {src}/ tree SHA:               {current_tree}")
         _print_fix_hint(config)
+        return False
+
+    # Only fall back when the manifest + config were reachable but the
+    # source-tree-SHA label is absent (legacy images predating the
+    # annotation rollout in ci-vss-oss). For any registry-side failure
+    # (404, auth, network, malformed) we must hard-fail — otherwise a
+    # mis-promoted tag is silently rescued by the git-SHA fallback as
+    # long as the tag's commit-SHA suffix happens to exist in the local
+    # checkout, which masks a real bug.
+    if not can_fallback:
+        print(f"  manifest:      UNREACHABLE ({oci_reason})")
+        print(
+            f"  [FAIL] could not fetch the image manifest for {item.resolved_ref}. "
+            "The image is missing from the registry, the credentials are "
+            "wrong, or the network is broken — fix the upstream promotion "
+            "rather than falling back to the tag's git-SHA suffix."
+        )
         return False
 
     # Fallback: pre-annotation images (predate the manifest-annotation rollout
