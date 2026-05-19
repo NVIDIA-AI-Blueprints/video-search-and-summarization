@@ -13,17 +13,30 @@ The agent gets Bash/Read/Edit/Write/Glob/Grep. It is explicitly told
 (in AGENTS.md) that it must NOT modify anything under `skills/`.
 
 Env (set by the workflow step):
-    PR_NUMBER        PR being evaluated (e.g. "100")
-    PR_BASE          Base branch (e.g. "feat/skills")
-    PR_HEAD_SHA      Mirror head SHA (full)
-    PR_REPO          "owner/repo"
-    GITHUB_RUN_ID    CI run id (for lock + instance-started tracking)
-    ANTHROPIC_*      Agent SDK credentials (sourced from coordinator .env)
-    GH_TOKEN         PR comment posting
-    NGC_CLI_API_KEY  Local NIM pulls in trials
-    LLM_REMOTE_URL   Optional; enables remote-* deploy modes
-    VLM_REMOTE_URL   Optional; enables remote-* deploy modes
-    BREV_ENV_ID      Set by Brev on the coordinator host; part of secure-link URLs
+    PR_NUMBER             PR being evaluated, e.g. "100" (push mode; blank on workflow_dispatch)
+    PR_BASE               Base branch, e.g. "develop" (push mode; blank on workflow_dispatch)
+    PR_HEAD_SHA           Mirror or main-branch head SHA (full)
+    PR_REPO               "owner/repo"
+    GITHUB_RUN_ID         CI run id (for lock + instance-started tracking)
+    GITHUB_STEP_SUMMARY   Path to a markdown file appended to the Actions run summary
+                          page. The agent writes per-spec results tables here in
+                          manual-sweep mode (no PR to comment on).
+    MANUAL_FULL_SWEEP     "1" when workflow_dispatch fired. Swaps user prompt:
+                          enumerate every skills/<skill>/eval/*.json for the
+                          skill named in MANUAL_SKILLS_FILTER (or all skills when
+                          `*`), write results to $GITHUB_STEP_SUMMARY, never
+                          post `gh pr comment`, never raise bot PRs (missing
+                          adapter is a BLOCKED outcome). Every spec on the
+                          chosen skill(s) runs — no spec-level filter knob.
+    MANUAL_SKILLS_FILTER  Single skill name from the dispatch dropdown, or "*"
+                          for all (default "*"). Validated server-side by GH
+                          Actions against the type:choice enum.
+    ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
+    GH_TOKEN              PR comment posting (push mode only)
+    NGC_CLI_API_KEY       Local NIM pulls in trials
+    LLM_REMOTE_URL        Optional; enables remote-* deploy modes
+    VLM_REMOTE_URL        Optional; enables remote-* deploy modes
+    BREV_ENV_ID           Set by Brev on the coordinator host; part of secure-link URLs
 
 Exit codes:
     0 - agent completed (eval may still report failures in PR comment)
@@ -54,12 +67,17 @@ AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 # Hard cap on the agent's tool loop — one trial burns ~20-30 harness
 # turns (startup + brev wait + `uvx harbor run` exec + reading results +
 # migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
-# recon/retry overhead exceeds the previous 300 ceiling. Run
-# 24879743425 burned ~270 turns on only 3 trials before hitting it
-# mid-lvs with 10+ trials unstarted. 600 is a safety valve against
-# runaway loops, not a budget knob — the workflow's 8h wall-clock
-# (skills-eval.yml timeout-minutes: 480) is the real ceiling.
-MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "600"))
+# recon/retry overhead exceeds the previous 300 ceiling. The 600 cap
+# that replaced it was still tight when the agent hit a novel
+# situation it had to discover (e.g. gpu_count selection rejecting
+# the default candidate, or harbor flag semantics from a fresh runner
+# without prior context) — each "discovery" burst is 5-10 turns of
+# Read/Grep/Bash spelunking on top of the steady-state per-trial
+# cost. Bumping to 2000 absorbs that overhead without lifting the
+# real ceiling (skills-eval.yml timeout-minutes: 480 is the wall-
+# clock gate; this knob is just a safety valve against runaway
+# loops).
+MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "2000"))
 
 # ---------------------------------------------------------------------------
 # Pre-flight
@@ -108,11 +126,29 @@ async def run_agent() -> int:
         ResultMessage, TextBlock, ToolUseBlock,
     )
 
-    pr_number = _require("PR_NUMBER")
-    pr_base = _require("PR_BASE")
+    manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
     pr_head = _require("PR_HEAD_SHA")
     pr_repo = _require("PR_REPO")
     run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
+
+    if manual_sweep:
+        # workflow_dispatch path: no PR, no diff. PR_NUMBER/PR_BASE may be
+        # blank — keep them as empty strings so any downstream prompt
+        # interpolation still works.
+        pr_number = os.environ.get("PR_NUMBER", "") or f"manual-{run_id}"
+        pr_base = os.environ.get("PR_BASE", "") or "(manual)"
+        # `type: choice` already constrains the value server-side, but
+        # strip whitespace + newlines defensively before splicing into
+        # the agent's user prompt. The agent runs with bypassPermissions
+        # and full filesystem tools, so any prompt-templated user data is
+        # worth scrubbing regardless of the upstream guard.
+        skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip().splitlines()[0] if os.environ.get("MANUAL_SKILLS_FILTER", "").strip() else "*"
+        step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    else:
+        pr_number = _require("PR_NUMBER")
+        pr_base = _require("PR_BASE")
+        skills_filter = "*"
+        step_summary = ""
 
     if not AGENTS_MD.exists():
         print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
@@ -120,7 +156,57 @@ async def run_agent() -> int:
 
     system_prompt = AGENTS_MD.read_text()
 
-    user_prompt = f"""
+    if manual_sweep:
+        user_prompt = f"""
+**Manual full-sweep run** — `workflow_dispatch` fired (no PR, no diff).
+
+Context:
+  repo                = {pr_repo}
+  head SHA            = {pr_head}
+  workflow run        = {run_id}
+  working dir         = {REPO_ROOT}
+  skills filter       = {skills_filter}   (single skill name from the dispatch dropdown, or `*` = all)
+  GITHUB_STEP_SUMMARY = {step_summary or '(unset — fall back to stdout)'}
+
+Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
+
+  Step 1 (override): skip the diff entirely. Enumerate `skills/*/eval/*.json`
+    on the checked-out workspace. Keep only the skill named in `skills filter`
+    (the dispatch dropdown is single-select; `*` matches all). All specs on the
+    chosen skill(s) run — there is no spec-level filter. Skills with no eval/
+    dir are runtime libraries and are skipped as in the normal path.
+
+  Step 3 (override): the bot-PR flow is OFF in manual mode (there's no
+    contributor branch to target). If an adapter is missing or stale for a
+    spec, record that spec as BLOCKED with the trigger that fired
+    (missing / stale / spec drift) and a one-line reason in the results
+    table — DO NOT push a branch, DO NOT create a PR. Keep processing the
+    remaining (skill, spec) pairs.
+
+  Step 6 (override): there is no PR to comment on. For each completed
+    `(skill, spec)` batch, append the same markdown table you would have
+    posted via `gh pr comment` to the path in `$GITHUB_STEP_SUMMARY`. Use:
+
+      cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+      ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+      ... (table + failing checks + suggestions, identical to § Result comment format) ...
+      MD
+
+    Append per-spec — don't buffer everything for the end. If
+    `$GITHUB_STEP_SUMMARY` is empty/unset (smoke-test locally), print the
+    same markdown to stdout instead and note the fallback.
+
+Everything else in AGENTS.md applies unchanged: startup hygiene, fleet
+selection (§ 5a), per-box flock (§ 5b), canonical harbor invocation, no
+trial-supervision polling, no writes under `skills/`, no instance lifecycle
+calls.
+
+When done, emit `DONE: <n>/<total> specs passed; <m> blockers` on the final
+line. If the sweep couldn't proceed at all (e.g. pool exhausted before the
+first trial), emit `BLOCKED: <reason>` instead.
+"""
+    else:
+        user_prompt = f"""
 PR #{pr_number} just pushed new commits touching `skills/` (or eval harness code).
 
 Context:

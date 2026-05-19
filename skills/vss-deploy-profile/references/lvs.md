@@ -2,7 +2,7 @@
 
 Profile: `lvs` | Blueprint: `bp_developer_lvs` | Mode: `2d`
 
-Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base.md)) — same supported models, same sizing math. **The VLM serving is different**: as of [PR #347](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/pull/347), LVS no longer brings up a standalone Cosmos NIM; all VLM traffic goes through `rtvi-vlm` on port 8018, which loads the VLM checkpoint itself.
+Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base.md)) — same supported models, same sizing math. **The VLM serving is different**: LVS no longer brings up a standalone Cosmos NIM; all VLM traffic goes through `rtvi-vlm` on port 8018, which loads the VLM checkpoint itself.
 
 ## What's different from `base`
 
@@ -59,7 +59,7 @@ Use this when the requested VLM is one of the integrated-supported set:
 
 For HF git paths (e.g. Nemotron Omni), the advertised name is determined by RT-VLM at load time — verify with `curl http://${HOST_IP}:8018/v1/models | jq` once it's healthy and copy that string verbatim into `VLM_NAME`.
 
-To switch the integrated VLM, edit `deploy/docker/developer-profiles/dev-profile-lvs/.env`:
+To switch the integrated VLM, edit `deploy/docker/developer-profiles/dev-profile-lvs/generated.env`:
 
 ```bash
 # Example — Cosmos Reason 1 7B
@@ -72,7 +72,7 @@ RTVI_VLM_MODEL_TO_USE=cosmos-reason
 
 `RTVI_VLM_ENDPOINT` stays empty in integrated mode — RT-VLM serves locally.
 
-**Nemotron Omni — additional env.** The Omni model adds audio support and pulls weights from Hugging Face (not NGC), so it needs a small extra block in `dev-profile-lvs/.env`:
+**Nemotron Omni — additional env.** The Omni model adds audio support and pulls weights from Hugging Face (not NGC), so it needs a small extra block in `dev-profile-lvs/generated.env`:
 
 ```bash
 # Model selection
@@ -102,7 +102,7 @@ Use this when:
 1. **The user supplied a remote VLM endpoint URL** (e.g. *"deploy LVS with VLM at `https://launchpad:11572` serving `cosmos-reason2-8b`"*), **OR**
 2. **The local GPU can't fit the requested VLM alongside the LLM** per the sizing math (and the user has agreed to go remote — same two-trigger rule as [`base.md` § When to use remote LLM/VLM](base.md#when-to-use-remote-llmvlm)).
 
-Edit `dev-profile-lvs/.env`:
+Edit `dev-profile-lvs/generated.env`:
 
 ```bash
 VLM_MODE=remote
@@ -141,7 +141,7 @@ The RT-VLM container reads sizing knobs from `dev-profile-lvs/.env` with the `RT
 | `VSS_NUM_GPUS_PER_VLM_PROC` | `VSS_NUM_GPUS_PER_VLM_PROC` | empty | Tensor parallelism for the VLM. Set when the VLM is too big for one GPU. |
 | `RT_VLM_DEVICE_ID` | (compose `device_ids`) | `${VLM_DEVICE_ID:-0}` | Which GPU RT-VLM pins to. In shared mode set this equal to `LLM_DEVICE_ID`. |
 
-The sizing flow is identical to base: pick the fraction with the formula in [`base.md`](base.md#sizing-math), write it into `dev-profile-lvs/.env` (one place — there is no per-hardware `hw-*.env` for RT-VLM), re-resolve the compose, deploy, watch the rtvi-vlm logs for `Maximum concurrency for X tokens per GPU: Y x` to confirm the KV-cache budget.
+The sizing flow is identical to base: pick the fraction with the formula in [`base.md`](base.md#sizing-math), write it into `dev-profile-lvs/generated.env` (one place — there is no per-hardware `hw-*.env` for RT-VLM), re-resolve the compose, deploy, watch the rtvi-vlm logs for `Maximum concurrency for X tokens per GPU: Y x` to confirm the KV-cache budget.
 
 ## Worked example — shared mode, Nano 9B + CR2 8B on 1 × H100 80 GB
 
@@ -153,7 +153,7 @@ Math is identical to [`base.md` § Worked example](base.md#worked-example--nemot
 NIM_KVCACHE_PERCENT=0.449
 
 # VLM — RT-VLM, in the LVS profile env
-# deploy/docker/developer-profiles/dev-profile-lvs/.env
+# deploy/docker/developer-profiles/dev-profile-lvs/generated.env
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40
 RT_VLM_DEVICE_ID=0
 LLM_DEVICE_ID=0
@@ -167,8 +167,8 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 
 - **`VLM_NAME` must equal RT-VLM's `/v1/models` basename.** This is the single most important field for LVS to function. For the default integrated Cosmos2: `VLM_NAME=nim_nvidia_cosmos-reason2-8b_hf-1208`. Using the friendly NIM name `nvidia/cosmos-reason2-8b` causes vss-lvs to return `400 BadParameters: No such model …` and summarization fails — confirmed in production (2026-05-10). Transformation rule for NGC NIM paths: `ngc:nim/<org>/<model>:<tag>` → `nim_<org>_<model>_<tag>`. For HF git paths or any custom MODEL_PATH, verify by `curl http://${HOST_IP}:8018/v1/models | jq` after RT-VLM boots and copy the `id` field.
 - **L40S (48 GB) cannot host the LLM + RT-VLM shared.** 23.4 + 20.8 = 44.2 GB > 40.8 GB usable. Use a 2-GPU L40S host (LLM on device 0, RT-VLM on device 1) or escalate to the user about a remote VLM (Path B).
-- **Edge platforms (DGX-Spark / Thor) need the SBSA RT-VLM image.** Set `RTVI_VLM_IMAGE_TAG=3.2.0-26.04.1-sbsa` in `dev-profile-lvs/.env`. LLM-side, follow [`edge.md`](edge.md) (Edge 4B mandatory for shared mode on edge).
-- **Don't co-deploy a standalone Cosmos NIM with RT-VLM.** Since PR #347, the standalone `vlm_local_*_cosmos-reason2-8b` profile must NOT be active for LVS. Verify by checking that `resolved.yml` doesn't have a `cosmos-reason2-8b` or `cosmos-reason2-8b-shared-gpu` service alongside `rtvi-vlm`.
+- **Edge platforms (DGX-Spark / Thor) need the SBSA RT-VLM image.** Set `RTVI_VLM_IMAGE_TAG=3.2.0-26.05.1-sbsa` in `dev-profile-lvs/generated.env` (matches the commented variant in the source `.env`). LLM-side, follow [`edge.md`](edge.md) (Edge 4B mandatory for shared mode on edge).
+- **Don't co-deploy a standalone Cosmos NIM with RT-VLM.** The standalone `vlm_local_*_cosmos-reason2-8b` profile must NOT be active for LVS. Verify by checking that `resolved.yml` doesn't have a `cosmos-reason2-8b` or `cosmos-reason2-8b-shared-gpu` service alongside `rtvi-vlm`.
 - **`VLM_MODE=remote` ⇒ `RTVI_VLM_MODEL_PATH=none`.** Forgetting this leaves RT-VLM trying to load weights AND proxy at the same time → startup hang or OOM.
 - **`/v1` suffix mismatch.** `VLM_BASE_URL` no `/v1`; `RTVI_VLM_ENDPOINT` yes `/v1`. The skill should always write both consistently when going remote.
 
@@ -193,13 +193,14 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 ## Env file location
 
 ```
-deploy/docker/developer-profiles/dev-profile-lvs/.env
+deploy/docker/developer-profiles/dev-profile-lvs/.env            # source defaults (read-only)
+deploy/docker/developer-profiles/dev-profile-lvs/generated.env   # skill's working copy (apply overrides here)
 ```
 
 ## Debugging
 
 - **`docker logs vss-rtvi-vlm`** — startup takes up to 20 min on first run (model download from NGC). Look for `Maximum concurrency for X tokens per GPU: Y x` to confirm vLLM is up and the KV-cache budget is what you set.
-- **`vss-lvs` returns `400 BadParameters: No such model '<id>'`** (summarization fails in the UI) — `VLM_NAME` doesn't match what RT-VLM advertises. Verify with `curl http://${HOST_IP}:8018/v1/models | jq`; the `id` field must equal `VLM_NAME` in `dev-profile-lvs/.env`. For the default integrated path that's `nim_nvidia_cosmos-reason2-8b_hf-1208` (NOT `nvidia/cosmos-reason2-8b`). Fix → `docker compose -f resolved.yml up -d --no-deps --force-recreate vss-lvs vss-agent`. If the same UI chat thread is stuck in the failed-tool loop, refresh or start a fresh prompt.
+- **`vss-lvs` returns `400 BadParameters: No such model '<id>'`** (summarization fails in the UI) — `VLM_NAME` doesn't match what RT-VLM advertises. Verify with `curl http://${HOST_IP}:8018/v1/models | jq`; the `id` field must equal `VLM_NAME` in `dev-profile-lvs/generated.env` (the deployed values). For the default integrated path that's `nim_nvidia_cosmos-reason2-8b_hf-1208` (NOT `nvidia/cosmos-reason2-8b`). Fix → `docker compose -f resolved.yml up -d --no-deps --force-recreate vss-lvs vss-agent`. If the same UI chat thread is stuck in the failed-tool loop, refresh or start a fresh prompt.
 - **VLM never produces summaries** — check that the topic `mdx-vlm-captions` is being written. `docker exec mdx-kafka-1 kafka-console-consumer --bootstrap-server localhost:9092 --topic mdx-vlm-captions --max-messages 1`.
 - **Empty Kibana dashboards** — shared `logstash` may have failed to load the `mdx-lvs` pipeline or protobuf codec; `docker logs logstash` should show pipeline startup for `mdx-lvs-logstash.conf`.
 - **OOM in RT-VLM under load** — lower `RTVI_VLLM_GPU_MEMORY_UTILIZATION` by 0.05; if that doesn't help, drop `RTVI_VLM_MAX_MODEL_LEN` to `16384` and `RTVI_VLLM_MAX_NUM_SEQS` to `64`.

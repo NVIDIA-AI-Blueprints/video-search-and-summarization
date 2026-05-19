@@ -390,9 +390,14 @@ class BrevEnvironment(BaseEnvironment):
                   the reconcile instead of running against a
                   partially-dirty box that pretends to be clean.
 
-        vss-deploy-profile/* trials themselves set `profile` but don't request a
-        prereq — their test.sh writes the marker on reward=1.0. They
-        never call this hook.
+        vss-deploy-profile/* trials don't set `profile` in their task.toml
+        [metadata], so they fall into the `desired=""` box-clean branch
+        above — wipes containers/networks/volumes and clears the marker
+        before the trial deploys from scratch. Their test.sh writes the
+        marker on reward=1.0 for downstream warm-reuse. (Earlier the
+        adapter emitted `profile = "<X>"` here, which mistakenly fired
+        the prereq reconcile below before the trial — see commit
+        history on `adapters/vss-deploy-profile/generate.py`.)
 
         claude-code is expected on the box from a prior vss-deploy-profile/* trial's
         harbor agent setup; persists across trials on the reused
@@ -1234,10 +1239,37 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
             )
 
     if errors:
+        # Actionable hint so the agent doesn't burn its turn budget
+        # re-discovering how to find a matching pool member. Stay
+        # generic — don't name specific pool boxes here, the pool
+        # is operator-managed and naming couples this code to the
+        # current fleet topology. `required_count` and `required_type`
+        # are already bound above; reuse them. Build the "require …"
+        # phrase conditionally so an empty `gpu_type` (count-only
+        # specs) doesn't render as `gpu_type='' + gpu_count=N` and
+        # mislead the agent into filtering for a literal empty string.
+        require_clauses = []
+        if required_type:
+            require_clauses.append(f"gpu_type={required_type!r}")
+        require_clauses.append(f"gpu_count={required_count}")
+        require_phrase = " + ".join(require_clauses)
+        hint = (
+            f"\n\nTo find a matching pool member, scan vss-eval-* "
+            f"candidates and require {require_phrase}:\n"
+            f"  brev ls --json | jq -r '.[] | select(.name | "
+            f"startswith(\"vss-eval-\")) | \"\\(.name)\\t\\(.instance_type)"
+            f"\\t\\(.gpu)\"'\n"
+            f"Cross-reference each candidate's instance_type against "
+            f"`brev search gpu --json` to confirm gpu_count, then "
+            f"re-export BREV_INSTANCE=<candidate> and retry. Do NOT "
+            f"`brev create` a new instance — the pool is operator-"
+            f"managed (see AGENTS.md § Platform topology)."
+        )
         raise RuntimeError(
             f"Brev instance '{instance.get('name')}' does not meet task "
             f"requirements:\n  - " + "\n  - ".join(errors) +
             f"\n  (instance: type={instance.get('instance_type')}, gpu={gpu})"
+            + hint
         )
 
     logger.info(

@@ -12,9 +12,12 @@ Modifications vs upstream
 -------------------------
 - STR-004 (references/README.md required) removed — not part of the
   agentskills.io spec and not used by Anthropic's reference skills.
-- STR-003 softened to WARN: "evals/ directory not found" only.
+- STR-003 softened to WARN: "eval/ directory not found" only.
   No filename restriction (upstream required `evals/evals.json`, which
-  is one community runner's convention, not a standard).
+  is one community runner's convention, not a standard). This repo's
+  skills ship eval specs at `skills/<skill>/eval/<spec>.json` (singular
+  directory name — matches the skill-eval workflow + skills_eval_agent.py
+  conventions).
 - EVAL-001..005 family removed entirely. The repo's existing
   `skills-eval` workflow is the source of truth for actual eval
   execution; this script stays Tier-1 schema/static only.
@@ -164,10 +167,13 @@ RESERVED_BARE_NAMES = {
 MAX_NAME_TOKENS = 4
 MAX_NAME_CHARS  = 30
 
-# Trigger-clause keywords (used by FM-010 to find the "Use when…" substring)
+# Trigger-clause keywords (used by FM-010 to find the "Use when…" substring).
+# "load when" / "load this when" / "load this skill when" are equally valid per
+# the playbook — the skill is "loaded" when its trigger conditions are met.
 TRIGGER_CLAUSE_KEYWORDS = (
     "use when", "trigger when", "use this skill when", "use this when",
     "trigger this skill when",
+    "load when", "load this when", "load this skill when",
 )
 
 # Description anti-patterns (FM-011) — leading sentence reads as
@@ -558,19 +564,24 @@ def check_structure(skill_path: Path, result: SkillResult) -> None:
             "Move domain detail into references/ and link to it from SKILL.md.",
         ))
 
-    # STR-003: nudge — `evals/` directory present. No filename or format
+    # STR-003: nudge — `eval/` directory present. No filename or format
     # restriction; the actual eval runner (skills-eval workflow) owns shape.
-    evals_dir = skill_path / "evals"
-    if not evals_dir.is_dir():
+    # This repo's convention is `eval/` (singular) — matches the path
+    # skills_eval_agent.py walks (`skills/<skill>/eval/*.json`) and the
+    # skill-eval adapter layout. Earlier versions of this rule checked for
+    # `evals/` (plural, an upstream playbook convention) and false-flagged
+    # every skill in this repo.
+    eval_dir = skill_path / "eval"
+    if not eval_dir.is_dir():
         result.findings.append(Finding(
             WARNING, "STR-003",
-            "evals/ directory not found. Ship at least one eval scenario "
+            "eval/ directory not found. Ship at least one eval scenario "
             "(any filename / format) so the skill can be regression-tested.",
         ))
-    elif not any(evals_dir.iterdir()):
+    elif not any(eval_dir.iterdir()):
         result.findings.append(Finding(
             WARNING, "STR-003",
-            "evals/ directory exists but is empty.",
+            "eval/ directory exists but is empty.",
         ))
 
 
@@ -651,13 +662,13 @@ def check_frontmatter(skill_path: Path, result: SkillResult) -> None:
             "Include specific trigger phrases (e.g. 'Trigger when the user says...') "
             "so the skill activates reliably.",
         ))
-    trigger_words = {"trigger", "use when", "use this", "invoke"}
+    trigger_words = {"trigger", "use when", "use this", "invoke", "load when", "load this"}
     if desc and not any(w in desc.lower() for w in trigger_words):
         result.findings.append(Finding(
             WARNING, "FM-009",
             "Frontmatter 'description' has no trigger guidance. "
-            "Add a phrase like 'Use this skill when...' or 'Trigger when...' "
-            "so Claude knows when to invoke it.",
+            "Add a phrase like 'Use this skill when...', 'Trigger when...', "
+            "or 'Load when...' so Claude knows when to invoke it.",
         ))
 
     # FM-010: the "Use when…" clause should list multiple user-phrasing examples.

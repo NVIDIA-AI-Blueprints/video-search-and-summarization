@@ -52,9 +52,11 @@ template is in § Harbor invocation below.
    and exit cleanly. No PR comment.
 
 2. **For each changed skill, decide whether it has a dispatchable
-   eval spec** — any `skills/<skill>/eval/<name>.json`. The filename
-   is free; it doesn't need to match a deploy profile or any
-   convention. A skill can ship multiple specs side-by-side.
+   eval spec** — any `skills/<skill>/evals/<name>.json`. For legacy
+   skills that have not moved yet, also accept
+   `skills/<skill>/eval/<name>.json`. The filename is free; it
+   doesn't need to match a deploy profile or any convention. A skill
+   can ship multiple specs side-by-side.
 
    Hard requirements on a spec: `skills` (list), `resources.platforms`
    (matrix), `env` (prose), `expects` (ordered query/checks list).
@@ -518,9 +520,21 @@ uvx harbor run \
 ```
 
 Notes that have burned prior runs:
-- `--include-task-name` takes the full trial task name as emitted by
-  the adapter (usually `<platform>`, e.g. `l40s`).
-  `-i` / `--include` is a different flag and will silently match
+- `--include-task-name` is an **fnmatch glob** against the full task
+  name. Adapters emit task names of the form
+  `nvidia-vss/<skill>-<spec>-<platform>[-step-<N>]`, so the
+  templates above (`<platform>` for single-step, `<platform>-step-${STEP}`
+  for multi-step) work as **suffix matches** — `l40s` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s`, and
+  `l40s-step-1` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s-step-1`. Do **not**
+  paste the full task name into this flag and do **not** prefix it
+  with `*` — the suffix template is sufficient. Observed failure
+  mode (PR #532): an agent unfamiliar with the glob semantics treats
+  `<platform>` as a placeholder for the full name, gets stuck
+  spelunking the codebase, and exhausts its turn budget before
+  dispatching the first trial.
+- `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - **Multi-step specs MUST be dispatched one step at a time, in
   order, with skip-on-prior-fail.** Harbor's default scheduler
@@ -748,7 +762,7 @@ One comment per `(PR, eval_spec)` batch, posted only after every
 (platform) tuple in the spec's matrix has a recorded result.
 
 ```markdown
-## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
 Head: `<short-sha>` · N platforms · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
@@ -819,6 +833,58 @@ separate; don't conflate the two.
 - **Lock contention** (another CI run holds the Brev lock). Wait up
   to 8 h (flock `-w 28800`). If you time out, emit `BLOCKED: lock
   timeout on <instance>`.
+
+## Manual full-sweep mode
+
+The workflow also exposes a `workflow_dispatch` trigger that fires this
+agent against the **current head of whatever branch the operator dispatched
+from** (typically `develop`), with no diff and no PR. The wrapper sets
+`MANUAL_FULL_SWEEP=1`, blanks `PR_NUMBER`/`PR_BASE`, and passes a single
+skill filter:
+
+  - `MANUAL_SKILLS_FILTER` — one skill name from the `type: choice`
+    dispatch dropdown, or `*` for every skill. There is intentionally no
+    spec-level filter — once a skill is picked, every spec under
+    `skills/<skill>/eval/*.json` runs.
+
+When you see `MANUAL_FULL_SWEEP=1` in the env (the user prompt also says so
+explicitly), apply these step overrides — everything else in this file
+applies unchanged:
+
+- **Step 1 (override):** skip the diff. Enumerate `skills/*/eval/*.json` on
+  the checked-out workspace, then drop any skill not matching the filter
+  (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
+  are skipped as in the normal path. Every spec on the kept skill(s) runs.
+
+- **Step 3 (override):** the bot-PR flow in §§ 3c/3d is **off** — there is
+  no contributor branch to target. If an adapter is missing or stale for a
+  given spec, record that spec as `BLOCKED:<reason>` in the results table
+  and move on. Do NOT push branches, do NOT open PRs. (The hard rule
+  against `skills/` writes still applies in full.)
+
+- **Step 6 (override):** there is no PR to comment on. For each completed
+  `(skill, spec)` batch, append the same markdown you would have posted
+  via `gh pr comment` (per § Result comment format) to the file at
+  `$GITHUB_STEP_SUMMARY`:
+
+  ```bash
+  cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+  ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+  ... table + failing checks + suggestions, exactly as in PR-comment mode ...
+  MD
+  ```
+
+  Append per-spec — don't buffer everything for the end. If
+  `$GITHUB_STEP_SUMMARY` is empty/unset (running locally for a smoke
+  test), print the same markdown to stdout and note the fallback. The
+  rendered Actions run summary is the operator's primary view; the Harbor
+  viewer URLs in each row are still per-trial trace links.
+
+Everything else — startup hygiene, fleet selection (§ 5a), per-box flock
+(§ 5b), canonical harbor invocation (§ Harbor invocation), no
+trial-supervision polling, the artifact-tarball collection step in the
+workflow — is identical to the PR-driven path. The DONE/BLOCKED final
+marker (§ Output requirements) is also unchanged.
 
 ## Output requirements
 

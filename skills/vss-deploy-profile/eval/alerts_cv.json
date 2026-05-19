@@ -16,11 +16,11 @@
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0 (Agent backend)",
-        "`docker ps --format '{{.Names}}' | grep -qx mdx-redis` returns exit 0 (shared message bus)",
-        "`docker ps --format '{{.Names}}' | grep -qx perception-alerts` returns exit 0 (RT-CV perception — the 'CV' in this mode)",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics-alerts` returns exit 0 (rule-based alert generation on CV output)",
-        "`docker ps --format '{{.Names}}' | grep -qx alert-bridge` returns exit 0 (routes CV-generated alerts to VLM verifier)",
-        "`docker ps --format '{{.Names}}' | grep -qx mdx-nvstreamer-alerts` returns exit 0 (video ingestion source)"
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0 (shared message bus)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-CV perception — the 'CV' in this mode)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (rule-based alert generation on CV output)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge` returns exit 0 (routes CV-generated alerts to VLM verifier)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0 (video ingestion source)"
       ]
     }
   ]

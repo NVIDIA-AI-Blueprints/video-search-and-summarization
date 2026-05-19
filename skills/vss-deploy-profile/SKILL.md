@@ -35,11 +35,14 @@ Match the user's request to a profile, then load that profile's reference for si
 ## How it works
 
 ```bash
-# 1. Apply env overrides to the profile .env file
-# 2. docker compose --env-file .env config > resolved.yml   (dry-run)
-# 3. Review resolved.yml
-# 4. docker compose -f resolved.yml up -d
+# 1. cp dev-profile-<profile>/.env dev-profile-<profile>/generated.env  (clean copy)
+# 2. Apply env overrides to generated.env  (source .env stays untouched)
+# 3. docker compose --env-file generated.env config > resolved.yml      (dry-run)
+# 4. Review resolved.yml
+# 5. docker compose -f resolved.yml up -d
 ```
+
+The source `.env` is treated as **read-only defaults** committed to the repo. The skill's per-deploy working copy is `generated.env` — same pattern `dev-profile.sh` uses internally. This keeps the checked-in `.env` clean across iterations.
 
 ## Prerequisites
 
@@ -115,16 +118,29 @@ Layout (asset paths, ownership, mount points, profile-specific subdirs) is docum
 >
 > This is "good housekeeping" to a shell-admin instinct but is **the** deploy-breaking command in this stack. You will observe a "healthy" deploy (containers Up, endpoints 200) while the video pipeline is silently broken. Use `chmod -R 777` on the specific subdirs documented in `data-directory.md` — nothing else.
 
-### Step 1c — If deploying on Brev, set `EXTERNAL_IP` to the secure-link domain
+### Step 1c — Initialize `generated.env`
+
+The skill's per-deploy working copy. Always start from a fresh copy of the source `.env` — never mutate the source.
+
+```bash
+PROFILE=base
+ENV_SRC=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/.env
+ENV_GEN=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/generated.env
+
+cp "$ENV_SRC" "$ENV_GEN"
+```
+
+All subsequent writes (Brev `EXTERNAL_IP`, the env_overrides dict from Step 2) go to `$ENV_GEN`. `$ENV_SRC` is read-only from here on.
+
+### Step 1d — If deploying on Brev, set `EXTERNAL_IP` to the secure-link domain
 
 On a Brev-managed instance, VSS is accessed from the browser via a Cloudflare-fronted secure link that tunnels to an nginx proxy on port 7777. The proxy consolidates UI + Agent API + VST behind one origin (CORS-safe).
 
-Before deploy, read `BREV_ENV_ID` from `/etc/environment` and write `EXTERNAL_IP` into `dev-profile-<profile>/.env`:
+Read `BREV_ENV_ID` from `/etc/environment` and write `EXTERNAL_IP` into `generated.env` (NOT `.env`):
 
 ```bash
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
-sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=77770-${brev_env_id}.brevlab.com|" \
-  deploy/docker/developer-profiles/dev-profile-<profile>/.env
+sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=77770-${brev_env_id}.brevlab.com|" "$ENV_GEN"
 ```
 
 The profile `.env` derives `VSS_PUBLIC_HOST=${EXTERNAL_IP}` and feeds that to haproxy + the agent's external URLs (see [Step 1 callout](#step-1--gather-context)). Leaving `EXTERNAL_IP=${HOST_IP}` makes report URLs and VST playback links unreachable from the browser even though haproxy is up — the most common Brev-deploy footgun.
@@ -135,28 +151,31 @@ See [`references/brev.md`](references/brev.md) for per-profile secure-link requi
 
 Produce an `env_overrides` dict from the user request and the gathered context: choose remote/local LLM/VLM, set credentials, point at endpoints, set platform-specific flags. The full mapping (every override key, when it applies, defaults, profile-specific differences) lives in [`references/env-overrides.md`](references/env-overrides.md). Each profile reference has worked examples for that profile's common scenarios.
 
-### Step 3 — Config / dry-run
+### Step 3 — Apply overrides + dry-run
 
-**Env file location:** `<repo>/deployments/developer-workflow/dev-profile-<profile>/.env`
+**Working env file:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c).
 
-> **This is the authoritative `.env`.** Every verifier, healthcheck, and post-deploy tool reads from this path. When you apply env overrides (from Step 2 or from the user's prompt), write them **directly to this file** — not to `generated.env`.
+> **Two env files, distinct roles.**
+> - `.env` — **read-only defaults**, checked in. Don't mutate it from the skill.
+> - `generated.env` — **the skill's per-deploy working copy**. All overrides (the dict from Step 2, plus the Brev `EXTERNAL_IP` from Step 1d) land here. `--env-file` always points at this file. Post-deploy verifiers should also read from `generated.env` for the actually-deployed values — see [Debugging a Deployment](#debugging-a-deployment).
 >
-> `generated.env` is a scratchpad that `dev-profile.sh` produces during its own internal flow; it is NOT read by the verifier and is wiped on the next invocation. The base `.env` is the source of truth.
+> `generated.env` matches the convention `dev-profile.sh` uses internally — it's a per-invocation scratchpad regenerated by `cp .env generated.env` each run.
 
 ```bash
-REPO=/path/to/video-search-and-summarization
-PROFILE=base
-ENV_FILE=$REPO/deployments/developer-workflow/dev-profile-$PROFILE/.env
+# (Step 1c already ran: cp $ENV_SRC $ENV_GEN)
 
-# Read current .env, apply overrides, write back
+# Apply the env_overrides dict from Step 2 to generated.env
 # (read lines, update matching keys, append new keys, write)
+# Example:
+#   sed -i "s|^LLM_MODE=.*|LLM_MODE=remote|" "$ENV_GEN"
+#   sed -i "s|^LLM_BASE_URL=.*|LLM_BASE_URL=http://localhost:30081|" "$ENV_GEN"
 
 # Resolve compose
-cd $REPO/deployments
-docker compose --env-file $ENV_FILE config > resolved.yml
+cd $REPO/deploy/docker
+docker compose --env-file $ENV_GEN config > resolved.yml
 ```
 
-The resolved YAML is saved to `<repo>/deployments/resolved.yml`.
+The resolved YAML is saved to `<repo>/deploy/docker/resolved.yml`.
 
 ### Step 3b — Verify resolved.yml has no unexpanded ${...} tokens
 
@@ -170,13 +189,13 @@ Normalize - drop optional dependencies for services filtered out from resolved.y
 
 ```bash
 # From the repo root
-uv run skills/vss-deploy-profile/scripts/normalize_resolved_yml.py "$REPO/deployments/resolved.yml"
+uv run skills/vss-deploy-profile/scripts/normalize_resolved_yml.py "$REPO/deploy/docker/resolved.yml"
 ```
 If `uv` isn't on the host, install it once with `curl -LsSf https://astral.sh/uv/install.sh | sh` (no root needed).
 **Re-validate** before `up -d`:
 
 ```bash
-docker compose -f "$REPO/deployments/resolved.yml" config --quiet && echo "resolved.yml OK"
+docker compose -f "$REPO/deploy/docker/resolved.yml" config --quiet && echo "resolved.yml OK"
 ```
 
 If validation still fails after the normalizer runs, capture the error and inspect — that's a different bug (a dependency that's not optional, or another schema violation), not the dangling-depends_on case.
@@ -198,23 +217,39 @@ Ask: **"Looks good — deploy now?"** and wait for confirmation before Step 5.
 ### Step 5 — Deploy
 
 ```bash
-cd $REPO/deployments
+cd $REPO/deploy/docker
 docker compose -f resolved.yml up -d
 ```
 
 > **Do NOT use `--force-recreate` on retries.** It destroys already-warm NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix the root cause (usually perms or an env typo) and just re-run `up -d` — Docker will re-create only the containers whose config changed or that are down.
 
-Deploy takes ~10–20 min on first run (image pulls + model downloads). Monitor:
+`docker compose up -d` returns as soon as the daemon has **created** the containers — it does **not** wait for the processes inside to finish initializing. Polling `docker ps | grep -qx <name>` immediately after returns 0 (container exists) while `curl :8000/docs` returns exit 7 (Python process inside is still importing modules, loading models, binding the port). Eval verifiers and humans both regularly trip on this — declaring "deploy done" right after `up -d` returns probes a half-warm stack, and `vss-agent` / `:8000/docs` / `vss-agent-ui` checks all spuriously fail before the agent has actually bound its ports.
+
+### Step 5b — Wait until the stack is actually healthy
+
+Do **not** declare the deploy done after `up -d` returns. Cold deploys (first-time NIM image pulls + model warmup) can legitimately take 10–20 min, so the timeouts in the probes below are generous on purpose.
+
+First, wait for the compose project to settle. Every container must be either `running` or cleanly `exited 0` — one-shot init jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy failure even though `up -d` returned 0.
 
 ```bash
-# Container status
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-
-# Logs for a specific service
-docker compose -f $REPO/deployments/resolved.yml logs --tail 50 <service>
+# docker compose 2.21+ emits NDJSON (one bare object per line) from
+# `ps --format json`, not a JSON array — so no `.[]` here; jq's default
+# input loop already iterates each line. The filter accepts only
+# `running` and `exited 0`; everything else (restarting, unhealthy,
+# exited with non-zero code) is a failure.
+docker compose -f resolved.yml ps --format json \
+  | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
+           | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"' \
+  | { mapfile -t bad; if [ "${#bad[@]}" -gt 0 ]; then
+        printf 'FAIL: %s\n' "${bad[@]}" >&2; exit 1;
+      fi; }
 ```
 
-Deploy is complete when all `mdx-*` containers show `Up` status.
+Container state alone isn't enough — the processes inside may still be importing modules, loading models, and binding ports. Probe the profile's documented readiness endpoints next.
+
+**Each `references/<profile>.md` lists the endpoints that must be reachable** for that profile (agent REST API, UI, inference NIMs, etc., on the ports the profile actually opens). Run those `curl` checks with a generous deadline (15 min is reasonable for cold NIM warmup) and only declare the deploy done once every documented endpoint returns the expected success exit code.
+
+If any probe times out, dump `docker compose ps` + `docker compose logs --tail 100 <slow-service>` and report the slow container — don't claim success on a half-warm stack.
 
 ### Step 6 — 
 Fron
@@ -223,7 +258,7 @@ Fron
 ## Tear Down
 
 ```bash
-cd $REPO/deployments
+cd $REPO/deploy/docker
 docker compose -f resolved.yml down
 ```
 

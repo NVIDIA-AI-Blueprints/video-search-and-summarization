@@ -71,7 +71,7 @@ vlm:
   do_resize: false
 
 rtvi_vlm:
-  base_url: "${VLM_BASE_URL}/v1"
+  base_url: "${RTVI_VLM_BASE_URL}/v1"
   default_model: "nim_nvidia_cosmos-reason2-8b_hf-1208"
 
 # Event Bridge Configuration - Choose between kafka and redisStream

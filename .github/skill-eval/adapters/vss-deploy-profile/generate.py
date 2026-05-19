@@ -470,11 +470,26 @@ def generate_task(
         'skills_dir = "/skills"',
         "",
         "[metadata]",
-        f'profile = "{profile}"',
+        # Intentionally NOT emitting `profile = "{profile}"` here. For
+        # vss-deploy-profile/eval/<X>.json the trial IS the deploy — it
+        # invokes /vss-deploy-profile -p X via its own prompt. Setting
+        # `profile` in [metadata] would trick BrevEnvironment's
+        # _ensure_prerequisite_deployed into running an extra sub-claude
+        # `claude --print /vss-deploy-profile -p X` BEFORE the trial agent,
+        # which is both redundant and (observed on run 26066279318) prone
+        # to picking the wrong profile when the box's stale active-deploy
+        # marker points at a different profile. Per the spec authors:
+        # absent `profile` → BrevEnvironment runs its box-clean path
+        # (`desired=""`) which wipes containers/networks/volumes and
+        # clears the marker, then the trial runs from a guaranteed-clean
+        # state. The `platform` key below is purely informational.
         f'platform = "{platform}"',
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:
+        # Informational — does NOT match BrevEnvironment's
+        # `prerequisite_deploy_mode` field used by downstream consumers,
+        # so this is safe to emit here without triggering prereq logic.
         meta_lines.append(f'deploy_mode = "{deploy_flag_m}"')
     meta_lines += [
         "# GPU requirements — BrevEnvironment checks these against the",
