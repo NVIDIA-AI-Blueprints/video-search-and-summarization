@@ -2,20 +2,39 @@
 
 Skills for working with NVIDIA Video Search & Summarization (VSS). Each subdirectory under `skills/` is a self-contained skill following the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter.
 
+## Renamed in GA
+
+The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
+
+| Pre-GA command | VSS 3.2 GA command |
+|---|---|
+| `/alerts` | `/vss-manage-alerts` |
+| `/deploy` | `/vss-deploy-profile` |
+| `/report` | `/vss-generate-video-report` |
+| `/rt-vlm` | `/vss-deploy-dense-captioning` |
+| `/video-analytics` | `/vss-query-analytics` |
+| `/video-search` | `/vss-search-archive` |
+| `/video-summarization` | `/vss-summarize-video` |
+| `/video-understanding` | `/vss-ask-video` |
+| `/vios` | `/vss-manage-video-io-storage` |
+| `/vss-frag` | `/vss-generate-video-report-rag` |
+
 ## Catalog
 
 | Skill | Description |
 |---|---|
-| [alerts](alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
-| [deploy](deploy/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
-| [report](report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
-| [video-analytics](video-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
-| [video-search](video-search/SKILL.md) | Skills for searching video archives using natural language, multi-embedding fusion, and VLM critique. |
-| [video-summarization](video-summarization/SKILL.md) | Skill for summarizing a video through chunking, dense captioning, and aggregation functions using the Long Video Summarization (LVS) microservice. |
-| [video-understanding](video-understanding/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
-| [vios](vios/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
+| [vss-manage-alerts](vss-manage-alerts/SKILL.md) | Skill to add, manage, and monitor alerts on streamed video. |
+| [vss-deploy-profile](vss-deploy-profile/SKILL.md) | Skills to deploy, debug, or tear down any VSS profile using a docker compose-centric workflow. |
+| [vss-deploy-dense-captioning](vss-deploy-dense-captioning/SKILL.md) | Skill for deploying and calling the RT-VLM dense captioning microservice API. |
+| [vss-generate-video-report](vss-generate-video-report/SKILL.md) | Skill to produce video analysis reports by querying the VSS agent's `/generate` endpoint. |
+| [vss-generate-video-report-rag](vss-generate-video-report-rag/SKILL.md) | Skill to generate video summary reports with Enterprise RAG using the VSS frag/RAG pipeline. |
+| [vss-query-analytics](vss-query-analytics/SKILL.md) | Skill for querying video analytics data and metrics from Elasticsearch via the VA-MCP server. |
+| [vss-search-archive](vss-search-archive/SKILL.md) | Skills for searching video archives using natural language, multi-embedding fusion, and VLM critique. |
+| [vss-summarize-video](vss-summarize-video/SKILL.md) | Skill for summarizing a video through chunking, dense captioning, and aggregation functions using the Long Video Summarization (LVS) microservice. |
+| [vss-ask-video](vss-ask-video/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
+| [vss-manage-video-io-storage](vss-manage-video-io-storage/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
 
-Skills with `eval/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**` — see [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
+Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
 ## Install (recommended: ask your coding agent)
 
@@ -51,4 +70,4 @@ To uninstall skills, paste the following prompt:
 
 ## Source of truth
 
-This `skills/` directory is the canonical source. Skills published to the public catalog at `github.com/nvidia/skills` are mirrored from here at sync time per [`components.yml`](https://github.com/NVIDIA/skills/blob/main/components.yml).
+This `skills/` directory is the canonical source. Skills published to the public catalog at `github.com/nvidia/skills` are mirrored from here at sync time.

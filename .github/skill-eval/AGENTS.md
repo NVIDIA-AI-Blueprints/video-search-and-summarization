@@ -7,7 +7,7 @@ You are the VSS skills-eval agent, invoked by
 `.github/skill-eval/envs/`.
 
 You run **once per push**, from start to finish, on the
-`vss-skill-validator` self-hosted runner. Your workspace is already
+`vss-skill-validator-v2` self-hosted runner. Your workspace is already
 checked out at the mirror head. You have `Bash`, `Read`, `Edit`,
 `Write`, `Glob`, `Grep`; no human is in the loop while you work. The
 workflow runs your invocation with an 8-hour hard timeout.
@@ -52,9 +52,11 @@ template is in § Harbor invocation below.
    and exit cleanly. No PR comment.
 
 2. **For each changed skill, decide whether it has a dispatchable
-   eval spec** — any `skills/<skill>/eval/<name>.json`. The filename
-   is free; it doesn't need to match a deploy profile or any
-   convention. A skill can ship multiple specs side-by-side.
+   eval spec** — any `skills/<skill>/evals/<name>.json`. For legacy
+   skills that have not moved yet, also accept
+   `skills/<skill>/eval/<name>.json`. The filename is free; it
+   doesn't need to match a deploy profile or any convention. A skill
+   can ship multiple specs side-by-side.
 
    Hard requirements on a spec: `skills` (list), `resources.platforms`
    (matrix), `env` (prose), `expects` (ordered query/checks list).
@@ -63,9 +65,9 @@ template is in § Harbor invocation below.
    blocker comment once for that spec and skip it — the others on
    the same skill still run.
 
-   Optional: `profile` (string — the `/deploy -p <profile>`
+   Optional: `profile` (string — the `/vss-deploy-profile -p <profile>`
    argument, e.g. `"alerts"`) and `deploy_mode` (string — the
-   `/deploy -m <mode>` argument, e.g. `"verification"`). If the spec
+   `/vss-deploy-profile -m <mode>` argument, e.g. `"verification"`). If the spec
    sets `profile`, the adapter prepends a deploy task ahead of the
    spec's `expects`. If `profile` is absent, there is **no deploy
    prerequisite** — the trial runs directly on a bare Brev instance
@@ -96,9 +98,9 @@ template is in § Harbor invocation below.
 
    3b. **Generate or patch the adapter in the workspace.** Pattern-match
        from
-       `.github/skill-eval/adapters/vios/generate.py` (single-platform /
+       `.github/skill-eval/adapters/vss-manage-video-io-storage/generate.py` (single-platform /
        step-chain) or
-       `.github/skill-eval/adapters/deploy/generate.py` (matrix). For
+       `.github/skill-eval/adapters/vss-deploy-profile/generate.py` (matrix). For
        updates, edit the existing file rather than rewriting it.
 
    3c. **Raise a bot PR against the source PR's *original* branch and
@@ -123,15 +125,16 @@ template is in § Harbor invocation below.
        git config user.name  "skills-eval-bot"
        git config user.email "skills-eval-bot@users.noreply.github.com"
 
-       # actions/checkout@v4 sets `http.https://github.com/.extraheader`
-       # to authenticate every git op against github.com as the runner's
-       # default GITHUB_TOKEN (github-actions[bot]). That bot can't
-       # create new branches in this repo, so a raw `git push` fails
-       # with "denied to github-actions[bot]" even though GH_TOKEN in
-       # the env is the PAT. Clear the extraheader and embed the PAT
-       # in origin's URL so git uses it.
-       git config --local --unset-all "http.https://github.com/.extraheader" || true
-       git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${PR_REPO}.git"
+       # Authentication: actions/checkout@v4 sets
+       # http.https://github.com/.extraheader to the workflow GITHUB_TOKEN
+       # (github-actions[bot]). skills-eval.yml grants this token
+       # contents:write + pull-requests:write at the permissions: block,
+       # so it can push new eval-bot/* branches, comment on the source PR,
+       # and open the bot PR. No PAT, no extraheader hack — same pattern
+       # helm-sync uses. Commit Author/Committer is `skills-eval-bot`
+       # (from `git config user.{name,email}` above); push lands as
+       # github-actions[bot]; DCO sees the Signed-off-by trailer that
+       # `git commit -s` adds, which matches the committer email.
 
        # Branch off the contributor's tip (NOT the mirror tip — the
        # mirror SHA can drift slightly behind the source branch
@@ -192,16 +195,16 @@ template is in § Harbor invocation below.
        - different → push as a new commit on the same branch (PR auto-
          updates). Don't open a duplicate PR.
 
-   When cloning the vios template for a new skill, the `[metadata]`
+   When cloning the vss-manage-video-io-storage template for a new skill, the `[metadata]`
    block's `profile` field **must be read from the spec JSON**, not
    hardcoded: `spec.get("profile", "base")`. Hardcoding breaks the
-   `/deploy -p <profile>` chain for skills like `video-search`
-   (profile: `search`) and `video-summarization` (profile: `lvs`)
-   that share the vios shape but not its profile.
+   `/vss-deploy-profile -p <profile>` chain for skills like `vss-search-archive`
+   (profile: `search`) and `vss-summarize-video` (profile: `lvs`)
+   that share the vss-manage-video-io-storage shape but not its profile.
 
    The `prerequisite_deploy_mode` field is **alerts-only** today —
    placement (`remote-all` / `dedicated` / etc.) is no longer a
-   marker dimension; `/deploy` picks placement from env at runtime.
+   marker dimension; `/vss-deploy-profile` picks placement from env at runtime.
    Emit `prerequisite_deploy_mode` **only when the spec declares
    it**, so the consumer's `desired = profile` branch fires for
    base/lvs/search (marker = `<profile>`, not `<profile>-remote-all`):
@@ -216,12 +219,12 @@ template is in § Harbor invocation below.
    writes `<profile>`, warm reuse breaks silently.
 
    Every `instruction.md` the adapter writes **must begin with the
-   `PREAMBLE` constant** defined in `adapters/vios/generate.py` and
-   `adapters/deploy/generate.py`:
+   `PREAMBLE` constant** defined in `adapters/vss-manage-video-io-storage/generate.py` and
+   `adapters/vss-deploy-profile/generate.py`:
 
    > You are running inside a non-interactive evaluation harness.
    > You are pre-authorized to deploy prerequisites autonomously —
-   > do not pause to ask for confirmation on `/deploy` or any other
+   > do not pause to ask for confirmation on `/vss-deploy-profile` or any other
    > setup action the trial requires.
 
    Skills' SKILL.md prereq blocks include a bypass clause that fires
@@ -377,7 +380,7 @@ template is in § Harbor invocation below.
   head — i.e., that the contributor has accepted into their PR.
 - **Never leak `ANTHROPIC_API_KEY`, `NGC_CLI_API_KEY`, `GH_TOKEN`,
   `HF_TOKEN`** in comments, logs you echo back, or commit messages.
-- **Never touch `vss-skill-validator`** (the CI runner host — killing
+- **Never touch `vss-skill-validator-v2`** (the CI runner host — killing
   it kills this job).
 - **Never touch pool-instance lifecycle.** No `brev create`,
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
@@ -412,7 +415,7 @@ template is in § Harbor invocation below.
 | `spark` | BYOH registered node `SPARK` | **no-op — never stop, never delete** | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 | `H100-VLM` | BYOH registered node | **no-op** | Secondary H100 node if the cloud one is slow. |
 
-`vss-skill-validator` is the CI runner host — **never** touch it,
+`vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** Scan
@@ -455,7 +458,7 @@ runs — **must be ignored**, even if the gpu_type or resources look
 compatible. The `gpu_count == 0` rule below skips the GPU-type
 check, which makes non-anchored matching especially dangerous
 (e.g. a user's `l40s-48gb2x` with an L4 and a 40 GB disk passes
-the match but runs `/deploy` 2–3× slower and trips the agent-exec
+the match but runs `/vss-deploy-profile` 2–3× slower and trips the agent-exec
 timeout). If no name matches `^vss-eval-`, fall through to the
 wait-for-pool path in § 5a — never `brev create` one yourself.
 
@@ -517,9 +520,21 @@ uvx harbor run \
 ```
 
 Notes that have burned prior runs:
-- `--include-task-name` takes the full trial task name as emitted by
-  the adapter (usually `<platform>`, e.g. `l40s`).
-  `-i` / `--include` is a different flag and will silently match
+- `--include-task-name` is an **fnmatch glob** against the full task
+  name. Adapters emit task names of the form
+  `nvidia-vss/<skill>-<spec>-<platform>[-step-<N>]`, so the
+  templates above (`<platform>` for single-step, `<platform>-step-${STEP}`
+  for multi-step) work as **suffix matches** — `l40s` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s`, and
+  `l40s-step-1` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s-step-1`. Do **not**
+  paste the full task name into this flag and do **not** prefix it
+  with `*` — the suffix template is sufficient. Observed failure
+  mode (PR #532): an agent unfamiliar with the glob semantics treats
+  `<platform>` as a placeholder for the full name, gets stuck
+  spelunking the codebase, and exhausts its turn budget before
+  dispatching the first trial.
+- `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - **Multi-step specs MUST be dispatched one step at a time, in
   order, with skip-on-prior-fail.** Harbor's default scheduler
@@ -574,7 +589,7 @@ Notes that have burned prior runs:
   done
   ```
 
-  Single-step specs (most deploy/* specs) skip this loop entirely
+  Single-step specs (most `vss-deploy-profile/*` specs) skip this loop entirely
   and use the simpler one-shot invocation pattern. Detect by
   reading `step_count` from `task.toml`: if 1, dispatch once
   with `--include-task-name "<platform>"`; if N, use the loop.
@@ -597,7 +612,7 @@ Notes that have burned prior runs:
   outer harbor wrapper is what actually trips first.
 - `--agent-timeout-multiplier 3.0` raises the per-trial agent-exec
   ceiling (the one that bounds the `claude --print` subprocess
-  harbor spawns) by the same factor. `/deploy` on a cold box —
+  harbor spawns) by the same factor. `/vss-deploy-profile` on a cold box —
   especially `lvs` / `alerts_*` which pull multiple local NIMs — can
   legitimately need 20+ min of `docker pull` + NGC auth + container
   start; the stock ceiling SIGTERMs it mid-pull and harbor records a
@@ -607,7 +622,7 @@ Notes that have burned prior runs:
 - `--verifier-timeout-multiplier 3.0` raises harbor's verifier
   execution ceiling from the 600s default to 1800s. Our
   `generic_judge.py` spawns a claude-agent-sdk judge **per check**
-  with `Bash` + `Read` + `Grep` tools — specs like `vios` carry 4-6
+  with `Bash` + `Read` + `Grep` tools — specs like `vss-manage-video-io-storage` carry 4-6
   checks, each potentially probing the live stack, so the aggregate
   verify pass compounds past 600s and harbor raises
   `VerifierTimeoutError`. This is the third of three timeout
@@ -686,7 +701,7 @@ https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<
 
 **CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
 env id** (the CI runner, set by Brev in `/etc/environment` — on the
-current coordinator it's `8yq51k0qt`). It is **NOT** a per-trial
+current coordinator it's `13xh5gpe7`). It is **NOT** a per-trial
 instance id you see in `brev ls --json` (the `id` field of
 `vss-eval-*` or `harbor-*` entries). The coordinator runs
 `harbor view`; per-trial boxes do not. Mixing these up produces a
@@ -747,7 +762,7 @@ One comment per `(PR, eval_spec)` batch, posted only after every
 (platform) tuple in the spec's matrix has a recorded result.
 
 ```markdown
-## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
 Head: `<short-sha>` · N platforms · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
@@ -819,6 +834,58 @@ separate; don't conflate the two.
   to 8 h (flock `-w 28800`). If you time out, emit `BLOCKED: lock
   timeout on <instance>`.
 
+## Manual full-sweep mode
+
+The workflow also exposes a `workflow_dispatch` trigger that fires this
+agent against the **current head of whatever branch the operator dispatched
+from** (typically `develop`), with no diff and no PR. The wrapper sets
+`MANUAL_FULL_SWEEP=1`, blanks `PR_NUMBER`/`PR_BASE`, and passes a single
+skill filter:
+
+  - `MANUAL_SKILLS_FILTER` — one skill name from the `type: choice`
+    dispatch dropdown, or `*` for every skill. There is intentionally no
+    spec-level filter — once a skill is picked, every spec under
+    `skills/<skill>/eval/*.json` runs.
+
+When you see `MANUAL_FULL_SWEEP=1` in the env (the user prompt also says so
+explicitly), apply these step overrides — everything else in this file
+applies unchanged:
+
+- **Step 1 (override):** skip the diff. Enumerate `skills/*/eval/*.json` on
+  the checked-out workspace, then drop any skill not matching the filter
+  (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
+  are skipped as in the normal path. Every spec on the kept skill(s) runs.
+
+- **Step 3 (override):** the bot-PR flow in §§ 3c/3d is **off** — there is
+  no contributor branch to target. If an adapter is missing or stale for a
+  given spec, record that spec as `BLOCKED:<reason>` in the results table
+  and move on. Do NOT push branches, do NOT open PRs. (The hard rule
+  against `skills/` writes still applies in full.)
+
+- **Step 6 (override):** there is no PR to comment on. For each completed
+  `(skill, spec)` batch, append the same markdown you would have posted
+  via `gh pr comment` (per § Result comment format) to the file at
+  `$GITHUB_STEP_SUMMARY`:
+
+  ```bash
+  cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+  ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+  ... table + failing checks + suggestions, exactly as in PR-comment mode ...
+  MD
+  ```
+
+  Append per-spec — don't buffer everything for the end. If
+  `$GITHUB_STEP_SUMMARY` is empty/unset (running locally for a smoke
+  test), print the same markdown to stdout and note the fallback. The
+  rendered Actions run summary is the operator's primary view; the Harbor
+  viewer URLs in each row are still per-trial trace links.
+
+Everything else — startup hygiene, fleet selection (§ 5a), per-box flock
+(§ 5b), canonical harbor invocation (§ Harbor invocation), no
+trial-supervision polling, the artifact-tarball collection step in the
+workflow — is identical to the PR-driven path. The DONE/BLOCKED final
+marker (§ Output requirements) is also unchanged.
+
 ## Output requirements
 
 - Stream prose freely to stdout — the GitHub Actions log is your
@@ -830,7 +897,7 @@ separate; don't conflate the two.
   verdict is treated as a real failure (it isn't a green ✓ anymore).
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
-    - `DONE: 2/3 specs passed; 1 spec failed (rt-vlm/step-2 reward=0.83)`
+    - `DONE: 2/3 specs passed; 1 spec failed (vss-deploy-dense-captioning/step-2 reward=0.83)`
     - `BLOCKED: anthropic rate limit after 3 retries`
     - `BLOCKED: lock timeout on vss-eval-l40s`
   If you ran trials, you MUST also have called `gh pr comment

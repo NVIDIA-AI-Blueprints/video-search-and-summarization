@@ -5,6 +5,11 @@ import { useTranslation } from 'next-i18next';
 import { useCreateReducer } from '@/hooks/useCreateReducer';
 
 import { getStorageKey } from '@/contexts/RuntimeConfigContext';
+import {
+  isActiveConversationProcessing,
+  isQueryProcessing,
+} from '@/utils/app/queryProcessing';
+import toast from 'react-hot-toast';
 import { saveConversation, saveConversations } from '@/utils/app/conversation';
 import { removeConversationFromDb } from '@/utils/app/conversationDb';
 import { saveFolders } from '@/utils/app/folders';
@@ -56,8 +61,14 @@ export const Chatbar: React.FC<ChatbarProps> = ({
     conversations = [],
     showChatbar = true,
     folders = [],
-    lightMode = 'dark'
+    lightMode = 'dark',
+    loading = false,
+    messageIsStreaming = false,
+    selectedConversation,
   } = state || {};
+
+  const newConversationDisabled = isQueryProcessing(loading, messageIsStreaming);
+  const newConversationDisabledTitle = t('queryProcessingBlockNewChatTitle');
 
   const {
     state: { searchTerm, filteredConversations },
@@ -84,6 +95,11 @@ export const Chatbar: React.FC<ChatbarProps> = ({
   }, [homeDispatch, storageKeyPrefix]);
 
   const handleClearConversations = useCallback(() => {
+    if (isQueryProcessing(loading, messageIsStreaming)) {
+      toast.error(t('queryProcessingBlockClearConversations', { ns: 'chat' }));
+      return;
+    }
+
     const newConversation = {
       id: uuidv4(),
       name: t('New Conversation'),
@@ -106,9 +122,21 @@ export const Chatbar: React.FC<ChatbarProps> = ({
 
     homeDispatch({ field: 'folders', value: updatedFolders });
     saveFolders(updatedFolders, storageKeyPrefix);
-  }, [homeDispatch, folders, t, storageKeyPrefix]);
+  }, [homeDispatch, folders, t, storageKeyPrefix, loading, messageIsStreaming]);
 
   const handleDeleteConversation = useCallback((conversation: Conversation) => {
+    if (
+      isActiveConversationProcessing(
+        conversation.id,
+        selectedConversation?.id,
+        loading,
+        messageIsStreaming,
+      )
+    ) {
+      toast.error(t('queryProcessingBlockDeleteConversation', { ns: 'chat' }));
+      return;
+    }
+
     const updatedConversations = conversations.filter(
       (c) => c.id !== conversation.id,
     );
@@ -139,7 +167,16 @@ export const Chatbar: React.FC<ChatbarProps> = ({
         console.warn('Failed to remove selected conversation from IndexedDB:', error);
       });
     }
-  }, [conversations, homeDispatch, chatDispatch, t, storageKeyPrefix]);
+  }, [
+    conversations,
+    homeDispatch,
+    chatDispatch,
+    t,
+    storageKeyPrefix,
+    selectedConversation?.id,
+    loading,
+    messageIsStreaming,
+  ]);
 
   const handleToggleChatbar = () => {
     homeDispatch({ field: 'showChatbar', value: !showChatbar });
@@ -302,6 +339,8 @@ export const Chatbar: React.FC<ChatbarProps> = ({
         }
         toggleOpen={handleToggleChatbar}
         handleCreateItem={handleNewConversation}
+        createItemDisabled={newConversationDisabled}
+        createItemDisabledTitle={newConversationDisabledTitle}
         handleCreateFolder={() => handleCreateFolder(t('New folder'), 'chat')}
         handleDrop={handleDrop}
         footerComponent={<ChatbarSettings />}

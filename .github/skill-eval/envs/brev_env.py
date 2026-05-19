@@ -155,7 +155,7 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
-            _check_instance_matches(instance, requirements)
+            await _check_instance_matches(instance, requirements)
         else:
             # Mode 2: auto-provision via brev search + create.
             # Some platforms (DGX-SPARK, IGX-THOR) aren't provisionable as
@@ -344,9 +344,9 @@ class BrevEnvironment(BaseEnvironment):
         # tarball-style checkout (no `.git`) with an obsolete directory
         # layout (`deployments/` instead of `deploy/docker/`) and the
         # pre-rename container names. The pre-deploy script generated
-        # by `adapters/deploy/generate.py::generate_solve_script` only
-        # syncs on the *gold-solution* path; the trial's agent invokes
-        # `/deploy` directly against `$REPO`, so without this step the
+        # by `adapters/vss-deploy-profile/generate.py::generate_solve_script`
+        # only syncs on the *gold-solution* path; the trial's agent invokes
+        # `/vss-deploy-profile` directly against `$REPO`, so without this step the
         # PR_HEAD_SHA forwarded above never actually lands on disk.
         await self._sync_repo_to_pr_head()
 
@@ -371,14 +371,15 @@ class BrevEnvironment(BaseEnvironment):
                   or `<profile>-<deploy_mode>` for alerts variants
                   (`alerts-verification`, `alerts-real-time`).
             If marker == desired → hot, no-op.
-            Else → run `/deploy -p <profile> [-m <mode>]` via
+            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]` via
                   `claude --print`. On success OVERWRITE marker.
 
         2. `profile` absent (trial needs a clean box, no VSS running):
             desired = `""` (empty marker).
-            If marker == `""` → already clean, no-op.
-            Else → tear down all containers (`docker rm -f $(docker
+            Always tear down all containers (`docker rm -f $(docker
                   ps -aq)`) + prune networks; OVERWRITE marker to empty.
+                  An empty marker does not prove a prior standalone
+                  profile-less trial cleaned up every container it started.
                   Preserves anything `docker rm -f` doesn't touch:
                   docker image cache, named volumes (postgres / ES /
                   kafka data), repo clone, and sample-data extract —
@@ -389,11 +390,16 @@ class BrevEnvironment(BaseEnvironment):
                   the reconcile instead of running against a
                   partially-dirty box that pretends to be clean.
 
-        Deploy/* trials themselves set `profile` but don't request a
-        prereq — their test.sh writes the marker on reward=1.0. They
-        never call this hook.
+        vss-deploy-profile/* trials don't set `profile` in their task.toml
+        [metadata], so they fall into the `desired=""` box-clean branch
+        above — wipes containers/networks/volumes and clears the marker
+        before the trial deploys from scratch. Their test.sh writes the
+        marker on reward=1.0 for downstream warm-reuse. (Earlier the
+        adapter emitted `profile = "<X>"` here, which mistakenly fired
+        the prereq reconcile below before the trial — see commit
+        history on `adapters/vss-deploy-profile/generate.py`.)
 
-        claude-code is expected on the box from a prior deploy/* trial's
+        claude-code is expected on the box from a prior vss-deploy-profile/* trial's
         harbor agent setup; persists across trials on the reused
         vss-eval-* instance. Override the wall clock via
         PRE_DEPLOY_TIMEOUT_SEC (default 1800s)."""
@@ -413,7 +419,7 @@ class BrevEnvironment(BaseEnvironment):
             timeout=30,
         )
         current = (probe.stdout or "").strip()
-        if current == desired:
+        if current == desired and desired:
             state = desired or "<clean>"
             logger.info(
                 "prerequisite %s already current on %s; skipping reconcile",
@@ -427,23 +433,35 @@ class BrevEnvironment(BaseEnvironment):
 
         if not desired:
             # Profile-less trial wants a clean box. Tear down all
-            # containers without touching the deploy skill; keeps the
-            # docker image cache, named volumes (postgres / ES / kafka
-            # data), repo clone, and sample-data extract warm for the
-            # next deploy trial. Container teardown is fast (<10s
-            # typically) so the timeout is short.
+            # containers, networks, AND volumes so the deploy starts
+            # against a guaranteed-empty state — postgres / ES / kafka /
+            # agent-eval volumes from a prior profile's run would
+            # otherwise be reused and could leak schema or stale rows
+            # into the next deploy. Keeps the docker image cache, repo
+            # clone, and sample-data extract (~/data) warm; those are
+            # profile-agnostic and slow to re-pull from NGC.
             #
-            # No `|| true` on the docker commands by design — if either
-            # exits non-zero (stuck container, daemon transient error)
-            # the `&&` chain short-circuits and the marker is left as
-            # it was, so the next trial re-runs the reconcile rather
-            # than silently treating a partially-dirty box as clean.
-            # `xargs -r` already handles the "no containers to remove"
-            # case (skips invoking docker rm at all, exit 0).
+            # `docker volume prune -af` removes all unused volumes
+            # (including named ones like `agent-eval`); becomes safe to
+            # run only after `docker rm -f` releases the references.
+            # For volumes whose `driver_opts` bind a host path (e.g.
+            # `agent-eval` → `$VSS_DATA_DIR/agent_eval`), prune
+            # unregisters the docker volume but does NOT wipe the bind
+            # directory contents — that's an operator-managed dir and
+            # the next deploy re-binds to it.
+            #
+            # No `|| true` on the docker commands by design — if any
+            # step exits non-zero (stuck container, daemon transient
+            # error) the `&&` chain short-circuits and the marker is
+            # left as it was, so the next trial re-runs the reconcile
+            # rather than silently treating a partially-dirty box as
+            # clean. `xargs -r` already handles the "no containers to
+            # remove" case (skips invoking docker rm at all, exit 0).
             cmd = (
                 "mkdir -p /tmp/skill-eval && "
                 "docker ps -aq | xargs -r docker rm -f >/dev/null && "
                 "docker network prune -f >/dev/null && "
+                "docker volume prune -af >/dev/null && "
                 f"printf '' > {shlex.quote(marker_path)}"
             )
             logger.info(
@@ -479,10 +497,10 @@ class BrevEnvironment(BaseEnvironment):
             env_prefix_parts.append(f"ANTHROPIC_BASE_URL={shlex.quote(base_url)}")
         env_prefix = " ".join(env_prefix_parts)
 
-        prompt = f"/deploy -p {profile}"
+        prompt = f"/vss-deploy-profile -p {profile}"
         if deploy_mode:
             prompt += f" -m {deploy_mode}"
-        # Overwrite (>) the canonical marker on /deploy success — the
+        # Overwrite (>) the canonical marker on /vss-deploy-profile success — the
         # marker reflects what is currently running, not a deploy log.
         # PATH prepend: brev exec runs a non-interactive shell that does
         # not source ~/.bashrc, where harbor writes
@@ -508,7 +526,7 @@ class BrevEnvironment(BaseEnvironment):
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
-                f"pre-deploy /deploy -p {profile} -m {deploy_mode} failed "
+                f"pre-deploy /vss-deploy-profile -p {profile} -m {deploy_mode} failed "
                 f"on {self._instance_name}: exit {result.return_code}; "
                 f"output tail: {tail!r}"
             )
@@ -523,8 +541,8 @@ class BrevEnvironment(BaseEnvironment):
         agent step reads `$REPO`.
 
         Why this is in the env provider (not the deploy adapter): the
-        deploy adapter's solve.sh syncs the repo on the *gold-solution*
-        path, but the trial's claude-code agent invokes `/deploy`
+        vss-deploy-profile adapter's solve.sh syncs the repo on the *gold-solution*
+        path, but the trial's claude-code agent invokes `/vss-deploy-profile`
         directly against whatever's on disk. Without this sync, the
         forwarded `PR_HEAD_SHA` env var has no effect on the actual
         compose/skill files the agent reads.
@@ -1064,12 +1082,74 @@ async def _find_brev_instance(name: str) -> dict | None:
     return None
 
 
-def _check_instance_matches(instance: dict, req: dict) -> None:
+async def _get_instance_gpu_count_from_catalog(instance_type: str) -> int | None:
+    """Look up an instance type's gpu_count via `brev search gpu --json`.
+
+    Returns None when the SKU isn't in the current catalog (temporarily
+    out of stock, retired, or never listed). Callers should warn and fall
+    back to a live nvidia-smi check.
+    """
+    if not instance_type:
+        return None
+    try:
+        result = await _run_brev("search", "gpu", "--json", timeout=30)
+    except Exception as exc:
+        logger.warning("brev search gpu --json failed: %s", exc)
+        return None
+    if result.return_code != 0:
+        return None
+    for row in _parse_brev_json(result.stdout):
+        if row.get("type") == instance_type:
+            try:
+                return int(row.get("gpu_count", 0) or 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+async def _check_live_gpu_count(instance_name: str, required_count: int) -> None:
+    """SSH in and count GPUs via nvidia-smi. Raises on mismatch."""
+    result = await _run_brev_exec(
+        instance_name,
+        "nvidia-smi --query-gpu=name --format=csv,noheader | wc -l",
+        timeout=30,
+    )
+    if result.return_code != 0 or not result.stdout.strip():
+        logger.warning(
+            "nvidia-smi count failed on '%s'; cannot enforce gpu_count. "
+            "stderr: %s",
+            instance_name, (result.stderr or "")[:200],
+        )
+        return
+    try:
+        actual = int(result.stdout.strip().split("\n")[0])
+    except ValueError:
+        logger.warning(
+            "Could not parse nvidia-smi count output for '%s': %r",
+            instance_name, result.stdout,
+        )
+        return
+    if actual != required_count:
+        raise RuntimeError(
+            f"Brev instance '{instance_name}' has {actual} GPU(s) (live "
+            f"nvidia-smi); task requires exactly {required_count}. Pool "
+            f"partition mismatch — pick a fleet member with the matching "
+            f"GPU count (e.g. vss-eval-l40s-1g for 1-GPU, vss-eval-l40s* "
+            f"for 2-GPU)."
+        )
+    logger.info(
+        "Instance '%s' live gpu_count: %d (matches required %d)",
+        instance_name, actual, required_count,
+    )
+
+
+async def _check_instance_matches(instance: dict, req: dict) -> None:
     """Raise RuntimeError if the instance's GPU doesn't meet task requirements.
 
     `brev ls --json` only returns {name, gpu (string), instance_type, status}
     — no gpu_count / total_vram_gb.  So we do a loose name match here and
-    defer stricter checks to the search catalog when available.
+    defer stricter checks to the search catalog when available, falling
+    back to a live nvidia-smi count if the SKU isn't in the catalog.
 
     For registered external nodes, `gpu` may be empty (not reported by
     `brev ls nodes`).  Skip the string match in that case and defer to the
@@ -1131,16 +1211,70 @@ def _check_instance_matches(instance: dict, req: dict) -> None:
                 f"gpu_type: want tokens of {required_type!r} in {gpu!r}"
             )
 
+    # gpu_count check — strict equality so pool partitioning works.
+    # A 1-GPU task on a 2-GPU box wastes capacity (the other GPU could
+    # serve a sibling 1-GPU trial in parallel); a 2-GPU task on a 1-GPU
+    # box can't even launch the second LLM/VLM. Strict match makes both
+    # cases loud at validate time instead of mid-trial.
+    required_count = int(req.get("gpu_count", 1) or 0)
+    if required_count > 0:
+        catalog_count = await _get_instance_gpu_count_from_catalog(
+            instance.get("instance_type") or ""
+        )
+        if catalog_count is None:
+            logger.warning(
+                "Instance '%s' instance_type=%r not in `brev search gpu --json` "
+                "catalog (SKU may be temporarily out of stock); falling back to "
+                "live nvidia-smi for gpu_count check",
+                instance.get("name"), instance.get("instance_type"),
+            )
+            try:
+                await _check_live_gpu_count(instance.get("name"), required_count)
+            except RuntimeError as exc:
+                errors.append(str(exc))
+        elif catalog_count != required_count:
+            errors.append(
+                f"gpu_count: want exactly {required_count}, instance has "
+                f"{catalog_count} (instance_type={instance.get('instance_type')})"
+            )
+
     if errors:
+        # Actionable hint so the agent doesn't burn its turn budget
+        # re-discovering how to find a matching pool member. Stay
+        # generic — don't name specific pool boxes here, the pool
+        # is operator-managed and naming couples this code to the
+        # current fleet topology. `required_count` and `required_type`
+        # are already bound above; reuse them. Build the "require …"
+        # phrase conditionally so an empty `gpu_type` (count-only
+        # specs) doesn't render as `gpu_type='' + gpu_count=N` and
+        # mislead the agent into filtering for a literal empty string.
+        require_clauses = []
+        if required_type:
+            require_clauses.append(f"gpu_type={required_type!r}")
+        require_clauses.append(f"gpu_count={required_count}")
+        require_phrase = " + ".join(require_clauses)
+        hint = (
+            f"\n\nTo find a matching pool member, scan vss-eval-* "
+            f"candidates and require {require_phrase}:\n"
+            f"  brev ls --json | jq -r '.[] | select(.name | "
+            f"startswith(\"vss-eval-\")) | \"\\(.name)\\t\\(.instance_type)"
+            f"\\t\\(.gpu)\"'\n"
+            f"Cross-reference each candidate's instance_type against "
+            f"`brev search gpu --json` to confirm gpu_count, then "
+            f"re-export BREV_INSTANCE=<candidate> and retry. Do NOT "
+            f"`brev create` a new instance — the pool is operator-"
+            f"managed (see AGENTS.md § Platform topology)."
+        )
         raise RuntimeError(
             f"Brev instance '{instance.get('name')}' does not meet task "
             f"requirements:\n  - " + "\n  - ".join(errors) +
             f"\n  (instance: type={instance.get('instance_type')}, gpu={gpu})"
+            + hint
         )
 
     logger.info(
-        "Instance '%s' GPU name matches (%s ~= %s); vram/count not "
-        "verified (not returned by `brev ls --json`)",
+        "Instance '%s' GPU name matches (%s ~= %s); gpu_count verified "
+        "against catalog or live nvidia-smi",
         instance.get("name"), gpu, required_type,
     )
 

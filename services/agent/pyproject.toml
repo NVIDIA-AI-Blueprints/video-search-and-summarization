@@ -26,19 +26,22 @@ index-strategy = "unsafe-best-match"
 # tracks (e.g. langchain-core 1.4.0a2, litellm 1.84.0.dev2) when satisfying
 # these minimums.
 constraint-dependencies = [
-    "authlib>=1.6.9,<1.7",          # Fix GHSA-wvwj-cvrp-7pv5 (Critical), GHSA-7432-952r-cw78, GHSA-m344-f55w-2m6j
-    "cryptography>=46.0.5",         # Fix CVE-2026-26007 (SECT curve subgroup attack)
+    "authlib>=1.7.2,<1.8",          # Fix GHSA-wvwj-cvrp-7pv5 + new BDSAs for cache-CSRF in starlette_client.OAuth and jwk-header signature bypass (both flagged on 1.6.12)
+    "cryptography>=46.0.7",         # Fix CVE-2026-26007 + name constraint bypass flagged on 46.0.5
     "langchain-community>=0.3.27",  # Fix CVE-2025-6984 (XXE in EverNoteLoader)
-    "langchain-core>=1.2.22,<1.3",  # Fix GHSA-qh6h-p6c9-ff54 (path traversal in load_prompt) + prior SSRF/CVE fixes
+    "langchain-core>=1.3.3,<1.4",   # Fix GHSA-pjwx-r37v-7724 (deserialization in RunnableWithMessageHistory/astream_log/astream_events) + GHSA-qh6h-p6c9-ff54 + prior SSRF/CVE fixes
+    "langgraph>=1.1.10,<1.2",       # Fix BDSA: JsonPlusSerializer RCE flagged on 1.0.8/1.0.9 (1.2.x requires langchain-core>=1.4 which conflicts with our 1.3.x cap)
     "langgraph-checkpoint>=4.0.0",  # Fix CVE-2025-64439 (RCE in JsonPlusSerializer) & CVE-2026-27794 (BaseCache pickle)
-    "litellm>=1.83.7,<1.84",        # Fix GHSA-r75f-5x8p-qvmc (Critical), GHSA-v4p8-mg3p-g94g, GHSA-xqmj-j6mv-4862
+    "litellm>=1.84.0,<1.85",        # Fix /guardrails/test_custom_code RCE + privilege escalation + JWT/OIDC userinfo cache misuse (all flagged on 1.83.14)
     "lxml>=6.1.0,<6.2",             # Fix GHSA-vfmq-68hx-4jfw
+    "mako>=1.3.12",                 # Fix GHSA-2h4p-vjrc-8xpq (path traversal in TemplateLookup, Windows-only)
     "pillow>=12.2.0",               # Fix GHSA-whj4-6x5x-4v2j + CVE-2026-25990 (PSD out-of-bounds write)
+    "pygments>=2.20.0",             # Fix BDSA: ReDoS in AdlLexer (lexers/archetype.py) flagged on 2.19.x
     "pyjwt>=2.12.0,<2.13",          # Fix GHSA-752w-5fwx-jx9f
     "pypdf>=6.7.3",                 # Fix CVE-2026-27888 (XFA decompression bomb) & CVE-2026-27628 (infinite loop)
-    # ragas>=0.3.0rc1 (Fix GHSA-v2xr-wvrv-p969) blocked by nvidia-nat-eval==1.5.0 pin (ragas<0.3.dev0).
-    # Track separately — needs nvidia-nat upgrade or override-dependency.
+    "python-multipart>=0.0.27",     # Fix GHSA-pp6c-gr5w-3c5g (DoS via unbounded multipart part headers)
     "tornado>=6.5.5,<6.6",          # Fix GHSA-fqwm-6jpj-5wxc, GHSA-qjxf-f2mg-c6mc
+    "urllib3>=2.7.0",               # Fix GHSA-mf9v-mfxr-j63j (decompression bomb in streaming API) & GHSA-qccp-gfcp-xxvc (cross-origin header leak on proxied redirects)
 ]
 
 # Override nvidia-nat-core's fastapi~=0.119.0 pin to allow starlette>=0.49.1
@@ -79,23 +82,23 @@ dependencies = [
   # s3 for s3 object store
   "docker>=7.1.0",
   "duckdb>=1.5.0.dev44",
-  "langchain-core >= 1.2.22",
+  "langchain-core >= 1.3.3",
   "langchain-nvidia-ai-endpoints>=1.0.4",
   "langgraph-checkpoint >= 4.0.0",
   "markdown>=3.4.0",
   "matplotlib>=3.8.0",
   "mcp >= 1.23.0",
-  "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiling,s3]==1.5.0",
+  "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.6.0",
   "opencv-python-headless>=4.13.0.92",
   "protobuf>=6.33.5",
   "pydantic >=2.11,<3",
   "pydantic-settings~=2.13",
-  "python-multipart>=0.0.22",
+  "python-multipart>=0.0.27",
   "sentence-transformers>=3.0.0",
   "starlette >= 0.49.1",
   "tiktoken>=0.9.0",
   "torch>=2.5.0",
-  "urllib3>=2.6.3",
+  "urllib3>=2.7.0",
   "xhtml2pdf>=0.2.11",
   "elasticsearch~=8.17.0",
 ]
@@ -138,7 +141,7 @@ dev = [
     "pytest>=8.4.1",
     "pytest-asyncio>=0.24",
     "ruff>=0.12.0",
-    "nvidia-nat[test]==1.5.0",
+    "nvidia-nat[test]==1.6.0",
     "pytest-cov>=6.1",
     "types-requests>=2.32.4.20260107",
     "types-markdown>=3.10.0.20251106",
@@ -147,7 +150,7 @@ dev = [
     "detect-secrets>=1.5.0",
 ]
 eval = [
-    "nvidia-nat[langchain,weave]==1.5.0",
+    "nvidia-nat[langchain,weave]==1.6.0",
     "nvdataset>=0.77",
     "spacy>=3.7,<4.0",
 ]

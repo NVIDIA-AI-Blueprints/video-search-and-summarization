@@ -23,7 +23,10 @@ services:
     volumes:
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/vss-search-analytics/configs/vss-search-analytics-$STREAM_TYPE-config.json:/resources/vss-search-analytics-config.json
     container_name: vss-behavior-analytics
-    command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json 
+    command: python3 apps/fusion_search/main_fusion_search_analytics_app.py --config /resources/vss-search-analytics-config.json
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
 
   vss-video-analytics-api-fusion:
     extends:
@@ -31,9 +34,11 @@ services:
       service: vss-video-analytics-api
     profiles: ["bp_developer_search_2d"]
     container_name: vss-video-analytics-api
-    volumes:
-      - $VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      elasticsearch-init-container:
+        condition: service_completed_successfully
 
 
   nvstreamer-2d-fusion:
@@ -148,12 +153,8 @@ services:
       - $VSS_DATA_DIR/models/:/opt/storage/
       - $VSS_APPS_DIR/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/scripts/download-vision-encoder.sh:/opt/scripts/download-vision-encoder.sh:ro
     environment:
-      VISION_ENCODER_NGC_ORG: ${VISION_ENCODER_NGC_ORG:-nvstaging}
-      VISION_ENCODER_NGC_TEAM: ${VISION_ENCODER_NGC_TEAM:-tao}
       VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
-      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-deployable_v1.1}
-      VISION_ENCODER_ONNX_FILE: ${VISION_ENCODER_ONNX_FILE:-siglip2_v1.1.onnx}
-      VISION_ENCODER_TOKENIZER_DIR: ${VISION_ENCODER_TOKENIZER_DIR:-siglip2_v1.1_tokenizer}
+      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
       NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
       STORAGE_UID: ${STORAGE_UID:-1001}
       STORAGE_GID: ${STORAGE_GID:-1001}
@@ -189,10 +190,7 @@ services:
       DS_TRACKER_REID: "true"
       DS_SHOW_SENSOR_ID: "false"
       VISION_ENCODER_MODEL: ${VISION_ENCODER_MODEL:-siglip_v2}
-      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-deployable_v1.1}
-      VISION_ENCODER_ONNX_FILE: ${VISION_ENCODER_ONNX_FILE:-siglip2_v1.1.onnx}
-      VISION_ENCODER_TOKENIZER_DIR: ${VISION_ENCODER_TOKENIZER_DIR:-siglip2_v1.1_tokenizer}
-      VISION_ENCODER_DS_MODEL_NAME: ${VISION_ENCODER_DS_MODEL_NAME:-siglip2-onnx}
+      VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
     depends_on:
       perception-2d-init:
         condition: service_completed_successfully

@@ -113,6 +113,37 @@ function mask_secret() {
   fi
 }
 
+function mask_external_ip_args() {
+  local _arg _masked_value
+  local _mask_next="false"
+  local _masked_args=()
+  for _arg in "$@"; do
+    if [[ "${_mask_next}" == "true" ]]; then
+      _masked_args+=("$(mask_secret "${_arg}")")
+      _mask_next="false"
+      continue
+    fi
+    case "${_arg}" in
+      -e|--external-ip)
+        _masked_args+=("${_arg}")
+        _mask_next="true"
+        ;;
+      --external-ip=*)
+        _masked_value="${_arg#--external-ip=}"
+        _masked_args+=("--external-ip=$(mask_secret "${_masked_value}")")
+        ;;
+      -e?*)
+        _masked_value="${_arg#-e}"
+        _masked_args+=("-e$(mask_secret "${_masked_value}")")
+        ;;
+      *)
+        _masked_args+=("${_arg}")
+        ;;
+    esac
+  done
+  echo "${_masked_args[*]}"
+}
+
 function usage() {
   echo "Usage: ${0} (up|down) [options]"
   echo "   or: ${0} (-h|--help)"
@@ -132,9 +163,9 @@ function usage() {
   echo "                                   • warehouse — .env under industry-profiles/warehouse-operations/"
   echo "  -m, --mode                       Deployment mode."
   echo "                                   • Default: 2d"
-  echo "                                   • Pass -m 3d for 3D deployment"
+  echo "                                   • Pass -m 3d for 3D deployment or -m mv3dt for MV3DT"
   echo "  -p, --bp-profile                Blueprint profile."
-  echo "                                   • bp_wh (default), bp_wh_kafka, bp_wh_redis"
+  echo "                                   • bp_wh (default), bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
   echo "  -e, --external-ip                Externally accessible IP."
@@ -189,7 +220,7 @@ function validate_args() {
 
   _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:n:h:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
-    echo "[ERROR] Invalid usage: ${_args[*]}"
+    echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
   else
     eval set -- "${_valid_args}"
@@ -438,14 +469,14 @@ function process_args() {
       fi
 
       if [[ "${deployment}" == "warehouse" ]]; then
-        _valid_modes=('2d' '3d')
+        _valid_modes=('2d' '3d' 'mv3dt')
         if [[ -n "${mode}" ]] && ! contains_element "${mode}" "${_valid_modes[@]}"; then
-          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d"
+          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d, mv3dt"
           ((_all_good++))
         fi
-        _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis')
+        _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis' 'bp_wh_auto_calib')
         if [[ -n "${bp_profile}" ]] && ! contains_element "${bp_profile}" "${_valid_wh_profiles[@]}"; then
-          echo "[ERROR] Invalid bp-profile for warehouse: ${bp_profile}. Must be one of: bp_wh, bp_wh_kafka, bp_wh_redis"
+          echo "[ERROR] Invalid bp-profile for warehouse: ${bp_profile}. Must be one of: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
           ((_all_good++))
         fi
       fi
@@ -530,7 +561,7 @@ function print_args() {
     fi
     echo "host-ip:                  ${host_ip}"
     if [[ -n "${external_ip}" ]]; then
-      echo "external-ip:               ${external_ip}"
+      echo "external-ip:               $(mask_secret "${external_ip}")"
     fi
     echo "ngc-cli-api-key:          $(mask_secret "${ngc_cli_api_key}")"
   fi
@@ -589,7 +620,7 @@ function state_up() {
   set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
   if [[ -n "${external_ip}" ]]; then
-    set_env_var "EXTERNAL_IP" "${external_ip}"
+    set_env_var "EXTERNAL_IP" "${external_ip}" "true"
   fi
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
   if [[ -n "${mode}" ]]; then
@@ -603,7 +634,7 @@ function state_up() {
   fi
 
   # Warehouse 3d: LLM/VLM not used; set to none
-  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]; }; then
+  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]] || [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; }; then
     set_env_var "LLM_MODE" "none"
     set_env_var "VLM_MODE" "none"
   fi
@@ -711,7 +742,7 @@ function state_up() {
       _sample_dataset="${sample_video_dataset}"
       _num_streams="$(get_env_value "${_source_env}" "NUM_STREAMS")"
       _num_streams="${_num_streams:-4}"
-    elif [[ "${mode}" == "3d" ]]; then
+    elif [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]]; then
       _sample_dataset="warehouse-4cams-20mx20m-synthetic"
       _num_streams="4"
     elif [[ "${bp_profile}" == "bp_wh" ]]; then
@@ -757,7 +788,7 @@ function state_up() {
     local _sample_dataset _num_streams
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
-    elif [[ "${mode}" == "3d" ]]; then
+    elif [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]]; then
       _sample_dataset="warehouse-4cams-20mx20m-synthetic"
     elif [[ "${bp_profile}" == "bp_wh" ]]; then
       _sample_dataset="nv-warehouse-4cams"

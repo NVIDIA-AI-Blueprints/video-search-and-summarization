@@ -32,7 +32,8 @@ services:
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
-      - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
+      - ENABLE_AGING_POLICY=true
+      - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
@@ -49,7 +50,7 @@ services:
       restart_policy:
         condition: always
     healthcheck:
-      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/${HTTP_PORT:-30001}'"]
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${HTTP_PORT:-30001}'"]
       # Handle slow apt mirrors which delays package installs and service startup
       # Hence widen retries x interval ~ 25min so healthcheck outlasts apt
       interval: 20s
@@ -64,7 +65,7 @@ services:
 
   streamprocessing-ms-2d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_auto_calib_2d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -80,10 +81,12 @@ services:
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
-      - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
+      - ENABLE_AGING_POLICY=true
+      - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -111,7 +114,7 @@ services:
 
   streamprocessing-ms-3d:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d"]
+    profiles: ["bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_auto_calib_3d"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -127,12 +130,14 @@ services:
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
-      - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
+      - ENABLE_AGING_POLICY=true
+      - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/labels.txt:/home/vst/vst_release/configs/labels.txt
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -160,7 +165,7 @@ services:
 
   streamprocessing-ms-mv3dt:
     image: ${VST_STREAM_PROCESSOR_IMAGE}
-    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt"]
+    profiles: ["bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_mv3dt"]
     container_name: vss-vios-streamprocessing
     network_mode: host
     runtime: nvidia
@@ -176,12 +181,14 @@ services:
       - CENTRALIZE_DB_USERNAME=${CENTRALIZE_DB_USERNAME}
       - SENSOR_MODULE_ENDPOINT=${SENSOR_MODULE_ENDPOINT}
       - VST_INGRESS_ENDPOINT=${VST_INGRESS_ENDPOINT}
-      - ENABLE_AGING_POLICY=${ENABLE_AGING_POLICY:-true}
+      - ENABLE_AGING_POLICY=true
+      - VST_VIDEO_STORAGE_SIZE_MB=${VST_VIDEO_STORAGE_SIZE_MB}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json:/home/vst/vst_release/configs/calibration.json
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png:/home/vst/vst_release/configs/Top.png
+      - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-detector-labels.txt:/home/vst/vst_release/configs/labels.txt
       - ${VST_DATA_PATH}:/home/vst/vst_release/vst_data
       - ${VST_VIDEO_STORAGE_PATH}:/home/vst/vst_release/vst_video
       - ${CLIP_STORAGE_PATH}:/home/vst/vst_release/streamer_videos
@@ -209,7 +216,7 @@ services:
 
   sdr-streamprocessing:
     image: ${SDR_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d"]
     user: "0:0"
     network_mode: "host"
     logging:
@@ -288,9 +295,39 @@ services:
         condition: service_healthy
         required: false
 
+  # envoy-streamprocessing:
+  #   image: ${ENVOY_PROXY_IMAGE}
+  #   profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+  #   user: "0:0"
+  #   command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
+  #   network_mode: "host"
+  #   container_name: vss-vios-envoy
+  #   volumes:
+  #     - ./envoy.yaml:/etc/envoy/envoy.yaml
+  #   restart: unless-stopped
+  #   environment:
+  #     WDM_WL_REDIS_SERVER: ${REDIS_HOSTADDR}
+  #     CONTAINER_NAME: vss-vios-envoy
+  #     WDM_WL_REDIS_PORT: ${REDIS_PORT}
+  #     WDM_KFK_BOOTSTRAP_URL: ${KAFKA_BOOTSTRAP_URL}
+  #     WDM_WL_OBJECT_NAME: streamprocessing-ms
+  #     ENVOYROUTEHEADER: "streamid"
+  #     NOHEADERTARGETCONTAINER: "streamprocessing-ms-1"
+  #   depends_on:
+  #     redis:
+  #       condition: service_started
+  #     streamprocessing-ms:
+  #       condition: service_healthy
+  #       required: false
+  #     streamprocessing-ms-2d:
+  #       condition: service_healthy
+  #       required: false
+  #     streamprocessing-ms-3d:
+  #       condition: service_healthy
+  #       required: false
   envoy-streamprocessing:
     image: ${ENVOY_PROXY_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d"]
     user: "0:0"
     command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
     network_mode: "host"
