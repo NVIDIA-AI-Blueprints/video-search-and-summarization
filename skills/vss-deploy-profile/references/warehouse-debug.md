@@ -449,6 +449,8 @@ docker logs --tail 50 vss-agent        2>&1 | grep -E "ERROR|error|fail"      | 
 docker logs --tail 50 vss-agent-ui     2>&1 | grep -E "ERROR|error|fail"      | tail -20
 docker logs --tail 50 vss-haproxy-ingress 2>&1 | grep -E "ERROR|error|fail"   | tail -20
 # LLM NIM container name = LLM_NAME_SLUG from .env (e.g. nvidia-nemotron-nano-9b-v2)
+# Warehouse industry-profile compose commands read from .env directly
+# (no generated.env flow — that pattern is only for dev-profile-*).
 LLM_SLUG=$(grep '^LLM_NAME_SLUG=' "$REPO/deploy/docker/industry-profiles/warehouse-operations/.env" | cut -d= -f2 | tr -d '"')
 docker logs --tail 50 "$LLM_SLUG" 2>&1 | grep -E "ERROR|error|fail|CUDA" | tail -20
 ```
