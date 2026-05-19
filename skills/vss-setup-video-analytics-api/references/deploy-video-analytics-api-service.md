@@ -5,6 +5,8 @@ Deploy **just** `vss-video-analytics-api` (no perception, no behavior-analytics,
 - Run the REST API against an existing Elasticsearch cluster (and optionally Kafka).
 - Serve calibration, sensor, behavior, alerts, events, tracking, incident, and metrics endpoints.
 
+Required host runtime: **Docker Engine 28.3.3** with **Docker Compose plugin v2.39.1+**.
+
 ---
 
 ## What you edit
@@ -22,6 +24,9 @@ After editing, deploy with:
 
 ```bash
 cd <repo>/deploy/docker
+docker --version        # need 28.3.3
+docker compose version  # need v2.39.1+
+
 export VSS_APPS_DIR=$(pwd)
 export VSS_DATA_DIR=<path-to-data-directory>
 docker compose -f services/analytics/video-analytics-api/compose.yml \
@@ -179,6 +184,9 @@ All endpoints except `/livez` require Elasticsearch. Endpoints that publish noti
 
 ```bash
 cd <repo>/deploy/docker
+docker --version        # need 28.3.3
+docker compose version  # need v2.39.1+
+
 export VSS_APPS_DIR=$(pwd)
 export VSS_DATA_DIR=<path-to-data-directory>  # e.g. /opt/vss/data
 
@@ -230,4 +238,19 @@ For a multi-service teardown (broker, ES, etc.) see [`teardown.md`](../../vss-de
 | Container alive but Kafka-dependent endpoints return errors | Kafka brokers configured but unreachable. | Verify brokers are reachable: `nc -zv <broker-host> <broker-port>`. Check `kafka.brokers` is a proper array of `"host:port"` strings. |
 | `/livez` returns 200 but data endpoints return empty results | Elasticsearch indices don't exist or have no data. | Check indices: `curl -s http://localhost:9200/_cat/indices?v \| grep mdx`. If empty, the upstream pipeline (behavior-analytics, perception) hasn't produced data yet. |
 | Config update via POST `/config` times out | The ACK from behavior-analytics didn't arrive within `configStatusTimeoutMs`. | Check that behavior-analytics is running and consuming from `mdx-notification`. Check the `configStatusTimeoutMs` value (default `30000`ms). |
-| Image won't run `docker exec -it ... sh` | The runtime image is distroless (`nvcr.io/nvidia/distroless/node:22`) — no shell. | Debug via `docker logs <container>` only. |
+| Image won't run `docker exec -it ... sh` | Runtime is a **Node** image (`nvcr.io/nvidia/distroless/node:22-v4.0.7`) — no shell, but the `node` binary is present. | Use `docker logs <container>` for runtime output. To print a bind-mounted file (e.g. bootstrap config), use `docker exec <container> node -e '...'` — see below. Prefer reading the host-side mount path when the file is volume-bound. |
+
+**Inspect a mounted config inside the container** (same path as `command: node index.js --config …`):
+
+```bash
+docker exec vss-video-analytics-api node -e \
+  "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
+```
+
+With compose (standalone deploy):
+
+```bash
+docker compose -f services/analytics/video-analytics-api/compose.yml \
+  exec vss-video-analytics-api node -e \
+  "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
+```
