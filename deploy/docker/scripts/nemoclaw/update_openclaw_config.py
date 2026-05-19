@@ -308,7 +308,7 @@ def main() -> int:
 
     env_id = get_brev_env_id()
     if env_id:
-        origin = f"https://openclaw0-{env_id}.brevlab.com"
+        origin = f"https://18789-{env_id}.brevlab.com"
     else:
         port = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
         origin = f"http://127.0.0.1:{port}"

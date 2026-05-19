@@ -1,0 +1,330 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Warehouse 3D standalone: sparse4d + metropolis_perception_app + bundled configs + NGC file sources.
+
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-3d") }}
+{{- $sw := .Values.standaloneWarehouse }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-3d
+spec:
+  serviceName: {{ include "vss-rtvi-cv.headlessServiceName" . }}
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "vss-rtvi-cv.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vss-rtvi-cv.selectorLabels" . | nindent 8 }}
+      annotations:
+        vss-rtvi-cv.profileMode: standalone-3d
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $ips := .Values.imagePullSecrets | default .Values.global.imagePullSecrets }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName | quote }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.downloadNgcAppData }}
+        - name: wait-for-ngc-app-data
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for NGC warehouse app data..."
+              ELAPSED=0
+              TIMEOUT={{ .Values.downloadNgcAppDataWaitSeconds | default 3600 }}
+              until test -f /opt/storage/vss-warehouse-app-data/.ngc-extracted; do
+                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                  echo "[ERROR] Timeout waiting for NGC extract marker (${TIMEOUT}s)"
+                  exit 1
+                fi
+                echo "... still waiting (${ELAPSED}s)"
+                sleep 10
+                ELAPSED=$((ELAPSED + 10))
+              done
+              echo "NGC app data is ready."
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+        {{- else }}
+        - name: wait-for-warehouse-videos
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for bundled videos under /opt/storage/vss-warehouse-app-data/videos ..."
+              ELAPSED=0
+              TIMEOUT={{ .Values.downloadNgcAppDataWaitSeconds | default 3600 }}
+              until test -d /opt/storage/vss-warehouse-app-data/videos; do
+                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                  echo "[ERROR] Timeout: mount NGC data or enable downloadNgcAppData"
+                  exit 1
+                fi
+                sleep 10
+                ELAPSED=$((ELAPSED + 10))
+              done
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+        {{- end }}
+        {{- if .Values.downloadModelsFromNgc }}
+        - name: wait-for-models
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              MODELS_ROOT="/models-data"
+              TIMEOUT={{ .Values.downloadModelsFromNgcWaitSeconds | default 900 }}
+              ELAPSED=0
+              while true; do
+                READY=true
+                {{- range .Values.ngcModelsToDownload }}
+                if [[ ! -e "${MODELS_ROOT}/{{ .destPath }}" ]]; then
+                  READY=false
+                fi
+                {{- end }}
+                if [[ "${READY}" == "true" ]]; then
+                  break
+                fi
+                if [[ ${ELAPSED} -ge ${TIMEOUT} ]]; then
+                  echo "[ERROR] Timeout waiting for NGC model files (${TIMEOUT}s)"
+                  exit 1
+                fi
+                echo "[INFO] Waiting for model files... (${ELAPSED}s / ${TIMEOUT}s)"
+                sleep 15
+                ELAPSED=$((ELAPSED + 15))
+              done
+              echo "[INFO] Model files present, proceeding."
+          volumeMounts:
+            - name: models
+              mountPath: /models-data
+        {{- end }}
+        - name: ensure-trt-cache
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /opt/storage/trt-cache
+              chmod 777 /opt/storage/trt-cache
+              echo "[INFO] TensorRT engine cache dir ready."
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+      containers:
+        - name: vss-rtvi-cv
+          image: {{ include "vss-rtvi-cv.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
+          command:
+            - bash
+            - -c
+            - ./ds-start.sh
+          {{- if .Values.httpPort }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.httpPort }}
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 40
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          {{- end }}
+          env:
+            - name: DS_MODEL_FAMILY
+              value: "sparse4d-warehouse"
+            - name: DS_MODE_FLAG
+              value: {{ $sw.dsModeFlag3d | quote }}
+            - name: DS_MESSAGE_RATE
+              value: {{ $sw.dsMessageRate | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ $sw.dsTrackerReid | quote }}
+            - name: DS_SHOW_SENSOR_ID
+              value: {{ $sw.dsShowSensorId | quote }}
+            - name: STREAM_TYPE
+              value: {{ $sw.streamType | default "none" | quote }}
+            - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+              value: {{ .Values.deepstreamEnableSensorIdExtraction | quote }}
+            - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
+              value: {{ .Values.gstEnableCustomParserModifications | quote }}
+            - name: OTEL_SDK_DISABLED
+              value: {{ .Values.otelSdkDisabled | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otelServiceName | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://localhost:4318"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: SPARSE4D_DEBUG_TS
+              value: {{ $sw.sparse4dDebugTs | quote }}
+            - name: SPARSE4D_CONFIG_PATH
+              value: "/opt/data/ds-configurator/"
+            - name: SPARSE4D_ENGINE_PATH
+              value: "/opt/storage/"
+            - name: CUDA_MPS_PIPE_DIRECTORY
+              value: "/tmp/nvidia-mps-via/"
+            - name: CUSTOM_LIB_PATH
+              value: "/usr/local/lib/python3.10/dist-packages/torch/lib:/opt/nvidia/deepstream/deepstream/sources/sparse4d/"
+            - name: CUSTOM_PRELOAD_LIB
+              value: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so"
+            - name: MSDA_PLUGIN_PATH
+              value: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so"
+            - name: NETWORK_WIDTH
+              value: {{ $sw.networkWidth | quote }}
+            - name: NETWORK_HEIGHT
+              value: {{ $sw.networkHeight | quote }}
+            {{- if $sw.hardwareProfile }}
+            - name: HARDWARE_PROFILE
+              value: {{ $sw.hardwareProfile | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+            - name: wh-start
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh
+              subPath: ds-start.sh
+              readOnly: true
+            - name: wh-cal
+              mountPath: /opt/data/ds-configurator/calibration.json
+              subPath: calibration.json
+              readOnly: true
+            - name: wh3d-labels
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
+              subPath: labels.txt
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config-ocr.yaml
+              subPath: config-ocr.yaml
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/data/ds-configurator/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-kafka-config.txt
+              subPath: ds-kafka-config.txt
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-main-config.txt
+              subPath: ds-main-config.txt
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-mtmc-preprocess-config.txt
+              subPath: ds-mtmc-preprocess-config.txt
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-mtmc-preprocess-ocr-config.txt
+              subPath: ds-mtmc-preprocess-ocr-config.txt
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-mtmc-videotemplate_custom_lib_config.txt
+              subPath: ds-mtmc-videotemplate_custom_lib_config.txt
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-nvdcf-accuracy-tracker-config.yml
+              subPath: ds-nvdcf-accuracy-tracker-config.yml
+              readOnly: true
+            - name: wh3d-cfg
+              mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/ds-redis-config.txt
+              subPath: ds-redis-config.txt
+              readOnly: true
+            - name: model-sparse4d-onnx
+              mountPath: {{ printf "/opt/nvidia/deepstream/deepstream/sources/sparse4d/%s" $sw.sparse4dOnnxFile | quote }}
+              subPath: {{ $sw.pvcOnnxSubPath | quote }}
+              readOnly: true
+            - name: model-sparse4d-npy
+              mountPath: {{ printf "/opt/nvidia/deepstream/deepstream/sources/sparse4d/%s" $sw.sparse4dNpyFile | quote }}
+              subPath: {{ $sw.pvcNpySubPath | quote }}
+              readOnly: true
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+        - name: wh-start
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-ds-start
+            defaultMode: 493
+            items:
+              - key: ds-start.sh
+                path: ds-start.sh
+        - name: wh-cal
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d-calibration
+            defaultMode: 420
+            items:
+              - key: calibration.json
+                path: calibration.json
+        - name: wh3d-labels
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d-labels
+            defaultMode: 420
+            items:
+              - key: labels.txt
+                path: labels.txt
+        - name: wh3d-cfg
+          configMap:
+            name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d
+            defaultMode: 420
+        - name: model-sparse4d-onnx
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+        - name: model-sparse4d-npy
+          persistentVolumeClaim:
+            claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+{{- end }}
