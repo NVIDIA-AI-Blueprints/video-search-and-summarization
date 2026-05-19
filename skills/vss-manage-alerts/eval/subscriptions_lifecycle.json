@@ -15,6 +15,8 @@
       "query": "Watch warehouse_sample for anyone without a safety vest",
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime` with a payload containing `live_stream_url` (RTSP from warehouse_sample) and `prompt` (referencing safety vest or PPE).",
+        "The Alert Bridge payload includes `sensor_id` set to the VIOS sensor ID resolved from `warehouse_sample` (via `GET /sensor/list`).",
+        "The Alert Bridge payload includes `sensor_name` set to `warehouse_sample`.",
         "The response includes a rule `id` (UUID) and `status: success`.",
         "The agent confirms the rule was created and reports the rule ID and sensor name to the user.",
         "The derived `alert_type` tag is a snake_case value related to PPE or vest violation."
