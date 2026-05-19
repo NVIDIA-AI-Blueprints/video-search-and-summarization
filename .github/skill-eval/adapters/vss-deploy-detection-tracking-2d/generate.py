@@ -145,7 +145,7 @@ def generate_solve_script(platform: str, kind: str) -> str:
             "set -euo pipefail\n"
             "\n"
             "curl -sf --connect-timeout 5 "
-            "http://localhost:9000/api/v1/health/ready >/dev/null || {\n"
+            "http://localhost:9000/api/v1/ready >/dev/null || {\n"
             "    echo 'RTVI-CV is not ready — cannot solve usage task'\n"
             "    exit 1\n"
             "}\n"
@@ -159,7 +159,7 @@ def generate_solve_script(platform: str, kind: str) -> str:
         "set -euo pipefail\n"
         "\n"
         "curl -sf --connect-timeout 5 "
-        "http://localhost:9000/api/v1/health/ready >/dev/null \\\n"
+        "http://localhost:9000/api/v1/ready >/dev/null \\\n"
         "    && echo 'RTVI-CV is reachable — deploy succeeded.' \\\n"
         "    || echo 'RTVI-CV not reachable — verifier will report the gap.'\n"
     )
