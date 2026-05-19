@@ -156,6 +156,7 @@ functions:
   lvs_config_media:
     _type: lvs_config_media
     lvs_backend_url: ${LVS_BACKEND_URL}
+    rtvi_vlm_url: ${RTVI_VLM_BASE_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
     model: ${VLM_NAME}
     conn_timeout_ms: 5000

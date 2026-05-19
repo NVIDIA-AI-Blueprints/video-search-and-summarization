@@ -163,6 +163,20 @@ function set_alerts_ui_subtitle_from_mode() {
   esac
 }
 
+# Alerts SDR compose mounts use SDR_CONTROLLER_CONFIG_PATH as a volume source.
+# Docker Compose does not recursively expand variables embedded inside env var
+# values, so generated.env must contain the resolved path after MODE is set.
+function set_alerts_sdr_config_path_from_mode() {
+  local _generated_env="${1}"
+  local _deployment_directory="${2}"
+  local _mode
+  _mode="$(get_env_value "${_generated_env}" "MODE")"
+  if [[ -n "${_mode}" ]]; then
+    sed -i "s|^SDR_CONTROLLER_CONFIG_PATH=.*|SDR_CONTROLLER_CONFIG_PATH=${_deployment_directory}/developer-profiles/dev-profile-alerts/sdrc/${_mode}|" "${_generated_env}"
+    echo "[INFO] Set SDR_CONTROLLER_CONFIG_PATH for alerts (MODE=${_mode})"
+  fi
+}
+
 # Gets model name from remote API endpoint (works for both LLM and VLM).
 # Auto-select is only safe when the endpoint serves exactly one model
 # (e.g., a deployed NIM). For aggregate endpoints like
@@ -1117,6 +1131,7 @@ function state_up() {
   fi
   if [[ "${profile}" == "alerts" ]]; then
     set_alerts_ui_subtitle_from_mode "${_generated_env}"
+    set_alerts_sdr_config_path_from_mode "${_generated_env}" "${deployment_directory}"
   fi
 
   # ===== LLM Configuration =====
