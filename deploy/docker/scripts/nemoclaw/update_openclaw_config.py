@@ -294,6 +294,14 @@ def main() -> int:
         help="OpenClaw hooks path (default: /hooks)",
     )
     parser.add_argument(
+        "--openclaw-ui-prefix",
+        default=os.environ.get("OPENCLAW_UI_PREFIX", "18789").strip() or "18789",
+        help=(
+            "Brev secure-link prefix for the OpenClaw UI; the full origin is "
+            "https://<prefix>-<BREV_ENV_ID>.brevlab.com (default: 18789)"
+        ),
+    )
+    parser.add_argument(
         "--mcp-name",
         default=os.environ.get("VSS_ORCHESTRATOR_MCP_NAME", "vss_orchestrator").strip()
         or "vss_orchestrator",
@@ -312,7 +320,7 @@ def main() -> int:
     args = parser.parse_args()
 
     env_id = get_brev_env_id()
-    origin = f"https://openclaw0-{env_id}.brevlab.com"
+    origin = f"https://{args.openclaw_ui_prefix}-{env_id}.brevlab.com"
 
     raw = read_remote_file(
         args.container,

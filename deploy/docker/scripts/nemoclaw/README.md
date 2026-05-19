@@ -99,14 +99,14 @@ Successful runs usually include log lines like:
 [init_nvidia_remote] Applying custom policy file /home/ubuntu/video-search-and-summarization/assets/vss_nemoclaw_policy.yaml to sandbox demo
 [init_nvidia_remote] VSS skills installed
 [init_nvidia_remote] Updating OpenClaw config for sandbox demo using script /home/ubuntu/video-search-and-summarization/deploy/docker/scripts/nemoclaw/update_openclaw_config.py
-OpenClaw UI at https://openclaw0-<brev-id>.brevlab.com/#token=<token>
+OpenClaw UI at https://18789-<brev-id>.brevlab.com/#token=<token>
 ```
 
 If the config update succeeds, the helper also prints:
 
 - `Updated /sandbox/.openclaw/openclaw.json` or `No JSON change needed ...`
 - `Brev instance ID: ...`
-- `Origin allowed in OpenClaw: https://openclaw0-<brev-id>.brevlab.com`
+- `Origin allowed in OpenClaw: https://18789-<brev-id>.brevlab.com`
 - `Dashboard token: ...`
 
 ## Troubleshooting
