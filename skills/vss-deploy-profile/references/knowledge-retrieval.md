@@ -151,7 +151,6 @@ In-process equivalent of `frag_api`. Runs the full NVIDIA RAG Blueprint pipeline
 | `embedder_model_name` | Embedder model name override | unset |
 | `enable_citations` | Return citation metadata with each chunk | `true` |
 | `enable_guardrails` | Run guardrails on the response | `false` |
-| `reranker_top_k` | Default reranker top_k when caller doesn't override | `10` |
 
 **Per-query `filters`** — same shape as `frag_api`:
 

@@ -64,7 +64,6 @@ class FragLibConfig(BaseModel):
     )
     enable_citations: bool = Field(default=True)
     enable_guardrails: bool = Field(default=False)
-    reranker_top_k: int = Field(default=10, description="Default reranker top_k when caller doesn't override.")
 
 
 @register_adapter("frag_lib", config_type=FragLibConfig)
@@ -112,7 +111,6 @@ class FragLibAdapter(BackendAdapter):
 
         self._rag_client = NvidiaRAG(config=rag_config)
         self.collection_name: str = config.collection_name
-        self._reranker_top_k: int = config.reranker_top_k
         logger.info(
             "frag_lib initialised: llm=%s embedder=%s milvus=%s collection_name=%s",
             config.llm_base_url,
@@ -133,7 +131,7 @@ class FragLibAdapter(BackendAdapter):
         search_kwargs: dict[str, Any] = {
             "query": query,
             "collection_names": [target_collection],
-            "reranker_top_k": top_k or self._reranker_top_k,
+            "reranker_top_k": top_k,
         }
         # Same dict→Milvus expr translation as frag_api so the LLM filter
         # contract is interchangeable between the two.
