@@ -1239,10 +1239,30 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
             )
 
     if errors:
+        required_count = int(req.get("gpu_count", 1) or 0)
+        # Actionable hint so the agent doesn't burn its turn budget
+        # re-discovering how to find a matching pool member. Stay
+        # generic — don't name specific pool boxes here, the pool
+        # is operator-managed and naming couples this code to the
+        # current fleet topology.
+        hint = (
+            f"\n\nTo find a matching pool member, scan vss-eval-* "
+            f"candidates and require gpu_type={required_type!r} + "
+            f"gpu_count={required_count}:\n"
+            f"  brev ls --json | jq -r '.[] | select(.name | "
+            f"startswith(\"vss-eval-\")) | \"\\(.name)\\t\\(.instance_type)"
+            f"\\t\\(.gpu)\"'\n"
+            f"Cross-reference each candidate's instance_type against "
+            f"`brev search gpu --json` to confirm gpu_count, then "
+            f"re-export BREV_INSTANCE=<candidate> and retry. Do NOT "
+            f"`brev create` a new instance — the pool is operator-"
+            f"managed (see AGENTS.md § Platform topology)."
+        )
         raise RuntimeError(
             f"Brev instance '{instance.get('name')}' does not meet task "
             f"requirements:\n  - " + "\n  - ".join(errors) +
             f"\n  (instance: type={instance.get('instance_type')}, gpu={gpu})"
+            + hint
         )
 
     logger.info(
