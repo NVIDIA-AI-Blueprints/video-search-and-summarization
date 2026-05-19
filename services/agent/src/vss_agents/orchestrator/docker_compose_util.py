@@ -146,6 +146,7 @@ class DryRunRecipe:
     llm_enable_thinking: str | None
     nim_kvcache_percent: str | None
     rtvi_vllm_gpu_memory_utilization: str | None
+    enable_critic: str | None
     profile_mode: str | None
     output_env_file: Path
     output_compose_file: Path
@@ -181,6 +182,7 @@ def create_dry_run_recipe(
     llm_enable_thinking: str | None = None,
     nim_kvcache_percent: str | None = None,
     rtvi_vllm_gpu_memory_utilization: str | None = None,
+    enable_critic: str | None = None,
     profile_mode: str | None = None,
     model_resolution: Any,
     output_env_file: str,
@@ -239,6 +241,7 @@ def create_dry_run_recipe(
         llm_enable_thinking=(llm_enable_thinking or "").strip() or None,
         nim_kvcache_percent=(nim_kvcache_percent or "").strip() or None,
         rtvi_vllm_gpu_memory_utilization=(rtvi_vllm_gpu_memory_utilization or "").strip() or None,
+        enable_critic=(enable_critic or "").strip() or None,
         profile_mode=(profile_mode or "").strip() or None,
         output_env_file=Path(output_env_file).resolve(),
         output_compose_file=Path(output_compose_file).resolve(),
@@ -502,6 +505,14 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["VLM_NIM_KVCACHE_PERCENT"] = config.nim_kvcache_percent
     if config.rtvi_vllm_gpu_memory_utilization:
         merged["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] = config.rtvi_vllm_gpu_memory_utilization
+    # Mirror dev-profile.sh: search profile gates the critic agent on ENABLE_CRITIC.
+    # When false (case-insensitive), also force VLM_NAME_SLUG=none to skip local VLM.
+    if config.profile == PROFILE_SEARCH:
+        if config.enable_critic is not None and config.enable_critic.lower() == "false":
+            merged["ENABLE_CRITIC"] = "false"
+            merged["VLM_NAME_SLUG"] = MODEL_SLUG_NONE
+        else:
+            merged["ENABLE_CRITIC"] = "true"
     merged.update(config.env_overrides)
 
     llm_is_remote = bool(config.llm_endpoint_url) or merged.get("LLM_MODE") == MODE_REMOTE

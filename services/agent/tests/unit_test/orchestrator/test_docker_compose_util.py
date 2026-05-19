@@ -47,6 +47,7 @@ def _make_recipe(
     llm_enable_thinking: str | None = None,
     nim_kvcache_percent: str | None = None,
     rtvi_vllm_gpu_memory_utilization: str | None = None,
+    enable_critic: str | None = None,
     profile_mode: str | None = None,
     supported_hardware_profiles: frozenset[str] = frozenset({"igx", "thor"}),
     edge_hardware_profiles: frozenset[str] = frozenset({"igx"}),
@@ -83,6 +84,7 @@ def _make_recipe(
         llm_enable_thinking=llm_enable_thinking,
         nim_kvcache_percent=nim_kvcache_percent,
         rtvi_vllm_gpu_memory_utilization=rtvi_vllm_gpu_memory_utilization,
+        enable_critic=enable_critic,
         profile_mode=profile_mode,
         output_env_file=tmp_path / "generated.env",
         output_compose_file=tmp_path / "docker-compose.generated.yml",
@@ -733,6 +735,125 @@ def _patch_network(monkeypatch: pytest.MonkeyPatch, ip: str = "10.0.0.1") -> Non
     monkeypatch.setattr(dcu, "detect_external_ip", lambda: ip)
     monkeypatch.setattr(dcu, "read_etc_environment", lambda: {})
     monkeypatch.setattr(dcu, "apply_brev_proxy_env", lambda _merged, _brev_env_id: None)
+
+
+def _search_env(*extra: str) -> tuple[str, ...]:
+    return (
+        "MODE=local",
+        "BP_PROFILE=search",
+        "PROXY_MODE=direct",
+        "HARDWARE_PROFILE=thor",
+        "LLM_MODE=local",
+        "LLM_NAME=llm-a",
+        "LLM_NAME_SLUG=llm-a-slug",
+        "VLM_MODE=local",
+        "VLM_NAME=vlm-a",
+        "VLM_NAME_SLUG=cosmos-reason2-8b",
+        "HOST_IP=10.0.0.1",
+        "EXTERNALLY_ACCESSIBLE_IP=198.51.100.5",
+        "VSS_APPS_DIR=/path/to/deploy/docker",
+        *extra,
+    )
+
+
+class TestEnableCritic:
+    """ENABLE_CRITIC handling for the search profile, mirroring dev-profile.sh.
+
+    dev-profile.sh logic (deploy/docker/scripts/dev-profile.sh):
+      - profile == search and ENABLE_CRITIC (case-insensitive) == "false"
+          -> ENABLE_CRITIC=false AND VLM_NAME_SLUG=none (skip local VLM)
+      - profile == search otherwise -> ENABLE_CRITIC=true
+      - profile != search -> ENABLE_CRITIC not written
+    """
+
+    def test_search_with_enable_critic_false_forces_vlm_name_slug_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_search_env()),
+            profile=dcu.PROFILE_SEARCH,
+            enable_critic="false",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["ENABLE_CRITIC"] == "false"
+        assert resolved["VLM_NAME_SLUG"] == dcu.MODEL_SLUG_NONE
+
+    def test_search_with_enable_critic_false_uppercase_is_case_insensitive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_search_env()),
+            profile=dcu.PROFILE_SEARCH,
+            enable_critic="FALSE",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["ENABLE_CRITIC"] == "false"
+        assert resolved["VLM_NAME_SLUG"] == dcu.MODEL_SLUG_NONE
+
+    def test_search_with_enable_critic_true_keeps_vlm_name_slug(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_search_env()),
+            profile=dcu.PROFILE_SEARCH,
+            enable_critic="true",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["ENABLE_CRITIC"] == "true"
+        assert resolved["VLM_NAME_SLUG"] == "cosmos-reason2-8b"
+
+    def test_search_with_enable_critic_unset_defaults_to_true(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_search_env()),
+            profile=dcu.PROFILE_SEARCH,
+            enable_critic=None,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["ENABLE_CRITIC"] == "true"
+        assert resolved["VLM_NAME_SLUG"] == "cosmos-reason2-8b"
+
+    def test_non_search_profile_ignores_enable_critic(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            profile=dcu.PROFILE_BASE,
+            enable_critic="false",
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert "ENABLE_CRITIC" not in resolved
+        assert resolved["VLM_NAME_SLUG"] == "vlm-a-slug"
+
+    def test_env_override_wins_over_enable_critic_logic(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_search_env()),
+            profile=dcu.PROFILE_SEARCH,
+            enable_critic="false",
+            env_overrides={"ENABLE_CRITIC": "true", "VLM_NAME_SLUG": "custom-slug"},
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["ENABLE_CRITIC"] == "true"
+        assert resolved["VLM_NAME_SLUG"] == "custom-slug"
 
 
 class TestPrecedence:
