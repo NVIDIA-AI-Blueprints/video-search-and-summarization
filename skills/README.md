@@ -34,7 +34,7 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | [vss-ask-video](vss-ask-video/SKILL.md) | Skill for using video understanding tool to answer text questions about video content using a VLM. |
 | [vss-manage-video-io-storage](vss-manage-video-io-storage/SKILL.md) | Skill for video and stream management, recording timelines, clip extraction, snapshots (and more) using the Video IO and Storage microservices. |
 
-Skills with `eval/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**` — see [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
+Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
 ## Install (recommended: ask your coding agent)
 
