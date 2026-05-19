@@ -148,7 +148,7 @@ In the recipes below, **substitute `<TRAJ>` with the exact trajectory path print
 | How many steps total? | `jq '.steps | length' <TRAJ>` |
 | Get final_metrics (cost, turns) | `jq '.final_metrics' <TRAJ>` |
 
-These assume `.json` array form with a top-level `steps[]` (the default on this stack). If the per-check prompt points you at a `.jsonl` file, each line is already one step's JSON object — `jq` iterates lines automatically as separate inputs and the objects are already parsed (no `fromjson` needed). Drop both the `.steps[]` prefix AND the inner `| fromjson` and operate on the per-line object directly: e.g. `jq -r '.message.content[]? | select(.type=="tool_use" and .name=="Bash") | .input.command' <TRAJ>`. Or fall back to `grep`-based recipes, which don't depend on top-level structure at all.
+These assume `.json` array form with a top-level `steps[]` (the default on this stack). If the per-check prompt points you at a `.jsonl` file, each line is already one step object — `jq` iterates lines automatically as separate inputs, so the outer `.steps[]` goes away. **The inner `| fromjson` on `.message` is still required** in both formats: per the schema above, `.message` is a JSON-encoded string regardless of whether the top-level is array (`.json`) or line-stream (`.jsonl`). Example `.jsonl` form: `jq -r '.message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Bash") | .input.command' <TRAJ>`. Or fall back to `grep`-based recipes, which don't depend on top-level structure at all.
 
 If a one-liner above doesn't fit the check, adapt it — but stay grep/jq-only; never `cat` or do an unbounded `Read` on the whole file.
 
