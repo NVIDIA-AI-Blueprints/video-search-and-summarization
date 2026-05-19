@@ -172,6 +172,9 @@ services:
         os.environ["SEND_CONFIG_TO_SDR"] = (
             "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
         )
+        os.environ["ENABLE_CALIBRATION_PROCESS"] = (
+            "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
+        )
         os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
     volumes:
       - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
