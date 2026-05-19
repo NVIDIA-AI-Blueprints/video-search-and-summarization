@@ -16,7 +16,7 @@
         "The upload PUT to /vst/api/v1/storage/file/<filename>?timestamp=... either returns HTTP 2xx OR returns the VST sensor-cap error (HTTP 5xx with body containing 'Maximum number of sensors limit reached') — the latter is an acceptable warm-pool outcome on a re-used box, as long as the end-state checks below pass.",
         "The agent ultimately obtained a sensorId and streamId for the warehouse video — either parsed from a 2xx upload response OR resolved from /sensor/list + /sensor/<sensorId>/streams after the upload hit the sensor-cap. Subsequent steps in this trial depend on those IDs being known.",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem",
-        "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty JSON array of stream metadata entries — each entry exposes id (streamId), name, type, and status. No file URL is returned by this endpoint; this check exists to confirm the sensor has at least one stream registered and to surface streamId values for the downstream snapshot / clip calls."
+        "curl -sf http://localhost:30888/vst/api/v1/sensor/<sensorId>/streams returns a non-empty JSON array (confirms the sensor has at least one stream registered; downstream snapshot / clip calls rely on a streamId being available)."
       ]
     },
     {
