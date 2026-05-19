@@ -52,15 +52,16 @@ Ports that should NOT get their own secure link (they're behind the nginx proxy)
 
 ## Setup flow
 
-Before `docker compose up`, set `EXTERNAL_IP` in the profile `.env` to the
-Brev secure-link domain. The profile's other VSS_PUBLIC_* vars derive from
-`EXTERNAL_IP`, so this single edit propagates through haproxy and the
-agent's URL renders.
+Before `docker compose up`, set `EXTERNAL_IP` in the profile `generated.env`
+to the Brev secure-link domain (the skill's per-deploy working copy — see
+[`SKILL.md`](../SKILL.md) Step 1c/1d). The profile's other `VSS_PUBLIC_*`
+vars derive from `EXTERNAL_IP`, so this single edit propagates through
+haproxy and the agent's URL renders.
 
 ```bash
 brev_env_id=$(awk -F= '/^BREV_ENV_ID=/ {gsub(/"/, "", $2); print $2; exit}' /etc/environment)
 sed -i "s|^EXTERNAL_IP=.*|EXTERNAL_IP=77770-${brev_env_id}.brevlab.com|" \
-  deploy/docker/developer-profiles/dev-profile-<profile>/.env
+  deploy/docker/developer-profiles/dev-profile-<profile>/generated.env
 ```
 
 ## Verifying the deploy is reachable externally
