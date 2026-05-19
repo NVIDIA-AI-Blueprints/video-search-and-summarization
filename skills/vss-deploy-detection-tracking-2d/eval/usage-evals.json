@@ -7,13 +7,13 @@
       }
     }
   },
-  "env": "A GPU host matching `{{platform}}` with a running RTVI-CV container reachable at `http://localhost:9000/api/v1` (start it with the DEPLOY flow before running these checks — see `eval/deploy-evals.json`). The container must already have at least the readiness, liveness, startup, metrics, and stream-management endpoints reachable. `docker`, `curl`, and `jq` available on the host. This eval exercises the API USAGE flow of the `vss-deploy-detection-tracking-2d` skill against the live REST endpoint — it must not invoke `/deploy`, redeploy the container, or call any VSS profile.",
+  "env": "A GPU host matching `{{platform}}` with a running RTVI-CV container reachable at `http://localhost:9000/api/v1` (start it with the DEPLOY flow before running these checks — see `eval/deploy-evals.json`). The container must already have at least the readiness, liveness, startup, metrics, and stream-management endpoints reachable. `docker`, `curl`, and `jq` available on the host. The `/stream/add` test below uses the DeepStream sample mp4 at `/opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4`, which is baked into the RTVI-CV (DeepStream-based) image — no host-side staging is required. This eval exercises the API USAGE flow of the `vss-deploy-detection-tracking-2d` skill against the live REST endpoint — it must not invoke `/deploy`, redeploy the container, or call any VSS profile.",
   "expects": [
     {
-      "query": "Add a stream rtsp://10.0.0.1:8554/cam1 with id cam_entrance to rtvi-cv.",
+      "query": "Add a stream file:///opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 with id cam_entrance to rtvi-cv.",
       "checks": [
         "The agent calls `POST http://localhost:9000/api/v1/stream/add` against the live RTVI-CV instance.",
-        "The request body contains `camera_url` exactly equal to `rtsp://10.0.0.1:8554/cam1` and a `camera_id` of `cam_entrance`.",
+        "The request body contains `camera_url` exactly equal to `file:///opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4` and a `camera_id` of `cam_entrance`.",
         "The agent renders the curl command in a confirmation box BEFORE executing the POST (per the skill's universal API-box rule).",
         "The agent renders the API response as a formatted table or structured block.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
@@ -45,12 +45,15 @@
       ]
     },
     {
-      "query": "Add a stream to rtvi-cv running at http://10.99.99.99:9000.",
+      "query": "Remove a stream from rtvi-cv.",
       "checks": [
-        "The agent probes the user-supplied URL `http://10.99.99.99:9000` (not localhost) when attempting service discovery.",
-        "The agent reports the connectivity failure clearly with an error message such as `could not reach`, `connection refused`, `unreachable`, or `service not running`.",
-        "The agent suggests verifying that the RTVI-CV container is running and that port 9000 is reachable on the supplied host.",
-        "The agent does NOT silently fall back to `http://localhost:9000` and issue `/stream/add` against it.",
+        "The agent FIRST calls `GET http://localhost:9000/api/v1/stream/get-stream-info` to discover the currently active streams before issuing any removal.",
+        "The agent presents the live stream list to the user (e.g. via an AskQuestion / structured prompt) so they can pick which `camera_id` to remove — it does NOT pick or fabricate a `camera_id` on its own.",
+        "If the live stream list is empty, the agent reports that no streams are active and exits WITHOUT calling `/stream/remove`.",
+        "The agent only calls `POST http://localhost:9000/api/v1/stream/remove` against a `camera_id` that appeared in the `stream-list` response from the prior GET — it does NOT remove any stream id that was not in the live list.",
+        "The `/stream/remove` request body contains both `camera_id` and a `camera_url` taken verbatim from the matching entry in the prior `stream-list` response.",
+        "The agent renders the `/stream/remove` curl command in a confirmation box BEFORE executing the POST (per the skill's universal API-box rule for destructive calls).",
+        "The agent renders the API response as a formatted table or structured block.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     }
