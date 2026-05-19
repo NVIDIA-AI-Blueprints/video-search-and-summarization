@@ -67,12 +67,17 @@ AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 # Hard cap on the agent's tool loop — one trial burns ~20-30 harness
 # turns (startup + brev wait + `uvx harbor run` exec + reading results +
 # migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
-# recon/retry overhead exceeds the previous 300 ceiling. Run
-# 24879743425 burned ~270 turns on only 3 trials before hitting it
-# mid-lvs with 10+ trials unstarted. 600 is a safety valve against
-# runaway loops, not a budget knob — the workflow's 8h wall-clock
-# (skills-eval.yml timeout-minutes: 480) is the real ceiling.
-MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "600"))
+# recon/retry overhead exceeds the previous 300 ceiling. The 600 cap
+# that replaced it was still tight when the agent hit a novel
+# situation it had to discover (e.g. gpu_count selection rejecting
+# the default candidate, or harbor flag semantics from a fresh runner
+# without prior context) — each "discovery" burst is 5-10 turns of
+# Read/Grep/Bash spelunking on top of the steady-state per-trial
+# cost. Bumping to 2000 absorbs that overhead without lifting the
+# real ceiling (skills-eval.yml timeout-minutes: 480 is the wall-
+# clock gate; this knob is just a safety valve against runaway
+# loops).
+MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "2000"))
 
 # ---------------------------------------------------------------------------
 # Pre-flight
