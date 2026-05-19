@@ -315,7 +315,10 @@ def main() -> int:
     args = parser.parse_args()
 
     env_id = get_brev_env_id()
-    origin = f"https://{args.openclaw_ui_prefix}-{env_id}.brevlab.com"
+    if env_id:
+        origin = f"https://{args.openclaw_ui_prefix}-{env_id}.brevlab.com"
+    else:
+        origin = f"http://127.0.0.1:{args.openclaw_ui_prefix}"
 
     raw = read_remote_file(
         args.container,
