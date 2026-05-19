@@ -28,7 +28,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_function
 from nat.data_models.evaluator import EvalInputItem
-from nat.data_models.evaluator import EvalOutputItem
+from nat.plugins.eval.data_models.evaluator_io import EvalOutputItem
 from nat.plugins.eval.evaluator.base_evaluator import BaseEvaluator
 
 from vss_agents.evaluators.utils import ScoreOutputParser
