@@ -52,9 +52,11 @@ template is in § Harbor invocation below.
    and exit cleanly. No PR comment.
 
 2. **For each changed skill, decide whether it has a dispatchable
-   eval spec** — any `skills/<skill>/eval/<name>.json`. The filename
-   is free; it doesn't need to match a deploy profile or any
-   convention. A skill can ship multiple specs side-by-side.
+   eval spec** — any `skills/<skill>/evals/<name>.json`. For legacy
+   skills that have not moved yet, also accept
+   `skills/<skill>/eval/<name>.json`. The filename is free; it
+   doesn't need to match a deploy profile or any convention. A skill
+   can ship multiple specs side-by-side.
 
    Hard requirements on a spec: `skills` (list), `resources.platforms`
    (matrix), `env` (prose), `expects` (ordered query/checks list).
@@ -518,9 +520,21 @@ uvx harbor run \
 ```
 
 Notes that have burned prior runs:
-- `--include-task-name` takes the full trial task name as emitted by
-  the adapter (usually `<platform>`, e.g. `l40s`).
-  `-i` / `--include` is a different flag and will silently match
+- `--include-task-name` is an **fnmatch glob** against the full task
+  name. Adapters emit task names of the form
+  `nvidia-vss/<skill>-<spec>-<platform>[-step-<N>]`, so the
+  templates above (`<platform>` for single-step, `<platform>-step-${STEP}`
+  for multi-step) work as **suffix matches** — `l40s` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s`, and
+  `l40s-step-1` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s-step-1`. Do **not**
+  paste the full task name into this flag and do **not** prefix it
+  with `*` — the suffix template is sufficient. Observed failure
+  mode (PR #532): an agent unfamiliar with the glob semantics treats
+  `<platform>` as a placeholder for the full name, gets stuck
+  spelunking the codebase, and exhausts its turn budget before
+  dispatching the first trial.
+- `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - **Multi-step specs MUST be dispatched one step at a time, in
   order, with skip-on-prior-fail.** Harbor's default scheduler
@@ -748,7 +762,7 @@ One comment per `(PR, eval_spec)` batch, posted only after every
 (platform) tuple in the spec's matrix has a recorded result.
 
 ```markdown
-## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+## Harbor Eval — `skills/<skill>/<eval-dir>/<spec>.json`
 
 Head: `<short-sha>` · N platforms · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`

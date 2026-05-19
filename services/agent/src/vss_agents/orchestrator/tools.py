@@ -63,11 +63,11 @@ from pydantic_settings import SettingsConfigDict
 
 from .docker_compose_util import SUPPORTED_PROFILES
 from .docker_compose_util import ValidationError
-from .docker_compose_util import alerts_mode_to_env_mode
 from .docker_compose_util import create_dry_run_recipe
 from .docker_compose_util import generate_dry_run_artifacts
 from .docker_compose_util import parse_env_file
 from .docker_compose_util import parse_env_overrides
+from .docker_compose_util import resolve_and_apply_profile_mode
 from .prereqs_check import run_prereqs_checks
 from .storage import ArtifactKind
 from .storage import ModelArtifact
@@ -80,6 +80,9 @@ _COMPOSE_SPECS_LOCK = threading.Lock()
 _MAX_OPERATION_LOG_LINES = 4000
 _MAX_RETAINED_COMPOSE_OPERATIONS = 200
 _MAX_RETAINED_COMPOSE_SPECS = 500
+_COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
+_COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
+_MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
 
 
 @dataclass
@@ -104,6 +107,13 @@ class PreComposeCheck:
     name: str
     profile: str
     run: Callable[[], object]
+
+
+@dataclass(frozen=True)
+class IntFieldBounds:
+    minimum: int
+    default: int
+    maximum: int
 
 
 RegistryKeyT = TypeVar("RegistryKeyT")
@@ -176,6 +186,16 @@ class ComposeAction(StrEnum):
     DOWN = "down"
 
 
+_COMPOSE_POLL_INTERVAL_BY_ACTION: Final[dict[str, int]] = {
+    ComposeAction.UP.value: _COMPOSE_UP_POLL_INTERVAL_S,
+    ComposeAction.DOWN.value: _COMPOSE_DOWN_POLL_INTERVAL_S,
+}
+
+
+_COMPOSE_STATUS_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=5, maximum=20)
+_CONTAINER_LOG_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=20, maximum=200)
+
+
 class ComposeStatus(StrEnum):
     ERROR = "error"
     IGNORED = "ignored"
@@ -186,27 +206,8 @@ class ComposeStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-@dataclass(frozen=True)
-class IntFieldBounds:
-    minimum: int
-    default: int
-    maximum: int
-
-
 _SUPPORTED_COMPOSE_ACTIONS: Final[frozenset[str]] = frozenset(action.value for action in ComposeAction)
 _ALL_KNOWN_STATUSES: Final[frozenset[str]] = frozenset(status.value for status in ComposeStatus)
-
-# Input bounds and defaults
-_COMPOSE_STATUS_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=80, maximum=1000)
-_CONTAINER_LOG_TAIL_BOUNDS: Final[IntFieldBounds] = IntFieldBounds(minimum=1, default=100, maximum=10000)
-_MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
-
-
-def _reject_option_like_docker_positional(arg_name: str, value: str) -> str:
-    """Reject Docker positional arguments that could be parsed as flags."""
-    if value.startswith("-"):
-        raise ValueError(f"{arg_name} must not begin with '-'.")
-    return value
 
 
 def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
@@ -226,10 +227,6 @@ def _truncate_text_to_max_bytes(text: str, *, max_bytes: int) -> str:
     return prefix + suffix
 
 
-# Polling behavior
-_COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S: Final[int] = 5
-
-
 class GenerateInput(BaseModel):
     """Input for the docker_generate tool."""
 
@@ -246,11 +243,12 @@ class GenerateInput(BaseModel):
         ),
         examples=[["HARDWARE_PROFILE=H100", "LLM_MODE=local", "HOST_IP=192.168.1.10"]],
     )
-    alerts_mode: Literal["verification", "real-time"] | None = Field(
+    profile_mode: str | None = Field(
         default=None,
         description=(
-            "High-level alerts mode; required when profile='alerts'. "
-            "'verification' maps to MODE=2d_cv, 'real-time' maps to MODE=2d_vlm."
+            "Per-profile mode (e.g., 'verification' or 'real-time' for the alerts profile). "
+            "Required when the profile has modes defined in profile_mode_to_env_modes. "
+            "The string is resolved to a MODE env value via that mapping."
         ),
         examples=["verification"],
     )
@@ -259,13 +257,48 @@ class GenerateInput(BaseModel):
 class OrchestratorRuntimeSettings(BaseSettings):
     """Runtime env required by the orchestrator MCP server."""
 
+    # load from .env file
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", validate_default=True)
 
+    # load from os.environ
+    # Path A: MCP server startup environment
+    # Path B: per-call MCP tool args
     ngc_cli_api_key: str = Field(default="", validation_alias="NGC_CLI_API_KEY")
     nvidia_api_key: str = Field(default="", validation_alias="NVIDIA_API_KEY")
     hardware_profile: str = Field(default="", validation_alias="HARDWARE_PROFILE")
+    external_ip: str = Field(default="", validation_alias="EXTERNAL_IP")
+    openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
+    llm_endpoint_url: str = Field(default="", validation_alias="LLM_ENDPOINT_URL")
+    llm_model_type: str = Field(default="", validation_alias="LLM_MODEL_TYPE")
+    llm_name: str = Field(default="", validation_alias="LLM_NAME")
+    vlm_name: str = Field(default="", validation_alias="VLM_NAME")
+    vlm_endpoint_url: str = Field(default="", validation_alias="VLM_ENDPOINT_URL")
+    vlm_model_type: str = Field(default="", validation_alias="VLM_MODEL_TYPE")
+    llm_enable_thinking: str = Field(default="", validation_alias="LLM_ENABLE_THINKING")
+    # Outer/profile-level knob; hw-*.env files bridge this to NIM-internal NIM_KVCACHE_PERCENT.
+    nim_kvcache_percent: str = Field(default="", validation_alias="VLM_NIM_KVCACHE_PERCENT")
+    rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
+    llm_device_id: str = Field(default="", validation_alias="LLM_DEVICE_ID")
+    vlm_device_id: str = Field(default="", validation_alias="VLM_DEVICE_ID")
 
-    @field_validator("ngc_cli_api_key", "nvidia_api_key", "hardware_profile")
+    @field_validator(
+        "ngc_cli_api_key",
+        "nvidia_api_key",
+        "hardware_profile",
+        "external_ip",
+        "openai_api_key",
+        "llm_endpoint_url",
+        "llm_model_type",
+        "llm_name",
+        "vlm_name",
+        "vlm_endpoint_url",
+        "vlm_model_type",
+        "llm_enable_thinking",
+        "nim_kvcache_percent",
+        "rtvi_vllm_gpu_memory_utilization",
+        "llm_device_id",
+        "vlm_device_id",
+    )
     @classmethod
     def _strip_value(cls, value: str) -> str:
         return value.strip()
@@ -321,7 +354,9 @@ class ContainerLogsInput(BaseModel):
     @field_validator("container_name")
     @classmethod
     def _validate_container_name(cls, value: str) -> str:
-        return _reject_option_like_docker_positional("container_name", value)
+        if value.startswith("-"):
+            raise ValueError("container_name must not begin with '-'.")
+        return value
 
 
 class DockerProfilesInput(BaseModel):
@@ -336,37 +371,43 @@ class DockerPrereqsInput(BaseModel):
     pass
 
 
-class ModelArtifactConfig(BaseModel):
-    """Config shape for profile model artifacts in MCP YAML."""
+class ModelArtifactEntry(BaseModel):
+    """One artifact extracted from a downloaded NGC package."""
+
+    src: str  # Path within the downloaded package (relative to the unpacked dir).
+    out: str  # Destination filename/path under <mdx_data_dir>/models/.
+    kind: Literal["file", "dir"]
+
+
+class ModelPackageConfig(BaseModel):
+    """An NGC package and the artifacts to extract from it."""
 
     package_ref: str
-    downloaded_relative_path: str
-    output_name: str
-    artifact_kind: Literal["file", "dir"]
+    artifacts: tuple[ModelArtifactEntry, ...]
 
 
 class HardwareResolutionConfig(BaseModel):
     """Hardware resolution rules for profile validation/device mapping."""
 
-    supported_profiles: tuple[str, ...]
     edge_profiles: tuple[str, ...]
     edge_allowed_profiles: tuple[str, ...]
     edge_device_ids: dict[str, str]
-    thor_profiles: tuple[str, ...]
+    # Keys define the set of supported hardware profiles.
+    # Values are env overrides (None/{} = supported, no overrides).
+    hardware_profiles: dict[str, dict[str, str | dict[str, str]]] = Field(default_factory=dict)
 
-
-class VlmResolutionConfig(BaseModel):
-    """VLM Thor overrides applied during docker_generate."""
-
-    thor_overrides: dict[str, str]
-    thor_base_overrides: dict[str, str]
+    @field_validator("hardware_profiles", mode="before")
+    @classmethod
+    def _coerce_null_overrides_to_empty(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {k: (v if v is not None else {}) for k, v in value.items()}
 
 
 class ModelResolutionConfig(BaseModel):
     """Model/hardware resolution rules supplied via MCP YAML."""
 
     hardware: HardwareResolutionConfig
-    vlm: VlmResolutionConfig
 
 
 class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
@@ -406,19 +447,23 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         ...,
         description="Relative subdirectories created under VSS_DATA_DIR for all profiles by docker_generate.",
     )
-    model_artifacts: dict[str, tuple[ModelArtifactConfig, ...]] = Field(
+    model_artifacts: dict[str, tuple[ModelPackageConfig, ...]] = Field(
         ...,
-        description="Profile-keyed model artifact definitions used by pre-compose download checks.",
+        description=(
+            "Profile-keyed NGC package definitions used by pre-compose download checks. "
+            "Each entry groups one package_ref with the artifacts to extract from it."
+        ),
     )
     model_resolution: ModelResolutionConfig = Field(
         ...,
         description="Hardware/model resolution rules used during docker_generate validation.",
     )
-    alerts_mode_to_env_modes: dict[str, str] = Field(
+    profile_mode_to_env_modes: dict[str, dict[str, str]] = Field(
         default_factory=dict,
         description=(
-            "Mapping from user-facing alerts modes to MODE env values. "
-            "Example: {'verification': '2d_cv', 'real-time': '2d_vlm'}."
+            "Per-profile mapping from user-facing modes to MODE env values. "
+            "Example: {'alerts': {'verification': '2d_cv', 'real-time': '2d_vlm'}}. "
+            "A profile present in this mapping requires profile_mode at docker_generate time."
         ),
     )
     include: list[str] = Field(
@@ -440,8 +485,8 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
     @classmethod
     def _validate_model_artifact_profiles(
         cls,
-        value: dict[str, tuple[ModelArtifactConfig, ...]],
-    ) -> dict[str, tuple[ModelArtifactConfig, ...]]:
+        value: dict[str, tuple[ModelPackageConfig, ...]],
+    ) -> dict[str, tuple[ModelPackageConfig, ...]]:
         unknown_profiles = set(value) - SUPPORTED_PROFILES
         if unknown_profiles:
             raise ValueError(
@@ -452,13 +497,60 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
 
 
 class ComposeOperationInput(BaseModel):
-    """Input for docker_up/docker_down operations."""
+    """Base input shared by docker_up/docker_down operations."""
 
     docker_compose_id: str = Field(
         ...,
         description=(
             "Identifier for compose artifacts and operation tracking. "
             "For current deployments, this matches profile names such as 'base', 'search', 'lvs', or 'alerts'."
+        ),
+    )
+
+
+class ComposeUpOperationInput(ComposeOperationInput):
+    """Input for docker_up operations."""
+
+    build: bool = Field(
+        default=True,
+        description=(
+            "When true (default), append '--build' so services with a 'build:' section are "
+            "(re)built before starting. Set to false to skip the build step and reuse the "
+            "existing local images."
+        ),
+    )
+    force_recreate: bool = Field(
+        default=False,
+        description=(
+            "When true, append '--force-recreate' so existing containers are torn down "
+            "and recreated even if their configuration and image have not changed."
+        ),
+    )
+    pull_always: bool = Field(
+        default=False,
+        description=(
+            "When true, append '--pull always' so images are re-pulled from the registry "
+            "instead of reusing cached local images."
+        ),
+    )
+
+
+class ComposeDownOperationInput(ComposeOperationInput):
+    """Input for docker_down operations."""
+
+    remove_volumes: bool = Field(
+        default=True,
+        description=(
+            "When true (default), append '-v' so named volumes declared in the compose file "
+            "(and anonymous volumes attached to containers) are removed. Set to false to "
+            "preserve volumes across teardowns."
+        ),
+    )
+    remove_orphans: bool = Field(
+        default=True,
+        description=(
+            "When true (default), append '--remove-orphans' so containers for services not "
+            "defined in the current compose file are also removed."
         ),
     )
 
@@ -482,14 +574,15 @@ async def vss_orchestrator(
     configured_model_artifacts_by_profile: dict[str, tuple[ModelArtifact, ...]] = {
         profile: tuple(
             ModelArtifact(
-                package_ref=artifact.package_ref,
-                downloaded_relative_path=artifact.downloaded_relative_path,
-                output_name=artifact.output_name,
-                artifact_kind=ArtifactKind(artifact.artifact_kind),
+                package_ref=package.package_ref,
+                downloaded_relative_path=entry.src,
+                output_name=entry.out,
+                artifact_kind=ArtifactKind(entry.kind),
             )
-            for artifact in artifacts
+            for package in packages
+            for entry in package.artifacts
         )
-        for profile, artifacts in _config.model_artifacts.items()
+        for profile, packages in _config.model_artifacts.items()
     }
     configured_model_resolution = _config.model_resolution
 
@@ -504,6 +597,12 @@ async def vss_orchestrator(
         raise RuntimeError(f"Startup directory bootstrap failed for mdx_data_dir '{mdx_data_dir}': {exc}") from exc
 
     print(f"[vss_orchestrator] startup directory bootstrap succeeded for mdx_data_dir: {mdx_data_dir}", flush=True)
+
+    _missing_creds = [
+        name for name in ("NGC_CLI_API_KEY", "NVIDIA_API_KEY") if not (os.environ.get(name) or "").strip()
+    ]
+    if _missing_creds:
+        print(f"[vss_orchestrator] WARNING: {', '.join(_missing_creds)} not set in environment variables", flush=True)
 
     try:
         runtime_settings = OrchestratorRuntimeSettings()
@@ -813,7 +912,7 @@ async def vss_orchestrator(
             "command": f"docker compose {action} {' '.join(action_args)}".strip(),
             "poll_tool": "docker_status",
             "status_hint": "Poll docker_status with docker_compose_ops_id for progress/completion.",
-            "recommended_poll_interval_s": _COMPOSE_STATUS_RECOMMENDED_POLL_INTERVAL_S,
+            "recommended_poll_interval_s": _COMPOSE_POLL_INTERVAL_BY_ACTION[action],
             "pid": -1,
         }
 
@@ -822,10 +921,7 @@ async def vss_orchestrator(
     # ---------------------------------------------------------------------------
     group = FunctionGroup(config=_config)
 
-    # Print one line per MCP tool call (name + payload + response) to the
-    # orchestrator stdout so operators can follow polling activity without
-    # expanding tool outputs in the openclaw UI. Wraps every `add_function`
-    # registration below.
+    # Print one line per MCP tool call (name + payload + response) to the orchestrator stdout
     _orig_add_function = group.add_function
 
     def _wrap_with_call_log(
@@ -938,28 +1034,41 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
-                if input.alerts_mode is not None:
-                    if input.profile != "alerts":
-                        raise ValidationError("alerts_mode is only supported when profile='alerts'.")
-                    resolved_mode = alerts_mode_to_env_mode(input.alerts_mode, _config.alerts_mode_to_env_modes)
-                    existing_mode = env_overrides.get("MODE")
-                    if existing_mode is not None and existing_mode != resolved_mode:
-                        raise ValidationError(
-                            f"alerts_mode={input.alerts_mode!r} conflicts with env override MODE={existing_mode!r}."
-                        )
-                    env_overrides["MODE"] = resolved_mode
+                effective_hardware_profile = (
+                    env_overrides.get("HARDWARE_PROFILE", "").strip() or runtime_settings.hardware_profile
+                )
+                if effective_hardware_profile not in configured_model_resolution.hardware.edge_profiles:
+                    if runtime_settings.llm_device_id:
+                        env_overrides.setdefault("LLM_DEVICE_ID", runtime_settings.llm_device_id)
+                    if runtime_settings.vlm_device_id:
+                        env_overrides.setdefault("VLM_DEVICE_ID", runtime_settings.vlm_device_id)
+                resolve_and_apply_profile_mode(
+                    input.profile, input.profile_mode, _config.profile_mode_to_env_modes, env_overrides
+                )
                 dry_run_recipe = create_dry_run_recipe(
                     profile=input.profile,
                     env_overrides=env_overrides,
                     ngc_cli_api_key=runtime_settings.ngc_cli_api_key,
                     nvidia_api_key=runtime_settings.nvidia_api_key,
                     hardware_profile=runtime_settings.hardware_profile,
+                    external_ip=runtime_settings.external_ip,
+                    openai_api_key=runtime_settings.openai_api_key,
+                    llm_endpoint_url=runtime_settings.llm_endpoint_url,
+                    llm_model_type=runtime_settings.llm_model_type,
+                    llm_name=runtime_settings.llm_name,
+                    vlm_name=runtime_settings.vlm_name,
+                    vlm_endpoint_url=runtime_settings.vlm_endpoint_url,
+                    vlm_model_type=runtime_settings.vlm_model_type,
+                    llm_enable_thinking=runtime_settings.llm_enable_thinking,
+                    nim_kvcache_percent=runtime_settings.nim_kvcache_percent,
+                    rtvi_vllm_gpu_memory_utilization=runtime_settings.rtvi_vllm_gpu_memory_utilization,
+                    profile_mode=input.profile_mode,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
                     output_compose_file=str(compose_path),
                     deployments_dir=str(deployments_dir),
                     mdx_data_dir=str(mdx_data_dir),
-                    alerts_mode_to_env_modes=_config.alerts_mode_to_env_modes,
+                    profile_mode_to_env_modes=_config.profile_mode_to_env_modes,
                     source_compose_yaml=_config.source_compose_yaml,
                     source_env=_config.source_env,
                 )
@@ -1117,20 +1226,30 @@ async def vss_orchestrator(
 
     if "docker_up" in _config.include:
 
-        async def _docker_up(input: ComposeOperationInput) -> dict:
+        async def _docker_up(input: ComposeUpOperationInput) -> dict:
             """Start docker compose services using previously generated artifacts.
 
-            Runs in background: docker compose up -d --build --quiet-pull
+            Runs in background: docker compose up -d --quiet-pull
+            (appends --build when build=True (default),
+             appends --force-recreate when force_recreate=True,
+             appends --pull always when pull_always=True)
 
             Requires that artifacts for the docker_compose_id already exist.
 
             Returns immediately for polling via docker_status.
             """
+            action_args = ["-d", "--quiet-pull"]
+            if input.build:
+                action_args.append("--build")
+            if input.force_recreate:
+                action_args.append("--force-recreate")
+            if input.pull_always:
+                action_args += ["--pull", "always"]
             try:
                 return _start_compose_op(
                     docker_compose_id=input.docker_compose_id,
                     action="up",
-                    action_args=["-d", "--build", "--quiet-pull"],
+                    action_args=action_args,
                 )
             except FileNotFoundError:
                 return {
@@ -1187,20 +1306,27 @@ async def vss_orchestrator(
 
     if "docker_down" in _config.include:
 
-        async def _docker_down(input: ComposeOperationInput) -> dict:
+        async def _docker_down(input: ComposeDownOperationInput) -> dict:
             """Stop and remove docker compose services.
 
-            Runs in background: docker compose down -v --remove-orphans
+            Runs in background: docker compose down
+            (appends -v when remove_volumes=True (default),
+             appends --remove-orphans when remove_orphans=True (default))
 
             Requires that artifacts for the docker_compose_id already exist.
 
             Returns immediately for polling via docker_status.
             """
+            action_args: list[str] = []
+            if input.remove_volumes:
+                action_args.append("-v")
+            if input.remove_orphans:
+                action_args.append("--remove-orphans")
             try:
                 return _start_compose_op(
                     docker_compose_id=input.docker_compose_id,
                     action="down",
-                    action_args=["-v", "--remove-orphans"],
+                    action_args=action_args,
                 )
             except FileNotFoundError:
                 return {
