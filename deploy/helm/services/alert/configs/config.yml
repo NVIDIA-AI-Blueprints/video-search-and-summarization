@@ -93,8 +93,10 @@ vlm:
   response_format: "auto"
   use_vlm_media_defaults: false
   temperature: 0.6
+  do_resize: true
   min_pixels: 1568
   max_pixels: 3960000
+  num_frames: 5
   enable_sampling: true
   sampling_fps: 4
 
@@ -173,9 +175,22 @@ rtvi_vlm:
   base_url: "{{ $rtviVlmBase }}/v1"
   timeout: 10
   default_model: "{{ $vlmNameStr }}"
+  captions_ack_timeout: 2.0
+  stream_readiness_timeout: 10.0
   rules_collection: "alert-realtime-rules"
   pending_ttl_seconds: 300
   health_check_interval_seconds: 30
+  enable_realtime_persistence: true
+
+# Webhook Notification — fire-and-forget POST on VLM-verified incidents
+webhook:
+  openclaw:
+    enabled: false
+    url: "http://localhost:9090/webhook/alert-notify-slack"
+    topic: "mdx-vlm-incidents"
+    group_id: "openclaw-webhook-group"
+    timeout_seconds: 5
+    max_pending: 100
 
 websocket:
   enabled: false
