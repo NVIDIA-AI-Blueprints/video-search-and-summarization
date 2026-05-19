@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generic eval verifier for Harbor trials.
 
-Reads a skill's `eval/<profile>.json` spec + Harbor's agent trajectory,
-evaluates every check in the named step (1-based index), and writes
-Harbor's expected reward.
+Reads a skill's `evals/<name>.json` spec (or legacy
+`eval/<name>.json`) + Harbor's agent trajectory, evaluates every check
+in the named step (1-based index), and writes Harbor's expected reward.
 
 Design goal: spec authors write **natural-language checks**. Every
 check is dispatched to a `claude-agent-sdk` judge **agent** with
