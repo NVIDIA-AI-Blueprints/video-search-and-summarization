@@ -27,7 +27,7 @@
 #   vss_orchestrator__docker_status - poll docker operation status/logs
 #
 # Start with:
-#   nat mcp serve --config_file services/agent/src/vss_agents/orchestrator/vss_orchestrator_mcp_config.yml --port 9902
+#   nat mcp serve --config_file deploy/docker/scripts/vss_orchestrator_mcp_config.yml --port 9902
 #
 # Server listens at: http://localhost:9902/mcp
 
@@ -59,45 +59,29 @@ function_groups:
     - agent_eval/results
     - videos/dev-profile-alerts
     - models
-    # Model artifact definitions keyed by profile name.
+    # NGC packages to download per profile. Each entry groups one package_ref
+    # with the artifacts to extract from it (src = path inside the downloaded
+    # package, out = destination under <mdx_data_dir>/models/).
     model_artifacts:
       search:
-      - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2"
-        downloaded_relative_path: "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx"  # yamllint disable-line rule:line-length
-        output_name: "rtdetr_warehouse_v1.0.2.fp16.onnx"
-        artifact_kind: "file"
-      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0.onnx"
-        output_name: "radio-clip_v1.0.onnx"
-        artifact_kind: "file"
-      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_weights.bin"
-        output_name: "radio-clip_v1.0_weights.bin"
-        artifact_kind: "file"
-      - package_ref: "nvidia/tao/radio-clip:deployable_v1.0"
-        downloaded_relative_path: "radio-clip_vdeployable_v1.0/radio-clip_v1.0_tokenizer"
-        output_name: "radio-clip_v1.0_tokenizer"
-        artifact_kind: "dir"
+      - package_ref: "nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2"
+        artifacts:
+        - src: "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx"  # yamllint disable-line rule:line-length
+          out: "rtdetr_warehouse_v1.0.2.fp16.onnx"
+          kind: "file"
       alerts:
       - package_ref: "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
-        downloaded_relative_path: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"  # yamllint disable-line rule:line-length
-        output_name: "rtdetr-its/model_epoch_035.fp16.onnx"
-        artifact_kind: "file"
+        artifacts:
+        - src: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"  # yamllint disable-line rule:line-length
+          out: "rtdetr-its/model_epoch_035.fp16.onnx"
+          kind: "file"
       - package_ref: "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"  # yamllint disable-line rule:line-length
-        downloaded_relative_path: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"  # yamllint disable-line rule:line-length
-        output_name: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-        artifact_kind: "file"
-    # Hardware/model resolution rules used by docker_generate.
+        artifacts:
+        - src: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"  # yamllint disable-line rule:line-length
+          out: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
+          kind: "file"
     model_resolution:
       hardware:
-        supported_profiles:
-        - H100
-        - L40S
-        - RTXPRO6000BW
-        - DGX-SPARK
-        - IGX-THOR
-        - AGX-THOR
-        - OTHER
         edge_profiles:
         - DGX-SPARK
         - IGX-THOR
@@ -108,21 +92,50 @@ function_groups:
         edge_device_ids:
           llm: "0"
           vlm: "0"
-        thor_profiles:
-        - IGX-THOR
-        - AGX-THOR
-      vlm:
-        thor_overrides:
-          VLM_NAME_SLUG: none
-          VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
-          RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
-          RTVI_VLM_MODEL_TO_USE: cosmos-reason2
-          RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
-        thor_base_overrides:
-          VLM_MODEL_TYPE: rtvi
-    alerts_mode_to_env_modes:
-      verification: 2d_cv
-      real-time: 2d_vlm
+          rt_vlm: "0"
+          rt_cv: "0"
+        # Keys define the set of supported hardware profiles.
+        # Values are env overrides (empty/null = supported, no overrides).
+        hardware_profiles:
+          H100:
+          L40S:
+          RTXPRO6000BW:
+          OTHER:
+          DGX-SPARK:
+            PERCEPTION_TAG: "3.2.0-sbsa-26.05.1"
+            RTVI_VLM_IMAGE_TAG: "3.2.0-26.05.1-sbsa"
+            base:
+              VLM_NIM_KVCACHE_PERCENT: "0.2"
+            alerts.verification:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.25"
+              RTVI_VLM_MAX_MODEL_LEN: "8192"  # can raise to 16384 if VLLM_ENFORCE_EAGER=true
+              RTVI_VLLM_MAX_NUM_SEQS: "8"
+              # VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
+              # ALERT_AGENT_NUM_WORKERS: "4"
+            alerts.real-time:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.3"
+              RTVI_VLM_MAX_MODEL_LEN: "8192"
+              RTVI_VLLM_MAX_NUM_SEQS: "8"
+              # VLM_AS_VERIFIER_REQUEST_TIMEOUT: "60"
+              # ALERT_AGENT_NUM_WORKERS: "4"
+          IGX-THOR:
+            VLM_NAME_SLUG: none
+            VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+            RTVI_VLM_MODEL_TO_USE: cosmos-reason2
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+            VLM_MODEL_TYPE: rtvi
+          AGX-THOR:
+            VLM_NAME_SLUG: none
+            VLM_NAME: nim_nvidia_cosmos-reason2-8b_hf-1208
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos-reason2-8b:hf-1208
+            RTVI_VLM_MODEL_TO_USE: cosmos-reason2
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
+            VLM_MODEL_TYPE: rtvi
+    profile_mode_to_env_modes:
+      alerts:  # must set modes below for profile that has modes
+        verification: 2d_cv
+        real-time: 2d_vlm
     include:
     - profiles
     - prereqs

@@ -28,6 +28,20 @@ def test_generate_input_does_not_expose_runtime_secret_fields():
     assert "hardware_profile" not in fields
 
 
+def test_generate_input_accepts_modeless_profile_without_profile_mode():
+    """A profile that has no modes must be accepted with profile_mode left unset.
+    Runtime validation (in _docker_generate) rejects profile_mode for such profiles."""
+    inp = GenerateInput(profile="base")
+    assert inp.profile_mode is None
+
+
+def test_generate_input_accepts_profile_mode_as_freeform_string():
+    """profile_mode is a plain string at the schema level; per-profile validity
+    is checked at runtime against profile_mode_to_env_modes."""
+    inp = GenerateInput(profile="alerts", profile_mode="verification")
+    assert inp.profile_mode == "verification"
+
+
 def test_runtime_settings_reads_and_strips_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("NGC_CLI_API_KEY", " ngc-from-env ")  # pragma: allowlist secret
     monkeypatch.setenv("NVIDIA_API_KEY", " nvidia-from-env ")  # pragma: allowlist secret
