@@ -12,12 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# DeepStream configs for profileMode standalone-3d (warehouse 3D + file sources).
 
-apiVersion: v2
-name: vss-rtvi-cv
-description: Shared DeepStream perception chart for alerts, search, and warehouse standalone (2D/3D) profiles
-type: application
-version: 26.04.2
-appVersion: "3.1.0"
-maintainers:
-  - name: NVIDIA
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-3d") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-3d
+data:
+{{- range $path, $_ := .Files.Glob "files/warehouse-standalone-3d/deepstream/configs/*" }}
+{{- $base := base $path }}
+{{- $content := $.Files.Get $path }}
+  {{ $base }}: |
+{{ $content | nindent 4 }}
+{{- end }}
+{{- end }}

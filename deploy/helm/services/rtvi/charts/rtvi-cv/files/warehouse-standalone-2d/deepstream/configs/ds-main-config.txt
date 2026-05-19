@@ -26,32 +26,37 @@ height=720
 gpu-id=0
 nvbuf-memory-type=0
 
-# Sources 
+# Sources — file playback from NGC vss-warehouse-app-data bundle (standalone Helm)
 [source-list]
-num-source-bins=0
+num-source-bins=3
+list=file:///opt/storage/vss-warehouse-app-data/videos/warehouse-loading-dock-3cams-synthetic/Camera.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-loading-dock-3cams-synthetic/Camera_01.mp4;file:///opt/storage/vss-warehouse-app-data/videos/warehouse-loading-dock-3cams-synthetic/Camera_02.mp4
+sensor-id-list=Camera;Camera_01;Camera_02
+sensor-name-list=Camera;Camera_01;Camera_02
 #list=rtsp://localhost:8555/live/Nth_Street_Cafe_Entrance;rtsp://localhost:8555/live/Endeavor_Cafeteria
-#sensor-id-list=Nth_Street_Cafe_Entrance;Endeavor_Cafeteria
-#sensor-name-list=Nth_Street_Cafe_Entrance;Endeavor_Cafeteria
 # Set use-nvmultiurisrcbin to 1 to enable sensor provisioning/update feature
 use-nvmultiurisrcbin=1
+# nvurisrcbin (via parent): loop file:/// after EOS — keep in sync with [source-attr-all] file-loop.
+file-loop=1
 stream-name-display=1
 max-batch-size=3
 http-ip=localhost
-low-latency-mode=1
+# Recorded file sources: keep decoder default (low-latency is for live IPPP streams).
+low-latency-mode=0
 http-port=9000
 extract-sei-type5-data=0
-#sei-uuid=NVDS_CUSTOMMETA
+sei-uuid=NVDS_CUSTOMMETA
 #sgie batch size is number of sources * fair fraction of number of objects detected per frame per source
 #the fair fraction of number of object detected is assumed to be 4
 sgie-batch-size=4
 
 [source-attr-all]
 enable=1
-type=3
+type=2
+# nvurisrcbin: loop file:/// URIs after EOS (required here for looping; [tests] alone is not enough).
+file-loop=1
 num-sources=1
 gpu-id=0
 cudadec-memtype=0
-drop-on-latency=1
 latency=100
 rtsp-reconnect-interval-sec=10
 rtsp-reconnect-attempts=-1
@@ -59,44 +64,17 @@ udp-buffer-size=2000000
 drop-on-latency=0
 
 [sink0]
-enable=0
-#Type - 1=FakeSink 2=EglSink 3=File
+enable=1
+#Type - 1=FakeSink 2=EglSink 3=File (standalone: no Kafka/Redis)
 type=1
-sync=0
+# sync=1: pace pipeline to buffer PTS so PERF FPS matches wall-clock (~native file frame rate).
+sync=1
 source-id=0
 gpu-id=0
 nvbuf-memory-type=0
 
 [sink1]
-enable=1
-#Type - 1=FakeSink 2=EglSink 3=File 4=UDPSink 5=nvoverlaysink 6=MsgConvBroker
-type=1
-#msg-conv-config=ds-msgconv-config.txt
-#(0): PAYLOAD_DEEPSTREAM - Deepstream schema payload
-#(1): PAYLOAD_DEEPSTREAM_MINIMAL - Deepstream schema payload minimal
-#(256): PAYLOAD_RESERVED - Reserved type
-#(257): PAYLOAD_CUSTOM   - Custom schema payload
-msg-conv-payload-type=2
-#(0): Create payload using NvdsEventMsgMeta
-#(1): New Api to create payload using NvDsFrameMeta
-msg-conv-msg2p-new-api=0
-#Frame interval at which payload is generated
-msg-conv-frame-interval=1
-msg-broker-proto-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so
-#Provide your msg-broker-conn-str here
-#msg-broker-conn-str=qvs-ds-kafka-01;9092;metromind-raw
-#topic=metromind-raw
-# msg-broker-conn-str=mdx-kafka-cluster-kafka-brokers;9092;mdx-raw
-msg-broker-conn-str=localhost;9092;mdx-raw
-msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so
-#topic=mdx-raw
-topic=mdx-raw
-#Optional:
-msg-broker-config=ds-kafka-config.txt
-#new-api=0
-#(0) Use message adapter library api's
-#(1) Use new msgbroker library api's
-nvdslogger=1
+enable=0
 
 [sink2]
 enable=0
@@ -159,8 +137,9 @@ nvbuf-memory-type=0
 
 [streammux]
 gpu-id=0
-##Boolean property to inform muxer that sources are live
-live-source=1
+## Recorded file sources: live-source=0 so muxer follows source PTS (wall-clock-ish FPS in PERF).
+## live-source=1 is for live RTSP; with files it pushes as fast as decode (~100+ FPS).
+live-source=0
 batch-size=3
 ##time out in usec, to wait after the first buffer is available
 ##to push the batch even if the complete batch is not formed
@@ -175,6 +154,7 @@ nvbuf-memory-type=0
 ## If set to TRUE, system timestamp will be attached as ntp timestamp
 ## If set to FALSE, ntp timestamp from rtspsrc, if available, will be attached
 attach-sys-ts-as-ntp=0
+## nvmultiurisrcbin: preferred default per DS docs (pipeline stays alive; file-loop prevents per-source EOS).
 drop-pipeline-eos=1
 extract-sei-sim-time=0
 drop-backward-sei=0
