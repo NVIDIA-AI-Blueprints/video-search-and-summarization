@@ -32,7 +32,7 @@
 #   {
 #     "metrics-info": {
 #       "stream-count": N,
-#       "stream-stats": [ { "camera_id": "...", "fps": N, ... }, ... ],
+#       "stream-stats": [ { "sensor_id": "...", "sensor_name": "...", "source_id": N, "fps": N, ... }, ... ],
 #       "system-stats":  { "gpu_util": N, "GPU_gb": N, "cpu_util": N, "RAM_gb": N }
 #     }
 #   }
@@ -120,7 +120,7 @@ echo ">> Collecting $SAMPLES samples, ${INTERVAL}s apart..."
 
 # ── Parser — navigates actual RTVI-CV /metrics JSON structure ────────
 # Emits tagged lines:
-#   STREAM_FPS <camera_id> <fps>
+#   STREAM_FPS <stream_label> <fps>     # label is sensor_name/sensor_id/source_id
 #   SYSTEM gpu_util=N gpu_gb=N cpu_util=N ram_gb=N stream_count=N
 #
 # FIX: uses python3 -c "..." NOT python3 - <<'PY' ... PY
@@ -143,7 +143,13 @@ stream_stats = info.get("stream-stats", [])
 sys_stats    = info.get("system-stats", {})
 
 for s in stream_stats:
-    cid = s.get("camera_id") or s.get("id") or str(s.get("source_id", "stream"))
+    cid = (
+        s.get("sensor_name")
+        or s.get("sensor_id")
+        or s.get("camera_id")
+        or s.get("id")
+        or str(s.get("source_id", "stream"))
+    )
     fps = s.get("fps") or s.get("average_fps") or s.get("current_fps")
     if fps is not None:
         try:
