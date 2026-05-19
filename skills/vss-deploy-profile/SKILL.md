@@ -223,17 +223,55 @@ docker compose -f resolved.yml up -d
 
 > **Do NOT use `--force-recreate` on retries.** It destroys already-warm NIM containers, forcing another 3–5 min torch.compile + CUDA-graph capture per NIM. If the previous `up -d` partially failed, fix the root cause (usually perms or an env typo) and just re-run `up -d` — Docker will re-create only the containers whose config changed or that are down.
 
-Deploy takes ~10–20 min on first run (image pulls + model downloads). Monitor:
+`docker compose up -d` returns as soon as the daemon has **created** the containers — it does **not** wait for the processes inside to finish initializing. Polling `docker ps | grep -qx <name>` immediately after returns 0 (container exists) while `curl :8000/docs` returns exit 7 (Python process inside is still importing modules, loading models, binding the port). Eval verifiers and humans both regularly trip on this — see PR #532's eval where checks for `vss-agent` / `:8000/docs` / `vss-agent-ui` all reported missing because the verifier raced ahead of container readiness.
+
+### Step 5b — Wait until the stack is actually healthy
+
+Do **not** declare the deploy done after `up -d` returns. Poll the agent's REST API until it responds, then verify the supporting containers. Cold deploys (first-time NIM image pulls + model warmup) can legitimately take 10–20 min, so the timeouts below are generous on purpose.
 
 ```bash
-# Container status
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+# Required for every profile — vss-agent's REST API is the canonical
+# readiness signal. Polls every 10s for up to 15 min.
+DEADLINE=$(( $(date +%s) + 900 ))
+until curl -sf --max-time 5 http://localhost:8000/docs >/dev/null 2>&1; do
+  [ "$(date +%s)" -lt "$DEADLINE" ] || { echo "TIMEOUT: vss-agent not ready after 15 min"; exit 1; }
+  echo "[$(date -u +%H:%M:%S)] waiting for vss-agent on :8000…"
+  sleep 10
+done
+echo "[$(date -u +%H:%M:%S)] vss-agent ready"
 
-# Logs for a specific service
-docker compose -f $REPO/deploy/docker/resolved.yml logs --tail 50 <service>
+# Profiles that ship a UI (base, lvs, search, alerts) — verify the UI
+# port too. Skip this block if the profile doesn't deploy `vss-agent-ui`.
+DEADLINE=$(( $(date +%s) + 300 ))
+until curl -sf --max-time 5 http://localhost:3000/ >/dev/null 2>&1; do
+  [ "$(date +%s)" -lt "$DEADLINE" ] || { echo "TIMEOUT: vss-agent-ui not ready after 5 min"; exit 1; }
+  echo "[$(date -u +%H:%M:%S)] waiting for vss-agent-ui on :3000…"
+  sleep 10
+done
+echo "[$(date -u +%H:%M:%S)] vss-agent-ui ready"
+
+# Final sanity: every container in the compose project must be either
+# `running` or `exited 0` (some one-shot init jobs like vss-kibana-init
+# legitimately exit 0 and stay exited). Anything `restarting`,
+# `unhealthy`, or `exited <N>` (N≠0) is a deploy failure even though
+# `up -d` returned 0.
+docker compose -f resolved.yml ps --format json \
+  | jq -r '.[] | select(.State != "running" and .State != "exited") | "\(.Name)\t\(.State)\t\(.Status)"' \
+  | { mapfile -t bad; if [ "${#bad[@]}" -gt 0 ]; then
+        printf 'FAIL: %s\n' "${bad[@]}" >&2; exit 1;
+      fi; }
+echo "[$(date -u +%H:%M:%S)] deploy healthy: every container running or cleanly exited"
 ```
 
-Deploy is complete when all `mdx-*` containers show `Up` status.
+Profiles with a heavyweight local model also need an inference-endpoint probe before traffic actually works:
+
+- **lvs**: `curl -sf --max-time 5 http://localhost:38111/v1/ready` (LVS REST API)
+- **search**: `curl -sf --max-time 5 http://localhost:7777/health` (Cosmos Embed1)
+- **alerts (real-time / VLM)**: `curl -sf --max-time 5 http://localhost:8018/v1/models` (rtvi-vlm)
+
+Run the matching one **after** the agent + UI probes pass. These NIM ports vary by model; see the per-profile `references/<profile>.md` for the authoritative list.
+
+Only declare the deploy done once **all** applicable probes return 0. If any probe times out, dump `docker compose ps` + `docker compose logs --tail 100 <slow-service>` and report the slow container — don't claim success on a half-warm stack.
 
 ### Step 6 — 
 Fron
