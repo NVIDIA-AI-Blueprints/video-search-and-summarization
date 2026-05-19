@@ -38,6 +38,8 @@ internalIp: ""
 
 # RTVI_VLM_MODEL_TO_USE passed to the container (default: vlmName)
 rtviVlmModelToUse: ""
+# RTVI_VLM_BASE_URL: base URL of the realtime RTVI VLM service (restapi-realtime-alerts feature). Leave "" to use the in-cluster default (rtvi-vlm:8018).
+rtviVlmBaseUrl: ""
 # Inline YAML content for realtime-config.yml (always-on VLM alert rules). Leave "" for empty default.
 realtimeConfig: ""
 

@@ -106,6 +106,9 @@ spec:
               value: {{ $vlmNameStr | quote }}
             - name: RTVI_VLM_MODEL_TO_USE
               value: {{ .Values.rtviVlmModelToUse | default $vlmNameStr | quote }}
+            {{- $rtviVlmDef := ternary (printf "http://%s-rtvi-vlm:8018" .Release.Name) "http://rtvi-vlm:8018" $pfx }}
+            - name: RTVI_VLM_BASE_URL
+              value: {{ tpl (.Values.rtviVlmBaseUrl | default "" | toString) . | default $rtviVlmDef | quote }}
             - name: ALWAYS_ON_RULES_CONFIG
               value: "/app/configs/realtime-config.yml"
           volumeMounts:
