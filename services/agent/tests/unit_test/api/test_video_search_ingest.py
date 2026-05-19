@@ -161,6 +161,43 @@ class TestUploadVideoToVstHeaderValidation:
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_disable_audio_threaded_to_post_upload_processing(self):
+        """``disable_audio=False`` on the router (audio-aware VLM) must
+        propagate to ``_run_post_upload_processing`` so VST keeps audio
+        through the deprecated PUT shim too."""
+        route = create_video_search_ingest_router(
+            vst_internal_url="http://vst:30888",
+            rtvi_embed_base_url="",
+            disable_audio=False,
+        ).routes[0]
+
+        response = MagicMock()
+        response.status_code = 201
+        response.json.return_value = {"sensorId": "sensor-abc", "filename": "clip.mp4"}
+        response.text = "OK"
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.put = AsyncMock(return_value=response)
+
+        request = self._request({"content-type": "video/mp4", "content-length": "10"})
+        request.stream.return_value = "stream-body"
+
+        with (
+            patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client),
+            patch(
+                "vss_agents.api.video_search_ingest._run_post_upload_processing",
+                new=AsyncMock(
+                    return_value=VideoIngestResponse(message="ok", sensor_id="sensor-abc", filename="clip.mp4")
+                ),
+            ) as mock_post,
+        ):
+            await route.endpoint(filename="clip.mp4", request=request)
+
+        assert mock_post.call_args.kwargs["disable_audio"] is False
+
+    @pytest.mark.asyncio
     async def test_custom_timeouts_apply_to_upload_and_completion(self):
         route = create_video_search_ingest_router(
             vst_internal_url="http://vst:30888",
