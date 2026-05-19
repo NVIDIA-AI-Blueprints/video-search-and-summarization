@@ -30,6 +30,7 @@ services:
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       # Realtime REST API (restapi-realtime-alerts feature)
       RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
+      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://${HOST_IP}:8018}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
     volumes:
