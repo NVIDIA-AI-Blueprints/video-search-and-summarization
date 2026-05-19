@@ -518,9 +518,21 @@ uvx harbor run \
 ```
 
 Notes that have burned prior runs:
-- `--include-task-name` takes the full trial task name as emitted by
-  the adapter (usually `<platform>`, e.g. `l40s`).
-  `-i` / `--include` is a different flag and will silently match
+- `--include-task-name` is an **fnmatch glob** against the full task
+  name. Adapters emit task names of the form
+  `nvidia-vss/<skill>-<spec>-<platform>[-step-<N>]`, so the
+  templates above (`<platform>` for single-step, `<platform>-step-${STEP}`
+  for multi-step) work as **suffix matches** — `l40s` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s`, and
+  `l40s-step-1` matches
+  `nvidia-vss/vss-generate-video-report-base-l40s-step-1`. Do **not**
+  paste the full task name into this flag and do **not** prefix it
+  with `*` — the suffix template is sufficient. Observed failure
+  mode (PR #532): an agent unfamiliar with the glob semantics treats
+  `<platform>` as a placeholder for the full name, gets stuck
+  spelunking the codebase, and exhausts its turn budget before
+  dispatching the first trial.
+- `-i` / `--include` is a different flag and will silently match
   nothing or everything.
 - **Multi-step specs MUST be dispatched one step at a time, in
   order, with skip-on-prior-fail.** Harbor's default scheduler
