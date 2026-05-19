@@ -32,6 +32,10 @@ import {
 import { AlertRulesType, RealtimeAlertRuleDraft, RealtimeAlertRule } from '../types';
 import { useRealtimeAlertRules } from '../hooks/useRealtimeAlertRules';
 import { VstStreamThumbnail } from './VstStreamThumbnail';
+import {
+  deriveSensorNameFromLiveStreamUrl,
+  resolveSensorForLiveStreamUrl,
+} from '../utils/vstSensorList';
 
 interface CreateAlertRulesViewProps {
   isDark: boolean;
@@ -65,21 +69,6 @@ const KIND_TABS: Array<{
 
 const generateDraftId = () =>
   `rt-draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-/**
- * Last path segment of the RTSP URL, e.g.
- * `rtsp://.../sample-warehouse-ladder.mp4` → `sample-warehouse-ladder.mp4`.
- * Extension is kept — NVStreamer registers sensors with the full filename and
- * VST/alert-bridge lookups match by exact name.
- */
-const deriveSensorName = (liveStreamUrl: string): string | undefined => {
-  const trimmed = liveStreamUrl.trim();
-  if (!trimmed) return undefined;
-  const withoutQuery = trimmed.split(/[?#]/)[0];
-  const segments = withoutQuery.split('/').filter(Boolean);
-  const last = segments.at(-1);
-  return last || undefined;
-};
 
 export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   isDark,
@@ -307,14 +296,24 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         });
         return;
       }
+      if (!vstApiUrl) {
+        updateDraft(draftId, {
+          error: 'VST API URL is not configured; cannot resolve sensor_id and sensor_name.',
+        });
+        return;
+      }
       updateDraft(draftId, { saving: true, error: undefined });
       try {
-        const sensor_name = deriveSensorName(live_stream_url);
+        const { sensor_name, sensor_id } = await resolveSensorForLiveStreamUrl(
+          vstApiUrl,
+          live_stream_url,
+        );
         await createRule({
           live_stream_url,
           alert_type,
           prompt,
-          ...(sensor_name ? { sensor_name } : {}),
+          sensor_name,
+          sensor_id,
         });
         // Drop the draft on success — the rule shows up in the rules list.
         setDrafts((prev) => prev.filter((d) => d.draftId !== draftId));
@@ -325,7 +324,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         });
       }
     },
-    [drafts, createRule, updateDraft],
+    [drafts, createRule, updateDraft, vstApiUrl],
   );
 
   const handleDelete = useCallback(
@@ -673,7 +672,11 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                         // Prefer the rule's server-side `sensor_name`. Fall
                         // back to deriving from the RTSP URL for older rules
                         // that pre-date the sensor_name field.
-                        sensorName={rule.sensor_name ?? deriveSensorName(rule.live_stream_url) ?? ''}
+                        sensorName={
+                          rule.sensor_name ??
+                          deriveSensorNameFromLiveStreamUrl(rule.live_stream_url) ??
+                          ''
+                        }
                       />
                     </td>
                     <td className={`py-2 px-3 align-top ${readOnlyCellClass}`}>
@@ -756,7 +759,9 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                         <VstStreamThumbnail
                           isDark={isDark}
                           vstApiUrl={vstApiUrl}
-                          sensorName={deriveSensorName(draft.live_stream_url) ?? ''}
+                          sensorName={
+                            deriveSensorNameFromLiveStreamUrl(draft.live_stream_url) ?? ''
+                          }
                         />
                       </td>
                       <td className="py-2 px-3 align-top">

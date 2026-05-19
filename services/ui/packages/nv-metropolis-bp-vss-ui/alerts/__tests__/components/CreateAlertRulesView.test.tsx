@@ -31,7 +31,16 @@ describe('CreateAlertRulesView realtime rules', () => {
 
   it('creates a realtime alert rule using the alert API spec fields', async () => {
     let rules: RealtimeAlertRule[] = [];
-    global.fetch = jest.fn().mockImplementation((_url: string, init?: RequestInit) => {
+    global.fetch = jest.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/v1/sensor/list')) {
+        return jsonResponse([
+          {
+            name: 'sample-warehouse-ladder.mp4',
+            sensorId: 'vst-sensor-abc',
+            state: 'online',
+          },
+        ]);
+      }
       if (init?.method === 'POST') {
         const body = JSON.parse(init.body as string);
         rules = [
@@ -104,6 +113,7 @@ describe('CreateAlertRulesView realtime rules', () => {
       alert_type: 'collision',
       prompt: 'Detect safety violations with ladder',
       sensor_name: 'sample-warehouse-ladder.mp4',
+      sensor_id: 'vst-sensor-abc',
     });
 
     expect(await screen.findByText('collision')).toBeInTheDocument();
