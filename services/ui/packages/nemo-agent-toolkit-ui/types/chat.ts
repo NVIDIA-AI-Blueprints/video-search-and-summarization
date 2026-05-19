@@ -29,6 +29,11 @@ export interface Message {
   /** Parent app supplied metadata to render caller-info section on assistant responses. */
   callerInfo?: CallerInfo;
   hidden?: boolean; // If true, message will not be displayed in chat UI but will still be sent to API
+  /**
+   * Conversation active when an upload batch started. Used to drop stale auto-prompts
+   * if the user switched chats before upload finished. Stripped before persistence.
+   */
+  uploadConversationId?: string;
 }
 
 export type Role = 'assistant' | 'user' | 'agent' | 'system';
