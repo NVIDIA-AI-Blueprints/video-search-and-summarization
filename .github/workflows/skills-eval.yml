@@ -74,7 +74,7 @@ defaults:
 jobs:
   eval:
     name: Eval changed skills against PR
-    runs-on: [self-hosted, vss-eval]
+    runs-on: [self-hosted, vss-skill-eval-runner]
 
     # 8-hour hard cap on the whole job. A full PR touching every currently
     # evaluable skill queues ~14 trials (5 vss-deploy-profile +
