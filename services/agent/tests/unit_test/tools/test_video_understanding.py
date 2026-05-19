@@ -129,7 +129,10 @@ class TestBuildVlmMessages:
     @pytest.mark.asyncio
     async def test_base64_uses_sampled_image_frames(self, monkeypatch):
         class FakeResponse:
+            # aiohttp response: _build_vlm_messages reads Content-Type and validates body bytes.
+
             async def __aenter__(self):
+                self.headers = {"Content-Type": "video/mp4"}
                 return self
 
             async def __aexit__(self, exc_type, exc, tb):
@@ -139,7 +142,7 @@ class TestBuildVlmMessages:
                 return None
 
             async def read(self):
-                return b"video-bytes"
+                return b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"\x00" * 200
 
         class FakeSession:
             def __init__(self, timeout):
