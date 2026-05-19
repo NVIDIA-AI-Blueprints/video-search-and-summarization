@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Stub workflow on `main` whose only purpose is to surface the
+# "Run workflow" button in the Actions UI. The full Skills NV-BASE
+# harness — push trigger on `pull-request/<N>` mirrors, the two
+# Tier-1 checker steps, sticky PR comment, etc. — lives on `develop`
+# (PR #528). GitHub Actions only renders the workflow_dispatch button
+# when `workflow_dispatch:` is configured on the repo's default
+# branch; if the harness only existed on develop, the button would
+# never appear.
+#
+# When the operator clicks "Run workflow" and switches the ref
+# dropdown to `develop`, GitHub re-reads this file from develop and
+# runs **develop's** version — including the checker steps, the
+# `.github/skills-nv-base/*.py` scripts, and the runner-pool label.
+# None of that is needed on main.
+#
+# If anyone dispatches against `main` itself, the job below is gated
+# with `if: false` so nothing runs — main doesn't carry the harness
+# scripts and the runner-pool label isn't guaranteed to exist here
+# either. The job is a clean no-op rather than a red ✗.
+#
+# Mirrors the pattern established by PR #525 for skills-eval.yml.
+
+name: Skills NV-BASE
+
+on:
+  workflow_dispatch:
+    inputs:
+      skills:
+        description: >-
+          Which skill to check (single-select). Pick `*` for the whole
+          skills/ tree. Schema mirrors develop so the dispatch form
+          renders correctly even when `main` is the selected ref; the
+          real workflow body runs from develop.
+        required: false
+        default: "*"
+        type: choice
+        options:
+          - "*"
+          - vss-ask-video
+          - vss-deploy-dense-captioning
+          - vss-deploy-profile
+          - vss-generate-video-report
+          - vss-manage-alerts
+          - vss-manage-video-io-storage
+          - vss-search-archive
+          - vss-summarize-video
+
+jobs:
+  noop:
+    # Hard-gated off. The real job lives in develop's copy of this
+    # file. See header comment for the rationale.
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Never runs
+        run: |
+          echo "Skills NV-BASE runs from develop's workflow file."
+          echo "Switch the ref dropdown to 'develop' and try again."
