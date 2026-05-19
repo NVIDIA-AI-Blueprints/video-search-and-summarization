@@ -12,9 +12,9 @@ collapses to the empty string, and compose then includes **every**
 service from **every** profile.
 
 ```bash
-if grep -q '\${' "$REPO/deployments/resolved.yml"; then
+if grep -q '\${' "$REPO/deploy/docker/resolved.yml"; then
   echo "FAIL: resolved.yml has unexpanded variables:"
-  grep -n '\${' "$REPO/deployments/resolved.yml" | head -5
+  grep -n '\${' "$REPO/deploy/docker/resolved.yml" | head -5
   exit 1
 fi
 ```

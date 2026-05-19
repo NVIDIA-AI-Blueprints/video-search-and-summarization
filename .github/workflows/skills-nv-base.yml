@@ -1,0 +1,135 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs two Tier-1 skills checks on the pull-request/<N> mirror branch
+# whenever the cumulative PR diff (PR base ↔ HEAD) touches skills/ or
+# this harness. Mirrors the helm-sync pattern: no top-level `paths:`
+# filter (that evaluates per-push, not cumulative); dorny/paths-filter
+# runs inside the job against PR_BASE...HEAD.
+#
+# Step 1 — nv-base validate (schema, secrets, PII, unicode)
+#   NVIDIA-internal Tier 1 checker. Not distributed publicly, so this
+#   workflow targets the shared `vss-brev-runner` pool where the
+#   binary is pre-installed into /opt/nvbase-venv/. Uses --profile
+#   external so author_missing is demoted from HIGH to MEDIUM by the
+#   bundled external.yaml policy (no env-var allow-list needed).
+#
+# Step 2 — playbook compliance (NAM, FM, STR, SEC)
+#   Vendored from `agent_skills_playbook` with modifications
+#   (see .github/skills-nv-base/README.md):
+#   - STR-003 softened to WARN: evals/ folder presence, no filename
+#     restriction
+#   - STR-004 (references/README.md required) dropped
+#   - EVAL-* family dropped (existing skills-eval workflow owns it)
+#   - REQUIRED_FM_FIELDS trimmed to [name, description] per
+#     agentskills.io spec
+#   Stdlib only; runs on the same self-hosted runner for simplicity.
+#
+# Required-status-check note: `Skills NV-BASE / skills-check` must be
+# added as a required status check on `develop` (and `main`, once
+# synced) for the exit-1 to actually gate merging — without that, a
+# failing finding just shows a red X but doesn't prevent merge.
+
+name: Skills NV-BASE
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+permissions:
+  contents: read
+  pull-requests: write   # Step 3 posts/updates a sticky comment
+
+concurrency:
+  group: skills-nv-base-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  skills-check:
+    name: skills-check
+    # Shared brev-CI runner pool — nv-base is pre-installed on each
+    # member, and the workflow does not install or refresh it at run
+    # time. See .github/skills-nv-base/README.md.
+    runs-on: [self-hosted, vss-brev-runner]
+
+    timeout-minutes: 20
+
+    if: startsWith(github.ref, 'refs/heads/pull-request/')
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract PR number + base
+        id: pr
+        run: |
+          REF="${{ github.ref_name }}"
+          PR="${REF##pull-request/}"
+          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Detect skills/ changes vs PR base
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          base: ${{ steps.pr.outputs.base }}
+          filters: |
+            relevant:
+              - 'skills/**'
+              - '.github/skills-nv-base/**'
+              - '.github/workflows/skills-nv-base.yml'
+
+      - name: Step 1 — nv-base validate (schema + security)
+        if: steps.changes.outputs.relevant == 'true'
+        env:
+          # Path to the pre-installed nv-base binary on the runner.
+          NVBASE_BIN: /opt/nvbase-venv/bin/nv-base
+          # Tells run_check.py to dump structured findings here; consumed
+          # by Step 3 to compose the sticky PR comment.
+          NVBASE_FINDINGS_JSON: ${{ runner.temp }}/nvbase-findings.json
+        run: |
+          python3 .github/skills-nv-base/run_check.py skills/
+
+      - name: Step 2 — playbook compliance (naming + frontmatter + structure)
+        # `!cancelled()` overrides the implicit `success()` so Step 2 still
+        # runs when Step 1 fails — both gates should surface findings in
+        # the same CI run, not block each other.
+        if: steps.changes.outputs.relevant == 'true' && !cancelled()
+        run: |
+          python3 .github/skills-nv-base/skill_compliance_check.py \
+            --skills-dir skills/ --no-color \
+            --json-out "${{ runner.temp }}/playbook-findings.json"
+
+      - name: Step 3 — post sticky PR comment with findings
+        # Always run (even when prior steps failed) so warnings surface
+        # alongside any blocking findings. Comment poster swallows its own
+        # errors via ::warning so it never fails the gate.
+        if: steps.changes.outputs.relevant == 'true' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          NVBASE_FINDINGS_JSON: ${{ runner.temp }}/nvbase-findings.json
+          PLAYBOOK_FINDINGS_JSON: ${{ runner.temp }}/playbook-findings.json
+        run: |
+          python3 .github/skills-nv-base/post_comment.py
+
+      - name: Skip note when no skills/ changes
+        if: steps.changes.outputs.relevant != 'true'
+        run: |
+          echo "::notice::No skills/ changes in this PR; NV-BASE check skipped."

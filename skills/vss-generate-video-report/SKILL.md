@@ -48,9 +48,35 @@ This skill requires the VSS **base** profile running on the host at `$HOST_IP`. 
 
 ---
 
+## Sensor prerequisite
+
+**You MUST list VST sensors before any `/generate` call.** This is required even when the user names the sensor explicitly, even when the user asserts the video is already uploaded, and even when a previous turn appeared to use the same video. Do not skip this step.
+
+1. List sensors:
+   ```bash
+   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
+   ```
+
+2. Compare the returned `name` values against the user-supplied `<sensor-id>` (or **filename stem**, e.g. `warehouse_safety_0001`).
+
+3. **If a matching sensor is present** → proceed to the Agent workflow below.
+
+4. **If no matching sensor is present** — upload the video first, then re-list to confirm the new sensor appears:
+   ```bash
+   # filename: must not contain whitespace
+   # timestamp: ISO 8601 UTC — default 2025-01-01T00:00:00.000Z if user did not specify
+   curl -s -X PUT "http://${HOST_IP}:30888/vst/api/v1/storage/file/<filename>?timestamp=<timestamp>" \
+     -H "Content-Type: application/octet-stream" \
+     -H "Content-Length: <file_size_in_bytes>" \
+     --upload-file /path/to/<filename> | jq .
+   ```
+   See `/vss-manage-video-io-storage` for full upload semantics (v1 vs v2, conflict handling, delete flow). In interactive runs, confirm with the user before uploading. **Never** issue an unconditional PUT without first running the sensor-list check above — that is exactly the failure mode this prerequisite exists to prevent.
+
+---
+
 ## Agent workflow
 
-Run these steps **in order**:
+The Sensor prerequisite above must have already confirmed (or made) the sensor exist on VST. Then run these steps **in order**:
 
 1. **Sensor / clip** — Confirm which **sensor id** or **video** the user means. If unclear, ask before proceeding. If the sensor or video is not mentioned directly in the user request, the user may be referring to a video they mentioned previously.
 
@@ -60,7 +86,7 @@ Run these steps **in order**:
    - DO NOT mention a report to vss agent
 
 4. **Report template** — Copy the agent’s final text (timestamped caption/summary) into **Analysis Results** and fill **Basic Information**; **return that markdown** to the user.
-0l
+
 ---
 
 ## Query VSS agent (`/generate`)

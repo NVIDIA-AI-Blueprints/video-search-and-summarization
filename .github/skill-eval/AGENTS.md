@@ -7,7 +7,7 @@ You are the VSS skills-eval agent, invoked by
 `.github/skill-eval/envs/`.
 
 You run **once per push**, from start to finish, on the
-`vss-skill-validator` self-hosted runner. Your workspace is already
+`vss-skill-validator-v2` self-hosted runner. Your workspace is already
 checked out at the mirror head. You have `Bash`, `Read`, `Edit`,
 `Write`, `Glob`, `Grep`; no human is in the loop while you work. The
 workflow runs your invocation with an 8-hour hard timeout.
@@ -123,15 +123,16 @@ template is in § Harbor invocation below.
        git config user.name  "skills-eval-bot"
        git config user.email "skills-eval-bot@users.noreply.github.com"
 
-       # actions/checkout@v4 sets `http.https://github.com/.extraheader`
-       # to authenticate every git op against github.com as the runner's
-       # default GITHUB_TOKEN (github-actions[bot]). That bot can't
-       # create new branches in this repo, so a raw `git push` fails
-       # with "denied to github-actions[bot]" even though GH_TOKEN in
-       # the env is the PAT. Clear the extraheader and embed the PAT
-       # in origin's URL so git uses it.
-       git config --local --unset-all "http.https://github.com/.extraheader" || true
-       git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${PR_REPO}.git"
+       # Authentication: actions/checkout@v4 sets
+       # http.https://github.com/.extraheader to the workflow GITHUB_TOKEN
+       # (github-actions[bot]). skills-eval.yml grants this token
+       # contents:write + pull-requests:write at the permissions: block,
+       # so it can push new eval-bot/* branches, comment on the source PR,
+       # and open the bot PR. No PAT, no extraheader hack — same pattern
+       # helm-sync uses. Commit Author/Committer is `skills-eval-bot`
+       # (from `git config user.{name,email}` above); push lands as
+       # github-actions[bot]; DCO sees the Signed-off-by trailer that
+       # `git commit -s` adds, which matches the committer email.
 
        # Branch off the contributor's tip (NOT the mirror tip — the
        # mirror SHA can drift slightly behind the source branch
@@ -377,7 +378,7 @@ template is in § Harbor invocation below.
   head — i.e., that the contributor has accepted into their PR.
 - **Never leak `ANTHROPIC_API_KEY`, `NGC_CLI_API_KEY`, `GH_TOKEN`,
   `HF_TOKEN`** in comments, logs you echo back, or commit messages.
-- **Never touch `vss-skill-validator`** (the CI runner host — killing
+- **Never touch `vss-skill-validator-v2`** (the CI runner host — killing
   it kills this job).
 - **Never touch pool-instance lifecycle.** No `brev create`,
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
@@ -412,7 +413,7 @@ template is in § Harbor invocation below.
 | `spark` | BYOH registered node `SPARK` | **no-op — never stop, never delete** | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 | `H100-VLM` | BYOH registered node | **no-op** | Secondary H100 node if the cloud one is slow. |
 
-`vss-skill-validator` is the CI runner host — **never** touch it,
+`vss-skill-validator-v2` is the CI runner host — **never** touch it,
 even though it shows up in `brev ls`.
 
 **Fleet selection (worker-pool model).** Scan
@@ -686,7 +687,7 @@ https://harbor-${BREV_ENV_ID}.brevlab.com/jobs/<run_id>__<date>/tasks/<source>/<
 
 **CRITICAL — `BREV_ENV_ID` in this URL is the coordinator host's
 env id** (the CI runner, set by Brev in `/etc/environment` — on the
-current coordinator it's `8yq51k0qt`). It is **NOT** a per-trial
+current coordinator it's `13xh5gpe7`). It is **NOT** a per-trial
 instance id you see in `brev ls --json` (the `id` field of
 `vss-eval-*` or `harbor-*` entries). The coordinator runs
 `harbor view`; per-trial boxes do not. Mixing these up produces a
@@ -818,6 +819,58 @@ separate; don't conflate the two.
 - **Lock contention** (another CI run holds the Brev lock). Wait up
   to 8 h (flock `-w 28800`). If you time out, emit `BLOCKED: lock
   timeout on <instance>`.
+
+## Manual full-sweep mode
+
+The workflow also exposes a `workflow_dispatch` trigger that fires this
+agent against the **current head of whatever branch the operator dispatched
+from** (typically `develop`), with no diff and no PR. The wrapper sets
+`MANUAL_FULL_SWEEP=1`, blanks `PR_NUMBER`/`PR_BASE`, and passes a single
+skill filter:
+
+  - `MANUAL_SKILLS_FILTER` — one skill name from the `type: choice`
+    dispatch dropdown, or `*` for every skill. There is intentionally no
+    spec-level filter — once a skill is picked, every spec under
+    `skills/<skill>/eval/*.json` runs.
+
+When you see `MANUAL_FULL_SWEEP=1` in the env (the user prompt also says so
+explicitly), apply these step overrides — everything else in this file
+applies unchanged:
+
+- **Step 1 (override):** skip the diff. Enumerate `skills/*/eval/*.json` on
+  the checked-out workspace, then drop any skill not matching the filter
+  (`*` keeps all). Skills with no `eval/` dir remain runtime libraries and
+  are skipped as in the normal path. Every spec on the kept skill(s) runs.
+
+- **Step 3 (override):** the bot-PR flow in §§ 3c/3d is **off** — there is
+  no contributor branch to target. If an adapter is missing or stale for a
+  given spec, record that spec as `BLOCKED:<reason>` in the results table
+  and move on. Do NOT push branches, do NOT open PRs. (The hard rule
+  against `skills/` writes still applies in full.)
+
+- **Step 6 (override):** there is no PR to comment on. For each completed
+  `(skill, spec)` batch, append the same markdown you would have posted
+  via `gh pr comment` (per § Result comment format) to the file at
+  `$GITHUB_STEP_SUMMARY`:
+
+  ```bash
+  cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+  ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+  ... table + failing checks + suggestions, exactly as in PR-comment mode ...
+  MD
+  ```
+
+  Append per-spec — don't buffer everything for the end. If
+  `$GITHUB_STEP_SUMMARY` is empty/unset (running locally for a smoke
+  test), print the same markdown to stdout and note the fallback. The
+  rendered Actions run summary is the operator's primary view; the Harbor
+  viewer URLs in each row are still per-trial trace links.
+
+Everything else — startup hygiene, fleet selection (§ 5a), per-box flock
+(§ 5b), canonical harbor invocation (§ Harbor invocation), no
+trial-supervision polling, the artifact-tarball collection step in the
+workflow — is identical to the PR-driven path. The DONE/BLOCKED final
+marker (§ Output requirements) is also unchanged.
 
 ## Output requirements
 

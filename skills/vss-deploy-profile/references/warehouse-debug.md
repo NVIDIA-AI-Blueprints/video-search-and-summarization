@@ -1,6 +1,6 @@
 # Warehouse Debug Reference
 
-Live debugging of an **already-running** VSS Warehouse deployment. Triage container health, perception FPS, GPU/CPU/disk resources, broker connectivity, and (3D only) BEV camera timestamp synchronization via Elasticsearch. Identify root cause, propose a fix, then ask the user before applying it.
+Live debugging of an **already-running** VSS Warehouse deployment. Triage container health, perception FPS, GPU/CPU/disk resources, broker connectivity, and (3D / MV3DT) BEV camera timestamp synchronization via Elasticsearch. Identify root cause, propose a fix, then ask the user before applying it.
 
 Companion to [`warehouse.md`](warehouse.md). Use this reference when the stack is already up but something is wrong — low FPS, containers restarting, streams missing, BEV out of sync, or general unhealthy state. For first-time install / redeploy / tear-down, go to `warehouse.md`.
 
@@ -23,15 +23,28 @@ broker (kafka / redis)
                     └── vss-behavior-analytics (ROI, tripwire, proximity events)
                           └── (extended only: logstash, kibana, vss-video-analytics-api)
 
+MV3DT variant (MODE=mv3dt) — same dependency shape, all containers use -mv3dt suffix:
+  broker → vss-broker-health-check → vss-vios-nvstreamer-mv3dt
+    → mosquitto (MQTT)
+      → vss-rtvi-cv-bev-fusion
+        → vss-rtvi-cv-mv3dt (per-camera perception)
+    → vss-configurator-mv3dt
+    → vss-behavior-analytics-mv3dt
+
+Warehouse Auto-Calibration (BP_PROFILE=bp_wh_auto_calib) — minimal footprint:
+  vss-vios-nvstreamer / vss-vios-nvstreamer-mv3dt → vss-configurator / vss-configurator-mv3dt
+                      → vss-auto-calibration + vss-auto-calibration-ui
+  (no broker, no perception, no analytics)
+
 VST (VIOS) stack — independent of perception, feeds RTSP into it:
   vss-vios-postgres → vss-vios-sensor / vss-vios-streamprocessing
                     → vss-vios-sdr / vss-vios-mcp / vss-vios-ingress / vss-vios-envoy
 
-elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), OR kafka/redis with MINIMAL_PROFILE="" (extended; ELK + bounding-box overlays + analytics API; 2D or 3D).
-NOTE: 3D minimal does NOT deploy ES — so the mdx-bev index isn't persisted and Phase 5 BEV-sync check has no data to read.
+elasticsearch — deployed when: BP_PROFILE=bp_wh (always; vss-agent storage), OR kafka/redis with MINIMAL_PROFILE="" (extended; ELK + bounding-box overlays + analytics API; any mode).
+NOTE: minimal does NOT deploy ES — so the mdx-bev index isn't persisted and Phase 5 BEV-sync check has no data to read (applies to 3D and MV3DT).
 
 bp_wh-only stack (RTVI VLM + agent):
-  vss-rtvi-vlm                                  (always local — no remote/none option)
+  vss-rtvi-vlm                                  (RTVI VLM — always local, hardcoded in compose profile bp_wh_2d; VLM_MODE=none)
   vss-alert-bridge ← depends on vss-rtvi-vlm
   LLM NIM (varies — see below)
   vss-agent ← depends on LLM, vios
@@ -44,9 +57,9 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 
 ## Full Container List by Profile
 
-`MODE` (`2d` / `3d`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis`) select the active compose-profile slice. Perception, behavior analytics, configurator, and nvstreamer use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix.
+`MODE` (`2d` / `3d` / `mv3dt`) and `BP_PROFILE` (`bp_wh` / `bp_wh_kafka` / `bp_wh_redis` / `bp_wh_auto_calib`) select the active mode-specific compose-profile slice. Perception, behavior analytics, nvstreamer, and most other services use the **same container names** in 2D and 3D — no `-2d` / `-3d` suffix. MV3DT uses a **`-mv3dt` suffix** on all its containers (`vss-vios-nvstreamer-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-configurator-mv3dt`, `vss-video-analytics-api-mv3dt`).
 
-### Warehouse CV core (all warehouse profiles)
+### Warehouse CV core (2D and 3D profiles)
 
 | Container | Role |
 |---|---|
@@ -61,13 +74,39 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `vss-vios-postgres` / `-sensor` / `-streamprocessing` / `-sdr` / `-mcp` / `-ingress` / `-envoy` | VST stack |
 | `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
 
-### Extended profile only (`MINIMAL_PROFILE=""`) — adds
+### MV3DT CV core (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`)
+
+| Container | Role |
+|---|---|
+| `kafka` or `redis` (`STREAM_TYPE`) | Message broker |
+| `vss-broker-health-check` | Gate — waits for broker before releasing dependents |
+| `vss-vios-nvstreamer-mv3dt` | RTSP stream server |
+| `vss-rtvi-cv-mv3dt` | DeepStream perception (per-camera) |
+| `vss-rtvi-cv-bev-fusion` | BEV Fusion — fuses per-camera detections into unified 3D BEV frame |
+| `mosquitto` | MQTT broker for cross-camera messaging |
+| `vss-configurator-mv3dt` | Stream and hardware config |
+| `vss-behavior-analytics-mv3dt` | 3D spatial analytics |
+| `vss-vios-postgres` / `sensor-ms-mv3dt` / `-streamprocessing` / `-sdr` / `-mcp` / `-ingress` / `-envoy` | VST stack |
+| `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
+
+### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
+
+| Container | Role |
+|---|---|
+| `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt` | RTSP stream server |
+| `vss-configurator` / `vss-configurator-mv3dt` | Blueprint configurator |
+| `vss-auto-calibration` / `vss-auto-calibration-ui` | Camera auto-calibration |
+| VST stack (subset) | Stream management for calibration |
+
+> **3D / MV3DT:** When deploying calibration for 3D or MV3DT modes, calibration files must include BEV origin and camera group data generated by `calculate_origin.py`. Use `auto_calib` to upload videos directly, or `bp_wh_auto_calib_3d` / `bp_wh_auto_calib_mv3dt` to calibrate against RTSP streams. See [Calibration Generation](warehouse.md#calibration-generation).
+
+### Extended profile only (`MINIMAL_PROFILE=""`, any mode) — adds
 
 | Container | Role |
 |---|---|
 | `logstash` | Log ingestion pipeline |
 | `kibana` | Dashboard UI |
-| `vss-video-analytics-api` | REST API for analytics data |
+| `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` | REST API for analytics data |
 
 `elasticsearch`, `kibana`, `logstash`, `vss-video-analytics-api` are also deployed for `BP_PROFILE=bp_wh` (always — independent of `MINIMAL_PROFILE`). See [Phase 1](#phase-1-stack-snapshot) for the consolidated trigger table.
 
@@ -75,7 +114,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 
 | Container | Role |
 |---|---|
-| `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**, no mode toggle |
+| `vss-rtvi-vlm` | Real-time VLM (Cosmos Reason) — **always local**, hardcoded in compose profile `bp_wh_2d`. Warehouse uses RTVI VLM instead of the standalone VLM NIM path, so `VLM_MODE=none` and `VLM_NAME_SLUG=none`. `vss-agent` connects to RTVI VLM directly |
 | `vss-alert-bridge` | Drives realtime VLM alerts (POST/DELETE `/api/v1/realtime`) |
 | LLM NIM (container name = `LLM_NAME_SLUG`, e.g. `nvidia-nemotron-nano-9b-v2`) | LLM inference — only when `LLM_MODE=local` / `local_shared` |
 | `vss-agent` | Orchestrator |
@@ -84,7 +123,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies VST + kibana + analytics API there) |
 | `phoenix` | Telemetry / observability |
 
-> **No `vlm-nim` container.** The warehouse blueprint runs **only `vss-rtvi-vlm`** for vision-language inference, and it is always local. Do not search for a VLM NIM container — it does not exist in this stack.
+> **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). Warehouse uses **RTVI VLM only** — `vss-agent` connects to it directly. `VLM_MODE=none` in the warehouse `.env`. Do not search for a VLM NIM container — it does not exist in this stack.
 
 ## Container Health Check Settings
 
@@ -117,7 +156,7 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 
 | Index | Written by | Contains | Used for |
 |---|---|---|---|
-| `mdx-bev` | `vss-behavior-analytics` (3D) | BEV frame data, camera timestamps in `info`, detected objects | 3D BEV sync check, object history |
+| `mdx-bev` | `vss-behavior-analytics` (3D) / `vss-behavior-analytics-mv3dt` (MV3DT) | BEV frame data, camera timestamps in `info`, detected objects | 3D / MV3DT BEV sync check, object history |
 | `mdx-raw` | perception via broker | Raw detection events per frame | Debugging detection pipeline |
 | `mdx-events` | `vss-behavior-analytics` | ROI / tripwire / proximity events | Event history and UI |
 
@@ -161,12 +200,12 @@ docker exec redis redis-cli XREVRANGE mdx-raw + - COUNT 3
 
 | Role | `.env` variable | Default device | Notes |
 |---|---|---|---|
-| RT-CV perception (RT-DETR for 2D, Sparse4D for 3D) | `RT_CV_DEVICE_ID` | `0` | Always local |
+| RT-CV perception (RT-DETR for 2D, Sparse4D for 3D, BEV Fusion for MV3DT) | `RT_CV_DEVICE_ID` | `0` | Always local |
 | RTVI VLM | `RT_VLM_DEVICE_ID` | `1` | Always local; `bp_wh` only |
 | LLM NIM (dedicated) | `LLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local` |
 | LLM NIM colocated with RTVI VLM | `SHARED_LLM_VLM_DEVICE_ID` | `2` | `bp_wh` + `LLM_MODE=local_shared` |
 
-`LLM_MODE`: `local` | `local_shared` | `remote` | `none`. RTVI VLM has no mode — always deployed locally for `bp_wh`.
+`LLM_MODE`: `local` | `local_shared` | `remote` | `none`. RTVI VLM has no mode — always deployed locally for `bp_wh`. `bp_wh_auto_calib` profiles uses no GPU for perception or LLM.
 
 Check per-GPU process load:
 
@@ -219,7 +258,7 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 |---|---|
 | ≤ 34 ms | SYNCHRONIZED — healthy |
 | 34 ms – 67 ms | WARNING — monitor; may affect 3D fusion accuracy |
-| > 67 ms | OUT OF SYNC — restart `vss-vios-nvstreamer`; verify RTSP sources |
+| > 67 ms | OUT OF SYNC — restart `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`; verify RTSP sources |
 
 ## Documentation Reference
 
@@ -237,7 +276,7 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 Before starting, collect two pieces of information (ask if unknown):
 
 1. **`<repo>`** — path to the `video-search-and-summarization` checkout. All compose / cleanup commands run from `<repo>/deploy/docker/`, with `--env-file industry-profiles/warehouse-operations/.env`. Treat `<repo>` as a placeholder you replace before running each command (or `export REPO=<absolute-path>` and use `$REPO`).
-2. **`MODE`** — `2d` or `3d`. Detect from the running perception container:
+2. **`MODE`** — `2d`, `3d`, or `mv3dt`. Detect from the running perception container:
 
 ```bash
 docker inspect vss-rtvi-cv --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
@@ -250,7 +289,7 @@ If that returns nothing (container not running or named differently), fall back 
 grep "^MODE=" $REPO/deploy/docker/industry-profiles/warehouse-operations/.env
 ```
 
-`vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone.
+`vss-rtvi-cv` is the same container in 2D and 3D — you cannot tell them apart by container name alone. MV3DT uses `vss-rtvi-cv-mv3dt` instead — if that container exists, MODE is `mv3dt`.
 
 ---
 
@@ -271,12 +310,14 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 
 | Profile | Required containers |
 |---|---|
-| All warehouse profiles | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, the `vss-vios-*` VST stack |
+| 2D / 3D profiles | broker (`kafka` or `redis`), `vss-broker-health-check`, `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-rtvi-cv-sdr`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, the `vss-vios-*` VST stack |
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
+| MV3DT profiles | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, the `vss-vios-*` VST stack |
+| `bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, VST stack (subset) — no broker, no perception, no analytics |
 | `bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared` |
-| Extended (kafka/redis 2D or 3D) extra | `logstash`, `kibana`, `vss-video-analytics-api` |
-| `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, **or** kafka/redis extended (2D or 3D) |
-| `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, 2D or 3D). **3D minimal does NOT deploy ES** |
+| Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` |
+| `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, **or** kafka/redis extended (any mode) |
+| `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode). **Minimal does NOT deploy ES** |
 
 Record which containers are **Down**, **Restarting**, or have a non-zero exit code — these are the primary suspects.
 
@@ -284,16 +325,28 @@ Record which containers are **Down**, **Restarting**, or have a non-zero exit co
 
 ## Phase 2: Perception FPS
 
-Check whether perception is producing output. Same container regardless of `MODE`:
+Check whether perception is producing output.
+
+**2D / 3D** — same container regardless of MODE:
 
 ```bash
 echo "--- Perception FPS (last 60 s) ---"
 docker logs --since 60s vss-rtvi-cv 2>&1 | grep -i fps | tail -10
 ```
 
+**MV3DT** — check per-camera perception and BEV Fusion separately:
+
+```bash
+echo "--- MV3DT Per-Camera Perception FPS ---"
+docker logs --since 60s vss-rtvi-cv-mv3dt 2>&1 | grep -i fps | tail -10
+echo "--- BEV Fusion FPS ---"
+docker logs --since 60s vss-rtvi-cv-bev-fusion 2>&1 | grep -i fps | tail -10
+```
+
 - **FPS lines present and non-zero** → perception is running; issue is likely downstream (broker, analytics, BEV sync).
 - **No FPS lines** → perception is stalled or not receiving streams. Proceed to Phase 3.
 - **FPS present but very low** → GPU saturation or stream count too high. Check Phase 4.
+- **MV3DT: per-camera FPS OK but BEV Fusion FPS zero** → MQTT messaging issue; check `mosquitto` container.
 
 ---
 
@@ -328,14 +381,25 @@ Errors here → streams are not being served → perception gets no input.
 
 ### 3.3 Perception
 
+**2D / 3D:**
+
 ```bash
 docker logs --tail 100 vss-rtvi-cv 2>&1 | grep -E "ERROR|error|fail|GST|pipeline|model" | tail -30
+```
+
+**MV3DT:**
+
+```bash
+docker logs --tail 100 vss-rtvi-cv-mv3dt 2>&1 | grep -E "ERROR|error|fail|GST|pipeline|model" | tail -30
+docker logs --tail 100 vss-rtvi-cv-bev-fusion 2>&1 | grep -E "ERROR|error|fail" | tail -20
+docker logs --tail 50 mosquitto 2>&1 | grep -E "ERROR|error|fail" | tail -10
 ```
 
 Common issues:
 - `model not found` → `$VSS_DATA_DIR/models/` is missing or wrong path.
 - `GST pipeline error` → stream input issue; check `vss-vios-nvstreamer` first.
 - `CUDA out of memory` → GPU saturation; reduce `NUM_STREAMS`.
+- MV3DT: MQTT connection errors in `vss-rtvi-cv-mv3dt` → check `mosquitto` container first.
 
 ### 3.4 Perception SDR + Config Adaptor
 
@@ -348,15 +412,21 @@ docker logs --tail 50 vss-rtvi-cv-config-adaptor 2>&1 | grep -E "ERROR|error|fai
 ### 3.5 Configurator
 
 ```bash
+# 2D / 3D / mv3dt:
 docker logs --tail 50 vss-configurator 2>&1 | grep -E "ERROR|error|fail" | tail -20
+# MV3DT:
+docker logs --tail 50 vss-configurator-mv3dt 2>&1 | grep -E "ERROR|error|fail" | tail -20
 ```
 
-Note: `vss-configurator` has a **60 s start period** — a health-check failure in the first minute is expected.
+Note: `vss-configurator` / `vss-configurator-mv3dt` has a **60 s start period** — a health-check failure in the first minute is expected.
 
 ### 3.6 Behavior Analytics
 
 ```bash
+# 2D / 3D:
 docker logs --tail 50 vss-behavior-analytics 2>&1 | grep -E "ERROR|error|fail" | tail -20
+# MV3DT:
+docker logs --tail 50 vss-behavior-analytics-mv3dt 2>&1 | grep -E "ERROR|error|fail" | tail -20
 ```
 
 ### 3.7 VST / VIOS stack
@@ -370,7 +440,7 @@ done
 
 ### 3.8 `bp_wh` extras (RTVI VLM + agent)
 
-Skip if `BP_PROFILE` is `bp_wh_kafka` or `bp_wh_redis`.
+Skip unless `BP_PROFILE=bp_wh`.
 
 ```bash
 docker logs --tail 50 vss-rtvi-vlm     2>&1 | grep -E "ERROR|error|fail|CUDA" | tail -20
@@ -379,6 +449,8 @@ docker logs --tail 50 vss-agent        2>&1 | grep -E "ERROR|error|fail"      | 
 docker logs --tail 50 vss-agent-ui     2>&1 | grep -E "ERROR|error|fail"      | tail -20
 docker logs --tail 50 vss-haproxy-ingress 2>&1 | grep -E "ERROR|error|fail"   | tail -20
 # LLM NIM container name = LLM_NAME_SLUG from .env (e.g. nvidia-nemotron-nano-9b-v2)
+# Warehouse industry-profile compose commands read from .env directly
+# (no generated.env flow — that pattern is only for dev-profile-*).
 LLM_SLUG=$(grep '^LLM_NAME_SLUG=' "$REPO/deploy/docker/industry-profiles/warehouse-operations/.env" | cut -d= -f2 | tr -d '"')
 docker logs --tail 50 "$LLM_SLUG" 2>&1 | grep -E "ERROR|error|fail|CUDA" | tail -20
 ```
@@ -415,9 +487,9 @@ df -h / /tmp 2>/dev/null
 
 ---
 
-## Phase 5 (3D extended only): BEV Camera Timestamp Sync
+## Phase 5 (3D / MV3DT extended only): BEV Camera Timestamp Sync
 
-For `MODE=3d` **with `MINIMAL_PROFILE=""` (extended)**, check that all cameras contributing to the BEV frame are synchronized. Skip this phase in 3D minimal: `elasticsearch` is not deployed there, so `mdx-bev` is never persisted and the query below will fail with a connection error.
+For `MODE=3d` or `MODE=mv3dt` **with `MINIMAL_PROFILE=""` (extended)**, check that all cameras contributing to the BEV frame are synchronized. Skip this phase in 3D/MV3DT minimal: `elasticsearch` is not deployed there, so `mdx-bev` is never persisted and the query below will fail with a connection error.
 
 ```bash
 curl -s "http://localhost:9200/mdx-bev/_search?size=1" \
@@ -474,8 +546,8 @@ EOF
 ```
 
 - **SYNCHRONIZED** (≤ 34 ms) → BEV fusion healthy; issue is elsewhere.
-- **WARNING** (34–67 ms) → minor drift; monitor. Check `docker logs vss-vios-nvstreamer` for lagging streams.
-- **OUT OF SYNC** (> 67 ms) → restart `vss-vios-nvstreamer`; verify RTSP source health for drifting cameras.
+- **WARNING** (34–67 ms) → minor drift; monitor. Check `docker logs vss-vios-nvstreamer` (3D) / `docker logs vss-vios-nvstreamer-mv3dt` (MV3DT) for lagging streams.
+- **OUT OF SYNC** (> 67 ms) → restart `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`; verify RTSP source health for drifting cameras.
 - **No records found** → `elasticsearch` container may be down or the `mdx-bev` index has not been written to yet.
 
 ---
@@ -491,8 +563,10 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | `CUDA out of memory` on `vss-rtvi-cv` | Too many streams for GPU | Reduce `NUM_STREAMS`; redeploy |
 | `CUDA out of memory` on LLM NIM or `vss-rtvi-vlm` | LLM and RTVI VLM colliding on the same GPU | Adjust `LLM_DEVICE_ID` / `RT_VLM_DEVICE_ID` / `SHARED_LLM_VLM_DEVICE_ID`; redeploy |
 | Broker (Kafka/Redis) down | All downstream services lose messaging | Fix broker; redeploy |
-| `vss-vios-nvstreamer` errors / no RTSP | Streams not reaching perception | Fix stream config; redeploy |
-| BEV OUT OF SYNC | One or more camera feeds lagging | Restart `vss-vios-nvstreamer`; check camera RTSP sources |
+| `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt` errors / no RTSP | Streams not reaching perception | Fix stream config; redeploy |
+| BEV OUT OF SYNC (3D / MV3DT) | One or more camera feeds lagging | Restart `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`; check camera RTSP sources |
+| `mosquitto` down / MQTT connection refused (MV3DT) | Cross-camera messaging broken — BEV Fusion cannot receive per-camera detections | Fix mosquitto container; redeploy |
+| `vss-rtvi-cv-bev-fusion` OOM or no output (MV3DT) | BEV Fusion cannot fuse per-camera detections | Check GPU memory; reduce cameras or streams; redeploy |
 | GPU 100 % sustained, low FPS | GPU oversaturated | Reduce `NUM_STREAMS`; redeploy |
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify `.env` values; redeploy |
@@ -552,6 +626,6 @@ tail -20 "$LOG"
 docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 ```
 
-5. Re-run **Phase 2** (FPS check) and, for 3D, **Phase 5** (BEV sync) to confirm the issue is resolved.
+5. Re-run **Phase 2** (FPS check) and, for 3D / MV3DT, **Phase 5** (BEV sync) to confirm the issue is resolved.
 
 If the issue persists after redeploy, consult the [Documentation Reference](#documentation-reference) links above and `warehouse.md` → Troubleshooting.

@@ -44,13 +44,27 @@ describe('DashboardComponent', () => {
         dashboardData={{ kibanaBaseUrl: null }}
       />,
     );
-    expect(container.firstChild).toHaveClass('bg-[#1a1a1a]');
+    expect(container.firstChild).toHaveClass('bg-black');
   });
 
-  it('applies light theme classes by default', () => {
-    const { container } = render(
-      <DashboardComponent dashboardData={{ kibanaBaseUrl: null }} />,
+  it('does not remount the iframe when isActive toggles off and on after first load', () => {
+    const dashboardData = {
+      kibanaBaseUrl: 'https://kibana.example.com',
+      dashboards: [] as const,
+    };
+    const { rerender } = render(
+      <DashboardComponent isActive={false} dashboardData={dashboardData} />,
     );
-    expect(container.firstChild).toHaveClass('bg-white');
+    expect(screen.queryByTitle('Kibana Dashboard')).not.toBeInTheDocument();
+
+    rerender(<DashboardComponent isActive dashboardData={dashboardData} />);
+    const iframe = screen.getByTitle('Kibana Dashboard');
+    act(() => {
+      iframe.dispatchEvent(new Event('load'));
+    });
+
+    rerender(<DashboardComponent isActive={false} dashboardData={dashboardData} />);
+    rerender(<DashboardComponent isActive dashboardData={dashboardData} />);
+
+    expect(screen.getByTitle('Kibana Dashboard')).toBe(iframe);
   });
-});

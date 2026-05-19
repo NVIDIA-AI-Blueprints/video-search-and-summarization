@@ -11,7 +11,7 @@ Real-time alert generation and verification on RTSP / live video. VLM is **alway
 | **verification** | `--mode verification` | `2d_cv` | DeepStream perception (RT-CV with Grounding DINO) generates alerts upstream; behavior analytics filters them; alert-bridge invokes VLM **only** to verify alert clips. | Lower — VLM runs per alert |
 | **real-time** | `--mode real-time` | `2d_vlm` | VLM continuously inspects live video at periodic intervals; broad coverage without upstream CV dependency. RT-CV not deployed. | Higher — VLM runs continuously |
 
-Switch modes by editing `MODE` in `dev-profile-alerts/.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. `dev-profile.sh` also rewrites the UI subtitle (`NEXT_PUBLIC_APP_SUBTITLE`) for the matching mode label.
+Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_cv` or `MODE=2d_vlm`) and re-resolving the compose. `dev-profile.sh` also rewrites the UI subtitle (`NEXT_PUBLIC_APP_SUBTITLE`) for the matching mode label.
 
 ## What's different from `base` and `lvs`
 
@@ -87,7 +87,7 @@ Default. RT-VLM serves the VLM locally. Supported integrated checkpoints (same s
 | Cosmos Reason 1 7B | `ngc:nim/nvidia/cosmos-reason1-7b:hf-<tag>` | `cosmos-reason` |
 | Nemotron Nano V3 Omni 30B | `git:https://huggingface.co/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8` | `vllm-compatible` (see [`lvs.md` § Nemotron Omni](lvs.md#path-a--integrated-rt-vlm-loads-the-checkpoint-itself)) |
 
-Switching VLMs is a `dev-profile-alerts/.env` edit; **`VLM_NAME_SLUG` stays `none`** and `VLM_NAME` must match the model basename returned by RT-VLM's `/v1/models` (otherwise alert-bridge fails with HTTP 400). For Cosmos Reason 1 the `VLM_NAME` becomes `nim_nvidia_cosmos-reason1-7b_hf-<tag>`.
+Switching VLMs is a `dev-profile-alerts/generated.env` edit; **`VLM_NAME_SLUG` stays `none`** and `VLM_NAME` must match the model basename returned by RT-VLM's `/v1/models` (otherwise alert-bridge fails with HTTP 400). For Cosmos Reason 1 the `VLM_NAME` becomes `nim_nvidia_cosmos-reason1-7b_hf-<tag>`.
 
 ### Path B — Remote VLM (user supplied)
 
@@ -96,7 +96,7 @@ Use when:
 1. **The user supplied a remote VLM endpoint URL**, or
 2. **The local GPU(s) can't fit the requested VLM alongside the LLM + RT-CV** per the sizing math (and the user agreed to go remote — same two-trigger rule as [`base.md` § When to use remote LLM/VLM](base.md#when-to-use-remote-llmvlm)).
 
-The full set of env vars the skill writes to `dev-profile-alerts/.env`:
+The full set of env vars the skill writes to `dev-profile-alerts/generated.env`:
 
 ```bash
 VLM_MODE=remote                                          # agent reads this; switches its VLM tool to remote-endpoint mode
@@ -121,7 +121,7 @@ For LLM weight cost, VLM weight cost, and the general formula, see [`base.md` §
 
 ### Values the skill writes directly
 
-The skill writes these env vars to `dev-profile-alerts/.env` itself; there's no auto-tuning, so the agent has to apply the right values per the chosen layout. The numbers below are the upstream `dev-profile.sh:1200-1234` defaults — used as a precedent / starting point, not because the script ever runs.
+The skill writes these env vars to `dev-profile-alerts/generated.env` itself; there's no auto-tuning, so the agent has to apply the right values per the chosen layout. The numbers below are the upstream `dev-profile.sh:1200-1234` defaults — used as a precedent / starting point, not because the script ever runs.
 
 **`RTVI_VLLM_GPU_MEMORY_UTILIZATION`:**
 
@@ -212,7 +212,8 @@ Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GP
 ## Env file location
 
 ```
-deploy/docker/developer-profiles/dev-profile-alerts/.env
+deploy/docker/developer-profiles/dev-profile-alerts/.env            # source defaults (read-only)
+deploy/docker/developer-profiles/dev-profile-alerts/generated.env   # skill's working copy (apply overrides here)
 ```
 
 ## Stage perception models (RTDETR-ITS + GDINO)
@@ -245,7 +246,7 @@ rm -rf "$DATA/models"
 mkdir -p "$DATA/models/rtdetr-its" "$DATA/models/gdino"
 
 # 1. RTDETR-ITS (TrafficcamNet)
-NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
     nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0
 mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx \
@@ -253,7 +254,7 @@ mv trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamn
 rm -rf trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0
 
 # 2. Mask Grounding DINO
-NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
     nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm
 mv mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx \

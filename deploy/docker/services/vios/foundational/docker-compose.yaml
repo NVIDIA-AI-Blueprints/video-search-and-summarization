@@ -16,14 +16,14 @@
 services:
   centralizedb:
     image: ${POSTGRES_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_2d","auto_calib_3d","auto_calib_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
     user: "0:0"
     environment:
       - POSTGRES_USER=${CENTRALIZE_DB_USERNAME}
       - POSTGRES_DB=${CENTRALIZE_DB_NAME}
       - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
-      - ${VST_VOLUME}/postgres/db:/var/lib/postgresql/data
+      - vios_pg_data:/var/lib/postgresql/data
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}/postgresql.conf:/etc/postgresql/postgresql.conf
       - ${VST_DATA_PATH}:/var/run/postgresql
     network_mode: host
@@ -44,7 +44,7 @@ services:
 
   vst-ingress:
     image: ${NGINX_IMAGE}
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","auto_calib_2d","auto_calib_3d","auto_calib_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt","bp_wh_redis_mv3dt","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv","bp_developer_alerts_2d_vlm"]
     user: "0:0"
     environment:
       - VST_INGRESS_HTTP_PORT=${VST_INGRESS_HTTP_PORT}
@@ -54,7 +54,7 @@ services:
     network_mode: host
     container_name: vss-vios-ingress
     restart: always    # Nginx should always restart as it's critical for routing
-    command: ["nginx", "-g", "daemon off;"]
+    command: ["nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]
     healthcheck:
       test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$${VST_INGRESS_HTTP_PORT:-30888}'"]
       interval: 5s
@@ -71,3 +71,6 @@ services:
       sensor-ms-3d:
         condition: service_healthy
         required: false
+
+volumes:
+  vios_pg_data:

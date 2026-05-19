@@ -63,7 +63,7 @@ If even the per-GPU default doesn't fit (very large VLM, or smaller GPU than the
 
 ### Path A — Remote VLM (user supplied)
 
-Triggered when the user provides a VLM endpoint URL or asks for `remote-vlm` / `remote-all`. Edit `dev-profile-search/.env`:
+Triggered when the user provides a VLM endpoint URL or asks for `remote-vlm` / `remote-all`. Edit `dev-profile-search/generated.env`:
 
 ```bash
 VLM_MODE=remote
@@ -89,7 +89,7 @@ This is the default placement for any 2- or 3-GPU host without a remote VLM. Put
 | A40 (48 GB) | **8** | Same |
 | Thor / GB10 (DGX Spark, ≤ 64 GB unified) | **8** | Edge — unified memory, smaller VLM headroom |
 
-Edit `dev-profile-search/.env`:
+Edit `dev-profile-search/generated.env`:
 
 ```bash
 RT_CV_DEVICE_ID=0
@@ -114,7 +114,7 @@ NUM_STREAMS=16                                           # 16 on H100/RTX PRO 60
 
 ### Path C — VLM on a dedicated 3rd GPU (full RT-CV throughput)
 
-Use this when the user explicitly wants the full `NUM_STREAMS=16` perception throughput **and** has a 3rd GPU free. Edit `dev-profile-search/.env`:
+Use this when the user explicitly wants the full `NUM_STREAMS=16` perception throughput **and** has a 3rd GPU free. Edit `dev-profile-search/generated.env`:
 
 ```bash
 RT_CV_DEVICE_ID=0
@@ -138,7 +138,7 @@ For VLM and LLM weight cost + the general formula, see [`base.md` § Sizing math
 
 ### RT-Embed sizing
 
-Image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.0-26.04.2` (SBSA: `3.2.0-sbsa-...`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+Image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.0-26.05.2` (SBSA: `3.2.0-sbsa-...`). Compose: `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
 
 Per the upstream `perf/benchmark/rtvi_embed_gpu_initial_stream_counts.json`, the **dedicated-GPU ceiling** — max concurrent streams when RT-Embed has the GPU to itself with **no co-resident** model:
 
@@ -165,7 +165,7 @@ Knobs (in `dev-profile-search/.env` unless noted):
 | `VLM_BATCH_SIZE` | `VLM_BATCH_SIZE` | auto (3 / 16 / 64 / 128 by GPU mem) | Batch size for inference. Auto-clamps to GPU capacity. |
 | `RTVI_EMBED_NUM_GPUS` / `VSS_NUM_GPUS_PER_VLM_PROC` | `NUM_GPUS` | empty (1) | Multi-GPU distribution per embed process. |
 | `RT_EMBED_DEVICE_ID` | (compose `device_ids`) | `1` | Which GPU RT-Embed pins to. |
-| `RTVI_EMBED_TAG` | (image tag) | `3.2.0-26.04.2` | x86 / iGPU. For DGX Spark: `3.2.0-sbsa-26.04.3`. |
+| `RTVI_EMBED_TAG` | (image tag) | `3.2.0-26.05.2` | x86 / iGPU. For DGX Spark: use the `-sbsa-` variant of the current weekly (verify against `dev-profile-search/.env` and the registry). |
 
 **Default Cosmos-Embed1 deployment runs on Triton (ONNX), not vLLM.** From `start_rtvi_embed.sh:47-49` and `src/models/custom/samples/cosmos-embed1/inference.py:55-56`, the default `VLM_MODEL_TO_USE=custom` loads Cosmos-Embed1 via Triton-served ONNX models (`text_embeddings`, `video_embeddings`). For that path:
 
@@ -219,7 +219,7 @@ Two writes:
 # 1. In deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2/hw-H100-shared.env
 NIM_KVCACHE_PERCENT=0.72             # LLM gets ~58 GB; leaves 10 GB for RT-Embed + 12 GB framework
 
-# 2. In deploy/docker/developer-profiles/dev-profile-search/.env
+# 2. In deploy/docker/developer-profiles/dev-profile-search/generated.env
 RT_EMBED_DEVICE_ID=1
 LLM_DEVICE_ID=1
 LLM_MODE=local_shared
@@ -269,7 +269,8 @@ For Path B (default — VLM on GPU 0 with RT-CV), the math is on GPU 0 instead: 
 ## Env file location
 
 ```
-deploy/docker/developer-profiles/dev-profile-search/.env
+deploy/docker/developer-profiles/dev-profile-search/.env            # source defaults (read-only)
+deploy/docker/developer-profiles/dev-profile-search/generated.env   # skill's working copy (apply overrides here)
 ```
 
 ## Stage perception models (RT-DETR warehouse)
@@ -285,7 +286,7 @@ Symptom if skipped: RT-CV starts but its TensorRT engine build fails because `${
 DATA="$VSS_DATA_DIR"                                     # e.g. <repo>/data
 mkdir -p "$DATA/data_log/vss_video_analytics_api" "$DATA/models"
 
-NGC_CLI_API_KEY="$NGC_CLI_API_KEY" ngc registry model \
+NGC_CLI_API_KEY="${NGC_CLI_API_KEY}" ngc registry model \
     download-version \
     nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
     --org nvstaging
