@@ -41,6 +41,7 @@ from enum import StrEnum
 import functools
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 import time
@@ -553,6 +554,60 @@ class ComposeDownOperationInput(ComposeOperationInput):
             "defined in the current compose file are also removed."
         ),
     )
+    deep_clean: bool = Field(
+        default=False,
+        description=(
+            "When true, after the compose down completes successfully, also run "
+            "'docker volume prune -f' to remove dangling volumes and recursively delete the "
+            "configured mdx_data_dir."
+        ),
+    )
+
+
+def _run_deep_clean(mdx_data_dir: Path, append_op_log: Callable[[str], None]) -> None:
+    """prune dangling volumes and rm -rf data dir.
+
+    Runs after a successful compose down when deep_clean=True. Container-written files under
+    mdx_data_dir are typically root-owned, so 'sudo -n' is used when not already root.
+    """
+    append_op_log("[deep-clean] Pruning dangling docker volumes (docker volume prune -f)...")
+    try:
+        result = subprocess.run(
+            ["docker", "volume", "prune", "-f"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in (result.stdout + result.stderr).splitlines():
+            if line.strip():
+                append_op_log(f"[deep-clean] {line}")
+        if result.returncode != 0:
+            append_op_log(f"[deep-clean] docker volume prune exited with code {result.returncode}.")
+    except FileNotFoundError:
+        append_op_log("[deep-clean] docker command not found; skipping volume prune.")
+
+    append_op_log(f"[deep-clean] Deleting data directory: {mdx_data_dir}...")
+    if not mdx_data_dir.is_dir():
+        append_op_log("[deep-clean] Data directory does not exist, skipping.")
+        return
+
+    cmd = ["rm", "-rf", str(mdx_data_dir)]
+    if os.geteuid() != 0 and shutil.which("sudo") is not None:
+        cmd = ["sudo", "-n", *cmd]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        for line in (result.stdout + result.stderr).splitlines():
+            if line.strip():
+                append_op_log(f"[deep-clean] {line}")
+        if result.returncode == 0 and not mdx_data_dir.exists():
+            append_op_log("[deep-clean] Data directory deleted.")
+        else:
+            append_op_log(
+                f"[deep-clean] Failed to delete data directory (exit code {result.returncode}). "
+                "Container-written files may be root-owned; run with sudo or remove manually."
+            )
+    except FileNotFoundError as exc:
+        append_op_log(f"[deep-clean] Command not found: {exc}")
 
 
 @register_function_group(config_type=OrchestratorToolConfig)
@@ -684,7 +739,12 @@ async def vss_orchestrator(
             append_op_log("Pre-compose check succeeded.")
         return True
 
-    def _start_compose_op(docker_compose_id: str, action: str, action_args: list[str]) -> dict:
+    def _start_compose_op(
+        docker_compose_id: str,
+        action: str,
+        action_args: list[str],
+        post_success: Callable[[Callable[[str], None]], None] | None = None,
+    ) -> dict:
         if action not in _SUPPORTED_COMPOSE_ACTIONS:
             return {
                 "status": ComposeStatus.ERROR.value,
@@ -900,6 +960,12 @@ async def vss_orchestrator(
                     )
                 )
                 _append_op_log(status_log_message)
+
+                if post_success is not None and resolved_status == ComposeStatus.SUCCESS.value:
+                    try:
+                        post_success(_append_op_log)
+                    except Exception as exc:
+                        _append_op_log(f"Post-success cleanup raised an exception: {exc}")
 
         watcher = threading.Thread(target=_watch_compose_op, daemon=True)
         watcher.start()
@@ -1313,6 +1379,9 @@ async def vss_orchestrator(
             (appends -v when remove_volumes=True (default),
              appends --remove-orphans when remove_orphans=True (default))
 
+            When deep_clean=True, after a successful compose down the operation also runs
+            'docker volume prune -f' and recursively deletes mdx_data_dir.
+
             Requires that artifacts for the docker_compose_id already exist.
 
             Returns immediately for polling via docker_status.
@@ -1322,11 +1391,17 @@ async def vss_orchestrator(
                 action_args.append("-v")
             if input.remove_orphans:
                 action_args.append("--remove-orphans")
+
+            post_success: Callable[[Callable[[str], None]], None] | None = None
+            if input.deep_clean:
+                post_success = functools.partial(_run_deep_clean, mdx_data_dir)
+
             try:
                 return _start_compose_op(
                     docker_compose_id=input.docker_compose_id,
                     action="down",
                     action_args=action_args,
+                    post_success=post_success,
                 )
             except FileNotFoundError:
                 return {
