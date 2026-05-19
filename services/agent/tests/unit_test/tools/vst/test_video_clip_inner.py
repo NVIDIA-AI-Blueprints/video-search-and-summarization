@@ -303,4 +303,3 @@ class TestVSTVideoClipInner:
                         object_ids=["obj-1", "obj-2"],
                         disable_audio=True,
                     )
-
