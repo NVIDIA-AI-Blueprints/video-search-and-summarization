@@ -161,10 +161,6 @@ llms:
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 4096
     temperature: 0.0
-    model_kwargs:
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: ${LLM_ENABLE_THINKING:-false}
 
   openai_llm:
     _type: openai
@@ -172,6 +168,10 @@ llms:
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 4096
     temperature: 0.0
+    model_kwargs:
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: ${LLM_ENABLE_THINKING:-false}
 
   vllm_llm:
     _type: openai
