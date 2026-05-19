@@ -21,23 +21,28 @@
 # download when a marker file from a previous run is found.
 #
 # Expected env vars (set by compose):
-#   VISION_ENCODER_NGC_ORG, VISION_ENCODER_NGC_TEAM,
 #   VISION_ENCODER_MODEL, VISION_ENCODER_VERSION,
-#   VISION_ENCODER_ONNX_FILE,
 #   NGC_CLI_API_KEY,
 #   STORAGE_UID (optional, default 1001) — UID of the perception container user
 #   STORAGE_GID (optional, default 1001) — GID of the perception container user
+#
+# Convention (org=nvstaging or nvidia, team=tao):
+#   NGC model:  nvstaging/tao/{MODEL}:deployable_{VERSION}
+#   ONNX file:  {MODEL}_{VERSION}.onnx
+#   Weights:    {MODEL}_{VERSION}_weights.bin
+#   Tokenizer:  {MODEL}_{VERSION}_tokenizer
 
 set -euo pipefail
 
-NGC_ORG="${VISION_ENCODER_NGC_ORG:?must be set}"
-NGC_TEAM="${VISION_ENCODER_NGC_TEAM:?must be set}"
 MODEL="${VISION_ENCODER_MODEL:?must be set}"
 VERSION="${VISION_ENCODER_VERSION:?must be set}"
-ONNX_FILE="${VISION_ENCODER_ONNX_FILE:?must be set}"
-TOKENIZER_DIR="${VISION_ENCODER_TOKENIZER_DIR:?must be set}"
 
-NGC_MODEL="${NGC_ORG}/${NGC_TEAM}/${MODEL}:${VERSION}"
+NGC_ORG="nvstaging"  #"nvidia"
+NGC_TEAM="tao"
+ONNX_FILE="${MODEL}_${VERSION}.onnx"
+TOKENIZER_DIR="${MODEL}_${VERSION}_tokenizer"
+
+NGC_MODEL="${NGC_ORG}/${NGC_TEAM}/${MODEL}:deployable_${VERSION}"
 DEST="/opt/storage"
 
 MARKER="${DEST}/.${MODEL}_${VERSION}.done"
