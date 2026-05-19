@@ -88,6 +88,11 @@ esac
 
 source /tmp/scripts/common.sh
 
+is_valid_usecase "$USECASE" || {
+    echo "✖ Invalid --usecase: $USECASE (allowed: ${USECASES[*]})" >&2
+    exit 1
+}
+
 export CONFIGS=/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs
 export SPARSE4D_REPO=/opt/nvidia/deepstream/deepstream/sources/sparse4d
 export TRITON_REPO=/opt/nvidia/deepstream/deepstream/sources/TritonGdino/triton_model_repo

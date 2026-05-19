@@ -133,12 +133,12 @@ fi
 require_dir "$VIDEOS_DIR"
 echo "RESOLVE_OK: videos-dir=$VIDEOS_DIR" >&2
 
-# ── Enumerate .mp4 files in stable sorted order ─────────────────
+# ── Enumerate video files (.mp4, .mkv) in stable sorted order ───
 shopt -s nullglob
-mapfile -t MP4S < <(printf '%s\n' "$VIDEOS_DIR"/*.mp4 | sort)
+mapfile -t MP4S < <(printf '%s\n' "$VIDEOS_DIR"/*.mp4 "$VIDEOS_DIR"/*.mkv | sort)
 shopt -u nullglob
 orig_count=${#MP4S[@]}
-(( orig_count > 0 )) || { echo "ERROR: no .mp4 files under $VIDEOS_DIR" >&2; exit 2; }
+(( orig_count > 0 )) || { echo "ERROR: no .mp4/.mkv files under $VIDEOS_DIR" >&2; exit 2; }
 
 # ── Build id/url arrays of length BATCH (with cycle-suffix) ─────
 IDS=()
@@ -146,7 +146,7 @@ URLS=()
 for (( i=1; i<=BATCH; i++ )); do
     idx=$(( (i - 1) % orig_count ))
     path="${MP4S[$idx]}"
-    stem=$(basename "$path" .mp4)
+    stem=$(basename "${path%.*}")
     if (( i <= orig_count )); then
         id="$stem"
     else
