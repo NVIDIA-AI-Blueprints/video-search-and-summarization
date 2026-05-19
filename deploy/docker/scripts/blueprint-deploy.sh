@@ -15,7 +15,7 @@ sample_video_dataset=""
 elasticsearch_mode="cpu"
 deployment_directory="${deploy_docker_dir}"
 data_directory="${deploy_docker_dir}/data-dir"
-host_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' || echo "127.0.0.1")"
+host_ip="${HOST_IP:-}"
 external_ip=""
 ngc_cli_api_key="${NGC_CLI_API_KEY:-}"
 # NVIDIA_API_KEY and OPENAI_API_KEY from environment (optional)
@@ -136,7 +136,7 @@ function usage() {
   echo "  -p, --bp-profile                Blueprint profile."
   echo "                                   • bp_wh (default), bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
   echo "  -i, --host-ip                    Host IP."
-  echo "                                   • Default: primary IP from ip route"
+  echo "                                   • Required for warehouse deploys; can also be set via HOST_IP"
   echo "  -e, --external-ip                Externally accessible IP."
   echo "  -D, --data-dir PATH             [REQUIRED] Path for sample data (VSS_DATA_DIR)."
   echo "                                   • Where warehouse sample data tar is extracted"
@@ -180,6 +180,20 @@ function contains_element() {
     fi
   done
   return 1
+}
+
+function is_unresolved_host_ip() {
+  local _value="${1:-}"
+  _value="${_value#"${_value%%[![:space:]]*}"}"
+  _value="${_value%"${_value##*[![:space:]]}"}"
+  case "${_value}" in
+    ""|"<HOST_IP>"|"<REPLACE_ME>"|"\$HOST_IP"|"\${HOST_IP}")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 function validate_args() {
@@ -448,6 +462,11 @@ function process_args() {
           echo "[ERROR] Invalid bp-profile for warehouse: ${bp_profile}. Must be one of: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
           ((_all_good++))
         fi
+        if is_unresolved_host_ip "${host_ip}"; then
+          echo "[ERROR] HOST_IP must be set to a concrete host address for warehouse deployment."
+          echo "[ERROR] Pass --host-ip <ip> or export HOST_IP=<ip>; placeholders such as '<HOST_IP>' are not valid."
+          ((_all_good++))
+        fi
       fi
       # Elasticsearch mode: default cpu; populate from .env when not provided
       if ! contains_element "elasticsearch-mode" "${options_provided[@]}"; then
@@ -588,9 +607,7 @@ function state_up() {
   set_env_var "VSS_APPS_DIR" "${deployment_directory}"
   set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
-  if [[ -n "${external_ip}" ]]; then
-    set_env_var "EXTERNAL_IP" "${external_ip}"
-  fi
+  set_env_var "EXTERNAL_IP" "${external_ip:-${host_ip}}"
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
   if [[ -n "${mode}" ]]; then
     set_env_var "MODE" "${mode}"
