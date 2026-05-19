@@ -28,6 +28,8 @@ Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base
 | Redis | mdx-redis-1 | 6379 | Cache |
 | Phoenix | mdx-phoenix-1 | 6006 | Observability |
 
+Post-deploy readiness probe: `curl -sf http://${HOST_IP}:38111/v1/ready` should return exit 0 once `vss-lvs` is serving. The VSS Agent at `http://${HOST_IP}:8000/docs` is the cross-profile readiness signal; this one confirms the LVS-specific microservice.
+
 ## Default models
 
 | Role | `*_NAME` (env) | `*_NAME_SLUG` | Served by |
