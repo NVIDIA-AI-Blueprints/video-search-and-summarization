@@ -79,10 +79,19 @@ def resolve_index_by_source_type(
     Returns:
         Either ``base_index`` (str) or a two-element index expression list
         suitable for ``AsyncElasticsearch.search(index=...)``.
+
+    Raises:
+        ValueError: If ``source_type`` is not one of the supported values.
+            The ``Literal`` annotation guards typed call sites, but a runtime
+            check fails loudly for config-driven or JSON-deserialized inputs
+            that bypass static type checks.
     """
     if source_type == "video_file":
         return base_index
-    return [wildcard_pattern, "-" + base_index]
+    elif source_type == "rtsp":
+        return [wildcard_pattern, "-" + base_index]
+    else:
+        raise ValueError(f"Unsupported source_type {source_type!r}; expected 'video_file' or 'rtsp'.")
 
 
 class AttributeSearchInput(BaseModel):

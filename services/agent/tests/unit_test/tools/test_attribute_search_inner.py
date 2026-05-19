@@ -171,3 +171,19 @@ class TestResolveIndexBySourceType:
             source_type="rtsp",
             wildcard_pattern="mdx-raw-*",
         ) == ["mdx-raw-*", "-mdx-raw-2025-01-01"]
+
+    def test_unsupported_source_type_raises(self) -> None:
+        # Cast to bypass the Literal at type-check time; the guard targets
+        # config-driven or JSON-deserialized inputs that escape static typing.
+        with pytest.raises(ValueError, match="Unsupported source_type"):
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="RTSP",  # type: ignore[arg-type]
+                wildcard_pattern="mdx-behavior-*",
+            )
+        with pytest.raises(ValueError, match="Unsupported source_type"):
+            resolve_index_by_source_type(
+                base_index="mdx-behavior-2025-01-01",
+                source_type="",  # type: ignore[arg-type]
+                wildcard_pattern="mdx-behavior-*",
+            )
