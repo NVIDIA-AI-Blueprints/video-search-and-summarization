@@ -77,10 +77,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 0. Pull YAML defaults via load_defaults.sh — reuse the same single source
 #    of truth for image picks, NGC refs, paths, kinds, extract_dirs.
-if ! eval "$(bash "$SCRIPT_DIR/load_defaults.sh" "$USECASE")"; then
+_defaults_out=$(bash "$SCRIPT_DIR/load_defaults.sh" "$USECASE") || {
     echo "ERROR: failed to load defaults for $USECASE" >&2
     exit 2
-fi
+}
+eval "$_defaults_out"
 
 # 1. Apply user overrides on top of YAML defaults.
 MODEL_SOURCE="${MODEL_SOURCE:-ngc}"

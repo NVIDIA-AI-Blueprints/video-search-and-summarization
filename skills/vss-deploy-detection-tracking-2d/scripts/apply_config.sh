@@ -257,40 +257,7 @@ if [[ "$USECASE" == "warehouse-3d" ]]; then
     fi
 fi
 
-# ── 4.f — Heavy engine setup (parallel ONLY when the writer touches a
-#         different file than 4.b/c/d/e). ───────────────────────────────────
-# The earlier "always parallel" approach caused a race: prelaunch_nvinfer_engine.sh
-# does `sed -i` on the PGIE config to set `model-engine-file=...`, but 4.b's
-# `update_ds_config` and 4.c's `update_batch_size.sh` also write the SAME PGIE
-# config via tmp+mv. When the mv lands AFTER the sed, it silently wipes the
-# `model-engine-file=` line — DS then rebuilds the engine from ONNX every
-# deploy (3-5 min wasted) even though the cached engine is on disk.
-#
-# Split:
-#   • warehouse-3d / smartcity-gdino → writers operate on DIFFERENT files
-#     (sparse4d's config.yaml, GDINO's triton repo). Safe to background.
-#   • warehouse-2d / smartcity-rtdetr → writer touches the same PGIE config as
-#     4.b/c. Must run SEQUENTIALLY after 4.e — handled below in section 4.g.
-echo "→ 4.f: Heavy engine setup (parallel for sparse4d / gdino; nvinfer runs after 4.e)"
 ENGINE_PID=0
-case "$USECASE" in
-  warehouse-3d)
-      (
-        [[ $FORCE_REBUILD -eq 1 ]] && export FORCE_ENGINE_REBUILD=1
-        export LD_PRELOAD=$SPARSE4D_REPO/libmsda_fp16.so
-        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$SPARSE4D_REPO:/usr/local/lib/python3/dist-packages/torch/lib"
-        /tmp/scripts/setup_sparse4d.sh --batch "$BATCH"
-      ) &
-      ENGINE_PID=$! ;;
-  smartcity-gdino)
-      (
-        [[ $FORCE_REBUILD -eq 1 ]] && export FORCE_ENGINE_REBUILD=1
-        GDINO_ARGS=(--batch "$BATCH")
-        [[ -n "$ONNX_OVERRIDE" ]] && GDINO_ARGS+=(--onnx "$ONNX_OVERRIDE")
-        /tmp/scripts/setup_gdino.sh "${GDINO_ARGS[@]}"
-      ) &
-      ENGINE_PID=$! ;;
-esac
 
 # ── 4.b — Substitute paths into config placeholders ───────────────────────
 echo "→ 4.b: Path substitution"
@@ -310,7 +277,7 @@ case "$USECASE" in
     update_ds_config "$CONFIGS/smartcities/rt-detr/rtdetr-960x544.txt" "[property]" onnx-file "$ONNX"
     ;;
   smartcity-gdino)
-    : # GDINO paths are handled by setup_gdino.sh (already running in 4.f bg job)
+    : # GDINO paths are handled by setup_gdino.sh (4.f bg job, kicked off after 4.e)
     ;;
 esac
 echo "    ✔ 4.b: paths substituted"
@@ -409,6 +376,35 @@ case "$SINK:$FILE_LOOP" in
   *)          LOOP_NOTE="" ;;
 esac
 echo "    ✔ 4.e: stream-mode=$STREAM_MODE, [tests] file-loop=$FILE_LOOP (sink=$SINK${LOOP_NOTE:+ — $LOOP_NOTE})"
+
+# ── 4.f — Heavy engine setup (background, AFTER 4.b/c/d/e). ──────────────
+# Runs after all config writes have landed so setup_sparse4d.sh /
+# setup_gdino.sh see the fully-updated state. Earlier this block ran BEFORE
+# 4.b/c/d/e for parallelism, but setup_sparse4d.sh reads
+# $WH3D_CONFIGS/config.yaml to stage it under $SPARSE4D_REPO/configs/, and
+# that read raced with 4.b's onnx_file/labels_file/anchor writes to the SAME
+# file — sparse4d could end up building an engine from a stale config.
+# warehouse-2d / smartcity-rtdetr aren't covered here — their engine setup
+# is sequential in 4.g (writers touch the same PGIE config as 4.b/c).
+echo "→ 4.f: Heavy engine setup (parallel for sparse4d / gdino; nvinfer runs after in 4.g)"
+case "$USECASE" in
+  warehouse-3d)
+      (
+        [[ $FORCE_REBUILD -eq 1 ]] && export FORCE_ENGINE_REBUILD=1
+        export LD_PRELOAD=$SPARSE4D_REPO/libmsda_fp16.so
+        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$SPARSE4D_REPO:/usr/local/lib/python3/dist-packages/torch/lib"
+        /tmp/scripts/setup_sparse4d.sh --batch "$BATCH"
+      ) &
+      ENGINE_PID=$! ;;
+  smartcity-gdino)
+      (
+        [[ $FORCE_REBUILD -eq 1 ]] && export FORCE_ENGINE_REBUILD=1
+        GDINO_ARGS=(--batch "$BATCH")
+        [[ -n "$ONNX_OVERRIDE" ]] && GDINO_ARGS+=(--onnx "$ONNX_OVERRIDE")
+        /tmp/scripts/setup_gdino.sh "${GDINO_ARGS[@]}"
+      ) &
+      ENGINE_PID=$! ;;
+esac
 
 # ── 4.g — nvinfer engine cache lookup (sequential, AFTER all PGIE-config writes) ──
 # Must run after 4.b/4.c which write the PGIE config via tmp+mv. Doing this

@@ -258,7 +258,18 @@ def generate_task(
         if dst.exists():
             shutil.rmtree(dst)
         if skill_dir.exists():
-            shutil.copytree(skill_dir, dst)
+            # Selective copy: SKILL.md + scripts/ only. Omit references/ and
+            # eval/ so the per-step payload stays under brev exec's 128 KB
+            # MAX_ARG_STRLEN limit (upload encodes the tarball as a single
+            # shell argument). The agent drives scripts/ directly; references
+            # are explanatory and not needed during automated eval runs.
+            dst.mkdir(parents=True, exist_ok=True)
+            skill_md = skill_dir / "SKILL.md"
+            if skill_md.exists():
+                shutil.copy2(skill_md, dst / "SKILL.md")
+            scripts_src = skill_dir / "scripts"
+            if scripts_src.exists():
+                shutil.copytree(scripts_src, dst / "scripts")
 
 
 def main() -> None:
