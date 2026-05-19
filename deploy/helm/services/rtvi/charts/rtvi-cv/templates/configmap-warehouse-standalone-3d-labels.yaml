@@ -12,12 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-apiVersion: v2
-name: vss-rtvi-cv
-description: Shared DeepStream perception chart for alerts, search, and warehouse standalone (2D/3D) profiles
-type: application
-version: 26.04.2
-appVersion: "3.1.0"
-maintainers:
-  - name: NVIDIA
+#
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-3d") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d-labels
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+data:
+  labels.txt: |
+{{ .Files.Get "files/warehouse-standalone-3d/deepstream/label/labels.txt" | nindent 4 }}
+{{- end }}
