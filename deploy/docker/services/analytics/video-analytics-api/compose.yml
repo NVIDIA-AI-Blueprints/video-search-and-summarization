@@ -15,14 +15,10 @@
 
 services:
   vss-video-analytics-api:
-    image: nvcr.io/nvstaging/vss-core/vss-video-analytics-api:3.2-26.05.07
+    image: nvcr.io/nvstaging/vss-core/vss-video-analytics-api:3.2-26.05.17
     network_mode: "host"
     command: node index.js --config /opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
     restart: always
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-        required: false
-      elasticsearch-init-container:
-        condition: service_completed_successfully
-        required: false
+    volumes:
+      - $VSS_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
+      - $VSS_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files

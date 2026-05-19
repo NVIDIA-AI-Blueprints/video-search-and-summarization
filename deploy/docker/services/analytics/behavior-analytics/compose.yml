@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Shared base for the vss-behavior-analytics image. Default entrypoint is 2D spatial analytics;
+# Shared base for the vss-behavior-analytics image. Default entrypoint is 2D warehouse;
 # extending services set `command`, profiles, container_name, and volumes as needed.
 #
 # Mount `/resources/vss-behavior-analytics-config.json` in each app compose file (warehouse,
@@ -23,12 +23,9 @@
 services:
 
   vss-behavior-analytics-base:
-    image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:3.2-26.04.27
+    image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:3.2-26.05.17
     network_mode: "host"
     restart: always
     volumes:
       - $VSS_APPS_DIR/services/analytics/behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
-    command: python3 apps/spatial_analytics/main_spatial_analytics_2d_app.py --config resources/spatial_analytics_2d_config.json
+    command: python3 apps/analytics/main_analytics_2d_app.py --config resources/warehouse_2d_config.json

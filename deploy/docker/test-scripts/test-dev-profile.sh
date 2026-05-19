@@ -399,6 +399,14 @@ run_negative_test "invalid profile" 1 up -p invalid
 run_negative_test "invalid hardware-profile" 1 up -p base -H INVALID
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
+_mock_nvidia_smi_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_nvidia_smi_dir}")
+cat > "${_mock_nvidia_smi_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+echo "NVIDIA H100 80GB HBM3"
+EOF
+chmod +x "${_mock_nvidia_smi_dir}/nvidia-smi"
+PATH="${_mock_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "OTHER accepted when detected GPU is supported" up -p base -i 127.0.0.1 -H OTHER -d
 run_negative_test "DGX-SPARK only valid for base or alerts (not lvs)" 1 up -p lvs -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "DGX-SPARK only valid for base or alerts (not search)" 1 up -p search -i 127.0.0.1 -H DGX-SPARK
 run_negative_test "alerts without --mode" 1 up -p alerts -i 127.0.0.1
@@ -496,14 +504,28 @@ RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "gen
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.6 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.6"
-# Alerts on DGX-SPARK (edge, forced device 0 → local_shared): RTVI_VLLM_GPU_MEMORY_UTILIZATION hardcoded to 0.35 (shared), mirrors NIM hw-DGX-SPARK-shared.env pattern (hardcoded KV cache).
-run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35 (local_shared hardcoded)" "alerts" \
+# Alerts RT-VLM local VLM memory sizing.
+run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
   -i 127.0.0.1 -m verification -H DGX-SPARK -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-# Alerts on OTHER (no NIM hw env file counterpart): RTVI_VLLM_GPU_MEMORY_UTILIZATION not set by script (stays as profile .env default, which is empty).
-run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION not set by script" "alerts" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+run_dry_run_up_and_check_generated_env "generated.env alerts H100 shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+run_dry_run_up_and_check_generated_env "generated.env alerts H100 local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 --llm-device-id 2 --vlm-device-id 1 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
+run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO6000BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO6000BW --llm-device-id 2 --vlm-device-id 1 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
+run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
+  -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
+run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" ""
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
 run_negative_test "alerts on IGX-THOR rejects --use-remote-vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H IGX-THOR --use-remote-vlm --vlm y -d
 run_negative_test "alerts on AGX-THOR rejects --use-remote-vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H AGX-THOR --use-remote-vlm --vlm y -d
 run_negative_test "alerts on IGX-THOR rejects --vlm" 1 up -p alerts -i 127.0.0.1 -m verification -H IGX-THOR --vlm nvidia/cosmos-reason2-8b -d
@@ -682,11 +704,11 @@ rm -f "${_out_alerts}"
 # Search profile: dry-run must include NGC model download steps (RT-DETR warehouse from nvstaging TAO).
 _out_search="$(mktemp)"
 timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p search -i 127.0.0.1 -d > "${_out_search}" 2>&1
-if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.1.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
+if grep -q "Downloading RT-DETR model from NGC" "${_out_search}" && grep -q "nvstaging/tao/rtdetr_2d_warehouse" "${_out_search}" && grep -q "rtdetr_warehouse_v1.0.2.fp16.onnx" "${_out_search}" && grep -q -- "--org nvstaging" "${_out_search}" && grep -q "ngc registry model" "${_out_search}"; then
   echo "PASS: search dry-run output includes NGC model download steps"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.1.fp16.onnx, --org nvstaging, ngc registry model)"
+  echo "FAIL: search dry-run output missing NGC model download steps (Downloading RT-DETR model from NGC, nvstaging/tao/rtdetr_2d_warehouse, rtdetr_warehouse_v1.0.2.fp16.onnx, --org nvstaging, ngc registry model)"
   ((TESTS_FAILED++)) || true
 fi
 rm -f "${_out_search}"
@@ -720,6 +742,19 @@ run_dry_run_up_and_check_generated_env "generated.env alerts UI subtitle follows
  -i 127.0.0.1 -m real-time -d -- \
   "MODE" "2d_vlm" \
   "NEXT_PUBLIC_APP_SUBTITLE" '"Vision (Alerts - VLM)"'
+
+_alerts_env="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-alerts/.env"
+_alerts_env_backup="$(mktemp)"
+cp "${_alerts_env}" "${_alerts_env_backup}"
+CLEANUP_RESTORES+=("${_alerts_env_backup}|${_alerts_env}")
+_alerts_env_without_newline="$(mktemp)"
+printf '%s' "$(cat "${_alerts_env}")" > "${_alerts_env_without_newline}"
+mv "${_alerts_env_without_newline}" "${_alerts_env}"
+LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env appends vars after profile .env without trailing newline" "alerts" \
+ -i 127.0.0.1 -H RTXPRO6000BW -m verification --use-remote-llm --llm my-llm --use-remote-vlm --vlm my-vlm -d -- \
+  "SDR_CONTROLLER_CONFIG_PATH" '${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/sdrc/${MODE}' \
+  "VST_CONFIG_PATH" "${REPO_ROOT}/deploy/docker/services/vios/configs"
+mv "${_alerts_env_backup}" "${_alerts_env}"
 
 # Base profile: when LLM_DEVICE_ID and VLM_DEVICE_ID match (e.g. both 0), derived modes are local_shared for both; when they differ, both are local
 run_dry_run_up_and_check_generated_env "generated.env LLM_MODE VLM_MODE HOST_IP (base defaults)" "base" \

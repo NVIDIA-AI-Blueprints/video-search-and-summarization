@@ -23,7 +23,7 @@ export type TabWithChatSidebarLayoutProps = {
 
 /**
  * Single layout for any tab that supports the Chat sidebar.
- * Main content and sidebar share horizontal space (no overlay): main content is reduced to make room for the sidebar.
+ * Main content and sidebar share horizontal space; main is clipped and stacked below the sidebar so UI cannot paint under the chat panel.
  */
 export function TabWithChatSidebarLayout({
   tabId,
@@ -57,11 +57,11 @@ export function TabWithChatSidebarLayout({
     <div
       ref={contentAreaRef}
       key={tabId}
-      className="absolute inset-0 flex flex-row overflow-hidden"
+      className="absolute inset-0 isolate flex min-w-0 flex-row overflow-hidden"
       style={{ display: isActive ? 'flex' : 'none' }}
     >
-      {/* Main content: takes remaining width (reduced when sidebar is present) */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+      {/* Main: flex-1 min-w-0 + overflow-hidden clips descendants; z-0 stacks below chat panel (z-20) */}
+      <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {mainContent}
       </div>
       {sidebarEnabled && (
@@ -105,7 +105,7 @@ export function TabWithChatSidebarLayout({
           )}
           {/* Sidebar panel: takes fixed width; in DOM when enabled, display:none when collapsed to avoid chat re-mount */}
           <div
-            className="flex flex-shrink-0 flex-row overflow-hidden border-l border-gray-300 dark:border-gray-600 bg-white dark:bg-black"
+            className="relative z-20 flex min-h-0 flex-shrink-0 flex-row self-stretch overflow-hidden border-l border-gray-300 dark:border-gray-600 bg-white dark:bg-black shadow-sm"
             style={{
               width: collapsed ? 0 : effectiveWidth,
               minWidth: collapsed ? 0 : undefined,
@@ -117,7 +117,7 @@ export function TabWithChatSidebarLayout({
               aria-orientation="vertical"
               aria-label="Resize Chat sidebar"
               className="flex w-1.5 flex-shrink-0 cursor-col-resize touch-none select-none border-r border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-900 hover:bg-neutral-300 dark:hover:bg-neutral-800 active:bg-neutral-400 dark:active:bg-neutral-700 focus:outline-none"
-              onMouseDown={(e) => handleResizeStart(e, effectiveWidth)}
+              onPointerDown={(e) => handleResizeStart(e, effectiveWidth)}
               title="Drag to resize"
             />
             <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden [transform:translateZ(0)] [&>main]:!h-full [&>main]:!w-full">

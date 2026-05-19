@@ -152,16 +152,19 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 
 - When the user says **"deploy VSS base"**, **"deploy VSS search"**, **"deploy VSS lvs"**, or **"deploy VSS alerts"**:
   1. Call `vss_orchestrator__prereqs` — abort if it fails; tell the user to run the matching cell in `deploy/docker/scripts/deploy_nemoclaw_vss.ipynb` (the notebook lives on the host, not in the sandbox — do not try to read, list, find, or open it from inside the sandbox; just tell the user).
-  2. Call `vss_orchestrator__docker_generate` with `profile=<name>`. For alerts, also pass `alerts_mode` (`verification` or `real-time`) — confirm with the user first.
+  2. Call `vss_orchestrator__docker_generate` with `profile=<name>`. If the profile has modes (currently: `alerts` → `verification` | `real-time`), also pass `profile_mode` — confirm with the user first. The tool will fail loudly if a mode-requiring profile is invoked without `profile_mode`.
   3. Capture the returned `docker_compose_id`.
   4. Call `vss_orchestrator__docker_up` with that id; capture `docker_compose_ops_id`.
-  5. Poll `vss_orchestrator__docker_status` **every 30 seconds** with that ops id until `status == "success"` or `"error"`. Wait the full 30s between calls — do not poll faster, and ignore any shorter `recommended_poll_interval_s` value the server returns.
+  5. Poll `vss_orchestrator__docker_status` with that ops id until `status` becomes terminal (`success`, `error`, or `cancelled`). Use the cadence the server returns in `recommended_poll_interval_s` (currently 60s for `up`, 10s for `down`) — wait the full interval between calls, do not poll faster.
   5a. **After every poll, print a 1-line chat update** summarizing the current state — e.g. `"[poll N] still running — pulling image X"` or `"[poll N] containers starting: A, B (elapsed Ms)"`. The user must see progress in plain chat without having to expand the tool-output panel in the UI.
-  6. On success, call `vss_orchestrator__docker_list` and report the running services to the user.
+  5b. **When `status` becomes terminal, in the same turn (do not end the turn before all the work below is done):**
+      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user.
+      - `error` → send `"❌ VSS <profile> deployment failed (exit_code=X)"`, then call `vss_orchestrator__docker_logs` for the failing service and surface a short log snippet plus a suggested next step.
+      - `cancelled` → send `"⚠️ VSS <profile> deployment was cancelled (likely by a docker_down)."`
 
 - For **status, logs, or container inspection**: use `vss_orchestrator__docker_list`, `vss_orchestrator__docker_logs`, or `vss_orchestrator__docker_read`. Do not run `docker ps` directly.
 
-- For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` on the 10s cadence (with the same per-poll chat update) until it finishes.
+- For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` using the cadence the server returns in `recommended_poll_interval_s` (currently 10s for `down`). Print the same 1-line chat update after every poll. **When `status` becomes terminal, in the same turn**, send a clear final message: `success` → `"✅ Teardown complete (elapsed Ms)."` | `error` → `"❌ Teardown failed (exit_code=X)"` plus a log snippet | `cancelled` → `"⚠️ Teardown was cancelled."` Do not end the turn before this message is sent.
 
 - When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:
   - Use the **`vss-va-mcp` skill** — query the VA-MCP server at **port 9901** directly.
