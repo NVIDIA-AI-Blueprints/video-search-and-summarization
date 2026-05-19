@@ -25,6 +25,8 @@ general:
       # No RTVI: base profile doesn't ingest to RTVI-CV/Embed. The universal
       # /api/v1/videos/{filename}/complete handler self-skips those steps
       # when the URLs are unset.
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -73,6 +75,7 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_snapshot:
     _type: vst.snapshot
@@ -92,6 +95,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
     # yamllint disable rule:line-length
     vlm_prompt: |
       Describe in detail what is happening in this video,
@@ -206,10 +210,11 @@ llms:
     temperature: 0.0
     max_tokens: 4096
 
+  # RTVI pipeline VLM (search/alerts). Endpoint: ${RTVI_VLM_BASE_URL}; model: ${VLM_NAME}. Keep in sync with config_rag.yml.
   rtvi_vlm:
     _type: openai
     model_name: ${VLM_NAME}
-    base_url: ${VLM_BASE_URL}/v1
+    base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
       extra_body:
@@ -482,7 +487,7 @@ eval:
     report_evaluator:
       _type: report_evaluator
       eval_metrics_config_path: ${EVAL_DIR}/report_eval_metrics.yaml
-      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR:-${EVAL_DIR}}/gt
+      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR:-${EVAL_DIR}/gt}
       evaluation_method_id: report
       object_store: local_object_store
       report_url_pattern: 'http://[^\s)]+/(vss_report_(?:[^/\s)]+_)?\d{8}_\d{6}\.md)'

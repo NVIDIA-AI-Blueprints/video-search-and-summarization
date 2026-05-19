@@ -22,6 +22,8 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       vst_external_url: ${VST_EXTERNAL_URL}
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -67,6 +69,8 @@ functions:
     overlay_config: true
     # 'iso' — warehouse uses RTSP streams; incidents reference absolute wall-clock times.
     time_format: iso
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_picture_url:
     _type: vst.snapshot

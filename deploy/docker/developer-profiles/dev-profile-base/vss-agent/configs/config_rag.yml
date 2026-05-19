@@ -22,6 +22,8 @@ general:
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       vst_external_url: ${VST_EXTERNAL_URL}
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -70,6 +72,8 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_snapshot:
     _type: vst.snapshot
@@ -89,6 +93,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
     # yamllint disable rule:line-length
     vlm_prompt: |
       Describe in detail what is happening in this video,
@@ -212,9 +217,10 @@ llms:
     temperature: 0.0
     max_tokens: 4096
 
+  # RTVI pipeline VLM (search/alerts). Endpoint: ${RTVI_VLM_BASE_URL}; model: ${VLM_NAME}. Keep in sync with config.yml.
   rtvi_vlm:
     _type: openai
-    model_name: nvidia/cosmos-reason2-8b
+    model_name: ${VLM_NAME}
     base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:

@@ -186,6 +186,16 @@ def _remove_som_markers(prompt: str) -> str:
     return cleaned
 
 
+def _vst_playback_url_for_clients(video_url: str, vst_external_url: str | None) -> str:
+    """Rewrite a VST /vst/... clip URL to the external base for browser-facing report links."""
+    if not video_url or not vst_external_url:
+        return video_url
+    path = urllib.parse.urlparse(video_url).path or ""
+    if "/vst/" not in path:
+        return video_url
+    return f"{vst_external_url.rstrip('/')}{path}"
+
+
 def _replace_public_urls_with_private(
     markdown_content: str, vst_internal_url: str | None, vst_external_url: str | None
 ) -> str:
@@ -431,6 +441,12 @@ class VideoReportGenConfig(FunctionBaseConfig, name="video_report_gen"):
     vst_external_url: str | None = Field(
         default=None,
         description="External VST URL for client-facing URLs (e.g., 'http://${EXTERNAL_IP}:30888'). If not provided, uses VST_EXTERNAL_URL env var.",
+    )
+
+    enable_audio: bool = Field(
+        default=False,
+        description="When False (default), injected VST clip URLs use disableAudio=true (audio stripped). "
+        "Set True for audio-capable VLMs (e.g. Nemotron Omni); align with vst.video_clip.enable_audio.",
     )
 
     # HITL Configuration (optional - if not set, HITL is disabled)
@@ -865,6 +881,7 @@ async def _inject_video_clips(
     sensor_id: str,
     vst_internal_url: str | None,
     vst_external_url: str | None,
+    enable_audio: bool = False,
 ) -> str:
     """
     Parse timestamps from content and inject video clip links.
@@ -925,6 +942,7 @@ async def _inject_video_clips(
                 start_time=start_time,
                 end_time=end_time,
                 vst_internal_url=vst_internal_url,
+                disable_audio=not enable_audio,
             )
             # Replace internal URL with external URL for client access
             clip_url = f"{vst_external_url}{urllib.parse.urlparse(clip_url).path}"
@@ -1864,7 +1882,11 @@ Enter your choice or press Submit to keep current value:"""
 
         if config.vst_internal_url and config.vst_external_url:
             vlm_content = await _inject_video_clips(
-                vlm_content, sensor_id, config.vst_internal_url, config.vst_external_url
+                vlm_content,
+                sensor_id,
+                config.vst_internal_url,
+                config.vst_external_url,
+                config.enable_audio,
             )
 
         markdown_content = report_header + vlm_content
@@ -1879,8 +1901,9 @@ Enter your choice or press Submit to keep current value:"""
             except Exception as e:
                 logger.warning(f"Failed to fetch video URL for '{sensor_id}': {e}")
 
-        # Append video URL to report
+        # Append video URL to report (external base so the link opens in a browser)
         if video_url:
+            video_url = _vst_playback_url_for_clients(video_url, config.vst_external_url)
             markdown_content += "\n\n## Resources\n\n"
             markdown_content += f"**Video Playback:**\n\n{video_url}\n\n"
 
