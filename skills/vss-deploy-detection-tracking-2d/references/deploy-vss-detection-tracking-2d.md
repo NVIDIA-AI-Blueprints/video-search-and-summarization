@@ -1005,7 +1005,7 @@ All scripts are licensed Apache-2.0 and live in
 ## File Structure
 
 ```
-vss-deploy-detection-tracking-2D/
+vss-deploy-detection-tracking-2d/
 ├── SKILL.md                              # This file (entry point + workflow map)
 ├── README.md                             # Marketing-side overview + invocation examples
 ├── LICENSE                               # Apache-2.0
@@ -1079,7 +1079,7 @@ already pinned by the user query. Typical fully-specified deploys load only
 
 ## Related Flows
 
-- **API USAGE flow** (`references/usage-vss-detection-tracking-2D.md`) — once the
+- **API USAGE flow** (`references/usage-vss-detection-tracking-2d.md`) — once the
   container is running, this same skill's API flow calls the REST API at
   `http://localhost:9000` for stream add/remove, health checks, metrics, and
   text-embedding generation.

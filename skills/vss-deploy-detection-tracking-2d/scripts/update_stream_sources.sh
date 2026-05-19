@@ -17,7 +17,7 @@
 
 # update_stream_sources.sh - Apply [source-list] configuration for a given use case.
 # Implements an update_source_list_config() pattern scoped to the
-# vss-deploy-detection-tracking-2D skill.
+# vss-deploy-detection-tracking-2d skill.
 #
 # The DS main config's [source-list] section is SHARED between the two input
 # modes: dynamic (REST add-stream) and static (config-declared URLs). Because

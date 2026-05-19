@@ -9,7 +9,7 @@ call.** This collapses script copy + chmod + 6 sub-step exec calls into
 ONE permission prompt:
 
 ```bash
-SKILL_DIR="$HOME/.claude/skills/vss-deploy-detection-tracking-2D"
+SKILL_DIR="$HOME/.claude/skills/vss-deploy-detection-tracking-2d"
 CONTAINER="<CONTAINER_NAME>"
 
 docker exec "$CONTAINER" rm -rf /tmp/scripts && \

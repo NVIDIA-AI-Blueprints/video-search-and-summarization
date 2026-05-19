@@ -35,14 +35,14 @@
 #
 # Wrapper-specific:
 #   --container <name>                (default: rtvicv-perception-docker)
-#   --skill-dir <path>                (default: $HOME/.claude/skills/vss-deploy-detection-tracking-2D)
+#   --skill-dir <path>                (default: $HOME/.claude/skills/vss-deploy-detection-tracking-2d)
 #
 # Exits with apply_config.sh's exit code. Forwards stdout + stderr.
 
 set -euo pipefail
 
 CONTAINER="${CONTAINER:-rtvicv-perception-docker}"
-SKILL_DIR="${SKILL_DIR:-$HOME/.claude/skills/vss-deploy-detection-tracking-2D}"
+SKILL_DIR="${SKILL_DIR:-$HOME/.claude/skills/vss-deploy-detection-tracking-2d}"
 
 # Strip wrapper-specific flags; everything else goes through to apply_config.sh.
 PASSTHROUGH=()

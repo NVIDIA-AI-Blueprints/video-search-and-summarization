@@ -74,6 +74,15 @@ def get_sensor_count(data: dict[str, Any]) -> int:
     return len(data.get("sensors", []))
 
 
+def _sensor_ids(sensors: list[dict[str, Any]]) -> list[str]:
+    try:
+        return [s["id"] for s in sensors]
+    except KeyError:
+        raise CalibrationError(
+            "sensor entry missing required 'id' field"
+        ) from None
+
+
 def generate_sensor_id(
     orig_names: list[str], target_index: int, orig_count: int
 ) -> str:
@@ -106,7 +115,7 @@ def generate_calibration(
         )
 
     result = copy.deepcopy(original_data)
-    orig_names = [s["id"] for s in original_sensors]
+    orig_names = _sensor_ids(original_sensors)
     new_sensors = []
 
     for i in range(batch_size):
@@ -205,7 +214,7 @@ def cmd_ensure(args: argparse.Namespace) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    orig_names = [s["id"] for s in data["sensors"]]
+    orig_names = _sensor_ids(data.get("sensors") or [])
     _print_mapping(new_data, orig_names, count, bs)
 
     with open(cached, "w") as f:

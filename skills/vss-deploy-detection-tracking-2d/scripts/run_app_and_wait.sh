@@ -115,7 +115,7 @@ APP_ARGS=(-c "$MAIN_CFG")
 WDL=/tmp/scripts/write_deployment_log.sh
 if [[ ! -s "$LOG" && -x "$WDL" ]]; then
     echo "ℹ run_app_and_wait.sh: log $LOG is empty — auto-initialising via write_deployment_log.sh"
-    APP_CMD_STR="./metropolis_perception_app -c $MAIN_CFG"
+    APP_CMD_STR=$(printf './metropolis_perception_app -c %q' "$MAIN_CFG")
     [[ "$SINK" == "eglsink" || "$SINK" == "filedump" ]] && APP_CMD_STR+=" --tiledtext"
     "$WDL" \
         --usecase     "$USECASE" \

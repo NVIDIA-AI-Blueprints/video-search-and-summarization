@@ -1,5 +1,5 @@
 {
-  "skills": ["vss-deploy-detection-tracking-2D"],
+  "skills": ["vss-deploy-detection-tracking-2d"],
   "resources": {
     "platforms": {
       "L40S": {
@@ -7,7 +7,7 @@
       }
     }
   },
-  "env": "A GPU host matching `{{platform}}` with a running RTVI-CV container reachable at `http://localhost:9000/api/v1` (start it with the DEPLOY flow before running these checks — see `eval/deploy-evals.json`). The container must already have at least the readiness, liveness, startup, metrics, and stream-management endpoints reachable. `docker`, `curl`, and `jq` available on the host. This eval exercises the API USAGE flow of the `vss-deploy-detection-tracking-2D` skill against the live REST endpoint — it must not invoke `/deploy`, redeploy the container, or call any VSS profile.",
+  "env": "A GPU host matching `{{platform}}` with a running RTVI-CV container reachable at `http://localhost:9000/api/v1` (start it with the DEPLOY flow before running these checks — see `eval/deploy-evals.json`). The container must already have at least the readiness, liveness, startup, metrics, and stream-management endpoints reachable. `docker`, `curl`, and `jq` available on the host. This eval exercises the API USAGE flow of the `vss-deploy-detection-tracking-2d` skill against the live REST endpoint — it must not invoke `/deploy`, redeploy the container, or call any VSS profile.",
   "expects": [
     {
       "query": "Add a stream rtsp://10.0.0.1:8554/cam1 with id cam_entrance to rtvi-cv.",

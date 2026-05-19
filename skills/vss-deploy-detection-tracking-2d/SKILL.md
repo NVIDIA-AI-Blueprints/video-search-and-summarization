@@ -1,5 +1,5 @@
 ---
-name: vss-deploy-detection-tracking-2D
+name: vss-deploy-detection-tracking-2d
 description: >
   Use when the user wants to deploy, operate, debug, or tear down the RTVI-CV
   (Real Time Video Intelligence CV) microservice locally, OR call its REST API
@@ -25,8 +25,8 @@ metadata:
 
 Unified skill for the **Real Time Video Intelligence CV (RTVI-CV)** microservice. Two action surfaces in one skill:
 
-- **Deploy / operate / debug / tear down** the RTVI-CV container locally → see [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md)
-- **Call the RTVI-CV REST API** (streams, health, metrics, embeddings) on a running instance → see [`references/usage-vss-detection-tracking-2D.md`](references/usage-vss-detection-tracking-2D.md)
+- **Deploy / operate / debug / tear down** the RTVI-CV container locally → see [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md)
+- **Call the RTVI-CV REST API** (streams, health, metrics, embeddings) on a running instance → see [`references/usage-vss-detection-tracking-2d.md`](references/usage-vss-detection-tracking-2d.md)
 
 > **Service**: `rtvi-cv` (`metropolis_perception_app`)
 > **Image**: `nvcr.io/<org>/<repo>:<tag>` — user-supplied at deploy time
@@ -39,10 +39,10 @@ Unified skill for the **Real Time Video Intelligence CV (RTVI-CV)** microservice
 
 | User intent (sample phrasing) | Flow | Load this reference |
 |-------------------------------|------|---------------------|
-| `deploy rtvi-cv warehouse 2d`, `run rtvicv warehouse-3d with 4 streams`, `start smartcity gdino`, `launch perception app`, `bring up sparse4d` | **DEPLOY** | [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md) |
-| `stop rtvi-cv`, `tear down`, `kill the perception container`, `cleanup rtvicv-perception-docker` | **TEARDOWN** (handled by deploy doc → "Mode Selection") | [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md) + [`references/teardown-flow.md`](references/teardown-flow.md) |
-| `check rtvi-cv logs`, `diagnose rtvi-cv crashing`, `troubleshoot healthcheck failing`, `rtvi-cv won't start` | **DEBUG** | [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md) + [`references/troubleshooting.md`](references/troubleshooting.md) |
-| `add a stream`, `remove camera`, `list streams`, `health check`, `is rtvi-cv ready`, `get metrics`, `what's the FPS`, `check GPU usage`, `generate text embeddings`, `call rtvi-cv api` | **API USAGE** | [`references/usage-vss-detection-tracking-2D.md`](references/usage-vss-detection-tracking-2D.md) + [`references/api-reference.md`](references/api-reference.md) |
+| `deploy rtvi-cv warehouse 2d`, `run rtvicv warehouse-3d with 4 streams`, `start smartcity gdino`, `launch perception app`, `bring up sparse4d` | **DEPLOY** | [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md) |
+| `stop rtvi-cv`, `tear down`, `kill the perception container`, `cleanup rtvicv-perception-docker` | **TEARDOWN** (handled by deploy doc → "Mode Selection") | [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md) + [`references/teardown-flow.md`](references/teardown-flow.md) |
+| `check rtvi-cv logs`, `diagnose rtvi-cv crashing`, `troubleshoot healthcheck failing`, `rtvi-cv won't start` | **DEBUG** | [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md) + [`references/troubleshooting.md`](references/troubleshooting.md) |
+| `add a stream`, `remove camera`, `list streams`, `health check`, `is rtvi-cv ready`, `get metrics`, `what's the FPS`, `check GPU usage`, `generate text embeddings`, `call rtvi-cv api` | **API USAGE** | [`references/usage-vss-detection-tracking-2d.md`](references/usage-vss-detection-tracking-2d.md) + [`references/api-reference.md`](references/api-reference.md) |
 
 **Selection rule:** match the user's phrasing against the table above and immediately load the corresponding reference file. Do not mix the flows — DEPLOY assumes no running container yet; API USAGE assumes the container is already running on `http://<host>:9000`.
 
@@ -53,7 +53,7 @@ If intent is genuinely ambiguous (e.g., the user says just "I want to use rtvi-c
 ## What lives where
 
 ```
-vss-deploy-detection-tracking-2D/
+vss-deploy-detection-tracking-2d/
 ├── SKILL.md                                    # this file (TOC + routing)
 ├── eval/
 │   ├── deploy-evals.json                       # deploy-flow eval cases
@@ -66,8 +66,8 @@ vss-deploy-detection-tracking-2D/
 │   ├── apply_config.sh / discover_streams.sh / add_streams.sh / …
 │   └── (see scripts/ directory for full inventory)
 └── references/
-    ├── deploy-vss-detection-tracking-2D.md     # DEPLOY / TEARDOWN / DEBUG runbook (full workflow, every step preserved)
-    ├── usage-vss-detection-tracking-2D.md      # API USAGE workflow
+    ├── deploy-vss-detection-tracking-2d.md     # DEPLOY / TEARDOWN / DEBUG runbook (full workflow, every step preserved)
+    ├── usage-vss-detection-tracking-2d.md      # API USAGE workflow
     ├── api-reference.md                        # endpoint schemas + curl templates
     ├── task-list.md                            # Step 0 — TodoWrite templates
     ├── usecases.md                             # per-use-case NGC refs, configs, run commands
@@ -97,7 +97,7 @@ All scripts are invoked from the skill root via `$SKILL_DIR/scripts/<name>` — 
 1. **Read this file first.** It only routes — it does not contain workflows.
 2. **Match the user's intent** against the routing table above.
 3. **Load exactly one reference doc** (DEPLOY or API USAGE). Don't preload both — each reference is large and contains its own full contract.
-4. **Follow the loaded reference exactly.** The reference docs are the byte-for-byte preserved contracts from the predecessor skills `vss-deploy-detection-tracking-2D` (deploy/teardown/debug) and `rtvicv-api` (REST API) — every step ordering invariant, bash-batching rule, box-rendering rule, and `AskQuestion` contract is retained.
+4. **Follow the loaded reference exactly.** The reference docs are the byte-for-byte preserved contracts from the predecessor skills `vss-deploy-detection-tracking-2d` (deploy/teardown/debug) and `rtvicv-api` (REST API) — every step ordering invariant, bash-batching rule, box-rendering rule, and `AskQuestion` contract is retained.
 5. **For DEPLOY**, the reference doc enforces its own startup contract: one-line acknowledgement → `TodoWrite` widget → Step 1 question. Do not narrate, do not pre-flight beyond what the reference allows.
 
 ---
@@ -114,7 +114,7 @@ behaviour regression.
    *Apply configuration*, Step 5 *Plan* + *Results*. Not just the final
    summary. The box is the user's step receipt. Geometry is fixed (see
    § "Universal box format" below). Per-step **content** rules (what
-   rows go inside each box) live in [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md)
+   rows go inside each box) live in [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md)
    under "Step N box content rule".
 2. **After the Step 5 Results box, issue the Step 6 `AskUserQuestion`**
    from [`references/next-steps.md`](references/next-steps.md) § "11.c"
@@ -141,7 +141,7 @@ behaviour regression.
 4. **Render the FULL per-step content, not an overview row** —
    rendering the box is necessary but not sufficient. Each step has a
    row composition spec in
-   [`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md)
+   [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md)
    under "Step N box content rule". **Step 4 (Apply configuration) is
    where the agent collapses most often** — its canonical
    per-use-case key list lives in
@@ -216,7 +216,7 @@ Standard step titles (used at the top of each step's box):
 Per-step content rules (which rows go in which box, mode-aware row
 hiding, the apply-config sectioned layout, the Step 5 PLAN-then-RESULT
 pattern, the Step 3 `docker run` synthesis requirement) live in
-[`references/deploy-vss-detection-tracking-2D.md`](references/deploy-vss-detection-tracking-2D.md)
+[`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md)
 under "Step N box content rule" — read those when rendering the
 corresponding step.
 

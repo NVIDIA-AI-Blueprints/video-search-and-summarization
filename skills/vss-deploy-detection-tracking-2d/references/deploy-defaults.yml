@@ -1,4 +1,4 @@
-# vss-deploy-detection-tracking-2D deploy defaults
+# vss-deploy-detection-tracking-2d deploy defaults
 #
 # Defaults the skill SUGGESTS to the user. The user's choice ALWAYS wins:
 #   • Custom NGC ref for a slot   → replaces resolved `<asset>.source`/`path`

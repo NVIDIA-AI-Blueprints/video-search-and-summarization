@@ -44,7 +44,7 @@
 #
 # Wrapper-specific:
 #   --container <name>     (default: rtvicv-perception-docker)
-#   --skill-dir <path>     (default: $HOME/.claude/skills/vss-deploy-detection-tracking-2D)
+#   --skill-dir <path>     (default: $HOME/.claude/skills/vss-deploy-detection-tracking-2d)
 #
 # Prints the deployment log path on success. Exits with
 # run_app_and_wait.sh's exit code.
@@ -52,7 +52,7 @@
 set -euo pipefail
 
 CONTAINER="${CONTAINER:-rtvicv-perception-docker}"
-SKILL_DIR="${SKILL_DIR:-$HOME/.claude/skills/vss-deploy-detection-tracking-2D}"
+SKILL_DIR="${SKILL_DIR:-$HOME/.claude/skills/vss-deploy-detection-tracking-2d}"
 
 USECASE=""; BATCH=""; SINK=""; STREAM_MODE=""
 ONNX=""; VIDEOS=""; DELAY=""; TIMEOUT=""; NO_METRICS=0

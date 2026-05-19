@@ -1,5 +1,5 @@
 {
-  "skills": ["vss-deploy-detection-tracking-2D"],
+  "skills": ["vss-deploy-detection-tracking-2d"],
   "resources": {
     "platforms": {
       "L40S": {
@@ -7,7 +7,7 @@
       }
     }
   },
-  "env": "A GPU host matching `{{platform}}` with Docker, NVIDIA Container Toolkit, NGC credentials at `~/.ngc/config` (the skill bootstraps `~/.ngc/config` from `NGC_CLI_API_KEY` if needed), an X11 server for `eglsink` display cases, and at least 30 GB free disk for the container image plus NGC-staged models and videos. Free TCP port 9000 for the RTVI-CV REST API. This eval exercises the DEPLOY/TEARDOWN flows of the `vss-deploy-detection-tracking-2D` skill against the host directly — it does not use `/deploy`, `scripts/dev-profile.sh`, or any VSS profile. The skill launches its own `rtvicv-perception-docker` container via `docker run` from a user-supplied RTVI-CV image (`nvcr.io/<org>/<repo>:<tag>`) and starts `metropolis_perception_app` inside it.",
+  "env": "A GPU host matching `{{platform}}` with Docker, NVIDIA Container Toolkit, NGC credentials at `~/.ngc/config` (the skill bootstraps `~/.ngc/config` from `NGC_CLI_API_KEY` if needed), an X11 server for `eglsink` display cases, and at least 30 GB free disk for the container image plus NGC-staged models and videos. Free TCP port 9000 for the RTVI-CV REST API. This eval exercises the DEPLOY/TEARDOWN flows of the `vss-deploy-detection-tracking-2d` skill against the host directly — it does not use `/deploy`, `scripts/dev-profile.sh`, or any VSS profile. The skill launches its own `rtvicv-perception-docker` container via `docker run` from a user-supplied RTVI-CV image (`nvcr.io/<org>/<repo>:<tag>`) and starts `metropolis_perception_app` inside it.",
   "expects": [
     {
       "query": "Deploy rtvi-cv warehouse 2d with 4 streams and display the output.",

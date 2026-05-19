@@ -37,7 +37,7 @@ Build the block from live state: hide lines that don't apply.
 │   full teardown  guided cleanup flow (engines / resources)                                                                   │
 │                                                                                                                              │
 │ Base URL   http://localhost:9000/api/v1                                                                                      │
-│ Full ref   this skill's API USAGE flow (see references/usage-vss-detection-tracking-2D.md)                                                                  │
+│ Full ref   this skill's API USAGE flow (see references/usage-vss-detection-tracking-2d.md)                                                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -117,7 +117,7 @@ Hide options dynamically: drop **Add** when `ACTIVE >= MAX_BATCH`; drop
 **Remove** when `ACTIVE == 0`.
 
 - **Add a stream** → print the API box (template below), then route to
-  this skill's API USAGE flow (`references/usage-vss-detection-tracking-2D.md`)
+  this skill's API USAGE flow (`references/usage-vss-detection-tracking-2d.md`)
   with current `ACTIVE`, `MAX_BATCH`, use case, and container name pre-filled.
 
   ```
@@ -331,11 +331,11 @@ after launch (cache hit) or ~3-5 minutes (cache miss / engine build).
 The "what now?" menu block (11.b) already shows the quick commands the
 user can run themselves in another terminal. Don't print a second
 expanded REST quick-reference — it duplicates the menu and the
-API USAGE flow (`references/usage-vss-detection-tracking-2D.md`) has
+API USAGE flow (`references/usage-vss-detection-tracking-2d.md`) has
 full payload details.
 
 For users who want the curl payload templates, switch to this skill's
-API USAGE flow (`references/usage-vss-detection-tracking-2D.md`) — it
+API USAGE flow (`references/usage-vss-detection-tracking-2d.md`) — it
 has the full `/stream/add`, `/stream/remove`, `/metrics`, `/live`,
 `/ready`, `/startup` interactive flow.
 
