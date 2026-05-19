@@ -278,6 +278,7 @@ class OrchestratorRuntimeSettings(BaseSettings):
     # Outer/profile-level knob; hw-*.env files bridge this to NIM-internal NIM_KVCACHE_PERCENT.
     nim_kvcache_percent: str = Field(default="", validation_alias="VLM_NIM_KVCACHE_PERCENT")
     rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
+    enable_critic: str = Field(default="", validation_alias="ENABLE_CRITIC")
     llm_device_id: str = Field(default="", validation_alias="LLM_DEVICE_ID")
     vlm_device_id: str = Field(default="", validation_alias="VLM_DEVICE_ID")
 
@@ -296,6 +297,7 @@ class OrchestratorRuntimeSettings(BaseSettings):
         "llm_enable_thinking",
         "nim_kvcache_percent",
         "rtvi_vllm_gpu_memory_utilization",
+        "enable_critic",
         "llm_device_id",
         "vlm_device_id",
     )
@@ -1062,6 +1064,7 @@ async def vss_orchestrator(
                     llm_enable_thinking=runtime_settings.llm_enable_thinking,
                     nim_kvcache_percent=runtime_settings.nim_kvcache_percent,
                     rtvi_vllm_gpu_memory_utilization=runtime_settings.rtvi_vllm_gpu_memory_utilization,
+                    enable_critic=runtime_settings.enable_critic,
                     profile_mode=input.profile_mode,
                     model_resolution=configured_model_resolution,
                     output_env_file=str(env_path),
