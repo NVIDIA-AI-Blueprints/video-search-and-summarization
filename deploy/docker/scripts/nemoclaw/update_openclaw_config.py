@@ -204,13 +204,9 @@ def highlight_message(message: str) -> str:
 def update_hooks_config(
     data: dict,
     *,
-    enabled: bool,
     token: str,
     path: str,
 ) -> bool:
-    if not enabled:
-        return False
-
     if not token:
         raise ValueError("OpenClaw hooks token is required when hooks are enabled")
 
@@ -235,6 +231,21 @@ def update_mcp_server(data: dict, *, name: str, url: str) -> bool:
     if servers.get(name) == server_config:
         return False
     servers[name] = server_config
+    return True
+
+
+def update_slack_channel(data: dict) -> bool:
+    """Configure channels.slack for socket-mode with env-backed token refs."""
+    expected = {
+        "enabled": True,
+        "mode": "socket",
+        "appToken": {"$secretRef": {"provider": "env", "key": "SLACK_APP_TOKEN"}},
+        "botToken": {"$secretRef": {"provider": "env", "key": "SLACK_BOT_TOKEN"}},
+    }
+    channels = data.setdefault("channels", {})
+    if channels.get("slack") == expected:
+        return False
+    channels["slack"] = expected
     return True
 
 
@@ -275,7 +286,7 @@ def main() -> int:
     parser.add_argument(
         "--enable-hooks",
         action="store_true",
-        default=os.environ.get("OPENCLAW_HOOKS_ENABLED", "").strip() == "1",
+        default=os.environ.get("OPENCLAW_HOOKS_ENABLED", "").strip().lower() == "true",
         help="Enable OpenClaw webhook hooks in openclaw.json",
     )
     parser.add_argument(
@@ -287,6 +298,12 @@ def main() -> int:
         "--hooks-path",
         default=os.environ.get("OPENCLAW_HOOKS_PATH", "/hooks").strip() or "/hooks",
         help="OpenClaw hooks path (default: /hooks)",
+    )
+    parser.add_argument(
+        "--enable-slack",
+        action="store_true",
+        default=os.environ.get("OPENCLAW_SLACK_ENABLED", "").strip().lower() == "true",
+        help="Enable Slack socket-mode channel in openclaw.json",
     )
     parser.add_argument(
         "--mcp-name",
@@ -335,15 +352,17 @@ def main() -> int:
     agents_defaults = data.setdefault("agents", {}).setdefault("defaults", {})
     if agents_defaults.get("workspace") != DEFAULT_WORKSPACE_DIR:
         agents_defaults["workspace"] = DEFAULT_WORKSPACE_DIR
-    if update_hooks_config(
+    if args.enable_hooks and update_hooks_config(
         data,
-        enabled=args.enable_hooks,
         token=args.hooks_token,
         path=args.hooks_path,
     ):
         changed = True
 
     if update_mcp_server(data, name=args.mcp_name, url=args.mcp_url):
+        changed = True
+
+    if args.enable_slack and update_slack_channel(data):
         changed = True
 
     updated_json = json.dumps(data, indent=2) + "\n"
@@ -402,6 +421,8 @@ def main() -> int:
         print(f"OpenClaw hooks enabled at: {args.hooks_path}")
     if args.mcp_url:
         print(f"MCP server registered: {args.mcp_name} -> {args.mcp_url}")
+    if args.enable_slack:
+        print("Slack channel configured")
     if not dashboard_token:
         print("No dashboard token found")
         return 0
