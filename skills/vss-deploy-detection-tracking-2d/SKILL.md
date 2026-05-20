@@ -16,7 +16,7 @@ description: >
   provisioning — runs against localhost only.
 license: Apache-2.0
 metadata:
-  version: "3.1.0"
+  version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia rtvi-cv deployment rest-api docker deepstream ngc warehouse smartcity sparse4d gdino rt-detr metropolis stream-management health-check metrics"
 ---
