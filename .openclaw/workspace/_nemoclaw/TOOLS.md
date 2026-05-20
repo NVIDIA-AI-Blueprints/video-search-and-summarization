@@ -1,5 +1,20 @@
 # TOOLS.md
 
+## Sandbox host alias
+
+Inside the openshell/nemoclaw sandbox, `HOST_IP` is pinned to
+`host.openshell.internal` by `BOOTSTRAP.md` Step 1 (and persisted in
+`~/.bashrc`). Skills should curl `${HOST_IP}` for every runtime call —
+never `localhost` and never a literal IP — so the same skill works
+in-sandbox and on bare metal.
+
+The sandbox's egress policy whitelists `host.openshell.internal` on a
+fixed set of VSS backend ports. The policy file lives on the host
+(outside the sandbox), so you can't grep it from here. A LAN IP,
+`localhost`, or a port not on the whitelist returns `policy_denied`. If a
+curl fails that way, tell the user the port needs to be added to the
+host-side policy and re-applied. Do not try to bypass.
+
 ## Deployment
 
 Deployment is delegated to the VSS Orchestrator MCP server at
