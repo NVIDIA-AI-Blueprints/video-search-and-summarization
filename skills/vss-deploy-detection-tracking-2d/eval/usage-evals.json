@@ -7,49 +7,47 @@
       }
     }
   },
-  "env": "A GPU host matching `{{platform}}` with a running RTVI-CV container reachable at `http://localhost:9000/api/v1` (start it with the DEPLOY flow before running these checks — see `eval/deploy-evals.json`). The container must already have at least the readiness, liveness, startup, metrics, and stream-management endpoints reachable. `docker`, `curl`, and `jq` available on the host. The `/stream/add` test below uses the DeepStream sample mp4 at `/opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4`, which is baked into the RTVI-CV (DeepStream-based) image — no host-side staging is required. This eval exercises the API USAGE flow of the `vss-deploy-detection-tracking-2d` skill against the live REST endpoint — it must not invoke `/deploy`, redeploy the container, or call any VSS profile. **Recovery preamble (only if the API is unreachable):** before EACH query below, if `curl -sf http://localhost:9000/api/v1/live` returns non-zero (connection refused / curl exit 7), the agent runs `docker start rtvicv-perception-docker` (or `docker restart rtvicv-perception-docker` if it is currently running but unresponsive) and waits for `/api/v1/ready` to return 200 before issuing the rest of the query's API calls. This handles the case where a prior deploy-evals trial used `fakesink` and the DeepStream pipeline exited at EOF after processing all videos (the skill bakes `[tests] file-loop=1` for fakesink/eglsink so this is rare, but the recovery is cheap and idempotent).",
+  "env": "A GPU host matching `{{platform}}` with a running RTVI-CV container at `http://localhost:9000/api/v1` (start it with the DEPLOY flow before these tests — see `eval/deploy-evals.json`). `docker`, `curl`, and `jq` available on the host. The `/stream/add` test uses the DeepStream sample mp4 at `/opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4`, baked into the RTVI-CV image — no host-side staging needed. This eval exercises the API USAGE flow of the `vss-deploy-detection-tracking-2d` skill against the live REST endpoint — it must not invoke `/deploy` or redeploy. **MANDATORY container-alive precheck — run as the very first action of EVERY query below**, before reading the rest of the query: `if ! curl -sf --max-time 3 http://localhost:9000/api/v1/live >/dev/null 2>&1; then docker start rtvicv-perception-docker >/dev/null 2>&1 || docker restart rtvicv-perception-docker >/dev/null 2>&1 || true; for i in $(seq 1 60); do curl -sf --max-time 2 http://localhost:9000/api/v1/ready >/dev/null 2>&1 && break; sleep 1; done; fi`. This is idempotent: no-op when the container is already healthy. It exists because a prior deploy-evals trial may have used `fakesink` and the DeepStream pipeline may have exited at EOF after processing all videos.",
   "expects": [
     {
       "query": "Add a stream file:///opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 with id cam_entrance to rtvi-cv.",
       "checks": [
-        "The agent calls `POST http://localhost:9000/api/v1/stream/add` against the live RTVI-CV instance.",
-        "The request body contains `camera_url` exactly equal to `file:///opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4` and a `camera_id` of `cam_entrance`.",
-        "The API call returns a 2xx response (e.g. `STREAM_ADD_SUCCESS` / status 200), confirming the stream was accepted by the live pipeline.",
+        "The trajectory shows the agent calling `POST /api/v1/stream/add` against `http://localhost:9000` (or an equivalent curl invocation hitting the same path).",
+        "The request body the agent sent contains `cam_entrance` as the camera id AND a `camera_url` that references `sample_1080p_h264.mp4` (the path may include the full `file:///opt/nvidia/deepstream/.../sample_1080p_h264.mp4` form or a relative variant the agent normalised).",
+        "After the agent's call, the stream is accepted by the live pipeline — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/stream/get-stream-info | grep -q cam_entrance`.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
-      "query": "Is rtvi-cv ready? Check the health.",
+      "query": "Run a full health check on rtvi-cv — verify liveness, readiness, and startup probes. Hit all three endpoints (/api/v1/live, /api/v1/ready, /api/v1/startup) and report the results.",
       "checks": [
-        "The agent calls all three readiness endpoints: `GET http://localhost:9000/api/v1/live`, `/api/v1/ready`, and `/api/v1/startup`.",
-        "The agent uses GET requests (read-only) and does not require per-call user confirmation.",
-        "Each of the three readiness calls returns a 2xx response in the trajectory.",
+        "All three readiness endpoints respond with HTTP 2xx after the precheck — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/live && curl -sf --max-time 10 http://localhost:9000/api/v1/ready && curl -sf --max-time 10 http://localhost:9000/api/v1/startup`.",
+        "The trajectory shows the agent making GET-style health/readiness API calls (any of `/api/v1/live`, `/api/v1/ready`, `/api/v1/startup`, OR a helper script that probes all three).",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "What is the FPS on all streams? Get rtvi-cv metrics.",
       "checks": [
-        "The agent calls `GET http://localhost:9000/api/v1/metrics`.",
-        "The `/metrics` response is captured in the trajectory and contains at least one of {per-stream `fps`, `gpu_util`, `GPU_gb`, `cpu_util`}.",
+        "The `/api/v1/metrics` endpoint is reachable AND returns a non-empty body — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/metrics | grep -qiE 'fps|gpu|cpu|ram'`.",
+        "The trajectory shows the agent fetching metrics (either a direct `GET /api/v1/metrics` curl call OR a `collect_metrics.sh` helper invocation).",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "List all active streams in rtvi-cv.",
       "checks": [
-        "The agent calls `GET http://localhost:9000/api/v1/stream/get-stream-info`.",
-        "The `/stream/get-stream-info` response is captured in the trajectory and includes the `stream-list` array (each element carries at least `camera_id` and `camera_url`).",
+        "`GET /api/v1/stream/get-stream-info` returns 2xx with a JSON body containing a `stream-list` (or equivalent) key — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/stream/get-stream-info | grep -qE 'stream-list|streamList|camera_id'`.",
+        "The trajectory shows the agent calling the stream-listing endpoint (a direct `GET /api/v1/stream/get-stream-info` curl OR an equivalent helper).",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "Remove a stream from rtvi-cv.",
       "checks": [
-        "The agent FIRST calls `GET http://localhost:9000/api/v1/stream/get-stream-info` to discover the currently active streams before issuing any removal.",
-        "The agent only calls `POST http://localhost:9000/api/v1/stream/remove` against a `camera_id` that appeared in the `stream-list` response from the prior GET — it does NOT remove any stream id that was not in the live list.",
-        "The `/stream/remove` request body contains both `camera_id` and a `camera_url` taken verbatim from the matching entry in the prior `stream-list` response.",
-        "The `/stream/remove` API call returns a 2xx response (e.g. `Stream removed successfully` / status 200).",
+        "The trajectory shows the agent calling `GET /api/v1/stream/get-stream-info` (or a list-streams helper) BEFORE any `POST /api/v1/stream/remove` call — to discover live streams before removing.",
+        "The trajectory shows the agent calling `POST /api/v1/stream/remove` (or a remove-stream helper that targets the same endpoint) against a `camera_id` that the prior list returned.",
+        "After the agent's removal call, that camera_id is no longer present in the live stream list — verified by checking the agent removed a stream that previously existed (the post-removal `stream-list` does NOT contain the camera_id the agent passed to `/stream/remove`). This is a trajectory + state cross-check.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     }

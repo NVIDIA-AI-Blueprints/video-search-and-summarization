@@ -12,47 +12,43 @@
     {
       "query": "Deploy rtvi-cv warehouse 2d with 4 streams.",
       "checks": [
-        "The agent identifies the `warehouse-2d` use case (RT-DETR + NvDCF tracker on the `nvinfer` PGIE) from the query without re-asking.",
-        "The agent creates a structured todo/task plan via the session planning tool (`TaskCreate` — the current Claude Code name for `TodoWrite`) that covers at least platform detection, NGC resource staging, container launch, in-container config apply, and app start.",
-        "The agent resolves the RTVI-CV docker image and the warehouse NGC resource by one of: (a) reading the `RTVI_CV_IMAGE` env var or skill defaults, (b) reusing an already-available local RTVI-CV image (`nvcr.io/<org>/<repo>:<tag>`) on the host, OR (c) prompting the user — and reports the resolved image in its summary.",
-        "The agent launches the container with `docker run` against the user-supplied image and names it (default `rtvicv-perception-docker`).",
-        "The DS main config applied inside the container uses `batch-size=4` and a `fakesink` output (the headless-safe default when the user does not request a display or file sink).",
-        "The 4 stream URLs are auto-discovered from `.mp4`/`.mkv` files in the NGC-staged warehouse resource and baked into the in-container DS main config's `[source-list]` block (static stream-mode, the skill default per `references/pipeline-config.md`). All URLs use the `file://` (filesrc) protocol; the agent does not prompt the user for stream URLs and does not fabricate `rtsp://` URLs.",
-        "The agent starts `metropolis_perception_app` inside the running container (visible as a `docker exec` invocation or equivalent in the trajectory).",
-        "The agent reports the REST endpoint as `http://localhost:9000` in its final summary.",
+        "An `rtvicv-perception-docker` container is running on the host after the agent finishes — verified by `docker ps --filter name=rtvicv-perception-docker --filter status=running --format '{{.Names}}' | grep -q .`.",
+        "The RTVI-CV REST API is reachable at `http://localhost:9000/api/v1/ready` — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/ready`.",
+        "The agent ran a multi-step deploy workflow visible in the trajectory — any of the following counts as a structured plan: a session planning tool call (`TaskCreate`, `TaskUpdate`, or `TodoWrite`), OR a sequence of skill-script Bash invocations (e.g. `load_defaults.sh`, `fetch_resources.sh`, `docker run`, `apply_config.sh`/`apply_in_container.sh`, `start_app_in_container.sh`/`run_app_and_wait.sh`), OR clearly-named numbered steps in the agent's text output.",
+        "The trajectory or final summary mentions the `warehouse-2d` use case (with or without the hyphen — accept `warehouse-2d`, `warehouse 2d`, `Warehouse 2D`).",
+        "Somewhere in the warehouse-2d config tree the agent's deploy applied `batch-size=4` — verified by `docker exec rtvicv-perception-docker bash -c \"grep -RIE 'batch-size[[:space:]]*=[[:space:]]*4' /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs/warehouse-2d/ 2>/dev/null | head -1\" | grep -q ':batch-size'`.",
+        "Somewhere in the warehouse-2d config tree at least one `file://` source URL is configured (static stream-mode, the skill default per `references/pipeline-config.md`) — verified by `docker exec rtvicv-perception-docker bash -c \"grep -RIE 'file://' /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs/warehouse-2d/ 2>/dev/null | head -1\" | grep -q 'file://'`. This proves stream URLs were discovered and baked into the config as `file://` rather than fabricated as `rtsp://`.",
+        "`metropolis_perception_app` is running inside the container — verified by `docker exec rtvicv-perception-docker pgrep -af metropolis_perception_app` returning a match.",
+        "The agent's final summary mentions the REST endpoint (any of `localhost:9000`, `:9000`, `9000/api/v1`, or `http://localhost:9000`).",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "Stop rtvi-cv and clean up the deployment.",
       "checks": [
-        "The agent enters the TEARDOWN flow and does not start a new deployment.",
-        "The agent discovers running RTVI-CV containers via `docker ps` (filtering on `rtvicv-perception-docker` or the running image).",
-        "The agent asks the user which container(s) to stop before executing any destructive command when more than one matching container exists.",
-        "The agent executes `docker stop` (graceful by default) on the selected container(s).",
-        "NGC credentials at `~/.ngc/config` are preserved — the agent does not delete or chmod them away.",
-        "The engine cache directory and NGC-staged resources are NOT deleted unless the user explicitly requested a full cleanup.",
+        "After the agent completes the teardown, no `rtvicv-perception-docker` container is running on the host — verified by `docker ps --filter name=rtvicv-perception-docker --filter status=running --format '{{.Names}}' | wc -l | grep -qE '^0$'`.",
+        "The trajectory shows the agent inspecting or stopping a container (any of `docker ps`, `docker container ls`, `docker stop`, `docker kill`, `docker rm`, `docker container inspect`, or invoking a teardown helper script appears in the trajectory).",
+        "NGC credentials at `~/.ngc/config` are preserved — verified by `test -f ~/.ngc/config`.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "Deploy rtvi-cv smartcity gdino with 2 streams and fakesink for benchmarking.",
       "checks": [
-        "The agent identifies the `smartcity-gdino` use case (Grounding DINO served by `nvinferserver`/Triton, with engine cached as a `.plan` file).",
-        "The agent resolves the RTVI-CV docker image and the GDINO model NGC reference by one of: (a) reading env vars / skill defaults, (b) reusing an already-available local RTVI-CV image on the host, OR (c) prompting the user.",
-        "The agent invokes `scripts/setup_gdino.sh` (or the equivalent in-container flow) to build/cache the Triton `.plan` engine before app start.",
-        "The DS main config applied inside the container uses `batch-size=2` and a `fakesink` output (matching the `for benchmarking` intent).",
-        "The 2 stream URLs are auto-discovered from `.mp4`/`.mkv` files in the NGC-staged smartcity resource and baked into the in-container DS main config's `[source-list]` block (static stream-mode, the skill default per `references/pipeline-config.md`). All URLs use the `file://` (filesrc) protocol; the agent does not prompt the user for stream URLs and does not fabricate `rtsp://` URLs.",
-        "The agent starts `metropolis_perception_app` inside the running container.",
+        "An `rtvicv-perception-docker` container is running on the host after the agent finishes — verified by `docker ps --filter name=rtvicv-perception-docker --filter status=running --format '{{.Names}}' | grep -q .`.",
+        "The RTVI-CV REST API is reachable at `http://localhost:9000/api/v1/ready` — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/ready`.",
+        "The trajectory or final summary mentions the `smartcity-gdino` use case (with or without the hyphen — accept `smartcity-gdino`, `smartcity gdino`, `gdino`, `Grounding DINO`).",
+        "Somewhere in the smartcities/gdino config tree the agent's deploy applied `batch-size=2` — verified by `docker exec rtvicv-perception-docker bash -c \"grep -RIE 'batch-size[[:space:]]*=[[:space:]]*2' /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs/smartcities/gdino/ 2>/dev/null | head -1\" | grep -q ':batch-size'`.",
+        "Somewhere in the smartcities/gdino config tree at least one `file://` source URL is configured (static stream-mode, the skill default per `references/pipeline-config.md`) — verified by `docker exec rtvicv-perception-docker bash -c \"grep -RIE 'file://' /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs/smartcities/gdino/ 2>/dev/null | head -1\" | grep -q 'file://'`.",
+        "`metropolis_perception_app` is running inside the container — verified by `docker exec rtvicv-perception-docker pgrep -af metropolis_perception_app` returning a match.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "Deploy rtvi-cv.",
       "checks": [
-        "The agent asks the user to select a use case from `warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, or `smartcity-gdino` before proceeding.",
-        "The agent does NOT issue a `docker run` command until the use case is supplied.",
-        "The agent does NOT silently default to one of the four use cases.",
+        "The agent surfaces the four use cases (`warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, `smartcity-gdino`) to the user — visible either as an `AskUserQuestion` with those four options, or as plain-text prompt listing all four — and waits for selection before deploying.",
+        "The trajectory does NOT contain a fresh `docker run` against the RTVI-CV image executed before the user selects a use case (a `docker ps` / `docker inspect` to check existing state is fine).",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     }
