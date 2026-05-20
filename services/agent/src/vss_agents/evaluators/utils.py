@@ -30,7 +30,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from nat.data_models.evaluator import EvalInputItem
-from nat.data_models.evaluator import EvalOutputItem
+from nat.plugins.eval.data_models.evaluator_io import EvalOutputItem
 
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
