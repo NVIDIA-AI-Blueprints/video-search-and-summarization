@@ -144,7 +144,7 @@ In the recipes below, **substitute `<TRAJ>` with the exact trajectory path print
 | Show distinct tool_use names | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use") | .name' <TRAJ> | sort -u` |
 | Which Skills were invoked? | `jq -r '.steps[].message | fromjson | .message.content[]? | select(.type=="tool_use" and .name=="Skill") | .input.skill' <TRAJ> | sort -u` |
 | Get the final assistant text (for "final reply" checks) | `jq -r '.steps[].message | fromjson | select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' <TRAJ> | tail -200` |
-| Search the agent's tool results for a string | `grep -nF '<literal string>' <TRAJ> | head -10` |
+| Search the agent's tool results for a string | `grep -oF '<literal string>' <TRAJ> | head -10` (`-oF` prints only the matched portion, one match per line; do NOT use `grep -nF` — `trajectory.json` is a single multi-MB line, so `-nF` would dump the whole file before `head -10` could truncate, re-triggering the very context-flood this guidance prevents) |
 | How many steps total? | `jq '.steps | length' <TRAJ>` |
 | Get final_metrics (cost, turns) | `jq '.final_metrics' <TRAJ>` |
 
