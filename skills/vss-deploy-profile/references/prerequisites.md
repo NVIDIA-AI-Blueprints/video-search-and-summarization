@@ -126,7 +126,21 @@ cat /etc/docker/daemon.json | grep cgroupfs
 
 #### Docker 29.5.0+ workaround
 
-If the host is locked to Docker `29.5.0` or later (e.g. distro-managed), add or merge the following daemon-side override and restart Docker to fall back to the legacy graphdriver image store:
+If the host is locked to Docker `29.5.0` or later (e.g. distro-managed), add or merge the following daemon-side override and restart Docker to fall back to the legacy graphdriver image store.
+
+> ⚠️ **The snippet below overwrites `/etc/docker/daemon.json` in full.** If the host already has other keys there (`registry-mirrors`, `log-driver`, `dns`, `insecure-registries`, etc.), back up first and merge them manually — otherwise they'll be silently dropped.
+
+**Inspect first, then back up:**
+
+```bash
+# Inspect any existing config
+test -f /etc/docker/daemon.json && cat /etc/docker/daemon.json || echo "no existing daemon.json"
+
+# Backup (safe no-op if the file doesn't exist)
+sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak 2>/dev/null || true
+```
+
+**If `daemon.json` was empty or only contained the `exec-opts` cgroup line**, the `cat >` snippet below is safe verbatim:
 
 ```bash
 sudo bash -c 'cat > /etc/docker/daemon.json << EOF
@@ -140,7 +154,15 @@ EOF'
 sudo systemctl daemon-reload && sudo systemctl restart docker
 ```
 
-Preserve any other daemon settings already present (e.g. registry-mirrors, log-driver). The `exec-opts` cgroup driver line is required regardless of the snapshotter override.
+**If `daemon.json` had other keys**, merge `features.containerd-snapshotter: false` into the existing file (jq is the easiest):
+
+```bash
+sudo jq '.features."containerd-snapshotter" = false' \
+  /etc/docker/daemon.json.bak | sudo tee /etc/docker/daemon.json >/dev/null
+sudo systemctl daemon-reload && sudo systemctl restart docker
+```
+
+The `exec-opts` cgroup driver line must remain present either way — it's required by the deploy regardless of the snapshotter override.
 
 ### 3. NVIDIA Container Toolkit
 
