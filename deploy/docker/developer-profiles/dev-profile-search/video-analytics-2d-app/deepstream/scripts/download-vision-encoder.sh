@@ -110,8 +110,8 @@ STORAGE_GID="${STORAGE_GID:-1001}"
 # UID/GID are baked into the vss-rt-cv image and cannot be changed.
 # Since we cannot align UIDs or inject supplementary groups, "other"
 # bits are the only access channel:
-#   - directories: o+rwx  (TensorRT writes engine plans here at runtime)
-#   - files:       o+r    (read-only model artifacts)
+#   - directories: o+rwx   (TensorRT writes engine plans here at runtime)
+#   - files:       o+r     (read-only model artifacts)
 chown -R "${STORAGE_UID}:${STORAGE_GID}" "${DEST}"
 find "${DEST}" -type d -exec chmod 0777 {} +
 find "${DEST}" -type f -exec chmod 0644 {} +
