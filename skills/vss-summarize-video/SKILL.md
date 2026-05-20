@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Summarize a video by calling the VLM NIM or the video summarization microservice directly. For short videos (under 60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (60s or longer) call the video summarization microservice. Use when asked to summarize a video, describe what happens in a video, analyze a recording, call or debug video summarization summarize/model/health/recommended-config/metrics endpoints, or configure and troubleshoot the video summarization service that backs long-video summarization.
+description: Summarize a video by calling the VLM NIM or the video summarization microservice directly. For short videos (under 60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (60s or longer) call the video summarization microservice. Use when asked to summarize a video, describe what happens in a video, analyze a recording, call or debug video summarization summarize/model/health/recommended-config/metrics endpoints, or configure and troubleshoot the video summarization service and its Elasticsearch, Neo4j, or ArangoDB database backend.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -26,7 +26,8 @@ the core workflow below needs deeper video summarization information:
 - **video summarization service configuration and ops**:
   [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md) for
   the VSS `lvs` profile, ports, required env vars, logs, status, dry-runs,
-  teardown, model/backend swaps, and service-level troubleshooting.
+  teardown, model/backend swaps, Elasticsearch/Neo4j/ArangoDB backend
+  selection, and service-level troubleshooting.
 - **Extended video summarization ops references**:
   [`references/video-summarization-environment-variables.md`](references/video-summarization-environment-variables.md),
   [`references/video-summarization-debugging.md`](references/video-summarization-debugging.md), and
@@ -473,8 +474,8 @@ output, not mixed into it.
 - **`vss-manage-video-io-storage` is a sub-task, not the final answer.** Step 1 returns
   ingredients ($CLIP, $DURATION); the deliverable is the Step 2 summary.
   Do not end your turn after Step 1 - continue to Step 2a / 2b and render
-  the LVS or VLM output. Returning the clip URL as your final answer is
-  the single most common failure mode of the LVS path.
+  the video summarization service or VLM output. Returning the clip URL as
+  your final answer is the single most common failure mode of the long-video path.
 - **Duration is authoritative.** Don't route on filename or user hints;
   compute from the timeline returned by `vss-manage-video-io-storage`.
 - **`jq` twice for video summarization.** First unwraps the OpenAI-style envelope, second
