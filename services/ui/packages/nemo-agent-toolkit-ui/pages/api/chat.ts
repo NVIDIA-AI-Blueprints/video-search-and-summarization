@@ -14,6 +14,14 @@ const chatEndpoint = 'chat';
 const chatStreamEndpoint = 'chat/stream';
 const generateStreamEndpoint = 'generate/stream';
 
+function closeStreamController(controller: ReadableStreamDefaultController<Uint8Array>) {
+  try {
+    controller.close();
+  } catch {
+    // Already closed (e.g. after [DONE] or upstream abort).
+  }
+}
+
 // Dynamic custom agent params - can contain any key-value pairs
 type CustomAgentParams = Record<string, string | number | boolean>;
 
@@ -86,6 +94,7 @@ async function processGenerateStream(response: Response, encoder: TextEncoder, d
   let streamContent = '';
   let finalAnswerSent = false;
   let counter = 0;
+  let streamClosed = false;
 
   return new ReadableStream({
     async start(controller) {
@@ -105,7 +114,8 @@ async function processGenerateStream(response: Response, encoder: TextEncoder, d
             if (line.startsWith('data: ')) {
               const data = line.slice(5);
               if (data.trim() === '[DONE]') {
-                controller.close();
+                streamClosed = true;
+                closeStreamController(controller);
                 return;
               }
               try {
@@ -151,21 +161,23 @@ async function processGenerateStream(response: Response, encoder: TextEncoder, d
           }
         }
       } finally {
-        if (!finalAnswerSent) {
-          try {
-            const parsed = JSON.parse(streamContent);
-            const value =
-              parsed?.value ||
-              parsed?.output ||
-              parsed?.answer ||
-              parsed?.choices?.[0]?.message?.content;
-            if (value && typeof value === 'string') {
-              controller.enqueue(encoder.encode(value.trim()));
-              finalAnswerSent = true;
-            }
-          } catch {}
+        if (!streamClosed) {
+          if (!finalAnswerSent) {
+            try {
+              const parsed = JSON.parse(streamContent);
+              const value =
+                parsed?.value ||
+                parsed?.output ||
+                parsed?.answer ||
+                parsed?.choices?.[0]?.message?.content;
+              if (value && typeof value === 'string') {
+                controller.enqueue(encoder.encode(value.trim()));
+                finalAnswerSent = true;
+              }
+            } catch {}
+          }
+          closeStreamController(controller);
         }
-        controller.close();
         reader?.releaseLock();
       }
     },
@@ -194,7 +206,7 @@ async function processChatStream(response: Response, encoder: TextEncoder, decod
             if (line.startsWith('data: ')) {
               const data = line.slice(5);
               if (data.trim() === '[DONE]') {
-                controller.close();
+                closeStreamController(controller);
                 return;
               }
               try {
@@ -234,7 +246,7 @@ async function processChatStream(response: Response, encoder: TextEncoder, decod
           }
         }
       } finally {
-        controller.close();
+        closeStreamController(controller);
         reader?.releaseLock();
       }
     },

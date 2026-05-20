@@ -1,2 +1,5 @@
 // SPDX-License-Identifier: MIT
-export { chatApiHandler as default } from '@nemo-agent-toolkit/ui/server';
+export {
+  chatApiHandler as default,
+  chatApiRouteConfig as config,
+} from '@nemo-agent-toolkit/ui/server';

@@ -5,6 +5,8 @@ export interface ApiWrapperOptions {
   bodyParserConfig?: {
     sizeLimit?: string;
   };
+  /** Next.js Pages API response size limit (default 4MB). Use false to disable. */
+  responseLimit?: false | string | number;
 }
 
 /**
@@ -17,9 +19,10 @@ export function createApiWrapper(
   edgeHandler: (request: Request) => Promise<Response>,
   options: ApiWrapperOptions = {}
 ) {
-  const { 
-    allowedMethods = ['POST'], 
-    bodyParserConfig = { sizeLimit: '5mb' } 
+  const {
+    allowedMethods = ['POST'],
+    bodyParserConfig = { sizeLimit: '5mb' },
+    responseLimit,
   } = options;
 
   const handler = async (req: NextApiRequest, res: NextApiResponse) => {
@@ -79,6 +82,7 @@ export function createApiWrapper(
   (handler as any).config = {
     api: {
       bodyParser: bodyParserConfig,
+      ...(responseLimit !== undefined ? { responseLimit } : {}),
     },
   };
 
@@ -89,6 +93,16 @@ export function createApiWrapper(
 export function createChatApiWrapper(edgeHandler: (request: Request) => Promise<Response>) {
   return createApiWrapper(edgeHandler, {
     allowedMethods: ['POST'],
-    bodyParserConfig: { sizeLimit: '5mb' }
+    bodyParserConfig: { sizeLimit: '5mb' },
+    // Long agent streams (intermediate steps + answer) exceed the default 4MB limit.
+    responseLimit: false,
   });
 }
+
+/** Next.js route config for /api/chat — re-export as `config` from pages/api/chat.ts */
+export const chatApiRouteConfig = {
+  api: {
+    bodyParser: { sizeLimit: '5mb' },
+    responseLimit: false,
+  },
+} as const;
