@@ -86,7 +86,7 @@ Create `values-base.yaml` and set the following (all are required for a typical 
 | **`nims`** | Shared umbrella **`helm/services/nims`**: **`nims.enabled`**, **`nims.gpuType`**, **`nims.nemotron`**, **`nims.cosmos`** (**`nims.cosmos.enabled`** toggles the VLM NIM), **`nims.global`**. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
 | **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) base URLs for LLM and VLM when they are **not** deployed by this chart (OpenAI-compatible or NIM endpoints reachable from **vss-agent** pods). Use with **`nims.enabled: false`**. Leave **`""`** when serving models from in-cluster **NIM** subcharts. |
 | **`global.llmName`** / **`global.vlmName`** (remote) | Model identifiers (e.g. **`nvidia/nvidia-nemotron-nano-9b-v2`**, **`nvidia/nvidia-cosmos-reason2-8b`**) the agent should use; must match what the remote endpoints expose. Shipped defaults in **`values-base.yaml`** match common NGC model ids. |
-| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when Phoenix is enabled) Phoenix under one hostname. Requires an **IngressClass** that already exists on the cluster (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless you set **`vssIngress.host`**. **`values-base.yaml`** enables this by default; set **`enabled: false`** if you use port-forward, **`NodePort`**, or a custom Ingress only. |
+| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, and VST under one hostname. Requires an **IngressClass** that already exists on the cluster (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless you set **`vssIngress.host`**. **`values-base.yaml`** enables this by default; set **`enabled: false`** if you use port-forward, **`NodePort`**, or a custom Ingress only. |
 
 #### `values-base.yaml` vs chart `values.yaml`
 
@@ -121,8 +121,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vios.vstStorage.vstData`** | **`size`:** **10Gi**, **`storageClass`:** `""` | Claim size for the shared **VST data** volume. Leave **`storageClass`** empty to inherit **`global.storageClass`**; set it only if this volume needs a different class than the rest of the chart. |
 | **`vios.vstStorage.vstVideo`** | **`size`:** **20Gi**, **`storageClass`:** `""` | Claim size for the shared **VST video** volume; same **`storageClass`** rules as **`vstData`**. |
 | **`vios.vstStorage.streamerVideos`** | **`size`:** **20Gi**, **`storageClass`:** `""` | Claim size for the shared **streamer upload** video volume; same **`storageClass`** rules as **`vstData`**. |
-| **`infra.enabled`** | `true` | Master switch for the **`infra`** umbrella (Phoenix, Redis, …). |
-| **`infra.phoenix.enabled`** | `true` | Set **`false`** to disable Phoenix only. |
+| **`infra.enabled`** | `true` | Master switch for the **`infra`** umbrella (Redis, …). |
 | **`infra.redis.enabled`** | `true` | Set **`false`** to disable Redis only. |
 | **`vios.enabled`** | `true` | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | `true` | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
@@ -134,14 +133,12 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** (when **`vios.vstStorage.createSharedPvcs`** is **`true`**), or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | `true` | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | `""` | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | `false` in chart **`values.yaml`**; **`true`** in sample **`values-base.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: one **`Ingress`** routing **`/`** and **`/api/chat`** to **vss-agent-ui**, **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** to **vss-agent**, **`/vst`** to **vss-vios-ingress**, and (if Phoenix is enabled) **`phoenix.<host>/`** to Phoenix. No effect if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
+| **`vssIngress.enabled`** | `false` in chart **`values.yaml`**; **`true`** in sample **`values-base.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: one **`Ingress`** routing **`/`** and **`/api/chat`** to **vss-agent-ui**, **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** to **vss-agent**, and **`/vst`** to **vss-vios-ingress**. No effect if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
 | **`vssIngress.ingressClassName`** | `haproxy` | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** that already exists (for example the class created by **HAProxy Kubernetes Ingress**). Use another name (e.g. **`nginx`**) if your controller uses a different class. |
 | **`vssIngress.host`** | `""` | Ingress hostname rule. If empty, **`global.externalHost`** is used. Set only when the Ingress hostname must differ from **`global.externalHost`**. |
 | **`vssIngress.vssUiPort`** | `3000` | Backend **`Service`** port for **vss-agent-ui** paths. |
 | **`vssIngress.vssAgentPort`** | `8000` | Backend **`Service`** port for **vss-agent** paths. |
 | **`vssIngress.vstIngressPort`** | `30888` | Backend **`Service`** port for **vss-vios-ingress** (**`/vst`**). |
-| **`vssIngress.phoenixHost`** | `""` | Second rule host for Phoenix. If empty, defaults to **`phoenix.<global.externalHost or vssIngress.host>`**. |
-| **`vssIngress.phoenixPort`** | `6006` | Backend **`Service`** port for Phoenix when the Phoenix subchart is enabled. |
 | **`agent.enabled`** | `true` | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**). |
 | **`agent.vss-agent.enabled`** | `true` | Set **`false`** to disable the **vss-agent** deployment only. |
 | **`agent.vss-agent.mountConfigEdge`** / **`mountEvalOutput`** | `true` / `true` | Parent **ConfigMap** includes **`config_edge.yml`** when the file exists; **`/vss-agent/eval-output`** emptyDir when **`mountEvalOutput`** is **`true`**. Agent YAML lives at **`configs/vss-agent/config.yml`** (flat path, no profile subfolders). |
@@ -238,7 +235,7 @@ To expose VSS through a single hostname, set **`global.externalHost`** (and **`g
 
 ### VSS Ingress (`vssIngress`)
 
-The chart can create a single Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so clients reach UI, API, VST, and Phoenix through one external hostname.
+The chart can create a single Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so clients reach UI, API, and VST through one external hostname.
 
 **Prerequisites**
 
@@ -250,7 +247,7 @@ The chart can create a single Kubernetes **`Ingress`** (**`templates/vss-ingress
 
 - **`Ingress`** name **`<release>-vss-ingress`** in the release namespace.
 - **`spec.ingressClassName`**: from **`vssIngress.ingressClassName`** (default **`haproxy`**).
-- Path rules: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**; optional second host **`phoenix.<main-host>`** → Phoenix when Phoenix is enabled.
+- Path rules: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**.
 
 After install, confirm the **`Ingress`** exists (replace **`<NAMESPACE>`** with your release namespace):
 

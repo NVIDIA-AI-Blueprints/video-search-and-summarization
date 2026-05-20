@@ -31,7 +31,6 @@ data:
   CENTRALIZEDB_PORT: "5432"
   REDIS_HOST: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "redis") }}"
   REDIS_PORT: "6379"
-  PHOENIX_ENDPOINT: "http://{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "phoenix") }}:6006"
 
   # ── Messaging ─────────────────────────────────────────────────────────────
   KAFKA_BOOTSTRAP: "{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kafka-kafka") }}:9092"

@@ -105,7 +105,7 @@ Edit **`values-verification.yaml`** or **`values-realtime.yaml`** (use **one** *
 | **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Use **`nims.gpuType`** to select model tuning from **`gpuProfiles`** and **`nims.nemotron.enabled`** / **`nims.cosmos.enabled`** to choose the models to deploy. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
 | **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) base URLs when LLM/VLM are **not** deployed in-cluster; use with **`nims.enabled: false`**. Must be reachable from **vss-agent** (and **vss-alert-bridge** / **vss-rtvi-vlm** as applicable). Align **`global.llmName`** / **`global.vlmName`** with remote endpoints. |
 | **`global.llmName`** / **`global.vlmName`** (remote) | Model identifiers for **vss-agent** and related services; must match remote APIs. |
-| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, **video-analytics-api**, **vss-alert-bridge**, and optional **Kibana** / **Phoenix** / **NVStreamer** hosts. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Mode sample files enable this by default. |
+| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, **video-analytics-api**, **vss-alert-bridge**, and optional **Kibana** / **NVStreamer** hosts. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Mode sample files enable this by default. |
 
 #### Mode values files vs chart `values.yaml`
 
@@ -140,7 +140,6 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vios.vstStorage.vstData`** | **`size`:** **10Gi**, **`storageClass`:** **`""`** | Claim size for the shared **VST data** volume. Leave **`storageClass`** empty to inherit **`global.storageClass`**; set it only if this volume needs a different class than the rest of the chart. |
 | **`vios.vstStorage.vstVideo`** | **`size`:** **20Gi**, **`storageClass`:** **`""`** | Claim size for the shared **VST video** volume; same **`storageClass`** rules as **`vstData`**. |
 | **`vios.vstStorage.streamerVideos`** | **`size`:** **20Gi**, **`storageClass`:** **`""`** | Claim size for the shared **streamer upload** video volume; same **`storageClass`** rules as **`vstData`**. |
-| **`infra.phoenix.enabled`** | **`true`** | Set **`false`** to disable Phoenix ( **`infra`** subchart). |
 | **`infra.redis.enabled`** | **`true`** | Set **`false`** to disable Redis. |
 | **`infra.sdrc.enabled`** | **`true`** | Enables the combined SDRC controller/router used by Alerts for streamprocessing and, in verification mode, **vss-rtvi-cv** provisioning. |
 | **`infra.sdrc.configFilePath`** | **`configs/sdrc/config-verification.yml`** | Profile-local SDRC workload config rendered into the **`sdrc-config`** ConfigMap. **`values-realtime.yaml`** switches this to **`configs/sdrc/config-realtime.yml`**. |
@@ -156,7 +155,7 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** (when **`vios.vstStorage.createSharedPvcs`** is **`true`**), or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | **`true`** | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | **`""`** | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | **`true`** in chart defaults and mode sample files | When **`true`**, renders **`templates/vss-ingress.yaml`**: main host routes for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**, **`/video-analytics-api`**, **`/alert-bridge`** (with HAProxy path-rewrite annotations), optional **Kibana** / **Phoenix** / **NVStreamer** hosts. |
+| **`vssIngress.enabled`** | **`true`** in chart defaults and mode sample files | When **`true`**, renders **`templates/vss-ingress.yaml`**: main host routes for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**, **`/video-analytics-api`**, **`/alert-bridge`** (with HAProxy path-rewrite annotations), optional **Kibana** / **NVStreamer** hosts. |
 | **`vssIngress.ingressClassName`** | **`haproxy`** | **`spec.ingressClassName`**. Must match an **`IngressClass`** on the cluster. **`metadata.annotations`** use **`haproxy.org/path-rewrite`** for **HAProxy** Ingress; other controllers may need different annotations or manual YAML (**`vss-ingress-example*.yaml`**). |
 | **`vssIngress.host`** | **`""`** | Main Ingress hostname; if empty, **`global.externalHost`** is used. |
 | **`vssIngress.vssUiPort`** | **`3000`** | Backend port for **vss-agent-ui** paths. |
@@ -164,9 +163,8 @@ In **Description**, **Real-time (`values-realtime.yaml`)** notes which subcharts
 | **`vssIngress.vstIngressPort`** | **`30888`** | Backend port for **vss-vios-ingress** (**`/vst`**). |
 | **`vssIngress.videoAnalyticsApiPort`** | **`8081`** | Backend port for **vss-video-analytics-api** (**`/video-analytics-api`**). |
 | **`vssIngress.alertBridgePort`** | **`9080`** | Backend port for **vss-alert-bridge** (**`/alert-bridge`**). |
-| **`vssIngress.kibanaHost`** / **`phoenixHost`** / **`streamerHost`** | **`""`** | Optional host overrides; defaults **`kibana.`** / **`phoenix.`** / **`streamer.`** + main host. |
+| **`vssIngress.kibanaHost`** / **`streamerHost`** | **`""`** | Optional host overrides; defaults **`kibana.`** / **`streamer.`** + main host. |
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port. |
-| **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port. |
 | **`vssIngress.streamerPort`** | **`31000`** | **NVStreamer** **Service** port when **`vios.vss-vios-nvstreamer.enabled`** is **`true`**. |
 | **`agent.enabled`** | **`true`** | Set **`false`** to skip the **`agent`** umbrella (**`deploy/helm/services/agent`**: **vss-agent** and optional **vss-va-mcp**). |
 | **`agent.vss-agent.enabled`** | **`true`** | Set **`false`** to disable the **vss-agent** deployment only. |
@@ -361,7 +359,7 @@ Set **`global.externalHost`** and **`global.kibanaPublicUrl`** (and scheme/port)
 
 ### VSS Ingress (`vssIngress`)
 
-The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) with path rules for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**, **`/video-analytics-api`**, **`/alert-bridge`**, and optional hosts for **Kibana**, **Phoenix**, and **NVStreamer** when those subcharts are enabled.
+The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) with path rules for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**, **`/video-analytics-api`**, **`/alert-bridge`**, and optional hosts for **Kibana** and **NVStreamer** when those subcharts are enabled.
 
 **Prerequisites**
 
@@ -372,7 +370,7 @@ The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`*
 **What gets created**
 
 - **`Ingress`** **`<release>-vss-ingress`** in the release namespace.
-- Main host routes as in **`templates/vss-ingress.yaml`**; optional **`kibana.`** / **`phoenix.`** / **`streamer.`** hosts when components are enabled.
+- Main host routes as in **`templates/vss-ingress.yaml`**; optional **`kibana.`** / **`streamer.`** hosts when components are enabled.
 
 After install, list **`Ingress`** objects:
 

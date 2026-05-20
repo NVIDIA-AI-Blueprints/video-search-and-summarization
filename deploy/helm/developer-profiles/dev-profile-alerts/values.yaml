@@ -60,13 +60,6 @@ global:
 # Redis is the shared StatefulSet from helm/services/infra (vanilla redis:8.2.2-alpine). Extend with a Redis Stack image + values if modules are required.
 infra:
   enabled: true
-  phoenix:
-    enabled: true
-    # Serve Phoenix behind ingress path prefix (http://<host>/phoenix).
-    # Required so Phoenix emits asset URLs with /phoenix prefix.
-    env:
-      - name: PHOENIX_HOST_ROOT_PATH
-        value: "/phoenix"
   redis:
     enabled: true
     # Reference parity: alert-bridge uses JSON.SET for prompt bootstrap; load RedisJSON/Search/Bloom/TimeSeries modules.
@@ -282,8 +275,6 @@ agent:
         value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
       - name: ELASTIC_SEARCH_INDEX
         value: '{{ .Values.elasticsearchIndex | default "" }}'
-      - name: PHOENIX_ENDPOINT
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $llm := (default "" (coalesce .Values.llmBaseUrl (index $g "llmBaseUrl"))) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
@@ -459,12 +450,7 @@ vssIngress:
   videoAnalyticsApiPort: 8081
   alertBridgePort: 9080
   kibanaHost: ""
-  # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
-  # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)
-  # only if you also want a separate dedicated Phoenix host rule.
-  phoenixHost: ""
   kibanaPort: 5601
-  phoenixPort: 6006
   # Optional; default streamer.<global.externalHost or vssIngress.host>.
   streamerHost: ""
   streamerPort: 31000

@@ -36,7 +36,6 @@ vss-agent:
   rtviEmbedBaseUrl: "http://vss-search-vss-rtvi-embed:8000"
   cosmosEmbedEndpoint: "http://vss-search-vss-rtvi-embed:8000"
   elasticsearchUrl: "http://vss-search-elasticsearch:9200"
-  phoenixEndpoint: "http://phoenix:6006"
   vstBaseUrl: "http://vss-search-vss-vios-ingress:8000"
   vstInternalUrl: "http://vss-search-vss-vios-ingress:8000"
 

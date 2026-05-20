@@ -21,7 +21,6 @@
 {{- $ingressEnabled := default false (index $vssIngress "enabled") }}
 {{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
 {{- $kibanaHost := coalesce (index $vssIngress "kibanaHost") (ternary (printf "kibana.%s" $mainHost) "" (ne $mainHost "")) }}
-{{- $phoenixHost := index $vssIngress "phoenixHost" | default "" | trim }}
 {{- $streamerHost := coalesce (index $vssIngress "streamerHost") (ternary (printf "streamer.%s" $mainHost) "" (ne $mainHost "")) }}
 
 =====================================================================
@@ -45,10 +44,6 @@ Profile Mode: {{ $modeDisplay }}
   VST API:              http://{{ $mainHost }}/vst/api
 {{- if ne $kibanaHost "" }}
   Kibana Dashboards:    http://{{ $kibanaHost }}
-{{- end }}
-  Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
-{{- if ne $phoenixHost "" }}
-  Phoenix Tracing Host: http://{{ $phoenixHost }}
 {{- end }}
 {{- if ne $streamerHost "" }}
   NVStreamer HTTP:      http://{{ $streamerHost }}

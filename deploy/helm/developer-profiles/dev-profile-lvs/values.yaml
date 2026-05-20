@@ -50,12 +50,6 @@ global:
 
 infra:
   enabled: true
-  phoenix:
-    enabled: true
-    # Serve Phoenix behind ingress path prefix (http://<host>/phoenix).
-    env:
-      - name: PHOENIX_HOST_ROOT_PATH
-        value: "/phoenix"
   redis:
     enabled: true
   elasticsearch:
@@ -259,8 +253,6 @@ agent:
         value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
       - name: ELASTIC_SEARCH_INDEX
         value: '{{ .Values.elasticsearchIndex | default "" }}'
-      - name: PHOENIX_ENDPOINT
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL
@@ -423,7 +415,7 @@ vss-agent-ui:
 #         http: 80
 #         https: 443
 
-# LVS profile Ingress: UI, agent, VST; optional kibana.* and phoenix.* hosts when those subcharts are enabled.
+# LVS profile Ingress: UI, agent, VST; optional kibana.* host when that subchart is enabled.
 vssIngress:
   enabled: false
   ingressClassName: haproxy
@@ -433,12 +425,7 @@ vssIngress:
   vstIngressPort: 30888
   # Optional; default kibana.<global.externalHost or vssIngress.host>.
   kibanaHost: ""
-  # Default Phoenix exposure is path-based on main host: http://<host>/phoenix
-  # Keep empty for path-only mode. Set phoenixHost (for example, phoenix.<host>)
-  # only if you also want a separate dedicated Phoenix host rule.
-  phoenixHost: ""
   kibanaPort: 5601
-  phoenixPort: 6006
 
 # RTVI umbrella: LVS always-on rtvi-vlm. By default, rtvi-vlm loads the integrated
 # Cosmos checkpoint in-pod to match the docker LVS profile. LVS deploys Kafka so

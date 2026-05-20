@@ -73,7 +73,3 @@ infra:
     service:
       type: NodePort
       nodePort: 31560
-  phoenix:
-    service:
-      type: NodePort
-      nodePort: 30606

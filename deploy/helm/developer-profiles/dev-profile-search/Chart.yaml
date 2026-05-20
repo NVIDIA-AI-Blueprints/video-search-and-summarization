@@ -20,7 +20,7 @@ description: |
 
   All-in-one umbrella chart deploying the complete bp_developer_search_2d stack:
     - vios                  : VST microservices umbrella (vss-vios-postgres, streamprocessing, sensor, ingress, mcp, nvstreamer). vss-vios-sdr and vss-vios-envoy-proxy are disabled by default — workload routing is handled by the SDRC controller from infra.
-    - infra                 : Infra stack (Phoenix, Redis, SDRC workload controller, Elasticsearch, Kibana, Kafka, Logstash)
+    - infra                 : Infra stack (Redis, SDRC workload controller, Elasticsearch, Kibana, Kafka, Logstash)
     - rtvi                  : RTVI umbrella (vss-rtvi-cv, vss-rtvi-embed, …)
     - analytics             : VSS analytics umbrella (vss-behavior-analytics fusion_search for Search + vss-video-analytics-api)
     - agent                 : VSS agent umbrella (vss-agent; vss-va-mcp off by default)

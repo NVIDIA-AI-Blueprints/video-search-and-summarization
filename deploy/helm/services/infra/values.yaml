@@ -14,32 +14,10 @@
 # limitations under the License.
 
 # Parent charts (dev-profile-*) should set enabled: true under their infra: values
-# to install this umbrella; individual components use phoenix.enabled / redis.enabled /
+# to install this umbrella; individual components use redis.enabled /
 # elasticsearch.enabled / kibana.enabled / kafka.enabled / logstash.enabled.
 enabled: true
 
-# Defaults for the phoenix subchart. fullnameOverride keeps Service/Deployment
-# names as "phoenix" (no umbrella-release prefix).
-phoenix:
-  enabled: true
-  fullnameOverride: phoenix
-  useReleaseNamePrefix: false
-  replicas: 1
-  image:
-    repository: arizephoenix/phoenix
-    tag: "14.15.0"
-    pullPolicy: IfNotPresent
-  phoenixHost: "0.0.0.0"
-  env: []
-  port: 6006
-  service:
-    type: ClusterIP
-  persistence:
-    storageClass: ""
-    size: 10Gi
-  resources: {}
-  nodeSelector: {}
-  tolerations: []
 
 # Redis subchart (StatefulSet + PVC). Service name stays "redis" when useReleaseNamePrefix is false.
 redis:
