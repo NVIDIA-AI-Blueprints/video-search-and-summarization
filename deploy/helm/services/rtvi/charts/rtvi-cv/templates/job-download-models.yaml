@@ -63,6 +63,11 @@ spec:
               mv {{ .sourcePath | quote }} "${DEST}/{{ .destPath }}"
               rm -rf $(dirname {{ .sourcePath | quote }})
               {{- end }}
+              # Workaround: DeepStream expects "siglip2_*" but NGC ships "siglip_v2_*".
+              if [[ -f "${DEST}/siglip_v2_v1.1_weights.bin" && ! -e "${DEST}/siglip2_v1.1_weights.bin" ]]; then
+                ln -s "siglip_v2_v1.1_weights.bin" "${DEST}/siglip2_v1.1_weights.bin"
+                echo "[INFO] Created compatibility symlink: siglip2_v1.1_weights.bin -> siglip_v2_v1.1_weights.bin"
+              fi
               chmod -R a+rX "${DEST}"
               echo "[INFO] Models downloaded to ${DEST}"
           volumeMounts:
