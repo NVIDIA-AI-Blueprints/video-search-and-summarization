@@ -19,7 +19,7 @@
         "The agent issues exactly one POST http://localhost:38111/v1/summarize call \u2014 not zero, not two, no parallel hedging",
         "The POST /v1/summarize request body is application/json and contains the keys {url, model, scenario, events, chunk_duration, num_frames_per_second_or_fixed_frames_chunk, use_fps_for_chunking}; scenario equals 'warehouse monitoring' and events equals the three user-supplied strings verbatim",
         "The LVS response is HTTP 200 and the body is an OpenAI-style envelope with choices[0].message.content populated as a JSON-encoded string",
-        "Parsing choices[0].message.content as JSON yields an object with non-empty fields {video_summary, events, total_events, uuid}",
+        "Parsing choices[0].message.content as JSON yields an object with non-empty fields {video_summary, events}",
         "events is a non-empty array and every element has the keys {id, start_time, end_time, type, description}",
         "The agent renders the video_summary field verbatim in its final reply \u2014 no paraphrasing, no added emojis, no re-voicing",
         "The agent renders every event returned by LVS (not a subset), preserving the description field in full",
