@@ -20,7 +20,7 @@ description: |
 
   All-in-one umbrella chart deploying the complete bp_developer_search_2d stack:
     - vios                  : VST microservices umbrella (vss-vios-postgres, streamprocessing, sdr, envoy-proxy, sensor, ingress, mcp, nvstreamer)
-    - infra                 : Infra stack (Phoenix, Redis, Elasticsearch, Kibana, Kafka, Logstash)
+    - infra                 : Infra stack (Redis, Elasticsearch, Kibana, Kafka, Logstash)
     - rtvi                  : RTVI umbrella (vss-rtvi-cv, vss-rtvi-embed, …)
     - analytics             : VSS analytics umbrella (vss-behavior-analytics fusion_search for Search + vss-video-analytics-api)
     - agent                 : VSS agent umbrella (vss-agent; vss-va-mcp off by default)

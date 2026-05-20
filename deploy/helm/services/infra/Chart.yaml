@@ -15,15 +15,11 @@
 
 apiVersion: v2
 name: infra
-description: Shared infrastructure components (Phoenix, Redis, Elasticsearch, Kibana, Kafka, Logstash, optional broker readiness Job, etc.) for developer-profile umbrella charts
+description: Shared infrastructure components (Redis, Elasticsearch, Kibana, Kafka, Logstash, optional broker readiness Job, etc.) for developer-profile umbrella charts
 type: application
 version: 26.04.2
 appVersion: "1.0"
 dependencies:
-  - name: phoenix
-    version: 26.04.2
-    repository: "file://./charts/phoenix"
-    condition: phoenix.enabled
   - name: redis
     version: 26.04.2
     repository: "file://./charts/redis"

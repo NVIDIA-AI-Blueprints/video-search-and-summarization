@@ -115,13 +115,3 @@ spec:
               number: 5601
         path: /
         pathType: Prefix
-  - host: phoenix.YOUR_IP.nip.io
-    http:
-      paths:
-      - backend:
-          service:
-            name: vss-alerts-phoenix
-            port:
-              number: 6006
-        path: /
-        pathType: Prefix

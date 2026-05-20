@@ -179,5 +179,4 @@ vssIngress:
   videoAnalyticsApiPort: 8081
   alertBridgePort: 9080
   kibanaPort: 5601
-  phoenixPort: 6006
   streamerPort: 31000

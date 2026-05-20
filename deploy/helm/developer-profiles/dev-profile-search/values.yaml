@@ -40,7 +40,6 @@ ingress:
     main: ''
     streamer: ''
     kibana: ''
-    phoenix: ''
   tls: []
 sharedStorage:
   streamerVideos:
@@ -110,19 +109,6 @@ infra:
       limits:
         memory: 512Mi
         cpu: 500m
-  phoenix:
-    enabled: true
-    # Serve Phoenix behind ingress path prefix (http://<host>/phoenix).
-    env:
-      - name: PHOENIX_HOST_ROOT_PATH
-        value: "/phoenix"
-    resources:
-      requests:
-        memory: 512Mi
-        cpu: 250m
-      limits:
-        memory: 2Gi
-        cpu: '1'
   elasticsearch:
     enabled: true
     extraEnv:
@@ -421,7 +407,6 @@ agent:
     vlmBaseUrl: ''
     evalLlmJudgeName: nvidia/nvidia-nemotron-nano-9b-v2
     evalLlmJudgeBaseUrl: ''
-    phoenixEndpoint: ''
     vstExternalUrl: ''
     # VST_BASE_URL env: leave empty in Search unless you need an explicit VST public base. Otherwise set this (or vstExternalUrl) only.
     vstBaseUrl: ''
@@ -508,8 +493,6 @@ agent:
         value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
       - name: ELASTIC_SEARCH_INDEX
         value: '{{ .Values.elasticsearchIndex | default "mdx-embed-filtered-2025-01-01" }}'
-      - name: PHOENIX_ENDPOINT
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{ ternary (printf "http://%s-phoenix:6006" .Release.Name) "http://phoenix:6006" $pfx }}'
       - name: LLM_BASE_URL
         value: '{{- $g := .Values.global | default dict }}{{- $llm := default "" (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "")) | toString | trim }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-nvidia-nemotron-nano-9b-v2:8000" .Release.Name) "http://nvidia-nemotron-nano-9b-v2:8000" $pfx }}{{- if $llm }}{{ $llm }}{{- else }}{{ $def }}{{- end }}'
       - name: VLM_BASE_URL

@@ -18,10 +18,8 @@
 {{- $ingressEnabled := default false (index $vssIngress "enabled") }}
 {{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
 {{- $kibanaHost := coalesce (index $vssIngress "kibanaHost") (ternary (printf "kibana.%s" $mainHost) "" (ne $mainHost "")) }}
-{{- $phoenixHost := index $vssIngress "phoenixHost" | default "" | trim }}
 {{- $infra := .Values.infra | default dict }}
 {{- $kibanaEnabled := default false (index (index $infra "kibana" | default dict) "enabled") }}
-{{- $phoenixEnabled := default false (index (index $infra "phoenix" | default dict) "enabled") }}
 {{- $summarization := index .Values "vss-summarization" | default dict }}
 {{- $summarizationEnabled := default false (index $summarization "enabled") }}
 
@@ -46,12 +44,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- if $kibanaEnabled }}
   Kibana Dashboards:    http://{{ $kibanaHost }}
 {{- end }}
-{{- if $phoenixEnabled }}
-  Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
-{{- if ne $phoenixHost "" }}
-  Phoenix Tracing Host: http://{{ $phoenixHost }}
-{{- end }}
-{{- end }}
 {{- else }}
   Ingress is ENABLED, but no host is configured.
   Set one of:
@@ -69,9 +61,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end }}
 {{- if $kibanaEnabled }}
   kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "kibana") }} 5601:5601 -n {{ .Release.Namespace }}
-{{- end }}
-{{- if $phoenixEnabled }}
-  kubectl port-forward svc/{{ include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix") }} 6006:6006 -n {{ .Release.Namespace }}
 {{- end }}
 {{- end }}
 

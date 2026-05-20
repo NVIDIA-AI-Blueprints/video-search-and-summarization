@@ -25,7 +25,7 @@
 {{/*
   Resolves the Kubernetes name for a dependency subchart (same rules as each subchart's .fullname helper).
   Pass: dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent"
-  Optional: "subchartValues" (dict) — when set, used instead of index .Values .depKey (e.g. Phoenix under infra.phoenix).
+  Optional: "subchartValues" (dict) — when set, used instead of index .Values .depKey (e.g. nested infra subcharts).
   Override per subchart via values: <depKey>.fullnameOverride or <depKey>.nameOverride
   Prefix toggle precedence:
     1) <depKey>.useReleaseNamePrefix
