@@ -18,6 +18,9 @@ OPENCLAW_PLUGIN_VARIANT="${OPENCLAW_PLUGIN_VARIANT:-}"
 OPENSHELL_PROVIDER_NAME="${OPENSHELL_PROVIDER_NAME:-nvidia}"
 NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-nvidia/nemotron-3-super-120b-a12b}"
 NEMOCLAW_NON_INTERACTIVE=1
+OPENCLAW_CHANNEL_SLACK_ENABLED="${OPENCLAW_CHANNEL_SLACK_ENABLED:-0}"
+SLACK_BOT_TOKEN="${SLACK_BOT_TOKEN:-}"
+SLACK_APP_TOKEN="${SLACK_APP_TOKEN:-}"
 NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1
 NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
 NVIDIA_BASE_URL="${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}"
@@ -71,6 +74,13 @@ Environment (non-interactive Nemoclaw / OpenShell):
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
   OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
                               (default: <VSS_REPO_DIR>/.openclaw)
+  OPENCLAW_CHANNEL_SLACK_ENABLED   Set to "1" to register the Slack messaging channel during
+                              onboard. Requires SLACK_BOT_TOKEN and SLACK_APP_TOKEN. Accepts only
+                              0 or 1. (default: 0)
+  SLACK_BOT_TOKEN             Slack Bot User OAuth token (xoxb-...) — required when
+                              OPENCLAW_CHANNEL_SLACK_ENABLED=1.
+  SLACK_APP_TOKEN             Slack App-Level token for Socket Mode (xapp-...) — required when
+                              OPENCLAW_CHANNEL_SLACK_ENABLED=1.
 EOF
 }
 
@@ -400,6 +410,20 @@ validate_custom_provider() {
   fi
 }
 
+validate_slack_channel() {
+  if [ "${OPENCLAW_CHANNEL_SLACK_ENABLED:-0}" != "1" ]; then
+    return 0
+  fi
+  if [ -z "${SLACK_BOT_TOKEN}" ]; then
+    log "ERROR: OPENCLAW_CHANNEL_SLACK_ENABLED=1 requires SLACK_BOT_TOKEN (xoxb-...)."
+    exit 1
+  fi
+  if [ -z "${SLACK_APP_TOKEN}" ]; then
+    log "ERROR: OPENCLAW_CHANNEL_SLACK_ENABLED=1 requires SLACK_APP_TOKEN (xapp-...)."
+    exit 1
+  fi
+}
+
 build_provider_env_args() {
   local -n out=$1
   out=(
@@ -409,6 +433,12 @@ build_provider_env_args() {
     "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE}"
     "NVIDIA_API_KEY=${NVIDIA_API_KEY}"
   )
+  if [ "${OPENCLAW_CHANNEL_SLACK_ENABLED:-0}" = "1" ]; then
+    out+=(
+      "SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}"
+      "SLACK_APP_TOKEN=${SLACK_APP_TOKEN}"
+    )
+  fi
   if [ "${NEMOCLAW_PROVIDER}" = "custom" ]; then
     out+=(
       "NEMOCLAW_ENDPOINT_URL=${NEMOCLAW_ENDPOINT_URL}"
@@ -480,6 +510,7 @@ main() {
 
 parse_args "$@"
 validate_custom_provider
+validate_slack_channel
 export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
 export NEMOCLAW_ENDPOINT_URL COMPATIBLE_API_KEY
 export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
