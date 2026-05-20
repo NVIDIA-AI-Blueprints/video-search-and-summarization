@@ -751,3 +751,54 @@ DGX-SPARK:
           notifications.use_message_broker_consumer: "${STREAM_TYPE}"
           onvif.max_devices_supported: ${max_streams_supported}
           overlay.enable_overlay_skip_frame: true
+
+# ========================================================================================================
+# HARDWARE PROFILES — RTVI-CV-3D-Tracking (MV3DT) ADDITIONS
+# ========================================================================================================
+# These device entries were added for RTVI-CV-3D (MV3DT) support. max_streams_supported values are
+# estimated from device specifications and expected stream throughput. Only mv3dt is defined here —
+# use one of the profiles above for 2d / 3d deployments.
+
+H200:
+  mv3dt:
+    max_streams_supported: 12
+
+B200:
+  mv3dt:
+    max_streams_supported: 12
+
+GB200:
+  mv3dt:
+    max_streams_supported: 12
+
+A100:
+  mv3dt:
+    max_streams_supported: 8
+
+H20:
+  mv3dt:
+    max_streams_supported: 4
+
+RTXPRO4500:
+  mv3dt:
+    max_streams_supported: 4
+
+AGX-THOR:
+  mv3dt:
+    max_streams_supported: 4
+    file_operations:
+      # Update DeepStream main config
+      - operation_type: "text_config_update"
+        target_file: "${DS_CONFIG_DIR}/ds-main-config-mv3dt.txt"
+        updates:
+          batched-push-timeout: "67000"
+          low-latency-mode: "0"
+
+      # Update VST config
+      - operation_type: "json_update"
+        target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json"
+        backup: true
+        updates:
+          notifications.use_message_broker_consumer: "${STREAM_TYPE}"
+          onvif.max_devices_supported: ${max_streams_supported}
+          overlay.enable_overlay_skip_frame: true
