@@ -166,6 +166,16 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
 
         # task.toml
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        # Read gpu_count from spec.resources.platforms[platform] (default 1).
+        # brev_env.py::_check_instance_matches enforces strict equality, so the
+        # task.toml value must match the operator's pool allocation exactly.
+        gpu_count = int(
+            ((spec.get("resources") or {}).get("platforms") or {})
+            .get(platform, {})
+            .get("gpu_count", 1)
+            or 1
+        )
+
         meta_lines = [
             "[task]",
             f'name = "nvidia-vss/vss-search-archive-{profile}-{platform_short}{step_suffix}"',
@@ -187,6 +197,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
+            f'gpu_count = {gpu_count}',
             "requires_deployed_vss = true",
             # prerequisite_deploy_mode is alerts-only — the deploy marker
             # is profile-name only for base/lvs/search; the consumer
