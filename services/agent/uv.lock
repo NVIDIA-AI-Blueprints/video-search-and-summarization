@@ -330,25 +330,6 @@ wheels = [
 ]
 
 [[package]]
-name = "arize-phoenix-otel"
-version = "0.14.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "openinference-instrumentation" },
-    { name = "openinference-semantic-conventions" },
-    { name = "opentelemetry-exporter-otlp" },
-    { name = "opentelemetry-proto" },
-    { name = "opentelemetry-sdk" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "typing-extensions" },
-    { name = "wrapt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/17/ebd502f1bd8a0a6087ea28be8de8b765bcf34fb1b9bc4d6fd6d91bd822f1/arize_phoenix_otel-0.14.0.tar.gz", hash = "sha256:ad1368f0f52c242591ec554cedeccf718abda81383cf8c8d3ade218a7b20b955", size = 20155, upload-time = "2025-11-19T19:48:29.447Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/be/e7ddb54c4ad6115d2d468b71e90d7a2718735fd217f05c50759799191bfe/arize_phoenix_otel-0.14.0-py3-none-any.whl", hash = "sha256:47bf5563b9342a931385a16609ca83ada44d56a00bf6ed3be199226792b9937f", size = 17708, upload-time = "2025-11-19T19:48:28.252Z" },
-]
-
-[[package]]
 name = "asgi-lifespan"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3542,9 +3523,6 @@ mcp = [
 opentelemetry = [
     { name = "nvidia-nat-opentelemetry" },
 ]
-phoenix = [
-    { name = "nvidia-nat-phoenix" },
-]
 profiler = [
     { name = "nvidia-nat-profiler" },
 ]
@@ -3685,20 +3663,6 @@ dependencies = [
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f7/b4/54c29f536b498cfdfe00ebf4a52bdbc78db9af6b84c011c1c6ed4b647352/nvidia_nat_opentelemetry-1.6.0-py3-none-any.whl", hash = "sha256:5ae11e4acfc08e04bf3040a4cd69241f1c2c096b83061be15ee459d7c7c1b73d", size = 67843, upload-time = "2026-04-10T03:01:14.482Z" },
-]
-
-[[package]]
-name = "nvidia-nat-phoenix"
-version = "1.6.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "arize-phoenix-otel" },
-    { name = "nvidia-nat-core" },
-    { name = "nvidia-nat-opentelemetry" },
-    { name = "openinference-instrumentation" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9f/e4/ec83504c450e3e9e5b1d04ea5eab352f68d1af8fbce2dd4727f7cc8ffc10/nvidia_nat_phoenix-1.6.0-py3-none-any.whl", hash = "sha256:d96a06fe7025e3876b8d4c1289c1eaf6900fcd74cb492a1e52cd8175b425966c", size = 53711, upload-time = "2026-04-10T03:03:15.127Z" },
 ]
 
 [[package]]
@@ -3881,21 +3845,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d4/37/31e23ef661fa4c3c6a3c979afd884b30205512b4dde680b36d5909550500/openevals-0.1.3.tar.gz", hash = "sha256:9b00df1a7738464676aa887d4d950b77d3ef7024f6e8a54be3a83c82f485ea65", size = 100828, upload-time = "2025-12-18T04:09:03.034Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0d/68/162b0d273ffef5b0ad557ebccb790725bf94d78969702324dd5726828cf0/openevals-0.1.3-py3-none-any.whl", hash = "sha256:aed448df0cfdded732e24cda026eda065435a71ffb8c406a3ce73e590156d9f9", size = 67802, upload-time = "2025-12-18T04:09:01.59Z" },
-]
-
-[[package]]
-name = "openinference-instrumentation"
-version = "0.1.44"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "openinference-semantic-conventions" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-sdk" },
-    { name = "wrapt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/41/d9/c0d3040c0b5dc2b97ad20c35fb3fc1e3f2006bb4b08741ff325efcf3a96a/openinference_instrumentation-0.1.44.tar.gz", hash = "sha256:141953d2da33d54d428dfba2bfebb27ce0517dc43d52e1449a09db72ec7d318e", size = 23959, upload-time = "2026-02-01T01:45:55.88Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/6d/6a19587b26ffa273eb27ba7dd2482013afe3b47c8d9f1f39295216975f9f/openinference_instrumentation-0.1.44-py3-none-any.whl", hash = "sha256:86b2a8931e0f39ecfb739901f8987c654961da03baf3cfa5d5b4f45a96897b2d", size = 30093, upload-time = "2026-02-01T01:45:54.932Z" },
 ]
 
 [[package]]
@@ -6595,7 +6544,7 @@ dependencies = [
     { name = "markdown" },
     { name = "matplotlib" },
     { name = "mcp" },
-    { name = "nvidia-nat", extra = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"] },
+    { name = "nvidia-nat", extra = ["async-endpoints", "langchain", "mcp", "opentelemetry", "profiler", "s3"] },
     { name = "opencv-python-headless" },
     { name = "protobuf" },
     { name = "pydantic" },
@@ -6668,7 +6617,7 @@ requires-dist = [
     { name = "markdown", specifier = ">=3.4.0" },
     { name = "matplotlib", specifier = ">=3.8.0" },
     { name = "mcp", specifier = ">=1.23.0" },
-    { name = "nvidia-nat", extras = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"], specifier = "==1.6.0" },
+    { name = "nvidia-nat", extras = ["async-endpoints", "langchain", "mcp", "opentelemetry", "profiler", "s3"], specifier = "==1.6.0" },
     { name = "nvidia-rag", marker = "extra == 'frag-lib'", specifier = ">=2.4.0" },
     { name = "opencv-python-headless", specifier = ">=4.13.0.92" },
     { name = "protobuf", specifier = ">=6.33.5" },
