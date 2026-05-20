@@ -78,9 +78,19 @@ done
 # changes and ignores any stray non-deployment .txt that lands in
 # logs/.
 if [[ -z "$LOG" ]]; then
-    shopt -s nullglob
-    mapfile -t _candidates < <(ls -1t /opt/storage/logs/*_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9].txt 2>/dev/null)
-    shopt -u nullglob
+    # Use `find` rather than `ls + nullglob` so a no-match case never falls
+    # back to listing the CWD (which `ls -1t` does when its glob expands
+    # to zero arguments under `shopt -s nullglob` — that bug would pick the
+    # most-recent file in $PWD, e.g. `metropolis_perception_app`, and feed
+    # the binary to parse_log_fps which silently emits nothing).
+    # Sort by mtime (newest first), strip the timestamp prefix, return the
+    # newest matching file or empty string.
+    mapfile -t _candidates < <(
+        find /opt/storage/logs -maxdepth 1 -type f \
+            -name '*_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9].txt' \
+            -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | awk '{print $2}'
+    )
     LOG="${_candidates[0]:-}"
     [[ -n "$LOG" ]] && echo "   (auto-discovered LOG: $LOG)" >&2
 fi
