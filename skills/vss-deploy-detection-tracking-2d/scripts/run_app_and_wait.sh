@@ -27,7 +27,12 @@
 #                                              add_streams.sh to skip auto-discovery.
 #                                              Required when multiple video dirs exist under
 #                                              $RESOURCES (avoids RESOLVE_AMBIGUOUS).
-#                       [--stream-mode <dynamic|static>]   default: dynamic
+#                       [--stream-mode <dynamic|static>]   default: static
+#                                              (matches apply_config.sh default per
+#                                              references/pipeline-config.md — keeping
+#                                              the two defaults in sync prevents
+#                                              double-stream-add when an agent invokes
+#                                              this script directly without the flag)
 #                       [--timeout <sec>]      max wait for REST ready (default 900)
 #                       [--no-metrics]         skip collect_metrics step
 #
@@ -48,7 +53,14 @@ SINK="fakesink"
 LOG=""
 ONNX=""
 VIDEOS=""
-STREAM_MODE="dynamic"
+# Default matches apply_config.sh per references/pipeline-config.md
+# § "Defaults — the skill is static-mode by default". Keeping the two
+# script defaults aligned prevents a double-stream-add when an agent
+# calls run_app_and_wait.sh directly without --stream-mode: with the
+# static [source-list] block already populated by apply_config.sh, a
+# stale `dynamic` default here would still POST batch /stream/add calls
+# via add_streams.sh and end up with 2*BATCH active sources.
+STREAM_MODE="static"
 TIMEOUT=900
 NO_METRICS=0
 
