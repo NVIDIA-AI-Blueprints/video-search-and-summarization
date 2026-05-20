@@ -81,6 +81,16 @@ CHUNK_TIMESTAMP_PROMPT = """
     END_TIME: {end_time}s
 """
 
+# Appended to report VLM prompts when enable_audio=True (Omni audio-in-video path).
+AUDIO_REPORT_PROMPT_SUFFIX = """
+AUDIO REQUIREMENTS (mandatory when speech or sound is present):
+- Use both visual and audio information in every [timestamp-timestamp] line.
+- Quote spoken words, narration, and dialogue verbatim when audible.
+- Include key facts stated in speech (numbers, names, claims) even if not visible on screen.
+- Describe notable non-speech sounds (music, alerts, crowd noise) when relevant.
+- Do not only describe lip movement or "speaking"; transcribe or summarize what was said.
+"""
+
 
 def _get_object_store_url(object_store: Any, filename: str, config: "VideoReportGenConfig") -> str:
     """
@@ -2150,6 +2160,10 @@ Enter your choice or press Submit to keep current value:"""
             else:
                 logger.info(f"[PROMPT LOADED] video_report_gen.vlm_prompt from CONFIG: '{config.vlm_prompt[:100]}...'")
                 clean_prompt = _remove_som_markers(config.vlm_prompt)
+
+            if config.enable_audio:
+                clean_prompt = f"{clean_prompt.rstrip()}\n{AUDIO_REPORT_PROMPT_SUFFIX}"
+                logger.info("Report VLM prompt extended for enable_audio (Omni audio-in-video)")
 
             stream_id = await get_stream_id(sensor_id, config.vst_internal_url)
             start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)

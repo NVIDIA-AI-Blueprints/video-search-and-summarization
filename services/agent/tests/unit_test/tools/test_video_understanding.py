@@ -20,6 +20,9 @@ from vss_agents.tools.video_understanding import VideoUnderstandingConfig
 from vss_agents.tools.video_understanding import _build_vlm_messages
 from vss_agents.tools.video_understanding import _parse_thinking_from_content
 from vss_agents.tools.video_understanding import _should_use_video_base64
+from vss_agents.tools.video_understanding import _effective_system_prompt
+from vss_agents.tools.video_understanding import _is_omni_audio_model
+from vss_agents.tools.video_understanding import _should_use_video_file_base64
 
 
 class TestParseThinkingFromContent:
@@ -101,6 +104,14 @@ class TestParseThinkingFromContent:
         assert answer == ""
 
 
+class TestIsOmniAudioModel:
+    def test_detects_nemotron_omni(self):
+        assert _is_omni_audio_model("nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4")
+
+    def test_non_omni_models(self):
+        assert not _is_omni_audio_model("nvidia/cosmos-reason2-8b")
+
+
 class TestShouldUseVideoBase64:
     """Test video base64 selection for remote VLMs."""
 
@@ -121,6 +132,35 @@ class TestShouldUseVideoBase64:
             use_base64=False,
             vlm_mode="local_shared",
         )
+
+    def test_enable_audio_skips_base64_for_remote_vlm(self):
+        assert not _should_use_video_base64(
+            use_base64=False,
+            vlm_mode="remote",
+            enable_audio=True,
+        )
+
+    def test_enable_audio_remote_uses_video_file_base64(self):
+        assert _should_use_video_file_base64(
+            enable_audio=True,
+            vlm_mode="remote",
+        )
+
+    def test_enable_audio_local_does_not_use_video_file_base64(self):
+        assert not _should_use_video_file_base64(
+            enable_audio=True,
+            vlm_mode="local",
+        )
+
+    def test_enable_audio_defaults_false(self):
+        assert VideoUnderstandingConfig(
+            vlm_name="nim_vlm",
+            enable_audio=False,
+        ).enable_audio is False
+        assert VideoUnderstandingConfig(
+            vlm_name="nim_vlm",
+            enable_audio=True,
+        ).enable_audio is True
 
 
 class TestBuildVlmMessages:
@@ -184,6 +224,80 @@ class TestBuildVlmMessages:
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,frame-a"}},
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,frame-b"}},
         ]
+
+    @pytest.mark.asyncio
+    async def test_video_file_base64_inlines_full_mp4(self, monkeypatch):
+        class FakeResponse:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self):
+                return None
+
+            async def read(self):
+                return b"\x00\x00\x00\x20ftypisom" + b"\x01\x02\x03"
+
+        class FakeSession:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def get(self, url):
+                return FakeResponse()
+
+        monkeypatch.setattr("vss_agents.tools.video_understanding.aiohttp.ClientSession", FakeSession)
+
+        messages = await _build_vlm_messages(
+            "http://10.0.0.1:30888/vst/storage/video.mp4",
+            "What is said?",
+            use_base64=False,
+            use_video_file_base64=True,
+            video_length_seconds=4.0,
+            num_frames=2,
+            max_fps=1,
+        )
+
+        content = messages[0].content
+        assert content[0]["type"] == "text"
+        assert content[1]["type"] == "video_url"
+        assert content[1]["video_url"]["url"].startswith("data:video/mp4;base64,")
+
+
+class TestEffectiveSystemPrompt:
+    """Test Omni audio system prompt extension."""
+
+    def test_extends_prompt_for_omni_when_enable_audio(self):
+        config = VideoUnderstandingConfig(
+            system_prompt="You are a monitoring system.",
+            enable_audio=True,
+        )
+        result = _effective_system_prompt(config, "nvidia/Nemotron-3-Nano-Omni-30B")
+        assert "audio track" in result
+        assert result.startswith("You are a monitoring system.")
+
+    def test_unchanged_when_audio_disabled(self):
+        config = VideoUnderstandingConfig(
+            system_prompt="You are a monitoring system.",
+            enable_audio=False,
+        )
+        result = _effective_system_prompt(config, "nvidia/Nemotron-3-Nano-Omni-30B")
+        assert result == "You are a monitoring system."
+
+    def test_unchanged_for_non_omni_with_audio(self):
+        config = VideoUnderstandingConfig(
+            system_prompt="You are a monitoring system.",
+            enable_audio=True,
+        )
+        result = _effective_system_prompt(config, "nvidia/cosmos-reason1-7b")
+        assert result == "You are a monitoring system."
 
 
 class TestVideoUnderstandingConfig:
