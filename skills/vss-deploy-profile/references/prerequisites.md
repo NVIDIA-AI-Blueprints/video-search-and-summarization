@@ -82,26 +82,36 @@ nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv,nohea
 
 Expected for this machine: 2× RTX PRO 6000 Blackwell, devices 0 and 1.
 
-If `nvidia-smi` fails → driver not installed or not loaded. Guide the user:
+If `nvidia-smi` fails → driver not installed or not loaded. Pin the exact build for the OS / platform:
 
-- Ubuntu 24.04: install driver `580.105.08` from https://www.nvidia.com/en-us/drivers/
-- Ubuntu 22.04: install driver `580.65.06`
-- After install: load the kernel modules instead of rebooting:
-  ```bash
-  sudo modprobe nvidia && sudo modprobe nvidia_uvm
-  ```
+| Platform | Required driver |
+|---|---|
+| x86 — Ubuntu 24.04 | **`580.105.08`** (https://www.nvidia.com/en-us/drivers/) |
+| x86 — Ubuntu 22.04 | **`580.65.06`** |
+| DGX-SPARK | **`580.95.05`** (ships with DGX OS 7.4.0) |
+| IGX-THOR / AGX-THOR | **`580.00`** (ships with Jetson Linux BSP Rel 38.5 / 38.4) |
+
+After install, load the kernel modules instead of rebooting:
+
+```bash
+sudo modprobe nvidia && sudo modprobe nvidia_uvm
+```
+
+> **Multi-GPU H100 SXM HBM3 only — NVIDIA Fabric Manager `580.105.08`** is also required to host a local LLM. Single-GPU and multi-GPU PCIe-only systems do **not** need Fabric Manager — installing it will conflict with the standard `nvidia-driver-580` package. See [`warehouse.md` § Fabric Manager](warehouse.md#nvidia-fabric-manager-when-required) for the full install guide.
 
 > **Workaround:** If GPU is present but detection fails during a deploy, prepend `SKIP_HARDWARE_CHECK=true` — but investigate root cause.
 
 ### 2. Docker
 
 ```bash
-docker --version        # need 28.3.3+
+docker --version        # need 28.3.3+ and earlier than 29.5.0
 docker compose version  # need v2.39.1+
 docker ps               # verify runs without sudo
 ```
 
 If Docker needs to be installed: https://docs.docker.com/engine/install/ubuntu/
+
+> **Docker upper bound — `< 29.5.0`.** Docker Engine `29.5.0` and later fail to pull some NGC-hosted image tags after the layers download with `error from registry: Incorrect Repository Format`. Pin a supported version below `29.5.0` (canonical reference: `28.3.3`). If you must run `29.5.0`+, disable the containerd snapshotter daemon-side — see [Docker 29.5.0+ workaround](#docker-2950-workaround) below.
 
 If `docker ps` requires sudo → add user to docker group:
 ```bash
@@ -114,9 +124,33 @@ cat /etc/docker/daemon.json | grep cgroupfs
 # Should contain: "exec-opts": ["native.cgroupdriver=cgroupfs"]
 ```
 
-### 3. NVIDIA Container Toolkit
+#### Docker 29.5.0+ workaround
+
+If the host is locked to Docker `29.5.0` or later (e.g. distro-managed), add or merge the following daemon-side override and restart Docker to fall back to the legacy graphdriver image store:
 
 ```bash
+sudo bash -c 'cat > /etc/docker/daemon.json << EOF
+{
+  "exec-opts": ["native.cgroupdriver=cgroupfs"],
+  "features": {
+    "containerd-snapshotter": false
+  }
+}
+EOF'
+sudo systemctl daemon-reload && sudo systemctl restart docker
+```
+
+Preserve any other daemon settings already present (e.g. registry-mirrors, log-driver). The `exec-opts` cgroup driver line is required regardless of the snapshotter override.
+
+### 3. NVIDIA Container Toolkit
+
+Required minimum: **`1.17.8+`**.
+
+```bash
+# Check installed version
+dpkg -s nvidia-container-toolkit 2>/dev/null | grep -E '^Version:' || \
+  rpm -q nvidia-container-toolkit 2>/dev/null
+
 # Check runtime is registered
 docker info 2>/dev/null | grep -i "runtimes"
 
@@ -145,7 +179,29 @@ Re-run the `docker run` check to confirm before continuing.
 
 ### 4. NGC CLI + Access
 
-Use the `ngc` skill to check NGC CLI and API key access.
+Required minimum: **`4.10.0+`**. Use the `ngc` skill to check NGC CLI and API key access.
+
+---
+
+## Canonical version matrix
+
+Single source of truth for **every** dependency the deploy assumes. Sourced from the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html); update this table when the upstream blueprint docs change.
+
+| Component | Required version | Notes |
+|---|---|---|
+| OS — x86 host | Ubuntu 22.04 or 24.04 | |
+| OS — DGX-SPARK | DGX OS 7.4.0 | |
+| OS — IGX-THOR | Jetson Linux BSP Rel 38.5 | |
+| OS — AGX-THOR | Jetson Linux BSP Rel 38.4 | |
+| NVIDIA Driver — Ubuntu 24.04 | `580.105.08` | exact pin |
+| NVIDIA Driver — Ubuntu 22.04 | `580.65.06` | exact pin |
+| NVIDIA Driver — DGX-SPARK | `580.95.05` | exact pin |
+| NVIDIA Driver — IGX-THOR / AGX-THOR | `580.00` | exact pin |
+| NVIDIA Fabric Manager | `580.105.08` | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX) |
+| NVIDIA Container Toolkit | `1.17.8+` | |
+| Docker | `28.3.3+` **and** `< 29.5.0` | upper bound: `29.5.0`+ breaks NGC image pulls — see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
+| Docker Compose | `v2.39.1+` | |
+| NGC CLI | `4.10.0+` | use `ngc` skill |
 
 ---
 
