@@ -208,10 +208,31 @@ jobs:
             echo "no results dir — agent blocked before running trials (expected for blocker outcomes)"
             exit 0
           fi
+          # Exclude per-trial agent/ subdirs from the artifact tarball
+          # (NOT from the runner-local tree). The trajectory files
+          # inside (claude-code.txt, trajectory.json, sessions/) capture
+          # every tool_use → tool_result pair verbatim — so when the
+          # agent reads a `.env` file, runs `docker compose config`, or
+          # cats a resolved compose YAML, the secret env values land in
+          # the trajectory and then ride along into the public artifact.
+          # PR #516's artifact carried NGC_CLI_API_KEY for ~2 days
+          # before deletion + rotation; this exclusion prevents the next
+          # occurrence regardless of whether downstream agents / skills
+          # tighten their own logging.
+          #
+          # `tar --exclude='agent'` removes those subdirs from the
+          # archive only — the on-disk `/tmp/skill-eval/results/` tree
+          # is left intact, so the harbor-view systemd unit serving
+          # `/tmp/skill-eval/results/_viewer/` keeps rendering the full
+          # trajectory (`Trace` tab) for operators who hit
+          # `https://harbor-<BREV_ENV_ID>.brevlab.com/jobs/...`.
+          # Reward, judge, and result.json — which the report builder
+          # actually consumes — stay in the artifact.
           RESULTS=$(find /tmp/skill-eval/results -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
-            tar czf /tmp/skills-eval-results.tar.gz -C /tmp/skill-eval results
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files"
+            tar czf /tmp/skills-eval-results.tar.gz \
+              -C /tmp/skill-eval --exclude='agent' results
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded; on-disk tree preserved for harbor view)"
           else
             echo "results dir exists but empty — nothing to archive"
           fi
