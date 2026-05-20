@@ -801,19 +801,37 @@ TRAJ=/tmp/skill-eval/results/<run>/<date>/<trial>/agent/trajectory.json
 # Turns = count of assistant messages (one per agent reasoning step)
 jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
 
-# Prompt tokens (uncached input) — read final_metrics first, fall back
-# to per-message sum. Sum across every model entry; some trials
-# exercise more than one (e.g. a vision model alongside the main
-# reasoning model), and `to_entries[0]` would silently drop them.
-jq -r '[.final_metrics.modelUsage | to_entries[].value.inputTokens // 0] | add // 0' "$TRAJ"
+# Step 1 — decide which extraction path to use. `final_metrics`
+# is written when the trial completes cleanly; crashed-mid-run
+# trials have it missing or null. Branch explicitly so a missing
+# block doesn't silently render as "0 tokens" (indistinguishable
+# from a clean trial that happened to have zero uncached input,
+# which is technically possible).
+if jq -e 'has("final_metrics") and (.final_metrics.modelUsage != null)' "$TRAJ" >/dev/null; then
+  # Step 2a — canonical path: sum across every model entry.
+  # Some trials exercise more than one model (e.g. a vision model
+  # alongside the main reasoning model); `to_entries[0]` would
+  # silently drop them.
+  PROMPT_TOK=$(jq -r '[.final_metrics.modelUsage | to_entries[].value.inputTokens // 0] | add // 0' "$TRAJ")
 
-# Cached tokens (cache read + cache creation are both "cached" for our
-# purposes — they're the warm context the prompt reused). Same
-# multi-model summation as above.
-jq -r '
-  [.final_metrics.modelUsage | to_entries[].value
-   | (.cacheReadInputTokens // 0) + (.cacheCreationInputTokens // 0)] | add // 0
-' "$TRAJ"
+  # Cached tokens (cache read + cache creation are both "cached"
+  # for our purposes — they're the warm context the prompt reused).
+  CACHED_TOK=$(jq -r '
+    [.final_metrics.modelUsage | to_entries[].value
+     | (.cacheReadInputTokens // 0) + (.cacheCreationInputTokens // 0)] | add // 0
+  ' "$TRAJ")
+else
+  # Step 2b — fallback: sum per-message `usage` blocks from the
+  # stream. `| add` on an empty array evaluates to null, not 0;
+  # guard each field with `// 0` so a trial that crashed before
+  # any assistant message renders 0s, not nulls.
+  read PROMPT_TOK CACHED_TOK < <(jq -r '
+    [.steps[].message | fromjson | select(.type=="assistant") | .message.usage] as $u
+    | ($u | map(.input_tokens // 0) | add // 0) as $in
+    | ($u | map((.cache_read_input_tokens // 0) + (.cache_creation_input_tokens // 0)) | add // 0) as $cached
+    | "\($in) \($cached)"
+  ' "$TRAJ")
+fi
 
 # Duration: trial start/end times — use Harbor's result.json which has
 # `trial_started_at` / `trial_finished_at` (ISO 8601). Compute the diff
@@ -830,21 +848,6 @@ the breakdown, look at the trace). The "Prompt tok" column is the
 uncached input — what's actually billed at the full input rate. The
 "Cached tok" column is read + creation combined — what the cache hit
 on, billed at the much lower cache rate.
-
-If a trial crashed before writing `final_metrics`, sum per-message
-usage from the stream instead:
-
-```bash
-# `| add` on an empty array evaluates to null, not 0 — guard each
-# field with `// 0` so a crashed-mid-run trial with zero assistant
-# messages renders blank-safe 0s rather than nulls in the table.
-jq -r '
-  [.steps[].message | fromjson | select(.type=="assistant") | .message.usage]
-  | { inputTokens:           map(.input_tokens // 0)              | add // 0,
-      cacheReadInputTokens:  map(.cache_read_input_tokens // 0)   | add // 0,
-      cacheCreationInputTokens: map(.cache_creation_input_tokens // 0) | add // 0 }
-' "$TRAJ"
-```
 
 For a `⏭️ skipped` step, write `—` (em-dash) in all four metric
 columns — there's no trial to extract from.
