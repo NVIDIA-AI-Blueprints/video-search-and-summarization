@@ -3,7 +3,7 @@
 ## Deployment
 
 Deployment is delegated to the VSS Orchestrator MCP server at
-`http://host.openshell.internal:9902/mcp`. Do **not** invoke
+`http://host.openshell.internal:9988/mcp`. Do **not** invoke
 `deploy/docker/scripts/dev-profile.sh`, scan for repo paths, or prompt the
 user for `HARDWARE_PROFILE` / `NGC_CLI_API_KEY` — the MCP server inherits
 them from the host environment.
@@ -38,7 +38,7 @@ blob costs ~5 KB of context per session.
 
 ```bash
 # 1. initialize, capture the session id
-SID=$(curl -sN -D /tmp/h.txt -X POST http://host.openshell.internal:9902/mcp \
+SID=$(curl -sN -D /tmp/h.txt -X POST http://host.openshell.internal:9988/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   --data @- <<'EOF' >/dev/null
@@ -47,7 +47,7 @@ EOF
   grep -i '^mcp-session-id:' /tmp/h.txt | awk '{print $2}' | tr -d '\r')
 
 # 2. send initialized notification (no id; expect HTTP 202, empty body)
-curl -s -X POST http://host.openshell.internal:9902/mcp \
+curl -s -X POST http://host.openshell.internal:9988/mcp \
   -H "Mcp-Session-Id: $SID" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
@@ -57,7 +57,7 @@ curl -s -X POST http://host.openshell.internal:9902/mcp \
 ### Calling a tool
 
 ```bash
-curl -s -X POST http://host.openshell.internal:9902/mcp \
+curl -s -X POST http://host.openshell.internal:9988/mcp \
   -H "Mcp-Session-Id: $SID" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
