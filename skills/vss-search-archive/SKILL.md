@@ -86,29 +86,17 @@ When using this skill, ALWAYS follow this high-level workflow:
    ```
 
    Then:
-   - **If the named source (or a clearly substring-matching name) IS in the list** → record the exact registered name (call it `<sensor_id>`) and proceed to step 3.
+   - **If the named source (or a clearly substring-matching name) IS in the list** → proceed to step 3. Forward the user's natural-language query verbatim — the agent's own search tool decomposer (`services/agent/src/vss_agents/tools/search.py`) extracts `video_sources` from the prose given the available sources, so the skill does NOT need to construct a structured `video sources` payload.
    - **If the named source is NOT in the list** → STOP. Do NOT fire `/generate` as a probe. Respond to the user with the registered source names and ask whether they meant one of those, want to ingest the missing video, or want to abandon the query. Wait for clarification.
    - **If the query names no specific source** ("find forklifts in the ingested videos", "search across all sources") → skip the substring check, but `sensor/list` must still return non-empty (otherwise no sources are ingested → HARD STOP).
-3. **Scope the `/generate` request to the resolved source.** When step 2 produced a specific `<sensor_id>`, the `/generate` payload MUST pass it via the `video sources` control knob — do NOT rely on the natural-language `input_message` alone to constrain the search:
-
-   ```bash
-   curl -s -X POST http://${HOST_IP}:8000/generate \
-     -H "Content-Type: application/json" \
-     -d '{
-       "input_message": "find all instances of forklifts",
-       "video sources": ["<sensor_id>"]
-     }' | jq .
-   ```
-
-   `/generate` does not reliably infer source scope from `input_message` prose ("find forklifts **in warehouse_cam_3**") — the `video sources` array is the authoritative filter. Omit it only for the no-specific-source branch from step 2.
-4. Run the search(es) via approach chosen
-5. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
+3. Run the search(es) via approach chosen
+4. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
    — Use clear section headers
    - Organize findings individually with supporting detail, and close with a summary
    - Use tables where comparisons help. Write like a technical report, not a chat message.
-6. CRITICAL: Verify the results and explain this to the user concisely.
+5. CRITICAL: Verify the results and explain this to the user concisely.
    If search fails, or returns unexpected results (i.e. videos that do not appear to match user query, zero matches, zero videos returned, error etc.), STOP. Do not proceed without reading [troubleshooting.md](references/troubleshooting.md) to iterate with feedback loops until proper results are found and presented like a professional inspection report.
-7. Final verifications:
+6. Final verifications:
    - ALWAYS inform user that final and further verifications can be run. Present this as a `Verification Step`
    - ONLY IF user agrees, download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query
 
