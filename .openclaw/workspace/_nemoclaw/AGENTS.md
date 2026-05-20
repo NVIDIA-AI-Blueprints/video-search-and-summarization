@@ -146,7 +146,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 
 ### VSS Deploy Conventions
 
-> **Deployment is handled by the VSS Orchestrator MCP server at `http://host.openshell.internal:9902/mcp`. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown — call MCP tools using the recipe in TOOLS.md. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
+> **Deployment is handled by the VSS Orchestrator MCP server at `http://host.openshell.internal:9988/mcp`. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown — call MCP tools using the recipe in TOOLS.md. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
 
 > The tool names below (`vss_orchestrator__*`) are listed for orientation, but **always confirm them against `tools/list` output** (per TOOLS.md) before invoking — use whatever names discovery returns.
 
