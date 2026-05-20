@@ -1,0 +1,38 @@
+{
+  "skills": ["vss-manage-alerts", "vss-deploy-profile"],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["remote-all"]
+      }
+    }
+  },
+  "deploy_mode": "real-time",
+  "env": "VSS alerts profile already deployed in VLM real-time mode (`deploy -p alerts -m real-time`). Alert Bridge running and reachable. Sensor `warehouse_sample` and `Camera_02` registered in VIOS with live RTSP streams. Pre-authorized to deploy prerequisites.",
+  "description": "Routing boundary: Workflow E (Slack — requires explicit 'slack'/'webhook' keywords) vs other workflows. Tests that the word 'notify' alone does NOT trigger Slack setup, and that explicit Slack keywords do.",
+  "expects": [
+    {
+      "query": "Set up Slack notifications for alerts",
+      "checks": [
+        "The trajectory attempts to configure alert-notify (pip install, .env setup, server.py launch, or /health check) — explicit 'Slack' keyword routes to Workflow E.",
+        "The trajectory does NOT call Alert Bridge `POST /api/v1/realtime` — this is Slack setup, not alert creation.",
+        "The trajectory does NOT call `POST /generate` for this step."
+      ]
+    },
+    {
+      "query": "Notify me when there's smoke or fire on Camera_02",
+      "checks": [
+        "The trajectory calls Alert Bridge `POST /api/v1/realtime` — 'notify me when <condition> on <sensor>' is an alert creation intent (Workflow D), NOT Workflow E.",
+        "The agent does NOT attempt to configure Slack or call alert-notify endpoints — the word 'notify' alone does not trigger Slack.",
+        "The Alert Bridge payload's `prompt` references smoke or fire detection."
+      ]
+    },
+    {
+      "query": "Alert and notify on my phone when there's motion on Camera_02",
+      "checks": [
+        "The agent does NOT route to Workflow E — 'phone' is not Slack/webhook.",
+        "The agent either routes to Workflow D (sensor + condition present: 'motion on Camera_02') or explains that phone notifications are not supported and asks to clarify the notification channel."
+      ]
+    }
+  ]
+}
