@@ -110,6 +110,13 @@ infra:
       limits:
         memory: 512Mi
         cpu: 500m
+  sdrc:
+    enabled: true
+    configFilePath: configs/sdrc/config-2d.yml
+    config:
+      configMapName: sdrc-config
+      key: config.yml
+      mountPath: /config.yml
   phoenix:
     enabled: true
     # Serve Phoenix behind ingress path prefix (http://<host>/phoenix).
