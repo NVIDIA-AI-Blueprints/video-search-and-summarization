@@ -265,10 +265,9 @@ data:
 
     {{- $veModel := dig "models" "visionEncoder" "model" "siglip_v2" $rtvi }}
     {{- $veVersion := dig "models" "visionEncoder" "version" "v1.1" $rtvi }}
-    {{- $veDsName := dig "models" "visionEncoder" "dsModelName" (printf "%s-onnx" ($veModel | replace "_v2" "2")) $rtvi }}
     [text-embedder]
     enable=1
-    model-name={{ $veDsName }}
+    model-name=siglip2-onnx
     onnx-model-path=/opt/storage/{{ $veModel }}_{{ $veVersion }}.onnx
     tokenizer-dir=/opt/storage/{{ $veModel }}_{{ $veVersion }}_tokenizer/
 
