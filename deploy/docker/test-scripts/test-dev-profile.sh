@@ -652,19 +652,47 @@ run_dry_run_test "up base with llm/vlm" up -p base -i 127.0.0.1 --llm nvidia/nem
 run_negative_test "llm-env-file must exist" 1 up -p base -i 127.0.0.1 --llm-env-file /nonexistent/llm.env -d
 run_negative_test "vlm-env-file must exist" 1 up -p base -i 127.0.0.1 --vlm-env-file ./nonexistent-vlm.env -d
 run_dry_run_test "up alerts real-time mode" up -p alerts -i 127.0.0.1 -m real-time -d
-# L40S forbids local_shared for LLM/VLM; search profile default is local_shared (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
+# L40S forbids local_shared for LLM/VLM; search profile default is local_shared for LLM (device 1 in FIXED_SHARED). Use remote LLM so L40S is allowed.
 LLM_ENDPOINT_URL=http://127.0.0.1:1 run_dry_run_test "up search with L40S (allowed)" up -p search -i 127.0.0.1 -H L40S --use-remote-llm --llm x -d
 
 # Search: critic enabled by default → generated.env ENABLE_CRITIC=true when unset or truthy; ENABLE_CRITIC=false + VLM_NAME_SLUG=none when explicitly false
 run_dry_run_up_and_check_generated_env "generated.env search default ENABLE_CRITIC=true" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
 ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=true sets ENABLE_CRITIC" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
 ENABLE_CRITIC=TRUE run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=TRUE normalizes to true" "search" \
   -i 127.0.0.1 -d -- \
-  "ENABLE_CRITIC" "true"
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
+_mock_brev_two_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_brev_two_gpu_dir}")
+cat > "${_mock_brev_two_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n1\n'
+else
+  printf 'NVIDIA RTX PRO 6000 Blackwell\nNVIDIA RTX PRO 6000 Blackwell\n'
+fi
+EOF
+chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU disables ENABLE_CRITIC" "search" \
+  -i 127.0.0.1 -d -- \
+  "ENABLE_CRITIC" "false" "VLM_NAME_SLUG" "none" "VLM_DEVICE_ID" "2"
+_mock_brev_three_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_brev_three_gpu_dir}")
+cat > "${_mock_brev_three_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n1\n2\n'
+else
+  printf 'NVIDIA RTX PRO 6000 Blackwell\nNVIDIA RTX PRO 6000 Blackwell\nNVIDIA RTX PRO 6000 Blackwell\n'
+fi
+EOF
+chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
+PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env ENABLE_CRITIC=true run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU preserves ENABLE_CRITIC" "search" \
+  -i 127.0.0.1 -d -- \
+  "ENABLE_CRITIC" "true" "VLM_DEVICE_ID" "2"
 ENABLE_CRITIC=false run_dry_run_up_and_check_generated_env "generated.env search ENABLE_CRITIC=false sets ENABLE_CRITIC false" "search" \
   -i 127.0.0.1 -d -- \
   "ENABLE_CRITIC" "false"

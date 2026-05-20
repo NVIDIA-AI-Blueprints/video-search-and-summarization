@@ -71,6 +71,13 @@ function get_nvidia_smi_gpu_name() {
   echo "${_name}"
 }
 
+function get_nvidia_smi_gpu_count() {
+  local _count
+  _count="$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+  [[ "${_count}" =~ ^[0-9]+$ ]] || _count="0"
+  echo "${_count}"
+}
+
 # Maps GPU product name (from nvidia-smi) to a canonical hardware type for detection. Returns OTHER if no match.
 # AGX-THOR and IGX-THOR both map to THOR (single canonical type). Matching is case-insensitive.
 function get_detected_hardware_profile() {
@@ -1262,11 +1269,22 @@ function state_up() {
   fi
 
   # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
+  # Brev 2-GPU launchables do not have enough local devices for the Search critic VLM assignment, so disable critic there as well.
   # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
   if [[ "${profile}" == "search" ]]; then
     if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
       set_env_var "ENABLE_CRITIC" "false"
       set_env_var "VLM_NAME_SLUG" "none"
+    elif [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+      local _brev_gpu_count
+      _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
+      if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
+        echo "[WARN] Brev environment has ${_brev_gpu_count} GPU(s). Disabling Search critic to avoid starting the local VLM on GPU ${vlm_device_id}."
+        set_env_var "ENABLE_CRITIC" "false"
+        set_env_var "VLM_NAME_SLUG" "none"
+      else
+        set_env_var "ENABLE_CRITIC" "true"
+      fi
     else
       set_env_var "ENABLE_CRITIC" "true"
     fi
