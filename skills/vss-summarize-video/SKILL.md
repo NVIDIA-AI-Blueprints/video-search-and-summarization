@@ -165,27 +165,37 @@ done
 
 ---
 
-## Step 1 — Resolve the video to a clip URL (delegate to `vss-manage-video-io-storage`)
+## Step 1 - Get the clip URL via `vss-manage-video-io-storage` (sub-task, NOT the final answer)
 
-**Use the `vss-manage-video-io-storage` skill for all VIOS interactions** — it owns the
+**Use the `vss-manage-video-io-storage` skill for all VIOS interactions** - it owns the
 canonical curl recipes, parameter defaults, and delete/upload flows. Do not
 fabricate URLs or hand-roll VIOS calls here; they will drift.
 
-From `vss-manage-video-io-storage`, you need exactly three things for summarization:
+Calling `vss-manage-video-io-storage` is a sub-task. You (the summarization
+agent) are not done when it returns. The clip URL and duration are inputs
+to Step 2 below, which is where summarization actually happens. Do NOT
+end your turn after this step; do NOT return the clip URL as the final
+answer to the caller.
 
-1. **`streamId`** for the video (via `sensor/list` → `sensor/<id>/streams`,
+From `vss-manage-video-io-storage`, collect exactly three values:
+
+1. **`streamId`** for the video (via `sensor/list` -> `sensor/<id>/streams`,
    or directly from an upload response).
-2. **Timeline** — `{startTime, endTime}` for the stream, ISO 8601 UTC.
+2. **Timeline** - `{startTime, endTime}` for the stream, ISO 8601 UTC.
    `endTime - startTime` is the duration that drives the routing decision
    below. Always compute; never assume.
-3. **Temporary MP4 clip URL** — the `/storage/file/<streamId>/url` variant
+3. **Temporary MP4 clip URL** - the `/storage/file/<streamId>/url` variant
    with `container=mp4`. The VLM and LVS both need an HTTP(S) URL they can
    `GET`; the `/url` variant is preferred over streaming bytes through the
    summarization client. Response field: `.videoUrl`.
 
 Everything else (auth, error handling, upload, `disableAudio`, expiry, etc.)
-is covered in the `vss-manage-video-io-storage` skill — refer users there if the VIOS step
+is covered in the `vss-manage-video-io-storage` skill - refer users there if the VIOS step
 fails.
+
+**Once you have these three values, proceed immediately to Step 2a (`<60s`)
+or Step 2b (`>=60s`) below. The deliverable is the rendered summary from
+Step 2, not the clip URL from Step 1.**
 
 ---
 
@@ -459,7 +469,12 @@ output, not mixed into it.
   identical to a real failure. Use the `curl -s -o /dev/null -w
   '%{http_code}'` pattern from *Setup → Availability checks* verbatim.
 - **Delegate VIOS to `vss-manage-video-io-storage`.** Do not hand-roll clip-URL, timeline, or
-  upload calls here — they'll drift from the canonical recipes.
+  upload calls here - they'll drift from the canonical recipes.
+- **`vss-manage-video-io-storage` is a sub-task, not the final answer.** Step 1 returns
+  ingredients ($CLIP, $DURATION); the deliverable is the Step 2 summary.
+  Do not end your turn after Step 1 - continue to Step 2a / 2b and render
+  the LVS or VLM output. Returning the clip URL as your final answer is
+  the single most common failure mode of the LVS path.
 - **Duration is authoritative.** Don't route on filename or user hints;
   compute from the timeline returned by `vss-manage-video-io-storage`.
 - **`jq` twice for LVS.** First unwraps the OpenAI-style envelope, second
