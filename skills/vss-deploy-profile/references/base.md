@@ -17,7 +17,6 @@ Video upload, Q&A, and report generation with HITL (Human-in-the-Loop) feedback.
 | Elasticsearch | mdx-elasticsearch-1 | 9200 | Analytics data store |
 | Kafka | mdx-kafka-1 | 9092 | Message broker |
 | Redis | mdx-redis-1 | 6379 | Cache |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability / telemetry |
 
 ## Default Models
 
@@ -422,7 +421,6 @@ The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automati
 | Agent REST API | `http://<HOST_IP>:8000/` |
 | Swagger UI | `http://<HOST_IP>:8000/docs` |
 | Reports | `http://<HOST_IP>:8000/static/agent_report_<DATE>.md` |
-| Phoenix telemetry | `http://<HOST_IP>:6006/` |
 
 ## Env File Location
 

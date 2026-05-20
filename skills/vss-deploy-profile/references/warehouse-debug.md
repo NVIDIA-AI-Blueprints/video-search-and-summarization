@@ -50,7 +50,6 @@ bp_wh-only stack (RTVI VLM + agent):
   vss-agent ← depends on LLM, vios
   vss-agent-ui ← depends on vss-agent
   vss-va-mcp
-  phoenix
 
 vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_PORT)
 ```
@@ -121,7 +120,6 @@ vss-haproxy-ingress — bp_wh OR kafka/redis extended (front-door on HAPROXY_POR
 | `vss-agent-ui` | Next.js UI |
 | `vss-va-mcp` | Video Analysis MCP server |
 | `vss-haproxy-ingress` | Front-door on `HAPROXY_PORT` (default `7777`). Also deployed in kafka/redis extended (proxies VST + kibana + analytics API there) |
-| `phoenix` | Telemetry / observability |
 
 > **No VLM NIM container.** VSS has two VLM paths: standalone VLM NIM (`VLM_MODE` / `VLM_NAME_SLUG`) and integrated RTVI VLM (`vss-rtvi-vlm`). Warehouse uses **RTVI VLM only** — `vss-agent` connects to it directly. `VLM_MODE=none` in the warehouse `.env`. Do not search for a VLM NIM container — it does not exist in this stack.
 
@@ -230,7 +228,6 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 | `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | All |
 | `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | All |
 | `/alert-bridge`, `.../...` | `vss-alert-bridge` | `bp_wh` only |
-| `/phoenix`, `.../...` | `phoenix` | `bp_wh` only |
 | `/va-mcp`, `.../...` | `vss-va-mcp` | `bp_wh` only |
 | `/api`, `/api/...` | `vss-agent` | `bp_wh` only |
 | `/api/chat`, `.../...` | `vss-agent-ui` | `bp_wh` only |
@@ -245,7 +242,6 @@ nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory \
 | Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
 | VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
 | VST MCP (direct) | `http://<HOST_IP>:8001` | All |
-| Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
 | Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
 | Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
 | VST UI (direct) | `http://<HOST_IP>:30888/vst` | Prefer `/vst` via HAProxy |
@@ -314,7 +310,7 @@ docker ps -a --filter "status=exited" --filter "status=dead" \
 | 3D extra | `vss-rtvi-cv-config-adaptor` |
 | MV3DT profiles | broker, `vss-broker-health-check`, `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, the `vss-vios-*` VST stack |
 | `bp_wh_auto_calib` | `vss-vios-nvstreamer` / `vss-vios-nvstreamer-mv3dt`, `vss-configurator` / `vss-configurator-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, VST stack (subset) — no broker, no perception, no analytics |
-| `bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `phoenix`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared` |
+| `bp_wh` extra | `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, LLM NIM (container name = `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared` |
 | Extended (kafka/redis, any mode) extra | `logstash`, `kibana`, `vss-video-analytics-api` / `vss-video-analytics-api-mv3dt` |
 | `vss-haproxy-ingress` | `BP_PROFILE=bp_wh`, **or** kafka/redis extended (any mode) |
 | `elasticsearch` | `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode). **Minimal does NOT deploy ES** |

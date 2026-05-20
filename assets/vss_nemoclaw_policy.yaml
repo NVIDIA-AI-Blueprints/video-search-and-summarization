@@ -257,7 +257,7 @@ network_policies:
       access: full
       allowed_ips:
       - 172.17.0.0/24
-    # Agent UI (3000), Auto-Calibration UI (5000), Phoenix (6006), VST MCP (8001),
+    # Agent UI (3000), Auto-Calibration UI (5000), VST MCP (8001),
     # Auto-Calibration MS (8010), RT-Embed (8017), RT-VLM (8018), Kafka (9092),
     # VA-MCP (9901), NvStreamer UI (31000), LVS REST (38111), LVS MCP (38112).
     - host: host.openshell.internal
