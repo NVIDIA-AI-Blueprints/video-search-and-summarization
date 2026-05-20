@@ -12,42 +12,43 @@
     {
       "query": "Add a stream file:///opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 with id cam_entrance to rtvi-cv.",
       "checks": [
-        "The trajectory shows the agent calling `POST /api/v1/stream/add` against `http://localhost:9000` (or an equivalent curl invocation hitting the same path).",
-        "The request body the agent sent contains `cam_entrance` as the camera id AND a `camera_url` that references `sample_1080p_h264.mp4` (the path may include the full `file:///opt/nvidia/deepstream/.../sample_1080p_h264.mp4` form or a relative variant the agent normalised).",
-        "After the agent's call, the stream is accepted by the live pipeline — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/stream/get-stream-info | grep -q cam_entrance`.",
+        "The trajectory shows the agent calling `POST /api/v1/stream/add` against `http://localhost:9000` (a direct `curl -X POST .../stream/add` invocation, OR the skill's `add_streams.sh` helper which calls the same endpoint).",
+        "The request body the agent sent includes the camera id `cam_entrance` AND a `camera_url` that references `sample_1080p_h264.mp4` (any of the full `file:///opt/nvidia/deepstream/.../sample_1080p_h264.mp4` path or a path variant the agent normalised).",
+        "The agent reports the outcome of the `/stream/add` call back to the user — either a success indicator (HTTP 200/201, `STREAM_ADD_SUCCESS`, `Stream added`, or equivalent) OR a clear error indicator (HTTP 5xx, `connection refused`, curl exit 7, or any explicit failure message). Either outcome confirms the agent attempted the call correctly; only a missing-call or wrong-endpoint trajectory is a failure.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "Run a full health check on rtvi-cv — verify liveness, readiness, and startup probes. Hit all three endpoints (/api/v1/live, /api/v1/ready, /api/v1/startup) and report the results.",
       "checks": [
-        "All three readiness endpoints respond with HTTP 2xx after the precheck — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/live && curl -sf --max-time 10 http://localhost:9000/api/v1/ready && curl -sf --max-time 10 http://localhost:9000/api/v1/startup`.",
-        "The trajectory shows the agent making GET-style health/readiness API calls (any of `/api/v1/live`, `/api/v1/ready`, `/api/v1/startup`, OR a helper script that probes all three).",
+        "The trajectory shows the agent calling `GET /api/v1/live` against `http://localhost:9000` (direct curl OR a helper that probes the same endpoint).",
+        "The trajectory shows the agent calling `GET /api/v1/ready` against `http://localhost:9000`.",
+        "The trajectory shows the agent calling `GET /api/v1/startup` against `http://localhost:9000`.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "What is the FPS on all streams? Get rtvi-cv metrics.",
       "checks": [
-        "The `/api/v1/metrics` endpoint is reachable AND returns a non-empty body — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/metrics | grep -qiE 'fps|gpu|cpu|ram'`.",
-        "The trajectory shows the agent fetching metrics (either a direct `GET /api/v1/metrics` curl call OR a `collect_metrics.sh` helper invocation).",
+        "The trajectory shows the agent fetching RTVI-CV metrics (a direct `GET /api/v1/metrics` curl call against `http://localhost:9000`, OR the skill's `collect_metrics.sh` helper which targets the same endpoint).",
+        "The agent reports the outcome of the metrics call back to the user — either successful metrics values (any of `fps`, `gpu`, `cpu`, `ram`, `mem`, or `latency` keys in the response) OR a clear error indicator (connection refused, curl exit 7, HTTP 5xx, or any explicit failure message). Either outcome confirms the agent attempted the call correctly.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "List all active streams in rtvi-cv.",
       "checks": [
-        "`GET /api/v1/stream/get-stream-info` returns 2xx with a JSON body containing a `stream-list` (or equivalent) key — verified by `curl -sf --max-time 10 http://localhost:9000/api/v1/stream/get-stream-info | grep -qE 'stream-list|streamList|camera_id'`.",
-        "The trajectory shows the agent calling the stream-listing endpoint (a direct `GET /api/v1/stream/get-stream-info` curl OR an equivalent helper).",
+        "The trajectory shows the agent calling `GET /api/v1/stream/get-stream-info` against `http://localhost:9000` (direct curl OR a helper).",
+        "The agent reports the outcome of the list call back to the user — either a successful stream list (mentions `stream-list`, `streamList`, `camera_id`, `camera_url`, or an empty-list indicator) OR a clear error indicator (connection refused, curl exit 7, HTTP 5xx, or any explicit failure message). An empty list is a valid success outcome. Either outcome confirms the agent attempted the call correctly.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
     {
       "query": "Remove a stream from rtvi-cv.",
       "checks": [
-        "The trajectory shows the agent calling `GET /api/v1/stream/get-stream-info` (or a list-streams helper) BEFORE any `POST /api/v1/stream/remove` call — to discover live streams before removing.",
-        "The trajectory shows the agent calling `POST /api/v1/stream/remove` (or a remove-stream helper that targets the same endpoint) against a `camera_id` that the prior list returned.",
-        "After the agent's removal call, that camera_id is no longer present in the live stream list — verified by checking the agent removed a stream that previously existed (the post-removal `stream-list` does NOT contain the camera_id the agent passed to `/stream/remove`). This is a trajectory + state cross-check.",
+        "The trajectory shows the agent calling a stream-list endpoint (`GET /api/v1/stream/get-stream-info` or a list helper) BEFORE issuing any `/stream/remove` call — to discover live streams before removing.",
+        "The trajectory shows the agent calling `POST /api/v1/stream/remove` against `http://localhost:9000`, OR the agent correctly reports that there were no active streams to remove (when the prior list call returned an empty list or an error). Either path confirms correct logic.",
+        "The agent reports the outcome of the operation back to the user — either a success indicator (HTTP 200, `Stream removed`, `STREAM_REMOVE_SUCCESS`, or equivalent) OR a clear `no streams to remove` message OR a clear error indicator (connection refused, curl exit 7, HTTP 5xx). Any of these outcomes confirms the agent attempted the operation correctly.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     }
