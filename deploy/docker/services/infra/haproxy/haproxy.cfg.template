@@ -72,12 +72,6 @@ backend bk_alert_bridge_strip
     http-request replace-path ^/alert-bridge$ /
     server s1 "${HOST_IP}:${ALERT_BRIDGE_PORT}" check
 
-# Strip /phoenix like Phoenix examples/reverse-proxy (Traefik stripPrefix); keep PHOENIX_HOST_ROOT_PATH in sync.
-backend bk_phoenix_strip
-    http-request replace-path ^/phoenix/(.*) /\1
-    http-request replace-path ^/phoenix$ /
-    server s1 "${HOST_IP}:${PHOENIX_PORT}" check
-
 frontend fe_http
     bind "${HAPROXY_BIND_ADDR}:${HAPROXY_PORT}"
 
@@ -128,10 +122,6 @@ frontend fe_http
     acl p_kibana path /kibana
     acl p_kibana path_beg /kibana/
     use_backend bk_kibana if h_main p_kibana
-
-    acl p_phoenix path /phoenix
-    acl p_phoenix path_beg /phoenix/
-    use_backend bk_phoenix_strip if h_main p_phoenix
 
     acl p_api_chat path /api/chat
     acl p_api_chat path_beg /api/chat/

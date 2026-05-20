@@ -35,18 +35,6 @@ services:
       start_period: 5s
 
 
-  phoenix:
-    container_name: phoenix
-    image: 'arizephoenix/phoenix:14.15.0'
-    profiles: ["bp_wh_2d","bp_developer_base_2d","bp_developer_search_2d","bp_developer_lvs_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    environment:
-      PHOENIX_WORKING_DIR: '/.phoenix/'
-      PHOENIX_HOST_ROOT_PATH: '/phoenix'
-    volumes:
-    - phoenix-data:/.phoenix
-    ports:
-    - 6006:6006
-
   elasticsearch:
     build:
       context: $VSS_APPS_DIR/services/infra
@@ -278,7 +266,6 @@ services:
     restart: "no"
 
 volumes:
-  phoenix-data:
   mdx-logstash-libs:
   mdx-elastic-data:
     driver: local
