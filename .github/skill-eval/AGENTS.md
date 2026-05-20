@@ -767,26 +767,81 @@ One comment per `(PR, eval_spec)` batch, posted only after every
 Head: `<short-sha>` · N platforms · spec `<spec-sha>`
 First started: `<utc>` · Last finished: `<utc>` · Total: `<Ahr Bmin>`
 
-| Platform | Result | Reward | Duration | Trace |
-|---|---|---|---|---|
-| L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | [trace](…) |
-| RTXPRO6000BW | ❌ 0.57 (4/7) | 0.571 | 14m 42s | [trace](…) |
-| …    | …     | …    | … | … |
+| Platform | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
+|---|---|---|---|---|---|---|---|
+| L40S | ✅ 1.0 (7/7) | 1.0 | 9m 40s | 23 | 8.4k | 156k | [trace](…) |
+| RTXPRO6000BW | ❌ 0.57 (4/7) | 0.571 | 14m 42s | 41 | 31k | 412k | [trace](…) |
+| …    | …     | …    | … | … | … | … | … |
 
 For multi-step specs, render one row per step and mark
 prior-fail-skips explicitly:
 
-| Platform | Step | Query | Result | Reward | Trace |
-|---|---|---|---|---|---|
-| L40S | step-1 | Deploy alerts (VLM real-time) | ✅ 1.0 (6/6) | 1.0 | [trace](…) |
-| L40S | step-2 | Add warehouse_sample via NVStreamer | ❌ 0.2 (1/5) | 0.2 | [trace](…) |
-| L40S | step-3 | Query incidents | ⏭️ skipped (prior-step fail, step-2 reward=0.2) | — | — |
-| L40S | step-4 | … | ⏭️ skipped | — | — |
+| Platform | Step | Query | Result | Reward | Duration | Turns | Prompt tok | Cached tok | Trace |
+|---|---|---|---|---|---|---|---|---|---|
+| L40S | step-1 | Deploy alerts (VLM real-time) | ✅ 1.0 (6/6) | 1.0 | 11m 12s | 18 | 6.1k | 98k | [trace](…) |
+| L40S | step-2 | Add warehouse_sample via NVStreamer | ❌ 0.2 (1/5) | 0.2 | 3m 04s | 12 | 4.2k | 41k | [trace](…) |
+| L40S | step-3 | Query incidents | ⏭️ skipped (prior-step fail, step-2 reward=0.2) | — | — | — | — | — | — |
+| L40S | step-4 | … | ⏭️ skipped | — | — | — | — | — | — |
 
 A `⏭️ skipped` row means the dispatch loop short-circuited after
 the previous step's reward < 1.0. The step was not run — its
 checks would have asserted state that was never set up. Read the
 prior step's trace to see the actual failure.
+
+### Extracting per-trial metrics
+
+For each completed trial under `/tmp/skill-eval/results/<run_id>/<date>/<trial>/`,
+populate the new columns by reading the trajectory's `final_metrics`
+block (or falling back to the streaming usage blocks if `final_metrics`
+is missing because the trial crashed mid-run):
+
+```bash
+TRAJ=/tmp/skill-eval/results/<run>/<date>/<trial>/agent/trajectory.json
+
+# Turns = count of assistant messages (one per agent reasoning step)
+jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
+
+# Prompt tokens (uncached input) — read final_metrics first, fall back
+# to per-message sum. Both keys may exist; sum the cache-miss portion.
+jq -r '.final_metrics.modelUsage | to_entries[0].value.inputTokens // 0' "$TRAJ"
+
+# Cached tokens (cache read + cache creation are both "cached" for our
+# purposes — they're the warm context the prompt reused).
+jq -r '
+  .final_metrics.modelUsage | to_entries[0].value
+  | (.cacheReadInputTokens // 0) + (.cacheCreationInputTokens // 0)
+' "$TRAJ"
+
+# Duration: trial start/end times — use Harbor's result.json which has
+# `trial_started_at` / `trial_finished_at` (ISO 8601). Compute the diff
+# in seconds; render as `<m>m <s>s` for under an hour, `<h>h <m>m` for
+# over.
+jq -r '[.trial_started_at, .trial_finished_at] | @tsv' \
+  /tmp/skill-eval/results/<run>/<date>/<trial>/result.json
+```
+
+Render tokens with k/M suffixes — `8400` → `8.4k`, `5_178_086` → `5.2M`.
+Round to 1 decimal. Output tokens are intentionally not shown per
+trial (almost always a small fraction of input + cached; if you need
+the breakdown, look at the trace). The "Prompt tok" column is the
+uncached input — what's actually billed at the full input rate. The
+"Cached tok" column is read + creation combined — what the cache hit
+on, billed at the much lower cache rate.
+
+If a trial crashed before writing `final_metrics`, sum per-message
+usage from the stream instead:
+
+```bash
+jq -r '
+  [.steps[].message | fromjson | select(.type=="assistant") | .message.usage]
+  | { inputTokens:           map(.input_tokens // 0)              | add,
+      cacheReadInputTokens:  map(.cache_read_input_tokens // 0)   | add,
+      cacheCreationInputTokens: map(.cache_creation_input_tokens // 0) | add }
+' "$TRAJ"
+```
+
+For a `⏭️ skipped` step, write `—` (em-dash) in all four metric
+columns — there's no trial to extract from.
 
 ### Failing checks
 
