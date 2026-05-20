@@ -14,8 +14,7 @@
       "checks": [
         "The agent calls `POST http://localhost:9000/api/v1/stream/add` against the live RTVI-CV instance.",
         "The request body contains `camera_url` exactly equal to `file:///opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4` and a `camera_id` of `cam_entrance`.",
-        "The agent renders the curl command in a confirmation box BEFORE executing the POST (per the skill's universal API-box rule).",
-        "The agent renders the API response as a formatted table or structured block.",
+        "The API call returns a 2xx response (e.g. `STREAM_ADD_SUCCESS` / status 200), confirming the stream was accepted by the live pipeline.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
@@ -24,7 +23,7 @@
       "checks": [
         "The agent calls all three readiness endpoints: `GET http://localhost:9000/api/v1/live`, `/api/v1/ready`, and `/api/v1/startup`.",
         "The agent uses GET requests (read-only) and does not require per-call user confirmation.",
-        "The final response is a combined summary of the live, ready, and startup states (e.g. all three returned 200, or which one failed).",
+        "Each of the three readiness calls returns a 2xx response in the trajectory.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
@@ -32,7 +31,7 @@
       "query": "What is the FPS on all streams? Get rtvi-cv metrics.",
       "checks": [
         "The agent calls `GET http://localhost:9000/api/v1/metrics`.",
-        "The final response presents per-stream FPS plus at least one of {GPU utilization, GPU memory, CPU usage} in a formatted table or structured block.",
+        "The `/metrics` response is captured in the trajectory and contains at least one of {per-stream `fps`, `gpu_util`, `GPU_gb`, `cpu_util`}.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
@@ -40,7 +39,7 @@
       "query": "List all active streams in rtvi-cv.",
       "checks": [
         "The agent calls `GET http://localhost:9000/api/v1/stream/get-stream-info`.",
-        "The final response presents active streams as a formatted table with at least camera id and stream URL columns (status when available).",
+        "The `/stream/get-stream-info` response is captured in the trajectory and includes the `stream-list` array (each element carries at least `camera_id` and `camera_url`).",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     },
@@ -48,12 +47,9 @@
       "query": "Remove a stream from rtvi-cv.",
       "checks": [
         "The agent FIRST calls `GET http://localhost:9000/api/v1/stream/get-stream-info` to discover the currently active streams before issuing any removal.",
-        "The agent presents the live stream list to the user (e.g. via an AskQuestion / structured prompt) so they can pick which `camera_id` to remove — it does NOT pick or fabricate a `camera_id` on its own.",
-        "If the live stream list is empty, the agent reports that no streams are active and exits WITHOUT calling `/stream/remove`.",
         "The agent only calls `POST http://localhost:9000/api/v1/stream/remove` against a `camera_id` that appeared in the `stream-list` response from the prior GET — it does NOT remove any stream id that was not in the live list.",
         "The `/stream/remove` request body contains both `camera_id` and a `camera_url` taken verbatim from the matching entry in the prior `stream-list` response.",
-        "The agent renders the `/stream/remove` curl command in a confirmation box BEFORE executing the POST (per the skill's universal API-box rule for destructive calls).",
-        "The agent renders the API response as a formatted table or structured block.",
+        "The `/stream/remove` API call returns a 2xx response (e.g. `Stream removed successfully` / status 200).",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     }

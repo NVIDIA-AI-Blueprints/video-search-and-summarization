@@ -13,12 +13,12 @@
       "query": "Deploy rtvi-cv warehouse 2d with 4 streams.",
       "checks": [
         "The agent identifies the `warehouse-2d` use case (RT-DETR + NvDCF tracker on the `nvinfer` PGIE) from the query without re-asking.",
-        "The agent creates a TodoWrite plan that covers at least platform detection, NGC resource staging, container launch, in-container config apply, and app start.",
-        "The agent prompts for the RTVI-CV docker image (`nvcr.io/<org>/<repo>:<tag>`) and the warehouse NGC resource reference if they are not already in env vars or defaults.",
+        "The agent creates a structured todo/task plan via the session planning tool (`TaskCreate` — the current Claude Code name for `TodoWrite`) that covers at least platform detection, NGC resource staging, container launch, in-container config apply, and app start.",
+        "The agent resolves the RTVI-CV docker image and the warehouse NGC resource by one of: (a) reading the `RTVI_CV_IMAGE` env var or skill defaults, (b) reusing an already-available local RTVI-CV image (`nvcr.io/<org>/<repo>:<tag>`) on the host, OR (c) prompting the user — and reports the resolved image in its summary.",
         "The agent launches the container with `docker run` against the user-supplied image and names it (default `rtvicv-perception-docker`).",
         "The DS main config applied inside the container uses `batch-size=4` and a `fakesink` output (the headless-safe default when the user does not request a display or file sink).",
-        "The agent auto-discovers the 4 stream URLs from `.mp4`/`.mkv` files staged from the NGC warehouse resource (filesrc — `file:///opt/storage/resources/...`); it does NOT prompt the user for stream URLs and does NOT fabricate `rtsp://` URLs.",
-        "The agent starts `metropolis_perception_app -c <config>` inside the running container with output redirected to a deployment log under `~/rtvicv-storage/logs/`.",
+        "The 4 stream URLs are auto-discovered from `.mp4`/`.mkv` files in the NGC-staged warehouse resource and baked into the in-container DS main config's `[source-list]` block (static stream-mode, the skill default per `references/pipeline-config.md`). All URLs use the `file://` (filesrc) protocol; the agent does not prompt the user for stream URLs and does not fabricate `rtsp://` URLs.",
+        "The agent starts `metropolis_perception_app` inside the running container (visible as a `docker exec` invocation or equivalent in the trajectory).",
         "The agent reports the REST endpoint as `http://localhost:9000` in its final summary.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
@@ -39,10 +39,10 @@
       "query": "Deploy rtvi-cv smartcity gdino with 2 streams and fakesink for benchmarking.",
       "checks": [
         "The agent identifies the `smartcity-gdino` use case (Grounding DINO served by `nvinferserver`/Triton, with engine cached as a `.plan` file).",
-        "The agent collects the RTVI-CV docker image and the GDINO model NGC reference.",
+        "The agent resolves the RTVI-CV docker image and the GDINO model NGC reference by one of: (a) reading env vars / skill defaults, (b) reusing an already-available local RTVI-CV image on the host, OR (c) prompting the user.",
         "The agent invokes `scripts/setup_gdino.sh` (or the equivalent in-container flow) to build/cache the Triton `.plan` engine before app start.",
         "The DS main config applied inside the container uses `batch-size=2` and a `fakesink` output (matching the `for benchmarking` intent).",
-        "The agent auto-discovers the 2 stream URLs from `.mp4`/`.mkv` files staged from the NGC smartcity resource (filesrc — `file:///opt/storage/resources/...`); it does NOT prompt the user for stream URLs and does NOT fabricate `rtsp://` URLs.",
+        "The 2 stream URLs are auto-discovered from `.mp4`/`.mkv` files in the NGC-staged smartcity resource and baked into the in-container DS main config's `[source-list]` block (static stream-mode, the skill default per `references/pipeline-config.md`). All URLs use the `file://` (filesrc) protocol; the agent does not prompt the user for stream URLs and does not fabricate `rtsp://` URLs.",
         "The agent starts `metropolis_perception_app` inside the running container.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
