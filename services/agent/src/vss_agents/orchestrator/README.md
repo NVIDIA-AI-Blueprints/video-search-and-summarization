@@ -23,7 +23,7 @@ From `services/agent/`:
 export HARDWARE_PROFILE=RTXPRO6000BW  # optional deployment-wide override
 export NGC_CLI_API_KEY="<your-ngc-key>"  # required only when pulling/downloading NGC/NIM artifacts
 export NVIDIA_API_KEY="<your-nvidia-key>"  # required only for NVIDIA-hosted remote endpoints
-uv run nat mcp serve --config_file ../../deploy/docker/scripts/vss_orchestrator_mcp_config.yml --port 9902
+uv run nat mcp serve --config_file ../../deploy/docker/scripts/vss_orchestrator_mcp_config.yml --port 9988
 ```
 
 For profile `.env` values and MCP startup values, `docker_generate` resolves in this order, with later entries overriding earlier ones:
@@ -41,7 +41,7 @@ Example, call `profiles` against the locally running server:
 ```bash
 uv run nat mcp client tool call \
   vss_orchestrator__docker_generate \
-  --url http://localhost:9902/mcp \
+  --url http://localhost:9988/mcp \
   --transport streamable-http \
   --json-args '{
     "env_overrides": [
