@@ -208,10 +208,27 @@ jobs:
             echo "no results dir — agent blocked before running trials (expected for blocker outcomes)"
             exit 0
           fi
+          # Strip per-trial agent/ subdirs before tarring. The trajectory
+          # files inside (claude-code.txt, trajectory.json, sessions/)
+          # capture every tool_use → tool_result pair verbatim — so when
+          # the agent reads a `.env` file, runs `docker compose config`,
+          # or cats a resolved compose YAML, the secret env values land
+          # in the trajectory and then ride along into the public
+          # artifact. PR #516's artifact carried NGC_CLI_API_KEY for ~2
+          # days before deletion + rotation; this strip prevents the
+          # next occurrence regardless of whether downstream agents /
+          # skills tighten their own logging. The reward, judge, and
+          # result.json files that the report builder actually consumes
+          # are kept; trajectories remain on the runner-local
+          # `/home/ubuntu/eval-sweep/` tree for live debugging via the
+          # Harbor viewer.
+          STRIPPED=$(find /tmp/skill-eval/results -type d -name agent | wc -l | tr -d ' ')
+          find /tmp/skill-eval/results -type d -name agent -prune -exec rm -rf {} + 2>/dev/null || true
+          echo "stripped $STRIPPED agent/ subdir(s) from results tree before tarring"
           RESULTS=$(find /tmp/skill-eval/results -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
           if [ -n "$RESULTS" ]; then
             tar czf /tmp/skills-eval-results.tar.gz -C /tmp/skill-eval results
-            echo "archived $(echo "$RESULTS" | wc -l) result.json files"
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files (trajectories excluded)"
           else
             echo "results dir exists but empty — nothing to archive"
           fi
