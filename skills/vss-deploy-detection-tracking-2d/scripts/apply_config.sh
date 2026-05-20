@@ -54,7 +54,12 @@ set -euo pipefail
 USECASE=""
 BATCH=""
 SINK="fakesink"
-STREAM_MODE="dynamic"
+# Default matches references/pipeline-config.md § "Defaults — the skill is
+# static-mode by default": eval rubrics for "deploy with N streams" queries
+# expect static [source-list] entries baked in before app start. Callers
+# can still pass --stream-mode dynamic when the user explicitly asks for
+# REST-driven stream attach.
+STREAM_MODE="static"
 ONNX_OVERRIDE=""
 VIDEOS_OVERRIDE=""
 LABELS_OVERRIDE=""

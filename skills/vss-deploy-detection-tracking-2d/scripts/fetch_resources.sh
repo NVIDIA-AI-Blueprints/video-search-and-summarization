@@ -191,7 +191,11 @@ resolve_ngc_role() {
     local container_path="${host_path/$RESOURCES_DIR/$CONTAINER_RESOURCES}"
     local label="FILE"
     [[ "$role" == "VIDEOS" ]] && label="DIR"
-    printf '%s_%s_HOST=%s\n%s_%s_CONTAINER=%s\n' \
+    # Use %q so user-supplied paths containing spaces, quotes, $, backticks,
+    # or other shell metacharacters cannot break out of the caller's
+    # `eval "$(fetch_resources.sh …)"`. Mirrors discover_streams.sh and
+    # load_defaults.sh.
+    printf '%s_%s_HOST=%q\n%s_%s_CONTAINER=%q\n' \
         "$role" "$label" "$host_path" \
         "$role" "$label" "$container_path"
     echo "✔ $role: $(basename "$host_path")" >&2
@@ -233,7 +237,8 @@ resolve_local_role() {
     local container_path="${staged/$RESOURCES_DIR/$CONTAINER_RESOURCES}"
     local label="FILE"
     [[ "$role" == "VIDEOS" ]] && label="DIR"
-    printf '%s_%s_HOST=%s\n%s_%s_CONTAINER=%s\n' \
+    # %q for eval-safety — same rationale as resolve_ngc_role above.
+    printf '%s_%s_HOST=%q\n%s_%s_CONTAINER=%q\n' \
         "$role" "$label" "$staged" \
         "$role" "$label" "$container_path"
     echo "✔ $role: staged from $local_path" >&2
