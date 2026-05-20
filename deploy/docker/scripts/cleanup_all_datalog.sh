@@ -58,7 +58,7 @@ function process_args() {
     while true; do
       case "${1}" in
         -e | --env-file) shift; _env_files+=("${1}"); shift; ;;
-        -b | --blueprint) shift; _env_files+=("${script_dir}/../${1}/.env"); shift; ;;
+        -b | --blueprint) shift; _env_files+=("${script_dir}/../industry-profiles/${1}/.env"); shift; ;;
         -d | --dev-profile) shift; _env_files+=("${script_dir}/../developer-profiles/dev-profile-${1}/.env"); shift; ;;
         --skip-delete-calibration-data) delete_calibration_data="false"; shift; ;;
         --skip-delete-vst-data) delete_vst_data="false"; shift; ;;
