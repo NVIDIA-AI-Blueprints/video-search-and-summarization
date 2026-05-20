@@ -113,6 +113,37 @@ function mask_secret() {
   fi
 }
 
+function mask_external_ip_args() {
+  local _arg _masked_value
+  local _mask_next="false"
+  local _masked_args=()
+  for _arg in "$@"; do
+    if [[ "${_mask_next}" == "true" ]]; then
+      _masked_args+=("$(mask_secret "${_arg}")")
+      _mask_next="false"
+      continue
+    fi
+    case "${_arg}" in
+      -e|--external-ip)
+        _masked_args+=("${_arg}")
+        _mask_next="true"
+        ;;
+      --external-ip=*)
+        _masked_value="${_arg#--external-ip=}"
+        _masked_args+=("--external-ip=$(mask_secret "${_masked_value}")")
+        ;;
+      -e?*)
+        _masked_value="${_arg#-e}"
+        _masked_args+=("-e$(mask_secret "${_masked_value}")")
+        ;;
+      *)
+        _masked_args+=("${_arg}")
+        ;;
+    esac
+  done
+  echo "${_masked_args[*]}"
+}
+
 function usage() {
   echo "Usage: ${0} (up|down) [options]"
   echo "   or: ${0} (-h|--help)"
@@ -189,7 +220,7 @@ function validate_args() {
 
   _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:n:h:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
-    echo "[ERROR] Invalid usage: ${_args[*]}"
+    echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
   else
     eval set -- "${_valid_args}"
@@ -530,7 +561,7 @@ function print_args() {
     fi
     echo "host-ip:                  ${host_ip}"
     if [[ -n "${external_ip}" ]]; then
-      echo "external-ip:               ${external_ip}"
+      echo "external-ip:               $(mask_secret "${external_ip}")"
     fi
     echo "ngc-cli-api-key:          $(mask_secret "${ngc_cli_api_key}")"
   fi
@@ -589,7 +620,7 @@ function state_up() {
   set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
   if [[ -n "${external_ip}" ]]; then
-    set_env_var "EXTERNAL_IP" "${external_ip}"
+    set_env_var "EXTERNAL_IP" "${external_ip}" "true"
   fi
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
   if [[ -n "${mode}" ]]; then
