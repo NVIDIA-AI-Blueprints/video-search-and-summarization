@@ -14,3 +14,7 @@ __pycache__/
 # vss-deploy-profile skill on every deploy.
 **/generated.env
 deploy/docker/resolved.yml
+
+*.log
+*checkpoint.*
+.orchestrator-artifacts/*
