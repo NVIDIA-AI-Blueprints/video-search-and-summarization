@@ -109,6 +109,18 @@ mention in your response that you used generic defaults (offer to redo
 with more specific parameters). **Do not apply defaults without that
 explicit opt-in** — the HITL message is the gate.
 
+**Defaults opt-in via the original query (autonomous mode).** When HITL
+is bypassed (e.g. the caller said "run autonomously without prompting
+for confirmation") and the original query contains the word `default`
+or `defaults` for scenario/events, treat that as the same opt-in as a
+HITL `defaults` reply: use `scenario="activity monitoring"` and
+`events=["notable activity"]` **verbatim** - do not infer the scenario
+from the video filename, sensor name, or any other context. In the
+final reply, note that you used the generic defaults and offer to redo
+with more specific parameters. The same rule applies if the original
+query gives no scenario/events at all and HITL is bypassed - use the
+canonical defaults rather than guessing.
+
 **Request:**
 
 ```bash
