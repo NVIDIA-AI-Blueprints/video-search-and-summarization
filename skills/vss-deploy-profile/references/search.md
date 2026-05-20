@@ -25,7 +25,6 @@ Semantic video search via Cosmos Embed1 embeddings indexed in Elasticsearch. The
 | VST | mdx-vst-1 | 30888 | Video storage + ingest |
 | Elasticsearch + Logstash + Kibana | mdx-elasticsearch-1, logstash, kibana | 9200, 5601 | Index, ingest pipeline, dashboards |
 | Kafka | mdx-kafka-1 | 9092 | Embedding pipeline message bus |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability |
 
 ## Default models
 
@@ -264,7 +263,6 @@ For Path B (default — VLM on GPU 0 with RT-CV), the math is on GPU 0 instead: 
 | Elasticsearch | `http://<HOST_IP>:9200/` |
 | Kibana | `http://<HOST_IP>:5601/` |
 | VLM (Path B/C) | `http://<HOST_IP>:30082/v1/` (NIM) or `http://<HOST_IP>:8018/v1/` (RT-VLM) |
-| Phoenix | `http://<HOST_IP>:6006/` |
 
 ## Env file location
 

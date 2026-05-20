@@ -42,10 +42,10 @@ https://7777-<BREV_ENV_ID>.brevlab.com
 
 | Profile | Required links | Optional |
 |---|---|---|
-| `base` | **7777** (nginx proxy — UI + Agent + VST) | 6006 (Phoenix tracing) |
-| `lvs` | **7777**, **5601** (Kibana) | 6006 |
-| `search` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
-| `alerts` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
+| `base` | **7777** (nginx proxy — UI + Agent + VST) | — |
+| `lvs` | **7777**, **5601** (Kibana) | — |
+| `search` | **7777**, **5601**, **31000** (nvstreamer) | — |
+| `alerts` | **7777**, **5601**, **31000** (nvstreamer) | — |
 
 Ports that should NOT get their own secure link (they're behind the nginx proxy):
 3000 (UI), 8000 (Agent), 30888 (VST).
