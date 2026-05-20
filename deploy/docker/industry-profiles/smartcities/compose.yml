@@ -44,7 +44,7 @@ services:
     volumes:
       - $VSS_APPS_DIR/industry-profiles/smartcities/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
       - $VSS_APPS_DIR/industry-profiles/smartcities/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $VSS_DATA_DIR/videos/smartcities:/home/vst/vst_release/streamer_videos
+      - $VSS_DATA_DIR/videos/smc-app:/home/vst/vst_release/streamer_videos
       - $VSS_DATA_DIR/data_log/nvstreamer/vst_data:/home/vst/vst_release/vst_data
       - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
