@@ -15,6 +15,14 @@
 # specific package + version pin before the override lands. If OSRB has not
 # approved, the right action is to replace the dep, not add it here.
 #
+# Override matching is by PACKAGE NAME ONLY (not name + license). Trade-off:
+# if an overridden package quietly relicenses upstream to something else
+# non-permissive in a future version, this file silently continues to clear
+# it. Mitigation is reviewer discipline — re-evaluate every entry whenever
+# `services/agent/uv.lock` is updated. If that ever becomes too noisy, the
+# upgrade path to `name, expected-license` pairs is a small additive change
+# to load_overrides() in check_python_licenses.py.
+#
 # ---------------------------------------------------------------------------
 # Active overrides — OSRB review pending on LGPL-3.0 specifically.
 # Bernd's OSRB regime list (bweber/osrb-skills .cursor reference.md) names
