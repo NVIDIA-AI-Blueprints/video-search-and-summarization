@@ -75,13 +75,54 @@ is_valid_usecase "$USECASE" || die "Invalid use case: $USECASE (valid: ${USECASE
 # may be shared / attached to bug reports, so a future caller passing
 # `-e NGC_API_KEY=...` in --docker-cmd or `Authorization: Bearer ...` in
 # --app-cmd would otherwise leak the credential.
+#
+# Implemented in Python re.sub rather than a sed chain so that BOTH bare
+# tokens AND quoted ('single' / "double") credential values are
+# redacted uniformly. Greptile P1: the previous sed patterns used
+# [^[:space:]"']+ which failed at the opening quote of a quoted value,
+# silently letting the raw token through.
+#
+# The -p pattern additionally uses a negative lookahead to skip docker
+# port mappings (NUM, NUM:NUM, NUM:NUM/proto) so a `docker run -p
+# 9000:9000` doesn't get falsely redacted in the deploy-command log.
 redact_secrets() {
-    sed -E \
-        -e 's/(NGC_API_KEY=)[^[:space:]"'"'"']+/\1<REDACTED>/g' \
-        -e 's/(api[_-]?key=)[^[:space:]"'"'"']+/\1<REDACTED>/Ig' \
-        -e 's/(--api[_-]?key[= ])[^[:space:]"'"'"']+/\1<REDACTED>/Ig' \
-        -e 's/(Authorization:[[:space:]]*[A-Za-z]+[[:space:]]+)[^[:space:]"'"'"']+/\1<REDACTED>/Ig' \
-        -e 's/(-p[[:space:]]+)[^[:space:]"'"'"']+/\1<REDACTED>/g'
+    local PY_SCRIPT
+    PY_SCRIPT=$(cat <<'PY_EOF'
+import re, sys
+
+# Value matcher that accepts any of:
+#   - "double-quoted any content"
+#   - 'single-quoted any content'
+#   - bare token (no whitespace, no quotes)
+VAL = r'(?:"[^"]*"|\'[^\']*\'|[^\s"\']+)'
+
+PATTERNS = (
+    # NGC_API_KEY=<value>  (env-var form; case-sensitive)
+    (re.compile(r'(NGC_API_KEY=)' + VAL),                               r'\1<REDACTED>'),
+    # api_key=… / api-key=…  (case-insensitive, any provider)
+    (re.compile(r'(api[_-]?key=)' + VAL, re.IGNORECASE),                r'\1<REDACTED>'),
+    # --api_key=… / --api-key …
+    (re.compile(r'(--api[_-]?key[= ])' + VAL, re.IGNORECASE),           r'\1<REDACTED>'),
+    # Authorization: <scheme> <token>
+    (re.compile(r'(Authorization:\s*[A-Za-z]+\s+)' + VAL, re.IGNORECASE), r'\1<REDACTED>'),
+    # -p <value> — but NOT when the value is a docker port mapping
+    # (NUM, NUM:NUM, NUM:NUM/proto, or HOST_IP:NUM:NUM forms).
+    (re.compile(
+        r'(-p\s+)'
+        # Negative lookahead: a docker -p port-mapping value followed
+        # by whitespace or end-of-string.
+        r'(?!(?:[0-9.]+:)?[0-9]+(?::[0-9]+)?(?:/\w+)?(?:\s|$))'
+        + VAL
+    ), r'\1<REDACTED>'),
+)
+
+for line in sys.stdin:
+    for pat, repl in PATTERNS:
+        line = pat.sub(repl, line)
+    sys.stdout.write(line)
+PY_EOF
+)
+    python3 -c "$PY_SCRIPT"
 }
 
 LOGS_DIR="${STORAGE}/logs"
