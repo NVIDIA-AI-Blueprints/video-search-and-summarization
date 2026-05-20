@@ -1,6 +1,6 @@
-# LVS API Reference
+# Video Summarization API Reference
 
-This reference documents the LVS 3.2.0 GA API surface used by
+This reference documents the 3.2.0 GA video summarization API surface used by
 `vss-summarize-video`. The OpenAPI source is
 `long-video-summarization/api_spec/openapi.json`.
 
@@ -36,7 +36,7 @@ to each `curl` call.
 | `/v1/startup` | GET | Startup probe. |
 | `/v1/healthz` | GET | VIA service health status. |
 | `/v1/metadata` | GET | Service metadata. |
-| `/models` | GET | List models available to LVS. |
+| `/models` | GET | List models available to the video summarization service. |
 | `/recommended_config` | POST | Recommend chunking parameters. |
 | `/metrics` | GET | Prometheus metrics. |
 | `/v1/summarize` | POST | Summarize a video file. Canonical 3.2 route. |
@@ -83,7 +83,7 @@ Source fields:
 | Field | Type | Notes |
 |---|---|---|
 | `url` | string or null | HTTP(S) or S3 video URL. |
-| `id` | UUID, array[UUID], or null | File or live stream ids known to LVS. |
+| `id` | UUID, array[UUID], or null | File or live stream ids known to the video summarization service. |
 | `media_info` | object | Offset or timestamp segment selector. |
 
 Common optional fields:

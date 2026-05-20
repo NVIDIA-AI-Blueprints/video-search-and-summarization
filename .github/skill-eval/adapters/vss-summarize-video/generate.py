@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for the vss-summarize-video skill.
 
-The vss-summarize-video skill exercises the LVS microservice on
+The vss-summarize-video skill exercises the video summarization service on
 `http://localhost:38111` against a **full-remote-deployed VSS lvs profile**
-(deploy mode = `remote-all`; the agent's LLM and the VLM that LVS calls
-are both served via remote launchpad endpoints, no local NIMs). It does
+(deploy mode = `remote-all`; the agent's LLM and the VLM that the video
+summarization service calls are both served via remote launchpad endpoints,
+no local NIMs). It does
 NOT deploy VSS itself; the coordinator chains a deploy task in front and
 seeds the sample warehouse video via the vss-manage-video-io-storage skill before this trial.
 
@@ -107,13 +108,14 @@ def generate_solve_script(platform: str) -> str:
         f"# Gold solution: vss-summarize-video on {platform}\n"
         "set -euo pipefail\n"
         "\n"
+        "VIDEO_SUMMARIZATION_URL=\"${VIDEO_SUMMARIZATION_URL:-${LVS_BACKEND_URL:-http://localhost:38111}}\"\n"
         "curl -sf --connect-timeout 5 "
-        "${LVS_URL:-http://localhost:38111}/v1/ready "
+        "${VIDEO_SUMMARIZATION_URL}/v1/ready "
         ">/dev/null || {\n"
-        "    echo 'LVS is not deployed — cannot solve vss-summarize-video task'\n"
+        "    echo 'video summarization service is not deployed — cannot solve vss-summarize-video task'\n"
         "    exit 1\n"
         "}\n"
-        "echo 'LVS is live — verifier will drive the queries.'\n"
+        "echo 'video summarization service is live — verifier will drive the queries.'\n"
     )
 
 

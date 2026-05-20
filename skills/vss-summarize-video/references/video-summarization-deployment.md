@@ -1,6 +1,6 @@
-# Deploy LVS Service Reference
+# Video Summarization Deployment Reference
 
-Use `vss-deploy-profile` for full deployment. This file is the LVS-specific
+Use `vss-deploy-profile` for full deployment. This file is the video summarization-specific
 service reference for the VSS 3.2.0 `lvs` profile.
 
 ## Current VSS Docker Compose Shape
@@ -18,9 +18,9 @@ Key service signals in the current develop branch:
 | Item | Value |
 |---|---|
 | Compose profile | `bp_developer_lvs_2d` |
-| LVS service | `lvs-server` |
-| LVS container | `vss-lvs` |
-| LVS image | `${LVS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.0-rc10-6f75390}` |
+| video summarization service | `lvs-server` |
+| video summarization container | `vss-lvs` |
+| video summarization image | `${LVS_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-summarization}:${LVS_TAG:-3.2.0-rc10-6f75390}` |
 | REST API | `http://<HOST_IP>:38111` |
 | Readiness | `GET /v1/ready` |
 | MCP port | `38112`, disabled by default in the developer profile |
@@ -51,7 +51,7 @@ Prefer the profile deploy skill:
 ```
 
 If you are already operating the resolved Docker Compose stack, include the
-profile that owns LVS:
+profile that owns the video summarization service:
 
 ```bash
 docker compose --profile bp_developer_lvs_2d ps lvs-server
@@ -77,17 +77,17 @@ Core required values:
 | `LLM_NAME`, `LLM_NAME_SLUG` | LLM model and deployment slug. |
 | `VLM_NAME` | Must match the id returned by RT-VLM `/v1/models`. |
 
-LVS service values:
+Video summarization service values:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing LVS URL. |
-| `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | LVS image repository. |
-| `LVS_TAG` | `3.2.0-rc10-6f75390` | LVS image tag in current develop. |
+| `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
+| `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | video summarization image repository. |
+| `LVS_TAG` | `3.2.0-rc10-6f75390` | video summarization image tag in current develop. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker address from the LVS container. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker address from the video summarization container. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary publish topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` in dev-profile-lvs | Merge duplicate or overlapping events with the LLM. |
 
@@ -96,7 +96,7 @@ RT-VLM values:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing RT-VLM URL. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | LVS-facing RT-VLM URL. |
+| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing RT-VLM URL. |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason2` | RT-VLM backend selector for default integrated mode. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Default integrated checkpoint. |
 | `RTVI_VLM_KAFKA_ENABLED` | `true` | Publish raw captions to Kafka. |
@@ -140,7 +140,7 @@ global values.
 ## Common Checks
 
 ```bash
-# LVS health
+# video summarization health
 curl -sf "http://${HOST_IP}:38111/v1/ready" >/dev/null
 
 # RT-VLM model id
