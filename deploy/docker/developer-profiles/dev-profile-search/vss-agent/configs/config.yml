@@ -55,13 +55,6 @@ general:
       allow_headers: ['*']
       allow_credentials: false
 
-  telemetry:
-    tracing:
-      phoenix:
-        _type: phoenix
-        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
-        project: DEV-SEARCH-vss-agent-${VSS_AGENT_VERSION}
-
 object_stores:
   local_object_store:
     _type: in_memory
