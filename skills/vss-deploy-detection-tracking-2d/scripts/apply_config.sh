@@ -439,9 +439,15 @@ case "$USECASE" in
   smartcity-gdino)
       (
         [[ $FORCE_REBUILD -eq 1 ]] && export FORCE_ENGINE_REBUILD=1
-        GDINO_ARGS=(--batch "$BATCH")
-        [[ -n "$ONNX_OVERRIDE" ]] && GDINO_ARGS+=(--onnx "$ONNX_OVERRIDE")
-        /tmp/scripts/setup_gdino.sh "${GDINO_ARGS[@]}"
+        # Pass the already-resolved $ONNX (from Step 4.a auto-discovery or
+        # --onnx override) so setup_gdino.sh does NOT perform its own
+        # independent resolve_unique_path lookup. Re-discovery races with
+        # any concurrent file write under $RESOURCES and can hit
+        # RESOLVE_AMBIGUOUS if a second copy of the gdino ONNX ever lands
+        # in the tree — apply_config.sh treats setup_gdino failure as a
+        # non-fatal warning, so a silent miss here would leave the deploy
+        # without a working TRT engine and only surface at inference time.
+        /tmp/scripts/setup_gdino.sh --batch "$BATCH" --onnx "$ONNX"
       ) &
       ENGINE_PID=$! ;;
 esac

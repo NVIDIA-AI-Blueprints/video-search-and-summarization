@@ -134,9 +134,16 @@ require_dir "$VIDEOS_DIR"
 echo "RESOLVE_OK: videos-dir=$VIDEOS_DIR" >&2
 
 # ── Enumerate video files (.mp4, .mkv) in stable sorted order ───
-shopt -s nullglob
-mapfile -t MP4S < <(printf '%s\n' "$VIDEOS_DIR"/*.mp4 "$VIDEOS_DIR"/*.mkv | sort)
-shopt -u nullglob
+# Use `find` instead of `printf + nullglob | sort`: when the dir has zero
+# matching files, `printf '%s\n'` (with no positional args) still emits one
+# empty line, which `mapfile` captures as a 1-element array `("")`. The
+# `(( orig_count > 0 ))` guard below then incorrectly passes and downstream
+# code processes an empty path. `find` returns nothing for empty dirs, so
+# the guard fires correctly.
+mapfile -t MP4S < <(
+    find "$VIDEOS_DIR" -maxdepth 1 -type f \( -name '*.mp4' -o -name '*.mkv' \) \
+        2>/dev/null | sort
+)
 orig_count=${#MP4S[@]}
 (( orig_count > 0 )) || { echo "ERROR: no .mp4/.mkv files under $VIDEOS_DIR" >&2; exit 2; }
 
