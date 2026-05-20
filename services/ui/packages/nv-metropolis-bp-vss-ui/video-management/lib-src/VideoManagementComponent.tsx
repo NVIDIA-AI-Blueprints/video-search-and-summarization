@@ -336,12 +336,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       const range = getLastTimelineForStream(stream.streamId);
       if (!range) return;
       startTime = range.startTime;
-      const rangeStart = new Date(range.startTime).getTime();
-      const rangeEnd = new Date(range.endTime).getTime();
-      endTime =
-        rangeEnd - rangeStart > 30000
-          ? new Date(rangeStart + 30000).toISOString()
-          : range.endTime;
+      endTime = range.endTime;
     }
 
     setLoadingStreamId(stream.streamId);

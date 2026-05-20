@@ -390,6 +390,36 @@ rm -f "${out_file}" "${err_file}"
 # --- Negative: invalid or missing args ---
 run_negative_test "getopt invalid usage (unknown option)" 1 up -p base --unknown-option
 run_negative_test "getopt invalid usage (unknown short option)" 1 up -p base -z
+out_file="$(mktemp)"
+err_file="$(mktemp)"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base --external-ip 192.168.1.100 --unknown-option > "${out_file}" 2> "${err_file}"
+exit_code=$?
+set -e
+failed=0
+if [[ ${exit_code} -eq 124 ]]; then
+  echo "FAIL: getopt invalid usage masks external-ip (timed out)"
+  ((failed++)) || true
+elif [[ ${exit_code} -ne 1 ]]; then
+  echo "FAIL: getopt invalid usage masks external-ip (expected exit 1, got ${exit_code})"
+  ((failed++)) || true
+else
+  if grep -Fq "192.168.1.100" "${out_file}" "${err_file}"; then
+    echo "FAIL: getopt invalid usage masks external-ip (unmasked value appeared in output)"
+    ((failed++)) || true
+  fi
+  if ! grep -Fq -- "--external-ip 192*******100" "${out_file}" "${err_file}"; then
+    echo "FAIL: getopt invalid usage masks external-ip (masked value missing from output)"
+    ((failed++)) || true
+  fi
+fi
+rm -f "${out_file}" "${err_file}"
+if [[ ${failed} -gt 0 ]]; then
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: getopt invalid usage masks external-ip"
+  ((TESTS_PASSED++)) || true
+fi
 run_negative_test "invalid option -k (use NGC_CLI_API_KEY env)" 1 up -p base -k x
 run_negative_test "no args → desired-state required" 1
 run_negative_test "invalid desired-state" 1 invalid_state
@@ -786,6 +816,55 @@ VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "g
 run_dry_run_up_and_check_generated_env "generated.env EXTERNAL_IP from -e" "base" \
  -i 127.0.0.1 -e 192.168.1.100 -d -- \
   "EXTERNAL_IP" "192.168.1.100" "HOST_IP" "127.0.0.1"
+
+# EXTERNAL_IP is written unmasked to generated.env, but must be redacted in script output.
+_gen_env_external_mask="$(generated_env_path "base")"
+_backup_external_mask=""
+if [[ -f "${_gen_env_external_mask}" ]]; then
+  _backup_external_mask="$(mktemp)"
+  cp "${_gen_env_external_mask}" "${_backup_external_mask}"
+fi
+_out_external_mask="$(mktemp)"
+_err_external_mask="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+timeout "${TEST_TIMEOUT}" "$DEV_PROFILE" up -p base -i 127.0.0.1 -e 192.168.1.100 -d > "${_out_external_mask}" 2> "${_err_external_mask}"
+_exit_external_mask=$?
+set -e
+_failed_external_mask=0
+if [[ ${_exit_external_mask} -eq 124 ]]; then
+  echo "FAIL: EXTERNAL_IP masked in output (timed out)"
+  ((_failed_external_mask++)) || true
+elif [[ ${_exit_external_mask} -ne 0 ]]; then
+  echo "FAIL: EXTERNAL_IP masked in output (dev-profile exit ${_exit_external_mask})"
+  sed 's/^/    /' "${_out_external_mask}"
+  ((_failed_external_mask++)) || true
+else
+  if grep -Fq "192.168.1.100" "${_out_external_mask}" "${_err_external_mask}"; then
+    echo "FAIL: EXTERNAL_IP masked in output (unmasked value appeared in output)"
+    ((_failed_external_mask++)) || true
+  fi
+  if ! grep -Fq "external-ip:               192*******100" "${_out_external_mask}"; then
+    echo "FAIL: EXTERNAL_IP masked in output (argument summary missing masked value)"
+    ((_failed_external_mask++)) || true
+  fi
+  if ! grep -Fq "[INFO] Set EXTERNAL_IP=192*******100" "${_out_external_mask}"; then
+    echo "FAIL: EXTERNAL_IP masked in output (env log missing masked value)"
+    ((_failed_external_mask++)) || true
+  fi
+fi
+if [[ -n "${_backup_external_mask}" && -f "${_backup_external_mask}" ]]; then
+  mv "${_backup_external_mask}" "${_gen_env_external_mask}"
+else
+  rm -f "${_gen_env_external_mask}"
+fi
+rm -f "${_out_external_mask}" "${_err_external_mask}"
+if [[ ${_failed_external_mask} -gt 0 ]]; then
+  ((TESTS_FAILED++)) || true
+else
+  echo "PASS: EXTERNAL_IP masked in output"
+  ((TESTS_PASSED++)) || true
+fi
 # LLM_ENV_FILE and VLM_ENV_FILE: paths are resolved to absolute and must exist
 _llm_env_tmp="$(mktemp)"
 _vlm_env_tmp="$(mktemp)"
@@ -1011,7 +1090,7 @@ BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env Brev 
   "HAPROXY_PORT" '${PROXY_PORT:-7777}' \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}0-${BREV_ENV_ID}.brevlab.com' \
+  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
   "VSS_PUBLIC_PORT" "443"
 
 # Brev with custom PROXY_PORT in env: same literals in generated.env (compose expands using env)
@@ -1020,7 +1099,7 @@ BREV_ENV_ID=test-env PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "gen
   "HAPROXY_PORT" '${PROXY_PORT:-7777}' \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}0-${BREV_ENV_ID}.brevlab.com' \
+  "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com' \
   "VSS_PUBLIC_PORT" "443"
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)

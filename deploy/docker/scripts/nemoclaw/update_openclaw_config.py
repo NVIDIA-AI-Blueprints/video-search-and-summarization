@@ -297,18 +297,18 @@ def main() -> int:
     parser.add_argument(
         "--mcp-url",
         default=os.environ.get(
-            "VSS_ORCHESTRATOR_MCP_URL", "http://host.openshell.internal:9902/mcp"
+            "VSS_ORCHESTRATOR_MCP_URL", "http://host.openshell.internal:9988/mcp"
         ).strip(),
         help=(
             "HTTP MCP server URL to register; pass empty string to skip "
-            "(default: http://host.openshell.internal:9902/mcp)"
+            "(default: http://host.openshell.internal:9988/mcp)"
         ),
     )
     args = parser.parse_args()
 
     env_id = get_brev_env_id()
     if env_id:
-        origin = f"https://openclaw0-{env_id}.brevlab.com"
+        origin = f"https://18789-{env_id}.brevlab.com"
     else:
         port = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
         origin = f"http://127.0.0.1:{port}"
