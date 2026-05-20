@@ -343,12 +343,17 @@ if [[ -n "$JSON_OUT" ]]; then
     done
     python3 -c '
 import json, sys
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 samples, interval = int(sys.argv[1]), int(sys.argv[2])
-gpu_util, gpu_mem, cpu_busy, ram = sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
+gpu_util, gpu_mem, cpu_busy, ram = (_num(x) for x in sys.argv[3:7])
 per_stream = {}
 args = sys.argv[7:]
 for i in range(0, len(args), 2):
-    per_stream[args[i]] = float(args[i+1])
+    per_stream[args[i]] = _num(args[i+1])
 print(json.dumps({
     "samples":        samples,
     "interval":       interval,
