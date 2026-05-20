@@ -64,38 +64,19 @@ PERMISSIVE_LICENSE_PATTERNS = [
     # emits.
     r"^Mozilla Public License(?:[ -]?2(?:\.0)?)?(?:\s*\(MPL[ -]?2(?:\.0)?\))?$",
     r"^MPL[ -]?2(?:\.0)?(?:\s*\(MPL[ -]?2(?:\.0)?\))?$",
-    # LGPL — preserved from prior CI behavior (dynamic linking compatible).
-    # Accepts SPDX-style ("LGPL-2.1-only", "LGPL-3.0-or-later") and the
-    # historical pip-metadata strings ("GNU Library or Lesser General
-    # Public License (LGPL)", "GNU Lesser General Public License v3 or later").
-    r"^LGPL(?:v)?[ -]?(?:2\.0|2\.1|3\.0|3)?(?:\+|[ -]?(?:only|or[ -]later))?$",
-    r"^GNU Lesser General Public License(?:[ -]?v?(?:2|2\.0|2\.1|3|3\.0))?(?:[ -]?or[ -]later)?(?:\s*\(LGPL[^)]*\))?$",
-    r"^GNU Library or Lesser General Public License(?:\s*\(LGPL[^)]*\))?$",
+    # LGPL — restricted to V2.1 per Bernd's OSRB regime list
+    # (https://gitlab-master.nvidia.com/bweber/osrb-skills .cursor reference.md).
+    # LGPL-3.0 / LGPL-3 is *not* on Bernd's list; the few LGPL-3.0-or-later
+    # deps (svglib, python-bidi) carry their own line in
+    # license_allowlist_overrides.txt pending explicit OSRB confirmation.
+    r"^LGPL[ -]?(?:v)?2\.1(?:\+|[ -]?(?:only|or[ -]later))?$",
+    r"^GNU Lesser General Public License(?:[ -]?v?2\.1)?(?:[ -]?or[ -]later)?(?:\s*\(LGPL[^)]*\))?$",
 ]
 
 COMPILED_ALLOWLIST = re.compile(
     "|".join(f"(?:{p})" for p in PERMISSIVE_LICENSE_PATTERNS),
     re.IGNORECASE,
 )
-
-# SPDX-style "AND" / OR splitting. OR means "user picks one" — only one
-# alternative needs to be permissive. AND/;/, means "must satisfy all".
-# CASE-SENSITIVE on purpose: lowercase "or" / "and" inside license-name
-# phrases like "GNU Library or Lesser General Public License" must NOT be
-# treated as the SPDX operator. Real SPDX expressions use uppercase OR/AND.
-OR_SPLIT_RE = re.compile(r"\s+OR\s+")
-AND_SPLIT_RE = re.compile(r"\s*(?:;|,|\sAND\s)\s*")
-
-
-def normalize_clause(clause: str) -> str:
-    """Strip surrounding whitespace and quote characters.
-
-    Do NOT strip parentheses — some labels include trailing parentheticals
-    that the allowlist regexes match literally (e.g. "Mozilla Public License
-    2.0 (MPL 2.0)", "GNU Lesser General Public License v3 (LGPL)").
-    """
-    return clause.strip().strip("'\"").strip()
-
 
 def shorten_license_field(license_field: str) -> str:
     """Collapse a pip-metadata `license = <full-text>` blob to its leading label.
@@ -127,48 +108,189 @@ def load_overrides(path: Path) -> set[str]:
     return names
 
 
-_SPDX_OPERATOR_RE = re.compile(r"\b(?:AND|OR)\b")
+# Placeholder chars used to hide label-internal parens from the SPDX tokenizer.
+# Trailing label-clarifying parens like "Mozilla Public License 2.0 (MPL 2.0)"
+# must stay attached to the label; only grouping parens (those containing an
+# SPDX operator at their level) participate in the expression grammar.
+_LABEL_LPAREN = "\x01"
+_LABEL_RPAREN = "\x02"
+_SPDX_OPERATOR_INSIDE_RE = re.compile(r"\b(?:AND|OR|WITH)\b")
+_OP_BOUNDARY_RE = re.compile(r"\s(AND|OR|WITH)(?=\s|$|\))")
 
 
-def _strip_grouping_parens(s: str) -> str:
-    """Flatten SPDX grouping parens to normalize for the AND/OR splitter.
+def _mask_label_internal_parens(s: str) -> str:
+    """Replace label-internal `(...)` with placeholder chars.
 
-    SPDX boolean expressions like ``MPL-2.0 AND (Apache-2.0 OR MIT)`` need the
-    grouping parens removed so a flat AND/OR scan can evaluate them. But many
-    *label-internal* parens are not grouping — ``Mozilla Public License 2.0
-    (MPL 2.0)`` and ``GNU Library or Lesser General Public License (LGPL)``
-    have trailing parentheticals that the allowlist regexes match literally.
-
-    Heuristic: only flatten parens when the string actually looks like an SPDX
-    boolean expression — i.e. it contains *both* a paren and an uppercase
-    ``AND``/``OR`` operator. Otherwise leave the string untouched.
+    A paren group is "grouping" (SPDX operator) iff its top-level contents
+    contain an `AND`/`OR`/`WITH` token. Otherwise it's "label-internal" — e.g.
+    the trailing "(MPL 2.0)" in "Mozilla Public License 2.0 (MPL 2.0)" — and
+    we hide its parens with placeholder chars so the SPDX tokenizer treats
+    them as part of the label.
     """
-    if "(" not in s or not _SPDX_OPERATOR_RE.search(s):
-        return s
-    return s.replace("(", " ").replace(")", " ")
+    out: list[str] = []
+    i = 0
+    while i < len(s):
+        if s[i] != "(":
+            out.append(s[i])
+            i += 1
+            continue
+        depth = 1
+        j = i + 1
+        while j < len(s) and depth > 0:
+            if s[j] == "(":
+                depth += 1
+            elif s[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if depth != 0:
+            # unbalanced — leave alone, treat as plain char
+            out.append(s[i])
+            i += 1
+            continue
+        inner = s[i + 1 : j]
+        if _SPDX_OPERATOR_INSIDE_RE.search(f" {inner} "):
+            # grouping paren — keep as-is
+            out.append(s[i : j + 1])
+        else:
+            # label-internal — mask
+            out.append(_LABEL_LPAREN + inner + _LABEL_RPAREN)
+        i = j + 1
+    return "".join(out)
+
+
+def _restore_label_parens(label: str) -> str:
+    return label.replace(_LABEL_LPAREN, "(").replace(_LABEL_RPAREN, ")")
+
+
+def _label_matches_allowlist(label: str) -> bool:
+    """fullmatch the (paren-restored) label against the permissive allowlist."""
+    normalized = _restore_label_parens(label.strip().strip("'\"").strip())
+    return COMPILED_ALLOWLIST.fullmatch(normalized) is not None
+
+
+class _SpdxParser:
+    """Recursive descent SPDX expression evaluator.
+
+    Grammar (with normal AND-binds-tighter-than-OR precedence):
+
+        expr   ::= or
+        or     ::= and ( 'OR'   and )*
+        and    ::= atom ( 'AND' atom )*
+        atom   ::= '(' or ')' | label ( 'WITH' label )?
+        label  ::= one or more whitespace-separated tokens that are
+                   not 'AND' / 'OR' / 'WITH' / '(' / ')'
+
+    Fixes the false-positive Greptile flagged on ``(A OR B) AND C`` (which the
+    old flat splitter evaluated as ``A OR (B AND C)``) and properly handles
+    the SPDX ``WITH`` exception operator.
+    """
+
+    _OPS_AND_PARENS = {"AND", "OR", "WITH", "(", ")"}
+
+    def __init__(self, expr: str) -> None:
+        self.s = expr
+        self.pos = 0
+        self.n = len(expr)
+
+    # ---------- helpers ----------
+
+    def _skip_ws(self) -> None:
+        while self.pos < self.n and self.s[self.pos].isspace():
+            self.pos += 1
+
+    def _peek(self) -> str | None:
+        """Return the next token TYPE without consuming.
+
+        Returns one of ``"AND"``, ``"OR"``, ``"WITH"``, ``"("``, ``")"``, or
+        ``None`` (meaning "next thing is a label fragment").
+        """
+        self._skip_ws()
+        if self.pos >= self.n:
+            return None
+        ch = self.s[self.pos]
+        if ch in "()":
+            return ch
+        # match a word-boundary operator
+        m = re.match(r"(AND|OR|WITH)(?=\s|$|\))", self.s[self.pos :])
+        if m:
+            return m.group(1)
+        return None
+
+    def _consume(self, token: str) -> None:
+        self._skip_ws()
+        self.pos += len(token)
+
+    # ---------- grammar ----------
+
+    def evaluate(self) -> bool:
+        return self._or()
+
+    def _or(self) -> bool:
+        result = self._and()
+        while self._peek() == "OR":
+            self._consume("OR")
+            right = self._and()
+            result = result or right
+        return result
+
+    def _and(self) -> bool:
+        result = self._atom()
+        while self._peek() == "AND":
+            self._consume("AND")
+            right = self._atom()
+            result = result and right
+        return result
+
+    def _atom(self) -> bool:
+        self._skip_ws()
+        if self._peek() == "(":
+            self._consume("(")
+            result = self._or()
+            if self._peek() == ")":
+                self._consume(")")
+            return result
+        label = self._read_label()
+        # SPDX `WITH <exception>` — evaluate the base license only (the
+        # exception itself never makes a non-permissive license permissive).
+        if self._peek() == "WITH":
+            self._consume("WITH")
+            self._read_label()  # consume + discard the exception name
+        return _label_matches_allowlist(label)
+
+    def _read_label(self) -> str:
+        self._skip_ws()
+        start = self.pos
+        while self.pos < self.n:
+            ch = self.s[self.pos]
+            if ch in "()":
+                break
+            m = re.match(r"(AND|OR|WITH)(?=\s|$|\))", self.s[self.pos :])
+            if m and (self.pos == 0 or self.s[self.pos - 1].isspace()):
+                break
+            self.pos += 1
+        return self.s[start : self.pos].strip()
 
 
 def license_passes(license_field: str) -> bool:
     """Whether the license string is acceptable under the permissive allowlist.
 
-    Boolean evaluation: "A OR B" passes iff *any* alternative passes; each
-    alternative may itself be "X AND Y", in which case all of X, Y must pass.
-    Grouping parens ("(A OR B) AND C") are stripped before splitting so the
-    naive AND/OR scanner can still evaluate the expression correctly under
-    SPDX's "AND binds tighter than OR" precedence.
+    Handles SPDX boolean expressions with full precedence: ``AND`` binds
+    tighter than ``OR``; explicit parens ``(A OR B) AND C`` mean exactly
+    that. ``WITH <exception>`` is consumed; only the base license name
+    determines permissive-ness (an exception cannot rescue a non-permissive
+    license under our allowlist policy).
     """
     if not license_field or license_field.strip().upper() in ("UNKNOWN", "NONE"):
         return False
     shortened = shorten_license_field(license_field)
-    shortened = _strip_grouping_parens(shortened)
-    or_alternatives = OR_SPLIT_RE.split(shortened)
-    for alt in or_alternatives:
-        and_clauses = [normalize_clause(c) for c in AND_SPLIT_RE.split(alt) if c.strip()]
-        if not and_clauses:
-            continue
-        if all(COMPILED_ALLOWLIST.search(c) is not None for c in and_clauses):
-            return True
-    return False
+    # Comma/semicolon are common separators in old pip metadata and not part
+    # of SPDX 2+ syntax — treat them as AND so e.g. "MIT; BSD-3-Clause" parses
+    # the same as "MIT AND BSD-3-Clause".
+    normalized = re.sub(r"\s*[;,]\s*", " AND ", shortened)
+    masked = _mask_label_internal_parens(normalized)
+    return _SpdxParser(masked).evaluate()
 
 
 def load_denylist(path: Path) -> set[str]:

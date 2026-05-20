@@ -15,5 +15,21 @@
 # specific package + version pin before the override lands. If OSRB has not
 # approved, the right action is to replace the dep, not add it here.
 #
-# (currently empty — all runtime Python deps in services/agent/uv.lock pass
-#  the permissive allowlist as of the latest sync)
+# ---------------------------------------------------------------------------
+# Active overrides — OSRB review pending on LGPL-3.0 specifically.
+# Bernd's OSRB regime list (bweber/osrb-skills .cursor reference.md) names
+# "LGPL V2.1" only; LGPL-3.0 / LGPL-3 is not on the list. The two packages
+# below declare LGPL-3.0-or-later (or unversioned LGPL) and are kept here
+# until OSRB confirms whether LGPL-3.0 is acceptable as a dep license under
+# the same dynamic-linking exception as LGPL-2.1.
+#
+# Action item: file OSRB question on LGPL-3.0; resolution either removes
+# these entries (allowlist tightens) or relaxes the allowlist regex (these
+# entries are no longer needed).
+# ---------------------------------------------------------------------------
+
+svglib       # LGPL-3.0-or-later; pulls in cairo-based SVG rendering used by
+             # reporting/plotting flows. OSRB-pending on LGPL-3.0 dynamic-link
+             # exception (Bernd regime list names V2.1 only).
+python-bidi  # Declared "GNU Library or Lesser General Public License (LGPL)"
+             # without a version. Same OSRB-pending question as svglib.
