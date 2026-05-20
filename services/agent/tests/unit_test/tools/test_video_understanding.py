@@ -18,10 +18,10 @@ import pytest
 
 from vss_agents.tools.video_understanding import VideoUnderstandingConfig
 from vss_agents.tools.video_understanding import _build_vlm_messages
-from vss_agents.tools.video_understanding import _parse_thinking_from_content
-from vss_agents.tools.video_understanding import _should_use_video_base64
 from vss_agents.tools.video_understanding import _effective_system_prompt
 from vss_agents.tools.video_understanding import _is_omni_audio_model
+from vss_agents.tools.video_understanding import _parse_thinking_from_content
+from vss_agents.tools.video_understanding import _should_use_video_base64
 from vss_agents.tools.video_understanding import _should_use_video_file_base64
 
 
