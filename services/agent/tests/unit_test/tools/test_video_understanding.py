@@ -276,6 +276,7 @@ class TestEffectiveSystemPrompt:
 
     def test_extends_prompt_for_omni_when_enable_audio(self):
         config = VideoUnderstandingConfig(
+            vlm_name="nim_vlm",
             system_prompt="You are a monitoring system.",
             enable_audio=True,
         )
@@ -285,6 +286,7 @@ class TestEffectiveSystemPrompt:
 
     def test_unchanged_when_audio_disabled(self):
         config = VideoUnderstandingConfig(
+            vlm_name="nim_vlm",
             system_prompt="You are a monitoring system.",
             enable_audio=False,
         )
@@ -293,6 +295,7 @@ class TestEffectiveSystemPrompt:
 
     def test_unchanged_for_non_omni_with_audio(self):
         config = VideoUnderstandingConfig(
+            vlm_name="nim_vlm",
             system_prompt="You are a monitoring system.",
             enable_audio=True,
         )
