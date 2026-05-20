@@ -571,7 +571,7 @@ After completing Phases 1–5, state the root cause clearly before proposing any
 | Disk < 10 GB | Write failures / container OOM | Free disk space; redeploy |
 | `vss-configurator` failing after 60 s | Misconfigured streams or hardware profile | Verify `.env` values; redeploy |
 | `vss-haproxy-ingress` up but UI 502 / report links broken | `EXTERNAL_IP` / `HAPROXY_PORT` not browser-reachable | Set `EXTERNAL_IP` to a real reachable hostname (see `warehouse.md` Phase 5); redeploy |
-| `error from registry: Incorrect Repository Format` during `docker compose up` | Docker Engine `29.5.0`+ — containerd snapshotter mishandles NGC multi-arch manifests | Preferred: install Docker in the supported range (`28.3.3+ and < 29.5.0`) — see `warehouse.md` §2.2. Fallback if locked to `29.5.0`+: add `"features": {"containerd-snapshotter": false}` to `/etc/docker/daemon.json` (preserve `exec-opts`) and `systemctl restart docker`. |
+| `error from registry: Incorrect Repository Format` during `docker compose up` | Docker 29.x multi-arch pull regression | Pin to Docker 28.3.3 and Docker Compose v2.39.1+ (warehouse.md §2.2). |
 
 Present the summary in this format:
 

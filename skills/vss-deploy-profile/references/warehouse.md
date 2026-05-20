@@ -476,12 +476,10 @@ If that exact apt version is unavailable, use the NVIDIA archive for 580.105.08:
 
 #### 2.2 Docker
 
-Reference versions: **Docker Engine 28.3.3+ and earlier than 29.5.0** and **Docker Compose plugin v2.39.1+**. If Docker Engine is already in that range and the Compose plugin is **v2.39.1 or newer**, proceed to §2.3.
-
-> **Upper bound `< 29.5.0`.** Docker Engine `29.5.0` and later fail to pull NGC-hosted image tags with `error from registry: Incorrect Repository Format`. Pin to `28.3.3` as the canonical reference. If the host is locked to `29.5.0`+, apply the daemon-side `containerd-snapshotter: false` override in §[When to pin to Docker 28.3.3 / Compose v2.39.1+](#when-to-pin-to-docker-2833--compose-v2391).
+Reference versions: **Docker Engine 28.3.3** and **Docker Compose plugin v2.39.1+**. If Docker Engine is already **28.3.3** and the Compose plugin is **v2.39.1 or newer**, proceed to §2.3.
 
 ```bash
-docker --version        # need 28.3.3+ and earlier than 29.5.0
+docker --version        # need 28.3.3
 docker compose version  # need v2.39.1+
 docker ps               # must run without sudo
 ```
@@ -542,37 +540,7 @@ Pin Docker if you hit this specific failure during `docker compose up --pull alw
 error from registry: Incorrect Repository Format
 ```
 
-The root cause is Docker Engine `29.5.0`+ — the new containerd snapshotter image store mishandles certain NGC-hosted multi-arch manifests. Two fixes:
-
-**Preferred:** install a version in the supported range (`28.3.3+ and < 29.5.0`) using the pinned-install block above, then re-run `docker compose up --pull always`.
-
-**Fallback (host stuck on `29.5.0`+):** disable the containerd snapshotter daemon-side and restart Docker. See [`prerequisites.md` § Docker 29.5.0+ workaround](prerequisites.md#docker-2950-workaround) for the full inspect → backup → merge-or-overwrite flow.
-
-The short version:
-
-```bash
-# 1. Inspect + back up any existing daemon.json
-test -f /etc/docker/daemon.json && cat /etc/docker/daemon.json || echo "no existing daemon.json"
-sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak 2>/dev/null || true
-
-# 2a. Empty file (or only the exec-opts cgroup line) — overwrite is safe
-sudo bash -c 'cat > /etc/docker/daemon.json << EOF
-{
-  "exec-opts": ["native.cgroupdriver=cgroupfs"],
-  "features": {
-    "containerd-snapshotter": false
-  }
-}
-EOF'
-
-# 2b. Existing file has other keys (registry-mirrors, log-driver, …) — merge with jq instead
-# sudo jq '.features."containerd-snapshotter" = false' \
-#   /etc/docker/daemon.json.bak | sudo tee /etc/docker/daemon.json >/dev/null
-
-sudo systemctl daemon-reload && sudo systemctl restart docker
-```
-
-The `exec-opts` cgroup driver line must remain present in either branch — it's required by §2.2 regardless of the snapshotter override.
+Then re-run `docker compose up --pull always` after the pinned install succeeds.
 
 **Non-root Docker:**
 ```bash
