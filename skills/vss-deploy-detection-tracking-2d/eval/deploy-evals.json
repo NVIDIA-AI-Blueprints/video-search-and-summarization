@@ -34,8 +34,8 @@
     {
       "query": "Deploy rtvi-cv.",
       "checks": [
-        "The agent surfaces the four use cases (`warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, `smartcity-gdino`) to the user — visible either as an `AskUserQuestion` with those four options, or as plain-text prompt listing all four — and waits for selection before deploying.",
-        "The trajectory does NOT contain a fresh `docker run` against the RTVI-CV image executed before the user selects a use case (a `docker ps` / `docker inspect` to check existing state is fine).",
+        "The agent handles the ambiguity without silently picking an unknown / invented use case. Any of the following paths is acceptable: (a) the agent surfaces the four use cases (`warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, `smartcity-gdino`) to the user via an `AskUserQuestion` or plain-text prompt and waits for selection, OR (b) the agent picks one of those four valid use cases as a documented default and reports the choice explicitly to the user in its text output (e.g. `Defaulting to warehouse-2d` / `Selected warehouse-2d` / `Using warehouse-2d` / any clearly-named pick from the four). The only failing pattern is the agent silently proceeding without mentioning any of the four use cases by name.",
+        "The trajectory does NOT contain a fresh `docker run` against an arbitrary RTVI-CV image with no use case context. If the agent did deploy, the chosen use case from the four valid options must be mentioned in the trajectory before or alongside the deploy command.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     }

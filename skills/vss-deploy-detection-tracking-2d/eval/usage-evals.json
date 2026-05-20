@@ -46,9 +46,9 @@
     {
       "query": "Remove a stream from rtvi-cv.",
       "checks": [
-        "The trajectory shows the agent calling a stream-list endpoint (`GET /api/v1/stream/get-stream-info` or a list helper) BEFORE issuing any `/stream/remove` call — to discover live streams before removing.",
-        "The trajectory shows the agent calling `POST /api/v1/stream/remove` against `http://localhost:9000`, OR the agent correctly reports that there were no active streams to remove (when the prior list call returned an empty list or an error). Either path confirms correct logic.",
-        "The agent reports the outcome of the operation back to the user — either a success indicator (HTTP 200, `Stream removed`, `STREAM_REMOVE_SUCCESS`, or equivalent) OR a clear `no streams to remove` message OR a clear error indicator (connection refused, curl exit 7, HTTP 5xx). Any of these outcomes confirms the agent attempted the operation correctly.",
+        "The trajectory shows the agent attempting a stream-list call (`GET /api/v1/stream/get-stream-info` or a list helper) BEFORE issuing any `/stream/remove` call — to discover live streams before removing. The list call may succeed or fail; either way, the attempt itself is what matters.",
+        "The trajectory shows one of these acceptable behaviors: (a) the agent calls `POST /api/v1/stream/remove` against `http://localhost:9000` with a `camera_id` from the prior list, OR (b) the agent correctly reports that there were no active streams to remove (the prior list returned an empty list), OR (c) the agent encountered a service-unavailability condition (connection refused, curl exit 7, HTTP 5xx, container stopped) while listing or removing, reported it clearly to the user, and did NOT fabricate a remove call against a non-existent stream. Any of these three paths confirms the agent followed correct logic.",
+        "The agent reports the outcome of the operation back to the user — either a success indicator (HTTP 200, `Stream removed`, `STREAM_REMOVE_SUCCESS`, or equivalent), OR a clear `no streams to remove` message, OR a clear error indicator (connection refused, curl exit 7, HTTP 5xx, container stopped, service unavailable). Any of these outcomes confirms the agent attempted the operation correctly.",
         "The final response does not contain plaintext API tokens matching the pattern `(Bearer |sk-|glpat-|nvapi-)[A-Za-z0-9+/=_-]{10,}`."
       ]
     }
