@@ -1,4 +1,4 @@
-version: 2
+version: 3
 
 filesystem_policy:
   include_workdir: true
@@ -223,12 +223,7 @@ network_policies:
     name: vss-backend-readwrite
     endpoints:
     - host: host.openshell.internal
-      port: 8000
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 30888
+      port: 3000
       access: full
       allowed_ips:
       - 172.17.0.0/24
@@ -238,7 +233,27 @@ network_policies:
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
-      port: 9200
+      port: 6006
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 7777
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8000
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8017
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8018
       access: full
       allowed_ips:
       - 172.17.0.0/24
@@ -253,7 +268,42 @@ network_policies:
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
+      port: 9200
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9901
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
       port: 9988
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 30081
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 30082
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 30888
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 31000
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 38111
       access: full
       allowed_ips:
       - 172.17.0.0/24
