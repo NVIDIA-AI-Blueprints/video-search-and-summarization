@@ -185,6 +185,40 @@ network_policies:
     binaries:
     - {path: /usr/local/bin/node}
 
+  pypi:
+    name: pypi
+    endpoints:
+    - host: pypi.org
+      port: 443
+      access: full
+    - host: files.pythonhosted.org
+      port: 443
+      access: full
+    binaries:
+    - {path: /usr/bin/python3}
+    - {path: /usr/bin/python3.13}
+    - {path: /usr/bin/pip}
+    - {path: /usr/bin/pip3}
+    - {path: /usr/bin/curl}
+    - {path: /usr/local/bin/node}
+
+  slack:
+    name: slack
+    endpoints:
+    - host: slack.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    binaries:
+    - {path: /usr/bin/python3}
+    - {path: /usr/bin/python3.13}
+    - {path: /usr/bin/curl}
+    - {path: /usr/local/bin/node}
+
   vss-backend:
     name: vss-backend-readwrite
     endpoints:
@@ -214,6 +248,11 @@ network_policies:
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
+      port: 9080
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
       port: 9988
       access: full
       allowed_ips:
@@ -222,3 +261,5 @@ network_policies:
     - {path: /usr/bin/curl}
     - {path: /usr/local/bin/node}
     - {path: /usr/local/bin/openclaw}
+    - {path: /usr/bin/python3}
+    - {path: /usr/bin/python3.13}
