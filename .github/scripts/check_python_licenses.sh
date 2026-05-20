@@ -18,6 +18,13 @@
 # `.github/scripts/license_allowlist_overrides.txt` (one package name per
 # line, `# comment` lines allowed). Every entry is a documented exception
 # that the OSRB reviewer already signed off on — keep the file short.
+#
+# Denylist mechanism: packages whose declared license MISREPRESENTS the
+# wheel's actual terms (e.g. arize-phoenix-otel declares Apache-2.0 in pip
+# metadata but ships an ELv2 IP_NOTICE) go in
+# `.github/scripts/license_denylist.txt`. Denylist wins over allowlist and
+# overrides — anything on this list always fails. The only fix is to
+# replace the dep with a permissive alternative.
 
 set -euo pipefail
 
@@ -29,4 +36,5 @@ uv pip install --quiet pip-licenses
 
 uv run --no-sync --quiet pip-licenses --format=csv \
   | python3 "$repo_root/.github/scripts/check_python_licenses.py" \
-      --overrides "$repo_root/.github/scripts/license_allowlist_overrides.txt"
+      --overrides "$repo_root/.github/scripts/license_allowlist_overrides.txt" \
+      --denylist  "$repo_root/.github/scripts/license_denylist.txt"
