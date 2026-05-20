@@ -108,7 +108,7 @@ def generate_solve_script(platform: str) -> str:
         f"# Gold solution: vss-summarize-video on {platform}\n"
         "set -euo pipefail\n"
         "\n"
-        "VIDEO_SUMMARIZATION_URL=\"${VIDEO_SUMMARIZATION_URL:-${LVS_BACKEND_URL:-http://localhost:38111}}\"\n"
+        "VIDEO_SUMMARIZATION_URL=\"${VIDEO_SUMMARIZATION_URL:-http://localhost:38111}\"\n"
         "curl -sf --connect-timeout 5 "
         "${VIDEO_SUMMARIZATION_URL}/v1/ready "
         ">/dev/null || {\n"
