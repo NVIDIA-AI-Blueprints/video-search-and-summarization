@@ -253,7 +253,7 @@ network_policies:
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
-      port: 9902
+      port: 9988
       access: full
       allowed_ips:
       - 172.17.0.0/24
