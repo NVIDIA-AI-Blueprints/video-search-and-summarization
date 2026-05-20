@@ -297,11 +297,11 @@ def main() -> int:
     parser.add_argument(
         "--mcp-url",
         default=os.environ.get(
-            "VSS_ORCHESTRATOR_MCP_URL", "http://host.openshell.internal:9902/mcp"
+            "VSS_ORCHESTRATOR_MCP_URL", "http://host.openshell.internal:9988/mcp"
         ).strip(),
         help=(
             "HTTP MCP server URL to register; pass empty string to skip "
-            "(default: http://host.openshell.internal:9902/mcp)"
+            "(default: http://host.openshell.internal:9988/mcp)"
         ),
     )
     args = parser.parse_args()
