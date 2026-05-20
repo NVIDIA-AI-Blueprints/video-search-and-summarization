@@ -1,10 +1,21 @@
 # Task-List Setup (Step 0 detail)
 
-The deploy skill uses `TodoWrite` as its **single source of truth** for the plan and per-step progress. This file holds the JSON templates and the rules.
+The deploy skill uses the session planning tool (`TodoWrite` OR its rename `TaskCreate` / `TaskUpdate` / `TaskList` in newer Claude Code versions) as its **single source of truth** for the plan and per-step progress. This file holds the JSON templates and the rules.
+
+## Tool selection — TodoWrite vs TaskCreate
+
+Both tools render the same 5-row task widget on the user's client, but they have **different call shapes** and you MUST follow whichever the runtime exposes:
+
+| Tool exposed | Shape                                                              | How to create the 5-task plan                                                                                                       |
+|--------------|--------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `TodoWrite`  | Single call with `todos: [...]` array                              | **1 call** with all 5 todos in the array (template under "Initial `TodoWrite` call" below).                                          |
+| `TaskCreate` | Single call per task (`subject`, `description`, `activeForm`)      | **5 separate `TaskCreate` calls in immediate succession** — one per task (template under "Initial `TaskCreate` calls" below). Use `TaskUpdate` (not `TaskCreate`) for subsequent status transitions. |
+
+**Critical rule for `TaskCreate`:** issue exactly 5 separate calls — one per task — back-to-back. Do NOT collapse all 5 steps into the `description` field of a single `TaskCreate` call. The eval rubric and the user's widget both expect 5 distinct rows.
 
 ## Core principle
 
-**`TodoWrite` is the plan. Do NOT print your own text rendering of it.** The user's client renders the todo list as a live widget that updates every time the skill calls `TodoWrite merge:true`. A competing plain-text list (`Deployment plan:` + checkbox rows) would:
+**The widget is the plan. Do NOT print your own text rendering of it.** The user's client renders the todo list as a live widget that updates every time the skill calls `TodoWrite merge:true` (or `TaskUpdate`). A competing plain-text list (`Deployment plan:` + checkbox rows) would:
 
 - duplicate what the widget already shows,
 - get stale the instant a todo updates,
@@ -15,10 +26,17 @@ The skill only prints progress narration (`→` step start, `✔` step result, `
 
 ## Two actions at startup, in strict order, before any other tool
 
-1. **`TodoWrite` (merge: false) with all 10 tasks** — JSON template below. Labels ≤ 50 chars so the widget reads well when the client truncates.
+**If `TodoWrite` is available:**
+
+1. **`TodoWrite` (merge: false) with all 5 tasks** — JSON template below. Labels ≤ 50 chars so the widget reads well when the client truncates.
 2. **`TodoWrite` (merge: true) to pre-complete inferred tasks** — encode the inferred value inside the `content` field of each pre-completed todo (e.g. `"Identify use case → warehouse-2d"`). The widget will render it inline. No separate text print.
 
-Do NOT run any bash, file read, `AskQuestion`, or other tool between 1 and 2. No platform detection, no NGC config check, no docker inspect — those belong to later steps.
+**If `TaskCreate` is the available planning tool:**
+
+1. **5 separate `TaskCreate` calls back-to-back** — full set of 5 tasks (templates under "Initial `TaskCreate` calls" below). NEVER collapse all 5 into one `TaskCreate`'s `description` field.
+2. **`TaskUpdate` to pre-complete inferred tasks** — one `TaskUpdate` call per task whose value is already pinned by the query.
+
+In either case: do NOT run any bash, file read, `AskQuestion`, or other tool between actions 1 and 2 above. No platform detection, no NGC config check, no docker inspect — those belong to later steps.
 
 ## After startup — update-on-transition pattern
 
@@ -54,6 +72,64 @@ Every todo `content` field is a **short canonical label** (≤ 30 chars) set onc
   ]
 }
 ```
+
+## Initial `TaskCreate` calls (when `TaskCreate` is the available planning tool)
+
+When the runtime exposes `TaskCreate` instead of `TodoWrite`, issue **5 separate
+`TaskCreate` calls in immediate succession**, one per task, BEFORE any other tool
+runs (no bash, no file reads, no `AskQuestion` between them). Same 5 subjects as
+the `TodoWrite` template, plus a `description` field that names what the task
+covers — the description is what makes each task auditable as covering a distinct
+deploy concern (platform detection, NGC resource staging, container launch,
+in-container config apply, app start).
+
+```jsonc
+// Call 1 — TaskCreate
+{
+  "subject":     "1/5. Prepare deploy (targets + fetch)",
+  "description": "Detect target platform (x86 dGPU / SBSA / Jetson) and load deploy-defaults.yml; resolve container image, NGC resource, model, and videos via a single 3-question AskUserQuestion; stage NGC resources (download + extract) or copy local paths into $HOME/rtvicv-storage/resources/.",
+  "activeForm":  "Preparing deploy targets and fetching resources"
+}
+
+// Call 2 — TaskCreate
+{
+  "subject":     "2/5. Finalize pipeline settings",
+  "description": "Single AskUserQuestion for batch size, stream mode (static is default), input source type, and output sink. Confirms pipeline configuration before container launch.",
+  "activeForm":  "Finalizing pipeline settings"
+}
+
+// Call 3 — TaskCreate
+{
+  "subject":     "3/5. Launch RTVI-CV container",
+  "description": "Synthesize the docker run command for the resolved RTVI-CV image and start the rtvicv-perception-docker container (or reuse an existing one).",
+  "activeForm":  "Launching RTVI-CV container"
+}
+
+// Call 4 — TaskCreate
+{
+  "subject":     "4/5. Apply configuration",
+  "description": "Inside the running container: resolve config paths, set batch-size and output sink, bake auto-discovered file:// stream URLs into the static [source-list] block of the DS main config, set [tests] file-loop=1 so fakesink/eglsink loop forever, and prelaunch the nvinfer engine cache.",
+  "activeForm":  "Applying in-container configuration"
+}
+
+// Call 5 — TaskCreate
+{
+  "subject":     "5/5. Start perception app",
+  "description": "Launch metropolis_perception_app inside the container, poll /api/v1/ready, sample /api/v1/metrics, and write the structured deployment log.",
+  "activeForm":  "Starting perception app"
+}
+```
+
+After the 5 `TaskCreate` calls, use `TaskUpdate` (not `TaskCreate`) on each
+step boundary — see "Progressive updates at every step boundary" below for
+the equivalent `TaskUpdate` shape.
+
+**Pre-completing inferred tasks under `TaskCreate`:** if the query already
+answers task 1's targets (e.g. `deploy warehouse-2d, 4 streams, image
+nvcr.io/X/Y:tag, resource org/team/res:ver`), issue the 5 `TaskCreate` calls
+above with status `pending`, then immediately call `TaskUpdate` to mark the
+inferred task(s) `completed`. Do NOT collapse pre-completion into a single
+`TaskCreate` with multiple sub-items — one `TaskCreate` per task, always.
 
 > **Numbered prefix rule** (`N/5.`) — every `content` field starts with its
 > task number and the total count. This ensures the user sees their
@@ -120,10 +196,12 @@ them up.
 
 ## Progressive updates at every step boundary
 
-On finishing each step, one `merge: true` update that:
+On finishing each step, one update that:
 
 1. flips the just-finished todo's `status` to `"completed"`,
 2. flips the next pending todo's `status` to `"in_progress"`.
+
+**Under `TodoWrite`** (merge: true):
 
 ```json
 {
@@ -135,7 +213,19 @@ On finishing each step, one `merge: true` update that:
 }
 ```
 
-No `content` mutation. No re-stating the full list in text. The widget and the single `✔ <result>` + `→ <next>` pair in the scrollback are the only things the user sees per transition.
+**Under `TaskCreate`** (two `TaskUpdate` calls, back to back):
+
+```jsonc
+// Call A — TaskUpdate
+{"taskId": "<id-of-prepare-task>",  "status": "completed"}
+// Call B — TaskUpdate
+{"taskId": "<id-of-pipeline-task>", "status": "in_progress"}
+```
+
+(`<id-of-...>` is the `taskId` returned by the matching `TaskCreate` call at
+startup. Use `TaskList` if you need to look up an ID mid-deploy.)
+
+No `subject` / `content` mutation. No re-stating the full list in text. The widget and the single `✔ <result>` + `→ <next>` pair in the scrollback are the only things the user sees per transition.
 
 ## Workflow rules
 

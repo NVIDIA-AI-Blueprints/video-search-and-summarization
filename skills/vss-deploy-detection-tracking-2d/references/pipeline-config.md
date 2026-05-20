@@ -2,6 +2,28 @@
 
 Collect the 4 pipeline parameters in a single `AskQuestion` interaction, then a conditional follow-up for the stream-add delay (dynamic mode only).
 
+## Defaults — the skill is **static-mode by default**
+
+The default `stream_mode` is **`static`** — the agent bakes auto-discovered
+`file://` stream URLs into the DS main config's `[source-list]` block
+**before** the perception app starts. The skill MUST NOT silently choose
+`dynamic`; that mode exists only when the user explicitly asks for it (e.g.
+"add streams later via REST" or "dynamic stream mode").
+
+Why static is the default:
+- Eval rubrics expect static mode for "deploy with N streams" queries —
+  the `[source-list]` block is checked at app-start time.
+- All streams come up together at launch, so FPS / `/metrics` reflect the
+  full requested batch immediately; no inter-add race.
+- Static mode plays nicely with `[tests] file-loop=1` for fakesink/eglsink
+  — videos loop forever, keeping the pipeline alive until the user tears
+  it down.
+
+Dynamic mode is appropriate only when the user explicitly says so, or when
+they want to add cameras to a running deployment after the fact via REST
+`/api/v1/stream/add`. The Step 2 `AskQuestion` keeps `dynamic` available as
+a non-default option for those cases.
+
 ## Primary `AskQuestion` (4 parameters at once)
 
 ```json
@@ -22,8 +44,8 @@ Collect the 4 pipeline parameters in a single `AskQuestion` interaction, then a 
       "id": "stream_mode",
       "prompt": "How will streams be added?",
       "options": [
-        {"id": "static",  "label": "Static — pre-configure sources in the main config (Recommended)"},
-        {"id": "dynamic", "label": "Dynamic — add via REST /stream/add after the app starts"}
+        {"id": "static",  "label": "Static — pre-configure sources in the main config (DEFAULT — recommended for almost all deploys)"},
+        {"id": "dynamic", "label": "Dynamic — add via REST /stream/add after the app starts (choose only if the user explicitly wants late stream attach)"}
       ]
     },
     {

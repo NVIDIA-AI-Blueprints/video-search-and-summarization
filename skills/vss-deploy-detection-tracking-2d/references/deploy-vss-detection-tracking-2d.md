@@ -124,31 +124,40 @@ NGC credentials are always preserved.
 
 Before *any* tool call, the agent's first reply is a **single terse line**
 acknowledging the use case + values pinned by the query, immediately
-followed by the `TodoWrite` call. No bash, no file reads beyond the skill
-manifest, no narration of upcoming steps.
+followed by the `TodoWrite` / `TaskCreate` plan call(s). No bash, no file
+reads beyond the skill manifest, no narration of upcoming steps, **no
+narration of internal tool loading** (see Forbidden list below).
 
 ```
 ✔ warehouse-2d, batch=4, sink=eglsink (from query)
-[TodoWrite fires here — renders the 5-task widget]
+[TodoWrite fires here — renders the 5-task widget,
+ OR 5 successive TaskCreate calls if TaskCreate is the available tool]
 ```
 
 **Forbidden in the first reply:**
 
-- "Let me start by loading the task list, detecting the platform, and resolving YAML defaults." — narrating future work re-states what `TodoWrite` is about to render.
-- `bash load_defaults.sh` / `uname -m` / `nvidia-smi` / any other tool **before** the `TodoWrite` call. Platform detect and YAML defaults are part of task 1/5 and run AFTER the todo list is on screen. (Internal labels for these substeps — `1.b` / `1.c` — are model-facing only; never print them to the user.)
-- Multi-paragraph preambles. One sentence + the `TodoWrite` widget.
+- "Let me start by loading the task list, detecting the platform, and resolving YAML defaults." — narrating future work re-states what the plan tool is about to render.
+- **"I need to load TodoWrite (a deferred tool…)"**, "Loading TaskCreate…", "Calling ToolSearch for the planning tool…", or any other reference to tool resolution, deferred tools, or `ToolSearch`. The agent loads tools silently — the user only ever sees the `✔` summary line followed by the widget. If `TodoWrite` / `TaskCreate` happens to be a deferred tool in the current runtime, the `ToolSearch` call to load its schema is **silent** — no chat text accompanies it.
+- `bash load_defaults.sh` / `uname -m` / `nvidia-smi` / any other tool **before** the planning tool call. Platform detect and YAML defaults are part of task 1/5 and run AFTER the todo list is on screen. (Internal labels for these substeps — `1.b` / `1.c` — are model-facing only; never print them to the user.)
+- Multi-paragraph preambles. One sentence + the widget.
 
 **Required ordering at startup (no exceptions):**
 
 ```
 1. one-line ✔ summary of what's pinned from the query
-2. TodoWrite (merge:false) — full 5-task list, task 1/5 = in_progress
-3. TodoWrite (merge:true) — pre-complete any task fully answered by the query
+2. Plan tool call — either:
+     • TodoWrite (merge:false) — full 5-task list, task 1/5 = in_progress
+     • OR 5 successive TaskCreate calls (one per task) when TaskCreate is the
+       available planning tool (see task-list.md § "Initial TaskCreate calls")
+3. Pre-completion of inferred tasks — either:
+     • TodoWrite (merge:true) for any task fully answered by the query
+     • OR TaskUpdate (status:"completed") for each pre-completed task
 4. Task 1/5 begins — first bash runs here (load_defaults.sh, platform detect)
 ```
 
 If the use case isn't in the query, step 1 above becomes the *only* place
-the agent asks for it, before `TodoWrite`. Everything else stays the same.
+the agent asks for it, before the plan tool call. Everything else stays
+the same.
 
 ### Step ordering invariants — DO NOT skip ahead
 

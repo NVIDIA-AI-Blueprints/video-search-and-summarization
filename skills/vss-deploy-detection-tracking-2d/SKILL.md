@@ -98,7 +98,7 @@ All scripts are invoked from the skill root via `$SKILL_DIR/scripts/<name>` — 
 2. **Match the user's intent** against the routing table above.
 3. **Load exactly one reference doc** (DEPLOY or API USAGE). Don't preload both — each reference is large and contains its own full contract.
 4. **Follow the loaded reference exactly.** The reference docs are the byte-for-byte preserved contracts from the predecessor skills `vss-deploy-detection-tracking-2d` (deploy/teardown/debug) and `rtvicv-api` (REST API) — every step ordering invariant, bash-batching rule, box-rendering rule, and `AskQuestion` contract is retained.
-5. **For DEPLOY**, the reference doc enforces its own startup contract: one-line acknowledgement → `TodoWrite` widget → Step 1 question. Do not narrate, do not pre-flight beyond what the reference allows.
+5. **For DEPLOY**, the reference doc enforces its own startup contract: one-line acknowledgement → planning-tool call (`TodoWrite` array of 5 todos, OR 5 successive `TaskCreate` calls on newer Claude Code) → Step 1 question. Do not narrate, do not pre-flight, and never print "loading TodoWrite/TaskCreate" or any deferred-tool resolution prose — the planning tool is loaded silently.
 
 ---
 
@@ -154,6 +154,31 @@ behaviour regression.
 Forbidden (these are the shortcuts the agent falls back to under
 pressure, and they break the user's UX):
 
+- ❌ **Internal tool-loading narration.** Never print "I need to load
+  TodoWrite (a deferred tool the skill calls for the task widget)",
+  "Loading TaskCreate…", "Calling ToolSearch for the planning tool…",
+  or any other text about resolving / loading / fetching deferred tools.
+  The agent loads tools **silently**. The user only ever sees the `✔
+  <pinned-values>` summary line followed by the widget — never any
+  scaffolding around tool resolution.
+- ❌ **Collapsing all 5 deploy steps into a single `TaskCreate`'s
+  `description` field.** When `TaskCreate` is the available planning
+  tool, issue **5 separate `TaskCreate` calls** back-to-back (one per
+  step). See `references/task-list.md` § "Initial `TaskCreate` calls"
+  for the verbatim template. Same rule for `TodoWrite` — one call with
+  all 5 todos in the `todos:[…]` array; never one todo whose `content`
+  is a multi-line list.
+- ❌ **Silently choosing `dynamic` stream-mode.** The skill default is
+  `stream_mode=static` — the agent bakes auto-discovered `file://` URLs
+  into the DS main config's `[source-list]` block before app start.
+  Switch to `dynamic` only when the user explicitly asks ("add streams
+  later via REST", "use dynamic stream mode") OR when they pick `dynamic`
+  in the Step 2 AskQuestion. Picking `dynamic` for a generic "deploy
+  rtvi-cv with N streams" query breaks the deploy rubric and the
+  user's `/metrics` expectations. See
+  [`references/pipeline-config.md`](references/pipeline-config.md)
+  § "Defaults — the skill is static-mode by default" for the full
+  rationale.
 - ❌ A one-line `✔ App ready in Ns, N streams, fps total Y` in place of
   the Step 5 Results box.
 - ❌ ASCII box-drawing chars (`+`, `-`, `=`, `*`) instead of light

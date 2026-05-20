@@ -374,9 +374,39 @@ if dropped:
     print(f"    ✔ 4.e: stripped {dropped} stale [source-list] file-loop= line(s) from {path}")
 PY
 update_ds_config "$MAIN" "[tests]" file-loop "$FILE_LOOP"
+
+# Verify file-loop actually landed in [tests]. If we silently fail to write
+# it (e.g. an unexpected config layout), fakesink/eglsink deploys will EOF
+# after a few seconds and the container will exit — which breaks downstream
+# usage flows (REST /stream/add returns connection-refused). Fail fast here
+# so the agent never proceeds with a non-looping fakesink deploy.
+ACTUAL_FILE_LOOP=$(python3 - "$MAIN" <<'PY'
+import sys, re
+path = sys.argv[1]
+in_tests = False
+val = ""
+with open(path) as f:
+    for line in f:
+        s = line.lstrip()
+        if s.startswith("["):
+            in_tests = (s.rstrip().rstrip("\n") == "[tests]")
+            continue
+        if in_tests:
+            m = re.match(r"^\s*file-loop\s*=\s*(\S+)", line)
+            if m:
+                val = m.group(1)
+                break
+print(val)
+PY
+)
+if [[ "$ACTUAL_FILE_LOOP" != "$FILE_LOOP" ]]; then
+    echo "✖ 4.e: [tests] file-loop verify mismatch — expected=$FILE_LOOP got='${ACTUAL_FILE_LOOP}' in $MAIN" >&2
+    exit 1
+fi
+
 case "$SINK:$FILE_LOOP" in
   eglsink:1)  LOOP_NOTE="loop forever — keeps display window alive" ;;
-  fakesink:1) LOOP_NOTE="loop forever — keeps /metrics FPS live" ;;
+  fakesink:1) LOOP_NOTE="loop forever — keeps /metrics FPS live and prevents container exit on EOF" ;;
   filedump:0) LOOP_NOTE="single pass — recording stops cleanly at EOS" ;;
   *)          LOOP_NOTE="" ;;
 esac
