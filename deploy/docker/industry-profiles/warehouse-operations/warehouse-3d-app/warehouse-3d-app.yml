@@ -152,7 +152,6 @@ services:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
       ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
-      ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
       CALL_SENSOR_ADD_API: true
       PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml
@@ -193,6 +192,9 @@ services:
         import sys
 
         os.environ["SEND_CONFIG_TO_SDR"] = (
+            "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
+        )
+        os.environ["ENABLE_CALIBRATION_PROCESS"] = (
             "false" if os.environ.get("BP_PROFILE") == "bp_wh_auto_calib" else "true"
         )
         os.execvp(sys.executable, [sys.executable, "entrypoint.py"])
