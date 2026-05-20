@@ -88,7 +88,7 @@ dependencies = [
   "markdown>=3.4.0",
   "matplotlib>=3.8.0",
   "mcp >= 1.23.0",
-  "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.6.0",
+  "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,profiler,s3]==1.6.0",
   "opencv-python-headless>=4.13.0.92",
   "protobuf>=6.33.5",
   "pydantic >=2.11,<3",
