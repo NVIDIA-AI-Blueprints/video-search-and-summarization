@@ -5,11 +5,13 @@ on:
     branches:
       - main
       - develop
+      - "dev/**"
       - "release/**"
   pull_request:
     branches:
       - main
       - develop
+      - "dev/**"
       - "release/**"
   workflow_dispatch:
 
