@@ -944,23 +944,36 @@ Response: `{size_in_mb: <int>}`. Note the snake_case field name — this endpoin
 
 **List all media files across every sensor:**
 ```bash
-# Optional offset/limit paginate by stream count (default: no pagination)
-curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/list?offset=0&limit=50" | jq .
+curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/list" | jq .
 ```
-Response: object keyed by `sensorId`, each value an array of `{mediaFilePath, metadataFilePath, metadata: {timestamp (int64 ms), id, streamName, sensorId, eventInfo}}`. Note `metadataFilePath` is lowercase-d on this endpoint.
+Response: object keyed by `sensorId`, each value an array of `{mediaFilePath, metadataFilePath, metadata}`. Note `metadataFilePath` is lowercase-d on this endpoint (the `/storage/file/<sensorId>/path` endpoint uses capital D — see below).
+
+The shape of the inner `metadata` object **depends on the sensor type**:
+
+- **File-uploaded sensor** — single entry per sensor, with `metadata: {id, mediaFilePath, sensorId, timestamp}` (timestamp is int64 ms). `id` is the file's unique identifier from the upload response.
+- **RTSP / live-recorded sensor** — one entry per recording segment file (the on-disk `.mkv` chunks under `vst_video/<sensor>/<resolution>/<YYYY>/<MM>/<DD>/<HH>/<epoch_ms>.mkv`). `metadata` is minimal — typically `{id: ""}` only. The recorder does not write per-segment user metadata for live captures (and `/storage/file/<sensorId>/path?metadata=true` returns an empty `metadata` string for these as well). For codec / resolution / framerate / bitrate, call `/storage/file/mediainfo` instead.
+
+`metadataFilePath` is empty (`""`) unless a sidecar metadata file was written alongside the media; do not assume it is populated.
 
 **List media files for a single sensor:**
 ```bash
-curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<sensorId>/list?offset=0&limit=50" | jq .
+curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<sensorId>/list" | jq .
 ```
-Response: same shape but with a single sensorId key. Also supports `offset`/`limit` pagination.
+Response: same shape as `/storage/file/list` but limited to a single sensorId key. Same per-sensor-type metadata variation applies.
 
 **Get media file paths for a sensor** (optionally filtered by time):
 ```bash
 # metadata=true also returns per-file metadata
 curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<sensorId>/path?startTime=<startTime>&endTime=<endTime>&metadata=true" | jq .
 ```
-Response: array of `{id, mediaFilePath, metaDataFilePath, metadata{timestamp, sensorId, eventInfo, streamName}}`. **Note `metaDataFilePath` has a capital D on this endpoint** — different casing from `/file/list` (lowercase d). Source-confirmed: `storage_management.cpp:1412`.
+Response: array of `{id, mediaFilePath, metaDataFilePath, metadata}`. **Note `metaDataFilePath` has a capital D on this endpoint** — different casing from `/file/list` (lowercase d).
+
+`metadata` is a **JSON-encoded string** (NOT a nested object) — pipe it through `fromjson` / `json.loads` before reading fields. Contents depend on sensor type:
+
+- **File-uploaded sensor**: parsed `metadata` contains `{mediaFilePath, sensorId, timestamp}` (no `streamName`, no `eventInfo`).
+- **RTSP / live-recorded sensor**: `metadata` is an empty string `""` (the recorder does not write per-segment metadata for live captures). `id` is also `""` on these entries.
+
+If you need rich audio/video info (codec, fps, resolution, bitrate, etc.), use `/storage/file/mediainfo` instead — it works on both sensor types when called with `?id=<fileId>` (for RTSP, get the id by listing `/storage/file/<sensorId>/path` is not enough since id is empty — use `/file/list` or the segment path directly).
 
 - Time semantics: if both `startTime` and `endTime` are omitted, returns all files. Supplying `endTime` alone is rejected with `InvalidParameterError` (`"Only end time is provided"`). Supplying `startTime` alone creates a 1 ms window starting at that time.
 
@@ -976,7 +989,10 @@ curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/mediainfo?id=<fileId>" | 
 curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/mediainfo?sensorId=<sensorId>" | jq .
 ```
 - **At least one of `id` or `sensorId` is required** — calling with neither returns `InvalidParameterError`.
-- Response: `{Duration, Container, Codec, Height, Width, Framerate, ScanType, Bitrate, SampleRate, Channels, Depth, mediaFilePath, storageLocation}` — codec/audio/video fields are all strings; `storageLocation` is `"local"` or `"cloud"`.
+- Response: `{Duration, Container, Codec, AudioCodec, Height, Width, Framerate, FrameCount, FramerateNum, FramerateDenom, ScanType, Bitrate, SampleRate, Channels, Depth, mediaFilePath, storageLocation}`.
+- **Field types are mixed** — do not assume everything is a string:
+  - **String** fields: `Codec`, `Container`, `AudioCodec`, `ScanType`, `mediaFilePath`, `storageLocation` (`"local"` or `"cloud"`).
+  - **Number** fields (JSON int/float): `Width`, `Height`, `Framerate`, `FrameCount`, `FramerateNum`, `FramerateDenom`, `Duration` (seconds, float), `Bitrate` (bps), `SampleRate`, `Channels`, `Depth`.
 
 > Caveat: `?sensorId=` only resolves when the sensor's primary stream backs onto a **local file** (uploaded file sensor, or STREAMER-served file). For RTSP-proxied sensors the URL is remote and the server returns `InvalidParameterError: "File not present"`. If `?sensorId=` fails this way, retry with `?id=<fileId>` instead (obtain the file id from `GET /storage/file/list` or `GET /storage/file/<sensorId>/path?metadata=true`).
 
@@ -1082,17 +1098,18 @@ curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/configuration" \
 
 ### 17. Service Discovery
 
-Every microservice has its own `/version` and `/help`. Use `/help` for runtime endpoint discovery (it can include routes that are not in the swagger):
+Most microservices expose `/version` and `/help`. Use `/help` for runtime endpoint discovery (it can include routes that are not in the swagger):
 ```bash
 curl -s "http://<VST_ENDPOINT>/vst/api/v1/<service>/version" | jq .
 curl -s "http://<VST_ENDPOINT>/vst/api/v1/<service>/help"    | jq .
 ```
-where `<service>` is one of `sensor`, `storage`, `live`, `replay`, `record`, `proxy`.
+where `<service>` is one of `sensor`, `storage`, `live`, `replay`, `record`.
 
 > Version response key varies by service:
 > - `GET /sensor/version`, `/live/version`, `/replay/version` → `{type, version}` (e.g. `{"type": "vst", "version": "2.1.0-26.05.1"}`)
 > - `GET /storage/version` → `{storage_management_version}` (e.g. `{"storage_management_version": "0.0.1"}`)
 > - `GET /record/version` → `{recorder_version}` (e.g. `{"recorder_version": "0.0.1"}`)
+> - The proxy microservice does NOT expose `/proxy/version` — use `/proxy/info` to verify proxy reachability instead.
 
 ---
 

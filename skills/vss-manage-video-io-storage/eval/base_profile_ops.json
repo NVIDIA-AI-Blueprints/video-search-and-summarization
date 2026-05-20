@@ -37,6 +37,96 @@
         "curl -sf -o /dev/null -w '%{size_download}' <videoUrl> returns a value greater than 1000 (rejects empty / error-page responses; a 2s 360p clip can legitimately render at a few KB)",
         "The response JSON's startTime is within a minute of the requested 00:00:03 and expiryISO is in the future"
       ]
+    },
+    {
+      "query": "Check the version of each VIOS service that exposes one and confirm both underlying processes (sensor + streamprocessor) are up.",
+      "checks": [
+        "GET /vst/api/v1/sensor/version returns a JSON object with a non-empty `version` field",
+        "GET /vst/api/v1/storage/version returns a JSON object with a non-empty `storage_management_version` field",
+        "GET /vst/api/v1/live/version returns a JSON object with a non-empty `version` field",
+        "GET /vst/api/v1/replay/version returns a JSON object with a non-empty `version` field",
+        "GET /vst/api/v1/record/version returns a JSON object with a non-empty `recorder_version` field",
+        "GET /vst/api/v1/proxy/info returns HTTP 200 with a JSON body (proxy does not expose /version — /info is used in its place)"
+      ]
+    },
+    {
+      "query": "Get the sensor info, status, streams, and settings for the uploaded sample warehouse video.",
+      "checks": [
+        "GET /vst/api/v1/sensor/<sensorId>/info returns a JSON object with non-empty `sensorId` and `name`, and no `state` field",
+        "GET /vst/api/v1/sensor/<sensorId>/status returns a JSON object whose `state` is `online`",
+        "GET /vst/api/v1/sensor/<sensorId>/streams returns a streams array whose main stream's `url` is a local file path under /home/vst/... (NOT rtsp://)",
+        "GET /vst/api/v1/sensor/<sensorId>/settings returns `null`"
+      ]
+    },
+    {
+      "query": "Show the recording timeline for the uploaded sample warehouse video using the sensor microservice timelines endpoint.",
+      "checks": [
+        "GET /vst/api/v1/sensor/<sensorId>/timelines returns a JSON array with at least one {startTime, endTime} element",
+        "The first element's `startTime` starts with `2025-01-01T00:00` (matches the timestamp the video was uploaded with)"
+      ]
+    },
+    {
+      "query": "List all media files VIOS knows about and report the container, codec, resolution, and duration of the uploaded sample warehouse video.",
+      "checks": [
+        "GET /vst/api/v1/storage/file/list returns a JSON object keyed by sensorId; the uploaded sensor's id appears as a key",
+        "The entry for the uploaded sensor contains `mediaFilePath`, `metadataFilePath`, and a `metadata` object with `id`, `sensorId`, and `timestamp`",
+        "GET /vst/api/v1/storage/file/mediainfo?sensorId=<sensorId> returns a JSON object whose `Codec` (string) contains `h264` or `H264`",
+        "The mediainfo response's `Width` and `Height` are numbers greater than 0",
+        "The mediainfo response's `Duration` is a number greater than 0"
+      ]
+    },
+    {
+      "query": "Show the recorder microservice status for all streams.",
+      "checks": [
+        "GET /vst/api/v1/record/status returns a JSON object keyed by streamId; each value has `id` and `recording_status`",
+        "GET /vst/api/v1/record/streams returns a JSON array",
+        "GET /vst/api/v1/record/<streamId>/status for one of the listed streams returns a JSON object with `recordingStatus` (camelCase) and no `id` field",
+        "Every `recording_status` value returned by /record/status is one of: `off`, `schedule`, `user`, `event`, `alwaysOn`, `error`, `statusUnknown`"
+      ]
+    },
+    {
+      "query": "Get the sensor id for the uploaded sample warehouse video, fetch its recording timelines, pick a valid 2-second window, and download an mp4 clip for that window to disk.",
+      "checks": [
+        "The chosen `startTime` and `endTime` both fall within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
+        "GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=...&container=mp4&disableAudio=true returns HTTP 200 with content-type starting with `video/`",
+        "The downloaded file is greater than 1000 bytes",
+        "`file <downloaded>` reports an MP4 / ISO Media container"
+      ]
+    },
+    {
+      "query": "Get the sensor id for the uploaded sample warehouse video, fetch its recording timelines, pick a valid 2-second window, and return a shareable mp4 URL for that window.",
+      "checks": [
+        "The chosen `startTime` and `endTime` both fall within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
+        "GET /vst/api/v1/storage/file/<streamId>/url?startTime=...&endTime=...&container=mp4&disableAudio=true returns a JSON object with non-empty `videoUrl` and `expiryISO`",
+        "`curl -sf -o /dev/null -w '%{http_code}' <videoUrl>` returns 200",
+        "`curl -sf -o /dev/null -w '%{content_type}' <videoUrl>` returns a value starting with `video/`"
+      ]
+    },
+    {
+      "query": "Get the sensor id for the uploaded sample warehouse video, fetch its recording timelines, pick a valid timestamp, and download a JPEG snapshot at that time to disk.",
+      "checks": [
+        "The chosen `startTime` falls within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
+        "GET /vst/api/v1/replay/stream/<streamId>/picture?startTime=... with `streamId: <id>` header returns HTTP 200 with content-type `image/jpeg`",
+        "The downloaded file is greater than 2000 bytes",
+        "`file <downloaded>` reports a JPEG image"
+      ]
+    },
+    {
+      "query": "Get the sensor id for the uploaded sample warehouse video, fetch its recording timelines, pick a valid timestamp, and return a shareable JPEG URL for that frame using the replay picture endpoint.",
+      "checks": [
+        "The chosen `startTime` falls within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
+        "GET /vst/api/v1/replay/stream/<streamId>/picture/url?startTime=... with `streamId: <id>` header returns a JSON object with non-empty `imageUrl` and `expiryISO`",
+        "`curl -sf -o /dev/null -w '%{http_code}' <imageUrl>` returns 200",
+        "`curl -sf -o /dev/null -w '%{content_type}' <imageUrl>` returns a value starting with `image/`"
+      ]
+    },
+    {
+      "query": "Get the full sensor info for the uploaded sample warehouse video.",
+      "checks": [
+        "GET /vst/api/v1/sensor/<sensorId>/info returns a JSON object with non-empty `sensorId` and `name`",
+        "The /info response does not contain a `state` field",
+        "The /info response's `sensorId` matches the sensorId resolved from /vst/api/v1/sensor/list"
+      ]
     }
   ]
 }
