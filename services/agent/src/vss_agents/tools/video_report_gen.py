@@ -64,6 +64,7 @@ from pydantic import model_validator
 from vss_agents.tools.lvs_config_media import LVSMediaStatus
 from vss_agents.tools.lvs_media_state import configured_media
 from vss_agents.tools.lvs_video_understanding import LVSStatus
+from vss_agents.tools.video_understanding import _is_omni_audio_model
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.tools.vst.video_clip import get_video_url
@@ -81,7 +82,7 @@ CHUNK_TIMESTAMP_PROMPT = """
     END_TIME: {end_time}s
 """
 
-# Appended to report VLM prompts when enable_audio=True (Omni audio-in-video path).
+# Appended to report VLM prompts only for Omni-capable VLMs when enable_audio=True.
 AUDIO_REPORT_PROMPT_SUFFIX = """
 AUDIO REQUIREMENTS (mandatory when speech or sound is present):
 - Use both visual and audio information in every [timestamp-timestamp] line.
@@ -1309,6 +1310,19 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
         config.video_understanding_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN
     )
 
+    vlm_model_name = ""
+    try:
+        vu_config = await builder.get_function_config(config.video_understanding_tool)
+        base_vlm = await builder.get_llm(vu_config.vlm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        vlm_model_name = getattr(base_vlm, "model_name", "") or getattr(base_vlm, "model", "")
+        logger.info("Report generation VLM model for audio suffix guard: %r", vlm_model_name)
+    except Exception as e:
+        logger.warning(
+            "Could not resolve video_understanding VLM model name; "
+            "AUDIO_REPORT_PROMPT_SUFFIX will not be applied when enable_audio=True: %s",
+            e,
+        )
+
     # Load LVS tool if configured (optional)
     lvs_video_understanding_tool = None
     if config.lvs_video_understanding_tool is not None:
@@ -2161,9 +2175,18 @@ Enter your choice or press Submit to keep current value:"""
                 logger.info(f"[PROMPT LOADED] video_report_gen.vlm_prompt from CONFIG: '{config.vlm_prompt[:100]}...'")
                 clean_prompt = _remove_som_markers(config.vlm_prompt)
 
-            if config.enable_audio:
+            if config.enable_audio and _is_omni_audio_model(vlm_model_name):
                 clean_prompt = f"{clean_prompt.rstrip()}\n{AUDIO_REPORT_PROMPT_SUFFIX}"
-                logger.info("Report VLM prompt extended for enable_audio (Omni audio-in-video)")
+                logger.info(
+                    "Report VLM prompt extended for Omni audio-in-video (model=%r)",
+                    vlm_model_name,
+                )
+            elif config.enable_audio:
+                logger.warning(
+                    "enable_audio=True but VLM %r is not Omni-capable; "
+                    "skipping AUDIO_REPORT_PROMPT_SUFFIX to avoid hallucinated transcripts",
+                    vlm_model_name,
+                )
 
             stream_id = await get_stream_id(sensor_id, config.vst_internal_url)
             start_timestamp, end_timestamp = await get_timeline(stream_id, config.vst_internal_url)

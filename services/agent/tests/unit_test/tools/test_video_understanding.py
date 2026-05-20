@@ -140,6 +140,15 @@ class TestShouldUseVideoBase64:
             enable_audio=True,
         )
 
+    def test_enable_audio_warns_when_use_base64_explicit(self, caplog):
+        with caplog.at_level("WARNING"):
+            assert not _should_use_video_base64(
+                use_base64=True,
+                vlm_mode="local",
+                enable_audio=True,
+            )
+        assert "use_base64=True is ignored" in caplog.text
+
     def test_enable_audio_remote_uses_video_file_base64(self):
         assert _should_use_video_file_base64(
             enable_audio=True,
