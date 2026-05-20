@@ -10,6 +10,8 @@ All examples below assume:
 BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
 ```
 
+> **Note:** All `id`, `file_id`, and `stream_id` values in this API are UUIDs (RFC 4122, typically v4 — e.g. `550e8400-e29b-41d4-a716-446655440000`). Callers must generate a valid UUID for request bodies that accept an `id`, and the service returns UUIDs in all responses that reference one.
+
 ## Endpoint Index
 
 ### Embeddings
@@ -68,7 +70,6 @@ BASE_URL="http://localhost:${RTVI_EMBED_PORT}"
 |---|---|---|
 | `GET` | `/v1/metadata` | Service metadata including version and license info. |
 | `GET` | `/v1/version` | Service version. |
-| `GET` | `/v1/license` | License information. |
 | `GET` | `/v1/manifest` | Service manifest (version, model). |
 
 ### Metrics
@@ -106,7 +107,7 @@ curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
 curl -fsS -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "00000000-0000-0000-0000-000000000000",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "model": "cosmos-embed1-448p",
     "url": "https://www.example.com/video.mp4",
     "media_type": "video"
