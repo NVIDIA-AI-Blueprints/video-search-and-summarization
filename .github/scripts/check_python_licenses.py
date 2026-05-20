@@ -171,17 +171,33 @@ def license_passes(license_field: str) -> bool:
     return False
 
 
+def load_denylist(path: Path) -> set[str]:
+    """Parse the package-name denylist (one canonical pip name per line)."""
+    return load_overrides(path)  # same `#`-comment + per-line format
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--overrides",
         type=Path,
         required=True,
-        help="Path to the package-name override file.",
+        help="Path to the package-name override file (OSRB-cleared exceptions).",
+    )
+    parser.add_argument(
+        "--denylist",
+        type=Path,
+        required=True,
+        help=(
+            "Path to the package-name denylist (always fails, regardless of "
+            "license metadata — for packages whose declared license is known "
+            "to misrepresent the wheel's actual terms)."
+        ),
     )
     args = parser.parse_args()
 
     overrides = load_overrides(args.overrides)
+    denylist = load_denylist(args.denylist)
     reader = csv.reader(sys.stdin)
     header = next(reader, None)
     if header is None:
@@ -196,6 +212,7 @@ def main() -> int:
         print(f"ERROR: unexpected pip-licenses CSV header: {header} ({exc})", file=sys.stderr)
         return 1
 
+    denied: list[tuple[str, str, str]] = []
     violations: list[tuple[str, str, str]] = []
     overridden: list[tuple[str, str, str]] = []
     total = 0
@@ -207,8 +224,14 @@ def main() -> int:
         version = row[version_idx].strip()
         license_field = row[license_idx].strip()
         total += 1
+        # 1. Hard denylist wins over everything (override cannot rescue).
+        if name.lower() in denylist:
+            denied.append((name, version, license_field))
+            continue
+        # 2. Permissive allowlist by license string.
         if license_passes(license_field):
             continue
+        # 3. OSRB-cleared override by package name.
         if name.lower() in overrides:
             overridden.append((name, version, license_field))
             continue
@@ -220,7 +243,21 @@ def main() -> int:
             print(f"  {name} {ver}  ->  {lic!r}")
         print()
 
+    failed = False
+    if denied:
+        failed = True
+        print(f"ERROR: {len(denied)} package(s) on the explicit denylist:")
+        for name, ver, lic in sorted(denied):
+            print(f"  {name} {ver}  ->  declared {lic!r}")
+        print()
+        print("These packages are denied regardless of declared license — their")
+        print("pip metadata misrepresents the wheel's actual terms (e.g. an")
+        print("Apache-2.0 declaration alongside an ELv2 IP_NOTICE in the bundle).")
+        print("To resolve: replace each with a permissive-licensed alternative.")
+        print()
+
     if violations:
+        failed = True
         print(f"ERROR: {len(violations)} package(s) with non-permissive license metadata:")
         for name, ver, lic in sorted(violations):
             print(f"  {name} {ver}  ->  {lic!r}")
@@ -228,11 +265,13 @@ def main() -> int:
         print("To resolve each: either")
         print("  (a) replace the dep with a permissive-licensed alternative,")
         print("  (b) get OSRB sign-off and add the package to")
-        print(f"      .github/scripts/license_allowlist_overrides.txt, or")
+        print("      .github/scripts/license_allowlist_overrides.txt, or")
         print("  (c) if the package's pip metadata is wrong, file the upstream")
         print("      bug, OSRB-clear, and add to the override file with a note.")
-        return 1
+        print()
 
+    if failed:
+        return 1
     print(f"OK: all {total} runtime Python dep(s) carry a permissive license.")
     return 0
 
