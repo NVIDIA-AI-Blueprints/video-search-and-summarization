@@ -802,14 +802,17 @@ TRAJ=/tmp/skill-eval/results/<run>/<date>/<trial>/agent/trajectory.json
 jq '[.steps[].message | fromjson | select(.type=="assistant")] | length' "$TRAJ"
 
 # Prompt tokens (uncached input) — read final_metrics first, fall back
-# to per-message sum. Both keys may exist; sum the cache-miss portion.
-jq -r '.final_metrics.modelUsage | to_entries[0].value.inputTokens // 0' "$TRAJ"
+# to per-message sum. Sum across every model entry; some trials
+# exercise more than one (e.g. a vision model alongside the main
+# reasoning model), and `to_entries[0]` would silently drop them.
+jq -r '[.final_metrics.modelUsage | to_entries[].value.inputTokens // 0] | add // 0' "$TRAJ"
 
 # Cached tokens (cache read + cache creation are both "cached" for our
-# purposes — they're the warm context the prompt reused).
+# purposes — they're the warm context the prompt reused). Same
+# multi-model summation as above.
 jq -r '
-  .final_metrics.modelUsage | to_entries[0].value
-  | (.cacheReadInputTokens // 0) + (.cacheCreationInputTokens // 0)
+  [.final_metrics.modelUsage | to_entries[].value
+   | (.cacheReadInputTokens // 0) + (.cacheCreationInputTokens // 0)] | add // 0
 ' "$TRAJ"
 
 # Duration: trial start/end times — use Harbor's result.json which has
@@ -832,11 +835,14 @@ If a trial crashed before writing `final_metrics`, sum per-message
 usage from the stream instead:
 
 ```bash
+# `| add` on an empty array evaluates to null, not 0 — guard each
+# field with `// 0` so a crashed-mid-run trial with zero assistant
+# messages renders blank-safe 0s rather than nulls in the table.
 jq -r '
   [.steps[].message | fromjson | select(.type=="assistant") | .message.usage]
-  | { inputTokens:           map(.input_tokens // 0)              | add,
-      cacheReadInputTokens:  map(.cache_read_input_tokens // 0)   | add,
-      cacheCreationInputTokens: map(.cache_creation_input_tokens // 0) | add }
+  | { inputTokens:           map(.input_tokens // 0)              | add // 0,
+      cacheReadInputTokens:  map(.cache_read_input_tokens // 0)   | add // 0,
+      cacheCreationInputTokens: map(.cache_creation_input_tokens // 0) | add // 0 }
 ' "$TRAJ"
 ```
 
