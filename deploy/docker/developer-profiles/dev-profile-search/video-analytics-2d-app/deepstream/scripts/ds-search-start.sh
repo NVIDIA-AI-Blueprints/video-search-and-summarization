@@ -27,7 +27,6 @@ VISION_ENCODER_VERSION="${VISION_ENCODER_VERSION:?must be set}"
 
 VISION_ENCODER_ONNX_FILE="${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}.onnx"
 VISION_ENCODER_TOKENIZER_DIR="${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_tokenizer"
-VISION_ENCODER_DS_MODEL_NAME="${VISION_ENCODER_MODEL}-onnx"
 VISION_ENCODER_STORAGE="/opt/storage"
 DS_APP_DIR="/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app"
 
@@ -72,8 +71,8 @@ for cfg in "${DS_APP_DIR}/configs/ds-main-config.txt" \
   [[ -f "$cfg" ]] || continue
   echo "##### Patching vision encoder paths in $(basename "$cfg") #####"
 
-  # [text-embedder] section
-  sed -i "/^\[text-embedder\]/,/^\[/{s|^model-name=.*|model-name=${VISION_ENCODER_DS_MODEL_NAME}|;}" "$cfg"
+  # [text-embedder] section — model-name is fixed in the config (siglip2-onnx);
+  # only patch file paths which depend on the NGC package naming convention.
   sed -i "/^\[text-embedder\]/,/^\[/{s|^onnx-model-path=.*|onnx-model-path=${VISION_ENCODER_STORAGE}/${VISION_ENCODER_ONNX_FILE}|;}" "$cfg"
   sed -i "/^\[text-embedder\]/,/^\[/{s|^tokenizer-dir=.*|tokenizer-dir=${VISION_ENCODER_STORAGE}/${VISION_ENCODER_TOKENIZER_DIR}/|;}" "$cfg"
 
