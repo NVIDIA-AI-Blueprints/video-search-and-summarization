@@ -42,7 +42,8 @@
 #
 # Output markers (parseable by the skill):
 #   RESOLVE_OK: <label>=<path>      — 4.a discovery result
-#   RESOLVE_AMBIGUOUS: <label> count=<N>  — 4.a needs AskQuestion from skill
+#   RESOLVE_MISS: <label> (no match)  — 4.a found zero candidates; skill should run fetch_resources.sh
+#   RESOLVE_AMBIGUOUS: <label> count=<N>  — 4.a needs AskQuestion from skill (N >= 2 candidates)
 #   BATCH_UPDATE_OK <usecase> <N>   — 4.c done
 #   SINK_UPDATE_OK <usecase> <sink> — 4.d done
 #   STREAM_SOURCES_OK <usecase> <mode> — 4.e done
@@ -116,7 +117,11 @@ resolve_unique() {
     local label="$1"; shift
     mapfile -t CANDS < <(find "$@" 2>/dev/null | sort)
     case ${#CANDS[@]} in
-        0) echo "RESOLVE_AMBIGUOUS: $label count=0" >&2; return 2 ;;
+        # Distinguish zero-match (no candidates exist, agent should fetch
+        # resources, not disambiguate) from multi-match (agent picks one).
+        # Matches the RESOLVE_MISS / RESOLVE_AMBIGUOUS convention used by
+        # resolve_unique_path in common.sh.
+        0) echo "RESOLVE_MISS: $label (no match)" >&2; return 2 ;;
         1) echo "RESOLVE_OK: $label=${CANDS[0]}" >&2; printf '%s' "${CANDS[0]}" ;;
         *) echo "RESOLVE_AMBIGUOUS: $label count=${#CANDS[@]}" >&2
            # Print each candidate on its own line — never pass paths as printf format args
@@ -154,7 +159,9 @@ resolve_videos() {
     local -a CANDS=()
     mapfile -t CANDS < <(find_video_dirs "$RESOURCES")
     case ${#CANDS[@]} in
-        0) echo "RESOLVE_AMBIGUOUS: videos count=0" >&2; return 2 ;;
+        # Zero-match = no candidates (need fetch_resources.sh), not
+        # ambiguity. RESOLVE_MISS keeps the agent's recovery path correct.
+        0) echo "RESOLVE_MISS: videos (no match)" >&2; return 2 ;;
         1) echo "RESOLVE_OK: videos=${CANDS[0]}" >&2; printf '%s' "${CANDS[0]}" ;;
         *) echo "RESOLVE_AMBIGUOUS: videos count=${#CANDS[@]}" >&2
            for i in "${!CANDS[@]}"; do
@@ -204,7 +211,7 @@ case "$USECASE" in
         if [[ -n "$ONNX" ]]; then
             echo "RESOLVE_OK: gdino-onnx=$ONNX" >&2
         else
-            echo "RESOLVE_AMBIGUOUS: gdino-onnx count=0 — no mgdino_mask_head_pruned_dynamic_batch.onnx found; pass --onnx <path>" >&2
+            echo "RESOLVE_MISS: gdino-onnx (no match) — no mgdino_mask_head_pruned_dynamic_batch.onnx found under \$RESOURCES; run fetch_resources.sh for smartcity-gdino or pass --onnx <path>" >&2
             exit 3
         fi
     fi
