@@ -6,7 +6,7 @@
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
-        "gpu_count": 2
+        "gpu_count": 1
       }
     }
   },
