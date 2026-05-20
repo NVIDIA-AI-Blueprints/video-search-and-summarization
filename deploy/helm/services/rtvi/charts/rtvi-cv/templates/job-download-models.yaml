@@ -63,6 +63,15 @@ spec:
               mv {{ .sourcePath | quote }} "${DEST}/{{ .destPath }}"
               rm -rf $(dirname {{ .sourcePath | quote }})
               {{- end }}
+              {{- $veModel := dig "models" "visionEncoder" "model" "siglip_v2" .Values }}
+              {{- $veVersion := dig "models" "visionEncoder" "version" "v1.1" .Values }}
+              # Workaround: DeepStream expects "siglip2_*" but NGC ships "siglip_v2_*".
+              WEIGHTS_FILE="{{ $veModel }}_{{ $veVersion }}_weights.bin"
+              COMPAT_LINK="{{ $veModel | replace "_v2" "2" }}_{{ $veVersion }}_weights.bin"
+              if [[ -f "${DEST}/${WEIGHTS_FILE}" && ! -e "${DEST}/${COMPAT_LINK}" ]]; then
+                ln -s "${WEIGHTS_FILE}" "${DEST}/${COMPAT_LINK}"
+                echo "[INFO] Created compatibility symlink: ${COMPAT_LINK} -> ${WEIGHTS_FILE}"
+              fi
               chmod -R a+rX "${DEST}"
               echo "[INFO] Models downloaded to ${DEST}"
           volumeMounts:
