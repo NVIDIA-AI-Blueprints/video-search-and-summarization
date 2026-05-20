@@ -142,18 +142,32 @@ def _instruction_intro(kind: str, platform: str) -> str:
 
 
 def generate_test_script(step: int, spec_name: str) -> str:
+    # The script's exit code MUST reflect whether the judge itself ran
+    # cleanly. Harbor reads the per-check reward from
+    # /logs/verifier/reward.txt (which the judge writes even on partial
+    # pass/fail), but a non-zero exit signals a verifier-side failure
+    # the harness should report distinctly from low-reward outcomes.
+    #
+    # - judge exit 0 (normal run, any reward 0.0-1.0 written to file):
+    #     script exits 0; Harbor reads reward.txt and scores the trial.
+    # - judge exit non-zero (e.g. spec parse error, missing trajectory,
+    #   anthropic SDK import failure):
+    #     `set -e` propagates the judge's exit code; Harbor reports a
+    #     verifier failure rather than silently scoring zero.
+    #
+    # `set -e` plus removing the trailing `exit 0` ensures the judge's
+    # actual exit code propagates. See Greptile P1 on this adapter.
     return (
         "#!/bin/bash\n"
         f"# vss-deploy-detection-tracking-2d verifier (step {step}): delegates to the\n"
         "# generic LLM-as-judge (.github/skill-eval/verifiers/generic_judge.py).\n"
-        "set -uo pipefail\n"
+        "set -euo pipefail\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
         f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
-        "exit 0\n"
     )
 
 
