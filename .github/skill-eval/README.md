@@ -6,11 +6,10 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` or legacy `skills/<skill>/eval/<name>.json`.
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
-3. Acquires a per-instance `flock` on a Brev GPU host, reusing one that matches the target platform or creating one via the fallback chain in [`AGENTS.md`](AGENTS.md).
+3. Acquires a per-instance `flock` on an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
 4. Runs `uvx harbor run` against each dataset, one trial at a time, with the canonical invocation captured in [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
-7. Leaves instance IDs in `/tmp/brev/started-by-<run_id>.txt`; the workflow wrapper deletes / stops them after a 5-min cooldown.
 
 The whole thing runs inside the 8-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
 
@@ -257,4 +256,4 @@ disown
 
 **Agent deployment fails with "pull access denied".** `NGC_CLI_API_KEY` missing or invalid — the agent needs it to pull VSS NIM containers from `nvcr.io`.
 
-**Cancelled run leaves orphan Brev instances.** A cancelled CI job never gets to the cooldown teardown step. Clean up by listing owned instances in `/tmp/brev/started-by-<run_id>.txt` on the runner host and `brev delete` them manually.
+**Orphan `harbor-*` Brev instances.** The harness no longer auto-provisions — every trial must use a `vss-eval-*` pool member. If you see `harbor-*` instances in `brev ls`, they're stragglers from before this change (or from someone running `uvx harbor` manually without `BREV_INSTANCE` set). Clean them up with `brev delete <name>`.
