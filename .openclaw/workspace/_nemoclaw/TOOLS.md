@@ -61,10 +61,17 @@ Used by `BOOTSTRAP.md` Step 1 and any time you want to confirm the
 sandbox can reach the host:
 
 ```bash
-getent hosts "${HOST_IP}" >/dev/null \
-  && curl -s -o /dev/null --max-time 5 "http://${HOST_IP}:9988/" \
+curl -s -o /dev/null --max-time 5 "http://${HOST_IP}:9988/" \
   && echo "host alias reachable"
 ```
+
+Do **not** add a `getent hosts "${HOST_IP}"` precondition. In this
+sandbox all VSS backend traffic goes through `http_proxy`; the proxy
+resolves the hostname remotely, and the sandbox itself often has no
+local `/etc/hosts` or DNS entry for `host.openshell.internal`. `getent`
+would fail even when the path is fully healthy, producing false
+negatives. The curl alone is sufficient — it exercises the same proxied
+path skills use.
 
 If it doesn't print `host alias reachable`, the `vss-backend` egress
 policy isn't applied to this sandbox or the orchestrator isn't running
