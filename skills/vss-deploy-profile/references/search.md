@@ -313,9 +313,12 @@ RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; RT-CV
 
 ### HuggingFace token for RT-Embed
 
-RT-Embed downloads the model named in `MODEL_PATH` (default `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection`) from Hugging Face on first start. A token is **required** when `MODEL_PATH` points to a gated or private HF repo (anonymous requests return HTTP 403) or when the anonymous rate limit is reached (HTTP 429). It also speeds up the default public Cosmos-Embed1 download.
+RT-Embed downloads the model named in `MODEL_PATH` (default `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection`) from Hugging Face on first start. Setting `HF_TOKEN`:
 
-Set `HF_TOKEN` in `deploy/docker/developer-profiles/dev-profile-search/.env` (default empty) to a token from https://huggingface.co/settings/tokens (a `read`-scope token is enough). The value wires through to the `rtvi-embed` container's `HF_TOKEN` environment variable via the search profile's `.env` (see `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml` line 64: `HF_TOKEN: "${HF_TOKEN:-}"`). Restart the container after changing it.
+- **speeds up the first-run download** of the default public Cosmos-Embed1 checkpoint, and
+- **enables using private or gated HF models** when you repoint `MODEL_PATH` at, e.g., a custom fine-tune hosted in a private org.
+
+Set `HF_TOKEN` in `deploy/docker/developer-profiles/dev-profile-search/.env` (default empty) to a token from https://huggingface.co/settings/tokens — a `read`-scope token is enough. The value wires through to the `rtvi-embed` container's `HF_TOKEN` environment variable via the search profile's `.env` (see `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml` line 64: `HF_TOKEN: "${HF_TOKEN:-}"`). Restart the container after changing it.
 
 ## Debugging
 
