@@ -430,6 +430,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
     use_video_file_base64 = _should_use_video_file_base64(
         enable_audio=config.enable_audio,
         vlm_mode=config.vlm_mode,
+        model_name=model_name,
     )
     logger.info(
         f"Using VLM profile: {config.vlm_name}, vlm_mode: {config.vlm_mode}, "
