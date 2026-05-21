@@ -267,7 +267,7 @@ data:
     {{- $veVersion := dig "models" "visionEncoder" "version" "v1.1" $rtvi }}
     [text-embedder]
     enable=1
-    model-name={{ $veModel }}-onnx
+    model-name=siglip2-onnx
     onnx-model-path=/opt/storage/{{ $veModel }}_{{ $veVersion }}.onnx
     tokenizer-dir=/opt/storage/{{ $veModel }}_{{ $veVersion }}_tokenizer/
 

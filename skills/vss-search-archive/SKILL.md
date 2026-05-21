@@ -167,15 +167,3 @@ find someone wearing a red jacket
 ```
 
 Results include timestamped clips with similarity scores.
-
----
-
-## Interact via Browser (agent-browser)
-
-```bash
-npx agent-browser --auto-connect open http://${HOST_IP}:3000
-npx agent-browser --auto-connect wait --load networkidle
-npx agent-browser --auto-connect snapshot -i
-```
-
-Find the chat input, enter a search query, and snapshot results.

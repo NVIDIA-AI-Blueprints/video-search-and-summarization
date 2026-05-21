@@ -110,11 +110,25 @@ STORAGE_GID="${STORAGE_GID:-1001}"
 # UID/GID are baked into the vss-rt-cv image and cannot be changed.
 # Since we cannot align UIDs or inject supplementary groups, "other"
 # bits are the only access channel:
-#   - directories: o+rwx  (TensorRT writes engine plans here at runtime)
-#   - files:       o+r    (read-only model artifacts)
+#   - directories: o+rwx   (TensorRT writes engine plans here at runtime)
+#   - files:       o+r     (read-only model artifacts)
 chown -R "${STORAGE_UID}:${STORAGE_GID}" "${DEST}"
 find "${DEST}" -type d -exec chmod 0777 {} +
 find "${DEST}" -type f -exec chmod 0644 {} +
+
+# ---------------------------------------------------------------------------
+# Workaround: DeepStream expects "siglip2_*" file names but NGC ships
+# "siglip_v2_*".  Create a compatibility symlink for the weights file.
+# ---------------------------------------------------------------------------
+if [[ "${MODEL}" == "siglip_v2" ]]; then
+  COMPAT_LINK="${DEST}/siglip2_${VERSION}_weights.bin"
+  COMPAT_TARGET="siglip_v2_${VERSION}_weights.bin"
+  if [[ ! -e "${COMPAT_LINK}" ]]; then
+    ln -s "${COMPAT_TARGET}" "${COMPAT_LINK}"
+    chown -h "${STORAGE_UID}:${STORAGE_GID}" "${COMPAT_LINK}"
+    echo "##### Created compatibility symlink: ${COMPAT_LINK} -> ${COMPAT_TARGET} #####"
+  fi
+fi
 
 touch "${MARKER}"
 chown "${STORAGE_UID}:${STORAGE_GID}" "${MARKER}"
