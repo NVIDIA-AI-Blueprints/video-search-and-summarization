@@ -49,14 +49,14 @@ This skill reads from the Elasticsearch/VA-MCP stack brought up by the VSS **ale
 
 ```bash
 # Step 1: initialize — get session ID from response HEADER
-SESSION_ID=$(curl -si -X POST http://localhost:9901/mcp \
+SESSION_ID=$(curl -si -X POST http://${HOST_IP:-localhost}:9901/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | grep -i "mcp-session-id" | awk '{print $2}' | tr -d '\r')
 
 # Step 2: call the tool using the session ID in the header
-curl -s -X POST http://localhost:9901/mcp \
+curl -s -X POST http://${HOST_IP:-localhost}:9901/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "mcp-session-id: $SESSION_ID" \

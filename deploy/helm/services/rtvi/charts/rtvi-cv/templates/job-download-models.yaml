@@ -63,8 +63,9 @@ spec:
               mv {{ .sourcePath | quote }} "${DEST}/{{ .destPath }}"
               rm -rf $(dirname {{ .sourcePath | quote }})
               {{- end }}
-              {{- $veModel := dig "models" "visionEncoder" "model" "siglip_v2" .Values }}
-              {{- $veVersion := dig "models" "visionEncoder" "version" "v1.1" .Values }}
+              {{- $vals := .Values | toYaml | fromYaml }}
+              {{- $veModel := dig "models" "visionEncoder" "model" "siglip_v2" $vals }}
+              {{- $veVersion := dig "models" "visionEncoder" "version" "v1.1" $vals }}
               # Workaround: DeepStream expects "siglip2_*" but NGC ships "siglip_v2_*".
               WEIGHTS_FILE="{{ $veModel }}_{{ $veVersion }}_weights.bin"
               COMPAT_LINK="{{ $veModel | replace "_v2" "2" }}_{{ $veVersion }}_weights.bin"

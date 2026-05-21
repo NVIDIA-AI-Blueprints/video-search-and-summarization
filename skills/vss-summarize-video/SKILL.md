@@ -101,8 +101,8 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 **Endpoints (defaults for a local VSS `lvs` deployment):**
 
 - VLM / RT-VLM: `${VLM_BASE_URL}` — default
-  `${RTVI_VLM_BASE_URL:-http://localhost:8018}` for the `lvs` profile
-- LVS MS: `${LVS_BACKEND_URL}` — default `http://localhost:38111`
+  `${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}` for the `lvs` profile
+- LVS MS: `${LVS_BACKEND_URL}` — default `http://${HOST_IP:-localhost}:38111`
 - VIOS: owned by the `vss-manage-video-io-storage` skill; refer there.
 
 **Endpoint resolution order:**
@@ -130,7 +130,7 @@ or inspect the response body — LVS's `/v1/ready` can legitimately return
 "unavailable."
 
 ```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
 
 # VLM / RT-VLM: 200 on /v1/models
@@ -139,7 +139,7 @@ vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
 [ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
 
 # LVS: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
-LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 lvs_code=000
 for i in $(seq 1 10); do
   lvs_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$LVS/v1/ready")
@@ -165,27 +165,37 @@ done
 
 ---
 
-## Step 1 — Resolve the video to a clip URL (delegate to `vss-manage-video-io-storage`)
+## Step 1 - Get the clip URL via `vss-manage-video-io-storage` (sub-task, NOT the final answer)
 
-**Use the `vss-manage-video-io-storage` skill for all VIOS interactions** — it owns the
+**Use the `vss-manage-video-io-storage` skill for all VIOS interactions** - it owns the
 canonical curl recipes, parameter defaults, and delete/upload flows. Do not
 fabricate URLs or hand-roll VIOS calls here; they will drift.
 
-From `vss-manage-video-io-storage`, you need exactly three things for summarization:
+Calling `vss-manage-video-io-storage` is a sub-task. You (the summarization
+agent) are not done when it returns. The clip URL and duration are inputs
+to Step 2 below, which is where summarization actually happens. Do NOT
+end your turn after this step; do NOT return the clip URL as the final
+answer to the caller.
 
-1. **`streamId`** for the video (via `sensor/list` → `sensor/<id>/streams`,
+From `vss-manage-video-io-storage`, collect exactly three values:
+
+1. **`streamId`** for the video (via `sensor/list` -> `sensor/<id>/streams`,
    or directly from an upload response).
-2. **Timeline** — `{startTime, endTime}` for the stream, ISO 8601 UTC.
+2. **Timeline** - `{startTime, endTime}` for the stream, ISO 8601 UTC.
    `endTime - startTime` is the duration that drives the routing decision
    below. Always compute; never assume.
-3. **Temporary MP4 clip URL** — the `/storage/file/<streamId>/url` variant
+3. **Temporary MP4 clip URL** - the `/storage/file/<streamId>/url` variant
    with `container=mp4`. The VLM and LVS both need an HTTP(S) URL they can
    `GET`; the `/url` variant is preferred over streaming bytes through the
    summarization client. Response field: `.videoUrl`.
 
 Everything else (auth, error handling, upload, `disableAudio`, expiry, etc.)
-is covered in the `vss-manage-video-io-storage` skill — refer users there if the VIOS step
+is covered in the `vss-manage-video-io-storage` skill - refer users there if the VIOS step
 fails.
+
+**Once you have these three values, proceed immediately to Step 2a (`<60s`)
+or Step 2b (`>=60s`) below. The deliverable is the rendered summary from
+Step 2, not the clip URL from Step 1.**
 
 ---
 
@@ -201,7 +211,7 @@ message. OpenAI-compatible chat completions with the video URL embedded in
 the message content:
 
 ```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
 PROMPT='<confirmed_prompt_from_hitl>'
 
@@ -247,12 +257,22 @@ captioning, metrics, or recommended config, read
 
 Full scenario/events collection walk-through lives in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run this step before calling LVS.
 
+**Autonomous-mode defaults.** When HITL is bypassed (caller said "run
+autonomously without prompting for confirmation") and the original
+query asks for `default` / `defaults` scenario/events - or gives none -
+use `scenario="activity monitoring"` and `events=["notable activity"]`
+**verbatim**. Do not infer the scenario from the video filename or
+sensor name. In the final reply, note that you used the generic
+defaults and offer to redo with more specific parameters. See
+[`references/hitl-prompts.md`](references/hitl-prompts.md) for the
+canonical defaults rule.
+
 Prefer the 3.2 GA versioned route `POST /v1/summarize`. The OpenAPI spec also
 exposes `/summarize` as a compatibility alias, but new examples should use
 `/v1/summarize`.
 
 ```bash
-LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'
@@ -310,7 +330,7 @@ then set `PROMPT` to the confirmed text. Do not run the curl below until
 that confirmation has arrived.
 
 ```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
 PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipments, objects,
@@ -343,7 +363,7 @@ into `$SCENARIO`, `$EVENTS_JSON`, and `$OBJECTS_JSON` below. Do not run
 the curl without that reply.
 
 ```bash
-LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'            # or whatever the user gave
@@ -459,7 +479,12 @@ output, not mixed into it.
   identical to a real failure. Use the `curl -s -o /dev/null -w
   '%{http_code}'` pattern from *Setup → Availability checks* verbatim.
 - **Delegate VIOS to `vss-manage-video-io-storage`.** Do not hand-roll clip-URL, timeline, or
-  upload calls here — they'll drift from the canonical recipes.
+  upload calls here - they'll drift from the canonical recipes.
+- **`vss-manage-video-io-storage` is a sub-task, not the final answer.** Step 1 returns
+  ingredients ($CLIP, $DURATION); the deliverable is the Step 2 summary.
+  Do not end your turn after Step 1 - continue to Step 2a / 2b and render
+  the LVS or VLM output. Returning the clip URL as your final answer is
+  the single most common failure mode of the LVS path.
 - **Duration is authoritative.** Don't route on filename or user hints;
   compute from the timeline returned by `vss-manage-video-io-storage`.
 - **`jq` twice for LVS.** First unwraps the OpenAI-style envelope, second
