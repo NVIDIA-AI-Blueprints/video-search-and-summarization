@@ -311,16 +311,11 @@ After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on fir
 
 RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; RT-CV's `perception-2d-init` downloads `siglip_v2` from NGC, then builds a TensorRT engine from the ONNX staged in [Stage perception models](#stage-perception-models-rt-detr-warehouse) above. Expect 15–25 min extra on the first deploy.
 
-### HuggingFace token for RT-Embed
+### HuggingFace token for RT-Embed (optional, for faster downloads)
 
-RT-Embed downloads the model named in `MODEL_PATH` (default `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection`) via Hugging Face. The default checkpoint is public, so leaving `HF_TOKEN` empty works.
+RT-Embed downloads the model named in `MODEL_PATH` (default `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection`) from Hugging Face on first start. Anonymous downloads work, but a personal token noticeably speeds up that first-run pull.
 
-Set `HF_TOKEN` in `deploy/docker/developer-profiles/dev-profile-search/.env` (default is empty) when:
-
-- `MODEL_PATH` is repointed at a **gated or private** HF repo (e.g. a custom fine-tune you've uploaded to a private org).
-- The first-run download fails with an HF **403** or **429** — anonymous downloads share a low rate limit, and a personal token (https://huggingface.co/settings/tokens, "read" scope is enough) raises it dramatically.
-
-The token wires through to the `rtvi-embed` container's `HF_TOKEN` environment variable via the search profile's `.env` (see `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`). Restart the container after changing it.
+Set `HF_TOKEN` in `deploy/docker/developer-profiles/dev-profile-search/.env` (default empty) to a token from https://huggingface.co/settings/tokens (a `read`-scope token is enough). The value wires through to the `rtvi-embed` container's `HF_TOKEN` environment variable via the search profile's `.env` (see `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml` line 64: `HF_TOKEN: "${HF_TOKEN:-}"`). Restart the container after changing it.
 
 ## Debugging
 
