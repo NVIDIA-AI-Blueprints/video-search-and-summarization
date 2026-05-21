@@ -1,5 +1,7 @@
 # VSS Claw — OpenClaw Plugin
 
+> **Note:** OpenClaw is the upstream framework name; the NemoClaw branding refers to the NVIDIA-curated skill bundle on top of OpenClaw.
+
 NVIDIA Video Search & Summarization agent for [OpenClaw](https://github.com/openclaw/openclaw). Provides 6 skills covering the full VSS lifecycle: NGC setup, prerequisites, base deployment, live video streams, semantic search, and alerts.
 
 ---
