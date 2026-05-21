@@ -23,6 +23,53 @@ the whitelist returns `policy_denied`. If a curl fails that way, tell
 the user the port needs to be added to the host-side policy and
 re-applied. Do not try to bypass.
 
+## Preset proxy and harmless warnings
+
+Two things you will see in this sandbox that are **not** problems:
+
+- **`http_proxy=http://10.200.0.1:3128`** is preset in the sandbox env.
+  `no_proxy` covers `localhost,127.0.0.1,::1,10.200.0.1` but **not**
+  `host.openshell.internal`, so every VSS backend curl is proxied
+  through `10.200.0.1:3128`. This is the expected path and works with
+  the egress policy. Do not unset `http_proxy` or add `host.openshell.internal`
+  to `no_proxy` — the proxy is how traffic legitimately exits the sandbox.
+
+- **`/bin/bash: cannot create /proc/self/oom_score_adj: Permission denied`**
+  appears at bash startup. The sandbox restricts `/proc/self/*` writes;
+  bash tries to set its OOM priority, fails, and continues normally.
+  Cosmetic only — ignore it.
+
+## HTTP-response curl checks
+
+When testing whether a VSS backend port is reachable, do **not** use
+`curl -f`. Several VSS endpoints (orchestrator MCP, agent API) only
+expose specific routes and return `404` from `GET /` even when fully
+healthy — `-f` treats that as failure. Use:
+
+```bash
+curl -s -o /dev/null --max-time 5 "http://${HOST_IP}:<port>/"
+```
+
+curl exits 0 when *any* HTTP response is received (network/DNS/policy
+all work) and non-zero only on real failures (DNS miss, connection
+refused, `policy_denied`, timeout). For health endpoints that promise
+a 2xx, use `-f`; for "is the server up at all", omit it.
+
+### Orchestrator reachability check
+
+Used by `BOOTSTRAP.md` Step 1 and any time you want to confirm the
+sandbox can reach the host:
+
+```bash
+getent hosts "${HOST_IP}" >/dev/null \
+  && curl -s -o /dev/null --max-time 5 "http://${HOST_IP}:9988/" \
+  && echo "host alias reachable"
+```
+
+If it doesn't print `host alias reachable`, the `vss-backend` egress
+policy isn't applied to this sandbox or the orchestrator isn't running
+on the host. Stop and tell the user.
+
 ## Deployment
 
 Deployment is delegated to the VSS Orchestrator MCP server at

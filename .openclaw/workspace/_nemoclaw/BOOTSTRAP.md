@@ -10,20 +10,12 @@ through the VSS Orchestrator MCP server.
 
 ---
 
-## Step 1: Run AGENTS.md "Every Session" first
+## Step 1: Run AGENTS.md "Every Session", then verify reachability
 
-Complete the `AGENTS.md` "Every Session" checklist before continuing. In particular, Step 1 there runs the exports in `ENV.md`, which the rest of this bootstrap and every skill depends on. The nemoclaw egress policy blocks direct curls to a LAN IP or `localhost` with `policy_denied`, so `${HOST_IP}` must be set first. `ENV.md` is the single source of truth for the value — read it there.
+1. Complete the `AGENTS.md` "Every Session" checklist. In particular Step 1 there runs the exports in `ENV.md`, which the rest of this bootstrap and every skill depends on.
+2. Run the **Orchestrator reachability check** from `TOOLS.md` ("Sandbox host alias" → "HTTP-response curl checks" → "Orchestrator reachability check"). It must print `host alias reachable` before you continue.
 
-`/sandbox/.bashrc` is root-owned (mode `444`) in this sandbox — we cannot persist these exports to a shell init file, so the "Every Session" re-export is the persistence mechanism. See `ENV.md` and `TOOLS.md` "Sandbox host alias" for the full reasoning.
-
-Then verify reachability:
-
-```bash
-getent hosts "${HOST_IP}" && \
-  curl -sf --max-time 5 "http://${HOST_IP}:9988/" >/dev/null && echo "host alias reachable"
-```
-
-If `getent` fails or curl returns `policy_denied`, stop and tell the user the `vss-backend` network policy isn't applied to this sandbox.
+`TOOLS.md` also documents the harmless warnings you may see during this step (`oom_score_adj`, `http_proxy` preset) — read it once if you haven't already. Do not re-document any of that here.
 
 ---
 
