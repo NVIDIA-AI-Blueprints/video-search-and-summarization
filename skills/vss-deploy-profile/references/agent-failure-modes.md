@@ -1,6 +1,6 @@
 # Agent-Facing Failure Modes
 
-Use this file first when a VSS deploy, runtime probe, `/generate` request, or skill handoff fails. It consolidates cross-profile symptoms that otherwise live across profile-specific references.
+Use this file first when a VSS deploy, runtime probe, `/generate` request, or skill handoff fails. It consolidates cross-profile symptoms.
 
 After identifying the failure class here, continue in the matching profile reference:
 
@@ -41,6 +41,8 @@ If `resolved.yml` does not exist, return to `SKILL.md` Step 3 and run the compos
 | Empty report or empty video answer | `docker logs vss-agent --tail 200` | VLM unreachable, bad VST URL, missing video ingest, or backend still cold. | Verify VST upload/listing, VLM `/v1/models`, and agent env URLs. Retry after health checks pass. |
 | `unknown or invalid runtime name: nvidia` | Search `docker info 2>/dev/null` for `runtimes`. | NVIDIA Container Toolkit is not installed or Docker was not restarted. | Follow `prerequisites.md`, restart Docker, and rerun the pre-flight check. |
 | GPU not detected | `nvidia-smi` and `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` | Driver, kernel module, or Docker GPU runtime issue. | Load modules with `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then follow `prerequisites.md` if Docker still cannot see GPUs. |
+| `cosmos-reason2-8b` crashes or is restarted in shared GPU mode | `docker logs nvidia-cosmos-reason2-8b --tail 200` | Known CR2/NIM restart limitation in shared GPU mode. Restarting the CR2 container alone may not recover service for now. | Redeploy the full affected VSS stack (workaround until Cosmos Reason 3 is released). |
+
 
 ## Rule of Thumb
 
