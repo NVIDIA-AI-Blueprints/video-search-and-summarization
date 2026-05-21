@@ -435,13 +435,16 @@ jobs:
               git fetch --no-tags --quiet origin \
                 "+refs/heads/$ref:refs/remotes/origin/$ref" 2>/dev/null || true
           done
-          for pattern in 'release/*' 'hotfix/*'; do
+          for pattern in 'release/*' 'hotfix/*' 'dev/*'; do
             git fetch --no-tags --quiet origin \
               "+refs/heads/$pattern:refs/remotes/origin/$pattern" 2>/dev/null || true
           done
 
           # Build the exclusion set from every long-lived upstream branch we know
           # about. A commit reachable from any of these is inherited history.
+          # dev/* covers integration / release-prep branches (e.g. dev/3.2.0)
+          # which carry squash-merged history from develop and shouldn't have
+          # each historical commit re-checked.
           EXCLUDES=()
           while IFS= read -r ref; do
             [ -n "$ref" ] && EXCLUDES+=("^$ref")
@@ -449,7 +452,8 @@ jobs:
               refs/remotes/origin/main \
               refs/remotes/origin/develop \
               'refs/remotes/origin/release/*' \
-              'refs/remotes/origin/hotfix/*' 2>/dev/null)
+              'refs/remotes/origin/hotfix/*' \
+              'refs/remotes/origin/dev/*' 2>/dev/null)
 
           # --no-merges: skip auto-generated merge commits (e.g. from "Update branch" /
           # `git merge develop` into a feature branch). They have no Signed-off-by and
