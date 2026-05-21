@@ -40,11 +40,13 @@ class TestSearchAgentConfig:
         config = SearchAgentConfig(
             embed_search_tool="embed_search",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.embed_search_tool == "embed_search"
         assert config.attribute_search_tool is None
         assert config.agent_mode_llm is None
         assert config.vst_internal_url == "http://localhost:30888"
+        assert config.embed_weight == 1.0
 
     def test_all_fields(self):
         """Test configuration with all fields."""
@@ -54,6 +56,7 @@ class TestSearchAgentConfig:
             agent_mode_llm="nim_llm",
             use_attribute_search=True,
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.embed_search_tool == "embed_search"
         assert config.attribute_search_tool == "attribute_search"
@@ -66,6 +69,7 @@ class TestSearchAgentConfig:
         config = SearchAgentConfig(
             embed_search_tool="embed_search",
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.use_attribute_search is False
         assert config.attribute_search_tool is None
@@ -78,6 +82,7 @@ class TestSearchAgentConfig:
             embed_search_tool="embed_search",
             use_attribute_search=True,
             vst_internal_url="http://localhost:30888",
+            embed_weight=1.0,
         )
         assert config.use_attribute_search is True
         assert config.vst_internal_url == "http://localhost:30888"

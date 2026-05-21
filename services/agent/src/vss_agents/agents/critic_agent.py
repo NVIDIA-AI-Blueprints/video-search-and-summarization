@@ -31,9 +31,9 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from lib.utils.time_convert import iso8601_to_datetime
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
-from vss_agents.utils.time_convert import iso8601_to_datetime
 from vss_agents.utils.time_measure import TimeMeasure
 
 logger = logging.getLogger(__name__)

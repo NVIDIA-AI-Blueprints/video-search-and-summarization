@@ -27,10 +27,10 @@ from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
 
+from lib.utils.time_convert import iso8601_to_datetime
 from vss_agents.tools.vst.utils import VSTError
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.utils.retry import create_retry_strategy
-from vss_agents.utils.time_convert import iso8601_to_datetime
 
 logger = logging.getLogger(__name__)
 
