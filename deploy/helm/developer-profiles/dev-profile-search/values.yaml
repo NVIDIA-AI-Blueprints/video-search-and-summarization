@@ -562,7 +562,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.05.2-6d16cb9d880e"
+    tag: "3.2.0-26.05.2-8e453f665fa1"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''
