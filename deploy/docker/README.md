@@ -85,7 +85,14 @@ docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/
 3. **Stop the stack**
 
 ```bash
+# Stop the running deployment
 docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+
+# Alternatively to remove all the containers, images and volume
+docker compose --env-file industry-profiles/warehouse-operations/.env down -v --rmi all
+
+# Tear down all dangling volumes
+docker volume ls -q -f "dangling=true" | xargs docker volume rm
 ```
 
 4. **Data / backup cleanup**  
