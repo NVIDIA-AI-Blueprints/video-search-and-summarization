@@ -1,5 +1,0 @@
-__pycache__/
-*.pyc
-*.pyo
-.env
-webhook.log
