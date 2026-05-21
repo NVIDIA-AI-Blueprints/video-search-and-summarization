@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# RC testing only: replaces the Cosmos Reason 2 NIM image with the Cosmos3 Reasoner
+# staging RC while keeping compose profiles unchanged (vlm_local_shared_cosmos-reason2-8b).
+# Use with COMPOSE_FILE (see COSMOS3-REASONER-RC-TESTING.md).
+
+services:
+  cosmos-reason2-8b-shared-gpu:
+    image: nvcr.io/nvstaging/nim/cosmos3-reasoner:1.7.1.rc0-51870194
+    container_name: nvidia-cosmos3-reasoner-rc
+    environment:
+      NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
+
+  cosmos-reason2-8b:
+    image: nvcr.io/nvstaging/nim/cosmos3-reasoner:1.7.1.rc0-51870194
+    container_name: nvidia-cosmos3-reasoner-rc
+    environment:
+      NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
