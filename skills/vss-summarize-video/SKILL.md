@@ -101,8 +101,8 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 **Endpoints (defaults for a local VSS `lvs` deployment):**
 
 - VLM / RT-VLM: `${VLM_BASE_URL}` — default
-  `${RTVI_VLM_BASE_URL:-http://localhost:8018}` for the `lvs` profile
-- LVS MS: `${LVS_BACKEND_URL}` — default `http://localhost:38111`
+  `${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}` for the `lvs` profile
+- LVS MS: `${LVS_BACKEND_URL}` — default `http://${HOST_IP:-localhost}:38111`
 - VIOS: owned by the `vss-manage-video-io-storage` skill; refer there.
 
 **Endpoint resolution order:**
@@ -130,7 +130,7 @@ or inspect the response body — LVS's `/v1/ready` can legitimately return
 "unavailable."
 
 ```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
 
 # VLM / RT-VLM: 200 on /v1/models
@@ -139,7 +139,7 @@ vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
 [ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
 
 # LVS: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
-LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 lvs_code=000
 for i in $(seq 1 10); do
   lvs_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$LVS/v1/ready")
@@ -211,7 +211,7 @@ message. OpenAI-compatible chat completions with the video URL embedded in
 the message content:
 
 ```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
 PROMPT='<confirmed_prompt_from_hitl>'
 
@@ -257,12 +257,22 @@ captioning, metrics, or recommended config, read
 
 Full scenario/events collection walk-through lives in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run this step before calling LVS.
 
+**Autonomous-mode defaults.** When HITL is bypassed (caller said "run
+autonomously without prompting for confirmation") and the original
+query asks for `default` / `defaults` scenario/events - or gives none -
+use `scenario="activity monitoring"` and `events=["notable activity"]`
+**verbatim**. Do not infer the scenario from the video filename or
+sensor name. In the final reply, note that you used the generic
+defaults and offer to redo with more specific parameters. See
+[`references/hitl-prompts.md`](references/hitl-prompts.md) for the
+canonical defaults rule.
+
 Prefer the 3.2 GA versioned route `POST /v1/summarize`. The OpenAPI spec also
 exposes `/summarize` as a compatibility alias, but new examples should use
 `/v1/summarize`.
 
 ```bash
-LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'
@@ -320,7 +330,7 @@ then set `PROMPT` to the confirmed text. Do not run the curl below until
 that confirmation has arrived.
 
 ```bash
-VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://localhost:8018}}"
+VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
 PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipments, objects,
@@ -353,7 +363,7 @@ into `$SCENARIO`, `$EVENTS_JSON`, and `$OBJECTS_JSON` below. Do not run
 the curl without that reply.
 
 ```bash
-LVS=${LVS_BACKEND_URL:-http://localhost:38111}
+LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'            # or whatever the user gave

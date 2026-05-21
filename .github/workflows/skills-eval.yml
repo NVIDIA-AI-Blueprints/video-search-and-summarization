@@ -43,6 +43,7 @@ on:
           - vss-ask-video
           - vss-deploy-dense-captioning
           - vss-deploy-profile
+          - vss-deploy-video-embedding
           - vss-generate-video-report
           - vss-manage-alerts
           - vss-manage-video-io-storage

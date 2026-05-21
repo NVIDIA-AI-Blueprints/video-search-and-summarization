@@ -75,14 +75,28 @@ When using this skill, ALWAYS follow this high-level workflow:
    `POST http://.../generate` request until the user has supplied an
    endpoint. Respond to the user with a single question asking for
    `HOST_IP` / the VSS agent endpoint and wait.
-2. Run the search(es) via approach chosen
-3. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
+2. **Resolve the source — HARD STOP before any `/generate` call.**
+   If the user query references a specific video / sensor name
+   (e.g. "the airport video", "warehouse_cam_3", "sample warehouse"),
+   verify it's actually registered in VIOS **before** firing
+   `POST .../generate`:
+
+   ```bash
+   curl -s "http://${HOST_IP}:30888/vst/api/v1/sensor/list" | jq '.[].name'
+   ```
+
+   Then:
+   - **If the named source (or a clearly substring-matching name) IS in the list** → proceed to step 3. Forward the user's natural-language query verbatim — the agent's own search tool decomposer (`services/agent/src/vss_agents/tools/search.py`) extracts `video_sources` from the prose given the available sources, so the skill does NOT need to construct a structured `video sources` payload.
+   - **If the named source is NOT in the list** → STOP. Do NOT fire `/generate` as a probe. Respond to the user with the registered source names and ask whether they meant one of those, want to ingest the missing video, or want to abandon the query. Wait for clarification.
+   - **If the query names no specific source** ("find forklifts in the ingested videos", "search across all sources") → skip the substring check, but `sensor/list` must still return non-empty (otherwise no sources are ingested → HARD STOP).
+3. Run the search(es) via approach chosen
+4. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
    — Use clear section headers
    - Organize findings individually with supporting detail, and close with a summary
    - Use tables where comparisons help. Write like a technical report, not a chat message.
-4. CRITICAL: Verify the results and explain this to the user concisely. 
+5. CRITICAL: Verify the results and explain this to the user concisely.
    If search fails, or returns unexpected results (i.e. videos that do not appear to match user query, zero matches, zero videos returned, error etc.), STOP. Do not proceed without reading [troubleshooting.md](references/troubleshooting.md) to iterate with feedback loops until proper results are found and presented like a professional inspection report.
-5. Final verifications:
+6. Final verifications:
    - ALWAYS inform user that final and further verifications can be run. Present this as a `Verification Step`
    - ONLY IF user agrees, download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query
 
@@ -97,8 +111,7 @@ Infer these inputs only from the conversation or user query (no other files unle
 
 - ALWAYS step into the troubleshooting step of the workflow immediately if anything unexpected happens, read [troubleshooting.md](references/troubleshooting.md)
 - Queries work best with **concrete visual descriptions** (objects, actions, locations). Augment user queries if needed to enhance the quality of the questions, expanding potential details
-- User queries to do video search supposes video sources are already ingested. No need to search for them locally.
-  Assume this unless the findings show the video source is not ingested yet
+- The skill assumes video sources are **already ingested in VIOS**. It is NOT the skill's job to ingest, find local files, or upload. But you also can't assume blindly — workflow step 2 makes confirming "this source exists in VIOS" a hard precondition before `/generate`. If the source isn't there, ask the user; don't search locally on disk and don't trigger an ingest handshake on their behalf.
 - Use `vss-query-analytics` skill to cross-reference search results with incident/alert data
 
 ---
