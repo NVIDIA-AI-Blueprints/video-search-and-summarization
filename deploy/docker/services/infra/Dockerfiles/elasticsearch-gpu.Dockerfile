@@ -22,10 +22,10 @@
 FROM nvidia/cuda:13.0.0-cudnn-runtime-ubuntu22.04 AS cuda13libs
 ARG CUVS_VERSION=26.04.00.194111
 RUN apt-get update && apt-get install -y --no-install-recommends --allow-change-held-packages \
-    libnccl2 wget tar xz-utils libgomp1 \
+    libnccl2 curl tar xz-utils libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /tmp/cuvs /out/cuvs && cd /tmp/cuvs \
-    && wget "https://developer.download.nvidia.com/compute/cuvs/redist/libcuvs/linux-x86_64/libcuvs-linux-x86_64-${CUVS_VERSION}_cuda13-archive.tar.xz" \
+    && curl -fLO "https://developer.download.nvidia.com/compute/cuvs/redist/libcuvs/linux-x86_64/libcuvs-linux-x86_64-${CUVS_VERSION}_cuda13-archive.tar.xz" \
     && tar -xJf "libcuvs-linux-x86_64-${CUVS_VERSION}_cuda13-archive.tar.xz" --strip-components=1 \
     && cp -a /tmp/cuvs/lib/. /out/cuvs/ \
     && cd / \
