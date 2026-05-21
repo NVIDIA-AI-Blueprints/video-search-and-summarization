@@ -132,7 +132,7 @@ summarization config maps embedding auth from `NVIDIA_API_KEY`, so ensure
 Do not use the VSS Search `rtvi-embed` service as the default graph backend
 embedding endpoint. `rtvi-embed` is profile-gated for Search and exposes RTVI
 embedding APIs such as `/v1/generate_text_embeddings`; the graph backend
-expects the text embedding interface used by the LVS embedding adapter.
+expects the text embedding interface used by the video summarization embedding adapter.
 
 The current VSS Docker `lvs-server` uses host networking. When adding Neo4j or
 ArangoDB as open-source sidecar containers, expose their ports on the host and
