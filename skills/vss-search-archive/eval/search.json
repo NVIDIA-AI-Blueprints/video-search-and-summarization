@@ -15,7 +15,6 @@
       "checks": [
         "The agent listed the available video sources via a `GET http://localhost:30888/vst/api/v1/sensor/list` call (per the vss-manage-video-io-storage skill's guidance on resolving unknown source names) before attempting any search",
         "The agent's final reply explicitly acknowledges that no `airport` video is registered in VST and asks the user to clarify which source to search or to ingest the airport video first — it did NOT silently fall back to a similar-sounding registered source (e.g. the warehouse video) and did NOT fabricate search hits for a video it never queried",
-        "The trajectory contains zero `POST http://.../generate` requests — the agent correctly paused to resolve the missing source instead of firing the search blindly on a guessed alternative",
         "The agent did NOT start the video ingest handshake (`POST /api/v1/videos` or `POST /api/v1/videos/{sensorId}/complete`) during this step — ingesting a video on the user's behalf is an explicit opt-in action"
       ]
     },
