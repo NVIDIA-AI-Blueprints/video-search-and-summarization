@@ -7,8 +7,7 @@
  * the configured alerts API base URL (which carries the API version prefix).
  * Users supply only `live_stream_url`, `alert_type`, and `prompt`.
  *
- * The "Alert Verification" tab is rendered as a disabled placeholder; its
- * implementation is not yet wired up.
+ * The "Alert Verification" sub-view is hidden until its implementation is wired up.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,7 +20,7 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconBolt,
-  IconShieldCheck,
+  // IconShieldCheck, // Alert Verification tab (coming soon) — hidden from UI
   IconDeviceFloppy,
   IconAlertCircle,
   IconLoader2,
@@ -60,13 +59,14 @@ const KIND_TABS: Array<{
   disabledReason?: string;
 }> = [
   { id: 'real-time', label: 'Real-time Alerts', icon: <IconBolt size={14} /> },
-  {
-    id: 'verification',
-    label: 'Alert Verification',
-    icon: <IconShieldCheck size={14} />,
-    disabled: true,
-    disabledReason: 'Coming soon',
-  },
+  // Alert Verification sub-view — not yet implemented; hidden from Manage Rules UI.
+  // {
+  //   id: 'verification',
+  //   label: 'Alert Verification',
+  //   icon: <IconShieldCheck size={14} />,
+  //   disabled: true,
+  //   disabledReason: 'Coming soon',
+  // },
 ];
 
 const generateDraftId = () =>
@@ -100,9 +100,8 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   }`;
 
   // --- kind tabs -------------------------------------------------------------
-  // Decorative only: there's only one enabled kind right now (`real-time`)
-  // and the verification placeholder is permanently disabled. Tabs are not
-  // interactive — selected state reflects `activeKind` for visual continuity.
+  // Decorative only: only `real-time` is shown today. Tabs are not interactive —
+  // selected state reflects `activeKind` for visual continuity.
   const kindTabs = (
     <div
       className={`flex-shrink-0 px-6 pt-4 border-b ${
