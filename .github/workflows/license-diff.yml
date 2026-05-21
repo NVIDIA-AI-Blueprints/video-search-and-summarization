@@ -35,15 +35,28 @@ jobs:
       - name: Resolve base ref and PR number
         id: ctx
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BRANCH: develop
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
-          merge_base=$(git merge-base HEAD "origin/${DEFAULT_BRANCH}" || git rev-parse "origin/${DEFAULT_BRANCH}")
           pr_number="${GITHUB_REF##*/pull-request/}"
+          # This workflow runs on push-to-mirror (refs/heads/pull-request/<N>),
+          # so github.base_ref is empty. Query the PR API for the real target
+          # branch so cherry-pick / hotfix PRs against release branches
+          # (e.g. dev/3.2.0) get a sensible diff baseline. Fall back to
+          # develop only if the lookup fails (e.g. PR closed mid-run).
+          # `// ""` coerces a missing/null baseRefName to an empty string —
+          # bare `.baseRefName` would emit the literal "null" and bypass the
+          # `${target:-DEFAULT_BRANCH}` fallback below.
+          target="$(gh pr view "${pr_number}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json baseRefName --jq '.baseRefName // ""' 2>/dev/null || true)"
+          target="${target:-${DEFAULT_BRANCH}}"
+          git fetch --no-tags origin "+refs/heads/${target}:refs/remotes/origin/${target}"
+          merge_base=$(git merge-base HEAD "origin/${target}" || git rev-parse "origin/${target}")
           echo "base=${merge_base}" >> "$GITHUB_OUTPUT"
           echo "pr=${pr_number}" >> "$GITHUB_OUTPUT"
-          echo "Comparing HEAD against ${merge_base} for PR #${pr_number}"
+          echo "Comparing HEAD against ${merge_base} (PR target: ${target}) for PR #${pr_number}"
 
       - name: Generate license diff CSV
         id: gen
