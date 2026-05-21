@@ -36,17 +36,18 @@ The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SK
 ### Detect Running Backend
 
 ```bash
+MS_HOST="${HOST_IP:-localhost}"
 MS_PORT=""
 for port in {8000..8009}; do
-  if curl -s "http://localhost:$port/v1/ready" | grep -q '"code":0'; then
+  if curl -s "http://${MS_HOST}:$port/v1/ready" | grep -q '"code":0'; then
     MS_PORT=$port; break
   fi
 done
-if [ -z "$MS_PORT" ] && curl -s "http://localhost:8010/v1/ready" | grep -q '"code":0'; then
+if [ -z "$MS_PORT" ] && curl -s "http://${MS_HOST}:8010/v1/ready" | grep -q '"code":0'; then
   MS_PORT=8010
 fi
 [ -z "$MS_PORT" ] && { echo "No running backend. Walk deploy-auto-calibration-service.md first to bring up AMC."; exit 1; }
-echo "Backend on port $MS_PORT"
+echo "Backend on ${MS_HOST}:$MS_PORT"
 ```
 
 ### Obtain the sample zip
@@ -115,7 +116,7 @@ export REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ENV_FILE="$REPO_ROOT/deploy/docker/industry-profiles/warehouse-operations/.env"
 export MS_PORT="$(grep ^VSS_AUTO_CALIBRATION_PORT "$ENV_FILE" 2>/dev/null | cut -d= -f2)"
 export MS_PORT="${MS_PORT:-8010}"
-export BASE_URL="http://localhost:${MS_PORT}/v1"
+export BASE_URL="http://${HOST_IP:-localhost}:${MS_PORT}/v1"
 # Optional: export SAMPLE_DIR=/abs/path/to/extracted/sample to override autodetection
 
 # Pick a python3 that has `requests`; create a throwaway venv if needed (no repo files written)
@@ -154,7 +155,7 @@ import requests
 # (no `__file__` to lean on when fed via stdin).
 REPO_ROOT = Path(os.environ.get("REPO_ROOT") or Path.cwd())
 MS_PORT = os.environ.get("MS_PORT", "8010")
-BASE_URL = os.environ.get("BASE_URL", f"http://localhost:{MS_PORT}/v1")
+BASE_URL = os.environ.get("BASE_URL", f"http://{os.environ.get('HOST_IP', 'localhost')}:{MS_PORT}/v1")
 
 # Sample zip lives in assets/.
 def _find_sample_dir() -> Path:

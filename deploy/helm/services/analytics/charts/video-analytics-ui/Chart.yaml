@@ -19,4 +19,4 @@ name: video-analytics-ui
 description: "Video Analytics UI for Smart Cities (ITS dashboard, map view)"
 type: application
 version: 26.04.2
-appVersion: "3.1.0"
+appVersion: "3.2-26.05.3-1"

@@ -293,8 +293,4 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 
 ## Troubleshooting
 
-- `unknown or invalid runtime name: nvidia` → NVIDIA Container Toolkit not installed or Docker not restarted. See [`references/prerequisites.md`](references/prerequisites.md).
-- NGC auth error → re-export `NGC_CLI_API_KEY` or follow [`references/ngc.md`](references/ngc.md).
-- GPU not detected → run `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then retry.
-- `docker compose up` fails with "no resolved.yml" → run the dry-run (`docker compose config > resolved.yml`, Step 3) first.
-- cosmos-reason2-8b crash → must redeploy the full stack (known issue: NIM cannot restart alone).
+Start with [`references/agent-failure-modes.md`](references/agent-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, unexpanded values in `resolved.yml` etc.
