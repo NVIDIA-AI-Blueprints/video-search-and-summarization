@@ -170,11 +170,11 @@ def deploy_profile(eval_profile: str) -> str:
 _DEFAULT_MIN_ROOT_DISK_GB = 220        # base stack ~80GB + 2 local NIMs ~70GB each
 _DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
 # Caveats — both defaults are enforced unconditionally by
-# `envs/brev_env.py::_check_live_resources` / `_find_cheapest_matching_type`:
+# `envs/brev_env.py::_check_live_resources` on the resolved pool box:
 # - The disk default would reject otherwise-eligible smaller-root
-#   providers (e.g. some launchpad boxes) for trials that end up
-#   running fully remote and would actually fit on <220GB. Acceptable
-#   today because every `vss-eval-*` pool member has ≥220GB.
+#   pool members for trials that end up running fully remote and would
+#   actually fit on <220GB. Acceptable today because every `vss-eval-*`
+#   pool member has ≥220GB.
 # - The driver default is skipped when `nvidia-smi` is absent (the
 #   resource check warns instead of erroring), so CPU-only boxes still
 #   pass; don't tighten that branch to a hard error without revisiting
