@@ -257,6 +257,16 @@ captioning, metrics, or recommended config, read
 
 Full scenario/events collection walk-through lives in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run this step before calling LVS.
 
+**Autonomous-mode defaults.** When HITL is bypassed (caller said "run
+autonomously without prompting for confirmation") and the original
+query asks for `default` / `defaults` scenario/events - or gives none -
+use `scenario="activity monitoring"` and `events=["notable activity"]`
+**verbatim**. Do not infer the scenario from the video filename or
+sensor name. In the final reply, note that you used the generic
+defaults and offer to redo with more specific parameters. See
+[`references/hitl-prompts.md`](references/hitl-prompts.md) for the
+canonical defaults rule.
+
 Prefer the 3.2 GA versioned route `POST /v1/summarize`. The OpenAPI spec also
 exposes `/summarize` as a compatibility alias, but new examples should use
 `/v1/summarize`.
