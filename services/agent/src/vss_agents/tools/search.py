@@ -45,6 +45,7 @@ from pydantic import Field
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.tools.attribute_search import DEFAULT_BEHAVIOR_INDEX
+from vss_agents.tools.attribute_search import resolve_index_by_source_type
 from vss_agents.tools.embed_search import EmbedSearchOutput
 from vss_agents.tools.vst.utils import get_streams_info
 from vss_agents.utils.es_client import VSSESClient
@@ -986,11 +987,24 @@ async def execute_core_search(
 
         es = await VSSESClient.get_es_client(es_endpoint=config.behavior_es_endpoint)
 
+        # Resolve the behavior index by source_type so RTSP/live sources hit the
+        # date-based ingestion indexes (e.g. ``mdx-behavior-2026-05-19``) instead
+        # of the fixed video_file default. Mirrors the inline pattern used by
+        # ``search_attributes`` and ``embed_search``.
+        object_search_index = resolve_index_by_source_type(
+            base_index=config.behavior_index,
+            source_type=search_input.source_type,
+            wildcard_pattern="mdx-behavior-*",
+        )
+        logger.info(
+            f"Object-id behavior search index(es): {object_search_index} (source_type={search_input.source_type})"
+        )
+
         async def _safe_object_search(oid: int) -> list[AttributeSearchResult]:
             try:
                 return await search_by_object_embedding(
                     object_id=str(oid),
-                    behavior_index=config.behavior_index,
+                    behavior_index=object_search_index,
                     es=es,
                     top_k=top_k,
                     min_similarity=0.0,
