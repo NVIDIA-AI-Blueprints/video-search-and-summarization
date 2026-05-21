@@ -6,7 +6,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/sdr-mw-l
-  tag: 3.0.0-prd.2
+  tag: 3.0.0-prd.3
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
