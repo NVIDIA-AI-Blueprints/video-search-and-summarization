@@ -293,6 +293,8 @@ After the quick checks above pass, drive a real query through the agent — e.g.
 
 ## Troubleshooting
 
+Start with [`references/agent-facing-failure-modes.md`](references/agent-facing-failure-modes.md) for cross-profile failures such as NIM cold-start timeouts, OOM, remote endpoint 5xx responses, missing `NGC_CLI_API_KEY` / `HF_TOKEN`, and unexpanded `${...}` values in `resolved.yml`.
+
 - `unknown or invalid runtime name: nvidia` → NVIDIA Container Toolkit not installed or Docker not restarted. See [`references/prerequisites.md`](references/prerequisites.md).
 - NGC auth error → re-export `NGC_CLI_API_KEY` or follow [`references/ngc.md`](references/ngc.md).
 - GPU not detected → run `sudo modprobe nvidia && sudo modprobe nvidia_uvm`, then retry.
