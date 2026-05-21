@@ -72,16 +72,16 @@ When using this skill, ALWAYS follow this high-level workflow:
    `POST http://.../generate` request until the user has supplied an
    endpoint. Respond to the user with a single question asking for
    `HOST_IP` / the VSS agent endpoint and wait.
-2. Run the search(es) via approach chosen
+2. Run the search(es) via approach chosen. 
 3. Present the results to the user query. Format response as a professional inspection report but name it `Video Search Results`:
    — Use clear section headers
    - Organize findings individually with supporting detail, and close with a summary
    - Use tables where comparisons help. Write like a technical report, not a chat message.
 4. CRITICAL: Verify the results and explain this to the user concisely. 
    If search fails, or returns unexpected results (i.e. videos that do not appear to match user query, zero matches, zero videos returned, error etc.), STOP. Do not proceed without reading [troubleshooting.md](references/troubleshooting.md) to iterate with feedback loops until proper results are found and presented like a professional inspection report.
-5. Final verifications:
-   - ALWAYS inform user that final and further verifications can be run. Present this as a `Verification Step`
-   - ONLY IF user agrees, download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query
+5. Final verifications: ALWAYS inform user that final and further verifications can be run. Present this as a `Verification Step`. ONLY if user agrees, run these two checks in-order and summarize verification in a single table:
+   - Dedicated critic check: Use the `vss-critic` skill to verify the video search results.
+   - Then screenshot evidence check (if caller's model supports multimodal input): Download screenshots using the `screenshot_url` of the best candidates (highest similarity scores) from the search hits (JSON results) to `/tmp`. Read them and verify if they correspond to the user query. Cross-checks if critic was correct or if it flagged false positives/negatives.
 
 ## Input resolution
 
