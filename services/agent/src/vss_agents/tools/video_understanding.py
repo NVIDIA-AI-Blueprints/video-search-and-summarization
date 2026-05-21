@@ -142,14 +142,16 @@ def _should_use_video_file_base64(
     *,
     enable_audio: bool,
     vlm_mode: str | None,
+    model_name: str = "",
 ) -> bool:
     """Return whether to inline the full MP4 as base64 for the VLM.
 
     Remote VLMs cannot rely on VST ``video_url`` reachability the way a co-located
     local VLM can. Inlining the file preserves the audio track while avoiding
-    JPEG frame sampling.
+    JPEG frame sampling. Only Omni audio-capable models support the
+    ``data:video/mp4;base64,…`` URI format expected by this path.
     """
-    return enable_audio and _is_remote_vlm(vlm_mode)
+    return enable_audio and _is_remote_vlm(vlm_mode) and _is_omni_audio_model(model_name)
 
 
 class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
