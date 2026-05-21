@@ -195,4 +195,58 @@ describe('useFilters', () => {
     const { result } = renderHook(() => useFilters({ alerts: unsortedAlerts }));
     expect(result.current.uniqueValues.alertTypes).toEqual(['Apple', 'Mango', 'Zebra']);
   });
+
+  it('splits alertTypes by vlmVerified state', () => {
+    const vlmOnAlerts = [
+      makeAlert({ id: '1', alertType: 'Tailgating', alertTriggered: 'Motion' }),
+      makeAlert({ id: '2', alertType: 'Loitering', alertTriggered: 'Zone' }),
+    ];
+
+    const { result, rerender } = renderHook(
+      ({ alerts: a, vlmVerified: v }) => useFilters({ alerts: a, vlmVerified: v }),
+      { initialProps: { alerts: vlmOnAlerts, vlmVerified: true } }
+    );
+
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(
+      expect.arrayContaining(['Tailgating', 'Loitering'])
+    );
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual([]);
+
+    const vlmOffAlerts = [
+      makeAlert({ id: '3', alertType: 'Intrusion', alertTriggered: 'Thermal' }),
+    ];
+    rerender({ alerts: vlmOffAlerts, vlmVerified: false });
+
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(
+      expect.arrayContaining(['Tailgating', 'Loitering'])
+    );
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual(['Intrusion']);
+  });
+
+  it('splits alertTriggered by vlmVerified state', () => {
+    const vlmOnAlerts = [
+      makeAlert({ id: '1', alertType: 'Tailgating', alertTriggered: 'Motion' }),
+      makeAlert({ id: '2', alertType: 'Loitering', alertTriggered: 'Zone' }),
+    ];
+
+    const { result, rerender } = renderHook(
+      ({ alerts: a, vlmVerified: v }) => useFilters({ alerts: a, vlmVerified: v }),
+      { initialProps: { alerts: vlmOnAlerts, vlmVerified: true } }
+    );
+
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTriggered).toEqual(
+      expect.arrayContaining(['Motion', 'Zone'])
+    );
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTriggered).toEqual([]);
+
+    const vlmOffAlerts = [
+      makeAlert({ id: '3', alertType: 'Intrusion', alertTriggered: 'Thermal' }),
+    ];
+    rerender({ alerts: vlmOffAlerts, vlmVerified: false });
+
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTriggered).toEqual(
+      expect.arrayContaining(['Motion', 'Zone'])
+    );
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTriggered).toEqual(['Thermal']);
+  });
 });

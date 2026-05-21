@@ -60,6 +60,10 @@ const defaultProps = {
     sensors: ['Cam-A', 'Cam-B'],
     alertTypes: ['Tailgating', 'Loitering'],
     alertTriggered: ['Motion', 'Zone'],
+    byVlmVerified: {
+      enabled: { alertTypes: ['Tailgating', 'Loitering'], alertTriggered: ['Motion', 'Zone'] },
+      disabled: { alertTypes: ['Tailgating'], alertTriggered: ['Motion'] },
+    },
   },
   loading: false,
   autoRefreshEnabled: false,
