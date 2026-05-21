@@ -34,7 +34,7 @@ Common causes:
 | `400 BadParameters: No such model` | `VLM_NAME` does not match RT-VLM `/v1/models`. | Copy the advertised id into `VLM_NAME` and recreate `vss-lvs` / `vss-agent`. |
 | `/v1/ready` returns 503 | LLM, RT-VLM, ES, or another dependency is warming/unreachable. | Check dependency logs and endpoint URLs. |
 | `curl` to the video summarization service works on host but not in an agent sandbox | Network namespace or sandbox visibility differs. | Use host-visible shell/deployment context. |
-| Summarize returns 503 | the video summarization service is busy processing another file. | Wait and retry. |
+| Summarize returns 503 | The video summarization service is busy processing another file. | Wait and retry. |
 | Empty or weak event output | Scenario/events too narrow or no matching content. | Re-run with broader events or scenario. |
 
 ## Model Id Mismatch
