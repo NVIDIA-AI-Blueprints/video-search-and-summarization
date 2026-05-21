@@ -27,6 +27,7 @@
         "The agent's final reply is formatted as an inspection report titled `Video Search Results` with clear section headers — not a raw JSON dump, not a chat-style bullet list",
         "Every search hit rendered in the report cites its start time, end time, similarity score, screenshot url or clip url verbatim from the /generate response — no fabricated timestamps, no paraphrased similarity scores",
         "Every screenshot_url / clip_url cited in the agent's final report matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...) — otherwise the user cannot open them from outside the Brev box",
+        "Each search result in the report displays a critic result outcome column, and also a criteria column listing all evaluation criteria relevant to that result (formatted with ✓ for true and ✗ for false).",
         "The agent's final reply includes a `Verification Step` offer at the end of the report, telling the user that screenshots can be downloaded and inspected — it does NOT silently download screenshots without opt-in",
         "The agent did NOT start the video ingest handshake (`POST /api/v1/videos` or `POST /api/v1/videos/{sensorId}/complete`) during this step, it considered the video was in the system already"
       ]
