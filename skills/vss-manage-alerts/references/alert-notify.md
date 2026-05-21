@@ -50,7 +50,8 @@ scripts/alert-notify/
 | `OPENCLAW_GATEWAY_AUTH_TOKEN` | **Yes** (if Dashboard backend) | Gateway auth token from `openclaw.json`. |
 | `WEBHOOK_HOST` | No | Server bind address. Default: `0.0.0.0` |
 | `WEBHOOK_PORT` | No | Server port. Default: `9090` |
-| `VST_ENDPOINT` | **Yes** | VST `host:port` (e.g. `10.63.144.174:30888`). Resolved by the agent via `vios-api` when starting the webhook. Used to generate video clip URLs for incidents without `info.videoSource`. |
+| `VST_ENDPOINT` | **Yes** | VST `host:port` (e.g. `10.63.144.174:30888`). Resolved by the agent via `vss-manage-video-io-storage` when starting the webhook. Used to generate video clip URLs for incidents without `info.videoSource`. |
+| `VST_PUBLIC_URL_BASE` | No | Public base URL substituted for the VST host in playback video URLs (e.g. `https://7777-xbrxpi7ia.brevlab.com`). Set when clients reach VST through a Brev tunnel / reverse-proxy. If unset, URLs pass through unchanged. |
 
 **Environment injection:** These variables can be provided in three ways (in order of precedence):
 
@@ -76,7 +77,7 @@ scripts/alert-notify/
 
 Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are available. If any is missing, resolve it before proceeding:
 - `SLACK_BOT_TOKEN` / `SLACK_CHANNEL_ID` — ask the user to provide them.
-- `VST_ENDPOINT` — use the `vios-api` skill to discover the VST endpoint, or ask the user.
+- `VST_ENDPOINT` — use the `vss-manage-video-io-storage` skill to discover the VST endpoint, or ask the user.
 
 Do not start the server without all three variables set.
 
@@ -136,7 +137,7 @@ Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are set (via 
 >
 > You can set them in `~/.openclaw/openclaw.json` under `skills.entries.alert-notify.env`, or in a `.env` file at `{baseDir}/.env`."
 
-**For VST endpoint** — if `VST_ENDPOINT` is missing, use the `vios-api` skill to discover it. Follow the `vios-api` skill's availability check to find the VST `host:port`. If `vios-api` cannot determine the endpoint (e.g. VST is not deployed), ask the user:
+**For VST endpoint** — if `VST_ENDPOINT` is missing, use the `vss-manage-video-io-storage` skill to discover it. Follow the skill's availability check to find the VST `host:port`. If VST is not deployed or unreachable, ask the user:
 
 > "I need the VST endpoint (`host:port`) to resolve video clip URLs. What is the VST address?"
 
@@ -303,7 +304,7 @@ The webhook accepts VSS incident payloads via `POST /webhook/alert-notify`. The 
 | **Place** | `place.name` | Human-readable location name |
 | **Timestamp** | `timestamp` | ISO 8601 timestamp of the incident |
 | **VLM Reasoning** | `info.reasoning` | Vision Language Model reasoning explanation |
-| **Video URL** | `info.videoSource` | Link to the video evidence clip. If missing, use the `vios-api` skill to resolve a clip URL before posting (see [Resolve Video Evidence via vios-api](#resolve-video-evidence-via-vios-api)). |
+| **Video URL** | `info.videoSource` | Link to the video evidence clip. If missing, use the `vss-manage-video-io-storage` skill to resolve a clip URL before posting (see [Video URL Resolution via vss-manage-video-io-storage](#video-url-resolution-via-vss-manage-video-io-storage)). |
 
 Missing or null fields are displayed as "N/A" in the Slack message.
 
@@ -360,15 +361,15 @@ All errors must be translated into plain language. Never show raw HTTP responses
 
 ---
 
-## Video URL Resolution via vios-api
+## Video URL Resolution via vss-manage-video-io-storage
 
-The webhook server **automatically** resolves video clip URLs for incidents that lack `info.videoSource`. The `VST_ENDPOINT` is required and resolved by the agent via `vios-api` at startup (Step 3).
+The webhook server **automatically** resolves video clip URLs for incidents that lack `info.videoSource`. The `VST_ENDPOINT` is required and resolved by the agent via `vss-manage-video-io-storage` at startup (Step 3).
 
 ### How it Works
 
 ```
 Agent starts webhook
-  └─ Uses vios-api to discover VST endpoint (host:port)
+  └─ Uses vss-manage-video-io-storage to discover VST endpoint (host:port)
   └─ Sets VST_ENDPOINT in .env (required — server won't start without it)
   └─ Starts server.py (reads VST_ENDPOINT on boot)
 
@@ -378,7 +379,7 @@ Alert Bridge sends incident -> webhook server
        └─ server queries VST for a temporary clip URL (sensorId + time range)
 ```
 
-The agent uses `vios-api` only at **startup** to discover the VST endpoint. After that, the server resolves video URLs autonomously per-incident — no agent involvement needed.
+The agent uses `vss-manage-video-io-storage` only at **startup** to discover the VST endpoint. After that, the server resolves video URLs autonomously per-incident — no agent involvement needed.
 
 ### When Video Resolution is Skipped
 
@@ -391,5 +392,5 @@ The notification is always sent regardless — the video link is best-effort. Ch
 
 ## Cross-Reference
 
-- **vios-api** — Sensor lookup and video clip URL resolution via VST (used for video evidence fallback)
+- **vss-manage-video-io-storage** — Sensor lookup and video clip URL resolution via VST (used for video evidence fallback)
 - **alert-subscriptions** — Create and manage realtime alert rules that generate the incidents forwarded by this skill
