@@ -577,13 +577,21 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     if external_ip != host_ip:
         merged["EXTERNAL_IP"] = external_ip
 
-    brev_env_id = first_non_placeholder(
+    disable_brev_proxy_env = first_non_placeholder(
         [
-            config.env_overrides.get("BREV_ENV_ID", ""),
-            os.environ.get("BREV_ENV_ID", ""),
-            read_etc_environment().get("BREV_ENV_ID", ""),
+            config.env_overrides.get("VSS_DISABLE_BREV_PROXY_ENV", ""),
+            os.environ.get("VSS_DISABLE_BREV_PROXY_ENV", ""),
         ]
-    )
+    ).lower() in {"1", "true", "yes"}
+    brev_env_id = ""
+    if not disable_brev_proxy_env:
+        brev_env_id = first_non_placeholder(
+            [
+                config.env_overrides.get("BREV_ENV_ID", ""),
+                os.environ.get("BREV_ENV_ID", ""),
+                read_etc_environment().get("BREV_ENV_ID", ""),
+            ]
+        )
     if brev_env_id:
         apply_brev_proxy_env(merged, brev_env_id)
 

@@ -413,6 +413,7 @@ class TestBuildResolvedEnv:
 
         brev_calls: list[tuple[str, str]] = []
         monkeypatch.delenv("BREV_ENV_ID", raising=False)
+        monkeypatch.delenv("VSS_DISABLE_BREV_PROXY_ENV", raising=False)
         monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("HOST_IP override should win"))
         monkeypatch.setattr(dcu, "detect_external_ip", lambda: "44.55.66.77")
         monkeypatch.setattr(dcu, "read_etc_environment", lambda: {"BREV_ENV_ID": "brev-from-etc"})
@@ -440,6 +441,45 @@ class TestBuildResolvedEnv:
         assert "SHARED_LLM_VLM_DEVICE_ID" not in resolved
         assert resolved["COMPOSE_PROFILES"] == "search_local,llm_local_llm-a-slug,vlm_local_vlm-a-slug"
         assert brev_calls == [("10.0.0.5", "brev-from-etc")]
+
+    def test_build_resolved_env_can_disable_brev_proxy_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(
+                "MODE=local",
+                "BP_PROFILE=search",
+                "HARDWARE_PROFILE=igx",
+                "LLM_MODE=local_shared",
+                "LLM_NAME=llm-a",
+                "LLM_NAME_SLUG=llm-a-slug",
+                "VLM_MODE=local_shared",
+                "VLM_NAME=vlm-a",
+                "VLM_NAME_SLUG=vlm-a-slug",
+                "HOST_IP=<HOST_IP>",
+                "VSS_APPS_DIR=/path/to/deploy/docker",
+                "COMPOSE_PROFILES=${BP_PROFILE}_${MODE},llm_${LLM_MODE}_${LLM_NAME_SLUG},vlm_${VLM_MODE}_${VLM_NAME_SLUG}",
+            ),
+            profile=dcu.PROFILE_SEARCH,
+            env_overrides={"HOST_IP": "10.0.0.5", "VSS_DISABLE_BREV_PROXY_ENV": "true"},
+        )
+
+        monkeypatch.delenv("BREV_ENV_ID", raising=False)
+        monkeypatch.setattr(dcu, "detect_internal_ip", lambda: pytest.fail("HOST_IP override should win"))
+        monkeypatch.setattr(dcu, "detect_external_ip", lambda: "44.55.66.77")
+        monkeypatch.setattr(dcu, "read_etc_environment", lambda: {"BREV_ENV_ID": "brev-from-etc"})
+        monkeypatch.setattr(
+            dcu,
+            "apply_brev_proxy_env",
+            lambda _merged, _brev_env_id: pytest.fail("Brev proxy env should be disabled"),
+        )
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["HOST_IP"] == "10.0.0.5"
+        assert resolved["EXTERNAL_IP"] == "44.55.66.77"
+        assert resolved["COMPOSE_PROFILES"] == "search_local,llm_local_llm-a-slug,vlm_local_vlm-a-slug"
 
     def test_build_resolved_env_uses_recipe_hardware_profile_when_not_overridden(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
