@@ -10,21 +10,16 @@ through the VSS Orchestrator MCP server.
 
 ---
 
-## Step 1: Pin HOST_IP to the sandbox host alias
+## Step 1: Run AGENTS.md "Every Session" first
 
-In the nemoclaw / openshell sandbox the egress policy only whitelists the VSS backend ports on the hostname `host.openshell.internal`. Direct curls to a LAN IP or `localhost` are blocked with `policy_denied`. Skills curl `${HOST_IP}` for every runtime call, so override `HOST_IP` once here and persist it — every skill then works without modification.
+Complete the `AGENTS.md` "Every Session" checklist before continuing. In particular, Step 1 there runs the exports in `ENV.md`, which the rest of this bootstrap and every skill depends on. The nemoclaw egress policy blocks direct curls to a LAN IP or `localhost` with `policy_denied`, so `${HOST_IP}` must be set first. `ENV.md` is the single source of truth for the value — read it there.
 
-```bash
-export HOST_IP=host.openshell.internal
-grep -q '^export HOST_IP=' ~/.bashrc \
-  && sed -i 's|^export HOST_IP=.*|export HOST_IP=host.openshell.internal|' ~/.bashrc \
-  || echo 'export HOST_IP=host.openshell.internal' >> ~/.bashrc
-```
+`/sandbox/.bashrc` is root-owned (mode `444`) in this sandbox — we cannot persist these exports to a shell init file, so the "Every Session" re-export is the persistence mechanism. See `ENV.md` and `TOOLS.md` "Sandbox host alias" for the full reasoning.
 
-Verify reachability before moving on:
+Then verify reachability:
 
 ```bash
-getent hosts host.openshell.internal && \
+getent hosts "${HOST_IP}" && \
   curl -sf --max-time 5 "http://${HOST_IP}:9988/" >/dev/null && echo "host alias reachable"
 ```
 
