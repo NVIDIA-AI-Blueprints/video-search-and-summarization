@@ -64,7 +64,7 @@ Rules:
 
 **Before any call to `POST /v1/summarize`, you MUST ask the user for
 `scenario`, `events`, and `objects_of_interest`, and wait for their
-response.** Do not call LVS with defaults silently — if the user wants
+response.** Do not call the video summarization service with defaults silently — if the user wants
 defaults, they must say so explicitly (e.g., "use the generic
 defaults").
 
@@ -78,7 +78,7 @@ video**, re-run the HITL from scratch.
 Post the message as follows (literal template — fill the `{video_name}`
 and `{duration}` placeholders):
 
-> I'm about to send **{video_name}** ({duration}s) to LVS. I need three
+> I'm about to send **{video_name}** ({duration}s) to the video summarization service. I need three
 > parameters first:
 >
 > 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
@@ -93,7 +93,7 @@ and `{duration}` placeholders):
 > `events=["notable activity"]`, no objects. Reply `/cancel` to stop.
 
 Only after the user replies with values (or `defaults`) may you build
-and send the LVS request.
+and send the video summarization request.
 
 **Required parameters:**
 
