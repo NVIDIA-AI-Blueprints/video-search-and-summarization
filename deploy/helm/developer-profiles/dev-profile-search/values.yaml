@@ -67,14 +67,18 @@ vios:
   vss-vios-postgres:
     enabled: true
 
+  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-alerts.
   vss-vios-envoy-proxy:
-    enabled: true
+    enabled: false
 
+  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-alerts.
   vss-vios-sdr:
-    enabled: true
+    enabled: false
 
   vss-vios-sensor:
     enabled: true
+    # Sensor talks to SDRC (replaces vss-vios-envoy-proxy) — same pattern as dev-profile-alerts.
+    streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -110,6 +114,15 @@ infra:
       limits:
         memory: 512Mi
         cpu: 500m
+  # SDRC workload controller — replaces vss-vios-sdr + vss-vios-envoy-proxy from the vios umbrella.
+  # Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
+  sdrc:
+    enabled: true
+    configFilePath: configs/sdrc/config-search.yml
+    config:
+      configMapName: sdrc-config
+      key: config.yml
+      mountPath: /config.yml
   phoenix:
     enabled: true
     # Serve Phoenix behind ingress path prefix (http://<host>/phoenix).

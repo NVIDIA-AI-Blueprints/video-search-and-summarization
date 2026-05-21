@@ -21,7 +21,7 @@ services:
   # `rm -rf log/* .wdm-env/*` works without sudo even though the files inside
   # are root-owned (rm only needs write+exec on the parent dir).
   init-dirs:
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm","bp_developer_search_2d"]
     image: alpine:3.23.4
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
@@ -44,7 +44,7 @@ services:
   # Every downstream service that reads these rendered files depends on this
   # completing successfully.
   render-config:
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm","bp_developer_search_2d"]
     image: alpine:3.23.4
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
@@ -73,7 +73,7 @@ services:
     container_name: sdrc-render-config
 
   wdm-env-from-config:
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm","bp_developer_search_2d"]
     image: alpine:3.23.4
     # yq image runs as non-root; bind-mounted ./.wdm-env is often root-owned — write as root.
     user: "0:0"
@@ -97,7 +97,7 @@ services:
     container_name: sdrc-wdm-env-from-config
 
   wait-for-redis:
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm","bp_developer_search_2d"]
     image: redis:8.6.2-alpine
     restart: "no"
     depends_on:
@@ -114,7 +114,7 @@ services:
     container_name: sdrc-wait-for-redis
 
   wait-for-docker-workloads:
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_kafka_3d","bp_wh_redis_3d","bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm","bp_developer_search_2d"]
     image: alpine:3.23.4
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -134,7 +134,7 @@ services:
   # sdr-mw-l: host network, Kubernetes API + CA, Docker socket, docker_cluster_config.json (mixed docker/k8s).
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
   sdr-controller:
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm","bp_developer_search_2d"]
     image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.2}
     container_name: sdr-controller
     network_mode: host
