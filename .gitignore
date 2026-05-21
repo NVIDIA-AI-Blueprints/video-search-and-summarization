@@ -3,6 +3,7 @@
 # Python
 __pycache__/
 *.pyc
+*.DS_Store
 
 # OpenClaw plugin pack artifacts (staged by .openclaw/package.json prepack)
 .openclaw/*.tgz
