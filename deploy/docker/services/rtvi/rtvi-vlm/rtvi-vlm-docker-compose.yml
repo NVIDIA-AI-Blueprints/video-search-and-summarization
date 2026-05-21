@@ -18,7 +18,7 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.1}
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.3}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
@@ -56,6 +56,8 @@ services:
       VLLM_DISABLE_MM_PREPROCESSOR_CACHE: "${RTVI_VLLM_DISABLE_MM_PREPROCESSOR_CACHE:-false}"
       # API cap on output tokens.
       VLM_MAX_GENERATION_TOKENS: "${RTVI_VLM_MAX_GENERATION_TOKENS:-16384}"
+      # Max length (chars) for user VLM prompt.
+      VLM_PROMPT_MAX_LENGTH: "${VLM_PROMPT_MAX_LENGTH:-10240}"
       # MoE backend override (empty by default; code auto-picks triton on B200 for Qwen3.5).
       VLLM_MOE_BACKEND: "${RTVI_VLLM_MOE_BACKEND:-}"
       # vLLM multimodal preprocessor cache size in GiB.
@@ -109,6 +111,31 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
       VSS_SKIP_INPUT_MEDIA_VERIFICATION: "${VSS_SKIP_INPUT_MEDIA_VERIFICATION:-}"
       RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT: "${RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT:-}"
+      ENABLE_LVS_CR2_TIMESTAMP_PROMPT: "${ENABLE_LVS_CR2_TIMESTAMP_PROMPT:-}"
+      # Timeout (sec) for blocking stream delete drain.
+      RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC: "${RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC:-300}"
+      # Optionally call CUDA empty-cache after result handling.
+      RTVI_EMPTY_CUDA_CACHE_ON_RESULT: "${RTVI_EMPTY_CUDA_CACHE_ON_RESULT:-false}"
+      # Enable timestamp filter for live streams.
+      RTVI_ENABLE_LIVE_TIMESTAMP_FILTER: "${RTVI_ENABLE_LIVE_TIMESTAMP_FILTER:-false}"
+      # Enable timestamp filter for file streams.
+      RTVI_ENABLE_FILE_TIMESTAMP_FILTER: "${RTVI_ENABLE_FILE_TIMESTAMP_FILTER:-true}"
+      # GStreamer rtpjitterbuffer drop-on-latency.
+      RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY: "${RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY:-false}"
+      # GStreamer rtpjitterbuffer fast-start packet threshold (compose default 2; code default 0 when unset).
+      RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS: "${RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS:-2}"
+      # Enable GOP-aligned decode optimization.
+      RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
+      # vLLM mm_tensor_ipc (passed only when supported).
+      VLLM_MM_TENSOR_IPC: "${VLLM_MM_TENSOR_IPC:-}"
+      # vLLM multimodal_tensor_ipc (passed only when supported).
+      VLLM_MULTIMODAL_TENSOR_IPC: "${VLLM_MULTIMODAL_TENSOR_IPC:-}"
+      # vLLM mm_encoder_attn_backend (e.g. for backend experiments).
+      VLLM_MM_ENCODER_ATTN_BACKEND: "${VLLM_MM_ENCODER_ATTN_BACKEND:-}"
+      # vLLM NVFP4 CT emulation toggle (set to "1" to enable on non-NVFP4 hardware).
+      VLLM_USE_NVFP4_CT_EMULATIONS: "${VLLM_USE_NVFP4_CT_EMULATIONS:-0}"
+      # Override path for vLLM patch script.
+      VLLM_ROOT: "${VLLM_ROOT:-/usr/local/lib/python3.12/dist-packages/vllm}"
     volumes:
       - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
       - "${RTVI_VLM_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"

@@ -134,6 +134,8 @@ env:
     value: ""
   - name: RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT
     value: ""
+  - name: ENABLE_LVS_CR2_TIMESTAMP_PROMPT
+    value: ""
   - name: RTVI_EXTRA_ARGS
     value: ""
   - name: RTVI_RTSP_LATENCY
@@ -175,6 +177,9 @@ env:
   # API cap on output tokens.
   - name: VLM_MAX_GENERATION_TOKENS
     value: "16384"
+  # Max length (chars) for user VLM prompt.
+  - name: VLM_PROMPT_MAX_LENGTH
+    value: "10240"
   # MoE backend override (empty by default; code auto-picks triton on B200 for Qwen3.5).
   - name: VLLM_MOE_BACKEND
     value: ""
@@ -184,6 +189,42 @@ env:
   # vLLM multimodal preprocessor cache size in GiB.
   - name: VLLM_MM_PROCESSOR_CACHE_GB
     value: "1"
+  # Timeout (sec) for blocking stream delete drain.
+  - name: RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC
+    value: "300"
+  # Optionally call CUDA empty-cache after result handling.
+  - name: RTVI_EMPTY_CUDA_CACHE_ON_RESULT
+    value: "false"
+  # Enable timestamp filter for live streams.
+  - name: RTVI_ENABLE_LIVE_TIMESTAMP_FILTER
+    value: "false"
+  # Enable timestamp filter for file streams.
+  - name: RTVI_ENABLE_FILE_TIMESTAMP_FILTER
+    value: "true"
+  # GStreamer rtpjitterbuffer drop-on-latency.
+  - name: RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY
+    value: "false"
+  # GStreamer rtpjitterbuffer fast-start packet threshold (compose default 2; code default 0 when unset).
+  - name: RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS
+    value: "2"
+  # Enable GOP-aligned decode optimization.
+  - name: RTVI_ENABLE_GOP_DECODE_OPT
+    value: "true"
+  # vLLM mm_tensor_ipc (passed only when supported).
+  - name: VLLM_MM_TENSOR_IPC
+    value: ""
+  # vLLM multimodal_tensor_ipc (passed only when supported).
+  - name: VLLM_MULTIMODAL_TENSOR_IPC
+    value: ""
+  # vLLM mm_encoder_attn_backend (e.g. for backend experiments).
+  - name: VLLM_MM_ENCODER_ATTN_BACKEND
+    value: ""
+  # vLLM NVFP4 CT emulation toggle (set to "1" to enable on non-NVFP4 hardware).
+  - name: VLLM_USE_NVFP4_CT_EMULATIONS
+    value: "0"
+  # Override path for vLLM patch script.
+  - name: VLLM_ROOT
+    value: "/usr/local/lib/python3.12/dist-packages/vllm"
 
 nodeSelector: {}
 tolerations: []
