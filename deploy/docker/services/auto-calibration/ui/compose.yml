@@ -17,7 +17,7 @@ services:
   vss-auto-calibration-ui:
     image: nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.2.0-2
     container_name: vss-auto-calibration-ui
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_kafka_mv3dt","bp_wh_redis_2d","bp_wh_redis_3d","bp_wh_redis_mv3dt","auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
+    profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
 
     # network_mode: "host"
     ports:

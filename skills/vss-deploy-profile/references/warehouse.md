@@ -53,7 +53,6 @@ The warehouse blueprint boots the **full VSS stack** (agent + UI + VST + RTVI be
 | `vss-behavior-analytics` | Behavior analytics — ROI, tripwire, proximity events |
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
-| `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
 ### MV3DT CV core (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`)
 
@@ -70,11 +69,10 @@ MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera
 | `vss-behavior-analytics-mv3dt` | Behavior analytics — 3D spatial analytics |
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
-| `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
 ### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
 
-Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check.
+Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check. These are the only warehouse profiles that start `vss-auto-calibration` and `vss-auto-calibration-ui`; regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` profiles do not.
 
 | Container | Purpose |
 |---|---|
@@ -164,7 +162,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Service | URL | Profile |
 |---|---|---|
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
-| Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
+| Auto-Calibration UI | `http://<HOST_IP>:5000` | `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt` |
 | Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
 | VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
 | VST MCP (direct) | `http://<HOST_IP>:8001` | All |
@@ -278,9 +276,9 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 **Stack is ready when these show `Up`** (same container names in 2D and 3D; MV3DT uses `-mv3dt` suffix):
 
-- 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
+- 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
 - 3D extra: `vss-rtvi-cv-config-adaptor`
-- MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
+- MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
