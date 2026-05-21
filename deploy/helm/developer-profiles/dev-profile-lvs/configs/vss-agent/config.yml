@@ -98,7 +98,6 @@ functions:
     lvs_backend_url: ${LVS_BACKEND_URL}
     model: ${VLM_NAME}
     video_url_tool: vst_video_clip
-    vlm_mode: ${VLM_MODE}
     vst_internal_url: ${VST_INTERNAL_URL}
     # Connection and timeout configuration
     conn_timeout_ms: 5000
