@@ -5,7 +5,7 @@
   "profile": "lvs",
   "resources": {
     "platforms": {
-      "L40S": {
+      "RTXPRO6000BW": {
         "gpu_count": 1
       }
     }
