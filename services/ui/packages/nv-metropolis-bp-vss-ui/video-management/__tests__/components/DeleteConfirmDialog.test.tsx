@@ -131,12 +131,11 @@ describe('DeleteConfirmDialog — user interactions', () => {
 
   it('invokes onCancel when the backdrop is clicked', () => {
     const onCancel = jest.fn();
-    const { container } = renderDialog({ onCancel });
+    renderDialog({ onCancel });
 
-    // Backdrop is the first sibling div with the bg-black/85 overlay class.
-    const backdrop = container.querySelector('.bg-black\\/85') as HTMLElement;
+    const backdrop = screen.getByRole('alertdialog').parentElement;
     expect(backdrop).toBeTruthy();
-    fireEvent.click(backdrop);
+    fireEvent.click(backdrop!);
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
@@ -176,10 +175,10 @@ describe('DeleteConfirmDialog — isDeleting state', () => {
 
   it('ignores backdrop clicks while deleting so an in-flight request is not abandoned', () => {
     const onCancel = jest.fn();
-    const { container } = renderDialog({ onCancel, isDeleting: true });
+    renderDialog({ onCancel, isDeleting: true });
 
-    const backdrop = container.querySelector('.bg-black\\/85') as HTMLElement;
-    fireEvent.click(backdrop);
+    const backdrop = screen.getByRole('alertdialog').parentElement;
+    fireEvent.click(backdrop!);
     expect(onCancel).not.toHaveBeenCalled();
   });
 
