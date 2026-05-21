@@ -108,14 +108,12 @@ def _should_use_video_base64(
 ) -> bool:
     """Return whether the video payload should be downloaded locally and sent as base64 frames.
 
-    Audio-capable VLMs (e.g. Nemotron Omni) need the full MP4 via ``video_url``; JPEG frame
-  sampling drops the audio track. When ``enable_audio`` is True, always use ``video_url``.
+      Audio-capable VLMs (e.g. Nemotron Omni) need the full MP4 via ``video_url``; JPEG frame
+    sampling drops the audio track. When ``enable_audio`` is True, always use ``video_url``.
     """
     if enable_audio:
         if use_base64:
-            logger.warning(
-                "use_base64=True is ignored because enable_audio=True requires the full MP4 via video_url."
-            )
+            logger.warning("use_base64=True is ignored because enable_audio=True requires the full MP4 via video_url.")
         return False
     return use_base64 or _is_remote_vlm(vlm_mode)
 

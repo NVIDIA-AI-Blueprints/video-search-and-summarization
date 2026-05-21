@@ -162,14 +162,20 @@ class TestShouldUseVideoBase64:
         )
 
     def test_enable_audio_defaults_false(self):
-        assert VideoUnderstandingConfig(
-            vlm_name="nim_vlm",
-            enable_audio=False,
-        ).enable_audio is False
-        assert VideoUnderstandingConfig(
-            vlm_name="nim_vlm",
-            enable_audio=True,
-        ).enable_audio is True
+        assert (
+            VideoUnderstandingConfig(
+                vlm_name="nim_vlm",
+                enable_audio=False,
+            ).enable_audio
+            is False
+        )
+        assert (
+            VideoUnderstandingConfig(
+                vlm_name="nim_vlm",
+                enable_audio=True,
+            ).enable_audio
+            is True
+        )
 
 
 class TestBuildVlmMessages:
