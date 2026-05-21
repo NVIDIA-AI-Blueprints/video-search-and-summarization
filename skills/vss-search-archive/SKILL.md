@@ -94,6 +94,7 @@ When using this skill, ALWAYS follow this high-level workflow:
    — Use clear section headers
    - Organize findings individually with supporting detail, and close with a summary
    - Use tables where comparisons help. Write like a technical report, not a chat message.
+   - If criteria results are non-null, then in addition to a column "Critic result" ("confirmed" | "rejected" | "skipped"), include a column "Criteria" with all the criteria for this search result ({criteria_n}: ✓ | ✗)
 5. CRITICAL: Verify the results and explain this to the user concisely.
    If search fails, or returns unexpected results (i.e. videos that do not appear to match user query, zero matches, zero videos returned, error etc.), STOP. Do not proceed without reading [troubleshooting.md](references/troubleshooting.md) to iterate with feedback loops until proper results are found and presented like a professional inspection report.
 6. Final verifications:
