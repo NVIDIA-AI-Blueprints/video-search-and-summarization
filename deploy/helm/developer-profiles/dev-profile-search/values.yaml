@@ -69,6 +69,13 @@ vios:
 
   vss-vios-envoy-proxy:
     enabled: true
+    command:
+      - /bin/sh
+      - -c
+      - |
+        N=$(nproc); MAX=$((N-1)); [ $MAX -gt 63 ] && MAX=63;
+        echo "[envoy-proxy] Pinning envoy to CPUs 0-$MAX (host exposes $N CPU(s)) to avoid tcmalloc percpu crash";
+        exec /usr/bin/taskset -c 0-$MAX /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --concurrency 16 --base-id 1
 
   vss-vios-sdr:
     enabled: true
