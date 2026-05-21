@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import base64
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from datetime import timedelta
@@ -103,14 +104,52 @@ def _should_use_video_base64(
     *,
     use_base64: bool,
     vlm_mode: str | None,
+    enable_audio: bool = False,
 ) -> bool:
-    """Return whether the video payload should be downloaded locally and sent as base64."""
+    """Return whether the video payload should be downloaded locally and sent as base64 frames.
+
+      Audio-capable VLMs (e.g. Nemotron Omni) need the full MP4 via ``video_url``; JPEG frame
+    sampling drops the audio track. When ``enable_audio`` is True, always use ``video_url``.
+    """
+    if enable_audio:
+        if use_base64:
+            logger.warning("use_base64=True is ignored because enable_audio=True requires the full MP4 via video_url.")
+        return False
     return use_base64 or _is_remote_vlm(vlm_mode)
 
 
 def _is_remote_vlm(vlm_mode: str | None) -> bool:
     """Return whether the VLM backend is configured as remote."""
     return (vlm_mode or "").lower() == "remote"
+
+
+def _is_omni_audio_model(model_name: str) -> bool:
+    """Return whether the VLM is Nemotron Omni (supports embedded audio in MP4)."""
+    return "omni" in (model_name or "").lower()
+
+
+_OMNI_AUDIO_SYSTEM_SUFFIX = """
+
+When the video includes an audio track, you must use both sight and sound.
+Quote spoken words and narration when audible. Include facts stated in speech (numbers, names, claims).
+Describe notable sounds, not only lip movement or that someone is speaking.
+"""
+
+
+def _should_use_video_file_base64(
+    *,
+    enable_audio: bool,
+    vlm_mode: str | None,
+    model_name: str = "",
+) -> bool:
+    """Return whether to inline the full MP4 as base64 for the VLM.
+
+    Remote VLMs cannot rely on VST ``video_url`` reachability the way a co-located
+    local VLM can. Inlining the file preserves the audio track while avoiding
+    JPEG frame sampling. Only Omni audio-capable models support the
+    ``data:video/mp4;base64,…`` URI format expected by this path.
+    """
+    return enable_audio and _is_remote_vlm(vlm_mode) and _is_omni_audio_model(model_name)
 
 
 class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
@@ -192,6 +231,21 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
         description="Internal VST base URL (e.g., 'http://HOST_IP:30888'). "
         "Used when the agent or local VLM fetches VST media directly.",
     )
+    enable_audio: bool = Field(
+        False,
+        description="When True, send the full MP4 via video_url (preserves audio for Omni VLMs). "
+        "When False with VLM_MODE=remote, JPEG frame sampling is used instead. "
+        "Align with vst.video_clip.enable_audio and ENABLE_AUDIO.",
+    )
+
+
+def _effective_system_prompt(config: VideoUnderstandingConfig, model_name: str) -> str | None:
+    """Return system prompt, extended for Omni audio-in-video when enable_audio is set."""
+    if not config.system_prompt:
+        return None
+    if config.enable_audio and _is_omni_audio_model(model_name):
+        return f"{config.system_prompt.rstrip()}{_OMNI_AUDIO_SYSTEM_SUFFIX}"
+    return config.system_prompt
 
 
 class VideoUnderstandingInput(BaseModel):
@@ -300,11 +354,27 @@ async def _build_vlm_messages(
     user_prompt: str,
     *,
     use_base64: bool,
+    use_video_file_base64: bool = False,
     video_length_seconds: float,
     num_frames: int,
     max_fps: int,
 ) -> list[HumanMessage]:
     """Download/transform video and build VLM messages for the appropriate backend."""
+    if use_video_file_base64:
+        timeout = aiohttp.ClientTimeout(total=300)
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
+            resp.raise_for_status()
+            video_data = await resp.read()
+        video_b64 = base64.b64encode(video_data).decode("ascii")
+        return [
+            HumanMessage(
+                content=[
+                    {"type": "text", "text": user_prompt},
+                    {"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
+                ]
+            )
+        ]
+
     if use_base64:
         timeout = aiohttp.ClientTimeout(total=300)
         async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
@@ -353,8 +423,18 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
     use_video_base64 = _should_use_video_base64(
         use_base64=config.use_base64,
         vlm_mode=config.vlm_mode,
+        enable_audio=config.enable_audio,
     )
-    logger.info(f"Using VLM profile: {config.vlm_name}, vlm_mode: {config.vlm_mode}, use_base64: {use_video_base64}")
+    use_video_file_base64 = _should_use_video_file_base64(
+        enable_audio=config.enable_audio,
+        vlm_mode=config.vlm_mode,
+        model_name=model_name,
+    )
+    logger.info(
+        f"Using VLM profile: {config.vlm_name}, vlm_mode: {config.vlm_mode}, "
+        f"enable_audio: {config.enable_audio}, use_base64: {use_video_base64}, "
+        f"use_video_file_base64: {use_video_file_base64}"
+    )
 
     if not config.use_vst:
         s3_client = boto3.client(
@@ -369,21 +449,24 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         s3_client = None
 
     # VLM prompt templates setup
-    if config.system_prompt:
-        # Use custom system prompt from config
-        logger.info(f"Using custom system prompt: {config.system_prompt[:100]}...")
+    effective_system_prompt = _effective_system_prompt(config, model_name)
+    if effective_system_prompt:
+        if config.enable_audio and _is_omni_audio_model(model_name):
+            logger.info("Using Omni audio-extended system prompt for video+audio analysis")
+        else:
+            logger.info(f"Using custom system prompt: {effective_system_prompt[:100]}...")
         reasoning_prompt_template = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    f"{config.system_prompt}\n\nWrap your response in the following format:\n<think>\nyour reasoning\n</think>\n\n<answer>\nyour answer following the observation format above\n</answer>",
+                    f"{effective_system_prompt}\n\nWrap your response in the following format:\n<think>\nyour reasoning\n</think>\n\n<answer>\nyour answer following the observation format above\n</answer>",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
             ]
         )
         non_reasoning_prompt_template = ChatPromptTemplate.from_messages(
             [
-                ("system", config.system_prompt),
+                ("system", effective_system_prompt),
                 MessagesPlaceholder(variable_name="messages"),
             ]
         )
@@ -474,6 +557,11 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                 mm_processor_kwargs=mm_processor_kwargs,
                 media_io_kwargs=media_io_kwargs,
             )
+        elif config.enable_audio and _is_omni_audio_model(model_name):
+            # Nemotron Omni: MP4 audio is ignored unless use_audio_in_video is set.
+            # See NVIDIA NIM Omni API docs (mm_processor_kwargs).
+            vlm = base_vlm.bind(mm_processor_kwargs={"use_audio_in_video": True})
+            logger.info("VLM audio-in-video enabled (mm_processor_kwargs.use_audio_in_video=true)")
         else:
             vlm = base_vlm
 
@@ -545,7 +633,11 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                 logger.warning("VST internal URL is not configured; using the original VST video URL.")
             video_url = rewrite_to_internal_vst_url(video_url, config.vst_internal_url)
 
-        if use_video_base64:
+        if use_video_file_base64:
+            logger.info(
+                f"[Video Understanding] Downloading MP4 for inline base64 payload (audio preserved): {video_url}"
+            )
+        elif use_video_base64:
             logger.info(f"[Video Understanding] VIDEO URL FOR LOCAL MEDIA DOWNLOAD: {video_url}")
         elif config.use_vst:
             logger.info(f"[Video Understanding] INTERNAL VIDEO URL FOR VLM ANALYSIS: {video_url}")
@@ -564,6 +656,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             video_url,
             user_prompt,
             use_base64=use_video_base64,
+            use_video_file_base64=use_video_file_base64,
             video_length_seconds=video_length_seconds,
             num_frames=num_frames,
             max_fps=config.max_fps,
