@@ -149,10 +149,18 @@ class TestShouldUseVideoBase64:
             )
         assert "use_base64=True is ignored" in caplog.text
 
-    def test_enable_audio_remote_uses_video_file_base64(self):
+    def test_enable_audio_remote_omni_uses_video_file_base64(self):
         assert _should_use_video_file_base64(
             enable_audio=True,
             vlm_mode="remote",
+            model_name="nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
+        )
+
+    def test_enable_audio_remote_non_omni_skips_video_file_base64(self):
+        assert not _should_use_video_file_base64(
+            enable_audio=True,
+            vlm_mode="remote",
+            model_name="nvidia/cosmos-reason2-8b",
         )
 
     def test_enable_audio_local_does_not_use_video_file_base64(self):
