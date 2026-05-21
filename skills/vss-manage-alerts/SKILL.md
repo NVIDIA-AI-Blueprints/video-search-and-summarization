@@ -100,7 +100,7 @@ grep -E '^MODE=' deployments/developer-workflow/dev-profile-alerts/.env
 
 | Deployed mode | User asks about… | Action |
 |---|---|---|
-| **VLM real-time** | Slack webhook setup/status/test/stop | Run **Workflow E (Slack Notifications)** — follow `references/alert-notify-slack.md` |
+| **VLM real-time** | Slack webhook setup/status/test/stop | Run **Workflow E (Slack Notifications)** — follow `references/alert-notify.md` |
 | **VLM real-time** | subscription / rule CRUD, or **set up / create / watch / flag** a realtime alert on a specific sensor with a detection condition | Run **Workflow D (Alert Subscriptions)** — follow `references/alert-subscriptions.md` for Alert Bridge rule management. |
 | **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see Canonical refusal text below |
 | **CV or VLM** | generic start/stop monitoring via VSS Agent **without** a specific detection condition (e.g. "start real-time alert for sensor warehouse_sample") | Run **Workflow B (VLM)** — call the VSS Agent with a detection prompt. `rtvi-vlm` runs in both modes. |
@@ -267,11 +267,11 @@ Execution rule:
 
 Use this workflow when the user **explicitly mentions Slack or the webhook relay** for incidents (start/stop webhook server, check status/health, send test message, or set Slack channel/token). The word "notify" alone does **not** trigger this workflow — it must co-occur with `slack`, `webhook`, or `bot token`.
 
-> **`alert-notify-slack` (port 9090) ≠ `vss-alert-bridge` (`/api/v1/realtime`).** Do NOT interact with `vss-alert-bridge` for Slack operations — that service handles VLM verification (Workflow D), not Slack.
+> **`alert-notify` (port 9090) ≠ `vss-alert-bridge` (`/api/v1/realtime`).** Do NOT interact with `vss-alert-bridge` for Slack operations — that service handles VLM verification (Workflow D), not Slack.
 
 Examples:
 - "Set up Slack notifications for alerts"
-- "Check if alert-notify-slack is running"
+- "Check if alert-notify is running"
 - "Send a test alert notification to Slack"
 - "Start the alert webhook for Slack"
 - "Slack webhook start"
@@ -281,8 +281,8 @@ Examples:
 - "Alert and notify on my phone" → not Slack-specific, ask the user to clarify
 
 Execution rule:
-- Load and follow `references/alert-notify-slack.md` as the authoritative playbook. Code lives in `scripts/alert-notify-slack/`.
-- Keep this `alerts` skill as the entrypoint and router; treat `references/alert-notify-slack.md` as a delegated sub-workflow.
+- Load and follow `references/alert-notify.md` as the authoritative playbook. Code lives in `scripts/alert-notify/`.
+- Keep this `alerts` skill as the entrypoint and router; treat `references/alert-notify.md` as a delegated sub-workflow.
 - VLM real-time mode only. Requires the VLM profile deployed; the parent skill verifies mode before invoking E.
 
 ---
@@ -367,13 +367,13 @@ Each entry maps a CV `alert_type` (the `category` field emitted by Behavior Anal
 | Time-range incident / occupancy / PPE metrics from Elasticsearch | **`vss-query-analytics`** skill (VA-MCP :9901) |
 | Generate a detailed incident report from an alert | **`vss-generate-video-report`** skill |
 | Alert subscriptions (create/list/delete rules) | Sub-workflow: `references/alert-subscriptions.md` |
-| Forward incidents to Slack webhook | Sub-workflow: `references/alert-notify-slack.md`, code in `scripts/alert-notify-slack/` |
+| Forward incidents to Slack webhook | Sub-workflow: `references/alert-notify.md`, code in `scripts/alert-notify/` |
 
 ---
 
 ## Gotchas
 
-- **`alert-notify-slack` (port 9090) ≠ `vss-alert-bridge`.** "Slack webhook" → Workflow E (`alert-notify-slack`). Never route Slack intents to `vss-alert-bridge`'s `/api/v1/realtime`.
+- **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** "Slack webhook" → Workflow E (`alert-notify`). Never route Slack intents to `vss-alert-bridge`'s `/api/v1/realtime`.
 - **Workflow scope by mode:** Workflow A is CV-only. Workflows B and C work on either mode. Workflows D and E (subscriptions and Slack) are VLM real-time only — refuse with the canonical refusal text if attempted on CV.
 - **Don't use `rtvi-vlm` container presence as a mode signal.** It runs in both modes. Use `vss-behavior-analytics-alerts` (CV-only) or the `MODE` env var instead.
 - **A mode switch tears down the current deployment.** Any running VLM monitoring streams and any CV alert state not already in Elasticsearch will be lost.

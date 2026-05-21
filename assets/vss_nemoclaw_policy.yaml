@@ -64,6 +64,8 @@ network_policies:
       protocol: rest
       enforcement: enforce
       tls: terminate
+      allowed_ips:
+      - 10.0.0.0/8
       rules:
       - allow: {method: GET, path: "/**"}
       - allow: {method: POST, path: "/**"}
@@ -72,12 +74,15 @@ network_policies:
       protocol: rest
       enforcement: enforce
       tls: terminate
+      allowed_ips:
+      - 10.0.0.0/8
       rules:
       - allow: {method: GET, path: "/**"}
       - allow: {method: POST, path: "/**"}
     binaries:
     - {path: /usr/local/bin/claude}
     - {path: /usr/local/bin/openclaw}
+    - {path: /usr/local/bin/node}
 
 
   github:
@@ -254,6 +259,11 @@ network_policies:
       - 172.17.0.0/24
     - host: host.openshell.internal
       port: 9988
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 18789
       access: full
       allowed_ips:
       - 172.17.0.0/24
