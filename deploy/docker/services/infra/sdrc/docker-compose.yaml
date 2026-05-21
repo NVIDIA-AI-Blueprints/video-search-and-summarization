@@ -135,7 +135,7 @@ services:
   # Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run).
   sdr-controller:
     profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d", "bp_wh_kafka_3d","bp_wh_redis_3d", "bp_wh_kafka_mv3dt", "bp_wh_redis_mv3dt","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
-    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.2}
+    image: ${SDR_MW_L_IMAGE:-nvcr.io/nvstaging/vss-core/sdr-mw-l:3.0.0-prd.3}
     container_name: sdr-controller
     network_mode: host
     restart: unless-stopped
