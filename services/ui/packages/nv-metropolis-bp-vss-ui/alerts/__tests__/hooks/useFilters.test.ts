@@ -196,7 +196,7 @@ describe('useFilters', () => {
     expect(result.current.uniqueValues.alertTypes).toEqual(['Apple', 'Mango', 'Zebra']);
   });
 
-  it('splits alertTypes by vlmVerified state', () => {
+  it('keeps separate alert type cache per vlmVerified state', () => {
     const vlmOnAlerts = [
       makeAlert({ id: '1', alertType: 'Tailgating', alertTriggered: 'Motion' }),
       makeAlert({ id: '2', alertType: 'Loitering', alertTriggered: 'Zone' }),
@@ -207,9 +207,8 @@ describe('useFilters', () => {
       { initialProps: { alerts: vlmOnAlerts, vlmVerified: true } }
     );
 
-    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(
-      expect.arrayContaining(['Tailgating', 'Loitering'])
-    );
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(['Loitering', 'Tailgating']);
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTriggered).toEqual(['Motion', 'Zone']);
     expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual([]);
 
     const vlmOffAlerts = [
@@ -217,36 +216,58 @@ describe('useFilters', () => {
     ];
     rerender({ alerts: vlmOffAlerts, vlmVerified: false });
 
-    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(
-      expect.arrayContaining(['Tailgating', 'Loitering'])
-    );
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(['Loitering', 'Tailgating']);
     expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual(['Intrusion']);
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTriggered).toEqual(['Thermal']);
   });
 
-  it('splits alertTriggered by vlmVerified state', () => {
-    const vlmOnAlerts = [
-      makeAlert({ id: '1', alertType: 'Tailgating', alertTriggered: 'Motion' }),
-      makeAlert({ id: '2', alertType: 'Loitering', alertTriggered: 'Zone' }),
-    ];
+  it('does not clear current bucket when alerts change', () => {
+    const firstBatch = [makeAlert({ id: '1', alertType: 'Type-A', alertTriggered: 'Trig-A' })];
+    const secondBatch = [makeAlert({ id: '2', alertType: 'Type-B', alertTriggered: 'Trig-B' })];
 
     const { result, rerender } = renderHook(
       ({ alerts: a, vlmVerified: v }) => useFilters({ alerts: a, vlmVerified: v }),
-      { initialProps: { alerts: vlmOnAlerts, vlmVerified: true } }
+      { initialProps: { alerts: firstBatch, vlmVerified: true } }
     );
 
-    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTriggered).toEqual(
-      expect.arrayContaining(['Motion', 'Zone'])
-    );
-    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTriggered).toEqual([]);
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(['Type-A']);
 
-    const vlmOffAlerts = [
-      makeAlert({ id: '3', alertType: 'Intrusion', alertTriggered: 'Thermal' }),
-    ];
-    rerender({ alerts: vlmOffAlerts, vlmVerified: false });
+    rerender({ alerts: secondBatch, vlmVerified: true });
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(['Type-A', 'Type-B']);
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTriggered).toEqual(['Trig-A', 'Trig-B']);
+  });
 
-    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTriggered).toEqual(
-      expect.arrayContaining(['Motion', 'Zone'])
+  it('switching vlmVerified does not leak between buckets', () => {
+    const falseAlerts = [makeAlert({ id: '1', alertType: 'False-Type', alertTriggered: 'False-Trig' })];
+    const trueAlerts = [makeAlert({ id: '2', alertType: 'True-Type', alertTriggered: 'True-Trig' })];
+
+    const { result, rerender } = renderHook(
+      ({ alerts: a, vlmVerified: v }) => useFilters({ alerts: a, vlmVerified: v }),
+      { initialProps: { alerts: falseAlerts, vlmVerified: false } }
     );
-    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTriggered).toEqual(['Thermal']);
+
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual(['False-Type']);
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual([]);
+
+    rerender({ alerts: trueAlerts, vlmVerified: true });
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual(['True-Type']);
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual(['False-Type']);
+  });
+
+  it('toggle alone does not add old alerts into new bucket', () => {
+    const falseAlerts = [makeAlert({ id: '1', alertType: 'False-Type', alertTriggered: 'False-Trig' })];
+
+    const { result, rerender } = renderHook(
+      ({ alerts: a, vlmVerified: v }) => useFilters({ alerts: a, vlmVerified: v }),
+      { initialProps: { alerts: falseAlerts, vlmVerified: false } }
+    );
+
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual(['False-Type']);
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual([]);
+
+    // Toggle vlmVerified, but keep the same alerts reference.
+    rerender({ alerts: falseAlerts, vlmVerified: true });
+    expect(result.current.uniqueValues.byVlmVerified.disabled.alertTypes).toEqual(['False-Type']);
+    expect(result.current.uniqueValues.byVlmVerified.enabled.alertTypes).toEqual([]);
   });
 });
