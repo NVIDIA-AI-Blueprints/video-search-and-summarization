@@ -25,6 +25,10 @@ const THUMBNAIL_BOX_STYLE: React.CSSProperties = { width: '128px', height: '72px
 
 // Short lookback for the replay snapshot. Far enough back that the segment is
 // reliably written to storage, short enough that the preview still looks fresh.
+// NOTE: startTime is computed once per effect invocation (i.e., per prop change).
+// The thumbnail does not auto-refresh; it always shows the frame from ~5 s
+// before the sensor-list fetch resolved. Re-mount or a prop change is required
+// to get a newer frame.
 const THUMBNAIL_LOOKBACK_MS = 5_000;
 
 const Placeholder: React.FC<{
