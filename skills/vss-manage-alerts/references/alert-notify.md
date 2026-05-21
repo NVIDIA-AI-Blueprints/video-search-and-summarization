@@ -43,7 +43,7 @@ scripts/alert-notify/
 
 | Variable | Required | Description |
 |---|---|---|
-| `NOTIFY_BACKENDS` | No | Comma-separated backend list. Default: `slack`. Options: `slack`, `dashboard`, `slack,dashboard`. |
+| `NOTIFY_BACKENDS` | No | Comma-separated backend list. Default: `dashboard`. Options: `slack`, `dashboard`, `slack,dashboard`. |
 | `SLACK_BOT_TOKEN` | **Yes** (if Slack backend) | Slack Bot OAuth Token (`xoxb-...`). Create a Slack App at https://api.slack.com/apps with `chat:write` scope. |
 | `SLACK_CHANNEL_ID` | **Yes** (if Slack backend) | Target Slack channel ID (e.g. `C07XXXXXXXX`). Find it in Slack: right-click channel -> View channel details -> Channel ID. |
 | `OPENCLAW_GATEWAY_URL` | **Yes** (if Dashboard backend) | OpenClaw Gateway URL (e.g. `http://host.openshell.internal:18789`). |

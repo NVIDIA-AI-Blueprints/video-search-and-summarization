@@ -60,7 +60,7 @@ _notification_count: int = 0
 # ---------------------------------------------------------------------------
 
 def _parse_backend_names() -> list[str]:
-    raw = os.environ.get("NOTIFY_BACKENDS", "slack")
+    raw = os.environ.get("NOTIFY_BACKENDS", "dashboard")
     names = [n.strip().lower() for n in raw.split(",") if n.strip()]
     if not names:
         raise RuntimeError("NOTIFY_BACKENDS must list at least one backend")
