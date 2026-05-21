@@ -48,23 +48,6 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
 
 
-def _record_started_instance(name: str) -> None:
-    """Append an auto-provisioned instance name to the wrapper's
-    cleanup marker (`/tmp/brev/started-by-<run_id>.txt`) so
-    skills_eval_agent.cleanup_instances() tears it down even if the
-    agent never observes the name. No-op outside CI (no GITHUB_RUN_ID)."""
-    run_id = os.environ.get("GITHUB_RUN_ID")
-    if not run_id:
-        return
-    try:
-        marker = Path(f"/tmp/brev/started-by-{run_id}.txt")
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        with marker.open("a") as fh:
-            fh.write(f"{name}\n")
-    except OSError as exc:
-        logger.warning("failed to record %s in started-by marker: %s", name, exc)
-
-
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
 
@@ -120,7 +103,7 @@ class BrevEnvironment(BaseEnvironment):
         return tomllib.loads(task_toml.read_text()).get("metadata", {}) or {}
 
     def _resolve_instance_name(self) -> str | None:
-        """Resolve instance name: env var > task.toml > None (auto-provision)."""
+        """Resolve instance name: env var > task.toml > None (error)."""
         if DEFAULT_INSTANCE:
             return DEFAULT_INSTANCE
         meta = self._read_task_metadata()
@@ -129,7 +112,9 @@ class BrevEnvironment(BaseEnvironment):
         return None
 
     async def start(self, force_build: bool) -> None:
-        """Validate or provision a Brev instance matching task GPU requirements."""
+        """Validate that the resolved Brev instance is reachable and matches
+        the task's GPU requirements. Errors if no instance is resolved —
+        the harness does not auto-provision."""
         if self._started:
             return
 
@@ -157,61 +142,15 @@ class BrevEnvironment(BaseEnvironment):
                 )
             await _check_instance_matches(instance, requirements)
         else:
-            # Mode 2: auto-provision via brev search + create.
-            # Some platforms (DGX-SPARK, IGX-THOR) aren't provisionable as
-            # cloud instance types — they're physical devices registered via
-            # `brev register`.  Check there first and give a helpful error.
-            if not requirements["brev_search"]:
-                raise RuntimeError(
-                    "No BREV_INSTANCE set and no GPU requirements in task.toml "
-                    "[metadata] — cannot auto-provision."
-                )
-            logger.info("Auto-provisioning Brev instance for %s", requirements)
-            instance_type = await _find_cheapest_matching_type(requirements)
-            if not instance_type:
-                # Before failing, list any registered nodes that might fit.
-                suggestions = await _suggest_registered_devices(requirements)
-                msg = [
-                    f"Cannot auto-provision: no Brev cloud instance type matches",
-                    f"  requirements: {requirements}",
-                ]
-                if suggestions:
-                    msg.append("")
-                    msg.append("Registered device(s) matching (or partially matching) these requirements:")
-                    for s in suggestions:
-                        msg.append(f"  - {s}")
-                    msg.append("")
-                    msg.append(
-                        "Set `BREV_INSTANCE=<name>` or add `brev_instance = \"<name>\"` "
-                        "to task.toml [metadata] to use one of these."
-                    )
-                else:
-                    msg.append("")
-                    msg.append(
-                        "No registered devices match either. Options:\n"
-                        "  1. Register a physical device via `brev register` "
-                        "(DGX Spark / IGX Thor are typically registered, not provisioned).\n"
-                        "  2. Adjust gpu_type / brev_search in the task to a provisionable "
-                        "platform (e.g. H100, L40S, RTX PRO 6000)."
-                    )
-                full_msg = "\n".join(msg)
-                logger.error(full_msg)
-                raise RuntimeError(full_msg)
-            self._instance_name = f"harbor-{uuid.uuid4().hex[:8]}"
-            logger.info("Creating %s as %s", self._instance_name, instance_type)
-            create_result = await _run_brev(
-                "create", self._instance_name, "--detached",
-                stdin_data=instance_type,
-                timeout=120,
+            raise RuntimeError(
+                "No BREV_INSTANCE set and no `brev_instance` in task.toml "
+                "[metadata]. The harness no longer auto-provisions — every "
+                "trial must run on an operator-managed `vss-eval-*` pool "
+                "member. The skill-eval agent picks one per AGENTS.md § 5a "
+                "and exports BREV_INSTANCE before invoking `uvx harbor run`. "
+                "If you're running harbor manually, export "
+                "BREV_INSTANCE=<vss-eval-*-name> first."
             )
-            if create_result.return_code != 0:
-                raise RuntimeError(f"brev create failed: {create_result.stderr}")
-            # Record the harbor-* instance in the wrapper's cleanup marker
-            # so skills_eval_agent.cleanup_instances() tears it down even if
-            # the trial fails before the agent tracks it. Append before
-            # _wait_for_running so a timeout there doesn't leak an orphan.
-            _record_started_instance(self._instance_name)
-            await _wait_for_running(self._instance_name)
 
         # Quick smoke test — ensure exec works
         result = await _run_brev_exec(
@@ -229,11 +168,11 @@ class BrevEnvironment(BaseEnvironment):
                 f"{(result.stdout or '')[:200]!r}"
             )
 
-        # Post-provision resource checks: root disk + GPU driver.
-        # These catch provider quirks that brev search doesn't surface
-        # (e.g. hyperstack_H100x2 lists disk_min_gb=1600 but mounts the
-        # big volume on /ephemeral — / is only ~100 GB, which OOMs on
-        # local NIM pulls).
+        # Live resource checks: root disk + GPU driver. The pool box was
+        # provisioned by the operator and is expected to meet these, but
+        # the checks catch silent regressions (e.g. a driver downgrade or
+        # a box where the big volume mounts on /ephemeral and / is only
+        # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
         # Pre-create harbor's expected directories with correct ownership
@@ -1279,40 +1218,6 @@ async def _check_instance_matches(instance: dict, req: dict) -> None:
     )
 
 
-async def _find_cheapest_matching_type(req: dict) -> str | None:
-    """Find the cheapest `brev search` instance type matching GPU requirements."""
-    result = await _run_brev("search", "--json", timeout=30)
-    search = (req.get("brev_search") or "").lower()
-    required_count = req.get("gpu_count", 1)
-    required_vram = req.get("min_vram_gb_per_gpu", 0)
-    required_disk = req.get("min_root_disk_gb", 0)
-
-    candidates = []
-    for inst in _parse_brev_json(result.stdout):
-        gpu_name = (inst.get("gpu_name") or "").lower()
-        gpu_count = int(inst.get("gpu_count", 0) or 0)
-        total_vram = float(inst.get("total_vram_gb", 0) or 0)
-        disk_min_gb = int(inst.get("disk_min_gb", 0) or 0)
-        if search and search not in gpu_name:
-            continue
-        if gpu_count < required_count:
-            continue
-        if required_vram and (total_vram / max(gpu_count, 1)) < required_vram:
-            continue
-        # Pre-filter by disk_min_gb.  Some providers misreport this (e.g.
-        # hyperstack lists ephemeral-disk size not root), so the live check
-        # in _check_live_resources is authoritative; this filter just prunes
-        # candidates that are obviously undersized.
-        if required_disk and disk_min_gb and disk_min_gb < required_disk:
-            continue
-        candidates.append(inst)
-
-    if not candidates:
-        return None
-    candidates.sort(key=lambda x: float(x.get("price_per_hour", 0) or 0))
-    return candidates[0].get("type")
-
-
 def _version_lt(a: str, b: str) -> bool:
     """Return True if NVIDIA driver version `a` is older than `b`.
 
@@ -1380,56 +1285,3 @@ async def _check_live_resources(instance_name: str, req: dict) -> None:
         )
 
 
-async def _suggest_registered_devices(req: dict) -> list[str]:
-    """Query `brev ls nodes --json` for registered physical devices that
-    match the task's requirements (best-effort, by name substring).
-    Returns human-readable strings for error messages."""
-    result = await _run_brev("ls", "nodes", "--json", timeout=15)
-    nodes = _parse_brev_json(result.stdout)
-    if not nodes:
-        return []
-    search = (req.get("brev_search") or req.get("gpu_type") or "").lower()
-    suggestions = []
-    for n in nodes:
-        name = n.get("name") or ""
-        status = n.get("status") or "?"
-        # Node entries don't include GPU specs; fall back to name matching.
-        # If search term appears in node name, it's a likely fit.
-        if search and search in name.lower():
-            suggestions.append(f"{name}  (status={status})  [name matches '{search}']")
-    # Also include all connected nodes as fallback suggestions.
-    if not suggestions:
-        for n in nodes:
-            if n.get("status") == "Connected":
-                suggestions.append(
-                    f"{n.get('name')}  (status=Connected)  "
-                    f"[GPU unknown — verify manually]"
-                )
-    return suggestions
-
-
-async def _wait_for_running(
-    name: str,
-    timeout_sec: int = 2400,
-    poll_interval: int = 15,
-) -> None:
-    """Poll `brev ls` until the named instance reaches RUNNING + shell READY."""
-    elapsed = 0
-    while elapsed < timeout_sec:
-        inst = await _find_brev_instance(name)
-        if inst:
-            status = inst.get("status")
-            shell = inst.get("shell_status")
-            if status == "FAILURE":
-                raise RuntimeError(f"Brev instance {name} creation FAILED")
-            if status == "RUNNING" and shell == "READY":
-                return
-            logger.info(
-                "Waiting for %s (status=%s shell=%s, %ds/%ds)",
-                name, status, shell, elapsed, timeout_sec,
-            )
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-    raise TimeoutError(
-        f"Brev instance {name} did not become ready within {timeout_sec}s"
-    )
