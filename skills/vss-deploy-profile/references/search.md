@@ -311,9 +311,9 @@ After RT-CV starts, it builds a TensorRT engine from this ONNX (3–5 min on fir
 
 RT-Embed downloads Cosmos-Embed1 weights from Hugging Face on first start; RT-CV's `perception-2d-init` downloads `siglip_v2` from NGC, then builds a TensorRT engine from the ONNX staged in [Stage perception models](#stage-perception-models-rt-detr-warehouse) above. Expect 15–25 min extra on the first deploy.
 
-### HuggingFace token for RT-Embed (optional, for faster downloads)
+### HuggingFace token for RT-Embed
 
-RT-Embed downloads the model named in `MODEL_PATH` (default `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection`) from Hugging Face on first start. Anonymous downloads work, but a personal token noticeably speeds up that first-run pull.
+RT-Embed downloads the model named in `MODEL_PATH` (default `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection`) from Hugging Face on first start. A token is **required** when `MODEL_PATH` points to a gated or private HF repo (anonymous requests return HTTP 403) or when the anonymous rate limit is reached (HTTP 429). It also speeds up the default public Cosmos-Embed1 download.
 
 Set `HF_TOKEN` in `deploy/docker/developer-profiles/dev-profile-search/.env` (default empty) to a token from https://huggingface.co/settings/tokens (a `read`-scope token is enough). The value wires through to the `rtvi-embed` container's `HF_TOKEN` environment variable via the search profile's `.env` (see `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml` line 64: `HF_TOKEN: "${HF_TOKEN:-}"`). Restart the container after changing it.
 
