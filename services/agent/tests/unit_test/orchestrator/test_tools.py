@@ -14,10 +14,16 @@
 # limitations under the License.
 """Tests for vss_agents/orchestrator/tools.py."""
 
+from pathlib import Path
+import subprocess
+from unittest.mock import patch
+
 import pytest
 
+from vss_agents.orchestrator.tools import ComposeDownOperationInput
 from vss_agents.orchestrator.tools import GenerateInput
 from vss_agents.orchestrator.tools import OrchestratorRuntimeSettings
+from vss_agents.orchestrator.tools import _run_deep_clean
 
 
 def test_generate_input_does_not_expose_runtime_secret_fields():
@@ -88,3 +94,164 @@ def test_runtime_settings_allows_missing_runtime_env(tmp_path, monkeypatch: pyte
     assert settings.ngc_cli_api_key == ""
     assert settings.nvidia_api_key == ""
     assert settings.hardware_profile == ""
+
+
+def test_compose_down_input_deep_clean_defaults_to_false():
+    inp = ComposeDownOperationInput(docker_compose_id="base")
+    assert inp.deep_clean is False
+    assert inp.remove_volumes is True
+    assert inp.remove_orphans is True
+
+
+def test_compose_down_input_deep_clean_can_be_enabled():
+    inp = ComposeDownOperationInput(docker_compose_id="base", deep_clean=True)
+    assert inp.deep_clean is True
+
+
+def _make_completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def test_run_deep_clean_skips_missing_data_directory(tmp_path: Path):
+    missing = tmp_path / "does-not-exist"
+    logs: list[str] = []
+
+    with patch("vss_agents.orchestrator.tools.subprocess.run") as mock_run:
+        mock_run.return_value = _make_completed(stdout="Total reclaimed space: 0B\n")
+        _run_deep_clean(missing, logs.append)
+
+    # docker volume prune ran exactly once; rm was NOT invoked because the dir is missing.
+    assert mock_run.call_count == 1
+    assert mock_run.call_args_list[0].args[0] == ["docker", "volume", "prune", "-f"]
+    assert any("Data directory does not exist" in line for line in logs)
+
+
+def test_run_deep_clean_removes_existing_data_directory(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    (data_dir / "marker").write_text("x")
+    logs: list[str] = []
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        # docker volume prune: stub. rm -rf: defer to real subprocess so the dir actually goes away.
+        if cmd[:1] == ["docker"]:
+            return _make_completed(stdout="Total reclaimed space: 0B\n")
+        return real_run(cmd, *args, **kwargs)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert not data_dir.exists()
+    assert any("Data directory deleted" in line for line in logs)
+
+
+def test_run_deep_clean_uses_sudo_when_non_root_and_available(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    captured_cmds: list[list[str]] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        captured_cmds.append(list(cmd))
+        if cmd[:1] == ["docker"]:
+            return _make_completed(stdout="")
+        # Simulate sudo rm -rf success without actually deleting (we'll assert command shape).
+        import shutil as _sh
+
+        _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    rm_cmd = next(cmd for cmd in captured_cmds if cmd[:1] != ["docker"])
+    assert rm_cmd[:3] == ["sudo", "-n", "rm"]
+    assert rm_cmd[3] == "-rf"
+    assert rm_cmd[4] == str(data_dir)
+
+
+def test_run_deep_clean_skips_sudo_when_root(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    captured_cmds: list[list[str]] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        captured_cmds.append(list(cmd))
+        if cmd[:1] == ["docker"]:
+            return _make_completed(stdout="")
+        import shutil as _sh
+
+        _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value="/usr/bin/sudo"),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    rm_cmd = next(cmd for cmd in captured_cmds if cmd[:1] != ["docker"])
+    assert rm_cmd[0] == "rm"
+    assert "sudo" not in rm_cmd
+
+
+def test_run_deep_clean_logs_failure_when_rm_returns_nonzero(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        if cmd[:1] == ["docker"]:
+            return _make_completed(stdout="")
+        # Simulate permission denied: dir remains, exit code 1.
+        return _make_completed(returncode=1, stderr="rm: cannot remove ...: Permission denied\n")
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert data_dir.exists()
+    assert any("Failed to delete data directory" in line for line in logs)
+    assert any("root-owned" in line for line in logs)
+
+
+def test_run_deep_clean_handles_missing_docker_binary(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        if cmd[:1] == ["docker"]:
+            raise FileNotFoundError("docker")
+        import shutil as _sh
+
+        _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    assert any("docker command not found" in line for line in logs)
+    # rm path still runs and removes the directory.
+    assert not data_dir.exists()
