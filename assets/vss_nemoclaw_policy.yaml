@@ -185,6 +185,40 @@ network_policies:
     binaries:
     - {path: /usr/local/bin/node}
 
+  pypi:
+    name: pypi
+    endpoints:
+    - host: pypi.org
+      port: 443
+      access: full
+    - host: files.pythonhosted.org
+      port: 443
+      access: full
+    binaries:
+    - {path: /usr/bin/python3}
+    - {path: /usr/bin/python3.13}
+    - {path: /usr/bin/pip}
+    - {path: /usr/bin/pip3}
+    - {path: /usr/bin/curl}
+    - {path: /usr/local/bin/node}
+
+  slack:
+    name: slack
+    endpoints:
+    - host: slack.com
+      port: 443
+      protocol: rest
+      enforcement: enforce
+      tls: terminate
+      rules:
+      - allow: {method: GET, path: "/**"}
+      - allow: {method: POST, path: "/**"}
+    binaries:
+    - {path: /usr/bin/python3}
+    - {path: /usr/bin/python3.13}
+    - {path: /usr/bin/curl}
+    - {path: /usr/local/bin/node}
+
   vss-backend:
     name: vss-backend-readwrite
     endpoints:
@@ -214,7 +248,75 @@ network_policies:
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
-      port: 9902
+      port: 9080
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9988
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    # Agent UI (3000), Auto-Calibration UI (5000), Phoenix (6006), VST MCP (8001),
+    # Auto-Calibration MS (8010), RT-Embed (8017), RT-VLM (8018), Kafka (9092),
+    # VA-MCP (9901), NvStreamer UI (31000), LVS REST (38111), LVS MCP (38112).
+    - host: host.openshell.internal
+      port: 3000
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 5000
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 6006
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8001
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8010
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8017
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8018
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9092
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9901
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 31000
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 38111
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 38112
       access: full
       allowed_ips:
       - 172.17.0.0/24
@@ -222,3 +324,5 @@ network_policies:
     - {path: /usr/bin/curl}
     - {path: /usr/local/bin/node}
     - {path: /usr/local/bin/openclaw}
+    - {path: /usr/bin/python3}
+    - {path: /usr/bin/python3.13}
