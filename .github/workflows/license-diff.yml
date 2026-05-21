@@ -45,9 +45,12 @@ jobs:
           # branch so cherry-pick / hotfix PRs against release branches
           # (e.g. dev/3.2.0) get a sensible diff baseline. Fall back to
           # develop only if the lookup fails (e.g. PR closed mid-run).
+          # `// ""` coerces a missing/null baseRefName to an empty string —
+          # bare `.baseRefName` would emit the literal "null" and bypass the
+          # `${target:-DEFAULT_BRANCH}` fallback below.
           target="$(gh pr view "${pr_number}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --json baseRefName --jq '.baseRefName' 2>/dev/null || true)"
+            --json baseRefName --jq '.baseRefName // ""' 2>/dev/null || true)"
           target="${target:-${DEFAULT_BRANCH}}"
           git fetch --no-tags origin "+refs/heads/${target}:refs/remotes/origin/${target}"
           merge_base=$(git merge-base HEAD "origin/${target}" || git rev-parse "origin/${target}")
