@@ -60,6 +60,5 @@ services:
       ALERT_BRIDGE_PORT: ${ALERT_BRIDGE_PORT:-9080}
       NVSTREAMER_HTTP_PORT: ${NVSTREAMER_HTTP_PORT:-31000}
       KIBANA_PORT: ${KIBANA_PORT:-5601}
-      PHOENIX_PORT: ${PHOENIX_PORT:-6006}
     volumes:
       - ./haproxy.cfg.template:/usr/local/etc/haproxy/haproxy.cfg:ro

@@ -19,8 +19,7 @@
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-postgres` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0"
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-postgres` returns exit 0"
       ]
     }
   ]

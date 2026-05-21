@@ -113,7 +113,7 @@ Edit **`values-lvs.yaml`** and set at least:
 | **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Use **`nims.gpuType`** to select model tuning from **`gpuProfiles`** and **`nims.nemotron.enabled`** / **`nims.cosmos.enabled`** to choose the models to deploy. **`nims.cosmos.enabled`** is **`false`** by default because LVS uses the integrated RT-VLM checkpoint. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
 | **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) base URLs when LLM/VLM are **not** deployed by this chart. Use with **`nims.enabled: false`**. Shared by **vss-agent** and **vss-summarization**; must be reachable from those pods. Leave **`""`** for in-cluster **NIM** services. |
 | **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
-| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana** and **Phoenix** on **`kibana.<host>`** / **`phoenix.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
+| **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana** on **`kibana.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
 
 #### `values-lvs.yaml` vs chart `values.yaml`
 
@@ -150,7 +150,6 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vios.vstStorage.vstData`** | **`size`:** **10Gi**, **`storageClass`:** **`""`** | Claim size for the shared **VST data** volume. Leave **`storageClass`** empty to inherit **`global.storageClass`**; set it only if this volume needs a different class than the rest of the chart. |
 | **`vios.vstStorage.vstVideo`** | **`size`:** **20Gi**, **`storageClass`:** **`""`** | Claim size for the shared **VST video** volume; same **`storageClass`** rules as **`vstData`**. |
 | **`vios.vstStorage.streamerVideos`** | **`size`:** **20Gi**, **`storageClass`:** **`""`** | Claim size for the shared **streamer upload** video volume; same **`storageClass`** rules as **`vstData`**. |
-| **`infra.phoenix.enabled`** | **`true`** | Set **`false`** to disable Phoenix ( **`infra`** subchart). |
 | **`infra.redis.enabled`** | **`true`** | Set **`false`** to disable Redis. |
 | **`vios.enabled`** | **`true`** | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | **`true`** | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
@@ -162,16 +161,14 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** when **`vios.vstStorage.createSharedPvcs`** is **`true`**, or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | **`true`** | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | **`""`** | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
-| **`vssIngress.enabled`** | **`false`** in chart **`values.yaml`**; **`true`** in sample **`values-lvs.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: paths on the main host for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**; optional hosts **`kibana.<host>`** and **`phoenix.<host>`** when **Kibana** / **Phoenix** are enabled. No **`Ingress`** if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
+| **`vssIngress.enabled`** | **`false`** in chart **`values.yaml`**; **`true`** in sample **`values-lvs.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: paths on the main host for **vss-agent-ui**, **vss-agent**, **vss-vios-ingress**; optional host **`kibana.<host>`** when **Kibana** is enabled. No **`Ingress`** if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
 | **`vssIngress.ingressClassName`** | **`haproxy`** | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** on the cluster (e.g. from **HAProxy Kubernetes Ingress**). |
 | **`vssIngress.host`** | **`""`** | Ingress hostname for the main rules; if empty, **`global.externalHost`** is used. |
 | **`vssIngress.vssUiPort`** | **`3000`** | Backend port for **vss-agent-ui** paths. |
 | **`vssIngress.vssAgentPort`** | **`8000`** | Backend port for **vss-agent** paths. |
 | **`vssIngress.vstIngressPort`** | **`30888`** | Backend port for **vss-vios-ingress** (**`/vst`**). |
 | **`vssIngress.kibanaHost`** | **`""`** | Host rule for Kibana; default **`kibana.<global.externalHost or vssIngress.host>`**. |
-| **`vssIngress.phoenixHost`** | **`""`** | Host rule for Phoenix; default **`phoenix.<global.externalHost or vssIngress.host>`**. |
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port when Kibana is enabled. |
-| **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port when Phoenix is enabled. |
 | **`vss-summarization.enabled`** | **`true`** | Set **`false`** to disable the **LVS** summarization service. |
 | **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty, defaults to **`<release>-elasticsearch`**. |
 | **`vss-summarization.elasticsearchPort`** | **`9200`** | Elasticsearch HTTP port (**`ES_PORT`**). |
@@ -284,7 +281,7 @@ Set **`global.externalHost`**, **`global.kibanaPublicUrl`** (and scheme/port as 
 
 ### VSS Ingress (`vssIngress`)
 
-The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so one main hostname serves UI, API, and VST, with optional hostnames for **Kibana** and **Phoenix** when those subcharts are enabled.
+The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`**) so one main hostname serves UI, API, and VST, with an optional hostname for **Kibana** when that subchart is enabled.
 
 **Prerequisites**
 
@@ -298,7 +295,6 @@ The chart can create a Kubernetes **`Ingress`** (**`templates/vss-ingress.yaml`*
 - **`spec.ingressClassName`**: **`vssIngress.ingressClassName`** (default **`haproxy`**).
 - Main host: **`/`**, **`/api/chat`** → **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** → **vss-agent**; **`/vst`** → **vss-vios-ingress**.
 - If **Kibana** is enabled: host **`kibana.<main-host>`** (or **`vssIngress.kibanaHost`**) → **Kibana** (**`vssIngress.kibanaPort`**).
-- If **Phoenix** is enabled: host **`phoenix.<main-host>`** (or **`vssIngress.phoenixHost`**) → **Phoenix**.
 
 After install, confirm the **`Ingress`** exists (replace **`<NAMESPACE>`** with your release namespace):
 

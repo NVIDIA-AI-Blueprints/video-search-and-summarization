@@ -17,7 +17,6 @@
 {{- $global := .Values.global | default dict }}
 {{- $ingressEnabled := default false (index $vssIngress "enabled") }}
 {{- $mainHost := coalesce (index $vssIngress "host") (index $global "externalHost") "" }}
-{{- $phoenixHost := index $vssIngress "phoenixHost" | default "" | trim }}
 
 =====================================================================
   NVIDIA Metropolis Base Profile - Developer Workflow
@@ -37,10 +36,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   VSS UI:               http://{{ $mainHost }}
   VSS Agent API:        http://{{ $mainHost }}/api
   VST API:              http://{{ $mainHost }}/vst/api
-  Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
-{{- if ne $phoenixHost "" }}
-  Phoenix Tracing Host: http://{{ $phoenixHost }}
-{{- end }}
 {{- else }}
   Ingress is ENABLED, but no host is configured.
   Set one of:
@@ -53,7 +48,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent-ui" "chartName" "vss-agent-ui") }} 3000:3000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "vss-vios-ingress" "chartName" "vss-vios-ingress") }} 30888:30888 -n {{ .Release.Namespace }}
-  kubectl port-forward svc/{{ include "vss.subchartFullname" (dict "Values" .Values "Release" .Release "depKey" "phoenix" "chartName" "phoenix" "subchartValues" (index (.Values.infra | default dict) "phoenix" | default dict)) }} 6006:6006 -n {{ .Release.Namespace }}
 {{- end }}
 
 =====================================================================

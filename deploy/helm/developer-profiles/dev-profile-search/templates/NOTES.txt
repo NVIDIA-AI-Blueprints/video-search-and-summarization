@@ -65,7 +65,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   {{- $mainHost := .Values.ingress.hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
   {{- $streamerHost := .Values.ingress.hosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
   {{- $kibanaHost := .Values.ingress.hosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
-  {{- $phoenixHost := .Values.ingress.hosts.phoenix | default "" | trim }}
   Ingress is ENABLED. Services are exposed via host/path routing:
 
   VSS UI (Search):      http://{{ $mainHost }}
@@ -73,10 +72,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   VST API:              http://{{ $mainHost }}/vst/api
   Video Analytics API:  http://{{ $mainHost }}/video-analytics-api
   Kibana Dashboards:    http://{{ $kibanaHost }}
-  Phoenix Tracing Path: http://{{ $mainHost }}/phoenix
-  {{- if ne $phoenixHost "" }}
-  Phoenix Tracing Host: http://{{ $phoenixHost }}
-  {{- end }}
   NVStreamer HTTP:       http://{{ $streamerHost }}
 
   NVStreamer RTSP:       not exposed via NodePort by default; port-forward to pod (see vst_config rtsp_server_port)
@@ -91,7 +86,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-ingress") }} 8000:8000 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-video-analytics-api") }} 8081:8081 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kibana") }} 5601:5601 -n {{ .Release.Namespace }}
-  kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "phoenix") }} 6006:6006 -n {{ .Release.Namespace }}
   kubectl port-forward svc/{{ include "dev-profile-search.serviceShort" (dict "root" . "short" "vss-vios-nvstreamer") }} {{ (index .Values "vss-vios-nvstreamer").service.port }}:{{ (index .Values "vss-vios-nvstreamer").service.port }} -n {{ .Release.Namespace }}
 
   NVStreamer RTSP:       not exposed via NodePort by default; port-forward to pod if needed
@@ -101,9 +95,6 @@ Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
     --set ingress.hosts.main=vss-search.<IP>.nip.io \
     --set ingress.hosts.streamer=streamer.<IP>.nip.io \
     --set ingress.hosts.kibana=kibana.<IP>.nip.io \
-    --set ingress.hosts.phoenix=phoenix.<IP>.nip.io \
-
-  (ingress.hosts.phoenix is optional; default Phoenix route is /phoenix on main host)
 
 {{- end }}
 

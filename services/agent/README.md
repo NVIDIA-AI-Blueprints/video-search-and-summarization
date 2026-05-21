@@ -92,7 +92,7 @@ echo "../deployments/developer-workflow/dev-profile-base/.env" > .env_file
 Then source the same `.env` in your shell and override the placeholders.
 `set -a` auto-exports every variable so child processes inherit them.
 Because `HOST_IP` and `LLM/VLM_BASE_URL` are set **after** sourcing, every
-variable the `.env` derived from them (VST URLs, Phoenix, reports URL, …)
+variable the `.env` derived from them (VST URLs, reports URL, …)
 must be re-evaluated — that is what the remaining lines do.
 
 ```bash
@@ -110,7 +110,6 @@ EXTERNALLY_ACCESSIBLE_IP=${HOST_IP}
 VST_INTERNAL_URL=http://${HOST_IP}:${VST_PORT}
 VST_EXTERNAL_URL=http://${EXTERNALLY_ACCESSIBLE_IP}:${VST_PORT}
 VSS_AGENT_REPORTS_BASE_URL=http://${EXTERNALLY_ACCESSIBLE_IP}:${VSS_AGENT_PORT}/static/
-PHOENIX_ENDPOINT=http://${HOST_IP}:6006
 EVAL_LLM_JUDGE_BASE_URL=${LLM_BASE_URL}
 set +a
 ```
@@ -193,7 +192,6 @@ or are only needed for specific features.
 | `VSS_AGENT_OBJECT_STORE_TYPE` | no | `local_object_store` | Object store: `local_object_store` (in-memory) or `s3` |
 | `VSS_AGENT_REPORTS_BASE_URL` | no | — | Base URL for generated report assets |
 | `VSS_AGENT_VERSION` | no | — | Version tag (used in telemetry project name) |
-| `PHOENIX_ENDPOINT` | no | — | Phoenix tracing endpoint (e.g. `http://HOST:6006`) |
 | `EVAL_LLM_JUDGE_NAME` | no | same as `LLM_NAME` | Model used for evaluation judge |
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |
 | `NGC_CLI_API_KEY` | cond. | — | Required when `LLM_MODE` / `VLM_MODE` is `local` or `local_shared` (Docker Compose) |

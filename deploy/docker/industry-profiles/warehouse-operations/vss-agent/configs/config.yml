@@ -27,13 +27,6 @@ general:
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
-  telemetry:
-    tracing:
-      phoenix:
-        _type: phoenix
-        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
-        project: WH-vss-agent-${VSS_AGENT_VERSION}
-
 object_stores:
   local_object_store:
     _type: in_memory

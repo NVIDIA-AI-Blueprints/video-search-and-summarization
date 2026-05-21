@@ -274,7 +274,7 @@ See [Access via NodePort](#access-via-nodeport) for endpoint URLs.
 
 This single chart deploys all application components:
 
-- **Infrastructure**: PostgreSQL, Redis, Phoenix, Kafka
+- **Infrastructure**: PostgreSQL, Redis, Kafka
 - **ELK Stack**: Elasticsearch, Kibana, Logstash
 - **VST Pipeline**: Sensor MS, Stream Processing, SDR Envoy, VST Ingress, VST MCP
 - **Search Pipeline**: NVStreamer, RTVI Embed (Cosmos), Search Analytics
@@ -345,7 +345,6 @@ When deployed with `ingress.enabled=true` (the default), services are accessible
 | VST API           | `http://vss-search.<NODE_IP>.nip.io/vst/api`               |
 | NVStreamer HTTP    | `http://streamer.<NODE_IP>.nip.io`                     |
 | Kibana Dashboards | `http://kibana.<NODE_IP>.nip.io`                       |
-| Phoenix Tracing   | `http://phoenix.<NODE_IP>.nip.io`                      |
 
 Replace `<NODE_IP>` with the value of `$NODE_EXTERNAL_IP`.
 
@@ -366,7 +365,6 @@ When deployed with `values-nodeport.yaml`, services are accessible directly on t
 | VST API           | `http://<NODE_IP>:30888/vst/api`       |
 | NVStreamer HTTP    | `http://<NODE_IP>:30900`               |
 | Kibana Dashboards | `http://<NODE_IP>:31560`               |
-| Phoenix Tracing   | `http://<NODE_IP>:30606`               |
 | NVStreamer RTSP    | not exposed by default (port-forward to pod; see `vst_config.json` `rtsp_server_port`) |
 
 With default **`values.yaml`**, NVStreamer is **ClusterIP** on port **31000** (use [port-forward](#access-via-port-forward) to reach it). The **30900** NodePort row applies when you install with **`values-nodeport.yaml`**.
@@ -394,9 +392,6 @@ kubectl port-forward svc/vss-vios-nvstreamer 31000:31000
 
 # Kibana
 kubectl port-forward svc/kibana 5601:5601
-
-# Phoenix (Service metadata name is `phoenix` when release-name prefixing is off)
-kubectl port-forward svc/phoenix 6006:6006
 ```
 
 | Service           | Port-Forward URL                     |
@@ -406,7 +401,6 @@ kubectl port-forward svc/phoenix 6006:6006
 | VST API           | `http://localhost:30888/vst/api`      |
 | NVStreamer HTTP    | `http://localhost:31000`              |
 | Kibana Dashboards | `http://localhost:5601`              |
-| Phoenix Tracing   | `http://localhost:6006`              |
 | NVStreamer RTSP    | not exposed by default (port-forward to pod) |
 
 ## Upload Videos
@@ -432,7 +426,6 @@ The chart creates a Kubernetes Ingress resource when `ingress.enabled=true`. All
 | `ingress.hosts.main`         | `""` (auto: `vss-search.<IP>.nip.io`) | VSS UI + Agent + VST API host |
 | `ingress.hosts.streamer`     | `""` (auto: `streamer.<IP>.nip.io`)   | NVStreamer HTTP API host      |
 | `ingress.hosts.kibana`       | `""` (auto: `kibana.<IP>.nip.io`)     | Kibana dashboards host        |
-| `ingress.hosts.phoenix`      | `""` (auto: `phoenix.<IP>.nip.io`)    | Phoenix tracing UI host       |
 | `ingress.tls`                | `[]`                             | TLS configuration (secretName + hosts) |
 
 When host values are left empty (default), they are auto-constructed from `global.externalHost` using `nip.io` wildcard DNS.
@@ -450,7 +443,6 @@ helm upgrade --install vss-search ./dev-profile-search \
   --set ingress.hosts.main=vss-search.example.com \
   --set ingress.hosts.streamer=streamer.example.com \
   --set ingress.hosts.kibana=kibana.example.com \
-  --set ingress.hosts.phoenix=phoenix.example.com \
   --wait=false
 ```
 

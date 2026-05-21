@@ -20,8 +20,8 @@
 # that the OSRB reviewer already signed off on — keep the file short.
 #
 # Denylist mechanism: packages whose declared license MISREPRESENTS the
-# wheel's actual terms (e.g. arize-phoenix-otel declares Apache-2.0 in pip
-# metadata but ships an ELv2 IP_NOTICE) go in
+# wheel's actual terms (i.e. declare a permissive license in pip metadata
+# but ship restrictive license text inside the wheel itself) go in
 # `.github/scripts/license_denylist.txt`. Denylist wins over allowlist and
 # overrides — anything on this list always fails. The only fix is to
 # replace the dep with a permissive alternative.

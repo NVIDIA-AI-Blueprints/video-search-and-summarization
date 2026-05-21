@@ -67,5 +67,3 @@ vssIngress:
   vssUiPort: 3000
   vssAgentPort: 8000
   vstIngressPort: 30888
-  phoenixHost: ""
-  phoenixPort: 6006

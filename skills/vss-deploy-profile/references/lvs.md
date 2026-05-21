@@ -26,7 +26,6 @@ Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base
 | Elasticsearch + Kibana | mdx-elasticsearch-1, kibana | 9200, 5601 | Log/event storage |
 | Kafka | mdx-kafka-1 | 9092 | Message broker (VLM captions topic: `mdx-vlm-captions`) |
 | Redis | mdx-redis-1 | 6379 | Cache |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability |
 
 Post-deploy readiness probe: `curl -sf http://${HOST_IP}:38111/v1/ready` should return exit 0 once `vss-lvs` is serving. The VSS Agent at `http://${HOST_IP}:8000/docs` is the cross-profile readiness signal; this one confirms the LVS-specific microservice.
 
@@ -190,7 +189,6 @@ For dedicated mode, set `LLM_DEVICE_ID=0`, `RT_VLM_DEVICE_ID=1`, leave `RTVI_VLL
 | Agent REST API | `http://<HOST_IP>:8000/` |
 | RT-VLM | `http://<HOST_IP>:8018/v1/` (OpenAI-compatible) |
 | Kibana | `http://<HOST_IP>:5601/` |
-| Phoenix | `http://<HOST_IP>:6006/` |
 
 ## Env file location
 

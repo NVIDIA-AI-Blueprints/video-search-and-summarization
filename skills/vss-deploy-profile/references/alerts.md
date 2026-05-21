@@ -41,7 +41,6 @@ Switch modes by editing `MODE` in `dev-profile-alerts/generated.env` (`MODE=2d_c
 | Video-Analytics MCP | vss-va-mcp | 9901 | Analytics API for the agent | both |
 | Elasticsearch + Kibana | mdx-elasticsearch-1, kibana | 9200, 5601 | Alert/event storage | both |
 | Kafka | mdx-kafka-1 | 9092 | Message bus | both |
-| Phoenix | mdx-phoenix-1 | 6006 | Observability | both |
 
 ## Default models
 
@@ -207,7 +206,6 @@ Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GP
 | Video-Analytics MCP | `http://<HOST_IP>:9901/` |
 | Kibana | `http://<HOST_IP>:5601/` |
 | nvstreamer | `http://<HOST_IP>:31000/` |
-| Phoenix | `http://<HOST_IP>:6006/` |
 
 ## Env file location
 

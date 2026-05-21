@@ -91,7 +91,6 @@ Deploys only the minimum services needed for camera calibration — no perceptio
 | `vss-agent-ui` (Next.js) | 3000 |
 | `vss-agent` | `VSS_AGENT_PORT` (default `8000`) |
 | `vss-va-mcp` | `VSS_VA_MCP_PORT` (default `9901`) |
-| `phoenix` (telemetry) | 6006 |
 
 ### Storage / observability (conditional)
 
@@ -153,7 +152,6 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | `/behavior-analytics`, `.../...` | `vss-behavior-analytics` | All |
 | `/perception-sdr`, `.../...` | `vss-rtvi-cv-sdr` | All |
 | `/alert-bridge`, `.../...` | `vss-alert-bridge` | `bp_wh` only |
-| `/phoenix`, `.../...` | `phoenix` | `bp_wh` only |
 | `/va-mcp`, `.../...` | `vss-va-mcp` | `bp_wh` only |
 | `/api`, `/api/...` | `vss-agent` | `bp_wh` only |
 | `/api/chat`, `.../...` | `vss-agent-ui` | `bp_wh` only |
@@ -168,7 +166,6 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
 | VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
 | VST MCP (direct) | `http://<HOST_IP>:8001` | All |
-| Phoenix (direct) | `http://<HOST_IP>:6006` | `bp_wh` only (prefer `/phoenix` via HAProxy) |
 | Kibana (direct) | `http://<HOST_IP>:5601` | Prefer `/kibana` via HAProxy |
 | Video Analytics API (direct) | `http://<HOST_IP>:8081` (`MDX_PORT`) | Prefer `/video-analytics-api` via HAProxy |
 | VST UI (direct) | `http://<HOST_IP>:30888/vst` | Prefer `/vst` via HAProxy |
@@ -281,7 +278,7 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 - 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
 - 3D extra: `vss-rtvi-cv-config-adaptor`
 - MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
-- `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
+- `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
 - `bp_wh_auto_calib`: only nvstreamer, configurator, auto-calibration, and VST subset

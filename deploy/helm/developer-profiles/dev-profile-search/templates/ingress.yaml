@@ -35,7 +35,6 @@
 {{- $mainHost := .Values.ingress.hosts.main | default (printf "vss-search.%s.nip.io" $ip) }}
 {{- $streamerHost := .Values.ingress.hosts.streamer | default (printf "streamer.%s.nip.io" $ip) }}
 {{- $kibanaHost := .Values.ingress.hosts.kibana | default (printf "kibana.%s.nip.io" $ip) }}
-{{- $phoenixHost := .Values.ingress.hosts.phoenix | default "" | trim }}
 {{- $vios := index .Values "vios" | default dict }}
 {{- $agent := index .Values "agent" | default dict }}
 {{- $vssAgent := index $agent "vss-agent" | default (index .Values "vss-agent") | default dict }}
@@ -51,12 +50,10 @@ metadata:
   labels:
     {{- include "dev-profile-search.labels" . | nindent 4 }}
   annotations:
-    haproxy.org/path-rewrite: |
 {{- if $videoAnalyticsEnabled }}
+    haproxy.org/path-rewrite: |
       /video-analytics-api/(.*) /\1
 {{- end }}
-      /phoenix/(.*) /\1
-      /phoenix /
     haproxy.org/timeout-server: "3600s"
     haproxy.org/timeout-client: "3600s"
     haproxy.org/timeout-tunnel: "3600s"
@@ -127,16 +124,6 @@ spec:
                   {{- $vioIngSvc := index $vioIng "service" | default dict }}
                   number: {{ coalesce $vioIng.port $vioIngSvc.port 30888 }}
           {{- end }}
-          {{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
-          {{- if and $fp (default true $fp.enabled) }}
-          - path: /phoenix
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "phoenix") }}
-                port:
-                  number: {{ $fp.port | default 6006 }}
-          {{- end }}
           {{- if $videoAnalyticsEnabled }}
           - path: /video-analytics-api
             pathType: Prefix
@@ -180,19 +167,5 @@ spec:
                 name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "kibana") }}
                 port:
                   number: {{ (index (.Values.infra | default dict) "kibana" | default dict).service.port | default 5601 }}
-    {{- end }}
-    {{- $fp := index (.Values.infra | default dict) "phoenix" | default dict }}
-    {{- if and $fp (default true $fp.enabled) (ne $phoenixHost "") }}
-    # ── Phoenix host: tracing UI ──────────────────────────────────────
-    - host: {{ $phoenixHost }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "dev-profile-search.serviceShort" (dict "root" . "short" "phoenix") }}
-                port:
-                  number: {{ $fp.port | default 6006 }}
     {{- end }}
 {{- end }}

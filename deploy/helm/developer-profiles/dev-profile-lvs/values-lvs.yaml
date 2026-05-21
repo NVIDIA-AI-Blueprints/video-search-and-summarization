@@ -80,6 +80,4 @@ vssIngress:
   vssAgentPort: 8000
   vstIngressPort: 30888
   kibanaHost: ""
-  phoenixHost: ""
   kibanaPort: 5601
-  phoenixPort: 6006

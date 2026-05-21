@@ -89,9 +89,6 @@ services:
       RTVI_CV_PORT: ${RTVI_CV_PORT}
       VSS_ES_PORT: ${VSS_ES_PORT}
 
-      # Phoenix Telemetry
-      PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT}
-
       # VST (Video Storage Tool)
       VST_INTERNAL_URL: ${VST_INTERNAL_URL}
       VST_EXTERNAL_URL: ${VST_EXTERNAL_URL}
