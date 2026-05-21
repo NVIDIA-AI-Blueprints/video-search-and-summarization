@@ -1,8 +1,8 @@
-# LVS Environment Variables
+# Video Summarization Environment Variables
 
 This is the 3.2.0 `lvs` profile env reference for the VSS develop branch. For
-full deployment decisions, use `vss-deploy-profile`; this file is for quick LVS
-debugging and request construction.
+full deployment decisions, use `vss-deploy-profile`; this file is for quick
+video summarization debugging and request construction.
 
 ## User-Edited Profile Env
 
@@ -29,9 +29,9 @@ Model selection:
 | Var | Purpose |
 |---|---|
 | `LLM_MODE` | `local_shared`, `local`, or `remote`. |
-| `VLM_MODE` | `local_shared`, `local`, or `remote`; LVS uses RT-VLM for VLM serving. |
+| `VLM_MODE` | `local_shared`, `local`, or `remote`; video summarization uses RT-VLM for VLM serving. |
 | `LLM_NAME`, `LLM_NAME_SLUG` | LLM model id and service slug. |
-| `VLM_NAME` | Model id sent to LVS and RT-VLM. Must match `/v1/models`. |
+| `VLM_NAME` | Model id sent to the video summarization service and RT-VLM. Must match `/v1/models`. |
 | `VLM_NAME_SLUG` | VLM service slug, often `none` for integrated RT-VLM. |
 | `LLM_BASE_URL`, `VLM_BASE_URL` | Remote endpoints when using remote mode. |
 
@@ -40,7 +40,7 @@ Credentials:
 | Var | Purpose |
 |---|---|
 | `NGC_CLI_API_KEY` | Image/model pulls for local deployment. |
-| `NVIDIA_API_KEY` | NVIDIA-hosted remote endpoints and LVS LLM API key fallback. |
+| `NVIDIA_API_KEY` | NVIDIA-hosted remote endpoints and video summarization LLM API key fallback. |
 | `OPENAI_API_KEY` | OpenAI-compatible remote endpoints, if used. |
 | `HF_TOKEN` | Required for gated Hugging Face checkpoints such as Omni. |
 
@@ -51,7 +51,7 @@ RT-VLM:
 | `RTVI_VLM_IMAGE_TAG` | `3.2.0-26.05.1` | RT-VLM image tag. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | LVS-facing URL. |
+| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason2` | Default integrated backend selector. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Default checkpoint. |
 | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | empty | Optional vLLM memory fraction. |
@@ -59,22 +59,22 @@ RT-VLM:
 | `RTVI_VLM_KAFKA_TOPIC` | `mdx-vlm-captions` | Raw caption topic. |
 | `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker URL from RT-VLM. |
 
-LVS:
+Video summarization service:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing LVS URL. |
+| `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
 | `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | Image repository. |
 | `LVS_TAG` | `3.2.0-rc10-6f75390` | Image tag in current develop. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
-| `KAFKA_ENABLED` | `true` | LVS Kafka integration. |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker URL from LVS. |
+| `KAFKA_ENABLED` | `true` | video summarization Kafka integration. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker URL from the video summarization service. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` | Merge duplicate/overlapping events. |
 
 ## Service Compose Env
 
-The LVS service compose lives at:
+The video summarization service compose lives at:
 
 ```text
 deploy/docker/services/video-summarization/compose.yml
@@ -122,7 +122,7 @@ uses:
 ## Runtime Rules
 
 - Do not guess the model id. Verify with `/models` or RT-VLM `/v1/models`.
-- Use `LVS_BACKEND_URL` for LVS API calls and strip trailing `/v1` from VLM
+- Use `LVS_BACKEND_URL` for video summarization API calls and strip trailing `/v1` from VLM
   base URLs before appending `/v1/chat/completions`.
 - For 3.2 GA examples, prefer `/v1/summarize` and
   `num_frames_per_second_or_fixed_frames_chunk`.
