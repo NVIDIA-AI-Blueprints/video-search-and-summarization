@@ -118,8 +118,18 @@ jobs:
 
           sed -E 's/(sonar.token|SONAR_TOKEN).*/[REDACTED]/g' sonar-project.properties
 
+      - name: Clean up disk space
+        run: |
+          df -h
+          rm -rf ~/.cache
+          rm -rf ~/.m2/repository
+          docker image prune -a -f 2>/dev/null || true
+          docker builder prune -a -f 2>/dev/null || true
+
       - name: Run SonarQube scanner
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          _JAVA_OPTIONS: "-Djava.io.tmpdir=/tmp"
+          
