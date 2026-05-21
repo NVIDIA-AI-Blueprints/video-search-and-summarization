@@ -15,36 +15,38 @@
 
 #
 #   ES_VERSION    - Elasticsearch image tag (9.3.3)
-#   CUDA_VERSION  - CUDA runtime version (12.9.0)
-#   CUVS_VERSION  - Elastic cuVS tarball version (25.12.0)
+#   CUDA_VERSION  - CUDA runtime version (13.0.0)
+#   CUVS_VERSION  - NVIDIA cuVS tarball version (26.04.00.194111)
 #
 
-FROM nvidia/cuda:12.9.0-cudnn-runtime-ubuntu22.04 AS cuda12libs
-ARG CUVS_VERSION=25.12.0
+FROM nvidia/cuda:13.0.0-cudnn-runtime-ubuntu22.04 AS cuda13libs
+ARG CUVS_VERSION=26.04.00.194111
 RUN apt-get update && apt-get install -y --no-install-recommends --allow-change-held-packages \
-    libnccl2 curl tar gzip libgomp1 \
+    libnccl2 curl tar xz-utils libgomp1 \
     && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /out/cuvs && cd /out/cuvs \
-    && curl -fLO "https://storage.googleapis.com/elasticsearch-cuvs-snapshots/libcuvs/libcuvs-${CUVS_VERSION}.tar.gz" \
-    && tar -xzf "libcuvs-${CUVS_VERSION}.tar.gz" && rm -f "libcuvs-${CUVS_VERSION}.tar.gz" \
-    && if [ -d "${CUVS_VERSION}" ]; then mv "${CUVS_VERSION}"/* .; rmdir "${CUVS_VERSION}" 2>/dev/null || true; fi \
+RUN mkdir -p /tmp/cuvs /out/cuvs && cd /tmp/cuvs \
+    && curl -fLO "https://developer.download.nvidia.com/compute/cuvs/redist/libcuvs/linux-x86_64/libcuvs-linux-x86_64-${CUVS_VERSION}_cuda13-archive.tar.xz" \
+    && tar -xJf "libcuvs-linux-x86_64-${CUVS_VERSION}_cuda13-archive.tar.xz" --strip-components=1 \
+    && cp -a /tmp/cuvs/lib/. /out/cuvs/ \
+    && cd / \
+    && rm -rf /tmp/cuvs \
     && cp -P /usr/lib/x86_64-linux-gnu/libgomp.so* /out/cuvs/
 
 FROM docker.elastic.co/elasticsearch/elasticsearch:9.3.3
 
 ENV ES_HOME=/usr/share/elasticsearch
 ENV LIBCUVS_DIR=/opt/cuvs
-ENV CUDA12_LIBS=/opt/cuda12-libs
-ENV LD_LIBRARY_PATH=${LIBCUVS_DIR}:${CUDA12_LIBS}:${LD_LIBRARY_PATH}
+ENV CUDA13_LIBS=/opt/cuda13-libs
+ENV LD_LIBRARY_PATH=${LIBCUVS_DIR}:${CUDA13_LIBS}:${LD_LIBRARY_PATH}
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 ENV ES_SETTING_VECTORS_INDEXING_USE__GPU=true
 
-COPY --from=cuda12libs /usr/local/cuda/lib64/ "${CUDA12_LIBS}/"
-COPY --from=cuda12libs /usr/lib/x86_64-linux-gnu/libnccl*.so* "${CUDA12_LIBS}/"
-COPY --from=cuda12libs /out/cuvs/ "${LIBCUVS_DIR}/"
+COPY --from=cuda13libs /usr/local/cuda/lib64/ "${CUDA13_LIBS}/"
+COPY --from=cuda13libs /usr/lib/x86_64-linux-gnu/libnccl*.so* "${CUDA13_LIBS}/"
+COPY --from=cuda13libs /out/cuvs/ "${LIBCUVS_DIR}/"
 
 USER root
-RUN chown -R 1000:1000 "${ES_HOME}" "${LIBCUVS_DIR}" "${CUDA12_LIBS}"
+RUN chown -R 1000:1000 "${ES_HOME}" "${LIBCUVS_DIR}" "${CUDA13_LIBS}"
 USER 1000:1000
 WORKDIR ${ES_HOME}
 
