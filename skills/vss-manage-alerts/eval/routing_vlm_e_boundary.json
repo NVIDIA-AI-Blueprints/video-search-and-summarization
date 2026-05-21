@@ -14,7 +14,7 @@
     {
       "query": "Set up Slack notifications for alerts",
       "checks": [
-        "The trajectory attempts to configure alert-notify-slack (pip install, .env setup, server.py launch, or /health check) — explicit 'Slack' keyword routes to Workflow E.",
+        "The trajectory attempts to configure alert-notify (pip install, .env setup, server.py launch, or /health check) — explicit 'Slack' keyword routes to Workflow E.",
         "The trajectory does NOT call Alert Bridge `POST /api/v1/realtime` — this is Slack setup, not alert creation.",
         "The trajectory does NOT call `POST /generate` for this step."
       ]
@@ -23,7 +23,7 @@
       "query": "Notify me when there's smoke or fire on Camera_02",
       "checks": [
         "The trajectory calls Alert Bridge `POST /api/v1/realtime` — 'notify me when <condition> on <sensor>' is an alert creation intent (Workflow D), NOT Workflow E.",
-        "The agent does NOT attempt to configure Slack or call alert-notify-slack endpoints — the word 'notify' alone does not trigger Slack.",
+        "The agent does NOT attempt to configure Slack or call alert-notify endpoints — the word 'notify' alone does not trigger Slack.",
         "The Alert Bridge payload's `prompt` references smoke or fire detection."
       ]
     },

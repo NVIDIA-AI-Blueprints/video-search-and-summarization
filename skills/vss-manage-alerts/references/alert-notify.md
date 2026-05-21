@@ -1,6 +1,6 @@
-# Alert Notify Slack
+# Alert Notify
 
-You are an alert notification assistant. You help users set up and manage a webhook server that receives VSS incident alerts and forwards them as rich Slack notifications. Incidents arrive via `POST /webhook/alert-notify-slack` and are formatted into structured, easy-to-read Slack messages before delivery.
+You are an alert notification assistant. You help users set up and manage a multi-backend webhook server that receives VSS incident alerts and fans them out to configured notification backends (Slack, OpenClaw Dashboard, or both). Incidents arrive via `POST /webhook/alert-notify` and are dispatched to all enabled backends.
 
 ## When to Use
 
@@ -24,27 +24,34 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 
 ## Setup
 
-**Code directory:** `{baseDir}` resolves to `<alerts-skill-root>/scripts/alert-notify-slack/`. All commands below use `{baseDir}` as the working directory.
+**Code directory:** `{baseDir}` resolves to `<alerts-skill-root>/scripts/alert-notify/`. All commands below use `{baseDir}` as the working directory.
 
 ```
-scripts/alert-notify-slack/
-├── server.py
-├── slack_formatter.py
+scripts/alert-notify/
+├── server.py                          # FastAPI multi-backend webhook server
+├── notifier_base.py                   # Abstract base class for backends
+├── slack_notifier.py                  # Slack notification backend
+├── open_claw_dashboard_notifier.py    # OpenClaw Dashboard backend (WebSocket RPC)
+├── incident_utils.py                  # Shared helpers (verdict labels, formatting)
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
-└── .pip-packages/      # auto-created by pip install --target (Step 2)
+└── .pip-packages/                     # auto-created by pip install --target (Step 2)
 ```
 
 **Required environment variables:**
 
 | Variable | Required | Description |
 |---|---|---|
-| `SLACK_BOT_TOKEN` | **Yes** | Slack Bot OAuth Token (`xoxb-...`). Create a Slack App at https://api.slack.com/apps with `chat:write` scope. |
-| `SLACK_CHANNEL_ID` | **Yes** | Target Slack channel ID (e.g. `C07XXXXXXXX`). Find it in Slack: right-click channel -> View channel details -> Channel ID. |
+| `NOTIFY_BACKENDS` | No | Comma-separated backend list. Default: `dashboard`. Options: `slack`, `dashboard`, `slack,dashboard`. |
+| `SLACK_BOT_TOKEN` | **Yes** (if Slack backend) | Slack Bot OAuth Token (`xoxb-...`). Create a Slack App at https://api.slack.com/apps with `chat:write` scope. |
+| `SLACK_CHANNEL_ID` | **Yes** (if Slack backend) | Target Slack channel ID (e.g. `C07XXXXXXXX`). Find it in Slack: right-click channel -> View channel details -> Channel ID. |
+| `OPENCLAW_GATEWAY_URL` | **Yes** (if Dashboard backend) | OpenClaw Gateway URL (e.g. `http://host.openshell.internal:18789`). |
+| `OPENCLAW_GATEWAY_AUTH_TOKEN` | **Yes** (if Dashboard backend) | Gateway auth token from `openclaw.json`. |
 | `WEBHOOK_HOST` | No | Server bind address. Default: `0.0.0.0` |
 | `WEBHOOK_PORT` | No | Server port. Default: `9090` |
-| `VST_ENDPOINT` | **Yes** | VST `host:port` (e.g. `10.63.144.174:30888`). Resolved by the agent via `vios-api` when starting the webhook. Used to generate video clip URLs for incidents without `info.videoSource`. |
+| `VST_ENDPOINT` | **Yes** | VST `host:port` (e.g. `10.63.144.174:30888`). Resolved by the agent via `vss-manage-video-io-storage` when starting the webhook. Used to generate video clip URLs for incidents without `info.videoSource`. |
+| `VST_PUBLIC_URL_BASE` | No | Public base URL substituted for the VST host in playback video URLs (e.g. `https://7777-xbrxpi7ia.brevlab.com`). Set when clients reach VST through a Brev tunnel / reverse-proxy. If unset, URLs pass through unchanged. |
 
 **Environment injection:** These variables can be provided in three ways (in order of precedence):
 
@@ -53,7 +60,7 @@ scripts/alert-notify-slack/
    {
      "skills": {
        "entries": {
-         "alert-notify-slack": {
+         "alert-notify": {
            "enabled": true,
            "apiKey": "xoxb-your-slack-bot-token",
            "env": {
@@ -70,7 +77,7 @@ scripts/alert-notify-slack/
 
 Before starting, confirm that `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are available. If any is missing, resolve it before proceeding:
 - `SLACK_BOT_TOKEN` / `SLACK_CHANNEL_ID` — ask the user to provide them.
-- `VST_ENDPOINT` — use the `vios-api` skill to discover the VST endpoint, or ask the user.
+- `VST_ENDPOINT` — use the `vss-manage-video-io-storage` skill to discover the VST endpoint, or ask the user.
 
 Do not start the server without all three variables set.
 
@@ -128,9 +135,9 @@ Check if `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT` are set (via 
 > 1. **Slack Bot Token** (`SLACK_BOT_TOKEN`) — the `xoxb-...` token from your Slack App
 > 2. **Slack Channel ID** (`SLACK_CHANNEL_ID`) — the channel where alerts should be posted
 >
-> You can set them in `~/.openclaw/openclaw.json` under `skills.entries.alert-notify-slack.env`, or in a `.env` file at `{baseDir}/.env`."
+> You can set them in `~/.openclaw/openclaw.json` under `skills.entries.alert-notify.env`, or in a `.env` file at `{baseDir}/.env`."
 
-**For VST endpoint** — if `VST_ENDPOINT` is missing, use the `vios-api` skill to discover it. Follow the `vios-api` skill's availability check to find the VST `host:port`. If `vios-api` cannot determine the endpoint (e.g. VST is not deployed), ask the user:
+**For VST endpoint** — if `VST_ENDPOINT` is missing, use the `vss-manage-video-io-storage` skill to discover it. Follow the skill's availability check to find the VST `host:port`. If VST is not deployed or unreachable, ask the user:
 
 > "I need the VST endpoint (`host:port`) to resolve video clip URLs. What is the VST address?"
 
@@ -165,7 +172,7 @@ Wait 3 seconds for the server to start, then check health:
 
 ```bash
 sleep 3
-curl -sf http://localhost:9090/webhook/alert-notify-slack/health | jq .
+curl -sf http://localhost:9090/webhook/alert-notify/health | jq .
 ```
 
 **Expected response:**
@@ -189,19 +196,19 @@ tail -20 {baseDir}/webhook.log
 
 **On success, report to the user:**
 
-> "Alert Slack webhook is running on `http://localhost:9090`.
-> - Webhook endpoint: `POST http://localhost:9090/webhook/alert-notify-slack`
-> - Health check: `GET http://localhost:9090/webhook/alert-notify-slack/health`
-> - Slack channel: `<SLACK_CHANNEL_ID>`
+> "Alert notification server is running on `http://localhost:9090`.
+> - Webhook endpoint: `POST http://localhost:9090/webhook/alert-notify`
+> - Health check: `GET http://localhost:9090/webhook/alert-notify/health`
+> - Active backends: `<NOTIFY_BACKENDS>`
 >
-> Incidents POSTed to the webhook endpoint will be forwarded to Slack as rich notifications."
+> Incidents POSTed to the webhook endpoint will be forwarded to all configured backends."
 
 ---
 
 ## Check Status
 
 ```bash
-curl -sf http://localhost:9090/webhook/alert-notify-slack/status | jq .
+curl -sf http://localhost:9090/webhook/alert-notify/status | jq .
 ```
 
 **Response fields:**
@@ -227,7 +234,7 @@ If the request fails (connection refused), the server is not running. Report:
 Send a test notification to verify end-to-end Slack integration:
 
 ```bash
-curl -sf -X POST http://localhost:9090/webhook/alert-notify-slack/test | jq .
+curl -sf -X POST http://localhost:9090/webhook/alert-notify/test | jq .
 ```
 
 **On success:**
@@ -256,7 +263,7 @@ Two methods — API-based (preferred) or process-based (fallback):
 ### Method 1 — Stop via API
 
 ```bash
-curl -sf -X POST http://localhost:9090/webhook/alert-notify-slack/stop | jq .
+curl -sf -X POST http://localhost:9090/webhook/alert-notify/stop | jq .
 ```
 
 ### Method 2 — Stop via Process (fallback)
@@ -276,7 +283,7 @@ kill <PID>
 After stopping, verify:
 
 ```bash
-curl -sf http://localhost:9090/webhook/alert-notify-slack/health || echo "Server stopped"
+curl -sf http://localhost:9090/webhook/alert-notify/health || echo "Server stopped"
 ```
 
 Report to the user:
@@ -287,7 +294,7 @@ Report to the user:
 
 ## Incident Payload Format
 
-The webhook accepts VSS incident payloads via `POST /webhook/alert-notify-slack`. The following fields are extracted for the Slack notification:
+The webhook accepts VSS incident payloads via `POST /webhook/alert-notify`. The following fields are extracted for notification:
 
 | Slack Field | Source Path | Description |
 |---|---|---|
@@ -297,7 +304,7 @@ The webhook accepts VSS incident payloads via `POST /webhook/alert-notify-slack`
 | **Place** | `place.name` | Human-readable location name |
 | **Timestamp** | `timestamp` | ISO 8601 timestamp of the incident |
 | **VLM Reasoning** | `info.reasoning` | Vision Language Model reasoning explanation |
-| **Video URL** | `info.videoSource` | Link to the video evidence clip. If missing, use the `vios-api` skill to resolve a clip URL before posting (see [Resolve Video Evidence via vios-api](#resolve-video-evidence-via-vios-api)). |
+| **Video URL** | `info.videoSource` | Link to the video evidence clip. If missing, use the `vss-manage-video-io-storage` skill to resolve a clip URL before posting (see [Video URL Resolution via vss-manage-video-io-storage](#video-url-resolution-via-vss-manage-video-io-storage)). |
 
 Missing or null fields are displayed as "N/A" in the Slack message.
 
@@ -319,11 +326,12 @@ The message attachment color reflects the verdict: red for Confirmed, green for 
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/webhook/alert-notify-slack` | Receive incident and send Slack notification |
-| `GET` | `/webhook/alert-notify-slack/health` | Health check |
-| `GET` | `/webhook/alert-notify-slack/status` | Detailed service status |
-| `POST` | `/webhook/alert-notify-slack/test` | Send test notification |
-| `POST` | `/webhook/alert-notify-slack/stop` | Gracefully stop the server |
+| `POST` | `/webhook/alert-notify` | Receive incident and fan out to all backends |
+| `POST` | `/webhook/alert-notify-slack` | Legacy alias (backwards-compatible) |
+| `GET` | `/webhook/alert-notify/health` | Health check |
+| `GET` | `/webhook/alert-notify/status` | Detailed service status with per-backend breakdown |
+| `POST` | `/webhook/alert-notify/test` | Send test notification through all backends |
+| `POST` | `/webhook/alert-notify/stop` | Gracefully stop the server |
 
 ---
 
@@ -349,19 +357,19 @@ All errors must be translated into plain language. Never show raw HTTP responses
 - **Port conflicts:** If port 9090 is in use, set `WEBHOOK_PORT` to a different value in `.env`.
 - **Logs:** Server logs are written to `webhook.log` in `{baseDir}` when started via `nohup`.
 - **Multiple channels:** To send to multiple channels, run separate instances with different `SLACK_CHANNEL_ID` values and ports.
-- **Integration with Alert Bridge:** Configure Alert Bridge to send incident webhooks to `http://<webhook-host>:9090/webhook/alert-notify-slack`.
+- **Integration with Alert Bridge:** Configure Alert Bridge to send incident webhooks to `http://<webhook-host>:9090/webhook/alert-notify` (legacy `/webhook/alert-notify-slack` also works).
 
 ---
 
-## Video URL Resolution via vios-api
+## Video URL Resolution via vss-manage-video-io-storage
 
-The webhook server **automatically** resolves video clip URLs for incidents that lack `info.videoSource`. The `VST_ENDPOINT` is required and resolved by the agent via `vios-api` at startup (Step 3).
+The webhook server **automatically** resolves video clip URLs for incidents that lack `info.videoSource`. The `VST_ENDPOINT` is required and resolved by the agent via `vss-manage-video-io-storage` at startup (Step 3).
 
 ### How it Works
 
 ```
 Agent starts webhook
-  └─ Uses vios-api to discover VST endpoint (host:port)
+  └─ Uses vss-manage-video-io-storage to discover VST endpoint (host:port)
   └─ Sets VST_ENDPOINT in .env (required — server won't start without it)
   └─ Starts server.py (reads VST_ENDPOINT on boot)
 
@@ -371,18 +379,18 @@ Alert Bridge sends incident -> webhook server
        └─ server queries VST for a temporary clip URL (sensorId + time range)
 ```
 
-The agent uses `vios-api` only at **startup** to discover the VST endpoint. After that, the server resolves video URLs autonomously per-incident — no agent involvement needed.
+The agent uses `vss-manage-video-io-storage` only at **startup** to discover the VST endpoint. After that, the server resolves video URLs autonomously per-incident — no agent involvement needed.
 
 ### When Video Resolution is Skipped
 
 - Incident has no `sensorId` or no time range (`timestamp` / `end`)
 - VST returns an error for the given sensor/time range
 
-The Slack notification is always sent regardless — the video link is best-effort. Check `webhook.log` for resolution warnings.
+The notification is always sent regardless — the video link is best-effort. Check `webhook.log` for resolution warnings.
 
 ---
 
 ## Cross-Reference
 
-- **vios-api** — Sensor lookup and video clip URL resolution via VST (used for video evidence fallback)
+- **vss-manage-video-io-storage** — Sensor lookup and video clip URL resolution via VST (used for video evidence fallback)
 - **alert-subscriptions** — Create and manage realtime alert rules that generate the incidents forwarded by this skill

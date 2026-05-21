@@ -9,12 +9,12 @@
   },
   "deploy_mode": "real-time",
   "env": "VSS alerts profile already deployed in VLM real-time mode (`deploy -p alerts -m real-time`). `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID` env vars available. VST reachable at the standard VIOS endpoint. Pre-authorized to deploy prerequisites.",
-  "description": "End-to-end lifecycle test for references/alert-notify-slack.md: set up the Slack webhook server, verify it is healthy, then send a test notification.",
+  "description": "End-to-end lifecycle test for references/alert-notify.md: set up the webhook server, verify it is healthy, then send a test notification.",
   "expects": [
     {
       "query": "Set up Slack notifications for alerts",
       "checks": [
-        "The trajectory installs Python dependencies for alert-notify-slack (pip install with requirements.txt or inline packages).",
+        "The trajectory installs Python dependencies for alert-notify (pip install with requirements.txt or inline packages).",
         "The trajectory creates or configures a `.env` file with `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `VST_ENDPOINT`.",
         "The trajectory launches `server.py` (via `nohup python3 server.py` or equivalent background method).",
         "The agent confirms the Slack notification server is running."
@@ -23,7 +23,7 @@
     {
       "query": "Check if the alert Slack webhook is running",
       "checks": [
-        "The trajectory calls the `/health` endpoint on the alert-notify-slack server.",
+        "The trajectory calls the `/health` endpoint on the alert-notify server.",
         "The agent reports the server's health status (healthy/unhealthy) based on the response.",
         "The agent does NOT attempt to restart or reconfigure the server — this is a status check only."
       ]
@@ -31,7 +31,7 @@
     {
       "query": "Send a test alert notification to Slack",
       "checks": [
-        "The trajectory calls `POST /webhook/alert-notify-slack` with a test incident payload.",
+        "The trajectory calls `POST /webhook/alert-notify` (or legacy `/webhook/alert-notify-slack`) with a test incident payload.",
         "The agent confirms the test message was sent to the configured Slack channel.",
         "The agent does NOT call Alert Bridge or `POST /generate` — this is a Slack-specific operation."
       ]
