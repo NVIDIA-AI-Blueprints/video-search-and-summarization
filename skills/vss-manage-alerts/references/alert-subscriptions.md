@@ -87,10 +87,13 @@ Use the `vios-api` skill to resolve the user's sensor name to a live RTSP stream
 1. List sensors via `GET /sensor/list` and match the user's `sensor_name` against the `name` field (case-insensitive).
 2. If **no match** — reply with available sensor names and ask the user to clarify.
 3. If **multiple matches** — list them and ask which one the user meant.
-4. Once matched, get streams via `GET /sensor/{sensorId}/streams`, select the main stream (`isMain: true`), and extract the `url` field (RTSP URL).
-5. If the sensor has no RTSP stream — report that the sensor exists but has no active video stream.
+4. Once matched, **save the `sensorId` field** from the matched sensor entry — this is the `sensor_id` needed in the Alert Bridge payload (Step 4).
+5. Get streams via `GET /sensor/{sensorId}/streams`, select the main stream (`isMain: true`), and extract the `url` field (RTSP URL).
+6. If the sensor has no RTSP stream — report that the sensor exists but has no active video stream.
 
-The resolved RTSP URL is used as `live_stream_url` in the Alert Bridge payload.
+**Two values must be carried forward from this step:**
+- `sensorId` → used as `sensor_id` in the payload
+- RTSP `url` → used as `live_stream_url` in the payload
 
 ---
 
@@ -141,8 +144,8 @@ curl -s -X POST "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime" \
 | Field | Source | Default | Description |
 |---|---|---|---|
 | `live_stream_url` | Step 2 — resolved via vios-api | — | RTSP URL of the target camera stream |
-| `sensor_id` | Step 2 — resolved via vios-api | — | Unique identifier of the sensor in VIOS |
-| `sensor_name` | Step 1 — extracted from user message | — | Human-readable name of the camera/sensor being monitored |
+| `sensor_id` | Step 2 — `sensorId` field from `GET /sensor/list` match | — | Unique identifier of the sensor in VIOS (UUID) |
+| `sensor_name` | Step 2 — `name` field from `GET /sensor/list` match | — | Human-readable name of the camera/sensor being monitored |
 | `alert_type` | Step 3 — auto-derived | — | Short snake_case tag for the alert condition |
 | `prompt` | Step 1 — extracted from user message | — | Natural language description of what to detect |
 | `system_prompt` | Skill default | `"Answer yes or no"` | Instruction for the vision model evaluating each chunk |
