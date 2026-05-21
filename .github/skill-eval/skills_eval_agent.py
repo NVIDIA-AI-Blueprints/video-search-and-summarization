@@ -13,17 +13,30 @@ The agent gets Bash/Read/Edit/Write/Glob/Grep. It is explicitly told
 (in AGENTS.md) that it must NOT modify anything under `skills/`.
 
 Env (set by the workflow step):
-    PR_NUMBER        PR being evaluated (e.g. "100")
-    PR_BASE          Base branch (e.g. "feat/skills")
-    PR_HEAD_SHA      Mirror head SHA (full)
-    PR_REPO          "owner/repo"
-    GITHUB_RUN_ID    CI run id (for lock + instance-started tracking)
-    ANTHROPIC_*      Agent SDK credentials (sourced from coordinator .env)
-    GH_TOKEN         PR comment posting
-    NGC_CLI_API_KEY  Local NIM pulls in trials
-    LLM_REMOTE_URL   Optional; enables remote-* deploy modes
-    VLM_REMOTE_URL   Optional; enables remote-* deploy modes
-    BREV_ENV_ID      Set by Brev on the coordinator host; part of secure-link URLs
+    PR_NUMBER             PR being evaluated, e.g. "100" (push mode; blank on workflow_dispatch)
+    PR_BASE               Base branch, e.g. "develop" (push mode; blank on workflow_dispatch)
+    PR_HEAD_SHA           Mirror or main-branch head SHA (full)
+    PR_REPO               "owner/repo"
+    GITHUB_RUN_ID         CI run id (for lock + instance-started tracking)
+    GITHUB_STEP_SUMMARY   Path to a markdown file appended to the Actions run summary
+                          page. The agent writes per-spec results tables here in
+                          manual-sweep mode (no PR to comment on).
+    MANUAL_FULL_SWEEP     "1" when workflow_dispatch fired. Swaps user prompt:
+                          enumerate every skills/<skill>/eval/*.json for the
+                          skill named in MANUAL_SKILLS_FILTER (or all skills when
+                          `*`), write results to $GITHUB_STEP_SUMMARY, never
+                          post `gh pr comment`, never raise bot PRs (missing
+                          adapter is a BLOCKED outcome). Every spec on the
+                          chosen skill(s) runs — no spec-level filter knob.
+    MANUAL_SKILLS_FILTER  Single skill name from the dispatch dropdown, or "*"
+                          for all (default "*"). Validated server-side by GH
+                          Actions against the type:choice enum.
+    ANTHROPIC_*           Agent SDK credentials (sourced from coordinator .env)
+    GH_TOKEN              PR comment posting (push mode only)
+    NGC_CLI_API_KEY       Local NIM pulls in trials
+    LLM_REMOTE_URL        Optional; enables remote-* deploy modes
+    VLM_REMOTE_URL        Optional; enables remote-* deploy modes
+    BREV_ENV_ID           Set by Brev on the coordinator host; part of secure-link URLs
 
 Exit codes:
     0 - agent completed (eval may still report failures in PR comment)
@@ -51,15 +64,20 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_MD = Path(__file__).resolve().parent / "AGENTS.md"
 
-# Hard cap on the agent's tool loop — one `/deploy` trial is ~15 min of
-# `Bash(uvx harbor run ...)`, plus its own tool calls. 300 turns covers
-# a full fan-out with room for retries.
-MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "300"))
-
-# How long to sleep after the agent exits before stopping/deleting Brev
-# instances it spun up. Lets a human see last-minute logs / traces.
-COOLDOWN_SEC = int(os.environ.get("POST_EVAL_COOLDOWN_SEC", "300"))
-
+# Hard cap on the agent's tool loop — one trial burns ~20-30 harness
+# turns (startup + brev wait + `uvx harbor run` exec + reading results +
+# migrating to _viewer), so a full-PR fan-out of 10-15 trials plus
+# recon/retry overhead exceeds the previous 300 ceiling. The 600 cap
+# that replaced it was still tight when the agent hit a novel
+# situation it had to discover (e.g. gpu_count selection rejecting
+# the default candidate, or harbor flag semantics from a fresh runner
+# without prior context) — each "discovery" burst is 5-10 turns of
+# Read/Grep/Bash spelunking on top of the steady-state per-trial
+# cost. Bumping to 2000 absorbs that overhead without lifting the
+# real ceiling (skills-eval.yml timeout-minutes: 480 is the wall-
+# clock gate; this knob is just a safety valve against runaway
+# loops).
+MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "2000"))
 
 # ---------------------------------------------------------------------------
 # Pre-flight
@@ -108,11 +126,29 @@ async def run_agent() -> int:
         ResultMessage, TextBlock, ToolUseBlock,
     )
 
-    pr_number = _require("PR_NUMBER")
-    pr_base = _require("PR_BASE")
+    manual_sweep = os.environ.get("MANUAL_FULL_SWEEP") == "1"
     pr_head = _require("PR_HEAD_SHA")
     pr_repo = _require("PR_REPO")
     run_id = os.environ.get("GITHUB_RUN_ID", f"local-{int(time.time())}")
+
+    if manual_sweep:
+        # workflow_dispatch path: no PR, no diff. PR_NUMBER/PR_BASE may be
+        # blank — keep them as empty strings so any downstream prompt
+        # interpolation still works.
+        pr_number = os.environ.get("PR_NUMBER", "") or f"manual-{run_id}"
+        pr_base = os.environ.get("PR_BASE", "") or "(manual)"
+        # `type: choice` already constrains the value server-side, but
+        # strip whitespace + newlines defensively before splicing into
+        # the agent's user prompt. The agent runs with bypassPermissions
+        # and full filesystem tools, so any prompt-templated user data is
+        # worth scrubbing regardless of the upstream guard.
+        skills_filter = os.environ.get("MANUAL_SKILLS_FILTER", "*").strip().splitlines()[0] if os.environ.get("MANUAL_SKILLS_FILTER", "").strip() else "*"
+        step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    else:
+        pr_number = _require("PR_NUMBER")
+        pr_base = _require("PR_BASE")
+        skills_filter = "*"
+        step_summary = ""
 
     if not AGENTS_MD.exists():
         print(f"FATAL: {AGENTS_MD} not found", file=sys.stderr)
@@ -120,7 +156,57 @@ async def run_agent() -> int:
 
     system_prompt = AGENTS_MD.read_text()
 
-    user_prompt = f"""
+    if manual_sweep:
+        user_prompt = f"""
+**Manual full-sweep run** — `workflow_dispatch` fired (no PR, no diff).
+
+Context:
+  repo                = {pr_repo}
+  head SHA            = {pr_head}
+  workflow run        = {run_id}
+  working dir         = {REPO_ROOT}
+  skills filter       = {skills_filter}   (single skill name from the dispatch dropdown, or `*` = all)
+  GITHUB_STEP_SUMMARY = {step_summary or '(unset — fall back to stdout)'}
+
+Per AGENTS.md § "Manual full-sweep mode" — overrides apply to steps 1, 3, 6:
+
+  Step 1 (override): skip the diff entirely. Enumerate `skills/*/eval/*.json`
+    on the checked-out workspace. Keep only the skill named in `skills filter`
+    (the dispatch dropdown is single-select; `*` matches all). All specs on the
+    chosen skill(s) run — there is no spec-level filter. Skills with no eval/
+    dir are runtime libraries and are skipped as in the normal path.
+
+  Step 3 (override): the bot-PR flow is OFF in manual mode (there's no
+    contributor branch to target). If an adapter is missing or stale for a
+    spec, record that spec as BLOCKED with the trigger that fired
+    (missing / stale / spec drift) and a one-line reason in the results
+    table — DO NOT push a branch, DO NOT create a PR. Keep processing the
+    remaining (skill, spec) pairs.
+
+  Step 6 (override): there is no PR to comment on. For each completed
+    `(skill, spec)` batch, append the same markdown table you would have
+    posted via `gh pr comment` to the path in `$GITHUB_STEP_SUMMARY`. Use:
+
+      cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+      ## Harbor Eval — `skills/<skill>/eval/<spec>.json`
+      ... (table + failing checks + suggestions, identical to § Result comment format) ...
+      MD
+
+    Append per-spec — don't buffer everything for the end. If
+    `$GITHUB_STEP_SUMMARY` is empty/unset (smoke-test locally), print the
+    same markdown to stdout instead and note the fallback.
+
+Everything else in AGENTS.md applies unchanged: startup hygiene, fleet
+selection (§ 5a), per-box flock (§ 5b), canonical harbor invocation, no
+trial-supervision polling, no writes under `skills/`, no instance lifecycle
+calls.
+
+When done, emit `DONE: <n>/<total> specs passed; <m> blockers` on the final
+line. If the sweep couldn't proceed at all (e.g. pool exhausted before the
+first trial), emit `BLOCKED: <reason>` instead.
+"""
+    else:
+        user_prompt = f"""
 PR #{pr_number} just pushed new commits touching `skills/` (or eval harness code).
 
 Context:
@@ -139,10 +225,6 @@ adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset �
 a Brev lock for the target platform(s) → run harbor trials → gather results →
 post ONE comment per (PR, spec) batch → release the lock → stop/delete any Brev
 instance you brought online.
-
-Write the list of Brev instance IDs you provisioned to
-`/tmp/brev/started-by-{run_id}.txt` (one per line). The CI step will use that file
-to drive cleanup after a {COOLDOWN_SEC}s cooldown.
 
 When done, emit a one-line final summary starting with `DONE:` so the workflow
 can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
@@ -230,77 +312,6 @@ line starting with `BLOCKED:` followed by the reason.
 # Cleanup
 # ---------------------------------------------------------------------------
 
-_STOPPABLE_TYPES = {"l40s", "rtx"}   # see AGENTS.md lifecycle table
-_DELETE_TYPES = {"h100", "massedcompute"}
-# SPARK / BYOH are no-op
-
-def cleanup_instances() -> None:
-    """After the agent exits, wait COOLDOWN_SEC then stop or delete any
-    Brev instance the agent brought online. Identification comes from
-    `/tmp/brev/started-by-<run_id>.txt`, which the agent is told to
-    populate. Unknown entries are logged and skipped — never delete an
-    instance we can't identify."""
-    run_id = os.environ.get("GITHUB_RUN_ID", "")
-    if not run_id:
-        print("[cleanup] no GITHUB_RUN_ID → skipping teardown", flush=True)
-        return
-
-    marker = Path(f"/tmp/brev/started-by-{run_id}.txt")
-    if not marker.exists() or not marker.read_text().strip():
-        print(f"[cleanup] {marker} missing/empty — nothing to tear down", flush=True)
-        return
-
-    names = [line.strip() for line in marker.read_text().splitlines() if line.strip()]
-    if not names:
-        return
-
-    print(f"[cleanup] {COOLDOWN_SEC}s cooldown before tearing down: {names}", flush=True)
-    time.sleep(COOLDOWN_SEC)
-
-    # Re-check live state — name → (status, instance_type)
-    try:
-        import json as _json
-        out = subprocess.check_output(
-            ["brev", "ls", "--json"], timeout=30,
-        ).decode()
-        data = _json.loads(out)
-        instances = data if isinstance(data, list) else [data]
-        by_name = {i.get("name"): i for i in instances if isinstance(i, dict)}
-    except Exception as exc:
-        print(f"[cleanup] brev ls --json failed: {exc}; skipping", flush=True)
-        return
-
-    for name in names:
-        inst = by_name.get(name)
-        if inst is None:
-            print(f"[cleanup] {name}: not found in brev ls — skip", flush=True)
-            continue
-        itype = (inst.get("instance_type") or "").lower()
-        # Decide stop vs delete based on the AGENTS.md § lifecycle rules.
-        if any(k in itype for k in ("h100", "dmz.h100", "massedcompute",
-                                     "scaleway", "nebius", "hyperstack",
-                                     "latitude", "oci")):
-            action = ["brev", "delete", name]
-            reason = "non-stoppable provider — delete"
-        elif any(k in itype for k in ("l40s-48gb.2x", "l40s-48gb.1x",
-                                       "g7e", "g6e", "crusoe")):
-            action = ["brev", "stop", name]
-            reason = "stoppable — stop"
-        elif inst.get("_registered") or inst.get("kind") == "registered":
-            print(f"[cleanup] {name}: BYOH registered node — no-op", flush=True)
-            continue
-        else:
-            # Unknown provider — default to stop (safer than delete).
-            action = ["brev", "stop", name]
-            reason = f"unknown provider {itype!r} — defaulting to stop"
-
-        print(f"[cleanup] {name}: {reason}  →  {' '.join(action)}", flush=True)
-        try:
-            subprocess.run(action, timeout=120, check=False)
-        except subprocess.TimeoutExpired:
-            print(f"[cleanup] {name}: {action[1]} timed out after 120s", flush=True)
-
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -317,8 +328,6 @@ def main() -> int:
         print(f"[agent] crashed: {exc!r}", file=sys.stderr)
         import traceback; traceback.print_exc()
         rc = 2
-    finally:
-        cleanup_instances()
     return rc
 
 

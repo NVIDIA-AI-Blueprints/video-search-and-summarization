@@ -49,6 +49,63 @@ function deployment_rel_path() {
   esac
 }
 
+# MODE × BP_PROFILE matrix (industry-profiles/warehouse-operations/.env header).
+function warehouse_bp_profile_valid_for_mode() {
+  local _mode="${1}"
+  local _profile="${2}"
+  case "${_mode}" in
+    2d)
+      contains_element "${_profile}" "bp_wh" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"
+      ;;
+    3d | mv3dt)
+      contains_element "${_profile}" "bp_wh_kafka" "bp_wh_redis" "bp_wh_auto_calib"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+function warehouse_default_bp_profile() {
+  local _mode="${1}"
+  local _deploy_env="${2}"
+  local _from_env
+  _from_env="$(get_env_value "${_deploy_env}" "BP_PROFILE")"
+  if [[ -n "${_from_env}" ]] && warehouse_bp_profile_valid_for_mode "${_mode}" "${_from_env}"; then
+    echo "${_from_env}"
+    return 0
+  fi
+  case "${_mode}" in
+    2d) echo "bp_wh" ;;
+    3d | mv3dt) echo "bp_wh_kafka" ;;
+    *) echo "bp_wh" ;;
+  esac
+}
+
+function warehouse_sample_video_dataset() {
+  local _mode="${1}"
+  local _profile="${2}"
+  if [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
+    echo "warehouse-4cams-20mx20m-synthetic"
+  elif [[ "${_profile}" == "bp_wh" ]]; then
+    echo "nv-warehouse-4cams"
+  else
+    echo "warehouse-loading-dock-3cams-synthetic"
+  fi
+}
+
+function warehouse_num_streams() {
+  local _mode="${1}"
+  local _profile="${2}"
+  if [[ "${_mode}" == "3d" ]] || [[ "${_mode}" == "mv3dt" ]]; then
+    echo "4"
+  elif [[ "${_profile}" == "bp_wh" ]]; then
+    echo "4"
+  else
+    echo "3"
+  fi
+}
+
 # LLM/VLM model name to slug mapping (for paths and config lookup)
 function get_llm_slug() {
   local _name="${1}"
@@ -113,6 +170,37 @@ function mask_secret() {
   fi
 }
 
+function mask_external_ip_args() {
+  local _arg _masked_value
+  local _mask_next="false"
+  local _masked_args=()
+  for _arg in "$@"; do
+    if [[ "${_mask_next}" == "true" ]]; then
+      _masked_args+=("$(mask_secret "${_arg}")")
+      _mask_next="false"
+      continue
+    fi
+    case "${_arg}" in
+      -e|--external-ip)
+        _masked_args+=("${_arg}")
+        _mask_next="true"
+        ;;
+      --external-ip=*)
+        _masked_value="${_arg#--external-ip=}"
+        _masked_args+=("--external-ip=$(mask_secret "${_masked_value}")")
+        ;;
+      -e?*)
+        _masked_value="${_arg#-e}"
+        _masked_args+=("-e$(mask_secret "${_masked_value}")")
+        ;;
+      *)
+        _masked_args+=("${_arg}")
+        ;;
+    esac
+  done
+  echo "${_masked_args[*]}"
+}
+
 function usage() {
   echo "Usage: ${0} (up|down) [options]"
   echo "   or: ${0} (-h|--help)"
@@ -130,15 +218,15 @@ function usage() {
   echo "Options for 'up':"
   echo "  -d, --deployment                 [REQUIRED] Deployment type."
   echo "                                   • warehouse — .env under industry-profiles/warehouse-operations/"
-  echo "  -m, --mode                       Deployment mode."
-  echo "                                   • Default: 2d"
-  echo "                                   • Pass -m 3d for 3D deployment"
-  echo "  -p, --bp-profile                Blueprint profile."
-  echo "                                   • bp_wh (default), bp_wh_kafka, bp_wh_redis"
+  echo "  -m, --mode                       Deployment mode: 2d (default), 3d, or mv3dt"
+  echo "  -p, --bp-profile                Blueprint profile (must match MODE; see .env header):"
+  echo "                                   • MODE=2d:  bp_wh (default), bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
+  echo "                                   • MODE=3d:  bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (bp_wh not valid)"
+  echo "                                   • MODE=mv3dt: bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (bp_wh not valid)"
   echo "  -i, --host-ip                    Host IP."
   echo "                                   • Default: primary IP from ip route"
   echo "  -e, --external-ip                Externally accessible IP."
-  echo "  -D, --data-dir PATH             [REQUIRED] Path for sample data (VSS_DATA_DIR/MDX_DATA_DIR)."
+  echo "  -D, --data-dir PATH             [REQUIRED] Path for sample data (VSS_DATA_DIR)."
   echo "                                   • Where warehouse sample data tar is extracted"
   echo "                                   • Contains: models, videos, data_log, playback"
   echo "                                   • Also required for 'down' (same path used with 'up')"
@@ -147,8 +235,8 @@ function usage() {
   echo "  -s, --sample-video-dataset      [Warehouse only] Override sample video dataset."
   echo "                                   • Default by mode+profile:"
   echo "                                     2d+bp_wh: nv-warehouse-4cams (4 streams)"
-  echo "                                     2d+bp_wh_kafka/bp_wh_redis: warehouse-loading-dock-3cams-synthetic (3 streams)"
-  echo "                                     3d: warehouse-4cams-20mx20m-synthetic (4 streams)"
+  echo "                                     2d+bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib: warehouse-loading-dock-3cams-synthetic (3 streams)"
+  echo "                                     3d/mv3dt+bp_wh_kafka/bp_wh_redis/bp_wh_auto_calib: warehouse-4cams-20mx20m-synthetic (4 streams)"
   echo ""
   echo "  [LLM/VLM - for 2d only: warehouse bp_wh (NIM + agents)]"
   echo "  -H, --hardware-profile          H100, L40S, RTXPRO6000BW, DGX-SPARK, etc."
@@ -187,16 +275,16 @@ function validate_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:n:h:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
-    echo "[ERROR] Invalid usage: ${_args[*]}"
+    echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
   else
     eval set -- "${_valid_args}"
 
     while true; do
       case "${1}" in
-        -h | --help) usage; exit 0 ;;
+        --help) usage; exit 0 ;;
         --) shift; break ;;
         *) shift ;;
       esac
@@ -226,7 +314,7 @@ function process_args() {
   _args=("${@}")
   _all_good=0
 
-  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:n:h:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
+  _valid_args=$(getopt -q -o d:m:p:H:i:e:s:D:E: --long deployment:,mode:,bp-profile:,hardware-profile:,host-ip:,external-ip:,sample-video-dataset:,elasticsearch-mode:,es:,llm:,vlm:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,data-dir:,data-directory:,dry-run,skip-revert-from-oldest-backup,help -- "${_args[@]}")
   eval set -- "${_valid_args}"
 
   while true; do
@@ -343,7 +431,7 @@ function process_args() {
         options_provided+=("data-dir")
         shift
         ;;
-      -n | --dry-run)
+      --dry-run)
         dry_run="true"
         options_provided+=("dry-run")
         shift
@@ -353,8 +441,9 @@ function process_args() {
         options_provided+=("skip-revert-from-oldest-backup")
         shift
         ;;
-      -h | --help)
-        shift
+      --help)
+        usage
+        exit 0
         ;;
       --)
         shift
@@ -410,19 +499,22 @@ function process_args() {
     if [[ -n "${deployment}" ]] && [[ -f "${deployment_directory}/$(deployment_rel_path "${deployment}")/.env" ]]; then
       local _deploy_env="${deployment_directory}/$(deployment_rel_path "${deployment}")/.env"
 
-      # Mode: default 2d; warehouse can pass 3d
+      # Mode: default 2d
       if ! contains_element "mode" "${options_provided[@]}"; then
         mode="2d"
       fi
-      # Profile: warehouse default bp_wh
+      # Profile: default from .env when valid for MODE, else mode-specific default
       if ! contains_element "bp-profile" "${options_provided[@]}"; then
-        bp_profile="bp_wh"
+        bp_profile="$(warehouse_default_bp_profile "${mode}" "${_deploy_env}")"
       fi
-      # LLM/VLM: populate from .env when not provided (2d only: warehouse bp_wh)
-      if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
+      # HARDWARE_PROFILE: default from .env for any warehouse mode/profile when -H not passed
+      if [[ "${deployment}" == "warehouse" ]]; then
         if ! contains_element "hardware-profile" "${options_provided[@]}"; then
           hardware_profile="$(get_env_value "${_deploy_env}" "HARDWARE_PROFILE")"
         fi
+      fi
+      # LLM/VLM: populate from .env when not provided (2d only: warehouse bp_wh)
+      if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
         if ! contains_element "llm-device-id" "${options_provided[@]}"; then
           llm_device_id="$(get_env_value "${_deploy_env}" "LLM_DEVICE_ID")"
         fi
@@ -438,15 +530,36 @@ function process_args() {
       fi
 
       if [[ "${deployment}" == "warehouse" ]]; then
-        _valid_modes=('2d' '3d')
+        _valid_modes=('2d' '3d' 'mv3dt')
         if [[ -n "${mode}" ]] && ! contains_element "${mode}" "${_valid_modes[@]}"; then
-          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d"
+          echo "[ERROR] Invalid mode: ${mode}. Must be one of: 2d, 3d, mv3dt"
           ((_all_good++))
         fi
-        _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis')
+        _valid_wh_profiles=('bp_wh' 'bp_wh_kafka' 'bp_wh_redis' 'bp_wh_auto_calib')
         if [[ -n "${bp_profile}" ]] && ! contains_element "${bp_profile}" "${_valid_wh_profiles[@]}"; then
-          echo "[ERROR] Invalid bp-profile for warehouse: ${bp_profile}. Must be one of: bp_wh, bp_wh_kafka, bp_wh_redis"
+          echo "[ERROR] Invalid bp-profile for warehouse: ${bp_profile}. Must be one of: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
           ((_all_good++))
+        fi
+        if [[ -n "${mode}" ]] && [[ -n "${bp_profile}" ]] && ! warehouse_bp_profile_valid_for_mode "${mode}" "${bp_profile}"; then
+          echo "[ERROR] Invalid MODE=${mode} with BP_PROFILE=${bp_profile}."
+          case "${mode}" in
+            2d)
+              echo "[ERROR]   MODE=2d supports: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib"
+              ;;
+            3d | mv3dt)
+              echo "[ERROR]   MODE=${mode} supports: bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib (not bp_wh)"
+              ;;
+          esac
+          ((_all_good++))
+        fi
+        if [[ "${mode}" != "2d" ]] || [[ "${bp_profile}" != "bp_wh" ]]; then
+          for _llm_vlm_opt in llm vlm llm-device-id vlm-device-id use-remote-llm use-remote-vlm llm-model-type vlm-model-type llm-env-file vlm-env-file; do
+            if contains_element "${_llm_vlm_opt}" "${options_provided[@]}"; then
+              echo "[ERROR] --${_llm_vlm_opt} is only valid for MODE=2d and BP_PROFILE=bp_wh (NIM/agents stack)"
+              ((_all_good++))
+              break
+            fi
+          done
         fi
       fi
       # Elasticsearch mode: default cpu; populate from .env when not provided
@@ -519,8 +632,10 @@ function print_args() {
     if [[ "${deployment}" == "warehouse" ]] && [[ -n "${sample_video_dataset}" ]]; then
       echo "sample-video-dataset:      ${sample_video_dataset}"
     fi
+    if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
+      echo "hardware-profile:          ${hardware_profile}"
+    fi
     if [[ "${mode}" == "2d" ]] && [[ "${deployment}" == "warehouse" ]] && [[ "${bp_profile}" == "bp_wh" ]]; then
-      [[ -n "${hardware_profile}" ]] && echo "hardware-profile:          ${hardware_profile}"
       [[ -n "${llm}" ]] && echo "llm:                       ${llm}"
       [[ -n "${vlm}" ]] && echo "vlm:                       ${vlm}"
       [[ -n "${llm_device_id}" ]] && echo "llm-device-id:             ${llm_device_id}"
@@ -530,7 +645,7 @@ function print_args() {
     fi
     echo "host-ip:                  ${host_ip}"
     if [[ -n "${external_ip}" ]]; then
-      echo "external-ip:               ${external_ip}"
+      echo "external-ip:               $(mask_secret "${external_ip}")"
     fi
     echo "ngc-cli-api-key:          $(mask_secret "${ngc_cli_api_key}")"
   fi
@@ -586,12 +701,10 @@ function state_up() {
   }
 
   set_env_var "VSS_APPS_DIR" "${deployment_directory}"
-  set_env_var "MDX_SAMPLE_APPS_DIR" "${deployment_directory}"
   set_env_var "VSS_DATA_DIR" "${data_directory}"
-  set_env_var "MDX_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
   if [[ -n "${external_ip}" ]]; then
-    set_env_var "EXTERNAL_IP" "${external_ip}"
+    set_env_var "EXTERNAL_IP" "${external_ip}" "true"
   fi
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
   if [[ -n "${mode}" ]]; then
@@ -604,10 +717,17 @@ function state_up() {
     set_env_var "ELASTICSEARCH_MODE" "${elasticsearch_mode}"
   fi
 
-  # Warehouse 3d: LLM/VLM not used; set to none
-  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]]; }; then
+  # HARDWARE_PROFILE from -H / warehouse .env (all modes: 2d, 3d, mv3dt; all bp profiles)
+  if [[ "${deployment}" == "warehouse" ]] && [[ -n "${hardware_profile}" ]]; then
+    set_env_var "HARDWARE_PROFILE" "${hardware_profile}"
+  fi
+
+  # Warehouse 3d/mv3dt and non-agent profiles (kafka, redis, auto_calib): no local NIM LLM/VLM
+  if [[ "${deployment}" == "warehouse" ]] && { [[ "${mode}" == "3d" ]] || [[ "${mode}" == "mv3dt" ]] || [[ "${bp_profile}" == "bp_wh_kafka" ]] || [[ "${bp_profile}" == "bp_wh_redis" ]] || [[ "${bp_profile}" == "bp_wh_auto_calib" ]]; }; then
     set_env_var "LLM_MODE" "none"
     set_env_var "VLM_MODE" "none"
+    set_env_var "LLM_NAME_SLUG" "none"
+    set_env_var "VLM_NAME_SLUG" "none"
   fi
 
   # LLM/VLM configuration for 2d only: warehouse bp_wh (NIM + agents)
@@ -627,9 +747,6 @@ function state_up() {
     fi
     set_env_var "LLM_MODE" "${_llm_mode}"
     set_env_var "VLM_MODE" "${_vlm_mode}"
-    if [[ -n "${hardware_profile}" ]]; then
-      set_env_var "HARDWARE_PROFILE" "${hardware_profile}"
-    fi
     if [[ "${_llm_mode}" == "remote" ]] && [[ -n "${llm_base_url}" ]]; then
       local _llm_name
       if [[ -n "${llm}" ]]; then
@@ -701,7 +818,7 @@ function state_up() {
   # Warehouse: bp-configurator uses generated.env (required vars from blueprint-deploy)
   if [[ "${deployment}" == "warehouse" ]]; then
     set_env_var "BP_CONFIGURATOR_ENV_FILE" "${_generated_env}"
-    # STREAM_TYPE: redis only for bp_wh_redis; kafka for bp_wh and bp_wh_kafka
+    # STREAM_TYPE: redis for bp_wh_redis; kafka for bp_wh, bp_wh_kafka, bp_wh_auto_calib (auto_calib skips broker in compose)
     if [[ "${bp_profile}" == "bp_wh_redis" ]]; then
       set_env_var "STREAM_TYPE" "redis"
     else
@@ -712,16 +829,10 @@ function state_up() {
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
       _num_streams="$(get_env_value "${_source_env}" "NUM_STREAMS")"
-      _num_streams="${_num_streams:-4}"
-    elif [[ "${mode}" == "3d" ]]; then
-      _sample_dataset="warehouse-4cams-20mx20m-synthetic"
-      _num_streams="4"
-    elif [[ "${bp_profile}" == "bp_wh" ]]; then
-      _sample_dataset="nv-warehouse-4cams"
-      _num_streams="4"
+      _num_streams="${_num_streams:-$(warehouse_num_streams "${mode}" "${bp_profile}")}"
     else
-      _sample_dataset="warehouse-loading-dock-3cams-synthetic"
-      _num_streams="3"
+      _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
+      _num_streams="$(warehouse_num_streams "${mode}" "${bp_profile}")"
     fi
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"
     set_env_var "NUM_STREAMS" "${_num_streams}"
@@ -756,18 +867,17 @@ function state_up() {
   mkdir -p "${data_directory}/data_log/vss_video_analytics_api"
 
   if [[ "${deployment}" == "warehouse" ]]; then
-    local _sample_dataset _num_streams
+    local _sample_dataset
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
-    elif [[ "${mode}" == "3d" ]]; then
-      _sample_dataset="warehouse-4cams-20mx20m-synthetic"
-    elif [[ "${bp_profile}" == "bp_wh" ]]; then
-      _sample_dataset="nv-warehouse-4cams"
     else
-      _sample_dataset="warehouse-loading-dock-3cams-synthetic"
+      _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
     fi
     mkdir -p "${data_directory}/videos/${_sample_dataset}"
     mkdir -p "${data_directory}/playback"
+    if [[ "${mode}" == "mv3dt" ]]; then
+      mkdir -p "${data_directory}/models/mv3dt/BodyPose3DNet"
+    fi
   fi
 
   echo "[INFO] Setting permissions on data_log directory..."
@@ -812,8 +922,8 @@ function run_revert_from_oldest_backup() {
   local -a _revert_roots
 
   _revert_roots=("${data_directory}" "$(dirname "${script_dir}")")
-  if [[ -n "${MDX_SAMPLE_APPS_DIR:-}" && -d "${MDX_SAMPLE_APPS_DIR}" ]]; then
-    _revert_roots+=("${MDX_SAMPLE_APPS_DIR}")
+  if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
+    _revert_roots+=("${VSS_APPS_DIR}")
   fi
 
   for _search_dir in "${_revert_roots[@]}"; do
@@ -849,7 +959,7 @@ function run_revert_from_oldest_backup() {
 
 # Clean data_log contents (matches cleanup_all_datalog.sh behavior)
 # Revert (optional) then: kafka, elastic, redis, vst, nvstreamer, vss_video_analytics_api, calibration_toolkit, backup files
-# Backup files: same roots as cleanup_all_datalog.sh (data dir, repo root, optional MDX_SAMPLE_APPS_DIR), with sudo when needed
+# Backup files: same roots as cleanup_all_datalog.sh (data dir, repo root, optional VSS_APPS_DIR), with sudo when needed
 function run_data_log_cleanup() {
   local _data_dir="${data_directory}"
   if [[ ! -d "${_data_dir}" ]]; then
@@ -863,7 +973,7 @@ function run_data_log_cleanup() {
   fi
   if [[ "${dry_run}" == "true" ]]; then
     if [[ "${revert_from_oldest_backup}" == "true" ]]; then
-      echo "[DRY-RUN] Would revert live files from oldest *.backup_* under ${data_directory}, $(dirname "${script_dir}"), and MDX_SAMPLE_APPS_DIR (if set), then clean data_log and delete backups"
+      echo "[DRY-RUN] Would revert live files from oldest *.backup_* under ${data_directory}, $(dirname "${script_dir}"), and VSS_APPS_DIR (if set), then clean data_log and delete backups"
     else
       echo "[DRY-RUN] Skipping revert (--skip-revert-from-oldest-backup); would clean data_log under ${_data_dir} and delete *.backup_*"
     fi
@@ -886,13 +996,13 @@ function run_data_log_cleanup() {
   [[ -d "${_data_dir}/data_log/vst" ]] && $_sudo rm -rf "${_data_dir}/data_log/vst"
   [[ -d "${_data_dir}/data_log/nvstreamer" ]] && $_sudo rm -rf "${_data_dir}/data_log/nvstreamer"
   # Delete blueprint-configurator backup files (*.backup_*), same roots as cleanup_all_datalog.sh:
-  # MDX_DATA_DIR (-D), met-blueprints repo root (parent of deploy/docker/), and MDX_SAMPLE_APPS_DIR when set.
+  # VSS_DATA_DIR (-D), met-blueprints repo root (parent of deploy/docker/), and VSS_APPS_DIR when set.
   local _backup_count _root
   local -a _backup_roots
 
   _backup_roots=("${_data_dir}" "$(dirname "${script_dir}")")
-  if [[ -n "${MDX_SAMPLE_APPS_DIR:-}" && -d "${MDX_SAMPLE_APPS_DIR}" ]]; then
-    _backup_roots+=("${MDX_SAMPLE_APPS_DIR}")
+  if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
+    _backup_roots+=("${VSS_APPS_DIR}")
   fi
 
   for _root in "${_backup_roots[@]}"; do
@@ -948,9 +1058,25 @@ function state_down() {
   echo "[INFO] State down completed"
 }
 
-# Main execution
-validate_args "${@}"
-process_args "${@}"
+# Main execution: normalize argv before getopt (short -h/-n are not in the getopt optstring).
+_main_args=()
+for _arg in "$@"; do
+  case "${_arg}" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -n)
+      _main_args+=("--dry-run")
+      ;;
+    *)
+      _main_args+=("${_arg}")
+      ;;
+  esac
+done
+
+validate_args "${_main_args[@]}"
+process_args "${_main_args[@]}"
 print_args
 
 if [[ "${desired_state}" == "up" ]]; then

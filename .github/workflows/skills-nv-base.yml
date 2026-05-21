@@ -1,0 +1,222 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs two Tier-1 skills checks on the pull-request/<N> mirror branch
+# whenever the cumulative PR diff (PR base ↔ HEAD) touches skills/ or
+# this harness. Mirrors the helm-sync pattern: no top-level `paths:`
+# filter (that evaluates per-push, not cumulative); dorny/paths-filter
+# runs inside the job against PR_BASE...HEAD.
+#
+# Step 1 — nv-base validate (schema, secrets, PII, unicode)
+#   NVIDIA-internal Tier 1 checker. Not distributed publicly, so this
+#   workflow targets the shared `vss-brev-runner` pool where the
+#   binary is pre-installed into /opt/nvbase-venv/. Uses --profile
+#   external so author_missing is demoted from HIGH to MEDIUM by the
+#   bundled external.yaml policy (no env-var allow-list needed).
+#
+# Step 2 — playbook compliance (NAM, FM, STR, SEC)
+#   Vendored from `agent_skills_playbook` with modifications
+#   (see .github/skills-nv-base/README.md):
+#   - STR-003 softened to WARN: evals/ folder presence, no filename
+#     restriction
+#   - STR-004 (references/README.md required) dropped
+#   - EVAL-* family dropped (existing skills-eval workflow owns it)
+#   - REQUIRED_FM_FIELDS trimmed to [name, description] per
+#     agentskills.io spec
+#   Stdlib only; runs on the same self-hosted runner for simplicity.
+#
+# Required-status-check note: `Skills NV-BASE / skills-check` must be
+# added as a required status check on `develop` (and `main`, once
+# synced) for the exit-1 to actually gate merging — without that, a
+# failing finding just shows a red X but doesn't prevent merge.
+
+name: Skills NV-BASE
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+  # Manual trigger. Same shape as skills-eval.yml's dispatch: a single
+  # `skills` dropdown (the 8 adapters under .github/skill-eval/adapters/
+  # plus `*` for the whole `skills/` tree). No diff-gate is applied —
+  # the operator is explicitly asking for the checks to run. Without a
+  # PR to comment on, Step 3 writes the same findings markdown to
+  # $GITHUB_STEP_SUMMARY (rendered on the Actions run summary page);
+  # see post_comment.py's manual-mode branch.
+  workflow_dispatch:
+    inputs:
+      skills:
+        description: "Which skill to check (single-select). Pick `*` for the whole skills/ tree. Keep this list in sync with the skills-eval dispatch input."
+        required: false
+        default: "*"
+        type: choice
+        options:
+          - "*"
+          - vss-ask-video
+          - vss-deploy-dense-captioning
+          - vss-deploy-profile
+          - vss-deploy-video-embedding
+          - vss-generate-video-report
+          - vss-manage-alerts
+          - vss-manage-video-io-storage
+          - vss-search-archive
+          - vss-summarize-video
+
+permissions:
+  contents: read
+  pull-requests: write   # Step 3 posts/updates a sticky comment
+
+concurrency:
+  group: skills-nv-base-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  skills-check:
+    name: skills-check
+    # Shared brev-CI runner pool — nv-base is pre-installed on each
+    # member, and the workflow does not install or refresh it at run
+    # time. See .github/skills-nv-base/README.md.
+    runs-on: [self-hosted, vss-brev-runner]
+
+    timeout-minutes: 20
+
+    # Allow mirror-branch pushes OR manual full-sweep dispatch.
+    if: startsWith(github.ref, 'refs/heads/pull-request/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract PR number + base
+        id: pr
+        if: github.event_name == 'push'
+        run: |
+          REF="${{ github.ref_name }}"
+          PR="${REF##pull-request/}"
+          BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "PR #$PR, base=$BASE"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Detect skills/ changes vs PR base
+        id: changes
+        if: github.event_name == 'push'
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          base: ${{ steps.pr.outputs.base }}
+          filters: |
+            relevant:
+              - 'skills/**'
+              - '.github/skills-nv-base/**'
+              - '.github/workflows/skills-nv-base.yml'
+
+      - name: Resolve target skill scope (manual mode)
+        id: scope
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          # Route the dispatch input through env: so it isn't templated
+          # directly into the run: script body. `type: choice` already
+          # enum-validates the value (no free-form input), but this
+          # matches the defense-in-depth pattern used in skills-eval.yml
+          # and keeps the run: body free of templated user data.
+          INPUT_SKILLS: ${{ inputs.skills }}
+        run: |
+          set -euo pipefail
+          if [ "${INPUT_SKILLS}" = "*" ] || [ -z "${INPUT_SKILLS}" ]; then
+            SKILL_ROOT="skills/"
+            SKILL_NAME=""
+            echo "manual: scanning entire skills/ tree"
+          else
+            # The dropdown is server-validated against the choice enum;
+            # path-traversal is impossible. Verify the dir exists so we
+            # fail loudly on stale options rather than silently scanning
+            # nothing.
+            if [ ! -d "skills/${INPUT_SKILLS}" ]; then
+              echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref. Update the workflow_dispatch options to match the current skills/ tree."
+              exit 1
+            fi
+            SKILL_ROOT="skills/${INPUT_SKILLS}"
+            SKILL_NAME="${INPUT_SKILLS}"
+            echo "manual: scoping to ${SKILL_ROOT}"
+          fi
+          # Emit skill_name (not a pre-built `--skill <name>` string) so
+          # downstream steps can build the flag with proper quoting —
+          # avoids bash word-splitting an unquoted multi-token output.
+          {
+            echo "skill_root=${SKILL_ROOT}"
+            echo "skill_name=${SKILL_NAME}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Step 1 — nv-base validate (schema + security)
+        if: (github.event_name == 'push' && steps.changes.outputs.relevant == 'true') || github.event_name == 'workflow_dispatch'
+        env:
+          # Path to the pre-installed nv-base binary on the runner.
+          NVBASE_BIN: /opt/nvbase-venv/bin/nv-base
+          # Tells run_check.py to dump structured findings here; consumed
+          # by Step 3 to compose the sticky PR comment.
+          NVBASE_FINDINGS_JSON: ${{ runner.temp }}/nvbase-findings.json
+          # Push runs scan the whole skills/ tree; manual runs scan the
+          # dispatch-selected scope. Routed via env: rather than
+          # templated into the run: body — same defense-in-depth pattern
+          # used for INPUT_SKILLS above.
+          SKILL_ROOT: ${{ steps.scope.outputs.skill_root || 'skills/' }}
+        run: |
+          python3 .github/skills-nv-base/run_check.py "$SKILL_ROOT"
+
+      - name: Step 2 — playbook compliance (naming + frontmatter + structure)
+        # `!cancelled()` overrides the implicit `success()` so Step 2 still
+        # runs when Step 1 fails — both gates should surface findings in
+        # the same CI run, not block each other.
+        if: ((github.event_name == 'push' && steps.changes.outputs.relevant == 'true') || github.event_name == 'workflow_dispatch') && !cancelled()
+        env:
+          # Empty in push mode (and in manual `*` mode); otherwise the
+          # picked skill name. Routed via env: for the same reason
+          # SKILL_ROOT above is.
+          SKILL_NAME: ${{ steps.scope.outputs.skill_name }}
+        run: |
+          # skill_compliance_check.py supports an optional `--skill <name>`
+          # filter; when set in manual mode it scopes the playbook scan to
+          # that single skill folder. Build the flag as an array so the
+          # value stays quoted and we never depend on bash word-splitting
+          # of an unquoted variable.
+          SKILL_FLAGS=()
+          if [ -n "$SKILL_NAME" ]; then
+            SKILL_FLAGS=(--skill "$SKILL_NAME")
+          fi
+          python3 .github/skills-nv-base/skill_compliance_check.py \
+            --skills-dir skills/ "${SKILL_FLAGS[@]}" --no-color \
+            --json-out "${{ runner.temp }}/playbook-findings.json"
+
+      - name: Step 3 — post findings (PR comment on push, step summary on dispatch)
+        # Always run (even when prior steps failed) so warnings surface
+        # alongside any blocking findings. The poster swallows its own
+        # errors via ::warning so it never fails the gate. In manual
+        # mode PR_NUMBER is empty; post_comment.py detects that and
+        # appends the same markdown to $GITHUB_STEP_SUMMARY instead of
+        # bailing.
+        if: ((github.event_name == 'push' && steps.changes.outputs.relevant == 'true') || github.event_name == 'workflow_dispatch') && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          NVBASE_FINDINGS_JSON: ${{ runner.temp }}/nvbase-findings.json
+          PLAYBOOK_FINDINGS_JSON: ${{ runner.temp }}/playbook-findings.json
+        run: |
+          python3 .github/skills-nv-base/post_comment.py
+
+      - name: Skip note when no skills/ changes
+        if: github.event_name == 'push' && steps.changes.outputs.relevant != 'true'
+        run: |
+          echo "::notice::No skills/ changes in this PR; NV-BASE check skipped."

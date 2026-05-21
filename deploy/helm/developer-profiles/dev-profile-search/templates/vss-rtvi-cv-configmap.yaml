@@ -37,7 +37,7 @@ data:
           fi
 
           echo -e "\nds pgie configs\n"
-          cat ds-ppl-analytics-pgie-config.yml
+          cat ds-pgie-config.yml
 
           if [ "$STREAM_TYPE" = "kafka" ]; then
               echo "Running metropolis_perception_app with kafka configuration..."
@@ -72,7 +72,7 @@ data:
     [message-broker]
     partition-key = sensorId
 
-  ds-ppl-analytics-pgie-config.yml: |
+  ds-pgie-config.yml: |
     class-attrs-all:
       pre-cluster-threshold: 0.5
       topk: 20
@@ -263,11 +263,13 @@ data:
     config-file=/opt/nvidia/deepstream/deepstream/sources/libs/kafka_protocol_adaptor/ds-kafka-config.txt
     subscribe-topic-list=<topic1>;<topic2>;<topicN>
 
+    {{- $veModel := dig "models" "visionEncoder" "model" "siglip_v2" $rtvi }}
+    {{- $veVersion := dig "models" "visionEncoder" "version" "v1.1" $rtvi }}
     [text-embedder]
     enable=1
-    model-name={{ dig "models" "visionEncoder" "dsModelName" "siglip2-onnx" $rtvi }}
-    onnx-model-path=/opt/storage/{{ dig "models" "visionEncoder" "onnxFile" "" $rtvi }}
-    tokenizer-dir=/opt/storage/{{ dig "models" "visionEncoder" "tokenizerDir" "" $rtvi }}/
+    model-name=siglip2-onnx
+    onnx-model-path=/opt/storage/{{ $veModel }}_{{ $veVersion }}.onnx
+    tokenizer-dir=/opt/storage/{{ $veModel }}_{{ $veVersion }}_tokenizer/
 
     [osd]
     enable=0
@@ -307,7 +309,7 @@ data:
     interval=1
     gie-unique-id=1
     nvbuf-memory-type=0
-    config-file=ds-ppl-analytics-pgie-config.yml
+    config-file=ds-pgie-config.yml
 
     [tracker]
     enable=1
@@ -321,8 +323,8 @@ data:
     [visionencoder]
     enable=1
     backend=tensorrt
-    tensorrt-engine=/opt/storage/{{ dig "models" "visionEncoder" "onnxFile" "" $rtvi }}_batch16.plan
-    onnx-model=/opt/storage/{{ dig "models" "visionEncoder" "onnxFile" "" $rtvi }}
+    tensorrt-engine=/opt/storage/{{ $veModel }}_{{ $veVersion }}.onnx_batch16.plan
+    onnx-model=/opt/storage/{{ $veModel }}_{{ $veVersion }}.onnx
     batch-size=128
     min-crop-size=32
     verbose=1

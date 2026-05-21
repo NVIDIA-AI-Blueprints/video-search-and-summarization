@@ -4,13 +4,14 @@ import type { VideoManagementComponentProps, UploadProgress, StreamInfo } from '
 import { useStreams, useStorageTimelines } from './hooks';
 import { filterStreams, isRtspStream } from './utils';
 import { UploadFilesDialog, VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
-import { uploadFileChunked, notifyUploadComplete } from './chunkedUpload';
+import { chunkedUpload, notifyUploadComplete } from './chunkedUpload';
 import { createApiEndpoints } from './api';
 import { deleteRtspStream } from './rtspStream';
 import { deleteVideo } from './videoDelete';
 import { NUM_PARALLEL_FILE_UPLOADS } from './constants';
 import {
   AddRtspDialog,
+  DeleteConfirmDialog,
   EmptyState,
   LoadingState,
   StreamsGrid,
@@ -78,6 +79,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const [showRtsps, setShowRtsps] = useState(true);
   const [selectedStreams, setSelectedStreams] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [loadingStreamId, setLoadingStreamId] = useState<string | null>(null);
@@ -164,10 +166,10 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         // Step 1: Chunked upload directly to the video storage service
         // (bypasses agent, avoids Cloudflare 100s timeout on large files)
         const uploadEndpoints = createApiEndpoints(vstApiUrl);
-        const videoUploadApiResponse = await uploadFileChunked({
+        const videoUploadApiResponse = await chunkedUpload({
           file,
           uploadUrl: uploadEndpoints.UPLOAD_FILE,
-          onProgress: (progress) => {
+          onProgress: (progress: number) => {
             if (!isSessionValid() || abortController.signal.aborted) return;
             setUploadProgress((prev) =>
               prev.map((p) => (p.id === id && p.status === 'uploading' ? { ...p, progress } : p))
@@ -334,12 +336,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       const range = getLastTimelineForStream(stream.streamId);
       if (!range) return;
       startTime = range.startTime;
-      const rangeStart = new Date(range.startTime).getTime();
-      const rangeEnd = new Date(range.endTime).getTime();
-      endTime =
-        rangeEnd - rangeStart > 30000
-          ? new Date(rangeStart + 30000).toISOString()
-          : range.endTime;
+      endTime = range.endTime;
     }
 
     setLoadingStreamId(stream.streamId);
@@ -377,12 +374,33 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     }
   }, [filteredStreams]);
 
-  const handleDeleteSelected = useCallback(async () => {
+  // Resolve selected stream IDs back to full StreamInfo objects so the confirm
+  // dialog can show the user exactly which items are about to be deleted.
+  const selectedStreamInfos = useMemo(
+    () => streams.filter((s) => selectedStreams.has(s.streamId)),
+    [streams, selectedStreams]
+  );
+
+  // Step 1 of delete: just open the confirmation dialog. The Toolbar's "Delete
+  // Selected" button is wired to this so a single click never destroys data.
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedStreams.size === 0 || isDeleting) return;
+    setShowDeleteConfirm(true);
+  }, [selectedStreams.size, isDeleting]);
+
+  const handleCancelDelete = useCallback(() => {
+    if (isDeleting) return;
+    setShowDeleteConfirm(false);
+  }, [isDeleting]);
+
+  // Step 2 of delete: invoked by the confirm button inside DeleteConfirmDialog.
+  // This holds the actual destructive API calls that used to live in
+  // handleDeleteSelected.
+  const handleConfirmDelete = useCallback(async () => {
     if (selectedStreams.size === 0 || isDeleting) return;
 
     const selectedStreamIds = Array.from(selectedStreams);
 
-    // Group streams by sensorId and track their info
     const sensorToStreams = new Map<string, StreamInfo[]>();
     for (const streamId of selectedStreamIds) {
       const stream = streams.find(s => s.streamId === streamId);
@@ -400,7 +418,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       const deletePromises = uniqueSensorIds.map(async (sensorId) => {
         const sensorStreams = sensorToStreams.get(sensorId) || [];
         const firstStream = sensorStreams[0];
-        
+
         // Check if this is an RTSP stream - must use agent API (by sensor name)
         if (firstStream && isRtspStream(firstStream)) {
           if (!agentApiUrl) {
@@ -418,11 +436,18 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         return sensorId;
       });
 
-      await Promise.allSettled(deletePromises);
+      const results = await Promise.allSettled(deletePromises);
+      results.forEach((r, idx) => {
+        if (r.status === 'rejected') {
+          // eslint-disable-next-line no-console
+          console.error('[VideoManagement] delete failed for sensor', uniqueSensorIds[idx], r.reason);
+        }
+      });
       setSelectedStreams(new Set());
       await Promise.all([refetch(), refetchTimelines()]);
     } finally {
       setIsDeleting(false);
+      setShowDeleteConfirm(false);
     }
   }, [selectedStreams, streams, isDeleting, agentApiUrl, refetch, refetchTimelines]);
 
@@ -484,7 +509,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100">
+    <div className="flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col bg-gray-50 text-gray-900 dark:bg-black dark:text-gray-100">
       {/* Hidden input for upload dialog add-more */}
       <input
         ref={fileInputRef}
@@ -610,6 +635,15 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
         agentApiUrl={agentApiUrl}
         onClose={handleRtspDialogClose}
         onSuccess={handleRtspSuccess}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        isOpen={showDeleteConfirm}
+        streams={selectedStreamInfos}
+        isDeleting={isDeleting}
+        onCancel={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
       />
 
       {/* Video Playback Modal */}

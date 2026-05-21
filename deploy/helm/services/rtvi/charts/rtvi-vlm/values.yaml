@@ -19,7 +19,7 @@ global: {}
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-rt-vlm
-  tag: "3.2.0-26.04.3"
+  tag: "3.2.0-26.05.1"
   pullPolicy: IfNotPresent
 replicas: 1
 
@@ -172,6 +172,18 @@ env:
   # EVS pruning rate 0.0-1.0.
   - name: VLM_VIDEO_PRUNING_RATE
     value: "0.0"
+  # API cap on output tokens.
+  - name: VLM_MAX_GENERATION_TOKENS
+    value: "16384"
+  # MoE backend override (empty by default; code auto-picks triton on B200 for Qwen3.5).
+  - name: VLLM_MOE_BACKEND
+    value: ""
+  # Bounded queue size for the async Kafka sender.
+  - name: KAFKA_ASYNC_SEND_QUEUE_MAXSIZE
+    value: "1024"
+  # vLLM multimodal preprocessor cache size in GiB.
+  - name: VLLM_MM_PROCESSOR_CACHE_GB
+    value: "1"
 
 nodeSelector: {}
 tolerations: []

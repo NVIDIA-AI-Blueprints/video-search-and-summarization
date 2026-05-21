@@ -13,6 +13,8 @@ interface SidebarInnerProps<T> {
   searchTerm: string;
   handleSearchTerm: (searchTerm: string) => void;
   handleCreateItem: () => void;
+  createItemDisabled?: boolean;
+  createItemDisabledTitle?: string;
   handleCreateFolder: () => void;
   handleDrop?: (e: any) => void;
   enableDragDrop?: boolean;
@@ -34,6 +36,8 @@ export const SidebarInner = <T,>({
   searchTerm,
   handleSearchTerm,
   handleCreateItem,
+  createItemDisabled = false,
+  createItemDisabledTitle,
   handleCreateFolder,
   handleDrop,
   enableDragDrop = true,
@@ -58,8 +62,17 @@ export const SidebarInner = <T,>({
     <div className="flex h-full w-full flex-col space-y-2 bg-gray-50 dark:bg-neutral-900 p-2 text-[14px]">
       <div className="flex items-center">
         <button
-          className="text-sidebar flex w-[190px] flex-shrink-0 cursor-pointer select-none items-center gap-3 rounded-md border border-gray-300 dark:border-white/20 p-3 text-gray-900 dark:text-white transition-colors duration-200 hover:bg-gray-200 dark:hover:bg-gray-500/10"
+          type="button"
+          disabled={createItemDisabled}
+          title={createItemDisabled ? createItemDisabledTitle : undefined}
+          aria-disabled={createItemDisabled}
+          className={`text-sidebar flex w-[190px] flex-shrink-0 select-none items-center gap-3 rounded-md border border-gray-300 dark:border-white/20 p-3 text-gray-900 dark:text-white transition-colors duration-200 ${
+            createItemDisabled
+              ? 'cursor-not-allowed opacity-50'
+              : 'cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-500/10'
+          }`}
           onClick={() => {
+            if (createItemDisabled) return;
             handleCreateItem();
             handleSearchTerm('');
           }}

@@ -22,14 +22,9 @@ general:
     # Configuration for streaming video ingest endpoint
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      enable_rtsp_streams: true
-      enable_video_delete: true
-    endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
-
+      vst_external_url: ${VST_EXTERNAL_URL}
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -60,11 +55,6 @@ function_groups:
     - video_analytics__get_sensor_ids
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
-
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
@@ -74,8 +64,6 @@ functions:
     reasoning: true
     video_url_tool: vst_video_clip
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${INTERNAL_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
 
   # Video understanding for incidents (uses ISO timestamps)
@@ -97,6 +85,8 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_snapshot:
     _type: vst.snapshot
@@ -112,6 +102,7 @@ functions:
     vst_external_url: ${VST_EXTERNAL_URL}
     overlay_config: true
     time_format: iso
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_picture_url:
     _type: vst.snapshot
@@ -130,6 +121,7 @@ functions:
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
     video_understanding_tool: video_understanding_iso
     video_url_tool: vst_video_url
     picture_url_tool: vst_snapshot

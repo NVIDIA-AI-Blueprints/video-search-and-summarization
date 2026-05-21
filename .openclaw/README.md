@@ -1,7 +1,5 @@
 # VSS Claw — OpenClaw Plugin
 
-> **Note:** OpenClaw is the upstream framework name; the NemoClaw branding refers to the NVIDIA-curated skill bundle on top of OpenClaw.
-
 NVIDIA Video Search & Summarization agent for [OpenClaw](https://github.com/openclaw/openclaw). Provides 6 skills covering the full VSS lifecycle: NGC setup, prerequisites, base deployment, live video streams, semantic search, and alerts.
 
 ---
@@ -13,8 +11,8 @@ The following must be in place before VSS can deploy containers. The agent will 
 | Requirement | Min version | Install guide |
 |---|---|---|
 | NVIDIA GPU driver | 580+ | [nvidia.com/drivers](https://www.nvidia.com/en-us/drivers/) — reboot after install |
-| Docker Engine | 27.2.0 | [docs.docker.com/engine/install/ubuntu](https://docs.docker.com/engine/install/ubuntu/) |
-| Docker Compose | v2.29.0 | Included with Docker Desktop / Engine |
+| Docker Engine | 28.3.3 | [docs.docker.com/engine/install/ubuntu](https://docs.docker.com/engine/install/ubuntu/) |
+| Docker Compose | v2.39.1 | Included with Docker Desktop / Engine |
 | NVIDIA Container Toolkit | latest | [docs.nvidia.com/datacenter/cloud-native/container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) |
 | NGC API key | — | [ngc.nvidia.com](https://ngc.nvidia.com) → Setup → API Keys |
 

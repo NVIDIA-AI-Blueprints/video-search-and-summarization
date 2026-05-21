@@ -7,3 +7,35 @@
 
 # Default — all files
 * @NVIDIA-AI-Blueprints/VSS-developers
+
+# Lockfiles and 3rd-party license inventory.
+# Resolved-dependency state is the authoritative record of which packages
+# (and which licenses) ship in VSS, so OSRB must approve any change.
+# CODEOWNERS is last-match-wins, so these rules override the default
+# `*` owner above for the listed paths only.
+uv.lock                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+package-lock.json       @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+yarn.lock               @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+pnpm-lock.yaml          @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+poetry.lock             @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Pipfile.lock            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Cargo.lock              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+go.sum                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Gemfile.lock            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+LICENSE-3rd-party.txt   @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+
+# Dependency manifests.
+# A manifest can change without an accompanying lockfile update (version-range
+# bumps, new direct deps, removed deps), and the next time the lock regenerates
+# it can pull in new transitive packages and licenses. Gate the manifests too
+# so OSRB sees the change at the point it is introduced, not weeks later when
+# someone else regenerates the lock.
+pyproject.toml          @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+requirements*.txt       @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+setup.py                @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+setup.cfg               @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Pipfile                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+package.json            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+go.mod                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Cargo.toml              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Gemfile                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers

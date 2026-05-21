@@ -14,6 +14,7 @@
 # limitations under the License.
 
 enabled: false
+# alerts | search | standalone-2d | standalone-3d
 profileMode: alerts
 
 global: {}
@@ -26,7 +27,7 @@ scripts:
 
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-  tag: "3.2.0-26.04.2"
+  tag: "3.2.0-26.05.1"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -74,6 +75,33 @@ ngcDownload:
     pullPolicy: IfNotPresent
 ngcModelsToDownload:
   []
+
+# NGC *resource* bundle (videos + warehouse models) for profileMode standalone-2d / standalone-3d.
+# Download Job unpacks the .tar.gz onto the shared -models PVC under vss-warehouse-app-data/.
+downloadNgcAppData: false
+ngcAppDataResourceVersion: "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-04282026"
+# Required with NGC_CLI_API_KEY: registry org for the resource (e.g. nvstaging for vss-warehouse).
+ngcAppDataOrg: "nvstaging"
+downloadNgcAppDataWaitSeconds: 3600
+
+# Used when profileMode is standalone-2d or standalone-3d (metropolis warehouse ds-start.sh paths).
+standaloneWarehouse:
+  # No Kafka/Redis in standalone; ds-main uses FakeSink (sink0). Valid values depend on app; default avoids kafka client paths.
+  streamType: "none"
+  dsModeFlag2d: "1"
+  dsModeFlag3d: "5"
+  dsMessageRate: "1"
+  dsTrackerReid: "false"
+  dsShowSensorId: "false"
+  sparse4dDebugTs: "1"
+  networkWidth: "960"
+  networkHeight: "540"
+  hardwareProfile: ""
+  # Sparse4D weights inside PVC (paths relative to PVC root; default matches NGC vss-warehouse-app-data layout).
+  sparse4dOnnxFile: sparse4d_warehouse_v2.2.onnx
+  sparse4dNpyFile: _ov_kmeans900_v2.2.npy
+  pvcOnnxSubPath: vss-warehouse-app-data/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx
+  pvcNpySubPath: vss-warehouse-app-data/models/sparse4d/ov/_ov_kmeans900_v2.2.npy
 
 modelsPvc:
   create: false

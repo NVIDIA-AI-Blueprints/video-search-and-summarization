@@ -6,7 +6,7 @@ import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react
 import {
   UploadFilesDialog,
   copyToClipboard,
-  uploadFile,
+  uploadFileChunked,
   type UploadFileConfigTemplate,
   type FileUploadResult,
 } from '@aiqtoolkit-ui/common';
@@ -35,7 +35,9 @@ interface FileWithFormData {
 
 // CSS class constants
 const POPUP_OVERLAY_CLASS = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
-const POPUP_CONTAINER_CLASS = 'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-black';
+// Border + shadow so the panel reads clearly on the chat surface (shadow alone vanishes on dark:bg-black).
+const POPUP_CONTAINER_CLASS =
+  'mx-4 w-full max-w-xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-2xl';
 
 // Upload status display config for progress bar and label styling
 const UPLOAD_STATUS_STYLE: Record<FileUploadStatus, { progressBarClass: string; textClass: string }> = {
@@ -277,12 +279,18 @@ function UploadSuccessPopup({
 }
 
 interface ChatFileUploadProps {
+  /** Unique id for upload-flow coordination across multiple ChatFileUpload instances */
+  uploadFlowSourceId: string;
+  /** Notifies parent when any upload dialog (select / progress / success) is open */
+  onUploadFlowActiveChange?: (sourceId: string, active: boolean) => void;
   /** Callback when upload completes successfully */
   onUploadSuccess?: (result: FileUploadResult) => void;
   /** Callback when upload fails */
   onUploadError?: (error: Error) => void;
+  /** Returns the conversation id active when upload starts (for stale prompt checks). */
+  getActiveConversationId?: () => string | undefined;
   /** Callback to send a hidden message after video upload completes */
-  onSendHiddenMessage?: (message: string) => void;
+  onSendHiddenMessage?: (message: string, uploadConversationId: string) => void;
   /** Whether upload is disabled */
   disabled?: boolean;
   /** Accepted file types (default: video/mp4) */
@@ -305,8 +313,11 @@ interface ChatFileUploadProps {
 }
 
 export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
+  uploadFlowSourceId,
+  onUploadFlowActiveChange,
   onUploadSuccess,
   onUploadError,
+  getActiveConversationId,
   onSendHiddenMessage,
   disabled = false,
   accept = '.mp4,.mkv,video/mp4,video/x-matroska',
@@ -333,6 +344,27 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
 
   const [showFileSelectPopup, setShowFileSelectPopup] = useState(false);
   const [initialFilesForDialog, setInitialFilesForDialog] = useState<File[] | null>(null);
+
+  const onUploadFlowActiveChangeRef = useRef(onUploadFlowActiveChange);
+  onUploadFlowActiveChangeRef.current = onUploadFlowActiveChange;
+  const getActiveConversationIdRef = useRef(getActiveConversationId);
+  getActiveConversationIdRef.current = getActiveConversationId;
+  const onSendHiddenMessageRef = useRef(onSendHiddenMessage);
+  onSendHiddenMessageRef.current = onSendHiddenMessage;
+  const onUploadSuccessRef = useRef(onUploadSuccess);
+  onUploadSuccessRef.current = onUploadSuccess;
+  const onUploadErrorRef = useRef(onUploadError);
+  onUploadErrorRef.current = onUploadError;
+
+  const uploadDialogOpen =
+    showFileSelectPopup || showProgressPopup || showSuccessPopup;
+
+  useEffect(() => {
+    onUploadFlowActiveChangeRef.current?.(uploadFlowSourceId, uploadDialogOpen);
+    return () => {
+      onUploadFlowActiveChangeRef.current?.(uploadFlowSourceId, false);
+    };
+  }, [uploadDialogOpen, uploadFlowSourceId]);
 
   // Warn user before leaving page while uploading
   useEffect(() => {
@@ -559,8 +591,11 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       const abortController = new AbortController();
       abortControllerMapRef.current.set(fileId, abortController);
 
-      // Use shared upload utility (uploadFilename from dialog when user edited it)
-      const result = await uploadFile(
+      // Three-step chunked upload: agent gives us the VST URL, we POST
+      // chunks straight to VST (bypassing Cloudflare's 100s timeout on
+      // large files), then the agent's /complete hook runs post-processing
+      // (timelines + RTVI register + embeddings on search profiles).
+      const result = await uploadFileChunked(
         file,
         agentApiUrlBase,
         formData,
@@ -599,6 +634,8 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
 
   // Process all files in parallel
   const processFilesParallel = async (files: FileWithFormData[]) => {
+    const conversationIdAtUploadStart = getActiveConversationIdRef.current?.();
+
     // Close file select popup and show progress popup
     setShowFileSelectPopup(false);
     setShowProgressPopup(true);
@@ -632,17 +669,21 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
 
       if (errors.length > 0) {
         errors.forEach(({ filename }) => {
-          onUploadError?.(new Error(`Failed to upload ${filename}`));
+          onUploadErrorRef.current?.(new Error(`Failed to upload ${filename}`));
         });
       }
 
       if (successes.length > 0) {
         successes.forEach(({ result }) => {
-          if (result) onUploadSuccess?.(result);
+          if (result) onUploadSuccessRef.current?.(result);
         });
 
         // Send hidden message to chat API with the uploaded video filenames
-        if (onSendHiddenMessage && chatUploadFileHiddenMessageTemplate) {
+        if (
+          conversationIdAtUploadStart &&
+          onSendHiddenMessageRef.current &&
+          chatUploadFileHiddenMessageTemplate
+        ) {
           // Fallback order: result.filename -> result.video_id -> result.id -> original filename
           const videoFilenames = successes
             .map(({ filename, result }) => (result as any)?.filename || (result as any)?.video_id || (result as any)?.id || filename)
@@ -652,7 +693,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
             const filenamesStr = videoFilenames.join(' ');
             // Replace {filenames} placeholder with actual filenames
             const hiddenMessage = chatUploadFileHiddenMessageTemplate.replaceAll('{filenames}', filenamesStr);
-            onSendHiddenMessage(hiddenMessage);
+            onSendHiddenMessageRef.current(hiddenMessage, conversationIdAtUploadStart);
           }
         }
       }
@@ -669,7 +710,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Unknown error');
       toast.error(`Upload failed: ${err.message}`);
-      onUploadError?.(err);
+      onUploadErrorRef.current?.(err);
       setShowProgressPopup(false);
     } finally {
       setIsUploading(false);
@@ -689,9 +730,9 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
         uploadFilename: e.uploadFilename,
         metadataFile: e.metadataFile ?? undefined,
       }));
-      processFilesParallel(filesToUpload);
+      void processFilesParallel(filesToUpload);
     },
-    [] // processFilesParallel is stable (uses refs and state setters)
+    [],
   );
 
   return (

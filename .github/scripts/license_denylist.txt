@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Package-name denylist for the license-check-python job
+# (`.github/scripts/check_python_licenses.py`).
+#
+# Purpose: explicitly fail the build for packages whose declared pip
+# license metadata MISREPRESENTS the wheel's actual terms. The permissive
+# allowlist alone cannot catch these — they pass the allowlist via a fake
+# "Apache-2.0"/"MIT" label while shipping a non-permissive IP_NOTICE /
+# LICENSE-text in the wheel.
+#
+# Denylist wins over allowlist AND over the override file. Anything on this
+# list always fails. The only fix is to replace the dep with a permissive
+# alternative or to fork it under a permissive license.
+#
+# Format: one canonical pip distribution name per line. `#` starts a
+# comment.
+#
+# (currently empty — enforcement-side ready, no entries enabled yet)

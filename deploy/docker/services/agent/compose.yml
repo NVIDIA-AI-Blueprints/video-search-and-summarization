@@ -25,7 +25,7 @@ services:
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
     volumes:
-    - ${MDX_SAMPLE_APPS_DIR}:/vss-agent/deploy/docker:ro
+    - ${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro
     environment:
     - HOST_IP=${HOST_IP}
     - VST_MCP_URL=${VST_MCP_URL}
@@ -72,9 +72,6 @@ services:
     - bp_developer_alerts_2d_cv
     - bp_developer_alerts_2d_vlm
     environment:
-      # URL rewriting configuration
-      EXTERNAL_IP: ${EXTERNAL_IP}
-      INTERNAL_IP: ${HOST_IP}
       LLM_MODE: ${LLM_MODE} # remote / local / local_shared
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       LLM_MODEL_TYPE: ${LLM_MODEL_TYPE} # nim / openai
@@ -96,7 +93,6 @@ services:
       PHOENIX_ENDPOINT: ${PHOENIX_ENDPOINT}
 
       # VST (Video Storage Tool)
-      VST_BASE_URL: ${VST_BASE_URL}
       VST_INTERNAL_URL: ${VST_INTERNAL_URL}
       VST_EXTERNAL_URL: ${VST_EXTERNAL_URL}
       VST_MCP_URL: ${VST_MCP_URL}
@@ -111,6 +107,9 @@ services:
       VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
       RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
       ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://${HOST_IP}:${ALERT_BRIDGE_PORT:-9080}}
+
+      # Audio Configuration
+      ENABLE_AUDIO: ${ENABLE_AUDIO:-false}
 
       # NVIDIA API Key (for remote NIM)
       NVIDIA_API_KEY: ${NVIDIA_API_KEY}
@@ -140,7 +139,7 @@ services:
       REPORT_REFERENCE_BASE_DIR: ${REPORT_REFERENCE_BASE_DIR}
 
     volumes:
-    - ${MDX_SAMPLE_APPS_DIR}:/vss-agent/deploy/docker:ro
+    - ${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro
     - agent-eval:/vss-agent/agent_eval:rw
     command:
     - serve
@@ -233,4 +232,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: $MDX_DATA_DIR/agent_eval
+      device: $VSS_DATA_DIR/agent_eval

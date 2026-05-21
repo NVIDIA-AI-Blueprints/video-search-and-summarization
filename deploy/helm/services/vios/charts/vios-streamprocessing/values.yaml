@@ -17,7 +17,7 @@ enabled: false
 global: {}
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing
-  tag: "2.1.0-26.04.1"
+  tag: "2.1.0-26.05.1"
   pullPolicy: IfNotPresent
 replicas: 1
 # When true: create StatefulSet named vss-vios-streamprocessing (required for SDR). When false: create Deployment (vss-alerts-vss-vios-streamprocessing).
@@ -81,6 +81,12 @@ env:
     value: nvcentralizedb
   - name: CENTRALIZE_DB_USERNAME
     value: vst
+  # Compose parity: services/vios/sdr/streamprocessing/docker-compose.yaml hardcodes ENABLE_AGING_POLICY=true on every streamprocessing service.
+  - name: ENABLE_AGING_POLICY
+    value: "true"
+  # Compose parity: services/vios/vst.env sets VST_VIDEO_STORAGE_SIZE_MB=100000 (in MB). Caps on-disk video storage before aging policy reclaims.
+  - name: VST_VIDEO_STORAGE_SIZE_MB
+    value: "100000"
   # SENSOR_MODULE_ENDPOINT and VST_INGRESS_ENDPOINT are set by the template from sensorModuleEndpoint / vstIngressEndpoint (with release-based defaults)
 
 # Persistence: compose mounts VST_DATA_PATH, VST_VIDEO_STORAGE_PATH, CLIP_STORAGE_PATH. Optional PVCs for vst-data, vst-video, streamer-videos. temp-files stays EmptyDir.

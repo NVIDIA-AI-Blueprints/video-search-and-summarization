@@ -7,9 +7,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 VSS_REPO_DIR="${VSS_REPO_DIR:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 NEMOCLAW_REPO_DIR="${NEMOCLAW_REPO_DIR:-${HOME}/NemoClaw}"
 NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-demo}"
-# Nemoclaw onboard/install only accepts: build, openai, … — "build" is NVIDIA Endpoints (integrate.api.nvidia.com).
-NEMOCLAW_ONBOARD_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER:-build}"
+# NEMOCLAW_PROVIDER selects the Nemoclaw onboard/install provider. Required — no default.
+# Accepted values: "build" (NVIDIA Endpoints / integrate.api.nvidia.com) or "custom" (OpenAI-compatible endpoint).
+NEMOCLAW_PROVIDER="${NEMOCLAW_PROVIDER:?NEMOCLAW_PROVIDER is required}"
+# Custom-provider settings — required when NEMOCLAW_PROVIDER=custom (OpenAI-compatible endpoint).
+NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-}"
+COMPATIBLE_API_KEY="${COMPATIBLE_API_KEY:-}"
 # OpenShell provider display name (separate from Nemoclaw's NEMOCLAW_PROVIDER for onboard).
+OPENCLAW_PLUGIN_VARIANT="${OPENCLAW_PLUGIN_VARIANT:-}"
 OPENSHELL_PROVIDER_NAME="${OPENSHELL_PROVIDER_NAME:-nvidia}"
 NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-nvidia/nemotron-3-super-120b-a12b}"
 NEMOCLAW_NON_INTERACTIVE=1
@@ -19,13 +24,9 @@ NVIDIA_BASE_URL="${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}"
 NEMOCLAW_SHIM_DIR="${HOME}/.local/bin"
 OPENCLAW_CONFIG_UPDATE_SCRIPT="${OPENCLAW_CONFIG_UPDATE_SCRIPT:-${SCRIPT_DIR}/update_openclaw_config.py}"
 NEMOCLAW_POLICY_FILE="${NEMOCLAW_POLICY_FILE:-${VSS_REPO_DIR}/assets/vss_nemoclaw_policy.yaml}"
-VSS_PLUGIN_ID="openclaw-vss"
+OPENCLAW_PLUGIN_DIR="${OPENCLAW_PLUGIN_DIR:-${VSS_REPO_DIR}/.openclaw}"
 VSS_NAMESPACE="${VSS_NAMESPACE:-openshell}"
-VSS_REMOTE_EXTENSIONS_ROOT="/sandbox/.openclaw-data/extensions"
-VSS_REMOTE_PLUGIN_DIR="${VSS_REMOTE_EXTENSIONS_ROOT}/${VSS_PLUGIN_ID}"
 VSS_REMOTE_CONFIG_PATH="/sandbox/.openclaw/openclaw.json"
-VSS_REMOTE_SKILLS_DIR="${VSS_REMOTE_SKILLS_DIR:-}"
-VSS_REMOTE_UPLOAD_DIR="/tmp/${VSS_PLUGIN_ID}-package"
 
 log() {
   printf '[init_nvidia_remote] %s\n' "$*"
@@ -55,6 +56,8 @@ Options:
   --sandbox-name NAME         Sandbox name (default: demo)
   --model NAME                NVIDIA model ID (default: nvidia/nemotron-3-super-120b-a12b)
   --nvidia-base-url URL       NVIDIA API base URL (default: https://integrate.api.nvidia.com/v1)
+  --endpoint-url URL          OpenAI-compatible endpoint URL (REQUIRED when --provider=custom)
+  --compatible-api-key KEY    API key for the OpenAI-compatible endpoint (REQUIRED when --provider=custom)
   --nemoclaw-repo-dir PATH    Path to NemoClaw source checkout (default: $HOME/NemoClaw)
   --openclaw-config-script PATH
                               Path to the OpenClaw config update helper
@@ -62,10 +65,12 @@ Options:
   --help                      Show this help
 
 Environment (non-interactive Nemoclaw / OpenShell):
-  NEMOCLAW_ONBOARD_PROVIDER   Nemoclaw onboard/install provider (default: build = NVIDIA Endpoints / integrate.api.nvidia.com)
+  NEMOCLAW_PROVIDER           Nemoclaw onboard/install provider (REQUIRED; must be "build" = NVIDIA Endpoints / integrate.api.nvidia.com, or "custom" = OpenAI-compatible)
+  NEMOCLAW_ENDPOINT_URL       OpenAI-compatible endpoint URL (REQUIRED when NEMOCLAW_PROVIDER=custom)
+  COMPATIBLE_API_KEY          API key for the OpenAI-compatible endpoint (REQUIRED when NEMOCLAW_PROVIDER=custom)
   OPENSHELL_PROVIDER_NAME     Name for openshell OpenAI-compatible provider (default: nvidia)
-  VSS_REMOTE_SKILLS_DIR       Optional remote sandbox skills directory override.
-                              By default, the script discovers OpenClaw's workspaceDir and uses <workspaceDir>/skills.
+  OPENCLAW_PLUGIN_DIR              Path to the OpenClaw plugin source to pack and install
+                              (default: <VSS_REPO_DIR>/.openclaw)
 EOF
 }
 
@@ -88,6 +93,14 @@ parse_args() {
         ;;
       --nvidia-base-url)
         NVIDIA_BASE_URL="$2"
+        shift 2
+        ;;
+      --endpoint-url)
+        NEMOCLAW_ENDPOINT_URL="$2"
+        shift 2
+        ;;
+      --compatible-api-key)
+        COMPATIBLE_API_KEY="$2"
         shift 2
         ;;
       --nemoclaw-repo-dir)
@@ -202,26 +215,55 @@ configure_openshell_provider() {
     return
   fi
 
-  log "Configuring OpenShell provider $OPENSHELL_PROVIDER_NAME for NVIDIA remote API"
+  # Pick endpoint + key based on NEMOCLAW_PROVIDER. "build" uses NVIDIA Endpoints;
+  # "custom" uses the user-supplied OpenAI-compatible endpoint (e.g. a local vLLM).
+  local openai_base_url openai_api_key
+  case "${NEMOCLAW_PROVIDER}" in
+    build)
+      openai_base_url="${NVIDIA_BASE_URL}"
+      openai_api_key="${NVIDIA_API_KEY}"
+      ;;
+    custom)
+      openai_base_url="${NEMOCLAW_ENDPOINT_URL}"
+      openai_api_key="${COMPATIBLE_API_KEY}"
+      ;;
+    *)
+      log "ERROR: NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER} is not supported by configure_openshell_provider (expected 'build' or 'custom')."
+      return 1
+      ;;
+  esac
+
+  log "Configuring OpenShell provider ${OPENSHELL_PROVIDER_NAME} (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER}, base=${openai_base_url})"
+  local action provider_args
   if openshell provider get "$OPENSHELL_PROVIDER_NAME" >/dev/null 2>&1; then
-    if ! env OPENAI_API_KEY="$NVIDIA_API_KEY" openshell provider update \
-      --credential OPENAI_API_KEY \
-      --config "OPENAI_BASE_URL=$NVIDIA_BASE_URL" \
-      "$OPENSHELL_PROVIDER_NAME"; then
-      log "Provider update failed; continuing with existing provider config"
-    fi
+    action="update"
+    provider_args=(provider update --credential OPENAI_API_KEY --config "OPENAI_BASE_URL=$openai_base_url" "$OPENSHELL_PROVIDER_NAME")
   else
-    if ! env OPENAI_API_KEY="$NVIDIA_API_KEY" openshell provider create \
-      --name "$OPENSHELL_PROVIDER_NAME" \
-      --type openai \
-      --credential OPENAI_API_KEY \
-      --config "OPENAI_BASE_URL=$NVIDIA_BASE_URL"; then
-      log "Provider create failed; continuing"
-    fi
+    action="create"
+    provider_args=(provider create --name "$OPENSHELL_PROVIDER_NAME" --type openai --credential OPENAI_API_KEY --config "OPENAI_BASE_URL=$openai_base_url")
+  fi
+  if ! env OPENAI_API_KEY="$openai_api_key" openshell "${provider_args[@]}"; then
+    log "Provider ${action} failed; continuing with existing provider config"
   fi
 
   openshell inference set --provider "$OPENSHELL_PROVIDER_NAME" --model "$NEMOCLAW_MODEL"
   openshell inference get || true
+}
+
+# `nemoclaw onboard` creates the dashboard port-forward (default 18789) that exposes the in-pod
+# openclaw-gateway (and its /hooks endpoint) to the host. When the sandbox already exists we skip
+# onboard, and the forward can also die independently between runs — so refresh it unconditionally.
+ensure_dashboard_forward() {
+  local port="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+  if ! have openshell; then
+    log "OpenShell not available yet; skipping dashboard port-forward refresh"
+    return
+  fi
+  log "Refreshing dashboard port-forward on ${port} for sandbox ${NEMOCLAW_SANDBOX_NAME}"
+  openshell forward stop "$port" >/dev/null 2>&1 || true
+  if ! openshell forward start --background "$port" "$NEMOCLAW_SANDBOX_NAME" </dev/null >/dev/null 2>&1; then
+    log "WARN: could not (re)start dashboard forward on ${port}; the OpenClaw UI and /hooks endpoint will be unreachable at http://127.0.0.1:${port}"
+  fi
 }
 
 update_openclaw_allowed_origin() {
@@ -253,28 +295,6 @@ resolve_vss_gateway_container() {
   docker ps --format '{{.Names}}' | awk '/^openshell-cluster-/{print; exit}'
 }
 
-resolve_vss_remote_skills_dir() {
-  local container_name="$1"
-  local workspace_dir
-
-  if [ -n "${VSS_REMOTE_SKILLS_DIR:-}" ]; then
-    printf '%s\n' "${VSS_REMOTE_SKILLS_DIR}"
-    return 0
-  fi
-
-  workspace_dir="$(
-    sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-      'su - sandbox -c "openclaw skills list --json"' 2>/dev/null |
-      python3 -c 'import json, sys; print(json.load(sys.stdin).get("workspaceDir", ""))' 2>/dev/null
-  )" || true
-
-  if [ -n "${workspace_dir}" ]; then
-    printf '%s/skills\n' "${workspace_dir%/}"
-  else
-    printf '%s\n' "/sandbox/.openclaw/workspace/skills"
-  fi
-}
-
 apply_vss_policy() {
   local policy_file="${NEMOCLAW_POLICY_FILE}"
 
@@ -293,46 +313,108 @@ apply_vss_policy() {
 }
 
 install_vss_openclaw_plugin() {
-  local skills_root remote_skills_dir remote_upload_dir container_name
-  skills_root="${VSS_REPO_DIR}/skills"
-  remote_upload_dir="/tmp/${VSS_PLUGIN_ID}-skills"
+  local plugin_dir tgz_name tgz_path container_name remote_tgz install_cmd
+  plugin_dir="${OPENCLAW_PLUGIN_DIR}"
 
-  if [ ! -d "${skills_root}" ]; then
-    log "${skills_root} is not available; skipping VSS skills install"
+  if [ ! -f "${plugin_dir}/package.json" ]; then
+    log "${plugin_dir} is not a packable OpenClaw plugin; skipping plugin install"
     return
   fi
 
+  if ! have npm; then
+    log "npm is not available; cannot pack VSS OpenClaw plugin"
+    return 1
+  fi
+
   if ! have openshell; then
-    log "OpenShell is not available; skipping VSS skills install"
+    log "OpenShell is not available; skipping VSS plugin install"
     return
   fi
 
   if ! openshell sandbox list >/dev/null 2>&1; then
-    log "OpenShell sandbox access is not ready; skipping VSS skills install"
+    log "OpenShell sandbox access is not ready; skipping VSS plugin install"
     return
   fi
 
   container_name="$(resolve_vss_gateway_container)"
   if [ -z "${container_name}" ]; then
-    log "Could not determine the OpenShell gateway container; skipping VSS skills install"
+    log "Could not determine the OpenShell gateway container; skipping VSS plugin install"
     return
   fi
 
-  remote_skills_dir="$(resolve_vss_remote_skills_dir "${container_name}")"
-  log "Using OpenClaw skills directory ${remote_skills_dir}"
+  if [ ! -d "${VSS_REPO_DIR}/skills" ]; then
+    log "ERROR: ${VSS_REPO_DIR}/skills is missing; prepack (cp -r ../skills skills) will fail. Cannot pack VSS OpenClaw plugin."
+    return 1
+  fi
 
-  log "Preparing sandbox skills staging directory inside ${NEMOCLAW_SANDBOX_NAME}"
-  sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "rm -rf '${remote_upload_dir}' && su - sandbox -c \"mkdir -p '${remote_upload_dir}'\""
+  log "Packing VSS OpenClaw plugin in ${plugin_dir}"
+  tgz_name="$(cd "${plugin_dir}" && npm pack | tail -n1)"
+  if [ -z "${tgz_name}" ] || [ ! -f "${plugin_dir}/${tgz_name}" ]; then
+    log "ERROR: npm pack did not produce a tarball in ${plugin_dir}"
+    return 1
+  fi
+  tgz_path="${plugin_dir}/${tgz_name}"
+  remote_tgz="/tmp/${tgz_name}"
+  # Clean up the local tarball on every return path (success, upload failure, install failure).
+  trap 'rm -f "${tgz_path}"; trap - RETURN' RETURN
 
-  log "Uploading ${skills_root} to sandbox ${NEMOCLAW_SANDBOX_NAME}:${remote_upload_dir}"
-  openshell sandbox upload "${NEMOCLAW_SANDBOX_NAME}" "${skills_root}" "${remote_upload_dir}"
+  # Stream the tarball into the agent container via kubectl exec stdin. `openshell
+  # sandbox upload` silently dropped the file (reported success, but it never landed
+  # anywhere visible to the install step), so we write the bytes directly through the
+  # same kubectl exec path the install will use.
+  log "Streaming ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}:${remote_tgz}"
+  if ! sudo docker exec -i "${container_name}" kubectl exec -i -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- \
+      sh -c "cat > '${remote_tgz}'" < "${tgz_path}"; then
+    log "ERROR: failed to stream ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME}"
+    return 1
+  fi
 
-  log "Copying staged skills into sandbox workspace inside ${NEMOCLAW_SANDBOX_NAME} via ${container_name}"
-  sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- sh -lc \
-    "rm -rf '${remote_skills_dir}' && su - sandbox -c \"mkdir -p '${remote_skills_dir}' && cp -r '${remote_upload_dir}/'* '${remote_skills_dir}/'\""
+  # --dangerously-force-unsafe-install: the plugin's index.ts uses child_process (npx skills add agent-browser,
+  # systemctl daemon-reload), which OpenClaw's install-time scanner flags. We trust this first-party plugin.
+  # printf %q shell-escapes both interpolated values so a quote in tgz_name or
+  # OPENCLAW_PLUGIN_VARIANT can't break out of `su - sandbox -c`'s quoting.
+  printf -v install_cmd 'OPENCLAW_PLUGIN_VARIANT=%q openclaw plugins install %q --force --dangerously-force-unsafe-install' \
+    "${OPENCLAW_PLUGIN_VARIANT}" "${remote_tgz}"
+  log "Installing VSS OpenClaw plugin ${tgz_name} into sandbox ${NEMOCLAW_SANDBOX_NAME} (variant=${OPENCLAW_PLUGIN_VARIANT})"
+  log "Plugin install command: ${install_cmd}"
+  if ! sudo docker exec "${container_name}" kubectl exec -n "${VSS_NAMESPACE}" "${NEMOCLAW_SANDBOX_NAME}" -- \
+      sh -lc "$(printf 'su - sandbox -c %q && rm -f %q' "${install_cmd}" "${remote_tgz}")"; then
+    log "ERROR: openclaw plugins install failed for ${tgz_name}"
+    return 1
+  fi
 
-  log "VSS skills installed"
+  log "VSS OpenClaw plugin installed"
+}
+
+validate_custom_provider() {
+  if [ "${NEMOCLAW_PROVIDER}" != "custom" ]; then
+    return 0
+  fi
+  if [ -z "${NEMOCLAW_ENDPOINT_URL}" ]; then
+    log "ERROR: NEMOCLAW_PROVIDER=custom requires NEMOCLAW_ENDPOINT_URL (or --endpoint-url)."
+    exit 1
+  fi
+  if [ -z "${COMPATIBLE_API_KEY}" ]; then
+    log "ERROR: NEMOCLAW_PROVIDER=custom requires COMPATIBLE_API_KEY (or --compatible-api-key)."
+    exit 1
+  fi
+}
+
+build_provider_env_args() {
+  local -n out=$1
+  out=(
+    "NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER}"
+    "NEMOCLAW_MODEL=${NEMOCLAW_MODEL}"
+    "NEMOCLAW_NON_INTERACTIVE=${NEMOCLAW_NON_INTERACTIVE}"
+    "NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE}"
+    "NVIDIA_API_KEY=${NVIDIA_API_KEY}"
+  )
+  if [ "${NEMOCLAW_PROVIDER}" = "custom" ]; then
+    out+=(
+      "NEMOCLAW_ENDPOINT_URL=${NEMOCLAW_ENDPOINT_URL}"
+      "COMPATIBLE_API_KEY=${COMPATIBLE_API_KEY}"
+    )
+  fi
 }
 
 run_onboard() {
@@ -342,14 +424,10 @@ run_onboard() {
     exit 1
   }
 
-  log "Running nemoclaw onboard (NEMOCLAW_PROVIDER=${NEMOCLAW_ONBOARD_PROVIDER})"
-  env \
-    NEMOCLAW_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER}" \
-    NEMOCLAW_MODEL="${NEMOCLAW_MODEL}" \
-    NEMOCLAW_NON_INTERACTIVE="${NEMOCLAW_NON_INTERACTIVE}" \
-    NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE}" \
-    NVIDIA_API_KEY="${NVIDIA_API_KEY}" \
-    "$nemoclaw_cmd" onboard --non-interactive
+  log "Running nemoclaw onboard (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
+  local env_args
+  build_provider_env_args env_args
+  env "${env_args[@]}" "$nemoclaw_cmd" onboard --non-interactive
 }
 
 run_install() {
@@ -360,16 +438,12 @@ run_install() {
     exit 1
   fi
 
-  log "Running NemoClaw installer (NEMOCLAW_PROVIDER=${NEMOCLAW_ONBOARD_PROVIDER})"
+  log "Running NemoClaw installer (NEMOCLAW_PROVIDER=${NEMOCLAW_PROVIDER})"
+  local env_args
+  build_provider_env_args env_args
+  env_args+=( "NEMOCLAW_SANDBOX_NAME=${NEMOCLAW_SANDBOX_NAME}" )
   (
-    cd "$NEMOCLAW_REPO_DIR" && env \
-      NEMOCLAW_PROVIDER="${NEMOCLAW_ONBOARD_PROVIDER}" \
-      NEMOCLAW_MODEL="${NEMOCLAW_MODEL}" \
-      NEMOCLAW_NON_INTERACTIVE="${NEMOCLAW_NON_INTERACTIVE}" \
-      NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE}" \
-      NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME}" \
-      NVIDIA_API_KEY="${NVIDIA_API_KEY}" \
-      ./install.sh --non-interactive
+    cd "$NEMOCLAW_REPO_DIR" && env "${env_args[@]}" ./install.sh --non-interactive
   )
 }
 
@@ -383,6 +457,7 @@ main() {
 
   if sandbox_exists; then
     log "Sandbox ${NEMOCLAW_SANDBOX_NAME} already exists; skipping NemoClaw onboard/install"
+    configure_openshell_provider
   else
     log "Start installing/onboarding NemoClaw"
     if have nemoclaw; then
@@ -394,17 +469,19 @@ main() {
   fi
 
   refresh_path
-  configure_openshell_provider
+  ensure_dashboard_forward
   apply_vss_policy
-  install_vss_openclaw_plugin
   update_openclaw_allowed_origin
+  install_vss_openclaw_plugin
 
   log "To use nemoclaw in your current shell, run:"
   printf '\n  . "%s/nvm.sh"\n\n' "${NVM_DIR:-$HOME/.nvm}"
 }
 
 parse_args "$@"
-export NEMOCLAW_SANDBOX_NAME NEMOCLAW_ONBOARD_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
+validate_custom_provider
+export NEMOCLAW_SANDBOX_NAME NEMOCLAW_PROVIDER OPENSHELL_PROVIDER_NAME NEMOCLAW_MODEL NEMOCLAW_NON_INTERACTIVE NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
+export NEMOCLAW_ENDPOINT_URL COMPATIBLE_API_KEY
 export NEMOCLAW_REPO_DIR OPENCLAW_CONFIG_UPDATE_SCRIPT NEMOCLAW_POLICY_FILE
 
 main

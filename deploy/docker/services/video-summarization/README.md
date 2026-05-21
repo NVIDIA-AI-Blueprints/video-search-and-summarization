@@ -23,6 +23,7 @@ GPU_DEVICES=2,3
 # Port Configuration
 BACKEND_PORT=38111
 LVS_MCP_PORT=38112
+LVS_ENABLE_MCP=false
 
 # Model Cache Directory (optional)
 MODEL_ROOT_DIR=/path/to/model/cache
@@ -77,7 +78,7 @@ The `config.yaml` file is automatically mounted into the container at `/app/conf
 
 The following ports are exposed:
 - `BACKEND_PORT` (default: 38111) - Backend API
-- `LVS_MCP_PORT` (default: 38112) - LVS MCP service
+- `LVS_MCP_PORT` (default: 38112) - LVS MCP service, used only when `LVS_ENABLE_MCP=true`
 
 ### Model Cache Directory
 

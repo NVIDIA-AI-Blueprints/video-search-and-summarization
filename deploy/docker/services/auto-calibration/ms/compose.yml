@@ -15,9 +15,9 @@
 
 services:
   vss-auto-calibration:
-    image: nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-0
+    image: nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-1
     container_name: vss-auto-calibration
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_redis_2d","bp_wh_redis_3d","auto-calib"]
+    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_kafka_3d","bp_wh_kafka_mv3dt","bp_wh_redis_2d","bp_wh_redis_3d","bp_wh_redis_mv3dt","auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
     network_mode: "host"
     
     # GPU support
@@ -38,8 +38,8 @@ services:
     
     # Volume mounts
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/auto-calibration/projects:/home/auto-calibration-ms/server/projects
-      - $MDX_DATA_DIR/auto-calib/vggt:/tmp/vggt_model:ro
+      - $VSS_APPS_DIR/services/auto-calibration/projects:/home/auto-calibration-ms/server/projects
+      - $VSS_DATA_DIR/auto-calib/vggt:/tmp/vggt_model:ro
     
     # Working directory inside container
     working_dir: /home/auto-calibration-ms/server

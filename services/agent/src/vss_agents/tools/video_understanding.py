@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import base64
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from datetime import timedelta
@@ -43,9 +42,8 @@ from pydantic import model_validator
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.utils.frame_select import frame_select
-from vss_agents.utils.reasoning_parsing import parse_content_blocks
 from vss_agents.utils.retry import create_retry_strategy
-from vss_agents.utils.url_translation import translate_url
+from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +97,20 @@ def _parse_thinking_from_content(content: str) -> tuple[str | None, str]:
 
     # No thinking tags found, return original content
     return None, content
+
+
+def _should_use_video_base64(
+    *,
+    use_base64: bool,
+    vlm_mode: str | None,
+) -> bool:
+    """Return whether the video payload should be downloaded locally and sent as base64."""
+    return use_base64 or _is_remote_vlm(vlm_mode)
+
+
+def _is_remote_vlm(vlm_mode: str | None) -> bool:
+    """Return whether the VLM backend is configured as remote."""
+    return (vlm_mode or "").lower() == "remote"
 
 
 class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
@@ -170,23 +182,15 @@ class VideoUnderstandingConfig(FunctionBaseConfig, name="video_understanding"):
         default=None,
         description="Optional custom system prompt for the VLM. If not provided, uses default reasoning prompt when reasoning=True, or no system prompt when reasoning=False.",
     )
-    # URL translation configuration for VLM
+    # VLM media access configuration.
     vlm_mode: str | None = Field(
         default="local",
-        description="VLM mode: 'remote' (VLM is external, needs public URLs), 'local' or 'local_shared' (VLM is local, needs internal URLs)",
-    )
-    internal_ip: str | None = Field(
-        default="",
-        description="Internal IP / docker host IP for URL translation",
-    )
-    external_ip: str | None = Field(
-        default="",
-        description="Public IP accessible from the internet for URL translation",
+        description="VLM mode: 'remote' (VLM is external), 'local' or 'local_shared' (VLM is inside the deployment)",
     )
     vst_internal_url: str | None = Field(
         default=None,
         description="Internal VST base URL (e.g., 'http://HOST_IP:30888'). "
-        "Used for URL translation when behind a reverse proxy.",
+        "Used when the agent or local VLM fetches VST media directly.",
     )
 
 
@@ -295,14 +299,13 @@ async def _build_vlm_messages(
     video_url: str,
     user_prompt: str,
     *,
-    use_frame_images: bool,
     use_base64: bool,
     video_length_seconds: float,
     num_frames: int,
     max_fps: int,
 ) -> list[HumanMessage]:
     """Download/transform video and build VLM messages for the appropriate backend."""
-    if use_frame_images:
+    if use_base64:
         timeout = aiohttp.ClientTimeout(total=300)
         async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
             resp.raise_for_status()
@@ -329,14 +332,6 @@ async def _build_vlm_messages(
             )
         ]
 
-    if use_base64:
-        timeout = aiohttp.ClientTimeout(total=300)
-        async with aiohttp.ClientSession(timeout=timeout) as session, session.get(video_url) as resp:
-            resp.raise_for_status()
-            video_data = await resp.read()
-            video_base64 = base64.b64encode(video_data).decode("utf-8")
-            video_url = f"data:video/mp4;base64,{video_base64}"
-
     return [
         HumanMessage(
             content=[
@@ -355,12 +350,11 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
     is_cosmos_model = is_nim and "cosmos" in model_name
     is_cosmos_reason2 = is_nim and model_name == "nvidia/cosmos-reason2-8b"
 
-    # Dynamically determine if we extract frames for this model (only needed for official OpenAI endpoints for now)
-    # Supposes any vlm_name prefixed with "openai_" is from an official OpenAI endpoint
-    use_frame_images = str(config.vlm_name).startswith("openai_")
-    logger.info(
-        f"Using VLM profile: {config.vlm_name}, use_frame_images: {use_frame_images}, use_base64: {config.use_base64}"
+    use_video_base64 = _should_use_video_base64(
+        use_base64=config.use_base64,
+        vlm_mode=config.vlm_mode,
     )
+    logger.info(f"Using VLM profile: {config.vlm_name}, vlm_mode: {config.vlm_mode}, use_base64: {use_video_base64}")
 
     if not config.use_vst:
         s3_client = boto3.client(
@@ -461,7 +455,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
         video_length_seconds = (end_dt - start_dt).total_seconds()
         num_frames = min(int(video_length_seconds) * config.max_fps, config.max_frames)
-        # Ensure at least 1 frame···
+        # Ensure at least 1 frame
         num_frames = max(num_frames, 1)
         logger.info(
             f"Video length: {video_length_seconds:.1f}s, num_frames: {num_frames} (max_fps={config.max_fps}, max_frames={config.max_frames})"
@@ -490,15 +484,10 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
             else config.reasoning
         )
 
-        if use_frame_images:  # OpenAI models (reasoning configuration through parameters)
-            if use_reasoning:
-                vlm = vlm.bind(reasoning={"effort": "medium", "summary": "auto"})
-            prompt_template = non_reasoning_prompt_template
-        else:
-            prompt_template = reasoning_prompt_template if use_reasoning else non_reasoning_prompt_template
+        prompt_template = reasoning_prompt_template if use_reasoning else non_reasoning_prompt_template
 
         vlm_chain = prompt_template | vlm
-        logger.info(f"VLM reasoning mode: {use_reasoning}, use_frame_images: {use_frame_images}")
+        logger.info(f"VLM reasoning mode: {use_reasoning}")
 
         # Step 1: Get the video URL (different paths for S3 vs VST)
         if not config.use_vst:
@@ -552,18 +541,16 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                 video_url = vst_video_url_result.video_url
                 logger.debug(f"Video URL from VST: {video_url}")
 
-            # Translate URL for VLM based on vlm_mode:
-            # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
-            # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
-            video_url = translate_url(
-                video_url,
-                config.vlm_mode,
-                config.internal_ip,
-                config.external_ip,
-                config.vst_internal_url,
-            )
+            if not config.vst_internal_url:
+                logger.warning("VST internal URL is not configured; using the original VST video URL.")
+            video_url = rewrite_to_internal_vst_url(video_url, config.vst_internal_url)
 
-        logger.info(f"[Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
+        if use_video_base64:
+            logger.info(f"[Video Understanding] VIDEO URL FOR LOCAL MEDIA DOWNLOAD: {video_url}")
+        elif config.use_vst:
+            logger.info(f"[Video Understanding] INTERNAL VIDEO URL FOR VLM ANALYSIS: {video_url}")
+        else:
+            logger.info(f"[Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
 
         user_prompt = video_understanding_input.user_prompt
         if is_cosmos_reason2 and use_reasoning:
@@ -576,8 +563,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
         messages = await _build_vlm_messages(
             video_url,
             user_prompt,
-            use_frame_images=use_frame_images,
-            use_base64=config.use_base64,
+            use_base64=use_video_base64,
             video_length_seconds=video_length_seconds,
             num_frames=num_frames,
             max_fps=config.max_fps,
@@ -595,14 +581,7 @@ async def video_understanding(config: VideoUnderstandingConfig, builder: Builder
                     logger.error(f"Error understanding video {video_understanding_input.sensor_id}: {e}")
                     raise e
 
-        if use_frame_images:  # OpenAI models (output reasoning in content_blocks)
-            reasoning, answer = parse_content_blocks(response)
-            if reasoning or answer:
-                content = f"<think>{reasoning}</think>{answer or ''}" if reasoning else (answer or "")
-            else:
-                content = str(response.content) if response.content is not None else ""
-        else:
-            content = str(response.content) if response.content is not None else ""
+        content = str(response.content) if response.content is not None else ""
         # Filter thinking traces
         if config.filter_thinking:
             thinking, answer = _parse_thinking_from_content(content)

@@ -13,7 +13,7 @@ enabled: true
 
 useSharedNim: false
 # NGC NIM model artifact path inside the vss-rtvi-vlm container (see deployment template when useSharedNim is false)
-modelPath: "git:https://huggingface.co/nvidia/Cosmos3-Reasoner-8B-Private"
+modelPath: "ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8"
 
 waitForKafka:
   enabled: false
@@ -50,7 +50,7 @@ env:
   - name: NVIDIA_VISIBLE_DEVICES
     value: "all"
   - name: VLM_MODEL_TO_USE
-    value: "cosmos-reason3"
+    value: "cosmos-reason2"
   - name: KAFKA_ENABLED
     value: "false"
   # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)
@@ -125,3 +125,15 @@ env:
   # EVS pruning rate 0.0-1.0.
   - name: VLM_VIDEO_PRUNING_RATE
     value: "0.0"
+  # API cap on output tokens.
+  - name: VLM_MAX_GENERATION_TOKENS
+    value: "16384"
+  # MoE backend override (empty by default; code auto-picks triton on B200 for Qwen3.5).
+  - name: VLLM_MOE_BACKEND
+    value: ""
+  # Bounded queue size for the async Kafka sender.
+  - name: KAFKA_ASYNC_SEND_QUEUE_MAXSIZE
+    value: "1024"
+  # vLLM multimodal preprocessor cache size in GiB.
+  - name: VLLM_MM_PROCESSOR_CACHE_GB
+    value: "1"

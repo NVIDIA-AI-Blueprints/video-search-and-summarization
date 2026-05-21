@@ -25,7 +25,7 @@ from typing import Final
 DEFAULT_COMMAND_TIMEOUT_S: Final[int] = 5
 DEFAULT_PROXY_PORT: Final[str] = "7777"
 PROXY_MODE_VALUE: Final[str] = "proxy"
-KIBANA_PROXY_PORT_PREFIX: Final[str] = "56010"
+KIBANA_PROXY_PORT_PREFIX: Final[str] = "5601"
 
 
 class BrevEnvKey(StrEnum):
@@ -33,6 +33,7 @@ class BrevEnvKey(StrEnum):
     PROXY_PORT = "PROXY_PORT"
     PROXY_MODE = "PROXY_MODE"
     BREV_LINK_PREFIX = "BREV_LINK_PREFIX"
+    KIBANA_PROXY_PORT_PREFIX = "KIBANA_PROXY_PORT_PREFIX"
     KIBANA_PUBLIC_URL = "KIBANA_PUBLIC_URL"
     VST_EXTERNAL_URL = "VST_EXTERNAL_URL"
     VSS_AGENT_EXTERNAL_URL = "VSS_AGENT_EXTERNAL_URL"
@@ -97,7 +98,12 @@ def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
     link_prefix = (
         merged.get(BrevEnvKey.BREV_LINK_PREFIX.value, "").strip()
         or os.environ.get(BrevEnvKey.BREV_LINK_PREFIX.value, "").strip()
-        or f"{proxy_port}0"
+        or proxy_port
+    )
+    kibana_prefix = (
+        merged.get(BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value, "").strip()
+        or os.environ.get(BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value, "").strip()
+        or KIBANA_PROXY_PORT_PREFIX
     )
     brev_base = f"{brev_env_id}.brevlab.com"
     proxy_host = f"{link_prefix}-{brev_base}"
@@ -107,7 +113,8 @@ def apply_brev_proxy_env(merged: dict[str, str], brev_env_id: str) -> None:
             BrevEnvKey.BREV_ENV_ID.value: brev_env_id,
             BrevEnvKey.PROXY_PORT.value: proxy_port,
             BrevEnvKey.PROXY_MODE.value: PROXY_MODE_VALUE,
-            BrevEnvKey.KIBANA_PUBLIC_URL.value: f"https://{KIBANA_PROXY_PORT_PREFIX}-{brev_base}",
+            BrevEnvKey.KIBANA_PROXY_PORT_PREFIX.value: kibana_prefix,
+            BrevEnvKey.KIBANA_PUBLIC_URL.value: f"https://{kibana_prefix}-{brev_base}",
             BrevEnvKey.VST_EXTERNAL_URL.value: proxy_https,
             BrevEnvKey.VSS_AGENT_EXTERNAL_URL.value: proxy_https,
             BrevEnvKey.VSS_AGENT_REPORTS_BASE_URL.value: f"{proxy_https}/static/",
