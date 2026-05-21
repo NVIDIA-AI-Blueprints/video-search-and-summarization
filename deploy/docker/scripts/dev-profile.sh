@@ -1562,6 +1562,42 @@ function state_down() {
   if [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
     _sudo="sudo"
   fi
+
+  # Clean up sdrc runtime artifacts (logs and rendered wdm env files) created
+  # at compose-up time and bind-mounted into containers; often root-owned
+  # because containers write to them as root.
+  local _sdrc_dir="${deployment_directory}/services/infra/sdrc"
+  echo "[INFO] Cleaning up sdrc runtime artifacts in ${_sdrc_dir}..."
+  local _sdrc_artifact
+  for _sdrc_artifact in "${_sdrc_dir}/log" "${_sdrc_dir}/.wdm-env"; do
+    if [[ -d "${_sdrc_artifact}" ]]; then
+      if [[ "${dry_run}" == "true" ]]; then
+        echo "[DRY-RUN] ${_sudo:+sudo }rm -rf ${_sdrc_artifact}"
+      else
+        $_sudo rm -rf "${_sdrc_artifact}"
+        echo "[INFO] Deleted ${_sdrc_artifact}"
+      fi
+    fi
+  done
+
+  # Delete render-service generated sdrc config files. Every rendered file in
+  # */sdrc/configs/ has a sibling *.tmpl template; remove the rendered sibling
+  # so the next run regenerates it cleanly from the template.
+  local _tmpl _rendered
+  while IFS= read -r _tmpl; do
+    [[ -z "${_tmpl}" ]] && continue
+    _rendered="${_tmpl%.tmpl}"
+    if [[ -f "${_rendered}" ]]; then
+      if [[ "${dry_run}" == "true" ]]; then
+        echo "[DRY-RUN] ${_sudo:+sudo }rm -f ${_rendered}"
+      else
+        $_sudo rm -f "${_rendered}"
+        echo "[INFO] Deleted rendered sdrc config: ${_rendered}"
+      fi
+    fi
+  done < <(find "${deployment_directory}" -type f \( -path '*/sdrc/configs/*.tmpl' -o -path '*/sdrc/*/configs/*.tmpl' \) 2>/dev/null)
+
+  echo "[INFO] Deleting data directory: ${data_directory}..."
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] ${_sudo:+sudo }rm -rf ${data_directory}"
   else
