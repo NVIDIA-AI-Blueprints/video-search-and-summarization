@@ -1,0 +1,13 @@
+# CI trigger file — no-op
+#
+# Touched solely to force a CI run against the current dev/3.2.0 HEAD.
+# The downstream pipeline (gitlab-master:metromind/ci-vss-oss) only
+# fires on push to develop/main or on copy-pr-bot's pull-request/<N>
+# mirror branches, so a PR against dev/3.2.0 is the path to exercise it.
+#
+# This file is intentionally inert and can be removed once the workflow
+# learns to trigger directly off release branches.
+#
+last_triggered: 2026-05-21T21:08:32Z
+target_branch:  dev/3.2.0
+target_sha:     fe3ecfc7344349cf5a0c5327c578479aebfd41b8
