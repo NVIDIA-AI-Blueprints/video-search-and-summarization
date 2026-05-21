@@ -347,13 +347,36 @@ template is in § Harbor invocation below.
    --body-file …`. Do NOT post a planning / "refresh" comment up
    front — comments carry results, not intent.
 
-7. **Release all locks. DO NOT tear down any Brev instance.** The
-   `vss-eval-*` boxes are a long-running pool managed by the operator;
-   they stay up across runs (warm caches, pre-deployed VSS profiles,
-   docker layer reuse). You release the per-box flock so the next
-   worker can grab it; you never `brev stop` / `brev delete`. The
-   wrapper script no longer runs cleanup either — pool lifecycle is
-   strictly an operator concern.
+7. **Reset each locked box, then release its lock. DO NOT tear down
+   any Brev instance.** The `vss-eval-*` boxes are a long-running
+   pool managed by the operator; instances stay up across runs, and
+   so do the bandwidth-expensive caches (docker image layers, the
+   repo clone, the sample-data extract on the host filesystem). But
+   the *deployment state* — running containers, the named volumes
+   that hold their data (postgres / ES / kafka), the docker networks
+   that wire them, and the `/tmp/skill-eval/active-deploy.txt`
+   marker — is per-CI-run: warm reuse within a run amortises deploy
+   across `(spec, task, trial)` tuples on the same box, but between
+   runs each PR must redeploy from its own `PR_HEAD_SHA` against
+   empty data stores so it doesn't inherit a stale stack OR stale
+   row state. So for each `vss-eval-*` box you held a flock on,
+   BEFORE releasing that flock, reset its deployment state:
+
+   ```bash
+   brev exec "$INSTANCE_NAME" 'docker rm -f $(docker ps -aq) 2>/dev/null; \
+                               docker network prune -f; \
+                               docker volume prune -af; \
+                               rm -f /tmp/skill-eval/active-deploy.txt'
+   ```
+
+   Run this once per locked box at the end of the run (after § 6
+   posts the final comment), regardless of trial outcome — `DONE`,
+   `BLOCKED`, or partial. The docker image cache, repo clone, and
+   sample-data extract survive (they're slow to rebuild and carry
+   no trial state); containers, volumes, networks, and the marker
+   are dropped. Then close the lock FD (or `flock -u $LFD`) so the
+   next worker can grab the box. You never `brev stop` / `brev
+   delete`. Pool lifecycle is strictly an operator concern.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -385,12 +408,13 @@ template is in § Harbor invocation below.
 - **Never touch pool-instance lifecycle.** No `brev create`,
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
   any `vss-eval-*` box. The pool is operator-managed; instances stay
-  running across runs. The agent only reads (`brev ls`, `brev exec
-  -- cat …`) and acquires the per-box flock. If no hardware-matching
-  pool member exists for the trial's platform, follow the wait-for-
-  pool path in § 5a (5-min `brev ls` poll, 28800s budget, then
-  `BLOCKED: pool exhausted for <platform>`) — provisioning is the
-  operator's job.
+  running across runs. The agent's `brev` surface is limited to
+  `brev ls`, `brev exec` (reads + the end-of-run deployment-state
+  reset documented in § 7), and acquiring/releasing the per-box
+  flock. If no hardware-matching pool member exists for the trial's
+  platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
+  poll, 28800s budget, then `BLOCKED: pool exhausted for
+  <platform>`) — provisioning is the operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -436,8 +460,13 @@ runner-side **flock** on `/tmp/brev/<INSTANCE_NAME>.lock`,
 checked separately via `flock -n` in step 5a. The two together
 let the scoring pick a warm-and-free box first, then fall back
 to warm-but-busy (queue on `flock -w`) or cold-and-free (redeploy).
-See `specs/stale-marker.spec` for verifying the marker against
-the actual running containers.
+The marker is *per-CI-run state*, not per-pool-instance state:
+§ 7's end-of-run cleanup wipes it (along with all containers,
+volumes, and networks) before releasing the flock, so the next
+run on the same box starts with an empty marker, empty data
+stores, and redeploys from its own `PR_HEAD_SHA`. See
+`specs/stale-marker.spec` for verifying the marker against the
+actual running containers.
 
 With fleet=1, selection collapses to a single candidate. With
 fleet>1, two concurrent workflow runs land on different boxes
