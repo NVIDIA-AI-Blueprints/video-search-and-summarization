@@ -31,6 +31,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from dotenv import load_dotenv
@@ -49,6 +50,7 @@ logging.basicConfig(
 logger = logging.getLogger("alert-notify")
 
 VST_ENDPOINT: str | None = None
+VST_PUBLIC_URL_BASE: str | None = None  # e.g. https://7777-xbrxpi7ia.brevlab.com
 _http_client: httpx.AsyncClient | None = None
 _backends: list[NotifierBase] = []
 _start_time: float = 0.0
@@ -155,6 +157,22 @@ async def _resolve_stream_id(sensor_ref: str) -> str | None:
     return real_sensor_id
 
 
+def _rewrite_to_public(video_url: str) -> str:
+    """If VST_PUBLIC_URL_BASE is set, swap the scheme+host:port of video_url for it.
+
+    Path, query, params, and fragment are preserved verbatim. No-op if either
+    input is empty or VST_PUBLIC_URL_BASE is unset.
+    """
+    if not video_url or not VST_PUBLIC_URL_BASE:
+        return video_url
+    parsed = urlparse(video_url)
+    base = urlparse(VST_PUBLIC_URL_BASE)
+    return urlunparse((
+        base.scheme, base.netloc, parsed.path,
+        parsed.params, parsed.query, parsed.fragment,
+    ))
+
+
 async def _resolve_video_url(
     stream_id: str,
     start_time: str,
@@ -186,6 +204,7 @@ async def _resolve_video_url(
         resp = await _http_client.get(url)
         resp.raise_for_status()
         video_url = resp.json().get("videoUrl")
+        video_url = _rewrite_to_public(video_url)
         if video_url:
             logger.info("Resolved video URL from VST for stream %s", resolved_id)
             return video_url
@@ -263,7 +282,7 @@ def _results_to_response(results: list[NotifierResult]) -> dict:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global VST_ENDPOINT, _http_client, _start_time, _backends
+    global VST_ENDPOINT, VST_PUBLIC_URL_BASE, _http_client, _start_time, _backends
 
     logger.info("=" * 60)
     logger.info("Alert Notify - starting up")
@@ -277,6 +296,12 @@ async def lifespan(app: FastAPI):
         logger.error("VST_ENDPOINT is not set")
         sys.exit(1)
     logger.info("VST_ENDPOINT = %s", VST_ENDPOINT)
+
+    VST_PUBLIC_URL_BASE = os.environ.get("VST_PUBLIC_URL_BASE", "").strip() or None
+    if VST_PUBLIC_URL_BASE:
+        logger.info("VST_PUBLIC_URL_BASE = %s (videoUrls will be rewritten)", VST_PUBLIC_URL_BASE)
+    else:
+        logger.info("VST_PUBLIC_URL_BASE not set — videoUrls passed through verbatim")
 
     _http_client = httpx.AsyncClient(timeout=10)
 
@@ -330,6 +355,7 @@ async def health():
         "uptime_seconds": round(uptime, 1),
         "backends": [b.name for b in _backends],
         "vst_endpoint": VST_ENDPOINT,
+        "vst_public_url_base": VST_PUBLIC_URL_BASE,
         "notifications_sent": _notification_count,
     }
 
@@ -347,7 +373,7 @@ async def status():
             if _start_time else None
         ),
         "backends": [b.name for b in _backends],
-        "vst": {"endpoint": VST_ENDPOINT},
+        "vst": {"endpoint": VST_ENDPOINT, "public_url_base": VST_PUBLIC_URL_BASE},
         "stats": {"notifications_sent": _notification_count},
         "per_backend": {b.name: b.status_info() for b in _backends},
     }
