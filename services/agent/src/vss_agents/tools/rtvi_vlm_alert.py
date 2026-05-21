@@ -257,7 +257,13 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                         )
 
                     rtsp_url = live_streams[sensor_name]["url"]
-                    logger.info(f"Creating realtime alert rule for sensor: {sensor_name}, RTSP: {rtsp_url}")
+                    # VST's stream_id (the outer key in /live/streams) is the same UUID
+                    # the UI resolves as sensor_id via /v1/sensor/list. Forwarding both
+                    # name and id keeps agent-created rules byte-identical to UI-created ones.
+                    sensor_id = live_streams[sensor_name]["stream_id"]
+                    logger.info(
+                        f"Creating realtime alert rule for sensor: {sensor_name} (sensor_id={sensor_id}), RTSP: {rtsp_url}"
+                    )
 
                     prompt = (
                         input_data.prompt
@@ -275,6 +281,7 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                         "live_stream_url": rtsp_url,
                         "alert_type": alert_type,
                         "sensor_name": sensor_name,
+                        "sensor_id": sensor_id,
                         "prompt": prompt,
                         "system_prompt": system_prompt,
                         "model": config.default_model,
