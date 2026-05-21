@@ -15,19 +15,6 @@
 # alternative or to fork it under a permissive license.
 #
 # Format: one canonical pip distribution name per line. `#` starts a
-# comment. Every entry MUST be accompanied by an inline comment that:
-#   - states the package's *real* license (the one inside the wheel, not the
-#     one in pip metadata),
-#   - links to the upstream issue / IP_NOTICE / LICENSE evidence,
-#   - links to the OSRB review that flagged it.
-#
-# Example entry (NOT enabled — uncomment + replace dep after OSRB sign-off):
-#
-#   # arize-phoenix-otel  # ELv2 per packages/phoenix-otel/IP_NOTICE in
-#                         # Arize-ai/phoenix; declared Apache-2.0 in
-#                         # pyproject. NVIDIA OSRB has flagged ELv2 as
-#                         # non-permissive. Replace before enabling.
-#   # arize-phoenix       # ELv2 (parent package)
-#   # arize-phoenix-evals # ELv2 (sibling package)
+# comment.
 #
 # (currently empty — enforcement-side ready, no entries enabled yet)
