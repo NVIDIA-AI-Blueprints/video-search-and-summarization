@@ -1,4 +1,4 @@
-version: 2
+version: 3
 
 filesystem_policy:
   include_workdir: true
@@ -222,44 +222,11 @@ network_policies:
   vss-backend:
     name: vss-backend-readwrite
     endpoints:
-    - host: host.openshell.internal
-      port: 8000
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 30888
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 5601
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9200
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 8081
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9080
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9988
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    # Agent UI (3000), Auto-Calibration UI (5000), Phoenix (6006), VST MCP (8001),
-    # Auto-Calibration MS (8010), RT-Embed (8017), RT-VLM (8018), Kafka (9092),
-    # VA-MCP (9901), NvStreamer UI (31000), LVS REST (38111), LVS MCP (38112).
+    # VSS developer-profile app-facing endpoints: Agent UI (3000),
+    # Auto-Calibration UI/MS (5000/8010), Phoenix (6006), GraphRAG UI/API
+    # (30081/30082), VST (30888) and VST MCP (8001), NvStreamer UI (31000),
+    # RT-Embed/RT-VLM (8017/8018), Kafka (9092), VA-MCP (9901), LVS REST/MCP
+    # (38111/38112), plus shared infra endpoints used by skills.
     - host: host.openshell.internal
       port: 3000
       access: full
@@ -271,7 +238,22 @@ network_policies:
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
+      port: 5601
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
       port: 6006
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 7777
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 8000
       access: full
       allowed_ips:
       - 172.17.0.0/24
@@ -296,12 +278,47 @@ network_policies:
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
+      port: 8081
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9080
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
       port: 9092
       access: full
       allowed_ips:
       - 172.17.0.0/24
     - host: host.openshell.internal
+      port: 9200
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
       port: 9901
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 9988
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 30081
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 30082
+      access: full
+      allowed_ips:
+      - 172.17.0.0/24
+    - host: host.openshell.internal
+      port: 30888
       access: full
       allowed_ips:
       - 172.17.0.0/24
