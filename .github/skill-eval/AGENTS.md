@@ -328,8 +328,9 @@ template is in § Harbor invocation below.
       below — **do not improvise flags**. Before the `uvx harbor run`
       call, `export BREV_INSTANCE=<name>` to the instance you
       resolved in step 5a; the canonical snippet has the line —
-      omitting it causes a fresh `harbor-*` to be provisioned per
-      trial and wastes the pre-warmed box. If a trial fails, read the
+      omitting it makes `BrevEnvironment.start()` raise immediately
+      ("no instance resolved, harness does not auto-provision") and
+      the trial fails before harbor invokes the agent. If a trial fails, read the
       trial log, fix the adapter (not the flags), rerun. While a
       trial is running, do NOT babysit the remote box (no
       `brev exec` polling, no `Monitor` on remote logs); harbor has
@@ -447,8 +448,12 @@ even though it shows up in `brev ls`.
 matching the trial's platform; score by (active-deploy marker match,
 free-lock, name) per § 5a; pick the best free candidate; export
 `BREV_INSTANCE` to it before the `uvx harbor run` call (§ Harbor
-invocation). Without the export, BrevEnvironment auto-provisions a
-fresh `harbor-*` per trial regardless of what the snapshot showed.
+invocation). The export is mandatory: BrevEnvironment no longer
+auto-provisions, so without `BREV_INSTANCE` set (or `brev_instance`
+in the task's `task.toml [metadata]`) the harness raises at
+`start()` and the trial fails before harbor runs. If no
+hardware-matching `^vss-eval-*` candidate exists, follow the
+wait-for-pool path in § 5a — do not `brev create` one yourself.
 
 The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
 records the box's *deployment state* — what VSS profile is
@@ -520,11 +525,11 @@ a file path).
 export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 
 # CRITICAL: point the environment at the box you selected in step 5a.
-# BrevEnvironment reads BREV_INSTANCE at module import time; without
-# this export it falls through to the auto-provision branch and spawns
-# a fresh harbor-* per trial (≈20 min provision overhead each, wastes
-# the pre-warmed box, and — on massedcompute L40S — may run multiple
-# harbor-* in parallel on the same lock).
+# BrevEnvironment reads BREV_INSTANCE at module import time; if it's
+# unset and task.toml [metadata].brev_instance is also absent,
+# BrevEnvironment.start() raises immediately — the harness no longer
+# auto-provisions, so the trial fails before harbor invokes the
+# agent. The export is the only path to a successful run.
 #
 # $INSTANCE_NAME comes from the fleet-selection algorithm in step 5a:
 # the chosen ^vss-eval-* candidate scored by (active-deploy marker
