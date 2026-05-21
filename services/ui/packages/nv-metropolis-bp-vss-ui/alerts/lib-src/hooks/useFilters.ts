@@ -26,21 +26,24 @@ import { AlertData, FilterState, FilterType } from '../types';
 
 const sortedArray = (set: Set<string>) => [...set].sort((a, b) => a.localeCompare(b));
 
-interface VlmSpecificValues {
-  alertTypes: Set<string>;
-  alertTriggered: Set<string>;
-}
-
 /**
- * Interface for accumulated unique values
+ * Interface for accumulated unique values (sensors only — alertTypes & alertTriggered
+ * are accumulated for general backwards-compat but the dropdowns use the vlm-aware
+ * values derived directly from the current `alerts` array).
  */
 interface UniqueValuesState {
   sensors: Set<string>;
   alertTypes: Set<string>;
   alertTriggered: Set<string>;
   byVlmVerified: {
-    enabled: VlmSpecificValues;
-    disabled: VlmSpecificValues;
+    enabled: {
+      alertTypes: Set<string>;
+      alertTriggered: Set<string>;
+    };
+    disabled: {
+      alertTypes: Set<string>;
+      alertTriggered: Set<string>;
+    };
   };
 }
 
@@ -53,22 +56,24 @@ export const createEmptyFilterState = (): FilterState => ({
   alertTriggered: new Set()
 });
 
-const createEmptyVlmSpecificValues = (): VlmSpecificValues => ({
+const createEmptyUniqueValuesState = (): UniqueValuesState => ({
+  sensors: new Set(),
   alertTypes: new Set(),
   alertTriggered: new Set(),
-});
-
-const createEmptyUniqueValuesState = (): UniqueValuesState => ({
-  ...createEmptyFilterState(),
   byVlmVerified: {
-    enabled: createEmptyVlmSpecificValues(),
-    disabled: createEmptyVlmSpecificValues(),
+    enabled: {
+      alertTypes: new Set(),
+      alertTriggered: new Set(),
+    },
+    disabled: {
+      alertTypes: new Set(),
+      alertTriggered: new Set(),
+    },
   },
 });
 
 interface UseFiltersOptions {
   alerts: AlertData[];
-  /** Current vlmVerified toggle state - used to split alertTypes/alertTriggered into separate lists */
   vlmVerified?: boolean;
   /** Optional external filter state - if provided, hook won't manage its own state */
   externalFilters?: FilterState;
@@ -79,7 +84,7 @@ interface UseFiltersOptions {
 }
 
 export const useFilters = (options: UseFiltersOptions) => {
-  const { alerts, vlmVerified, externalFilters, onFiltersChange, sensorList } = options;
+  const { alerts, vlmVerified = true, externalFilters, onFiltersChange, sensorList } = options;
 
   // Internal state - only used if external state is not provided
   const [internalFilters, setInternalFilters] = useState<FilterState>(createEmptyFilterState);
@@ -88,59 +93,51 @@ export const useFilters = (options: UseFiltersOptions) => {
   const activeFilters = externalFilters ?? internalFilters;
   const setActiveFilters = onFiltersChange ?? setInternalFilters;
 
-  // Accumulated unique values - persists across filter changes
-  // Using ref to avoid unnecessary re-renders when accumulating
+  // Accumulated unique values - persists across filter changes so dropdown
+  // options don't disappear when server-side filters narrow the result set.
+  // Only used for sensors and the general alertTypes/alertTriggered lists.
   const accumulatedValuesRef = useRef<UniqueValuesState>(createEmptyUniqueValuesState());
   const [uniqueValuesVersion, setUniqueValuesVersion] = useState(0);
+  const prevAlertsRef = useRef<AlertData[] | null>(null);
 
-  // Track previous alerts reference so we only accumulate into vlm-specific
-  // sets when the alerts data actually changes (after refetch), not when only
-  // vlmVerified toggles while stale alerts are still in state.
-  const prevAlertsRef = useRef<AlertData[]>([]);
-
-  // Accumulate unique values from alerts data
-  // This ensures filter options don't disappear when filters are applied
-  // Note: Skip sensor accumulation if sensorList from API is provided
+  // Accumulate unique values without clearing existing options.
+  // For alertType/alertTriggered we keep a dedicated cache per vlmVerified bucket
+  // so each toggle state has an isolated, persistent option list.
   useEffect(() => {
     if (alerts.length === 0) return;
-
     const alertsChanged = alerts !== prevAlertsRef.current;
+    if (!alertsChanged) return;
     prevAlertsRef.current = alerts;
 
     let hasNewValues = false;
     const accumulated = accumulatedValuesRef.current;
     const hasSensorListFromApi = sensorList && sensorList.length > 0;
-
     const vlmBucket = vlmVerified
       ? accumulated.byVlmVerified.enabled
       : accumulated.byVlmVerified.disabled;
 
-    alerts.forEach(alert => {
+    for (const alert of alerts) {
       if (!hasSensorListFromApi && alert.sensor && !accumulated.sensors.has(alert.sensor)) {
         accumulated.sensors.add(alert.sensor);
         hasNewValues = true;
       }
-      if (alert.alertType) {
-        if (!accumulated.alertTypes.has(alert.alertType)) {
-          accumulated.alertTypes.add(alert.alertType);
-          hasNewValues = true;
-        }
-        if (alertsChanged && !vlmBucket.alertTypes.has(alert.alertType)) {
-          vlmBucket.alertTypes.add(alert.alertType);
-          hasNewValues = true;
-        }
+      if (alert.alertType && !accumulated.alertTypes.has(alert.alertType)) {
+        accumulated.alertTypes.add(alert.alertType);
+        hasNewValues = true;
       }
-      if (alert.alertTriggered) {
-        if (!accumulated.alertTriggered.has(alert.alertTriggered)) {
-          accumulated.alertTriggered.add(alert.alertTriggered);
-          hasNewValues = true;
-        }
-        if (alertsChanged && !vlmBucket.alertTriggered.has(alert.alertTriggered)) {
-          vlmBucket.alertTriggered.add(alert.alertTriggered);
-          hasNewValues = true;
-        }
+      if (alert.alertType && !vlmBucket.alertTypes.has(alert.alertType)) {
+        vlmBucket.alertTypes.add(alert.alertType);
+        hasNewValues = true;
       }
-    });
+      if (alert.alertTriggered && !accumulated.alertTriggered.has(alert.alertTriggered)) {
+        accumulated.alertTriggered.add(alert.alertTriggered);
+        hasNewValues = true;
+      }
+      if (alert.alertTriggered && !vlmBucket.alertTriggered.has(alert.alertTriggered)) {
+        vlmBucket.alertTriggered.add(alert.alertTriggered);
+        hasNewValues = true;
+      }
+    }
 
     if (hasNewValues) {
       setUniqueValuesVersion(v => v + 1);
@@ -177,9 +174,8 @@ export const useFilters = (options: UseFiltersOptions) => {
     });
   }, [alerts, activeFilters]);
 
-  // Convert accumulated Sets to sorted arrays for the UI
-  // uniqueValuesVersion ensures this updates when new values are accumulated
-  // sensorList from API takes precedence over accumulated sensors
+  // Convert accumulated Sets to sorted arrays for the UI.
+  // sensorList from API takes precedence over accumulated sensors.
   const uniqueValues = useMemo(() => {
     const accumulated = accumulatedValuesRef.current;
     const { enabled, disabled } = accumulated.byVlmVerified;

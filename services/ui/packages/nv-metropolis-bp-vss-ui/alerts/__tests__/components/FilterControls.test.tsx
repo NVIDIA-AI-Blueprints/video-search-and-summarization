@@ -62,7 +62,7 @@ const defaultProps = {
     alertTriggered: ['Motion', 'Zone'],
     byVlmVerified: {
       enabled: { alertTypes: ['Tailgating', 'Loitering'], alertTriggered: ['Motion', 'Zone'] },
-      disabled: { alertTypes: ['Tailgating'], alertTriggered: ['Motion'] },
+      disabled: { alertTypes: ['Intrusion'], alertTriggered: ['Thermal'] },
     },
   },
   loading: false,
