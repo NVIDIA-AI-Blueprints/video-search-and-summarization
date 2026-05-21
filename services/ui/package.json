@@ -2,6 +2,9 @@
     "name": "nemo-agent-toolkit-ui-monorepo",
     "version": "0.1.1",
     "private": true,
+    "engines": {
+        "node": "22.22.3"
+    },
     "workspaces": [
         "apps/*",
         "packages/*",
@@ -17,12 +20,20 @@
         "test": "turbo run test",
         "clean": "turbo run clean"
     },
+    "dependencies": {
+        "next": "15.5.18",
+        "postcss": "8.5.10"
+    },
     "devDependencies": {
-        "turbo": "2.9.6"
+        "turbo": "^2.9.14"
     },
     "overrides": {
         "preact": "10.27.3",
-        "next": "15.5.15",
+        "next": {
+            ".": "15.5.18",
+            "postcss": "8.5.10"
+        },
+        "postcss": "8.5.10",
         "@tootallnate/once": "3.0.1",
         "file-type": "21.3.2",
         "lodash": "4.18.1",

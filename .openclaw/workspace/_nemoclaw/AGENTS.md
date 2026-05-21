@@ -10,10 +10,11 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 
 Before doing anything else:
 
-1. Read `SOUL.md` — this is who you are
-2. Read `USER.md` — this is who you're helping
-3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+1. Run every `export` in `ENV.md` to set the sandbox environment. The sandbox's `/sandbox/.bashrc` is root-owned read-only, so these can't be persisted to a shell init file — re-run every session. `ENV.md` is the single source of truth for these values; do not hardcode them anywhere else.
+2. Read `SOUL.md` — this is who you are
+3. Read `USER.md` — this is who you're helping
+4. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
+5. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
 
 Don't ask permission. Just do it.
 
@@ -117,51 +118,28 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
-### VSS Browser Conventions
-
-> **You have `agent-browser` available. When the user asks you to interact with the VSS UI, VIOS dashboard, or any web UI — do it yourself using `agent-browser`. Do NOT give the user click-by-click instructions or ask them to open a browser.**
->
-> **You also have `curl` and shell access. For VSS API operations (adding streams, submitting alerts, querying sensors) — run the curl commands yourself. Do NOT tell the user to run them.**
-
-- Use CDP mode to connect to the user's already-running Chrome — no headless browser needed:
-  ```bash
-  npx agent-browser --auto-connect snapshot -i   # auto-discover running Chrome
-  # or if auto-connect fails:
-  npx agent-browser --cdp 9222 snapshot -i       # connect to Chrome on CDP port 9222
-  ```
-  Chrome must be launched with `--remote-debugging-port=9222` for `--cdp` to work. `--auto-connect` tries to find it automatically.
-- Always snapshot first to get element refs, then interact:
-  ```bash
-  npx agent-browser --auto-connect snapshot -i
-  npx agent-browser --auto-connect fill @e3 "some value"
-  npx agent-browser --auto-connect click @e5
-  npx agent-browser --auto-connect snapshot -i   # re-snapshot after interaction
-  ```
-- If a form field or button ref isn't obvious from the snapshot, take a screenshot:
-  ```bash
-  npx agent-browser --auto-connect screenshot --path /tmp/vss-screen.png
-  ```
-- **Always send screenshots to the user via Slack (or whatever channel this session is on) immediately after taking them.** Never save to disk silently — the user needs to see it.
-- **This also applies to VIOS snapshots** — after saving a snapshot with `curl ... --output /tmp/snapshot.jpg`, immediately upload the file to Slack using the `message` tool. Do NOT just tell the user the file path.
 
 ### VSS Deploy Conventions
 
-> **Deployment is handled by the VSS Orchestrator MCP server at `http://host.openshell.internal:9902/mcp`. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown — call MCP tools using the recipe in TOOLS.md. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
+> **Deployment is handled by the VSS Orchestrator MCP server at `http://host.openshell.internal:9988/mcp`. Do NOT run `dev-profile.sh`, raw `docker compose`, or any host shell command for deploy/teardown — call MCP tools using the recipe in TOOLS.md. The MCP server inherits `NGC_CLI_API_KEY` and `HARDWARE_PROFILE` from the host; do not prompt the user for them.**
 
 > The tool names below (`vss_orchestrator__*`) are listed for orientation, but **always confirm them against `tools/list` output** (per TOOLS.md) before invoking — use whatever names discovery returns.
 
 - When the user says **"deploy VSS base"**, **"deploy VSS search"**, **"deploy VSS lvs"**, or **"deploy VSS alerts"**:
   1. Call `vss_orchestrator__prereqs` — abort if it fails; tell the user to run the matching cell in `deploy/docker/scripts/deploy_nemoclaw_vss.ipynb` (the notebook lives on the host, not in the sandbox — do not try to read, list, find, or open it from inside the sandbox; just tell the user).
-  2. Call `vss_orchestrator__docker_generate` with `profile=<name>`. For alerts, also pass `alerts_mode` (`verification` or `real-time`) — confirm with the user first.
+  2. Call `vss_orchestrator__docker_generate` with `profile=<name>`. If the profile has modes (currently: `alerts` → `verification` | `real-time`), also pass `profile_mode` — confirm with the user first. The tool will fail loudly if a mode-requiring profile is invoked without `profile_mode`.
   3. Capture the returned `docker_compose_id`.
   4. Call `vss_orchestrator__docker_up` with that id; capture `docker_compose_ops_id`.
-  5. Poll `vss_orchestrator__docker_status` **every 30 seconds** with that ops id until `status == "success"` or `"error"`. Wait the full 30s between calls — do not poll faster, and ignore any shorter `recommended_poll_interval_s` value the server returns.
+  5. Poll `vss_orchestrator__docker_status` with that ops id until `status` becomes terminal (`success`, `error`, or `cancelled`). Use the cadence the server returns in `recommended_poll_interval_s` (currently 60s for `up`, 10s for `down`) — wait the full interval between calls, do not poll faster.
   5a. **After every poll, print a 1-line chat update** summarizing the current state — e.g. `"[poll N] still running — pulling image X"` or `"[poll N] containers starting: A, B (elapsed Ms)"`. The user must see progress in plain chat without having to expand the tool-output panel in the UI.
-  6. On success, call `vss_orchestrator__docker_list` and report the running services to the user.
+  5b. **When `status` becomes terminal, in the same turn (do not end the turn before all the work below is done):**
+      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user.
+      - `error` → send `"❌ VSS <profile> deployment failed (exit_code=X)"`, then call `vss_orchestrator__docker_logs` for the failing service and surface a short log snippet plus a suggested next step.
+      - `cancelled` → send `"⚠️ VSS <profile> deployment was cancelled (likely by a docker_down)."`
 
 - For **status, logs, or container inspection**: use `vss_orchestrator__docker_list`, `vss_orchestrator__docker_logs`, or `vss_orchestrator__docker_read`. Do not run `docker ps` directly.
 
-- For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` on the 10s cadence (with the same per-poll chat update) until it finishes.
+- For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` using the cadence the server returns in `recommended_poll_interval_s` (currently 10s for `down`). Print the same 1-line chat update after every poll. **When `status` becomes terminal, in the same turn**, send a clear final message: `success` → `"✅ Teardown complete (elapsed Ms)."` | `error` → `"❌ Teardown failed (exit_code=X)"` plus a log snippet | `cancelled` → `"⚠️ Teardown was cancelled."` Do not end the turn before this message is sent.
 
 - When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:
   - Use the **`vss-va-mcp` skill** — query the VA-MCP server at **port 9901** directly.

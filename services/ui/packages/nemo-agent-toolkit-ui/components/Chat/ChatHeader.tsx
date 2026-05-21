@@ -16,14 +16,21 @@ import { useWorkflowName, useRightMenuOpenDefault } from '@/contexts/RuntimeConf
 import ChatFileUpload from '@/components/Chat/ChatFileUpload';
 
 import HomeContext from '@/pages/api/home/home.context';
-import { Message } from '@/types/chat';
-
 interface ChatHeaderProps {
   webSocketModeRef?: React.MutableRefObject<boolean | undefined> | Record<string, never>;
-  onSend?: (message: Message) => void;
+  chatBlocked?: boolean;
+  getActiveConversationId?: () => string | undefined;
+  onUploadFlowActiveChange?: (sourceId: string, active: boolean) => void;
+  onSendHiddenMessage?: (message: string, uploadConversationId: string) => void;
 }
 
-export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) => {
+export const ChatHeader = ({
+  webSocketModeRef = {},
+  chatBlocked = false,
+  getActiveConversationId,
+  onUploadFlowActiveChange,
+  onSendHiddenMessage,
+}: ChatHeaderProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const rightMenuOpenDefault = useRightMenuOpenDefault();
   const [isExpanded, setIsExpanded] = useState(rightMenuOpenDefault);
@@ -150,9 +157,11 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
       >
         <button
           onClick={() => {
+            if (chatBlocked) return;
             setIsExpanded(!isExpanded);
           }}
-          className="flex p-1 text-black dark:text-white transition-colors"
+          disabled={chatBlocked}
+          className="flex p-1 text-black dark:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isExpanded ? (
             <IconChevronRight size={20} />
@@ -174,6 +183,7 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
               </span>
               <div
                 onClick={() => {
+                  if (chatBlocked) return;
                   homeDispatch({
                     field: 'chatHistory',
                     value: !chatHistory,
@@ -208,6 +218,7 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
               </span>
               <div
                 onClick={() => {
+                  if (chatBlocked) return;
                   const newWebSocketMode = !webSocketModeRef.current;
                   sessionStorage.setItem(
                     'webSocketMode',
@@ -239,13 +250,15 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
             <div className="flex items-center dark:text-white text-black transition-colors duration-300">
               <button
                 onClick={() => {
+                  if (chatBlocked) return;
                   const newMode = lightMode === 'dark' ? 'light' : 'dark';
                   homeDispatch({
                     field: 'lightMode',
                     value: newMode,
                   });
                 }}
-                className="rounded-full flex items-center justify-center bg-none dark:bg-gray-900 transition-colors duration-300 focus:outline-none"
+                disabled={chatBlocked}
+                className="rounded-full flex items-center justify-center bg-none dark:bg-gray-900 transition-colors duration-300 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {lightMode === 'dark' ? (
                   <IconSun className="w-6 h-6 text-yellow-500 transition-transform duration-300" />
@@ -287,9 +300,11 @@ export const ChatHeader = ({ webSocketModeRef = {}, onSend }: ChatHeaderProps) =
   if (chatUploadFileEnabled) {
     return (
       <ChatFileUpload
-        onSendHiddenMessage={onSend ? (message) => {
-          onSend({ role: 'user', content: message, hidden: true });
-        } : undefined}
+        uploadFlowSourceId="chat-header"
+        getActiveConversationId={getActiveConversationId}
+        onUploadFlowActiveChange={onUploadFlowActiveChange}
+        onSendHiddenMessage={onSendHiddenMessage}
+        disabled={chatBlocked}
       >
         {({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers }) => 
           renderHeaderContent({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers })

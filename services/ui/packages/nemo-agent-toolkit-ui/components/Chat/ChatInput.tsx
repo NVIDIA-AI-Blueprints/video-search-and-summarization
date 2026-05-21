@@ -74,6 +74,10 @@ interface Props {
   onStopConversation: () => void;
   queryContextItems?: QueryDataContext[];
   onRemoveQueryContext?: (itemId: string) => void;
+  /** True while any upload dialog (select / progress / success) is open */
+  chatBlocked?: boolean;
+  getActiveConversationId?: () => string | undefined;
+  onUploadFlowActiveChange?: (sourceId: string, active: boolean) => void;
 }
 
 export const ChatInput = ({
@@ -86,6 +90,9 @@ export const ChatInput = ({
   onStopConversation,
   queryContextItems = [],
   onRemoveQueryContext,
+  chatBlocked = false,
+  getActiveConversationId,
+  onUploadFlowActiveChange,
 }: Props) => {
   const { t } = useTranslation('chat');
 
@@ -160,7 +167,7 @@ export const ChatInput = ({
   };
 
   const handleSend = () => {
-    if (messageIsStreaming) {
+    if (chatBlocked || messageIsStreaming) {
       return;
     }
 
@@ -206,6 +213,7 @@ export const ChatInput = ({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (chatBlocked) return;
     if (e.key === 'Enter' && !isTyping && !isMobile() && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -439,7 +447,7 @@ export const ChatInput = ({
       }`}
     >
       <div className="stretch mx-auto mt-4 flex flex-row gap-3 last:mb-2 md:mt-[52px] w-full max-w-[95%] pointer-events-auto">
-        {messageIsStreaming && (
+        {messageIsStreaming && !chatBlocked && (
           <button
             className="absolute top-0 left-0 right-0 mx-auto mb-3 flex w-fit items-center gap-3 rounded border border-neutral-200 bg-white py-2 px-4 text-black hover:opacity-50 dark:border-neutral-600 dark:bg-black dark:text-white md:mb-0 md:mt-2"
             onClick={handleStopConversation}
@@ -449,6 +457,7 @@ export const ChatInput = ({
         )}
 
         {!messageIsStreaming &&
+          !chatBlocked &&
           selectedConversation &&
           selectedConversation.messages.length > 1 && (
             // selectedConversation.messages[selectedConversation.messages.length - 1].role === 'assistant' &&
@@ -521,6 +530,8 @@ export const ChatInput = ({
             onCompositionEnd={() => setIsTyping(false)}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            disabled={chatBlocked}
+            readOnly={chatBlocked}
             {...(appConfig?.fileUploadEnabled && {
               onDragOver: handleDragOver,
               onDrop: handleDrop,
@@ -568,11 +579,11 @@ export const ChatInput = ({
               <button
                 onClick={handleSpeechToText}
                 className={`rounded-sm p-[5px] text-neutral-800 opacity-60 dark:bg-opacity-50 dark:text-neutral-100 ${
-                  messageIsStreaming
+                  chatBlocked || messageIsStreaming
                     ? 'text-neutral-400' // Disable hover and change color when streaming
                     : 'hover:text-[#76b900] dark:hover:text-neutral-200' // Normal hover effect
                 }`}
-                disabled={messageIsStreaming}
+                disabled={chatBlocked || messageIsStreaming}
               >
                 {isRecording ? (
                   <IconPlayerStopFilled
@@ -586,20 +597,31 @@ export const ChatInput = ({
             )}
             {chatUploadFileEnabled && (
               <ChatFileUpload
-                disabled={messageIsStreaming}
-                onSendHiddenMessage={(message) => {
-                  onSend({ role: 'user', content: message, hidden: true }, fieldsToParams(paramFields));
+                uploadFlowSourceId="chat-input"
+                getActiveConversationId={getActiveConversationId}
+                onUploadFlowActiveChange={onUploadFlowActiveChange}
+                onSendHiddenMessage={(message, uploadConversationId) => {
+                  onSend(
+                    {
+                      role: 'user',
+                      content: message,
+                      hidden: true,
+                      uploadConversationId,
+                    },
+                    fieldsToParams(paramFields),
+                  );
                 }}
+                disabled={chatBlocked}
               >
                 {({ triggerUpload }) => (
                   <button
                     onClick={triggerUpload}
                     className={`rounded-sm p-[5px] text-neutral-800 opacity-60 dark:bg-opacity-50 dark:text-neutral-100 ${
-                      messageIsStreaming
+                      chatBlocked
                         ? 'text-neutral-400'
                         : 'hover:text-[#76b900] dark:hover:text-neutral-200'
                     }`}
-                    disabled={messageIsStreaming}
+                    disabled={chatBlocked}
                   >
                     <IconUpload size={18} />
                   </button>
@@ -613,10 +635,11 @@ export const ChatInput = ({
             <div className="absolute right-10 top-2">
               <button
                 ref={settingsButtonRef}
-                className={`rounded-sm p-1 text-neutral-800 opacity-60 hover:text-[#76b900] dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200 transition-colors ${
+                className={`rounded-sm p-1 text-neutral-800 opacity-60 hover:text-[#76b900] dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                   showCustomParams ? 'text-[#76b900] dark:text-[#76b900]' : ''
                 }`}
                 onClick={() => setShowCustomParams(!showCustomParams)}
+                disabled={chatBlocked}
                 title="Agent Parameters"
               >
                 <IconBrain size={18} />
@@ -632,8 +655,9 @@ export const ChatInput = ({
           )}
           {/* Send Button */}
           <button
-            className="absolute right-2 top-2 rounded-sm p-1 text-neutral-800 opacity-60 hover:bg-neutral-200 hover:text-neutral-900 dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200"
+            className="absolute right-2 top-2 rounded-sm p-1 text-neutral-800 opacity-60 hover:bg-neutral-200 hover:text-neutral-900 dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={handleSend}
+            disabled={chatBlocked || messageIsStreaming}
           >
             {messageIsStreaming ? (
               <div data-testid="chat-loading-spinner" className="h-4 w-4 animate-spin rounded-full border-t-2 border-neutral-800 opacity-60 dark:border-neutral-100"></div>

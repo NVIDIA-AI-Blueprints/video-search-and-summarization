@@ -11,6 +11,22 @@ import { AgentThink, AgentThinkStep } from '@/components/Markdown/AgentThink';
 
 import { isEqual } from 'lodash';
 
+function compareImageProps(prevProps: any, nextProps: any) {
+  // For images, compare src and alt
+  // Use optimized comparison for large base64 strings
+  if (prevProps.src?.length > 1000 || nextProps.src?.length > 1000) {
+    if (prevProps.src?.length !== nextProps.src?.length) {
+      return false;
+    }
+    const prevStart = prevProps.src?.substring(0, 100) || '';
+    const prevEnd = prevProps.src?.substring(prevProps.src.length - 100) || '';
+    const nextStart = nextProps.src?.substring(0, 100) || '';
+    const nextEnd = nextProps.src?.substring(nextProps.src.length - 100) || '';
+    return prevStart === nextStart && prevEnd === nextEnd && prevProps.alt === nextProps.alt;
+  }
+  return prevProps.src === nextProps.src && prevProps.alt === nextProps.alt;
+}
+
 export const getReactMarkDownCustomComponents = (
   messageIndex = 0,
   messageId = '',
@@ -180,23 +196,28 @@ export const getReactMarkDownCustomComponents = (
         },
       ),
       img: memo(
-        (props: any) => <Image {...props} />,
+        (props: any) => <Image {...props} showDownload />,
         (prevProps, nextProps) => {
-          // For images, compare src and alt
-          // Use optimized comparison for large base64 strings
-          if (prevProps.src?.length > 1000 || nextProps.src?.length > 1000) {
-            // Length check first (fast)
-            if (prevProps.src?.length !== nextProps.src?.length) {
-              return false;
+          return compareImageProps(prevProps, nextProps);
+        },
+      ),
+      image: memo(
+        (props: any) => (
+          <Image
+            {...props}
+            showDownload
+            alt={
+              props.alt ||
+              (typeof props.children === 'string'
+                ? props.children
+                : Array.isArray(props.children)
+                  ? props.children.join('')
+                  : '')
             }
-            // Compare start and end for large strings
-            const prevStart = prevProps.src?.substring(0, 100) || '';
-            const prevEnd = prevProps.src?.substring(prevProps.src.length - 100) || '';
-            const nextStart = nextProps.src?.substring(0, 100) || '';
-            const nextEnd = nextProps.src?.substring(nextProps.src.length - 100) || '';
-            return prevStart === nextStart && prevEnd === nextEnd && prevProps.alt === nextProps.alt;
-          }
-          return prevProps.src === nextProps.src && prevProps.alt === nextProps.alt;
+          />
+        ),
+        (prevProps, nextProps) => {
+          return compareImageProps(prevProps, nextProps);
         },
       ),
       video: memo(

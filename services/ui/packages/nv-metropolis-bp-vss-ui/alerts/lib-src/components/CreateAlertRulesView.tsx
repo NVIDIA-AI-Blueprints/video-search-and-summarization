@@ -27,10 +27,15 @@ import {
   IconLoader2,
   IconCheck,
   IconX,
+  IconRefresh,
 } from '@tabler/icons-react';
 import { AlertRulesType, RealtimeAlertRuleDraft, RealtimeAlertRule } from '../types';
 import { useRealtimeAlertRules } from '../hooks/useRealtimeAlertRules';
 import { VstStreamThumbnail } from './VstStreamThumbnail';
+import {
+  deriveSensorNameFromLiveStreamUrl,
+  resolveSensorForLiveStreamUrl,
+} from '../utils/vstSensorList';
 
 interface CreateAlertRulesViewProps {
   isDark: boolean;
@@ -64,21 +69,6 @@ const KIND_TABS: Array<{
 
 const generateDraftId = () =>
   `rt-draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-/**
- * Last path segment of the RTSP URL, e.g.
- * `rtsp://.../sample-warehouse-ladder.mp4` → `sample-warehouse-ladder.mp4`.
- * Extension is kept — NVStreamer registers sensors with the full filename and
- * VST/alert-bridge lookups match by exact name.
- */
-const deriveSensorName = (liveStreamUrl: string): string | undefined => {
-  const trimmed = liveStreamUrl.trim();
-  if (!trimmed) return undefined;
-  const withoutQuery = trimmed.split(/[?#]/)[0];
-  const segments = withoutQuery.split('/').filter(Boolean);
-  const last = segments.at(-1);
-  return last || undefined;
-};
 
 export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   isDark,
@@ -207,9 +197,8 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   readOnlyCellClass,
   thClass,
 }) => {
-  const { rules, loading, error, createRule, deleteRule, refetch } = useRealtimeAlertRules({
-    alertsApiUrl,
-  });
+  const { rules, loading, error, lastRefreshedAt, createRule, deleteRule, refetch } =
+    useRealtimeAlertRules({ alertsApiUrl });
 
   const [drafts, setDrafts] = useState<RealtimeAlertRuleDraft[]>([]);
   const [streamFilter, setStreamFilter] = useState('');
@@ -307,14 +296,24 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         });
         return;
       }
+      if (!vstApiUrl) {
+        updateDraft(draftId, {
+          error: 'VST API URL is not configured; cannot resolve sensor_id and sensor_name.',
+        });
+        return;
+      }
       updateDraft(draftId, { saving: true, error: undefined });
       try {
-        const sensor_name = deriveSensorName(live_stream_url);
+        const { sensor_name, sensor_id } = await resolveSensorForLiveStreamUrl(
+          vstApiUrl,
+          live_stream_url,
+        );
         await createRule({
           live_stream_url,
           alert_type,
           prompt,
-          ...(sensor_name ? { sensor_name } : {}),
+          sensor_name,
+          sensor_id,
         });
         // Drop the draft on success — the rule shows up in the rules list.
         setDrafts((prev) => prev.filter((d) => d.draftId !== draftId));
@@ -325,7 +324,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         });
       }
     },
-    [drafts, createRule, updateDraft],
+    [drafts, createRule, updateDraft, vstApiUrl],
   );
 
   const handleDelete = useCallback(
@@ -426,16 +425,35 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
           </div>
 
           <div className="ml-auto flex items-center gap-3 text-xs">
+            {lastRefreshedAt && (
+              <span
+                data-testid="realtime-alerts-last-refreshed"
+                aria-live="polite"
+                className={isDark ? 'text-neutral-400' : 'text-gray-500'}
+              >
+                Last refreshed: {lastRefreshedAt.toLocaleTimeString()}
+              </span>
+            )}
             <button
               type="button"
-              onClick={() => refetch()}
-              className={`px-3 py-1 rounded border text-sm transition-colors ${
+              onClick={() => refetch({ minLoadingMs: 1500 })}
+              disabled={loading}
+              aria-busy={loading}
+              aria-label={loading ? 'Refreshing alert rules' : 'Refresh alert rules'}
+              title={loading ? 'Refreshing…' : 'Refresh alert rules'}
+              data-testid="realtime-alerts-refresh"
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded border text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                 isDark
                   ? 'border-neutral-700 text-neutral-200 hover:bg-neutral-800'
                   : 'border-gray-300 text-gray-700 hover:bg-gray-100'
               }`}
             >
-              Refresh
+              <IconRefresh
+                className={`w-3.5 h-3.5 ${
+                  loading ? 'animate-spin [animation-direction:reverse]' : ''
+                }`}
+              />
+              {loading ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
         </div>
@@ -654,7 +672,11 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                         // Prefer the rule's server-side `sensor_name`. Fall
                         // back to deriving from the RTSP URL for older rules
                         // that pre-date the sensor_name field.
-                        sensorName={rule.sensor_name ?? deriveSensorName(rule.live_stream_url) ?? ''}
+                        sensorName={
+                          rule.sensor_name ??
+                          deriveSensorNameFromLiveStreamUrl(rule.live_stream_url) ??
+                          ''
+                        }
                       />
                     </td>
                     <td className={`py-2 px-3 align-top ${readOnlyCellClass}`}>
@@ -737,7 +759,9 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                         <VstStreamThumbnail
                           isDark={isDark}
                           vstApiUrl={vstApiUrl}
-                          sensorName={deriveSensorName(draft.live_stream_url) ?? ''}
+                          sensorName={
+                            deriveSensorNameFromLiveStreamUrl(draft.live_stream_url) ?? ''
+                          }
                         />
                       </td>
                       <td className="py-2 px-3 align-top">

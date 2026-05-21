@@ -14,6 +14,7 @@
 # limitations under the License.
 """Unit tests for the video_ingest module's three-step chat upload flow."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -23,11 +24,17 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import pytest
 
+from vss_agents.api.video_ingest import ENV_RTVI_CV_TIMEOUT_SECONDS
+from vss_agents.api.video_ingest import ENV_RTVI_EMBED_TIMEOUT_SECONDS
+from vss_agents.api.video_ingest import ENV_VST_STORAGE_TIMEOUT_SECONDS
+from vss_agents.api.video_ingest import ENV_VST_UPLOAD_TIMEOUT_SECONDS
 from vss_agents.api.video_ingest import VideoIngestResponse
 from vss_agents.api.video_ingest import VideoUploadCompleteInput
 from vss_agents.api.video_ingest import VideoUploadUrlInput
 from vss_agents.api.video_ingest import VideoUploadUrlResponse
 from vss_agents.api.video_ingest import _parse_optional_http_url
+from vss_agents.api.video_ingest import _parse_timeout_seconds
+from vss_agents.api.video_ingest import _resolve_timeout_seconds
 from vss_agents.api.video_ingest import _resolve_video_upload_config
 from vss_agents.api.video_ingest import _run_post_upload_processing
 from vss_agents.api.video_ingest import create_video_upload_complete_router
@@ -82,6 +89,105 @@ class TestParseOptionalHttpUrl:
         result = _parse_optional_http_url("http://rtvi.example.com")
         assert result is not None
         assert result.hostname == "rtvi.example.com"
+
+
+class TestParseTimeoutSeconds:
+    """Direct coverage for the timeout-parsing primitive.
+
+    Pins the contract that ``_parse_timeout_seconds`` returns a positive
+    finite float on valid input and ``None`` on anything else. The caller
+    (``_resolve_timeout_seconds``) relies on ``None`` to walk the
+    ``YAML > env > default`` precedence chain — see Comment 6 on PR 473.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (60, 60.0),
+            (60.5, 60.5),
+            ("60", 60.0),
+            ("60.5", 60.5),
+            ("  120  ", 120.0),
+        ],
+    )
+    def test_valid_inputs_parse(self, raw, expected):
+        assert _parse_timeout_seconds(raw, setting_name="t") == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            None,
+            "",
+            "abc",
+            "0",
+            0,
+            "-1",
+            -1,
+            "nan",
+            float("nan"),
+            "inf",
+            float("inf"),
+            "-inf",
+            True,  # YAML `yes` coerces to bool → would silently be 1s
+            False,  # YAML `no` coerces to bool → would silently be 0s
+        ],
+    )
+    def test_invalid_inputs_return_none(self, raw):
+        assert _parse_timeout_seconds(raw, setting_name="t") is None
+
+
+class TestResolveTimeoutSeconds:
+    """Precedence chain: YAML > env > default. Invalid YAML must fall through."""
+
+    def test_yaml_wins(self):
+        cfg = SimpleNamespace(rtvi_cv_timeout_seconds=120)
+        with patch.dict("os.environ", {"X_ENV": "999"}, clear=False):
+            assert (
+                _resolve_timeout_seconds(cfg, attr_name="rtvi_cv_timeout_seconds", env_name="X_ENV", default=60.0)
+                == 120.0
+            )
+
+    def test_env_fallback_when_yaml_unset(self):
+        cfg = SimpleNamespace()
+        with patch.dict("os.environ", {"X_ENV": "888"}, clear=False):
+            assert (
+                _resolve_timeout_seconds(cfg, attr_name="rtvi_cv_timeout_seconds", env_name="X_ENV", default=60.0)
+                == 888.0
+            )
+
+    def test_default_when_neither_set(self):
+        cfg = SimpleNamespace()
+        with patch.dict("os.environ", {}, clear=True):
+            assert (
+                _resolve_timeout_seconds(cfg, attr_name="rtvi_cv_timeout_seconds", env_name="X_ENV", default=42.0)
+                == 42.0
+            )
+
+    def test_invalid_yaml_falls_through_to_env(self):
+        # The original implementation parsed invalid YAML to the default
+        # without consulting env — an operator who set `rtvi_cv_timeout_seconds: -1`
+        # in YAML couldn't recover by exporting the env var.
+        cfg = SimpleNamespace(rtvi_cv_timeout_seconds="not-a-number")
+        with patch.dict("os.environ", {"X_ENV": "777"}, clear=False):
+            assert (
+                _resolve_timeout_seconds(cfg, attr_name="rtvi_cv_timeout_seconds", env_name="X_ENV", default=60.0)
+                == 777.0
+            )
+
+    def test_invalid_yaml_and_invalid_env_falls_to_default(self):
+        cfg = SimpleNamespace(rtvi_cv_timeout_seconds="not-a-number")
+        with patch.dict("os.environ", {"X_ENV": "-1"}, clear=False):
+            assert (
+                _resolve_timeout_seconds(cfg, attr_name="rtvi_cv_timeout_seconds", env_name="X_ENV", default=42.0)
+                == 42.0
+            )
+
+    def test_streaming_config_none(self):
+        with patch.dict("os.environ", {"X_ENV": "555"}, clear=False):
+            assert (
+                _resolve_timeout_seconds(None, attr_name="rtvi_cv_timeout_seconds", env_name="X_ENV", default=60.0)
+                == 555.0
+            )
 
 
 class TestVideoUploadUrlModels:
@@ -160,6 +266,25 @@ class TestRunPostUploadProcessing:
         resp.text = text
         return resp
 
+    @staticmethod
+    def _post_router(routes: dict):
+        """Build an AsyncMock that dispatches POSTs by URL.
+
+        RTVI-CV and embedding generation now run in parallel via asyncio.gather,
+        so callbacks may consume the side_effect list in either order. Route by
+        URL substring instead of by call order.
+        """
+
+        def _dispatch(url, *args, **kwargs):
+            for substring, response in routes.items():
+                if substring in url:
+                    if isinstance(response, BaseException):
+                        raise response
+                    return response
+            raise AssertionError(f"unexpected POST URL: {url}")
+
+        return AsyncMock(side_effect=_dispatch)
+
     @pytest.mark.asyncio
     async def test_happy_path_with_cv_and_embed_configured(self):
         storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
@@ -170,7 +295,12 @@ class TestRunPostUploadProcessing:
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
         client.get = AsyncMock(return_value=storage_resp)
-        client.post = AsyncMock(side_effect=[cv_resp, embed_resp])
+        client.post = self._post_router(
+            {
+                "/api/v1/stream/add": cv_resp,
+                "/v1/generate_video_embeddings": embed_resp,
+            }
+        )
 
         with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
@@ -197,7 +327,12 @@ class TestRunPostUploadProcessing:
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
         client.get = AsyncMock(return_value=storage_resp)
-        client.post = AsyncMock(side_effect=[httpx.ConnectError("connection refused"), embed_resp])
+        client.post = self._post_router(
+            {
+                "/api/v1/stream/add": httpx.ConnectError("connection refused"),
+                "/v1/generate_video_embeddings": embed_resp,
+            }
+        )
 
         with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
             result = await _run_post_upload_processing(
@@ -255,6 +390,36 @@ class TestRunPostUploadProcessing:
                     rtvi_embed_base_url="http://rtvi-embed:8017",
                 )
         assert exc_info.value.status_code == 502
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("disable_audio", [True, False])
+    async def test_disable_audio_flag_passed_to_vst_storage(self, disable_audio):
+        """``disable_audio=False`` is the audio-aware-VLM path - VST must
+        keep the audio track, so the storage GET's ``disableAudio`` flag has
+        to mirror the param."""
+        import json as _json
+
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = AsyncMock()
+
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+            await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="",
+                rtvi_cv_base_url="",
+                disable_audio=disable_audio,
+            )
+
+        params = client.get.call_args.kwargs["params"]
+        assert _json.loads(params["configuration"]) == {"disableAudio": disable_audio}
 
     @pytest.mark.asyncio
     async def test_invalid_vst_url_is_500(self):
@@ -372,37 +537,142 @@ class TestUploadCompleteRoute:
         assert kwargs["filename"] == "sensor-xyz"
         assert kwargs["camera_name"] == "sensor-xyz"
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_sensor_id", ["", "a/b", "a b", "../etc", "a\nb", "id?x=1"])
+    async def test_rejects_unsafe_sensor_id(self, bad_sensor_id):
+        """sensor_id is on the URL path and feeds logs + VST storage URL, so
+        the route enforces an allowlist at the boundary."""
+        route = self._build_router().routes[0]
+        with pytest.raises(HTTPException) as exc_info:
+            await route.endpoint(sensor_id=bad_sensor_id, body=VideoUploadCompleteInput(filename="clip.mp4"))
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "ok_sensor_id",
+        [
+            "b7a1c1f2-9c0e-4d8d-8a6a-2e5f7d2e3c1b",  # VST UUID
+            "Camera_03",  # underscored camera name
+            "cam.lobby.front",  # dotted camera name
+            "chat-sensor-1",  # dashed
+        ],
+    )
+    async def test_accepts_allowlisted_sensor_id(self, ok_sensor_id):
+        """The allowlist must cover VST UUIDs and dotted/underscored camera names."""
+        route = self._build_router().routes[0]
+        with patch(
+            "vss_agents.api.video_ingest._run_post_upload_processing",
+            new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id=ok_sensor_id, filename="clip.mp4")),
+        ) as mock_post:
+            await route.endpoint(sensor_id=ok_sensor_id, body=VideoUploadCompleteInput(filename="clip.mp4"))
+        assert mock_post.call_args.kwargs["sensor_id"] == ok_sensor_id
+
+    @pytest.mark.asyncio
+    async def test_handler_passes_disable_audio_to_processing(self):
+        """``disable_audio`` flows from the router constructor straight into
+        ``_run_post_upload_processing`` so audio-aware VLMs keep audio."""
+        route = create_video_upload_complete_router(
+            vst_internal_url="http://vst:30888",
+            disable_audio=False,
+        ).routes[0]
+
+        with patch(
+            "vss_agents.api.video_ingest._run_post_upload_processing",
+            new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="clip.mp4")),
+        ) as mock_post:
+            await route.endpoint(sensor_id="sensor-xyz", body=VideoUploadCompleteInput(filename="clip.mp4"))
+
+        assert mock_post.call_args.kwargs["disable_audio"] is False
+
+    @pytest.mark.asyncio
+    async def test_handler_passes_timeout_config_to_processing(self):
+        route = create_video_upload_complete_router(
+            vst_internal_url="http://vst:30888",
+            rtvi_cv_timeout_seconds=12.5,
+            rtvi_embed_timeout_seconds=345.0,
+            vst_storage_timeout_seconds=23.0,
+        ).routes[0]
+
+        with patch(
+            "vss_agents.api.video_ingest._run_post_upload_processing",
+            new=AsyncMock(return_value=VideoIngestResponse(message="ok", sensor_id="sensor-xyz", filename="clip.mp4")),
+        ) as mock_post:
+            await route.endpoint(sensor_id="sensor-xyz", body=VideoUploadCompleteInput(filename="clip.mp4"))
+
+        kwargs = mock_post.call_args.kwargs
+        assert kwargs["rtvi_cv_timeout_seconds"] == 12.5
+        assert kwargs["rtvi_embed_timeout_seconds"] == 345.0
+        assert kwargs["vst_storage_timeout_seconds"] == 23.0
+
 
 class TestResolveVideoUploadConfig:
     """Pin down config resolution: YAML wins, env-var fallback."""
 
     def test_streaming_ingest_config_wins(self):
-        config = MagicMock()
-        cfg = MagicMock()
-        cfg.vst_internal_url = "http://vst:8080"
-        cfg.vst_external_url = "http://vst.public:8080"
-        cfg.rtvi_embed_base_url = "http://rtvi-embed:8017"
-        cfg.rtvi_cv_base_url = "http://rtvi-cv:9000"
-        cfg.rtvi_embed_model = "cosmos-embed1-448p"
-        cfg.rtvi_embed_chunk_duration = 5
-        config.general.front_end.streaming_ingest = cfg
+        # SimpleNamespace (not MagicMock) so an unset attribute raises
+        # AttributeError instead of auto-creating a Mock — that's what lets
+        # _resolve_timeout_seconds correctly see "no YAML value" and fall
+        # through to env, then to the module default.
+        cfg = SimpleNamespace(
+            vst_internal_url="http://vst:8080",
+            vst_external_url="http://vst.public:8080",
+            rtvi_embed_base_url="http://rtvi-embed:8017",
+            rtvi_cv_base_url="http://rtvi-cv:9000",
+            rtvi_embed_model="cosmos-embed1-448p",
+            rtvi_embed_chunk_duration=5,
+        )
+        config = SimpleNamespace(general=SimpleNamespace(front_end=SimpleNamespace(streaming_ingest=cfg)))
 
         resolved = _resolve_video_upload_config(config)
         assert resolved is not None
         assert resolved.vst_internal_url == "http://vst:8080"
         assert resolved.vst_external_url == "http://vst.public:8080"
         assert resolved.rtvi_embed_base_url == "http://rtvi-embed:8017"
+        assert resolved.vst_upload_timeout_seconds == 300.0
+        assert resolved.vst_storage_timeout_seconds == 60.0
+        assert resolved.rtvi_cv_timeout_seconds == 60.0
+        assert resolved.rtvi_embed_timeout_seconds == 600.0
+
+    def test_streaming_ingest_timeout_config_wins(self):
+        streaming = SimpleNamespace(
+            vst_internal_url="http://vst:8080",
+            vst_external_url="",
+            rtvi_embed_base_url="",
+            rtvi_cv_base_url="",
+            rtvi_embed_model="cosmos-embed1-448p",
+            rtvi_embed_chunk_duration=5,
+            vst_upload_timeout_seconds="301.5",
+            vst_storage_timeout_seconds=61,
+            rtvi_cv_timeout_seconds="62",
+            rtvi_embed_timeout_seconds=601.0,
+        )
+        config = SimpleNamespace(general=SimpleNamespace(front_end=SimpleNamespace(streaming_ingest=streaming)))
+
+        env = {
+            ENV_VST_UPLOAD_TIMEOUT_SECONDS: "999",
+            ENV_VST_STORAGE_TIMEOUT_SECONDS: "999",
+            ENV_RTVI_CV_TIMEOUT_SECONDS: "999",
+            ENV_RTVI_EMBED_TIMEOUT_SECONDS: "999",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            resolved = _resolve_video_upload_config(config)
+
+        assert resolved is not None
+        assert resolved.vst_upload_timeout_seconds == 301.5
+        assert resolved.vst_storage_timeout_seconds == 61.0
+        assert resolved.rtvi_cv_timeout_seconds == 62.0
+        assert resolved.rtvi_embed_timeout_seconds == 601.0
 
     def test_external_url_falls_back_to_internal_when_unset(self):
-        config = MagicMock()
-        cfg = MagicMock()
-        cfg.vst_internal_url = "http://vst:8080"
-        cfg.vst_external_url = ""
-        cfg.rtvi_embed_base_url = ""
-        cfg.rtvi_cv_base_url = ""
-        cfg.rtvi_embed_model = "cosmos-embed1-448p"
-        cfg.rtvi_embed_chunk_duration = 5
-        config.general.front_end.streaming_ingest = cfg
+        cfg = SimpleNamespace(
+            vst_internal_url="http://vst:8080",
+            vst_external_url="",
+            rtvi_embed_base_url="",
+            rtvi_cv_base_url="",
+            rtvi_embed_model="cosmos-embed1-448p",
+            rtvi_embed_chunk_duration=5,
+        )
+        config = SimpleNamespace(general=SimpleNamespace(front_end=SimpleNamespace(streaming_ingest=cfg)))
 
         with patch.dict("os.environ", {"VST_EXTERNAL_URL": ""}, clear=False):
             resolved = _resolve_video_upload_config(config)
@@ -429,6 +699,77 @@ class TestResolveVideoUploadConfig:
         assert resolved.vst_external_url == "http://vst.public:30888"
         assert resolved.rtvi_embed_base_url == "http://10.0.0.5:8017"
         assert resolved.rtvi_cv_base_url == "http://10.0.0.5:9000"
+
+    def test_falls_back_to_env_timeout_overrides_when_streaming_ingest_missing(self):
+        config = MagicMock()
+        config.general.front_end.streaming_ingest = None
+
+        env = {
+            "VST_INTERNAL_URL": "http://vst:30888",
+            ENV_VST_UPLOAD_TIMEOUT_SECONDS: "444",
+            ENV_VST_STORAGE_TIMEOUT_SECONDS: "45.5",
+            ENV_RTVI_CV_TIMEOUT_SECONDS: "46",
+            ENV_RTVI_EMBED_TIMEOUT_SECONDS: "447.25",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            resolved = _resolve_video_upload_config(config)
+
+        assert resolved is not None
+        assert resolved.vst_upload_timeout_seconds == 444.0
+        assert resolved.vst_storage_timeout_seconds == 45.5
+        assert resolved.rtvi_cv_timeout_seconds == 46.0
+        assert resolved.rtvi_embed_timeout_seconds == 447.25
+
+    def test_enable_audio_yaml_flips_disable_audio_off(self):
+        """``streaming_ingest.enable_audio=True`` must invert to
+        ``disable_audio=False`` so VST keeps the audio track."""
+        cfg = SimpleNamespace(
+            vst_internal_url="http://vst:8080",
+            vst_external_url="",
+            rtvi_embed_base_url="",
+            rtvi_cv_base_url="",
+            rtvi_embed_model="cosmos-embed1-448p",
+            rtvi_embed_chunk_duration=5,
+            enable_audio=True,
+        )
+        config = SimpleNamespace(general=SimpleNamespace(front_end=SimpleNamespace(streaming_ingest=cfg)))
+
+        resolved = _resolve_video_upload_config(config)
+        assert resolved is not None
+        assert resolved.disable_audio is False
+
+    def test_enable_audio_defaults_to_disable_audio_true(self):
+        """Omitting ``enable_audio`` must keep the legacy ``disable_audio=True``
+        default — audio-aware VLMs are opt-in, not the default."""
+        cfg = SimpleNamespace(
+            vst_internal_url="http://vst:8080",
+            vst_external_url="",
+            rtvi_embed_base_url="",
+            rtvi_cv_base_url="",
+            rtvi_embed_model="cosmos-embed1-448p",
+            rtvi_embed_chunk_duration=5,
+        )
+        config = SimpleNamespace(general=SimpleNamespace(front_end=SimpleNamespace(streaming_ingest=cfg)))
+
+        resolved = _resolve_video_upload_config(config)
+        assert resolved is not None
+        assert resolved.disable_audio is True
+
+    def test_enable_audio_env_fallback_when_streaming_ingest_missing(self):
+        """When NAT strips ``streaming_ingest``, ``ENABLE_AUDIO=true`` env still
+        keeps audio on. Pairs with the deploy compose env-var contract."""
+        config = MagicMock()
+        config.general.front_end.streaming_ingest = None
+
+        env = {
+            "VST_INTERNAL_URL": "http://vst:30888",
+            "ENABLE_AUDIO": "true",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            resolved = _resolve_video_upload_config(config)
+
+        assert resolved is not None
+        assert resolved.disable_audio is False
 
     def test_returns_none_when_vst_url_unavailable(self):
         config = MagicMock()

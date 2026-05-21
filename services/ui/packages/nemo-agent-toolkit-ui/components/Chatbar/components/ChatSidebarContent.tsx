@@ -1,5 +1,6 @@
 import { FC, useMemo } from 'react';
 import { useTranslation } from 'next-i18next';
+import { isQueryProcessing } from '@/utils/app/queryProcessing';
 import { ChatSidebarControlHandlers } from '../../../pages/api/home/home';
 import HomeContext from '../../../pages/api/home/home.context';
 import ChatbarContext from '../Chatbar.context';
@@ -83,6 +84,12 @@ export const ChatSidebarContent: FC<ChatSidebarControlHandlers> = ({
   const showFolderSection =
     (homeContext?.state?.folders?.filter((f: { type: string }) => f.type === 'chat').length ?? 0) > 0;
 
+  const newConversationDisabled = isQueryProcessing(
+    homeContext?.state?.loading ?? false,
+    homeContext?.state?.messageIsStreaming ?? false,
+  );
+  const newConversationDisabledTitle = t('queryProcessingBlockNewChatTitle');
+
   return (
     <SidebarInner
       addItemButtonTitle={t('New chat')}
@@ -93,6 +100,8 @@ export const ChatSidebarContent: FC<ChatSidebarControlHandlers> = ({
       searchTerm={searchTerm}
       handleSearchTerm={onSearchTermChange}
       handleCreateItem={onNewConversation}
+      createItemDisabled={newConversationDisabled}
+      createItemDisabledTitle={newConversationDisabledTitle}
       handleCreateFolder={onCreateFolder}
       enableDragDrop={false}
       showFolderSection={showFolderSection}

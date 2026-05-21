@@ -14,12 +14,14 @@
 # limitations under the License.
 """Unit tests for the deprecated PUT /api/v1/videos-for-search/{filename} shim."""
 
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from fastapi import FastAPI
 import pytest
 
+from vss_agents.api.video_ingest import VideoIngestResponse
 from vss_agents.api.video_search_ingest import create_video_search_ingest_router
 from vss_agents.api.video_search_ingest import register_video_search_ingest_routes
 
@@ -157,3 +159,82 @@ class TestUploadVideoToVstHeaderValidation:
                 request=self._request({"content-type": "video/mp4", "content-length": "0"}),
             )
         assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_disable_audio_threaded_to_post_upload_processing(self):
+        """``disable_audio=False`` on the router (audio-aware VLM) must
+        propagate to ``_run_post_upload_processing`` so VST keeps audio
+        through the deprecated PUT shim too."""
+        route = create_video_search_ingest_router(
+            vst_internal_url="http://vst:30888",
+            rtvi_embed_base_url="",
+            disable_audio=False,
+        ).routes[0]
+
+        response = MagicMock()
+        response.status_code = 201
+        response.json.return_value = {"sensorId": "sensor-abc", "filename": "clip.mp4"}
+        response.text = "OK"
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.put = AsyncMock(return_value=response)
+
+        request = self._request({"content-type": "video/mp4", "content-length": "10"})
+        request.stream.return_value = "stream-body"
+
+        with (
+            patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client),
+            patch(
+                "vss_agents.api.video_search_ingest._run_post_upload_processing",
+                new=AsyncMock(
+                    return_value=VideoIngestResponse(message="ok", sensor_id="sensor-abc", filename="clip.mp4")
+                ),
+            ) as mock_post,
+        ):
+            await route.endpoint(filename="clip.mp4", request=request)
+
+        assert mock_post.call_args.kwargs["disable_audio"] is False
+
+    @pytest.mark.asyncio
+    async def test_custom_timeouts_apply_to_upload_and_completion(self):
+        route = create_video_search_ingest_router(
+            vst_internal_url="http://vst:30888",
+            rtvi_embed_base_url="",
+            vst_upload_timeout_seconds=123.0,
+            rtvi_cv_timeout_seconds=124.0,
+            rtvi_embed_timeout_seconds=125.0,
+            vst_storage_timeout_seconds=126.0,
+        ).routes[0]
+
+        response = MagicMock()
+        response.status_code = 201
+        response.json.return_value = {"sensorId": "sensor-abc", "filename": "clip.mp4"}
+        response.text = "OK"
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.put = AsyncMock(return_value=response)
+
+        request = self._request({"content-type": "video/mp4", "content-length": "10"})
+        request.stream.return_value = "stream-body"
+
+        with (
+            patch("vss_agents.api.video_search_ingest.httpx.AsyncClient", return_value=client) as async_client,
+            patch(
+                "vss_agents.api.video_search_ingest._run_post_upload_processing",
+                new=AsyncMock(
+                    return_value=VideoIngestResponse(message="ok", sensor_id="sensor-abc", filename="clip.mp4")
+                ),
+            ) as mock_post,
+        ):
+            result = await route.endpoint(filename="clip.mp4", request=request)
+
+        assert result.sensor_id == "sensor-abc"
+        async_client.assert_called_once_with(timeout=123.0)
+        kwargs = mock_post.call_args.kwargs
+        assert kwargs["rtvi_cv_timeout_seconds"] == 124.0
+        assert kwargs["rtvi_embed_timeout_seconds"] == 125.0
+        assert kwargs["vst_storage_timeout_seconds"] == 126.0

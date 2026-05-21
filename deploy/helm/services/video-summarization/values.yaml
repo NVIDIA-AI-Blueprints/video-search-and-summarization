@@ -17,7 +17,7 @@ enabled: false
 global: {}
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-video-summarization
-  tag: "3.2.0-rc9-10bde8d"
+  tag: "3.2.0-rc11-d65196a"
   pullPolicy: IfNotPresent
 replicas: 1
 # Backend (API), MCP ports — match Compose
@@ -96,8 +96,10 @@ env:
     value: "false"
   - name: LVS_EMB_MODEL_NAME
     value: ""
+  - name: LVS_ENABLE_LLM_MERGING
+    value: "false"
   - name: LVS_ENABLE_MCP
-    value: "true"
+    value: "false"
   - name: LVS_MCP_PORT
     value: "38112"
   - name: MILVUS_DB_GRPC_PORT

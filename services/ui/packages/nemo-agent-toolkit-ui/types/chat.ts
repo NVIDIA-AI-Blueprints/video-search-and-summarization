@@ -29,6 +29,11 @@ export interface Message {
   /** Parent app supplied metadata to render caller-info section on assistant responses. */
   callerInfo?: CallerInfo;
   hidden?: boolean; // If true, message will not be displayed in chat UI but will still be sent to API
+  /**
+   * Conversation active when an upload batch started. Used to drop stale auto-prompts
+   * if the user switched chats before upload finished. Stripped before persistence.
+   */
+  uploadConversationId?: string;
 }
 
 export type Role = 'assistant' | 'user' | 'agent' | 'system';
@@ -50,6 +55,8 @@ export interface Conversation {
   messages: Message[];
   folderId: string | null;
   isHomepageConversation?: boolean; // Flag to track homepage conversations before first message
+  /** True while this conversation has an in-flight agent query (e.g. background processing). */
+  isQueryInFlight?: boolean;
 }
 
 // WebSocket Message Types

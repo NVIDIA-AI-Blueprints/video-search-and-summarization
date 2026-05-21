@@ -16,7 +16,7 @@ const INPUT_CLASS =
 const POPUP_OVERLAY_CLASS =
   'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
 const POPUP_CONTAINER_CLASS =
-  'mx-4 w-full max-w-xl rounded-lg bg-white p-6 shadow-xl dark:bg-black dark:border dark:border-neutral-800';
+  'mx-4 w-full max-w-xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl dark:border-neutral-700 dark:bg-neutral-900 dark:shadow-2xl';
 
 export interface UploadFilesDialogFileItem {
   id: string;

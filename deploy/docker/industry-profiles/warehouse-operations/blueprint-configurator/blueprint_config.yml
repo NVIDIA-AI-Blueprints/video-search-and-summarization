@@ -106,7 +106,7 @@ commons:
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh", "bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
 
       # bp_wh 2d profile is not supported on IGX-THOR or DGX-SPARK
       - variable: HARDWARE_PROFILE
@@ -180,6 +180,8 @@ commons:
                   matches: "bp_wh_kafka_2d,*"
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_2d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_auto_calib_2d,*"
 
     3d:
       # VSS path variables must be set to real paths, not placeholders or empty
@@ -200,9 +202,9 @@ commons:
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
-      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
+      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
@@ -258,6 +260,8 @@ commons:
                   matches: "bp_wh_kafka_3d,*"
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_3d,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_auto_calib_3d,*"
 
     mv3dt:
       # MDX path variables must be set to real paths, not placeholders or empty
@@ -278,9 +282,9 @@ commons:
         allowed_values: ["true", ""]
         error_message: "MINIMAL_PROFILE must be either 'true' or '' (empty)"
 
-      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis"
+      # BP_PROFILE can only be "bp_wh_kafka", "bp_wh_redis", or "bp_wh_auto_calib"
       - variable: BP_PROFILE
-        allowed_values: ["bp_wh_kafka", "bp_wh_redis"]
+        allowed_values: ["bp_wh_kafka", "bp_wh_redis", "bp_wh_auto_calib"]
 
       # STREAM_TYPE can only be "kafka" or "redis"
       - variable: STREAM_TYPE
@@ -332,6 +336,8 @@ commons:
                   matches: "bp_wh_kafka_mv3dt,*"
                 - variable: COMPOSE_PROFILES
                   matches: "bp_wh_redis_mv3dt,*"
+                - variable: COMPOSE_PROFILES
+                  matches: "bp_wh_auto_calib_mv3dt,*"
 
   variables:
     2d:
@@ -344,7 +350,7 @@ commons:
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
-      - spatial_analytics_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
+      - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
     3d:
@@ -354,7 +360,7 @@ commons:
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
-      - spatial_analytics_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
+      - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
     mv3dt:
@@ -364,7 +370,7 @@ commons:
       - msg-broker-config: '"ds-redis-config.txt" if "${STREAM_TYPE}" == "redis" else "ds-kafka-config.txt"'
       - msg-broker-proto-lib: '"/opt/nvidia/deepstream/deepstream/lib/libnvds_redis_proto.so" if "${STREAM_TYPE}" == "redis" else "/opt/nvidia/deepstream/deepstream/lib/libnvds_kafka_proto.so"'
       # vss-behavior-analytics app.sourceType / app.sinkType (MDX uses "redisStream", not "redis")
-      - spatial_analytics_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
+      - warehouse_source_sink_type: '"redisStream" if "${STREAM_TYPE}" == "redis" else "kafka"'
       # vss-video-analytics-api: kafka.brokers null when using Redis streams; broker list when using Kafka
       - vss_video_analytics_kafka_brokers: 'None if "${STREAM_TYPE}" == "redis" else ["localhost:9092"]'
 
@@ -397,7 +403,7 @@ commons:
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
 
-      # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
+      # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
@@ -407,10 +413,10 @@ commons:
             updates:
               - match: sourceType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
               - match: sinkType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
 
       # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
@@ -483,7 +489,7 @@ commons:
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
 
-      # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
+      # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
@@ -493,10 +499,10 @@ commons:
             updates:
               - match: sourceType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
               - match: sinkType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
 
       # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
@@ -548,7 +554,7 @@ commons:
           onvif.max_devices_supported: ${effective_max_streams_supported}
           data.always_recording: true
 
-      # Spatial analytics: source/sink driver — kafka vs redisStream (see spatial_analytics_source_sink_type)
+      # Warehouse: source/sink driver — kafka vs redisStream (see warehouse_source_sink_type)
       - operation_type: "json_update"
         target_file: "${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json"
         backup: true
@@ -558,10 +564,10 @@ commons:
             updates:
               - match: sourceType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
               - match: sinkType
                 set_key: value
-                set_value: "${spatial_analytics_source_sink_type}"
+                set_value: "${warehouse_source_sink_type}"
 
       # vss-video-analytics-api (compose mounts VSS_APPS_DIR/services/analytics/video-analytics-api/configs/...)
       - operation_type: "json_update"
@@ -585,27 +591,27 @@ commons:
 
 H100:
   2d:
-    max_streams_supported: 17
+    max_streams_supported: 76
   3d:
-    max_streams_supported: 13
+    max_streams_supported: 16
   mv3dt:
     max_streams_supported: 13
-
-L40S:
-  2d:
-    max_streams_supported: 7
-  3d:
-    max_streams_supported: 7
-  mv3dt:
-    max_streams_supported: 7
 
 L4:
   2d:
-    max_streams_supported: 2
+    max_streams_supported: 9
   3d:
     max_streams_supported: 2
   mv3dt:
     max_streams_supported: 2
+
+L40S:
+  2d:
+    max_streams_supported: 29
+  3d:
+    max_streams_supported: 6
+  mv3dt:
+    max_streams_supported: 7
 
 RTXA6000:
   2d:
@@ -617,7 +623,7 @@ RTXA6000:
 
 RTXA6000ADA:
   2d:
-    max_streams_supported: 8
+    max_streams_supported: 28
   3d:
     max_streams_supported: 6
   mv3dt:
@@ -625,15 +631,15 @@ RTXA6000ADA:
 
 RTXPRO6000BW:
   2d:
-    max_streams_supported: 30
+    max_streams_supported: 49
   3d:
-    max_streams_supported: 18
+    max_streams_supported: 19
   mv3dt:
     max_streams_supported: 18
 
 IGX-THOR:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 9
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -653,7 +659,7 @@ IGX-THOR:
           VisualTracker.vpiBackend4DcfTracker: 1
 
   3d:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -697,7 +703,7 @@ IGX-THOR:
 
 DGX-SPARK:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"
@@ -706,7 +712,7 @@ DGX-SPARK:
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
 
   3d:
-    max_streams_supported: 4
+    max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
       - operation_type: "text_config_update"

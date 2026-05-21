@@ -197,19 +197,21 @@ rtvi:
     ngcApiKeySecretName: ngc-api-key-secret
     ngcApiKeySecretKey: NGC_API_KEY
     ngcOrg: nvstaging
+    # Vision encoder download entries follow the convention below; update model/version
+    # here to match models.visionEncoder.model / .version when swapping encoders.
     ngcModelsToDownload:
       - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
-        destPath: siglip2_v1.1.onnx
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
+        destPath: siglip_v2_v1.1.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_weights.bin
-        destPath: siglip2_v1.1_weights.bin
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
+        destPath: siglip_v2_v1.1_weights.bin
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_tokenizer
-        destPath: siglip2_v1.1_tokenizer
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
+        destPath: siglip_v2_v1.1_tokenizer
     models:
       authSecretName: ngc-api-key-secret
       authSecretKey: NGC_API_KEY
@@ -223,16 +225,15 @@ rtvi:
           version: deployable_rn50_v1.0.2
         onnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
         inferDims: 3;640;640
+      # Vision encoder: only model + version needed; all paths derived by convention.
+      #   NGC model:  nvstaging/tao/{model}:deployable_{version}
+      #   ONNX:       {model}_{version}.onnx
+      #   Weights:    {model}_{version}_weights.bin
+      #   Tokenizer:  {model}_{version}_tokenizer
+      #   DS name:    {model}-onnx
       visionEncoder:
-        ngc:
-          apiBaseUrl: https://api.ngc.nvidia.com
-          org: nvstaging
-          team: tao
-          model: siglip_v2
-          version: deployable_v1.1
-        onnxFile: siglip2_v1.1.onnx
-        tokenizerDir: siglip2_v1.1_tokenizer
-        dsModelName: siglip2-onnx
+        model: siglip_v2
+        version: v1.1
     resources:
       limits:
         nvidia.com/gpu: 1
@@ -376,7 +377,6 @@ analytics:
             {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "objectConfidenceThreshold", "value": "0.5"},
-            {"name": "coordinateSystem", "value": "euclidean"},
             {"name": "embedEnableDownsampling", "value": "false"},
             {"name": "embedDownsamplerType", "value": "window"},
             {"name": "embedSensorTTLSec", "value": "3600"},
@@ -437,7 +437,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.2-2b9b7127c0bb
+    vssAgentVersion: 3.2.0-26.05.2-7c361dfd0a51
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -465,6 +465,9 @@ agent:
         value: '0.0.0.0'
       - name: VSS_AGENT_PORT
         value: '8000'
+      # Nemotron Nano Omni: set to "true" with Omni model + HF_TOKEN.
+      - name: ENABLE_AUDIO
+        value: '{{ .Values.enableAudio | default "false" }}'
       - name: LLM_MODE
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
       - name: VLM_MODE
@@ -534,7 +537,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-2b9b7127c0bb" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-7c361dfd0a51" }}'
 
 vss-agent-ui:
   enabled: true
@@ -546,7 +549,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.05.2-2b9b7127c0bb"
+    tag: "3.2.0-26.05.2-6d16cb9d880e"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''

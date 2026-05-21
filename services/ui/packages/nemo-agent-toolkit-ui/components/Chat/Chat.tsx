@@ -53,6 +53,11 @@ import {
   shouldRenderAssistantMessage,
 } from '@/utils/chatTransform';
 import { throttle } from '@/utils/data/throttle';
+import { useUploadFlowCoordinator } from '@/hooks/useUploadFlowCoordinator';
+import {
+  shouldAllowChatMessageSend,
+  stripUploadConversationScope,
+} from '@/utils/uploadHiddenMessage';
 import { useTranslation } from 'next-i18next';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
@@ -185,9 +190,27 @@ export const Chat = () => {
     onAddQueryContextReady,
   } = useContext(HomeContext);
 
+  const { uploadFlowActive, uploadFlowActiveRef, reportUploadFlowActive } =
+    useUploadFlowCoordinator();
+
   const [queryContextItems, setQueryContextItems] = useState<QueryDataContext[]>([]);
   const queryContextRef = useRef<QueryDataContext[]>([]);
   useEffect(() => { queryContextRef.current = queryContextItems; }, [queryContextItems]);
+
+  const getActiveConversationId = useCallback(
+    () => selectedConversationRef.current?.id,
+    [],
+  );
+
+  const sendHiddenUploadMessage = useCallback(
+    (content: string, uploadConversationId: string) => {
+      handleSendRef.current?.(
+        { role: 'user', content, hidden: true, uploadConversationId },
+        0,
+      );
+    },
+    [],
+  );
 
   const handleAddQueryContext = useCallback((item: QueryDataContext) => {
     setQueryContextItems((prev) => {
@@ -896,17 +919,20 @@ export const Chat = () => {
   const handleSend = useCallback(
     async (message: Message, deleteCount = 0, retry = false) => {
       if (
-        message.hidden &&
-        selectedConversation &&
-        selectedConversationRef.current?.id !== selectedConversation.id
+        !shouldAllowChatMessageSend({
+          hidden: message.hidden,
+          uploadConversationId: message.uploadConversationId,
+          uploadFlowActive: uploadFlowActiveRef.current,
+          activeConversationId: selectedConversationRef.current?.id,
+        })
       ) {
         return;
       }
 
       // DON'T mutate the original message - create a new one with a new ID
       const messageWithNewId = {
-        ...message,
-        id: uuidv4()
+        ...stripUploadConversationScope(message),
+        id: uuidv4(),
       };
 
       // Set the active user message ID for WebSocket message tracking
@@ -1508,6 +1534,7 @@ export const Chat = () => {
   useEffect(() => {
     if (!onSubmitMessageReady || !selectedConversation) return;
     const submitMessage = (content: string) => {
+      if (uploadFlowActiveRef.current) return;
       const message: Message = { role: 'user', content };
       handleSendRef.current?.(message, 0);
       onMessageSubmitted?.();
@@ -1524,12 +1551,15 @@ export const Chat = () => {
   // Create stable onEdit callback to prevent unnecessary re-renders of MemoizedChatMessage
   // Uses ref to access the latest handleSend without depending on it directly
   const handleEditMessage = useCallback((editedMessage: Message, deleteCount?: number) => {
+    if (uploadFlowActiveRef.current) return;
     setCurrentMessage(editedMessage);
     handleSendRef.current?.(editedMessage, deleteCount || 0);
   }, []); // Empty deps - stable reference forever
 
   // Create stable onDelete callback - uses refs to access latest state
   const handleDeleteMessage = useCallback((messageIndex: number) => {
+    if (uploadFlowActiveRef.current) return;
+
     const conversation = selectedConversationRef.current;
     const allConversations = conversationsRef.current;
     
@@ -1734,6 +1764,13 @@ export const Chat = () => {
 
   return (
     <div className="relative flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden bg-white dark:bg-black transition-all duration-300 ease-in-out">
+      {uploadFlowActive && (
+        <div
+          className="absolute inset-0 z-40 bg-transparent"
+          aria-hidden
+          data-testid="chat-upload-flow-blocker"
+        />
+      )}
       <>
         <div
           className={
@@ -1744,7 +1781,10 @@ export const Chat = () => {
         >
           <ChatHeader
             webSocketModeRef={webSocketModeRef}
-            onSend={(message) => handleSend(message, 0)}
+            chatBlocked={uploadFlowActive}
+            getActiveConversationId={getActiveConversationId}
+            onUploadFlowActiveChange={reportUploadFlowActive}
+            onSendHiddenMessage={sendHiddenUploadMessage}
           />
         </div>
         <div
@@ -1798,6 +1838,9 @@ export const Chat = () => {
           textareaRef={textareaRef}
           queryContextItems={queryContextItems}
           onRemoveQueryContext={handleRemoveQueryContext}
+          chatBlocked={uploadFlowActive}
+          getActiveConversationId={getActiveConversationId}
+          onUploadFlowActiveChange={reportUploadFlowActive}
           onSend={(message, customParams) => {
             const items = queryContextRef.current;
             if (items.length > 0) {

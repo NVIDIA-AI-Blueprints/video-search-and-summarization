@@ -3,13 +3,25 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check that a deploy image tag points at the current source subtree.
 
-This mirrors the ci-vss-oss rebuild decision: resolve the image tag from the
-deploy compose files, extract the source commit suffix from the tag, and compare
-that commit's subtree hash with the current checkout's source subtree hash.
+For every ``vss-agent`` / ``vss-agent-ui`` image referenced from ``deploy/docker``
+compose + ``.env`` files, fetch the image's OCI index annotations from the
+registry and compare ``com.nvidia.vss.source_tree_sha`` to the current
+checkout's tree SHA for the corresponding source folder.
+
+The ``ci-vss-oss`` build pipeline (``ci/tools/create_manifest.py``) stamps that
+annotation at build time via ``docker buildx imagetools create --annotation
+index:com.nvidia.vss.source_tree_sha=…``. Reading it directly from the manifest
+sidesteps the brittle commit-SHA-in-tag lookup that breaks whenever a PR is
+squash- or rebase-merged (the build commit gets orphaned even though the source
+content survives unchanged on the merge target).
+
+A git-based fallback remains for images that lack the annotation (older builds
+predating the manifest-annotation rollout).
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -17,6 +29,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+
+SOURCE_TREE_SHA_LABEL = "com.nvidia.vss.source_tree_sha"
+SOURCE_PATH_LABEL = "com.nvidia.vss.source_path"
+IMAGE_NAME_LABEL = "com.nvidia.vss.image_name"
 
 TAG_COMMIT_RE = re.compile(r"(?:^|[-_/])(?P<sha>[0-9a-f]{7,40})(?:$|[+._-])", re.IGNORECASE)
 IMAGE_LINE_RE = re.compile(r"^\s*image:\s*(?P<ref>\S+)\s*(?:#.*)?$")
@@ -157,6 +173,275 @@ def tree_sha(repo: Path, commit: str, source_path: Path) -> str | None:
     return result.stdout.strip()
 
 
+@dataclass(frozen=True)
+class ImageManifestLabels:
+    source_tree_sha: str
+    source_path: str | None
+    image_name: str | None
+
+
+_INDEX_ACCEPT = (
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+)
+_MANIFEST_ACCEPT = (
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+)
+_CONFIG_ACCEPT = (
+    "application/vnd.oci.image.config.v1+json",
+    "application/vnd.docker.container.image.v1+json",
+    "application/json",
+)
+
+
+def _parse_image_ref(image_ref: str) -> tuple[str, str, str] | None:
+    """Split ``registry/name:tag`` (or ``registry/name@digest``).
+
+    Returns ``(registry, name, reference)`` or ``None`` if the ref doesn't have
+    a recognizable host prefix and tag/digest. The reference is either a
+    ``sha256:...`` digest or a tag string.
+    """
+    # Digest form
+    if "@" in image_ref:
+        repo_part, _, digest = image_ref.partition("@")
+        if "/" not in repo_part or not digest.startswith("sha256:"):
+            return None
+        registry, _, name = repo_part.partition("/")
+        return registry, name, digest
+
+    # Tag form
+    slash = image_ref.find("/")
+    colon = image_ref.rfind(":")
+    if slash < 0 or colon < slash:
+        return None
+    registry = image_ref[:slash]
+    name = image_ref[slash + 1 : colon]
+    tag = image_ref[colon + 1 :]
+    return registry, name, tag
+
+
+def _fetch_bearer_token(registry: str, name: str, ngc_key: str | None) -> tuple[str | None, str | None]:
+    """Resolve a registry pull token via the ``WWW-Authenticate`` challenge flow.
+
+    Some registries (Docker Hub, GHCR) accept anonymous tokens for public
+    repos; nvcr.io requires Basic-auth with ``$oauthtoken`` + the NGC API key.
+    Returns ``(token, None)`` or ``(None, error_message)``.
+    """
+    import base64
+    import urllib.error
+    import urllib.request
+
+    challenge_url = f"https://{registry}/v2/"
+    try:
+        with urllib.request.urlopen(challenge_url, timeout=20):
+            return None, None  # registry doesn't require auth at all
+    except urllib.error.HTTPError as exc:
+        if exc.code != 401:
+            return None, f"unexpected status {exc.code} from {challenge_url}"
+        www_auth = exc.headers.get("WWW-Authenticate", "")
+    except urllib.error.URLError as exc:
+        return None, f"network error reaching {challenge_url}: {exc}"
+
+    if not www_auth.lower().startswith("bearer "):
+        return None, f"registry returned non-Bearer auth challenge: {www_auth!r}"
+
+    # Parse Bearer params: realm="...",service="...",scope="..."
+    params: dict[str, str] = {}
+    for piece in www_auth[len("bearer ") :].split(","):
+        if "=" not in piece:
+            continue
+        k, v = piece.split("=", 1)
+        params[k.strip()] = v.strip().strip('"')
+
+    realm = params.get("realm")
+    if not realm:
+        return None, f"Bearer challenge missing realm: {www_auth!r}"
+
+    # Force scope to this repo's pull scope so we get a usable token even if
+    # the original challenge didn't include it.
+    scope = f"repository:{name}:pull"
+    token_url = f"{realm}?service={urllib.parse.quote(params.get('service', ''))}&scope={urllib.parse.quote(scope)}"
+
+    req = urllib.request.Request(token_url)
+    if ngc_key:
+        basic = base64.b64encode(f"$oauthtoken:{ngc_key}".encode()).decode()
+        req.add_header("Authorization", f"Basic {basic}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        return None, f"token endpoint returned {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return None, f"network error fetching token: {exc}"
+
+    try:
+        token_payload = json.loads(body)
+    except json.JSONDecodeError:
+        return None, "token response was not valid JSON"
+    token = token_payload.get("token") or token_payload.get("access_token")
+    if not token:
+        return None, "token response missing 'token'/'access_token'"
+    return token, None
+
+
+def _registry_get_json(
+    registry: str, name: str, reference: str, token: str | None, accept: tuple[str, ...]
+) -> tuple[dict | None, str | None]:
+    """GET a manifest or blob from the OCI Distribution API and parse JSON.
+
+    ``reference`` is either a tag string or a ``sha256:...`` digest.
+    """
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    url = f"https://{registry}/v2/{name}/manifests/{urllib.parse.quote(reference, safe=':')}"
+    if reference.startswith("sha256:") and "blobs" in accept[0]:
+        # Heuristic: image config is served from the blobs endpoint, not manifests.
+        # We pivot below for clarity instead.
+        url = f"https://{registry}/v2/{name}/blobs/{reference}"
+    req = urllib.request.Request(url)
+    req.add_header("Accept", ", ".join(accept))
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        return None, f"GET {url} returned {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return None, f"network error fetching {url}: {exc}"
+    try:
+        return json.loads(body), None
+    except json.JSONDecodeError as exc:
+        return None, f"response from {url} is not valid JSON: {exc}"
+
+
+def _registry_get_blob(
+    registry: str, name: str, digest: str, token: str | None, accept: tuple[str, ...]
+) -> tuple[dict | None, str | None]:
+    """GET an image config blob from the OCI ``blobs`` endpoint and parse JSON."""
+    import urllib.error
+    import urllib.request
+
+    url = f"https://{registry}/v2/{name}/blobs/{digest}"
+    req = urllib.request.Request(url)
+    req.add_header("Accept", ", ".join(accept))
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode()
+    except urllib.error.HTTPError as exc:
+        return None, f"GET {url} returned {exc.code}: {exc.reason}"
+    except urllib.error.URLError as exc:
+        return None, f"network error fetching {url}: {exc}"
+    try:
+        return json.loads(body), None
+    except json.JSONDecodeError as exc:
+        return None, f"response from {url} is not valid JSON: {exc}"
+
+
+def read_image_manifest_labels(
+    image_ref: str,
+) -> tuple[ImageManifestLabels | None, str | None, bool]:
+    """Read ``com.nvidia.vss.*`` metadata from the image's config blob labels.
+
+    Both the agent and the UI Dockerfiles emit ``LABEL com.nvidia.vss.*`` lines
+    (or the multiarch-builder stamps them via ``--label``), so the resulting
+    image **config blob** carries the source-tree-SHA label regardless of
+    whether the manifest is stored as an OCI image index or a Docker manifest
+    list. Reading the label from the config blob is therefore strictly more
+    portable than reading manifest-index annotations — both formats survive
+    the round-trip through nvcr.io and the artifacts-promotion copy.
+
+    Chain: top-level index/list → first platform manifest → config blob → ``Labels``.
+
+    Returns a 3-tuple ``(labels, reason, can_fallback)``:
+
+    * ``(labels, None, False)`` on success.
+    * ``(None, reason, True)`` if the manifest and config blob were fetched
+      successfully but neither carries a ``source_tree_sha`` label — the
+      legacy case for images built before the annotation rollout. The caller
+      may fall back to git-SHA resolution.
+    * ``(None, reason, False)`` for any registry-side failure (404, auth,
+      network, malformed response, missing platform manifest, etc.). These
+      are real bugs — the image is missing, mis-tagged, or unreachable — and
+      the caller must fail rather than mask the issue with a git-SHA fallback
+      that happens to find the tag's commit-SHA suffix in the local checkout.
+    """
+    parsed = _parse_image_ref(image_ref)
+    if parsed is None:
+        return None, f"could not parse image ref: {image_ref}", False
+    registry, name, reference = parsed
+
+    ngc_key = os.environ.get("NGC_CLI_API_KEY") or os.environ.get("NGC_API_KEY")
+    token, token_err = _fetch_bearer_token(registry, name, ngc_key)
+    if token_err:
+        return None, token_err, False
+
+    # 1. Fetch the top-level index/list.
+    index, err = _registry_get_json(registry, name, reference, token, _INDEX_ACCEPT)
+    if err:
+        return None, f"index fetch failed: {err}", False
+    if index is None:
+        return None, "registry returned empty index", False
+
+    # 2. Pick a platform-bearing manifest entry (skip attestation manifests).
+    manifests = index.get("manifests") or []
+    if not manifests:
+        # Single-arch image: the response IS the platform manifest.
+        platform_manifest = index
+    else:
+        platform_manifest = None
+        for entry in manifests:
+            platform = entry.get("platform") or {}
+            if platform.get("architecture") in ("unknown", None):
+                continue
+            digest = entry.get("digest")
+            if not digest:
+                continue
+            platform_manifest_resp, err = _registry_get_json(
+                registry, name, digest, token, _MANIFEST_ACCEPT
+            )
+            if err:
+                continue
+            platform_manifest = platform_manifest_resp
+            break
+        if platform_manifest is None:
+            return None, "no usable platform manifest in index", False
+
+    # 3. Follow config.digest to the config blob, read its Labels.
+    config_ref = (platform_manifest.get("config") or {}).get("digest")
+    if not config_ref:
+        return None, "platform manifest has no config.digest", False
+    config, err = _registry_get_blob(registry, name, config_ref, token, _CONFIG_ACCEPT)
+    if err:
+        return None, f"config blob fetch failed: {err}", False
+    if config is None:
+        return None, "registry returned empty config blob", False
+
+    labels = (config.get("config") or {}).get("Labels") or {}
+    tree = labels.get(SOURCE_TREE_SHA_LABEL)
+    if not tree:
+        # Manifest + config were reachable, but the source-tree-SHA label was
+        # never stamped on this image. This is the legacy case (pre-annotation
+        # rollout) and is the only condition where the git-SHA fallback may
+        # legitimately fire.
+        return None, f"image config has no {SOURCE_TREE_SHA_LABEL} label", True
+
+    return (
+        ImageManifestLabels(
+            source_tree_sha=tree,
+            source_path=labels.get(SOURCE_PATH_LABEL),
+            image_name=labels.get(IMAGE_NAME_LABEL),
+        ),
+        None,
+        False,
+    )
+
+
 def discover_compose_files(repo_root: Path) -> list[Path]:
     deploy = repo_root / DEPLOY_DIR
     files: set[Path] = set()
@@ -248,8 +533,66 @@ def check_resolved_image(
         print(f"    - {compose_rel}{suffix}")
 
     tag = image_tag(item.resolved_ref)
-    prefix = commit_prefix_from_tag(tag)
     print(f"  tag:           {tag or '<missing>'}")
+
+    # Primary path: read the build-time tree SHA from the image's OCI manifest
+    # annotations. This is the authoritative source of truth (set by
+    # ci-vss-oss ci/tools/create_manifest.py) and works regardless of whether
+    # the original build commit still exists in any git branch — which is the
+    # common case after a squash- or rebase-merge orphans the PR-head SHA.
+    labels, oci_reason, can_fallback = read_image_manifest_labels(item.resolved_ref)
+    if labels:
+        if labels.image_name and labels.image_name != config.image_name:
+            print(
+                f"  [FAIL] manifest {IMAGE_NAME_LABEL}={labels.image_name!r}, "
+                f"expected {config.image_name!r}"
+            )
+            return False
+        if labels.source_path and labels.source_path != src:
+            print(
+                f"  [FAIL] manifest {SOURCE_PATH_LABEL}={labels.source_path!r}, "
+                f"expected {src!r}"
+            )
+            return False
+        print(f"  manifest:      {SOURCE_TREE_SHA_LABEL}={labels.source_tree_sha}")
+        print(f"  comparing {src}/:")
+        print(f"    at HEAD ({current_commit[:12]}):  {current_tree}")
+        print(f"    in image manifest:              {labels.source_tree_sha}")
+        if labels.source_tree_sha == current_tree:
+            print("    → identical")
+            print("  [PASS]")
+            return True
+        print("    → DIFFERENT")
+        print(f"  [FAIL] {config.image_name} container does NOT match the current {src}/ source.")
+        print(f"         Image's source tree SHA at build time: {labels.source_tree_sha}")
+        print(f"         Current {src}/ tree SHA:               {current_tree}")
+        _print_fix_hint(config)
+        return False
+
+    # Only fall back when the manifest + config were reachable but the
+    # source-tree-SHA label is absent (legacy images predating the
+    # annotation rollout in ci-vss-oss). For any registry-side failure
+    # (404, auth, network, malformed) we must hard-fail — otherwise a
+    # mis-promoted tag is silently rescued by the git-SHA fallback as
+    # long as the tag's commit-SHA suffix happens to exist in the local
+    # checkout, which masks a real bug.
+    if not can_fallback:
+        print(f"  manifest:      UNREACHABLE ({oci_reason})")
+        print(
+            f"  [FAIL] could not fetch the image manifest for {item.resolved_ref}. "
+            "The image is missing from the registry, the credentials are "
+            "wrong, or the network is broken — fix the upstream promotion "
+            "rather than falling back to the tag's git-SHA suffix."
+        )
+        return False
+
+    # Fallback: pre-annotation images (predate the manifest-annotation rollout
+    # in ci-vss-oss). Resolve the commit SHA encoded in the tag suffix and
+    # compute the tree SHA at that commit locally.
+    print(f"  manifest:      <no {SOURCE_TREE_SHA_LABEL} annotation> ({oci_reason})")
+    print("  falling back to git-SHA resolution …")
+
+    prefix = commit_prefix_from_tag(tag)
     if not prefix:
         print("  [FAIL] tag does not contain a git commit SHA suffix; cannot verify source.")
         return False
@@ -257,7 +600,13 @@ def check_resolved_image(
     tag_commit = resolve_commit(repo_root, prefix)
     if not tag_commit:
         print(f"  built from:    {prefix}  (NOT found in this checkout)")
-        print("  [FAIL] could not resolve this SHA locally. Try: git fetch --no-tags origin <branch>")
+        print(
+            "  [FAIL] could not resolve this SHA locally and the image has no "
+            f"{SOURCE_TREE_SHA_LABEL} annotation. This usually happens after a "
+            "squash/rebase-merge orphaned the build commit. Re-promote the "
+            "image with a manifest annotation, or pin a tag whose suffix is a "
+            "develop-resident SHA."
+        )
         return False
     print(f"  built from:    {tag_commit}")
 
@@ -276,6 +625,11 @@ def check_resolved_image(
     print("    → DIFFERENT")
     print(f"  [FAIL] {config.image_name} container does NOT match the current {src}/ source.")
     print(f"         See the diff:  git diff {tag_commit[:12]} HEAD -- {src}")
+    _print_fix_hint(config)
+    return False
+
+
+def _print_fix_hint(config: ImageConfig) -> None:
     print()
     print("  How to fix:")
     print("    1. Find the 'Trigger Downstream Pipeline' job on this PR's CI run.")
@@ -286,7 +640,6 @@ def check_resolved_image(
     print(f"    3. Update the {config.image_name} tag in the (compose, env)")
     print("       combination(s) listed above so they reference the new tag,")
     print("       commit, and push.")
-    return False
 
 
 def verify(repo_root: Path, config: ImageConfig) -> int:

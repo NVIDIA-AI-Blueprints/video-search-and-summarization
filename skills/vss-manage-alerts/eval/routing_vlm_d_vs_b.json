@@ -1,0 +1,48 @@
+{
+  "skills": ["vss-manage-alerts", "vss-deploy-profile"],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": ["remote-all"]
+      }
+    }
+  },
+  "deploy_mode": "real-time",
+  "env": "VSS alerts profile already deployed in VLM real-time mode (`deploy -p alerts -m real-time`). Alert Bridge running and reachable. Sensor `warehouse_sample` registered in VIOS with a live RTSP stream. Pre-authorized to deploy prerequisites.",
+  "description": "Routing boundary: Workflow D (sensor + condition → Alert Bridge) vs Workflow B (sensor only → VSS Agent /generate). Tests that the parent alerts skill correctly distinguishes 'create a specific alert' from 'generic start monitoring' across varied phrasings.",
+  "expects": [
+    {
+      "query": "Send me alerts for fallen boxes in camera warehouse_sample",
+      "checks": [
+        "The trajectory calls Alert Bridge `POST /api/v1/realtime` (not `POST /generate` with start-alert phrasing) — confirming Workflow D routing.",
+        "The Alert Bridge payload's `prompt` field preserves 'fallen boxes' or an equivalent paraphrase of the detection condition.",
+        "The Alert Bridge payload's `live_stream_url` is an RTSP URL resolved from the `warehouse_sample` sensor via VIOS.",
+        "The agent does NOT call `POST /generate` with an `input_message` containing 'start real-time alert' — that would be Workflow B, not D."
+      ]
+    },
+    {
+      "query": "Start real-time alert for sensor warehouse_sample",
+      "checks": [
+        "The trajectory calls `POST /generate` with `input_message` containing 'start' and 'warehouse_sample' — confirming Workflow B routing.",
+        "The trajectory does NOT call Alert Bridge `POST /api/v1/realtime` — no detection condition means B, not D.",
+        "The agent does NOT ask a B-vs-D disambiguation question — there is clearly no detection condition."
+      ]
+    },
+    {
+      "query": "Fallen boxes needs an alert on warehouse_sample",
+      "checks": [
+        "The trajectory calls Alert Bridge `POST /api/v1/realtime` — the agent correctly identified both the sensor ('warehouse_sample') and the detection condition ('fallen boxes') despite the unusual subject-first word order.",
+        "The Alert Bridge payload's `prompt` references fallen boxes.",
+        "The agent does NOT ask a B-vs-D disambiguation question — the detection condition is unambiguous."
+      ]
+    },
+    {
+      "query": "Alert needs to be created for vehicle collisions on Camera_02",
+      "checks": [
+        "The trajectory calls Alert Bridge `POST /api/v1/realtime` — Workflow D routing despite passive voice phrasing.",
+        "The Alert Bridge payload's `prompt` references vehicle collisions.",
+        "The Alert Bridge payload's `live_stream_url` resolves from `Camera_02` via VIOS."
+      ]
+    }
+  ]
+}
