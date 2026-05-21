@@ -316,9 +316,17 @@ def generate_platform_mode(
         (solution_dir / "solve.sh").write_text(_solve_sh(platform, mode))
 
         # ---- skills/ -------------------------------------------------------
+        # Only copy vss-manage-alerts.  vss-deploy-profile is intentionally
+        # omitted: including it alongside vss-manage-alerts pushes the
+        # combined tar past Linux's 128 KB per-argument limit when
+        # BrevEnvironment.upload_dir() base64-encodes and passes the
+        # archive as a shell argument to `brev exec`.  vss-deploy-profile
+        # is already present at /skills/vss-deploy-profile on pool boxes
+        # from prior trial runs; harbor's claude-code agent setup copies
+        # /skills/* into $CLAUDE_CONFIG_DIR/skills/, making it available
+        # to the agent without re-uploading it.
         for src_dir, skill_name in [
             (skill_dir, "vss-manage-alerts"),
-            (deploy_skill_dir, "vss-deploy-profile"),
         ]:
             if src_dir and src_dir.exists():
                 dst = step_dir / "skills" / skill_name
