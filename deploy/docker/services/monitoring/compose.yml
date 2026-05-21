@@ -30,7 +30,7 @@ services:
     container_name: prometheus
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/monitoring/config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - $VSS_APPS_DIR/services/monitoring/config/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
     restart: always
@@ -43,9 +43,9 @@ services:
       - "35000:3000"
     volumes:
       - grafana-storage:/var/lib/grafana
-      - $MDX_SAMPLE_APPS_DIR/services/monitoring/config/grafana-dashboard:/etc/grafana/dashboards
-      - $MDX_SAMPLE_APPS_DIR/services/monitoring/config/grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
-      - $MDX_SAMPLE_APPS_DIR/services/monitoring/config/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
+      - $VSS_APPS_DIR/services/monitoring/config/grafana-dashboard:/etc/grafana/dashboards
+      - $VSS_APPS_DIR/services/monitoring/config/grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - $VSS_APPS_DIR/services/monitoring/config/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
     environment:
       - GF_SECURITY_ADMIN_USER=$GF_SECURITY_ADMIN_USER
       - GF_SECURITY_ADMIN_PASSWORD=$GF_SECURITY_ADMIN_PASSWORD
@@ -67,7 +67,7 @@ services:
       - '--path.rootfs=/rootfs'
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.52.0
+    image: ghcr.io/google/cadvisor:0.56.2
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_kafka_3d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_3d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_kafka_3d","playback_redis_2d","playback_redis_3d"]
     ports:
       - "18080:8080"

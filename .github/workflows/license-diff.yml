@@ -1,0 +1,160 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: License Diff
+
+on:
+  push:
+    branches:
+      - "pull-request/[0-9]+"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  license-diff:
+    name: License Diff (OSRB CSV)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Resolve base ref and PR number
+        id: ctx
+        env:
+          DEFAULT_BRANCH: develop
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          merge_base=$(git merge-base HEAD "origin/${DEFAULT_BRANCH}" || git rev-parse "origin/${DEFAULT_BRANCH}")
+          pr_number="${GITHUB_REF##*/pull-request/}"
+          echo "base=${merge_base}" >> "$GITHUB_OUTPUT"
+          echo "pr=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "Comparing HEAD against ${merge_base} for PR #${pr_number}"
+
+      - name: Generate license diff CSV
+        id: gen
+        run: |
+          set -euo pipefail
+          python .github/scripts/license_diff_csv.py \
+            --base-ref "${{ steps.ctx.outputs.base }}" \
+            --head-ref HEAD \
+            --output license-diff.csv
+          row_count=$(($(wc -l < license-diff.csv) - 1))
+          echo "rows=${row_count}" >> "$GITHUB_OUTPUT"
+          echo "--- csv preview (rows=${row_count}) ---"
+          head -n 30 license-diff.csv || true
+
+      - name: Upload CSV artifact
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: license-diff
+          path: license-diff.csv
+          if-no-files-found: warn
+
+      - name: Render markdown table
+        id: render
+        if: always() && steps.gen.outputs.rows != ''
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > diff-table.md
+          import csv
+          rows = list(csv.DictReader(open("license-diff.csv")))
+          print("| language | package | change | old_version | new_version | old_license | new_license | repository_url |")
+          print("|----------|---------|--------|-------------|-------------|-------------|-------------|----------------|")
+          for row in rows:
+              cells = [
+                  row["language"], row["package"], row["change"],
+                  row["old_version"], row["new_version"],
+                  row["old_license"], row["new_license"],
+                  row["repository_url"],
+              ]
+              print("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
+          PY
+
+      - name: Write step summary
+        if: always()
+        env:
+          ROWS: ${{ steps.gen.outputs.rows }}
+          BASE: ${{ steps.ctx.outputs.base }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## License Diff for OSRB"
+            echo
+            if [[ ! -f license-diff.csv ]]; then
+              echo "No CSV produced."
+            elif [[ "${ROWS:-0}" -le 0 ]]; then
+              echo "No package version or license changes detected."
+            else
+              echo "Compared HEAD against \`${BASE}\`."
+              echo "**${ROWS}** changed packages require OSRB review. Full CSV is attached as the **license-diff** artifact."
+              echo
+              cat diff-table.md
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post or update PR comment
+        if: always() && steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.ctx.outputs.pr }}
+          ROWS: ${{ steps.gen.outputs.rows }}
+          BASE: ${{ steps.ctx.outputs.base }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          marker='<!-- license-diff-osrb -->'
+          {
+            echo "$marker"
+            echo "## License Diff for OSRB"
+            echo
+            echo "**${ROWS}** changed packages require OSRB review (vs \`${BASE}\`)."
+            echo "Download the full CSV directly: [\`license-diff.csv\`](${ARTIFACT_URL}) (or browse the [workflow run](${RUN_URL}))."
+            echo
+            cat diff-table.md
+            echo
+            echo "<details><summary>Raw CSV (inline)</summary>"
+            echo
+            echo '```csv'
+            cat license-diff.csv
+            echo '```'
+            echo "</details>"
+            echo
+            echo "_This check is informational. CODEOWNERS still gates merge — get approval from \`@NVIDIA-AI-Blueprints/VSS_OSRB_Approvers\` for the touched lockfile/manifest paths._"
+          } > comment.md
+          existing=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+            --jq "[.[] | select(.body | startswith(\"$marker\"))][0].id")
+          payload=$(jq -Rsn '{body: input}' < comment.md)
+          if [[ -n "$existing" && "$existing" != "null" ]]; then
+            echo "Updating existing comment $existing"
+            echo "$payload" | gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" --input - > /dev/null
+          else
+            echo "Creating new comment on PR #${PR}"
+            echo "$payload" | gh api -X POST "repos/${REPO}/issues/${PR}/comments" --input - > /dev/null
+          fi
+
+      - name: Fail when license diff is non-empty
+        if: steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
+        env:
+          ROWS: ${{ steps.gen.outputs.rows }}
+        run: |
+          echo "::error title=License diff non-empty::${ROWS} packages changed; requires OSRB review."
+          exit 1

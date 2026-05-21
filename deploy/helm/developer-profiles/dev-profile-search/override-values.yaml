@@ -38,7 +38,6 @@ vss-agent:
   elasticsearchUrl: "http://vss-search-elasticsearch:9200"
   phoenixEndpoint: "http://phoenix:6006"
   vstBaseUrl: "http://vss-search-vss-vios-ingress:8000"
-  vstMcpUrl: "http://vss-search-vss-vios-mcp:8001"
   vstInternalUrl: "http://vss-search-vss-vios-ingress:8000"
 
 # ── Kafka: override advertised host for external broker access (optional) ─────

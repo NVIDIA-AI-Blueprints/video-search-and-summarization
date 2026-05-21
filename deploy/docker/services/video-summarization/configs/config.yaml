@@ -31,6 +31,7 @@ tools:
       host: !ENV ${ES_HOST}
       port: !ENV ${ES_PORT}
       kafka_consumer_settle_secs: 5.0
+      collection_name: lvs-events
     tools:
       embedding: nvidia_embedding
 
@@ -79,6 +80,7 @@ functions:
       time_overlap_threshold: 0.1
       max_events_per_batch: 50
       kafka_enabled: true
+      enable_llm_merging: !ENV ${LVS_ENABLE_LLM_MERGING:false}
     tools:
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
       llm: summarization_llm
@@ -93,6 +95,7 @@ functions:
       # them back from the database instead of expecting in-process
       # accumulation. Required for POST /aggregate_live_stream.
       kafka_enabled: true
+      enable_llm_merging: !ENV ${LVS_ENABLE_LLM_MERGING:false}
     tools:
       db: !ENV ${LVS_DATABASE_BACKEND:elasticsearch_db}
       llm: summarization_llm

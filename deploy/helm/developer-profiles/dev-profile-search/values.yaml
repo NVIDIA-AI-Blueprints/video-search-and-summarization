@@ -95,9 +95,6 @@ vios:
     hostIpFollowsExternallyAccessibleIp: false
     externallyAccessibleIp: ""
 
-  vss-vios-mcp:
-    enabled: true
-
   vss-vios-nvstreamer:
     enabled: true
 
@@ -178,7 +175,7 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
-      tag: 3.2.0-26.04.2
+      tag: 3.2.0-26.05.1
       pullPolicy: IfNotPresent
     httpPort: 9000
     streamType: kafka
@@ -200,19 +197,21 @@ rtvi:
     ngcApiKeySecretName: ngc-api-key-secret
     ngcApiKeySecretKey: NGC_API_KEY
     ngcOrg: nvstaging
+    # Vision encoder download entries follow the convention below; update model/version
+    # here to match models.visionEncoder.model / .version when swapping encoders.
     ngcModelsToDownload:
-      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1
-        sourcePath: rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx
-        destPath: rtdetr_warehouse_v1.0.1.fp16.onnx
+      - model: nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2
+        sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
+        destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1.onnx
-        destPath: siglip2_v1.1.onnx
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
+        destPath: siglip_v2_v1.1.onnx
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_weights.bin
-        destPath: siglip2_v1.1_weights.bin
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
+        destPath: siglip_v2_v1.1_weights.bin
       - model: nvstaging/tao/siglip_v2:deployable_v1.1
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip2_v1.1_tokenizer
-        destPath: siglip2_v1.1_tokenizer
+        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
+        destPath: siglip_v2_v1.1_tokenizer
     models:
       authSecretName: ngc-api-key-secret
       authSecretKey: NGC_API_KEY
@@ -223,19 +222,18 @@ rtvi:
           org: nvstaging
           team: tao
           model: rtdetr_2d_warehouse
-          version: deployable_efficientvit_l2_v1.0.1
-        onnxFile: rtdetr_warehouse_v1.0.1.fp16.onnx
+          version: deployable_rn50_v1.0.2
+        onnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
         inferDims: 3;640;640
+      # Vision encoder: only model + version needed; all paths derived by convention.
+      #   NGC model:  nvstaging/tao/{model}:deployable_{version}
+      #   ONNX:       {model}_{version}.onnx
+      #   Weights:    {model}_{version}_weights.bin
+      #   Tokenizer:  {model}_{version}_tokenizer
+      #   DS name:    {model}-onnx
       visionEncoder:
-        ngc:
-          apiBaseUrl: https://api.ngc.nvidia.com
-          org: nvstaging
-          team: tao
-          model: siglip_v2
-          version: deployable_v1.1
-        onnxFile: siglip2_v1.1.onnx
-        tokenizerDir: siglip2_v1.1_tokenizer
-        dsModelName: siglip2-onnx
+        model: siglip_v2
+        version: v1.1
     resources:
       limits:
         nvidia.com/gpu: 1
@@ -249,7 +247,7 @@ rtvi:
     replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
-      tag: "3.2.0-26.04.2"
+      tag: "3.2.0-26.05.2"
       pullPolicy: IfNotPresent
     port: 8000
     service:
@@ -379,7 +377,6 @@ analytics:
             {"name": "behaviorStateTimeout", "value": "10"},
             {"name": "behaviorMaxPoints", "value": "100"},
             {"name": "objectConfidenceThreshold", "value": "0.5"},
-            {"name": "coordinateSystem", "value": "euclidean"},
             {"name": "embedEnableDownsampling", "value": "false"},
             {"name": "embedDownsamplerType", "value": "window"},
             {"name": "embedSensorTTLSec", "value": "3600"},
@@ -425,7 +422,6 @@ agent:
     evalLlmJudgeName: nvidia/nvidia-nemotron-nano-9b-v2
     evalLlmJudgeBaseUrl: ''
     phoenixEndpoint: ''
-    vstMcpUrl: ''
     vstExternalUrl: ''
     # VST_BASE_URL env: leave empty in Search unless you need an explicit VST public base. Otherwise set this (or vstExternalUrl) only.
     vstBaseUrl: ''
@@ -441,7 +437,7 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
-    vssAgentVersion: 3.2.0-26.05.2-55f5cd1d7a59
+    vssAgentVersion: 3.2.0-26.05.2-7c361dfd0a51
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -469,6 +465,9 @@ agent:
         value: '0.0.0.0'
       - name: VSS_AGENT_PORT
         value: '8000'
+      # Nemotron Nano Omni: set to "true" with Omni model + HF_TOKEN.
+      - name: ENABLE_AUDIO
+        value: '{{ .Values.enableAudio | default "false" }}'
       - name: LLM_MODE
         value: '{{- $g := .Values.global | default dict }}{{- $llm := ((coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim) }}{{- if $llm }}remote{{- else }}local{{- end }}'
       - name: VLM_MODE
@@ -519,8 +518,6 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $ipRaw := index $g "externalHost" | default "127.0.0.1" | trim }}{{- $ip := $ipRaw }}{{- if and (hasPrefix "vss-search." $ipRaw) (hasSuffix "nip.io" $ipRaw) }}{{- $ip = $ipRaw | trimPrefix "vss-search." | trimSuffix ".nip.io" }}{{- end }}{{- $mainHostDef := printf "vss-search.%s.nip.io" $ip }}{{- $mainHost := .Values.vstPublicIngressHost | default $mainHostDef | trim }}{{- $useNip := default true .Values.vstPublicBaseUseNipIo }}{{- $nipBase := ternary (printf "http://%s" $mainHost) "" (and $useNip (ne $mainHost "")) }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{- $vstPubExplicit := coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl }}{{ if $vstPubExplicit }}{{ $vstPubExplicit }}{{ else if and $useNip (ne $nipBase "") }}{{ $nipBase }}{{ else }}{{ coalesce $globalBase $vssAgentHttp }}{{ end }}'
       - name: VST_INTERNAL_URL
         value: '{{- if (trim (.Values.vstInternalUrl | default "")) }}{{ trim .Values.vstInternalUrl }}{{- else }}http://vss-vios-ingress:30888{{- end }}'
-      - name: VST_MCP_URL
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $def := ternary (printf "http://%s-vss-vios-mcp:8001" .Release.Name) "http://vss-vios-mcp:8001" $pfx }}{{ coalesce .Values.vstMcpUrl $def }}'
       - name: LLM_NAME
         value: '{{- $g := .Values.global | default dict }}{{ trim (coalesce .Values.llmName ((index $g "llmName") | default "") "nvidia/nvidia-nemotron-nano-9b-v2") }}'
       - name: VLM_NAME
@@ -540,7 +537,7 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
-        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-55f5cd1d7a59" }}'
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-7c361dfd0a51" }}'
 
 vss-agent-ui:
   enabled: true
@@ -552,7 +549,7 @@ vss-agent-ui:
     imagePullPolicy: IfNotPresent
   image:
     repository: nvcr.io/nvstaging/vss-core/vss-agent-ui
-    tag: "3.2.0-26.04.4-3"
+    tag: "3.2.0-26.05.2-6d16cb9d880e"
   replicas: 1
   fillAlertBridgeUrlFromGlobal: false
   agentApiUrlBase: ''

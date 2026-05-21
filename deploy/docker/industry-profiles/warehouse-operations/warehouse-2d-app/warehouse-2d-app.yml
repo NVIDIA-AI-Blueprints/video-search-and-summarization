@@ -19,24 +19,27 @@ services:
 
   vss-behavior-analytics-2d:
     extends:
-      file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
     network_mode: "host"
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d","playback_kafka_2d","playback_redis_2d"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json
     container_name: vss-behavior-analytics
-    command: python3 apps/spatial_analytics/main_spatial_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
 
   vss-behavior-analytics-playback-2d:
     extends:
-      file: ${MDX_SAMPLE_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
+      file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
     profiles: ["playback_kafka_2d","playback_redis_2d"]
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
-      - $MDX_DATA_DIR/playback/warehouse_loading_dock_playback.json:/opt/mdx/playback/warehouse_loading_dock_playback.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json:/resources/vss-behavior-analytics-config.json
+      - $VSS_DATA_DIR/playback/warehouse_loading_dock_playback.json:/opt/mdx/playback/warehouse_loading_dock_playback.json
     container_name: vss-behavior-analytics-playback
     command: python3 apps/playback/playback_frames.py --config /resources/vss-behavior-analytics-config.json --playback-filepath /opt/mdx/playback/warehouse_loading_dock_playback.json      
 
@@ -45,7 +48,7 @@ services:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
     #runtime: nvidia
-    profiles: ["bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_2d"]
+    profiles: ["bp_wh_redis_2d","bp_wh_kafka_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -64,52 +67,99 @@ services:
             device_ids:
             - "${RT_CV_DEVICE_ID:-0}"
     volumes:    
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
-      - $MDX_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
-      - $MDX_SAMPLE_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-config.json:/home/vst/vst_release/configs/vst_config.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs/vst-storage.json:/home/vst/vst_release/configs/vst_storage.json
+      - $VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET:/tmp/nv_streamer/videos
+      - $VSS_APPS_DIR/services/vios/scripts/user_additional_install.sh:/home/vst/vst_release/tools/user_additional_install.sh
     depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
       bp-configurator-2d:
         condition: service_healthy
 
-  perception-sdr-2d:
-    extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: perception-sdr
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
-    container_name: vss-rtvi-cv-sdr
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-configs
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-data
+  # perception-sdr-2d:
+  #   extends:
+  #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+  #     service: perception-sdr
+  #   profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
+  #   container_name: vss-rtvi-cv-sdr
+  #   volumes:
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-configs
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr:/wdm-data
+  #   environment:
+  #     WDM_INITIALIZE_FROM_VST: false
+  #     WDM_KFK_ENABLE: true
+  #     WDM_PRELOAD_DELAY_FOR_DS_API: false
+  #     WDM_WL_THRESHOLD: 10
+  #     WDM_POD_WATCH_DOCKER_DELAY: 0.05
+  #     WDM_WL_OBJECT_NAME: sdr-perception
+  #     WDM_CONSUMER_GRP_ID: sdr-perception-cg
+  #     WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
+  #     WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv"]'
+  #     WDM_REAPPLY_ON_WL_RESTART: true
+  #   depends_on:
+  #     broker-health-check:
+  #       condition: service_completed_successfully
+
+  bp-configurator-2d-init:
+    build:
+      context: $VSS_APPS_DIR/services/infra
+      dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile
+      network: host
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
+    container_name: vss-configurator-2d-init
+    network_mode: "host"
     environment:
-      WDM_INITIALIZE_FROM_VST: false
-      WDM_KFK_ENABLE: true
-      WDM_PRELOAD_DELAY_FOR_DS_API: false
-      WDM_WL_THRESHOLD: 10
-      WDM_POD_WATCH_DOCKER_DELAY: 0.05
-      WDM_WL_OBJECT_NAME: sdr-perception
-      WDM_CONSUMER_GRP_ID: sdr-perception-cg
-      WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-cv"]'
-      WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES: '["vss-rtvi-cv"]'
-    depends_on:
-      broker-health-check:
-        condition: service_completed_successfully
+      BP_PROFILE: $BP_PROFILE
+      STREAM_TYPE: $STREAM_TYPE
+      MAX_RETRIES: 60
+      RETRY_INTERVAL: 2
+      BOOTSTRAP_HOST: localhost
+      KAFKA_PORT: 9092
+      REDIS_PORT: 6379
+      KAFKA_TOPICS: '[{"name": "mdx-raw"},
+        {"name": "mdx-bev"},
+        {"name": "mdx-space-utilization"},
+        {"name": "mdx-alerts"},
+        {"name": "mdx-behavior"},
+        {"name": "mdx-behavior-plus"},
+        {"name": "mdx-frames"},
+        {"name": "mdx-mtmc"},
+        {"name": "mdx-rtls"},
+        {"name": "mdx-rtls-region-1"},
+        {"name": "mdx-amr"},
+        {"name": "mdx-vlm-alerts"},
+        {"name": "mdx-notification"},
+        {"name": "mdx-events"},
+        {"name": "mdx-incidents"},
+        {"name": "mdx-vlm-incidents"},
+        {"name": "mdx-vlm"},
+        {"name": "mdx-vlm-captions"},
+        {"name": "mdx-structured-events-summary"},
+        {"name": "mdx-embed"},
+        {"name": "mdx-embed-filtered"}]'
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ "$${BP_PROFILE}" = "bp_wh_auto_calib" ]; then
+          echo "BP_PROFILE is bp_wh_auto_calib. Broker health check is not required"
+        else
+          exec /scripts/check-$${STREAM_TYPE}-health.sh
+        fi
 
   bp-configurator-2d:
-    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.04
-    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
+    image: nvcr.io/nvstaging/vss-core/vss-configurator:3.2-2026.05.12
+    profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d", "bp_wh_auto_calib_2d"]
     container_name: vss-configurator
     network_mode: "host"
     user: "0:0"
     environment:
       SENSOR_INFO_SOURCE: ${SENSOR_INFO_SOURCE:-nvstreamer}
       ENABLE_PROFILE_CONFIGURATOR: ${ENABLE_PROFILE_CONFIGURATOR:-true}
+      ENABLE_SENSOR_CONFIGURATOR: ${ENABLE_SENSOR_CONFIGURATOR:-true}
+      ENABLE_CALIBRATION_PROCESS: ${ENABLE_CALIBRATION_PROCESS:-false}
       ENABLE_REDIS_DUPLICATOR_THREAD: false
-      SEND_CONFIG_TO_SDR: true
+      SEND_CONFIG_TO_SDR: false
       CALL_SENSOR_ADD_API: true
-      PROFILE_CONFIG_FILE: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/$CONFIGURATOR_CONFIG_FILE
+      PROFILE_CONFIG_FILE: $VSS_APPS_DIR/industry-profiles/warehouse-operations/blueprint-configurator/$CONFIGURATOR_CONFIG_FILE
       HARDWARE_PROFILE: $HARDWARE_PROFILE
       NUM_STREAMS: ${NUM_STREAMS:-4}
       MODE: $MODE
@@ -121,10 +171,10 @@ services:
       CALIBRATION_DIR_MOUNT_PATH: /opt/data
       CALIBRATION_FILE_NAME: calibration.json
       PORT: 5001
-      MDX_DATA_DIR: $MDX_DATA_DIR
-      MDX_SAMPLE_APPS_DIR: $MDX_SAMPLE_APPS_DIR
-      DS_CONFIG_DIR: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/
-      NVSTREAMER_CONFIG_DIR: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs
+      VSS_DATA_DIR: $VSS_DATA_DIR
+      VSS_APPS_DIR: $VSS_APPS_DIR
+      DS_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/
+      NVSTREAMER_CONFIG_DIR: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/nvstreamer/configs
       MESSAGE_BROKER_TYPE: $STREAM_TYPE 
       WDM_REDIS_HOST: localhost
       WDM_REDIS_PORT: 6379
@@ -142,16 +192,16 @@ services:
       ADAPTOR_PASSWORD: ${ADAPTOR_PASSWORD}
       RECOMPUTE_BEV_CENTERS_ENABLED: false
       AI_BRIDGE_ENDPOINT: ${AI_BRIDGE_ENDPOINT}
-      SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
+      SENSOR_FILE_PATH: ${SENSOR_FILE_PATH:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/camera_configs/camera_info.json}
       CHECK_SENSOR_IN_CALIBRATION_FILE: false
-    env_file: ${BP_CONFIGURATOR_ENV_FILE:-$MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/.env}
+    env_file: ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
     volumes:
-      - $MDX_SAMPLE_APPS_DIR:$MDX_SAMPLE_APPS_DIR:rw
-      - $MDX_DATA_DIR:$MDX_DATA_DIR:rw
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations:$MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations:rw
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
+      - $VSS_APPS_DIR:$VSS_APPS_DIR:rw
+      - $VSS_DATA_DIR:$VSS_DATA_DIR:rw
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations:$VSS_APPS_DIR/industry-profiles/warehouse-operations:rw
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data
     depends_on:
-      broker-health-check:
+      bp-configurator-2d-init:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -166,32 +216,15 @@ services:
       retries: 30
       start_period: 60s
 
-  ds-configurator-2d:
-    image: nvcr.io/nvstaging/vss-core/vss-rt-config-adaptor:3.2-2026.05.01
-    network_mode: "host"
-    profiles: ["bp_wh_2d","bp_wh_kafka_2d","bp_wh_redis_2d"]
-    container_name: vss-rtvi-cv-config-adaptor
-    user: "0:0"
-    environment:
-      PORT: 9003
-      DS_CONFIG_PATH: /opt/data/ds-configurator/config.csv
-      EVENT_OBJECT_FIELD: event
-      METADATA_OBJECT_FIELD: metadata
-      DS_CONFIG_YAML_SOURCE_PATH: /opt/data/ds-configurator/config.yaml
-      DS_CONFIG_YAML_TARGET_PATH: /opt/data/ds-configurator/config.yaml
-      CALIB_FILE_PATH: /opt/data/ds-configurator/calibration.json
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs:/opt/data/ds-configurator
-
   perception-2d:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+      file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
     profiles: ["bp_wh_kafka_2d","bp_wh_redis_2d","bp_wh_2d"]
     container_name: vss-rtvi-cv
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
-      - $MDX_DATA_DIR/models/mtmc/:/opt/storage/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
+      - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
     environment:
       GST_PLUGIN_PATH: /opt/nvidia/deepstream/deepstream/sources/gst-plugins/gst-nvdstextembedder
       TRANSFORMERS_OFFLINE: 0
@@ -201,7 +234,9 @@ services:
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "false"
     depends_on:
-      sdr-streamprocessing:
+      # sdr-streamprocessing:
+      #   condition: service_started
+      sdr-controller:
         condition: service_started
       sensor-ms-2d:
         condition: service_started
@@ -209,18 +244,16 @@ services:
         condition: service_completed_successfully
       # bp-configurator-2d:
       #   condition: service_started
-      ds-configurator-2d:
-        condition: service_completed_successfully
 
   kibana-init-container-2d:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app
+      context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app
       dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
     network_mode: "host"
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-kibana-init
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/kibana-dashboard/warehouse-2d-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/kibana-dashboard/warehouse-2d-kibana-objects.ndjson:/opt/vss/kibana-objects.ndjson
     command: bash /opt/vss/init-scripts/kibana-import-dashboard.sh
     depends_on:
       kibana:
@@ -228,47 +261,57 @@ services:
 
   vss-video-analytics-api-2d:
     extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/compose.yml
+      file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-video-analytics-api
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json:/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json
-      - $MDX_DATA_DIR/data_log/vss_video_analytics_api:/web-api-app/files
+    depends_on:
+      broker-health-check:
+        condition: service_completed_successfully
+      elasticsearch-init-container:
+        condition: service_completed_successfully
 
-  perception-sdr-alerts-2d:
-    extends:
-      file: $MDX_SAMPLE_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
-      service: perception-sdr
-    profiles: ["bp_wh_2d"]
-    container_name: vss-sdr-alerts
-    volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr-vlm:/wdm-configs
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr-vlm:/wdm-data
-    environment:
-      WDM_INITIALIZE_FROM_VST: true
-      WDM_KFK_ENABLE: false
-      WDM_PRELOAD_DELAY_FOR_DS_API: true
-      WDM_WL_THRESHOLD: ${NUM_STREAMS}
-      WDM_POD_WATCH_DOCKER_DELAY: 0.5
-      WDM_WL_OBJECT_NAME: sdr-alerts
-      WDM_CONSUMER_GRP_ID: sdr-alerts-cg
-      WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-vlm"]'
-      WDM_WL_ADD_URL: "/api/v1/realtime/always-on"
-      WDM_WL_DELETE_URL: "/api/v1/realtime/always-on"
-      WDM_WL_HEALTH_CHECK_URL: "/health"
-      WDM_ADD_REMOVE_REQUEST_TIMEOUT: 10
+  # perception-sdr-alerts-2d:
+  #   extends:
+  #     file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
+  #     service: perception-sdr
+  #   profiles: ["bp_wh_2d"]
+  #   container_name: vss-sdr-alerts
+  #   volumes:
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr-vlm:/wdm-configs
+  #     - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdr-vlm:/wdm-data
+  #   environment:
+  #     WDM_INITIALIZE_FROM_VST: true
+  #     WDM_KFK_ENABLE: false
+  #     WDM_PRELOAD_DELAY_FOR_DS_API: true
+  #     WDM_WL_THRESHOLD: ${NUM_STREAMS}
+  #     WDM_POD_WATCH_DOCKER_DELAY: 0.5
+  #     WDM_WL_OBJECT_NAME: sdr-alerts
+  #     WDM_CONSUMER_GRP_ID: sdr-alerts-cg
+  #     WDM_CLUSTER_CONTAINER_NAMES: '["vss-rtvi-vlm"]'
+  #     WDM_WL_ADD_URL: "/api/v1/realtime/always-on"
+  #     WDM_WL_DELETE_URL: "/api/v1/realtime/always-on"
+  #     WDM_WL_HEALTH_CHECK_URL: "/health"
+  #     WDM_ADD_REMOVE_REQUEST_TIMEOUT: 10
+  #     WDM_ADD_REMOVE_RETRY_ATTEMPTS: 60
+  #   depends_on:
+  #     alert-bridge:
+  #       condition: service_started
+  #     broker-health-check:
+  #       condition: service_completed_successfully
+  #     rtvi-vlm:
+  #       condition: service_healthy
 
   import-calibration-output-container-2d:
     build:
-      context: $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app
+      context: $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app
       dockerfile: Dockerfiles/import-calibration.Dockerfile
     network_mode: "host"
     profiles: ["bp_wh_2d","bp_wh_kafka_2d${MINIMAL_PROFILE:+_extended}","bp_wh_redis_2d${MINIMAL_PROFILE:+_extended}","playback_kafka_2d","playback_redis_2d"]
     container_name: vss-import-calibration-output
     volumes:
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
-      - $MDX_SAMPLE_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
+      - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
     depends_on:
       - vss-video-analytics-api-2d

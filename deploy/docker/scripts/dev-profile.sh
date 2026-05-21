@@ -71,6 +71,13 @@ function get_nvidia_smi_gpu_name() {
   echo "${_name}"
 }
 
+function get_nvidia_smi_gpu_count() {
+  local _count
+  _count="$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]')"
+  [[ "${_count}" =~ ^[0-9]+$ ]] || _count="0"
+  echo "${_count}"
+}
+
 # Maps GPU product name (from nvidia-smi) to a canonical hardware type for detection. Returns OTHER if no match.
 # AGX-THOR and IGX-THOR both map to THOR (single canonical type). Matching is case-insensitive.
 function get_detected_hardware_profile() {
@@ -163,22 +170,54 @@ function set_alerts_ui_subtitle_from_mode() {
   esac
 }
 
-# Gets model name from remote API endpoint (works for both LLM and VLM)
-# Arguments: base_url (e.g., http://localhost:30082/v1)
-# Returns: model name from the /models endpoint, or empty string on error
+# Gets model name from remote API endpoint (works for both LLM and VLM).
+# Auto-select is only safe when the endpoint serves exactly one model
+# (e.g., a deployed NIM). For aggregate endpoints like
+# https://integrate.api.nvidia.com/v1/models that list every NIM, the first
+# entry is not a meaningful default (it has historically been a deprecated
+# model such as 01-ai/yi-large), so we require the caller to pass --llm /
+# --vlm explicitly and surface the available models.
+# Arguments:
+#   $1 base_url       e.g. http://localhost:30082 or https://integrate.api.nvidia.com
+#   $2 expected_type  "llm" or "vlm" — used to suggest the right --llm/--vlm flag
+# Returns: model name from the /models endpoint on stdout, or non-zero on error
 function get_remote_model_name() {
   local _base_url="${1}"
-  local _model_name _curl_exit_code
-  
-  _model_name="$(curl -s -f "${_base_url}/v1/models" 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null)"
+  local _expected_type="${2:-llm}"
+  local _response _model_count _model_name _curl_exit_code _model_list
+
+  _response="$(curl -s -f "${_base_url}/v1/models" 2>/dev/null)"
   _curl_exit_code=$?
-  
-  if [[ ${_curl_exit_code} -ne 0 ]] || [[ -z "${_model_name}" ]]; then
-    echo "[WARNING] Failed to retrieve model name from ${_base_url}/v1/models" >&2
+
+  if [[ ${_curl_exit_code} -ne 0 ]] || [[ -z "${_response}" ]]; then
+    echo "[WARNING] Failed to retrieve model list from ${_base_url}/v1/models" >&2
     echo ""
     return 1
   fi
-  
+
+  _model_count="$(echo "${_response}" | jq -r '.data | length' 2>/dev/null)"
+  if [[ -z "${_model_count}" ]] || [[ "${_model_count}" == "0" ]] || [[ "${_model_count}" == "null" ]]; then
+    echo "[WARNING] No models returned from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+
+  if [[ "${_model_count}" -gt 1 ]]; then
+    _model_list="$(echo "${_response}" | jq -r '.data[].id' 2>/dev/null | sed 's/^/    /')"
+    echo "[ERROR] ${_base_url}/v1/models returns ${_model_count} models — auto-select is unsafe (aggregate endpoints list every NIM and the first entry may be deprecated)." >&2
+    echo "[ERROR] Pass --${_expected_type} <model-name> to pick one explicitly. Available models at this endpoint:" >&2
+    echo "${_model_list}" >&2
+    echo ""
+    return 1
+  fi
+
+  _model_name="$(echo "${_response}" | jq -r '.data[0].id // empty' 2>/dev/null)"
+  if [[ -z "${_model_name}" ]]; then
+    echo "[WARNING] Could not extract model id from ${_base_url}/v1/models" >&2
+    echo ""
+    return 1
+  fi
+
   echo "${_model_name}"
   return 0
 }
@@ -189,8 +228,11 @@ function get_env_value() {
   local _val
   if [[ -f "${_env_file}" ]]; then
     _val="$(grep "^${_var_name}=" "${_env_file}" 2>/dev/null | cut -d'=' -f2- | head -1)"
-    _val="${_val#[\'\"]}"
-    _val="${_val%[\'\"]}"
+    # Strip a matching pair of single or double quotes. Per-quote strips avoid a
+    # bash bracket-expression quirk where `[\'\"]` fails to match single quotes
+    # on some shells.
+    _val="${_val#\"}"; _val="${_val%\"}"
+    _val="${_val#\'}"; _val="${_val%\'}"
     echo "${_val}"
   fi
 }
@@ -227,11 +269,64 @@ function mask_secret() {
   fi
 }
 
+function mask_external_ip_args() {
+  local _arg _masked_value
+  local _mask_next="false"
+  local _masked_args=()
+  for _arg in "$@"; do
+    if [[ "${_mask_next}" == "true" ]]; then
+      _masked_args+=("$(mask_secret "${_arg}")")
+      _mask_next="false"
+      continue
+    fi
+    case "${_arg}" in
+      -e|--external-ip)
+        _masked_args+=("${_arg}")
+        _mask_next="true"
+        ;;
+      --external-ip=*)
+        _masked_value="${_arg#--external-ip=}"
+        _masked_args+=("--external-ip=$(mask_secret "${_masked_value}")")
+        ;;
+      -e?*)
+        _masked_value="${_arg#-e}"
+        _masked_args+=("-e$(mask_secret "${_masked_value}")")
+        ;;
+      *)
+        _masked_args+=("${_arg}")
+        ;;
+    esac
+  done
+  echo "${_masked_args[*]}"
+}
+
+function get_rtvi_vllm_gpu_memory_utilization() {
+  local _hardware_profile="${1}"
+  local _vlm_mode="${2}"
+
+  if [[ "${_vlm_mode}" == "local_shared" ]]; then
+    case "${_hardware_profile}" in
+      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
+      L40S) echo "0.8" ;;
+      *) echo "0.7" ;;
+    esac
+    return
+  fi
+
+  case "${_hardware_profile}" in
+    L40S) echo "0.8" ;;
+    *) echo "0.7" ;;
+  esac
+}
 
 # Apply VSS kernel settings (IPv6 disable, TCP buffer sizes). Persistent across reboots via /etc/sysctl.d/99-vss.conf.
 function set_vss_linux_kernel_settings() {
-  sudo mkdir -p /etc/sysctl.d
-  sudo bash -c "printf '%s\n' \
+  local _sudo=""
+  if [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+    _sudo="sudo"
+  fi
+  $_sudo mkdir -p /etc/sysctl.d
+  $_sudo bash -c "printf '%s\n' \
     'net.ipv6.conf.all.disable_ipv6 = 1' \
     'net.ipv6.conf.default.disable_ipv6 = 1' \
     'net.ipv6.conf.lo.disable_ipv6 = 1' \
@@ -240,7 +335,7 @@ function set_vss_linux_kernel_settings() {
     'net.ipv4.tcp_rmem = 4096 87380 16777216' \
     'net.ipv4.tcp_wmem = 4096 65536 16777216' \
     > /etc/sysctl.d/99-vss.conf"
-  sudo sysctl --system
+  $_sudo sysctl --system
 }
 
 function usage() {
@@ -345,7 +440,7 @@ function validate_args() {
 
   _valid_args=$(getopt -q -o p:H:i:e:m:dh --long profile:,hardware-profile:,host-ip:,external-ip:,mode:,llm-device-id:,vlm-device-id:,use-remote-llm,use-remote-vlm,llm:,vlm:,llm-model-type:,vlm-model-type:,llm-env-file:,vlm-env-file:,dry-run,help -- "${_args[@]}")
   if [[ $? -ne 0 ]]; then
-    echo "[ERROR] Invalid usage: ${_args[*]}"
+    echo "[ERROR] Invalid usage: $(mask_external_ip_args "${_args[@]}")"
     ((_all_good++))
   else
     eval set -- "${_valid_args}"
@@ -573,9 +668,10 @@ function process_args() {
       fi
 
       # Fail fast: requested hardware_profile must match detected GPU (from nvidia-smi display name).
+      # OTHER is a user-selected catch-all and intentionally bypasses the host GPU match.
       # Both sides use canonical types (AGX-THOR and IGX-THOR map to THOR for comparison).
       # Set SKIP_HARDWARE_CHECK=true to skip (e.g. in CI/tests without matching GPU).
-      if [[ -n "${hardware_profile}" ]] && [[ "${SKIP_HARDWARE_CHECK,,}" != "true" ]]; then
+      if [[ -n "${hardware_profile}" ]] && [[ "$(get_canonical_hardware_profile "${hardware_profile}")" != "OTHER" ]] && [[ "${SKIP_HARDWARE_CHECK,,}" != "true" ]]; then
         local _gpu_name _detected_canonical
         _gpu_name="$(get_nvidia_smi_gpu_name)"
         if [[ -z "${_gpu_name}" ]]; then
@@ -882,7 +978,7 @@ function print_args() {
     echo "profile:                   ${profile}"
     echo "host-ip:                   ${host_ip}"
     if [[ -n "${external_ip}" ]]; then
-      echo "external-ip:               ${external_ip}"
+      echo "external-ip:               $(mask_secret "${external_ip}")"
     fi
     echo "ngc-cli-api-key:           $(mask_secret "${ngc_cli_api_key}")"
     local _env_file="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
@@ -900,7 +996,7 @@ function print_args() {
       if [[ -n "${llm}" ]]; then
         _llm_model="${llm}"
       else
-        _llm_model="$(get_remote_model_name "${llm_base_url}")"
+        _llm_model="$(get_remote_model_name "${llm_base_url}" "llm")"
       fi
     else
       _llm_model="${llm:-$(get_env_value "${_env_file}" "LLM_NAME")}"
@@ -928,7 +1024,7 @@ function print_args() {
       if [[ -n "${vlm}" ]]; then
         _vlm_model="${vlm}"
       else
-        _vlm_model="$(get_remote_model_name "${vlm_base_url}")"
+        _vlm_model="$(get_remote_model_name "${vlm_base_url}" "vlm")"
       fi
     else
       _vlm_model="${vlm:-$(get_env_value "${_env_file}" "VLM_NAME")}"
@@ -980,6 +1076,13 @@ function state_up() {
   cp "${_source_env}" "${_generated_env}"
   echo "[INFO] Copied ${_source_env} to ${_generated_env}"
 
+  ensure_generated_env_trailing_newline() {
+    if [[ -s "${_generated_env}" ]] && [[ "$(tail -c 1 "${_generated_env}" | wc -l)" -eq 0 ]]; then
+      printf '\n' >> "${_generated_env}"
+    fi
+  }
+  ensure_generated_env_trailing_newline
+
   # Append compose-wide defaults for variables not already defined in the profile
   local _compose_defaults="${deployment_directory}/vst/compose-defaults.env"
   if [[ -f "${_compose_defaults}" ]]; then
@@ -1019,24 +1122,31 @@ function state_up() {
   }
 
   # Set the required environment variables
-  set_env_var "MDX_SAMPLE_APPS_DIR" "${deployment_directory}"
-  set_env_var "MDX_DATA_DIR" "${data_directory}"
+  set_env_var "VSS_APPS_DIR" "${deployment_directory}"
+  set_env_var "VSS_DATA_DIR" "${data_directory}"
   set_env_var "HOST_IP" "${host_ip}"
+  set_env_var "VST_CONFIG_PATH" "${deployment_directory}/services/vios/configs"
+  set_env_var "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/config.yml"
+  if [[ -f "${_profile_dir}/vss-agent/configs/va_mcp_server_config.yml" ]]; then
+    set_env_var "VSS_VA_MCP_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-${profile}/vss-agent/configs/va_mcp_server_config.yml"
+  fi
   if [[ -n "${external_ip}" ]]; then
-    set_env_var "EXTERNAL_IP" "${external_ip}"
+    set_env_var "EXTERNAL_IP" "${external_ip}" "true"
   fi
 
   # ===== Brev secure links =====
-  # Brev launchables use a hostname of the form <port>0-<env>.brevlab.com (e.g. 77770-<id>.brevlab.com).
-  # Point HAProxy and browser-facing compose vars at that host with https/wss; keep URL templates in
-  # profile .env (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
+  # Brev secure links use a hostname of the form <port>-<env>.brevlab.com (e.g. 7777-<id>.brevlab.com)
+  # — the haproxy port is prefixed directly. Older launchables used to add a trailing "0" giving
+  # 77770-<id>.brevlab.com; that form is legacy. Point HAProxy and browser-facing compose vars at the
+  # current-form host with https/wss; keep URL templates in profile .env
+  # (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
-    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port}0)..."
+    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port})..."
     set_env_var "HAPROXY_PORT" '${PROXY_PORT:-7777}'
     set_env_var "VSS_PUBLIC_HTTP_PROTOCOL" "https"
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
-    set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}0-${BREV_ENV_ID}.brevlab.com'
+    set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
     set_env_var "VSS_PUBLIC_PORT" "443"
   fi
 
@@ -1057,7 +1167,7 @@ function state_up() {
     if [[ -n "${llm}" ]]; then
       _llm_name="${llm}"
     else
-      _llm_name="$(get_remote_model_name "${llm_base_url}")"
+      _llm_name="$(get_remote_model_name "${llm_base_url}" "llm")"
       if [[ -z "${_llm_name}" ]]; then
         echo "[ERROR] Could not get LLM model name from ${llm_base_url}/v1/models. Pass --llm <model-name> to override."
         exit 1
@@ -1104,7 +1214,7 @@ function state_up() {
     if [[ -n "${vlm}" ]]; then
       _vlm_name="${vlm}"
     else
-      _vlm_name="$(get_remote_model_name "${vlm_base_url}")"
+      _vlm_name="$(get_remote_model_name "${vlm_base_url}" "vlm")"
       if [[ -z "${_vlm_name}" ]]; then
         echo "[ERROR] Could not get VLM model name from ${vlm_base_url}/v1/models. Pass --vlm <model-name> to override."
         exit 1
@@ -1121,8 +1231,10 @@ function state_up() {
   fi
   if [[ -n "${vlm_base_url}" ]]; then
     set_env_var "VLM_BASE_URL" "${vlm_base_url}"
-    set_env_var "RTVI_VLM_ENDPOINT" "${vlm_base_url}/v1"
-    set_env_var "RTVI_VLM_MODEL_PATH" "none"
+    if [[ "${vlm_mode}" == "remote" ]]; then
+      set_env_var "RTVI_VLM_ENDPOINT" "${vlm_base_url}/v1"
+      set_env_var "RTVI_VLM_MODEL_PATH" "none"
+    fi
   fi
   if [[ "${vlm_mode}" == "remote" ]]; then
     local _vlm_type="${vlm_model_type:-$(get_env_value "${_source_env}" "VLM_MODEL_TYPE")}"
@@ -1134,12 +1246,12 @@ function state_up() {
     set_env_var "OPENAI_API_KEY" "${openai_api_key}" "true"
   fi
 
-  # Alerts + remote VLM: override VLM_PORT to the standard NIM port (30082) and
+  # Alerts/LVS + remote VLM: override VLM_PORT to the standard NIM port (30082) and
   # switch rtvi-vlm to openai-compat mode (cosmos-reason2 is only valid when the
-  # local rtvi-vlm container is serving the model).
-  # The rtvi-vlm container (not deployed when remote) defaults to 8018 for local alerts;
+  # local rtvi-vlm container is serving the integrated checkpoint).
+  # The rtvi-vlm container defaults to 8018 for local deployments;
   # for remote we fall back to 30082 so any VLM_BASE_URL-unset consumer uses the conventional port.
-  if [[ "${profile}" == "alerts" ]] && [[ "${vlm_mode}" == "remote" ]]; then
+  if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
   fi
@@ -1157,11 +1269,22 @@ function state_up() {
   fi
 
   # Search profile: critic agent is enabled by default. Host ENABLE_CRITIC case-insensitive false → write ENABLE_CRITIC=false and force VLM_NAME_SLUG=none (skip local VLM).
+  # Brev 2-GPU launchables do not have enough local devices for the Search critic VLM assignment, so disable critic there as well.
   # Otherwise write ENABLE_CRITIC=true (VLM_NAME_SLUG is not overridden here; remote VLM block already sets it to none when --use-remote-vlm is passed).
   if [[ "${profile}" == "search" ]]; then
     if [[ "${ENABLE_CRITIC+set}" == "set" ]] && [[ "${ENABLE_CRITIC,,}" == "false" ]]; then
       set_env_var "ENABLE_CRITIC" "false"
       set_env_var "VLM_NAME_SLUG" "none"
+    elif [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
+      local _brev_gpu_count
+      _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
+      if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -le 2 ]]; then
+        echo "[WARN] Brev environment has ${_brev_gpu_count} GPU(s). Disabling Search critic to avoid starting the local VLM on GPU ${vlm_device_id}."
+        set_env_var "ENABLE_CRITIC" "false"
+        set_env_var "VLM_NAME_SLUG" "none"
+      else
+        set_env_var "ENABLE_CRITIC" "true"
+      fi
     else
       set_env_var "ENABLE_CRITIC" "true"
     fi
@@ -1185,34 +1308,19 @@ function state_up() {
     set_env_var "RTVI_VLM_MODEL_TO_USE" "cosmos-reason2"
     set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
   fi
-  # Alerts profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
-  if  ([[ "${profile}" == "alerts" ]]); then
+  # Alerts/LVS profile for ALL hardware profiles: set VLM name/slug, base URL, and RTVI-related env (fixed configuration)
+  if  ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]]); then
     set_env_var "VLM_NAME_SLUG" "none"
-    # Local VLM only: rtvi-vlm serves cosmos-reason2 locally on port 8018, so fix
-    # VLM_NAME / VLM_BASE_URL / RTVI_VLM_MODEL_PATH to the NIM-packaged cosmos-reason2 model.
-    # RTVI_VLM_MODEL_TO_USE and RTVI_VLM_ENDPOINT come from the profile .env defaults for local
-    # (see dev-profile-alerts/.env). Remote VLM overrides these in the block above via VLM_BASE_URL/vlm.
+    # Local VLM only: rtvi-vlm serves the VLM locally on port 8018. VLM_BASE_URL
+    # needs runtime host_ip injection (source .env has it empty). VLM_NAME and
+    # RTVI_VLM_MODEL_PATH should come straight from the source .env.
     if [[ "${vlm_mode}" != "remote" ]]; then
-      set_env_var "VLM_NAME" "nim_nvidia_cosmos-reason2-8b_hf-1208"
       set_env_var "VLM_BASE_URL" "http://${host_ip}:8018"
-      set_env_var "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos-reason2-8b:hf-1208"
     fi
-    # RTVI_VLLM_GPU_MEMORY_UTILIZATION: mirrors NIM NIM_KVCACHE_PERCENT hw-*.env pattern.
-    # IGX-THOR/AGX-THOR have no NIM hw env file → ignored here, handled in the hw sub-block below.
-    # OTHER has no NIM hw env file → not set.
-    if [[ "${hardware_profile}" != "OTHER" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      if [[ "${vlm_mode}" == "local_shared" ]]; then
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-      else
-        case "${hardware_profile}" in
-          DGX-SPARK|L40S)
-            set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
-            ;;
-          *)
-            set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
-            ;;
-        esac
-      fi
+    # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
+    # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
+    if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
     fi
     # RT_VLM_DEVICE_ID: mirrors NIM compose device_ids pattern.
     # local → VLM_DEVICE_ID; local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
@@ -1348,9 +1456,9 @@ function state_up() {
 
     if [[ "${dry_run}" == "true" ]]; then
       echo "[DRY-RUN] mkdir -p ${data_directory}/models"
-      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1 --org nvstaging"
-      echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
-      echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1"
+      echo "[DRY-RUN] NGC_CLI_API_KEY=<ngc-cli-api-key> ngc registry model download-version nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 --org nvstaging"
+      echo "[DRY-RUN] mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx ${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
+      echo "[DRY-RUN] rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2"
       echo "[DRY-RUN] chmod -R 777 ${data_directory}/models"
     else
       mkdir -p "${data_directory}/models"
@@ -1359,12 +1467,12 @@ function state_up() {
         registry \
         model \
         download-version \
-        nvstaging/tao/rtdetr_2d_warehouse:deployable_efficientvit_l2_v1.0.1 \
+        nvstaging/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2 \
         --org nvstaging
 
-      mv rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1/rtdetr_warehouse_v1.0.1.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.1.fp16.onnx"
+      mv rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx "${data_directory}/models/rtdetr_warehouse_v1.0.2.fp16.onnx"
 
-      rm -rf rtdetr_2d_warehouse_vdeployable_efficientvit_l2_v1.0.1
+      rm -rf rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2
 
       chmod -R 777 "${data_directory}/models"
       echo "[INFO] RT-DETR model downloaded and installed to ${data_directory}/models"

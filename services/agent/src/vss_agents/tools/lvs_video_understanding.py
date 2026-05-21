@@ -51,7 +51,7 @@ from pydantic import Field
 from pydantic import field_validator
 
 from vss_agents.utils.hitl import format_hitl_popup_header
-from vss_agents.utils.url_translation import translate_url
+from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,12 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
 
     enable_audio: bool = Field(
         default=False,
-        description="Enable audio processing",
+        description=(
+            "When True, forwards `enable_audio=true` in the LVS `/summarize` "
+            "request body. Required for audio-capable VLMs like Nemotron Nano Omni. "
+            "Pairs with `streaming_ingest.enable_audio=True` so VST keeps audio "
+            "during upload transcoding."
+        ),
     )
 
     stream: bool = Field(
@@ -213,23 +218,10 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
         description="Default events list to use when no persistent state exists (e.g., ['accident', 'pedestrian crossing'])",
     )
 
-    # URL translation configuration for VLM
-    vlm_mode: str = Field(
-        default="local",
-        description="VLM mode: 'remote' (VLM is external, needs public URLs), 'local' or 'local_shared' (VLM is local, needs internal URLs)",
-    )
-    internal_ip: str = Field(
-        default="",
-        description="Internal IP / docker host IP for URL translation",
-    )
-    external_ip: str = Field(
-        default="",
-        description="Public IP accessible from the internet for URL translation",
-    )
     vst_internal_url: str | None = Field(
         default=None,
         description="Internal VST base URL (e.g., 'http://HOST_IP:30888'). "
-        "Used for URL translation when behind a reverse proxy.",
+        "Used because LVS runs inside the deployment and fetches VST media directly.",
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -665,17 +657,10 @@ async def lvs_video_understanding(
         video_url_result = await video_url_tool.ainvoke(input=video_url_args)
         video_url = video_url_result.video_url
 
-        # Translate URL for VLM based on vlm_mode:
-        # - remote: INTERNAL_IP -> EXTERNAL_IP (VLM needs public URLs)
-        # - local/local_shared: EXTERNAL_IP -> INTERNAL_IP (VLM needs internal URLs)
-        video_url = translate_url(
-            video_url,
-            config.vlm_mode,
-            config.internal_ip,
-            config.external_ip,
-            config.vst_internal_url,
-        )
-        logger.info(f"[LVS Video Understanding] VIDEO URL FOR VLM ANALYSIS: {video_url}")
+        # LVS runs inside the deployment, so it should fetch VST media through
+        # the internal VST base instead of the public/proxy URL.
+        video_url = rewrite_to_internal_vst_url(video_url, config.vst_internal_url)
+        logger.info(f"[LVS Video Understanding] INTERNAL VIDEO URL FOR LVS ANALYSIS: {video_url}")
 
         # Build LVS request using new API contract
         lvs_request: dict[str, Any] = {
@@ -707,6 +692,9 @@ async def lvs_video_understanding(
             lvs_request["vlm_input_width"] = config.vlm_input_width
         if config.vlm_input_height is not None:
             lvs_request["vlm_input_height"] = config.vlm_input_height
+
+        if config.enable_audio:
+            lvs_request["enable_audio"] = True
 
         logger.info(f"LVS request: {lvs_request}")
 

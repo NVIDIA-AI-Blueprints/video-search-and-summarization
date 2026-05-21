@@ -15,7 +15,7 @@
 
 services:
   alert-bridge:
-    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.63
+    image: nvcr.io/nvstaging/vss-core/vss-alert-verification:0.0.65
     container_name: vss-alert-bridge
     profiles: ["bp_wh_2d","bp_developer_alerts_2d_cv", "bp_developer_alerts_2d_vlm"]
     network_mode: host
@@ -30,13 +30,14 @@ services:
       VLM_MODE: ${VLM_MODE} # remote / local / local_shared
       # Realtime REST API (restapi-realtime-alerts feature)
       RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
+      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://${HOST_IP}:8018}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/configs/realtime-config.yml
     volumes:
       - ${VLM_AS_VERIFIER_CONFIG_FILE_REALTIME:-/path/to/realtime-config.yml}:/app/configs/realtime-config.yml:ro
       - ${VLM_AS_VERIFIER_CONFIG_FILE:-/path/to/config.yml}:/app/configs/config.yml:ro
       - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE:-/path/to/alert_type_config.json}:/app/alert_type_config.json:ro
-      - $MDX_SAMPLE_APPS_DIR/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
+      - $VSS_APPS_DIR/services/alert/scripts/env-substitute.py:/app/env-substitute.py:ro
     tmpfs:
       - /app/runtime:mode=1777,size=10M
     depends_on:

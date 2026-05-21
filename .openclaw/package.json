@@ -5,6 +5,10 @@
   "type": "module",
   "keywords": ["openclaw", "openclaw-plugin", "vss", "nvidia", "video-search"],
   "files": ["skills/", "workspace/", "openclaw.plugin.json", "README.md", "index.ts"],
+  "scripts": {
+    "prepack": "if [ -e skills ]; then echo 'ERROR: .openclaw/skills/ exists; refusing to overwrite (remove it or rename before npm pack)' >&2; exit 1; fi; cp -r ../skills skills && : > .skills.staged",
+    "postpack": "if [ -f .skills.staged ]; then rm -rf skills .skills.staged; fi"
+  },
   "openclaw": {
     "extensions": [
       "./index.ts"

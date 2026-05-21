@@ -68,8 +68,8 @@ The **warehouse** blueprint is driven by **`industry-profiles/warehouse-operatio
 1. **Edit environment**  
    Update **`deploy/docker/industry-profiles/warehouse-operations/.env`** for your deployment:
 
-   - **`MODE`**: `2d` or `3d`
-   - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, or `bp_wh_redis` (see comments in that file for 2d vs 3d combinations)
+   - **`MODE`**: `2d`, `3d`, or `mv3dt`
+   - **`BP_PROFILE`**: `bp_wh`, `bp_wh_kafka`, `bp_wh_redis`, `bp_wh_auto_calib` (see comments in that file for 2d, 3d, and mv3dt combinations)
    - **`MINIMAL_PROFILE`**, GPU hosts, API keys, and any other variables described in the file header
 
 2. **Start the stack**
@@ -85,7 +85,14 @@ docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/
 3. **Stop the stack**
 
 ```bash
+# Stop the running deployment
 docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+
+# Alternatively to remove all the containers, images and volume
+docker compose --env-file industry-profiles/warehouse-operations/.env down -v --rmi all
+
+# Tear down all dangling volumes
+docker volume ls -q -f "dangling=true" | xargs docker volume rm
 ```
 
 4. **Data / backup cleanup**  
@@ -110,4 +117,3 @@ Compose profiles for warehouse slices are defined under **`warehouse-operations/
 
 
 ---
-

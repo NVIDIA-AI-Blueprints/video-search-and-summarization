@@ -27,8 +27,8 @@ services:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
       PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True'
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2/hw-${HARDWARE_PROFILE}.env
-      - ${LLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2/hw-${HARDWARE_PROFILE}.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - nvidia_nemotron_nano_9b_v2_cache:/opt/nim/.cache
     user: "${UID:-1000}:${GID:-1000}"
@@ -43,7 +43,7 @@ services:
               - "${LLM_DEVICE_ID:-0}"
     restart: always
     healthcheck:
-      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $elapsed"; elapsed=$((elapsed + 5)); if [ $elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
       timeout: 650s
       retries: 2
@@ -60,8 +60,8 @@ services:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
       PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True'
     env_file:
-      - ${MDX_SAMPLE_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2/hw-${HARDWARE_PROFILE}-shared.env
-      - ${LLM_ENV_FILE:-${MDX_SAMPLE_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/nvidia-nemotron-nano-9b-v2/hw-${HARDWARE_PROFILE}-shared.env
+      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - nvidia_nemotron_nano_9b_v2_cache:/opt/nim/.cache
     user: "${UID:-1000}:${GID:-1000}"
@@ -76,7 +76,7 @@ services:
               - "${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"
     restart: always
     healthcheck:
-      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $elapsed"; elapsed=$((elapsed + 5)); if [ $elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
+      test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
       timeout: 650s
       retries: 2

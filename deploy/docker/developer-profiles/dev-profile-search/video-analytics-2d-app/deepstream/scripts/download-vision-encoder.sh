@@ -17,27 +17,32 @@
 # Init-container script for the search profile.
 #
 # Downloads the selected vision encoder model from NGC into /opt/storage
-# (bind-mounted to $MDX_DATA_DIR/models/ on the host). Idempotent -- skips
+# (bind-mounted to $VSS_DATA_DIR/models/ on the host). Idempotent -- skips
 # download when a marker file from a previous run is found.
 #
 # Expected env vars (set by compose):
-#   VISION_ENCODER_NGC_ORG, VISION_ENCODER_NGC_TEAM,
 #   VISION_ENCODER_MODEL, VISION_ENCODER_VERSION,
-#   VISION_ENCODER_ONNX_FILE,
 #   NGC_CLI_API_KEY,
 #   STORAGE_UID (optional, default 1001) — UID of the perception container user
 #   STORAGE_GID (optional, default 1001) — GID of the perception container user
+#
+# Convention (org=nvstaging or nvidia, team=tao):
+#   NGC model:  nvstaging/tao/{MODEL}:deployable_{VERSION}
+#   ONNX file:  {MODEL}_{VERSION}.onnx
+#   Weights:    {MODEL}_{VERSION}_weights.bin
+#   Tokenizer:  {MODEL}_{VERSION}_tokenizer
 
 set -euo pipefail
 
-NGC_ORG="${VISION_ENCODER_NGC_ORG:?must be set}"
-NGC_TEAM="${VISION_ENCODER_NGC_TEAM:?must be set}"
 MODEL="${VISION_ENCODER_MODEL:?must be set}"
 VERSION="${VISION_ENCODER_VERSION:?must be set}"
-ONNX_FILE="${VISION_ENCODER_ONNX_FILE:?must be set}"
-TOKENIZER_DIR="${VISION_ENCODER_TOKENIZER_DIR:?must be set}"
 
-NGC_MODEL="${NGC_ORG}/${NGC_TEAM}/${MODEL}:${VERSION}"
+NGC_ORG="nvstaging"
+NGC_TEAM="tao"
+ONNX_FILE="${MODEL}_${VERSION}.onnx"
+TOKENIZER_DIR="${MODEL}_${VERSION}_tokenizer"
+
+NGC_MODEL="${NGC_ORG}/${NGC_TEAM}/${MODEL}:deployable_${VERSION}"
 DEST="/opt/storage"
 
 MARKER="${DEST}/.${MODEL}_${VERSION}.done"
@@ -105,11 +110,25 @@ STORAGE_GID="${STORAGE_GID:-1001}"
 # UID/GID are baked into the vss-rt-cv image and cannot be changed.
 # Since we cannot align UIDs or inject supplementary groups, "other"
 # bits are the only access channel:
-#   - directories: o+rwx  (TensorRT writes engine plans here at runtime)
-#   - files:       o+r    (read-only model artifacts)
+#   - directories: o+rwx   (TensorRT writes engine plans here at runtime)
+#   - files:       o+r     (read-only model artifacts)
 chown -R "${STORAGE_UID}:${STORAGE_GID}" "${DEST}"
 find "${DEST}" -type d -exec chmod 0777 {} +
 find "${DEST}" -type f -exec chmod 0644 {} +
+
+# ---------------------------------------------------------------------------
+# Workaround: DeepStream expects "siglip2_*" file names but NGC ships
+# "siglip_v2_*".  Create a compatibility symlink for the weights file.
+# ---------------------------------------------------------------------------
+if [[ "${MODEL}" == "siglip_v2" ]]; then
+  COMPAT_LINK="${DEST}/siglip2_${VERSION}_weights.bin"
+  COMPAT_TARGET="siglip_v2_${VERSION}_weights.bin"
+  if [[ ! -e "${COMPAT_LINK}" ]]; then
+    ln -s "${COMPAT_TARGET}" "${COMPAT_LINK}"
+    chown -h "${STORAGE_UID}:${STORAGE_GID}" "${COMPAT_LINK}"
+    echo "##### Created compatibility symlink: ${COMPAT_LINK} -> ${COMPAT_TARGET} #####"
+  fi
+fi
 
 touch "${MARKER}"
 chown "${STORAGE_UID}:${STORAGE_GID}" "${MARKER}"

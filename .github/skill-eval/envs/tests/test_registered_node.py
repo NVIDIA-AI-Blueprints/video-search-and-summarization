@@ -7,9 +7,9 @@ These tests don't need an actual Brev instance — they monkeypatch the
 module-level `_registered_nodes_cache` and stub asyncio subprocess calls.
 
 Run manually:
-    python3 -m pytest tools/eval/harbor/envs/tests/test_registered_node.py -v
+    python3 -m pytest .github/skill-eval/envs/tests/test_registered_node.py -v
 Or directly:
-    python3 tools/eval/harbor/envs/tests/test_registered_node.py
+    python3 .github/skill-eval/envs/tests/test_registered_node.py
 """
 from __future__ import annotations
 
@@ -127,6 +127,53 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
         inst = {"name": "test", "gpu": "L40S"}
         with self.assertRaises(RuntimeError):
             brev_env._check_instance_matches(inst, {"gpu_type": "H100"})
+
+
+class EnsurePrerequisiteCleanup(unittest.IsolatedAsyncioTestCase):
+
+    async def test_profileless_trial_cleans_even_when_marker_empty(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            if command.startswith("cat "):
+                return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._ensure_prerequisite_deployed({})
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 2)
+        self.assertIn("cat /tmp/skill-eval/active-deploy.txt", calls[0][1])
+        self.assertIn("docker ps -aq | xargs -r docker rm -f", calls[1][1])
+        self.assertIn("printf '' > /tmp/skill-eval/active-deploy.txt", calls[1][1])
+
+    async def test_matching_profile_marker_still_skips_reconcile(self):
+        calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="alerts-real-time\n", stderr=None, return_code=0)
+
+        original = brev_env._run_brev_exec
+        brev_env._run_brev_exec = fake_run_brev_exec
+        try:
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            await env._ensure_prerequisite_deployed(
+                {"profile": "alerts", "prerequisite_deploy_mode": "real-time"}
+            )
+        finally:
+            brev_env._run_brev_exec = original
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn("cat /tmp/skill-eval/active-deploy.txt", calls[0][1])
 
 
 class VersionCompareSanity(unittest.TestCase):

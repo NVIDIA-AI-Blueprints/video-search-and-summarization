@@ -21,16 +21,12 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
-      enable_video_delete: true
-      enable_videos_for_search: true
-      # `disabled` is a non-empty placeholder that satisfies the boot-time must be set guard.
-      rtvi_embed_base_url: disabled
-      rtvi_cv_base_url: disabled
-    endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
+      vst_external_url: ${VST_EXTERNAL_URL}
+      # No RTVI: base profile doesn't ingest to RTVI-CV/Embed. The universal
+      # /api/v1/videos/{filename}/complete handler self-skips those steps
+      # when the URLs are unset.
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -53,11 +49,6 @@ object_stores:
 
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
-
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm # e.g. nim_vlm, openai_vlm
@@ -69,8 +60,6 @@ functions:
     video_url_tool: vst_video_clip
     time_format: offset
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${INTERNAL_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
     system_prompt: |
       You are a monitoring system analyzing video footage.
@@ -86,6 +75,7 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_snapshot:
     _type: vst.snapshot
@@ -105,6 +95,7 @@ functions:
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
     # yamllint disable rule:line-length
     vlm_prompt: |
       Describe in detail what is happening in this video,
@@ -181,6 +172,10 @@ llms:
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 4096
     temperature: 0.0
+    model_kwargs:
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: ${LLM_ENABLE_THINKING:-false}
 
   vllm_llm:
     _type: openai
@@ -191,7 +186,7 @@ llms:
     model_kwargs:
       extra_body:
         chat_template_kwargs:
-          enable_thinking: false
+          enable_thinking: ${LLM_ENABLE_THINKING:-false}
 
   # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
   nim_vlm:
@@ -215,10 +210,11 @@ llms:
     temperature: 0.0
     max_tokens: 4096
 
+  # RTVI pipeline VLM (search/alerts). Endpoint: ${RTVI_VLM_BASE_URL}; model: ${VLM_NAME}. Keep in sync with config_rag.yml.
   rtvi_vlm:
     _type: openai
-    model_name: nim_nvidia_cosmos-reason2-8b_hf-1208
-    base_url: ${VLM_BASE_URL}/v1
+    model_name: ${VLM_NAME}
+    base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
       extra_body:
@@ -491,7 +487,7 @@ eval:
     report_evaluator:
       _type: report_evaluator
       eval_metrics_config_path: ${EVAL_DIR}/report_eval_metrics.yaml
-      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR:-${EVAL_DIR}}/gt
+      reference_base_dir: ${REPORT_REFERENCE_BASE_DIR:-${EVAL_DIR}/gt}
       evaluation_method_id: report
       object_store: local_object_store
       report_url_pattern: 'http://[^\s)]+/(vss_report_(?:[^/\s)]+_)?\d{8}_\d{6}\.md)'

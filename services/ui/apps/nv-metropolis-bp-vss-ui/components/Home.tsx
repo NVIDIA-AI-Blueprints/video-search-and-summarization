@@ -696,7 +696,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     return (
       <div
         key={tabConfig.id}
-        className="absolute inset-0 flex flex-col overflow-hidden"
+        className="absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden"
         style={{ display: isActive ? 'flex' : 'none' }}
       >
         <DynamicComponent {...componentProps} />
@@ -715,7 +715,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     }
 
     const tabStack = (
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {visibleTabs.map((tab) => renderTabComponent(tab))}
       </div>
     );
@@ -811,7 +811,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Left Sidebar with Tabs - Only show if there are visible tabs */}
         {visibleTabs.length > 0 && (
           <aside 
@@ -886,11 +886,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
         {/* Main Content Area */}
         <main 
-          className="flex-1 flex flex-col overflow-hidden"
-          style={{
-
-            position: 'relative'
-          }}
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         >
           {renderMainAreaComponent()}
         </main>

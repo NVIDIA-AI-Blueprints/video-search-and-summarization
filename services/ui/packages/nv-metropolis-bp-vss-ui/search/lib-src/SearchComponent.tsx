@@ -173,7 +173,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   }, [loading]);
 
   // Only clear results when an agent-mode search query was submitted (via submitChatMessage),
-  // not when the user sends a regular chat message (e.g. "Add to Chat" + question).
+  // not when the user sends a regular chat message (e.g. "+ Chat" + question).
   const agentSearchSubmittedRef = React.useRef(false);
   const wrappedSubmitChatMessage = React.useMemo(() => {
     if (!submitChatMessage) return undefined;
@@ -275,7 +275,10 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
 
     if (searchByImageLoading) {
       content = (
-        <div className="flex h-full min-h-[400px] items-center justify-center bg-black text-white">
+        <div
+          data-testid="search-by-image-loading"
+          className="flex h-full min-h-[400px] items-center justify-center bg-black text-white"
+        >
           <div className="flex flex-col items-center gap-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
             <span className="text-sm">Loading frame data for Search by Image...</span>
@@ -284,7 +287,10 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       );
     } else if (searchByImageError) {
       content = (
-        <div className="flex h-full min-h-[400px] items-center justify-center bg-black text-red-400">
+        <div
+          data-testid="search-by-image-error"
+          className="flex h-full min-h-[400px] items-center justify-center bg-black text-red-400"
+        >
           <div className="flex max-w-md flex-col items-center gap-3 text-center">
             <span className="text-sm">{searchByImageError}</span>
           </div>
@@ -327,7 +333,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   return (
     <div 
       data-testid="search-component"
-      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
+      className={`flex min-h-0 min-w-0 max-w-full flex-col h-full max-h-full ${isDark ? 'bg-black text-gray-100' : 'bg-gray-50 text-gray-900'}`}
     >
       <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-gray-700' : 'bg-white border-gray-200'}`}>
         <SearchHeader 

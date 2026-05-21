@@ -13,15 +13,25 @@
             {
                 "name":"inSimulationMode",
                 "value":"false"
+            },
+            {
+                "name":"configStatusTimeoutMs",
+                "value":"30000"
+            },
+            {
+                "name":"configStatusTimeoutCheckFrequencyMs",
+                "value":"900000"
             }
         ]
     },
     "elasticsearch":{
         "node":"http://localhost:9200",
         "indexPrefix": "mdx-",
-        "rawIndex": "mdx-raw-*"
+        "rawIndex": "mdx-raw-*",
+        "retries": 15
     },
     "kafka":{
-        "brokers": ["localhost:9092"]
+        "brokers": ["localhost:9092"],
+        "retries": 15
     }
 }

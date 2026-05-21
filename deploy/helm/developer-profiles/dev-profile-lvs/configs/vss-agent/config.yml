@@ -21,18 +21,13 @@ general:
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
+      vst_external_url: ${VST_EXTERNAL_URL}
       rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
-      enable_rtsp_streams: true
-      enable_video_delete: true
-      enable_videos_for_search: true
-      # `disabled` is a non-empty placeholder that satisfies the boot-time must be set guard.
-      rtvi_embed_base_url: disabled
-      rtvi_cv_base_url: disabled
-    endpoints:
-    - path: /api/v1/videos
-      method: POST
-      description: Generate VST upload URL
-      function_name: video_upload_url
+      # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST keeps the audio track during upload transcoding.
+      enable_audio: ${ENABLE_AUDIO:-false}
+      # No RTVI-CV/Embed: lvs ingests RTSP streams to RTVI-VLM only. The
+      # universal /api/v1/videos/{filename}/complete handler self-skips the
+      # embedding/CV steps when their URLs are unset.
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
@@ -54,11 +49,6 @@ object_stores:
     _type: in_memory
 
 functions:
-  video_upload_url:
-    _type: video_upload_url
-    vst_external_url: ${VST_EXTERNAL_URL}
-    agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
-
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
@@ -70,8 +60,6 @@ functions:
     video_url_tool: vst_video_clip
     time_format: offset
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${INTERNAL_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
     system_prompt: |
       You are a monitoring system analyzing video footage.
@@ -93,6 +81,8 @@ functions:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
+    enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_snapshot:
     _type: vst.snapshot
@@ -109,8 +99,6 @@ functions:
     model: ${VLM_NAME}
     video_url_tool: vst_video_clip
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${INTERNAL_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
     # Connection and timeout configuration
     conn_timeout_ms: 5000
@@ -120,6 +108,8 @@ functions:
     num_frames_per_chunk: 20  # Sample 20 frames per chunk
     vlm_input_width: 1280
     vlm_input_height: 720
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
+    enable_audio: ${ENABLE_AUDIO:-false}
     # HITL Templates (shown each for each query to the user during interaction)
     hitl_scenario_template: |
       Scenario (REQUIRED):
@@ -171,8 +161,12 @@ functions:
     conn_timeout_ms: 5000
     read_timeout_ms: 600000
     chunk_duration: 10
+    num_frames_per_chunk: 10
+    use_fps_for_chunking: false
     vlm_input_width: 1280
     vlm_input_height: 720
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
+    enable_audio: ${ENABLE_AUDIO:-false}
     hitl_scenario_template: |
       Scenario (REQUIRED):
       Please provide a scenario description for the stream analysis.
@@ -219,10 +213,12 @@ functions:
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     video_understanding_tool: video_understanding
     lvs_video_understanding_tool: lvs_video_understanding
+    lvs_stream_understanding_tool: lvs_stream_understanding
     video_url_tool: vst_video_clip
     picture_url_tool: vst_snapshot
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    enable_audio: ${ENABLE_AUDIO:-false}
     vlm_prompt: |
       Describe in detail what is happening in this video,
       including all visible people, vehicles, equipments, objects,
@@ -282,6 +278,18 @@ functions:
     # No Video Analytics MCP tools configured = Video(uploaded) Report mode
     video_report_tool: video_report_gen
 
+  lvs_caption_retrieval:
+    _type: knowledge_retrieval
+    backend: es_caption
+    top_k: 5
+    backend_config:
+      elasticsearch_url: ${ELASTIC_SEARCH_ENDPOINT:-http://${HOST_IP}:9200}
+      index: default_*                                  # per-stream `default_<stream_id>` indices
+      default_doc_type: raw_events
+      api_key: ""
+      verify_ssl: false
+      timeout: 30
+
 llms:
   # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
   nim_llm:
@@ -321,7 +329,7 @@ llms:
 
   rtvi_vlm:
     _type: openai
-    model_name: nvidia/cosmos-reason2-8b
+    model_name: ${VLM_NAME}
     base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
     model_kwargs:
@@ -351,6 +359,7 @@ workflow:
   - lvs_video_understanding
   - lvs_config_media
   - lvs_stream_understanding
+  - lvs_caption_retrieval
   - vst_video_clip
   - vst_snapshot
   - vst_video_list
@@ -366,28 +375,40 @@ workflow:
       - If user ask to show a video not in the list from previous interactions, call this tool to verify if the video is available then call the appropriate tool to show the video or snapshot.
       - Examples: "What videos are available?", "List all available videos" "list sensors"
       **report_agent**
-      - Only call report_agent when user mentions "report" in the question (works for both uploaded videos AND live streams).
-      - For "report" requests, call report_agent DIRECTLY as the first tool — do NOT call lvs_stream_understanding, lvs_config_media, or any other tool first to "check"/"verify" anything.
+      - HIGHEST PRIORITY: If the user mentions "report" anywhere in the question, call report_agent (works for both uploaded videos AND live streams).
+      - For "report" requests, call report_agent DIRECTLY as the first tool. Do NOT call lvs_video_understanding, lvs_stream_understanding, lvs_config_media, or any other tool first to "check"/"verify" anything.
+      - If the user asks for a report "using long video summarization" or includes both "report" and "summarize/summarization", still call report_agent, not lvs_video_understanding.
       - Don't use the report from previous interactions.
       - CRITICAL: For multiple uploaded videos, pass them as a list in a SINGLE call (e.g., sensor_id=['video1', 'video2']). Do NOT make separate sequential calls.
       - For uploaded videos: pass sensor_id (str or list[str]) and user_query.
-      - For live streams: pass media_type='stream', a single sensor_id (the stream name), start_time and end_time as floats in seconds (use end_time=0 for "until now"), and user_query.
-      - Examples: "Generate a report for video1" → ONE call report_agent(sensor_id='video1', user_query=...). "Generate a report for stream CAM_1 from 0 to 60 seconds" → ONE call report_agent(media_type='stream', sensor_id='CAM_1', start_time=0, end_time=60, user_query=...).
+      - For live RTSP streams: pass media_type='rtsp', a single sensor_id (the stream name), start_time and end_time as floats in seconds (use end_time=0 for "until now"), and user_query.
+      - CRITICAL — STREAM DETECTION: if lvs_config_media was called for `<name>` earlier in this conversation, OR `vst_video_list` shows `<name>` with `media_type='rtsp'`, then `<name>` IS a stream and you MUST pass `media_type='rtsp'` to report_agent. Do NOT default to the uploaded-video path just because the user did not say the word "stream".
+      - Examples: "Generate a report for video1" -> ONE call report_agent(sensor_id='video1', user_query=...). "Generate a report using long video summarization for warehouse_sample" -> ONE call report_agent(sensor_id='warehouse_sample', user_query=...). "Generate a report for stream CAM_1 from 0 to 60 seconds" -> ONE call report_agent(media_type='rtsp', sensor_id='CAM_1', start_time=0, end_time=60, user_query=...).
+      **lvs_caption_retrieval** - DEFAULT path for content questions about a captioned live stream.
+      - REQUIRED args: `query` (keyword string, e.g. "PPE violations") AND `collection` (stream's friendly name, e.g. "warehouse_sample_test"). Missing `query` will fail validation.
+      - Add `filters={"time_range": {"start": "<ISO 8601 UTC>", "end": "<ISO 8601 UTC>"}}` only when the user gives a time window. Use today's date from the system prompt.
+      - Never pass numeric/stream-relative times ("first 2 minutes") — captions use absolute timestamps. Route those to `lvs_stream_understanding` instead.
+      - If the result has `chunks=[]`, fall back to `lvs_stream_understanding`.
+      - Example: "PPE violations in CAM_1 in the last 5 minutes" at 22:32 UTC → `query="PPE violations", collection="CAM_1", filters={"time_range": {"start": "2026-05-05T22:27:00Z", "end": "2026-05-05T22:32:00Z"}}`.
       **lvs_video_understanding** - For SUMMARIZING uploaded videos (not streams, not reports).
       - Use when user asks to "summarize" or "give a summary of" a video, optionally over a time range.
+      - NEVER use this tool when the user mentions "report"; report_agent owns report generation and artifact creation.
       - Pass sensor_id (the video name from vst_video_list); start_time/end_time are floats in seconds (omit both for the whole video).
       - Examples: "Summarize video warehouse_sample" (no times), "Summarize video warehouse_sample from start to second 45" (start_time=0, end_time=45)
-      **lvs_stream_understanding** - For SUMMARIZING live streams (not videos, not reports).
-      - Use when user asks to "summarize" or "describe" a stream over a time range.
+      **lvs_stream_understanding** - For SUMMARIZING live streams (not videos, not reports), AND as the VLM fallback when `lvs_caption_retrieval` returns `chunks=[]`.
+      - Use when user asks to "summarize" or "describe" a stream over a time range, OR when a prior `lvs_caption_retrieval` call returned no chunks.
       - Do NOT use this tool to "check" whether a stream is configured before calling another tool — it is for showing summaries to the user.
-      - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Pass stream_name, numeric start_time, numeric end_time, response_type='summary'.
+      - If the response status is "not_configured", surface the response message VERBATIM to the user and STOP. Do NOT auto-call lvs_config_media — caption generation must be confirmed by the user first.
       - Examples: "Summarize stream CAM_1 from 0 to 45 seconds"
       **lvs_config_media** - Start LVS caption generation for a live stream (HITL collects scenario/events/objects).
-      - Use ONLY when the user explicitly asks to start caption generation for a stream. Trigger phrases include: "start summarizing the stream <name>", "start captioning <name>", "set up stream <name>", "configure stream <name>".
+      - Use ONLY when the user explicitly asks to start caption generation for a stream. Trigger phrases include: "start captioning <name>", "set up stream <name>", "configure stream <name>".
+      - "summarize <name>" or "summarize <name> from X to Y" is NOT a trigger — it must be routed by `media_type` from `vst_video_list` to `lvs_stream_understanding` (rtsp) or `lvs_video_understanding` (video).
+      - "generate a report for <name>" or "generate a report for <name> from X to Y" is NOT a trigger — it must be routed to `report_agent`.
       - Do NOT call this tool just because a previous tool's response said the stream is "not configured" — surface that response to the user and wait for an explicit start request.
       - Do NOT call speculatively or as a pre-check.
       - After this tool returns, do NOT chain into lvs_stream_understanding/report_agent in the same turn — captions take time to accumulate. Tell the user captioning has started and to ask again later for a summary or report.
+      - Do NOT call this tool if it has already been called for the same `<name>` earlier in the conversation. Only call again if the user explicitly says "reconfigure" or provides different scenario/events/objects.
       **video_understanding** - For any question about short videos or quick queries for a video clip.
       - Use when video is less than 1 minute.
       - Use when user asks "what happens in the video" or "describe the video" or "analyze this video" or "what is happening in the video"
@@ -396,7 +417,10 @@ workflow:
       - CRITICAL: Always call vst_video_clip to get the URL even though the video clip for the same video has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_video_clip.
       **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp.
       - CRITICAL: Always call vst_snapshot to get the URL even though the snapshot for the same video and at the same timestamp has already been generated from previous interactions. DO NOT generate the URL yourself without calling vst_snapshot.
-    ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, treat it as a stream if the name contains "stream"/"cam"/"rtsp" or you previously added a stream by that name, treat it as an uploaded video if you previously uploaded/listed a video by that name, otherwise ask the user once.
+    ## Stream vs uploaded video: when a request mentions a `<name>` that could be either, you MUST identify its media_type before routing.
+      - If you previously added/uploaded `<name>` in this conversation and know its type, use that.
+      - Otherwise call `vst_video_list` and look up `<name>` in the result. Each entry has `media_type='rtsp'` (live RTSP) or `media_type='video'` (uploaded) — use this to pick the right tool per the routing rules above. Do NOT guess from the name.
+      - If `<name>` is not in `vst_video_list`, tell the user it isn't available and ask them to add or upload it.
     ## Context: If user doesn't specify the video name, you should use the most recently uploaded video.
 
 
@@ -412,6 +436,12 @@ workflow:
     - Wrap urls in html tags. CRITICAL: ONLY do this when a url is EXACTLY the one returned from a tool call or the url is EXACTLY the same as one from the conversation history. NEVER generate urls yourself. NEVER modify an existing url to create a new url (e.g. changing timestamps, IDs, or any part of the url). If you need a url that wasn't returned by a tool call, you MUST call the appropriate tool to get it. Examples:
       <video src="video_url" alt="Video Name">Video Name</video>
       <image src="image_url" alt="Image Name">Image Name</image>
+    - When answering from `lvs_caption_retrieval` results:
+      - Cite each event by its ISO 8601 timestamp from the events JSON (e.g. "At 2026-05-05T21:03:30Z, ...") and the stream name from the Citation line (e.g. "in `warehouse_sample_test.mp4`").
+      - Quote the event's `description` verbatim when it directly answers the question.
+      - Do NOT refer to results as "Result 1", "Result 2", etc. — that's tool-internal numbering. Refer to events by stream name + timestamp.
+      - If excerpts conflict (e.g. some show compliance, some don't), call that out explicitly with both timestamps rather than collapsing.
+      - Refer to the stream by its friendly name (Citation line), not its UUID, even if the user typed the UUID.
   postprocessing:
     enabled: false
     validation_order:

@@ -89,7 +89,7 @@
 				},
 				{
 					"name": "proximityDetectionThreshold",
-					"value": "3"
+					"value": "4"
 				},
 				{
 					"name": "proximityDetectionCenterClasses",
@@ -130,10 +130,6 @@
 		{
 			"name": "playbackStartUpDelaySec",
 			"value": "90"
-		},
-		{
-			"name": "coordinateSystem",
-			"value": "euclidean"
 		},
 		{
 			"name": "sourceType",

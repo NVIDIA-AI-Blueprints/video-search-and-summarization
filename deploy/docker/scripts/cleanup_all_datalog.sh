@@ -32,7 +32,7 @@ function usage() {
   echo "-d, --dev-profile                   name of the dev-profile, one of base / lvs / alerts / search"
   echo "--skip-delete-calibration-data      skip deletion of calibration data"
   echo "--skip-delete-vst-data              skip deletion of vst data"
-  echo "--skip-delete-backup-files          skip deletion of blueprint-configurator backup files (*.backup_*) under MDX_DATA_DIR, the met-blueprints repo root, and MDX_SAMPLE_APPS_DIR when set"
+  echo "--skip-delete-backup-files          skip deletion of blueprint-configurator backup files (*.backup_*) under VSS_DATA_DIR, the met-blueprints repo root, and VSS_APPS_DIR when set"
   echo "--skip-revert-from-oldest-backup    skip reverting from the oldest available blueprint-configurator backup file"
   echo "-h, --help                          provide usage information"
   echo ""
@@ -86,21 +86,21 @@ function process_args() {
 
 function load_env() {
   # Save pre-existing environment variables
-  local _saved_mdx_data_dir="${MDX_DATA_DIR}"
-  local _saved_mdx_sample_apps_dir="${MDX_SAMPLE_APPS_DIR}"
+  local _saved_vss_data_dir="${VSS_DATA_DIR}"
+  local _saved_vss_apps_dir="${VSS_APPS_DIR}"
 
   if [[ -f "${env_file}" ]]; then
     source "${env_file}"
     echo "✅ Sourced env file: ${env_file}"
 
     # Restore pre-existing environment variables if they were set
-    if [[ -n "${_saved_mdx_data_dir}" ]]; then
-      export MDX_DATA_DIR="${_saved_mdx_data_dir}"
-      echo "Using pre-set exported vars MDX_DATA_DIR: ${MDX_DATA_DIR}"
+    if [[ -n "${_saved_vss_data_dir}" ]]; then
+      export VSS_DATA_DIR="${_saved_vss_data_dir}"
+      echo "Using pre-set exported vars VSS_DATA_DIR: ${VSS_DATA_DIR}"
     fi
-    if [[ -n "${_saved_mdx_sample_apps_dir}" ]]; then
-      export MDX_SAMPLE_APPS_DIR="${_saved_mdx_sample_apps_dir}"
-      echo "Using pre-set exported vars MDX_SAMPLE_APPS_DIR: ${MDX_SAMPLE_APPS_DIR}"
+    if [[ -n "${_saved_vss_apps_dir}" ]]; then
+      export VSS_APPS_DIR="${_saved_vss_apps_dir}"
+      echo "Using pre-set exported vars VSS_APPS_DIR: ${VSS_APPS_DIR}"
     fi
   else
     echo "Error: env file '${env_file}' not found"
@@ -109,8 +109,8 @@ function load_env() {
 }
 
 function info() {
-  if [[ -d "${MDX_DATA_DIR}" ]]; then
-    echo "Assuming the path of the MDX data dir as: ${MDX_DATA_DIR}"
+  if [[ -d "${VSS_DATA_DIR}" ]]; then
+    echo "Assuming the path of the VSS data dir as: ${VSS_DATA_DIR}"
     if [ "${delete_calibration_data}" == false ]; then
       echo "Calibration data will not be deleted"
     fi
@@ -124,7 +124,7 @@ function info() {
       echo "Revert from oldest backup will be skipped"
     fi
   else
-    echo "Error: MDX data dir '${MDX_DATA_DIR}' not found"
+    echo "Error: VSS data dir '${VSS_DATA_DIR}' not found"
   fi
 }
 
@@ -139,9 +139,9 @@ function run_revert_from_oldest_backup() {
   local -A _seen_base
   local -a _revert_roots
 
-  _revert_roots=("${MDX_DATA_DIR}" "$(dirname "${script_dir}")")
-  if [[ -n "${MDX_SAMPLE_APPS_DIR:-}" && -d "${MDX_SAMPLE_APPS_DIR}" ]]; then
-    _revert_roots+=("${MDX_SAMPLE_APPS_DIR}")
+  _revert_roots=("${VSS_DATA_DIR}" "$(dirname "${script_dir}")")
+  if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
+    _revert_roots+=("${VSS_APPS_DIR}")
   fi
 
   for _search_dir in "${_revert_roots[@]}"; do
@@ -176,46 +176,71 @@ function run_revert_from_oldest_backup() {
 function cleanup() {
   local _vst_volume _nvstreamer_volume
 
-  if [ -d "${MDX_DATA_DIR}/data_log/kafka" ]; then
-    sudo rm -rf ${MDX_DATA_DIR}/data_log/kafka/*
+  if [ -d "${VSS_DATA_DIR}/data_log/kafka" ]; then
+    sudo rm -rf ${VSS_DATA_DIR}/data_log/kafka/*
   fi
 
-  if [ -d "${MDX_DATA_DIR}/data_log/elastic/data" ]; then
-    sudo rm -rf ${MDX_DATA_DIR}/data_log/elastic/data/*
+  if [ -d "${VSS_DATA_DIR}/data_log/elastic/data" ]; then
+    sudo rm -rf ${VSS_DATA_DIR}/data_log/elastic/data/*
   fi
 
-  if [ -d "${MDX_DATA_DIR}/data_log/elastic/logs" ]; then
-    sudo rm -rf ${MDX_DATA_DIR}/data_log/elastic/logs/*
+  if [ -d "${VSS_DATA_DIR}/data_log/elastic/logs" ]; then
+    sudo rm -rf ${VSS_DATA_DIR}/data_log/elastic/logs/*
   fi
 
-  if [ -d "${MDX_DATA_DIR}/data_log/behavior_learning_data" ]; then
-    sudo rm -rf ${MDX_DATA_DIR}/data_log/behavior_learning_data/*
+  if [ -d "${VSS_DATA_DIR}/data_log/behavior_learning_data" ]; then
+    sudo rm -rf ${VSS_DATA_DIR}/data_log/behavior_learning_data/*
   fi
 
-  if [ -d "${MDX_DATA_DIR}/data_log/vss_video_analytics_api/" ]; then
-    sudo rm -rf ${MDX_DATA_DIR}/data_log/vss_video_analytics_api/*
+  if [ -d "${VSS_DATA_DIR}/data_log/vss_video_analytics_api/" ]; then
+    sudo rm -rf ${VSS_DATA_DIR}/data_log/vss_video_analytics_api/*
   fi
 
-  if [ -d "${MDX_DATA_DIR}/data_log/redis/data" ]; then
-      sudo rm -rf ${MDX_DATA_DIR}/data_log/redis/data/*
+  if [ -d "${VSS_DATA_DIR}/data_log/redis/data" ]; then
+      sudo rm -rf ${VSS_DATA_DIR}/data_log/redis/data/*
   fi
 
-  if [ -d "${MDX_DATA_DIR}/data_log/redis/log" ]; then
-      sudo rm -rf ${MDX_DATA_DIR}/data_log/redis/log/*
+  if [ -d "${VSS_DATA_DIR}/data_log/redis/log" ]; then
+      sudo rm -rf ${VSS_DATA_DIR}/data_log/redis/log/*
   fi
+
+  # Clean up sdrc runtime artifacts (logs and rendered wdm env files)
+  local _sdrc_dir="${script_dir}/../services/infra/sdrc"
+
+  if [ -d "${_sdrc_dir}/log" ]; then
+      sudo rm -rf "${_sdrc_dir}/log"
+  fi
+
+  if [ -d "${_sdrc_dir}/.wdm-env" ]; then
+      sudo rm -rf "${_sdrc_dir}/.wdm-env"
+  fi
+
+  # Delete render-service generated sdrc config files. Every rendered file in
+  # */sdrc/configs/ has a sibling *.tmpl template; remove the rendered sibling
+  # so the next run regenerates it cleanly from the template.
+  local _docker_dir _tmpl _rendered
+  _docker_dir="$(dirname "${script_dir}")"
+  while IFS= read -r _tmpl; do
+    [[ -z "${_tmpl}" ]] && continue
+    _rendered="${_tmpl%.tmpl}"
+    if [[ -f "${_rendered}" ]]; then
+      echo "Deleting rendered sdrc config: ${_rendered}"
+      sudo rm -f "${_rendered}"
+    fi
+  done < <(find "${_docker_dir}" -type f -path '*/sdrc/configs/*.tmpl' 2>/dev/null)
 
   if [[ "${delete_calibration_data}" == true ]]; then
-      sudo rm -rf ${MDX_DATA_DIR}/data_log/calibration_toolkit/*
+      sudo rm -rf ${VSS_DATA_DIR}/data_log/calibration_toolkit/*
   fi
 
   if [[ "${delete_vst_data}" == true ]]; then
-      _vst_volume="${MDX_DATA_DIR}/data_log/vst"
+      _vst_volume="${VSS_DATA_DIR}/data_log/vst"
 
       if [ -d "${_vst_volume}" ]; then
           sudo rm -rf "${_vst_volume}"
       fi
 
-      _nvstreamer_volume="${MDX_DATA_DIR}/data_log/nvstreamer"
+      _nvstreamer_volume="${VSS_DATA_DIR}/data_log/nvstreamer"
 
       if [ -d "${_nvstreamer_volume}" ]; then
           sudo rm -rf "${_nvstreamer_volume}"
@@ -227,9 +252,9 @@ function cleanup() {
     local _backup_count _root
     local -a _backup_roots
 
-    _backup_roots=("${MDX_DATA_DIR}" "$(dirname "${script_dir}")")
-    if [[ -n "${MDX_SAMPLE_APPS_DIR:-}" && -d "${MDX_SAMPLE_APPS_DIR}" ]]; then
-      _backup_roots+=("${MDX_SAMPLE_APPS_DIR}")
+    _backup_roots=("${VSS_DATA_DIR}" "$(dirname "${script_dir}")")
+    if [[ -n "${VSS_APPS_DIR:-}" && -d "${VSS_APPS_DIR}" ]]; then
+      _backup_roots+=("${VSS_APPS_DIR}")
     fi
 
     for _root in "${_backup_roots[@]}"; do

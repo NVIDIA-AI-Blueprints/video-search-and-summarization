@@ -154,8 +154,15 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
         <div className={`pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${
           isDark ? 'bg-black/50' : 'bg-black/30'
         }`}>
-          <div className="bg-white/90 rounded-full p-2">
-            <IconPlayerPlay className="w-5 h-5 fill-current text-gray-800" />
+          <div
+            className={`rounded-full p-2 shadow-sm ${
+              isDark ? 'bg-neutral-950/90' : 'bg-white/90'
+            }`}
+          >
+            <IconPlayerPlay
+              className="h-5 w-5 shrink-0 fill-current"
+              style={{ color: isDark ? '#f5f5f5' : '#171717' }}
+            />
           </div>
         </div>
       )}

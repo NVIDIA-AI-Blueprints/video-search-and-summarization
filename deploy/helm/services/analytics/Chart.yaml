@@ -28,4 +28,8 @@ dependencies:
     version: 26.04.2
     repository: "file://./charts/video-analytics-api"
     condition: vss-video-analytics-api.enabled
+  - name: video-analytics-ui
+    version: 26.04.2
+    repository: "file://./charts/video-analytics-ui"
+    condition: video-analytics-ui.enabled
 maintainers: []
