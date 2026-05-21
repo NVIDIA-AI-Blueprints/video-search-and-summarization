@@ -65,7 +65,7 @@ LVS:
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing LVS URL. |
 | `LVS_IMAGE` | `nvcr.io/nvstaging/vss-core/vss-video-summarization` | Image repository. |
-| `LVS_TAG` | `3.2.0-rc10-6f75390` | Image tag in current develop. |
+| `LVS_TAG` | `3.2.0-rc11-d65196a` | Image tag in current develop. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `KAFKA_ENABLED` | `true` | LVS Kafka integration. |
 | `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker URL from LVS. |
