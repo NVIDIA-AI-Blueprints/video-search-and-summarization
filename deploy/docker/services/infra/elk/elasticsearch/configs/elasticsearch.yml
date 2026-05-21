@@ -17,5 +17,3 @@ path.data: /tmp/elastic/data/
 # Path to log files:
 #
 path.logs: /tmp/elastic/logs
-
-# vectors.indexing.use_gpu: true
