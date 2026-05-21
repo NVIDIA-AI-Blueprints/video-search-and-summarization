@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Button, TextInput } from '@nvidia/foundations-react-core';
+
+const DISPLAY_FILTER_MENU_Z_INDEX = 10600;
 
 interface ToolbarProps {
   searchQuery: string;
@@ -42,15 +45,43 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   hasRtspStreams = true,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const filterTriggerRef = useRef<HTMLDivElement>(null);
+  const filterMenuRef = useRef<HTMLDivElement>(null);
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const [filterMenuPosition, setFilterMenuPosition] = useState<{ top: number; left: number } | null>(null);
 
-  // Close dropdown when clicking outside
+  const updateFilterMenuPosition = useCallback(() => {
+    if (!filterTriggerRef.current) return;
+    const rect = filterTriggerRef.current.getBoundingClientRect();
+    setFilterMenuPosition({ top: rect.bottom + 4, left: rect.left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isFilterDropdownOpen) {
+      setFilterMenuPosition(null);
+      return;
+    }
+    updateFilterMenuPosition();
+  }, [isFilterDropdownOpen, updateFilterMenuPosition]);
+
+  useEffect(() => {
+    if (!isFilterDropdownOpen) return;
+    const onScrollOrResize = () => updateFilterMenuPosition();
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    };
+  }, [isFilterDropdownOpen, updateFilterMenuPosition]);
+
+  // Close dropdown when clicking outside (menu is portaled to document.body)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsFilterDropdownOpen(false);
-      }
+      const target = event.target as Node;
+      if (filterTriggerRef.current?.contains(target)) return;
+      if (filterMenuRef.current?.contains(target)) return;
+      setIsFilterDropdownOpen(false);
     };
 
     if (isFilterDropdownOpen) {
@@ -111,7 +142,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   ) : undefined;
 
   return (
-    <div className="min-w-0 max-w-full overflow-x-auto border-b border-gray-200 dark:border-gray-800">
+    <div className="min-w-0 max-w-full overflow-x-auto overflow-y-clip border-b border-gray-200 dark:border-gray-800">
       {/* One wrapping flex row — no flex-1 + justify-end strip */}
       <div className="flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-6 pt-6 pb-4">
         <input
@@ -160,7 +191,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <label htmlFor="display-filter-toggle" className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Display:
             </label>
-            <div className="relative" ref={dropdownRef}>
+            <div className="relative" ref={filterTriggerRef}>
               <Button
                 kind="tertiary"
                 id="display-filter-toggle"
@@ -184,73 +215,84 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 </svg>
               </Button>
 
-              {isFilterDropdownOpen && (
-                <div
-                  role="group"
-                  aria-label="Display file type"
-                  className="w-40 absolute left-0 top-full mt-1 rounded-md border shadow-lg z-50 py-1 bg-white dark:bg-black border-gray-200 dark:border-gray-600"
-                >
-                  {showVideoOption && (
-                    <label
-                      className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={showVideos}
-                        onChange={() => onShowVideosChange(!showVideos)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="sr-only"
-                        aria-label="Video"
-                      />
-                      <span
-                        className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                          showVideos
-                            ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
-                            : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
-                        }`}
-                        aria-hidden
+              {isFilterDropdownOpen &&
+                filterMenuPosition &&
+                typeof document !== 'undefined' &&
+                createPortal(
+                  <div
+                    ref={filterMenuRef}
+                    role="group"
+                    aria-label="Display file type"
+                    className="w-40 rounded-md border shadow-lg py-1 bg-white dark:bg-black border-gray-200 dark:border-gray-600"
+                    style={{
+                      position: 'fixed',
+                      top: filterMenuPosition.top,
+                      left: filterMenuPosition.left,
+                      zIndex: DISPLAY_FILTER_MENU_Z_INDEX,
+                    }}
+                  >
+                    {showVideoOption && (
+                      <label
+                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
                       >
-                        {showVideos && (
-                          <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Video</span>
-                    </label>
-                  )}
+                        <input
+                          type="checkbox"
+                          checked={showVideos}
+                          onChange={() => onShowVideosChange(!showVideos)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="sr-only"
+                          aria-label="Video"
+                        />
+                        <span
+                          className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                            showVideos
+                              ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
+                              : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
+                          }`}
+                          aria-hidden
+                        >
+                          {showVideos && (
+                            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Video</span>
+                      </label>
+                    )}
 
-                  {showRtspOption && (
-                    <label
-                      className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={showRtsps}
-                        onChange={() => onShowRtspsChange(!showRtsps)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="sr-only"
-                        aria-label="RTSP"
-                      />
-                      <span
-                        className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                          showRtsps
-                            ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
-                            : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
-                        }`}
-                        aria-hidden
+                    {showRtspOption && (
+                      <label
+                        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-gray-50 dark:hover:bg-black cursor-pointer"
                       >
-                        {showRtsps && (
-                          <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="text-sm text-gray-700 dark:text-gray-300">RTSP</span>
-                    </label>
-                  )}
-                </div>
-              )}
+                        <input
+                          type="checkbox"
+                          checked={showRtsps}
+                          onChange={() => onShowRtspsChange(!showRtsps)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="sr-only"
+                          aria-label="RTSP"
+                        />
+                        <span
+                          className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                            showRtsps
+                              ? 'bg-green-600 dark:bg-green-600 border-green-600 dark:border-green-600'
+                              : 'bg-white dark:bg-black border-gray-300 dark:border-gray-500'
+                          }`}
+                          aria-hidden
+                        >
+                          {showRtsps && (
+                            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">RTSP</span>
+                      </label>
+                    )}
+                  </div>,
+                  document.body
+                )}
             </div>
           </div>
         )}
