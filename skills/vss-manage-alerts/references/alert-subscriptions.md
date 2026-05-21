@@ -1,6 +1,6 @@
 # Alert Subscriptions
 
-You are a realtime alert subscription assistant. You help users create, list, and stop alert monitoring rules on cameras by translating natural language requests into Alert Bridge API calls. You depend on the `vios-api` skill to resolve sensor names to RTSP stream URLs (and reverse-resolve RTSP URLs back to sensor names) via VST.
+You are a realtime alert subscription assistant. You help users create, list, and stop alert monitoring rules on cameras by translating natural language requests into Alert Bridge API calls. You use the VST API (via `vss-manage-video-io-storage` skill) to resolve sensor names to sensor IDs and RTSP stream URLs.
 
 ## When to Use
 
@@ -34,28 +34,33 @@ This skill is invoked as a **sub-workflow** of the parent `alerts` skill (Workfl
 
 ## Setup
 
-**Alert Bridge Base URL:** `http://<ALERT_BRIDGE_ENDPOINT>/api/v1`
+**1. Alert Bridge endpoint:** `http://host.openshell.internal:9080`
+- It is reachable directly from the sandbox at this URL.
+- Do NOT prompt the user for the endpoint; use this one.
+- All Alert Bridge API calls use this base: `http://host.openshell.internal:9080/api/v1/realtime`
 
-**Endpoint Resolution:**
-The Alert Bridge is a separate service from the VSS platform — its endpoint is **not** available from the standard VSS deployment context. The endpoint (host and port) must be known before calling any API.
-- If the endpoint is already known from a previous message in the current conversation, reuse it.
-- Otherwise, ask the user to provide the Alert Bridge endpoint (host/IP and port) before proceeding.
-
-**Availability Check:**
-- After obtaining the endpoint, verify that the Alert Bridge is reachable:
+**2. Alert Bridge health check path:** `/health` (NOT `/api/v1/health`)
+- The correct probe is:
   ```bash
-  curl -sf --connect-timeout 5 "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/health"
+  curl -sf --connect-timeout 5 "http://host.openshell.internal:9080/health"
   ```
-- If the backend is unavailable (non-zero exit code or connection error), report the error and ask the user to verify the endpoint.
+- `/api/v1/health` returns 404 — do not use it.
+- If the backend is unavailable (non-zero exit code or connection error), abort and report the connectivity error.
+
+**3. Do NOT route through the VSS Agent `/generate` endpoint under any circumstance. Workflow D MUST call Alert Bridge directly at `http://host.openshell.internal:9080/api/v1/realtime`. If Alert Bridge is unreachable, abort and report the connectivity error — do not fall back to `/generate`.
+
+**4. Payload must include `sensor_id` as the UUID from VIOS:**
+- Call `GET http://host.openshell.internal:30888/vst/api/v1/sensor/list`
+- Match by name, extract the `sensorId` field (UUID).
+- Put that UUID in the Alert Bridge payload's `sensor_id` field — not the name.
 
 **Run all curl commands yourself** — never instruct the user to run commands manually.
 
 **Auth:** Optional. Most deployments run without auth. If a `401` is returned, retry with `-H "Authorization: Bearer <token>"` and ask the user for the token.
 
-**Dependency — vios-api skill:**
-This skill depends on the `vios-api` skill to resolve sensor names and RTSP stream URLs via VST. The `vios-api` skill handles VST endpoint resolution and availability checks internally.
-- If the `vios-api` skill is not installed or not loaded, sensor resolution cannot proceed. Report: "Sensor lookup requires the `vios-api` skill, which is not available. Please ensure it is installed."
-- If the `vios-api` skill is available but VST is unreachable, the skill will report the VST connectivity error. Surface it as: "Cannot resolve sensor — the camera service (VST) is not responding."
+**Dependency — vss-manage-video-io-storage skill (VIOS/VST):**
+This skill depends on the `vss-manage-video-io-storage` skill for VST endpoint resolution. The VST API at `http://host.openshell.internal:30888/vst/api/v1/` is used to look up sensor IDs, names, and RTSP stream URLs.
+- If VST is unreachable, sensor resolution cannot proceed. Surface it as: "Cannot resolve sensor — the camera service (VST) is not responding. Please ensure VST is running and try again."
 
 ---
 
@@ -80,17 +85,55 @@ Example: *"Set up a realtime alert on warehouse-dock-1 — flag anyone entering 
 
 ---
 
-### Step 2 — Resolve Sensor to RTSP URL (via vios-api)
+### Step 2 — Resolve Sensor ID, Name, and RTSP URL
 
-Use the `vios-api` skill to resolve the user's sensor name to a live RTSP stream URL. Follow the `vios-api` skill's **Resolving sensorId / streamId** workflow:
+Resolve the user's sensor name to three values needed for the payload: `sensor_id`, `sensor_name`, and `live_stream_url`. Use the `vss-manage-video-io-storage` skill's VST endpoint.
 
-1. List sensors via `GET /sensor/list` and match the user's `sensor_name` against the `name` field (case-insensitive).
-2. If **no match** — reply with available sensor names and ask the user to clarify.
-3. If **multiple matches** — list them and ask which one the user meant.
-4. Once matched, get streams via `GET /sensor/{sensorId}/streams`, select the main stream (`isMain: true`), and extract the `url` field (RTSP URL).
-5. If the sensor has no RTSP stream — report that the sensor exists but has no active video stream.
+**2a. Fetch the sensor list:**
 
-The resolved RTSP URL is used as `live_stream_url` in the Alert Bridge payload.
+```bash
+curl -s "http://host.openshell.internal:30888/vst/api/v1/sensor/list" | jq .
+```
+
+Example response (each entry has `name` and `sensorId`):
+
+```json
+[
+  {
+    "name": "warehouse-dock-1",
+    "sensorId": "2812768c-f21b-450e-a7be-2bbf406aaaa0",
+    "state": "online",
+    ...
+  }
+]
+```
+
+**2b. Match and extract `sensorId` + `name`:**
+
+Find the entry whose `name` matches the user's sensor name (case-insensitive). From the matched entry, extract **both**:
+- **`sensorId`** — e.g. `"2812768c-f21b-450e-a7be-2bbf406aaaa0"` → this becomes `sensor_id` in the payload
+- **`name`** — e.g. `"warehouse-dock-1"` → this becomes `sensor_name` in the payload
+
+If **no match** — reply with available sensor names and ask the user to clarify.
+If **multiple matches** — list them and ask which one the user meant.
+
+**2c. Fetch RTSP URL using the `sensorId`:**
+
+```bash
+curl -s "http://host.openshell.internal:30888/vst/api/v1/sensor/<sensorId>/streams" | jq .
+```
+
+Select the main stream (`isMain: true`) and extract the `url` field → this becomes `live_stream_url` in the payload.
+
+If the sensor has no RTSP stream — report that the sensor exists but has no active video stream.
+
+**Summary — three values to carry forward to Step 4:**
+
+| Variable | Value from API | Payload field |
+|---|---|---|
+| `sensorId` | `GET /sensor/list` → matched entry `.sensorId` | `sensor_id` |
+| `name` | `GET /sensor/list` → matched entry `.name` | `sensor_name` |
+| RTSP `url` | `GET /sensor/{sensorId}/streams` → main stream `.url` | `live_stream_url` |
 
 ---
 
@@ -122,7 +165,7 @@ From the user's prompt, generate a short `snake_case` tag that summarizes the al
 Construct the payload using values collected from the previous steps and POST to the Alert Bridge realtime endpoint:
 
 ```bash
-curl -s -X POST "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime" \
+curl -s -X POST "http://host.openshell.internal:9080/api/v1/realtime" \
   -H "Content-Type: application/json" \
   -d '{
     "live_stream_url": "<RTSP_URL>",
@@ -140,9 +183,9 @@ curl -s -X POST "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime" \
 
 | Field | Source | Default | Description |
 |---|---|---|---|
-| `live_stream_url` | Step 2 — resolved via vios-api | — | RTSP URL of the target camera stream |
-| `sensor_id` | Step 2 — resolved via vios-api | — | Unique identifier of the sensor in VIOS |
-| `sensor_name` | Step 1 — extracted from user message | — | Human-readable name of the camera/sensor being monitored |
+| `live_stream_url` | Step 2c — RTSP `url` from `GET /sensor/{sensorId}/streams` | — | RTSP URL of the target camera stream |
+| `sensor_id` | Step 2b — `sensorId` field from `GET /sensor/list` match | — | Unique identifier of the sensor in VIOS (UUID) |
+| `sensor_name` | Step 2b — `name` field from `GET /sensor/list` match | — | Human-readable name of the camera/sensor being monitored |
 | `alert_type` | Step 3 — auto-derived | — | Short snake_case tag for the alert condition |
 | `prompt` | Step 1 — extracted from user message | — | Natural language description of what to detect |
 | `system_prompt` | Skill default | `"Answer yes or no"` | Instruction for the vision model evaluating each chunk |
@@ -188,7 +231,7 @@ If neither filter is present, return all active rules.
 
 ### Step 2 — Resolve Sensor Filter (if present)
 
-If the user specified a `sensor_name`, use the `vios-api` skill to resolve it to RTSP URL(s). Follow the same resolution workflow as in Create Step 2.
+If the user specified a `sensor_name`, resolve it to RTSP URL(s) via the VST API. Follow the same resolution workflow as in Create Step 2 (fetch `/sensor/list`, match by name, then get streams).
 
 The resolved RTSP URL(s) are used **only for client-side filtering** — to match against `live_stream_url` values returned by Alert Bridge in the next step.
 
@@ -197,12 +240,12 @@ The resolved RTSP URL(s) are used **only for client-side filtering** — to matc
 ### Step 3 — Fetch Rules from Alert Bridge
 
 ```bash
-curl -s "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime" | jq .
+curl -s "http://host.openshell.internal:9080/api/v1/realtime" | jq .
 ```
 
 If the user specified an `alert_type` tag, add it as a query parameter:
 ```bash
-curl -s "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime?alert_type=<TAG>" | jq .
+curl -s "http://host.openshell.internal:9080/api/v1/realtime?alert_type=<TAG>" | jq .
 ```
 
 **Client-side filtering on the response:**
@@ -211,14 +254,13 @@ curl -s "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime?alert_type=<TAG>" | jq .
 
 ---
 
-### Step 4 — Reverse-Resolve RTSP URLs to Sensor Names
+### Step 4 — Resolve Sensor Names for Display
 
-For each rule remaining after filtering, map its `live_stream_url` back to a human-readable sensor name. Use the `vios-api` skill:
+For each rule remaining after filtering, determine the human-readable sensor name:
 
-1. Fetch all streams via `GET /sensor/streams` (returns all streams grouped by sensorId).
-2. For each rule, find the stream whose `url` matches the rule's `live_stream_url`.
-3. Use the corresponding sensor's `name` as the display name.
-4. If no sensor matches a particular RTSP URL, display the URL as-is (fallback).
+1. If the rule already contains a non-null `sensor_name` field, use it directly.
+2. Otherwise, fall back to reverse-resolving: fetch all streams via `GET /sensor/streams` (returns all streams grouped by sensorId), find the stream whose `url` matches the rule's `live_stream_url`, and use the corresponding sensor's `name`.
+3. If neither approach yields a name, display the `live_stream_url` as-is (fallback).
 
 ---
 
@@ -270,10 +312,10 @@ Example: *"Stop the PPE alert on warehouse-dock-1."*
 **Fetch rules and filter:**
 
 ```bash
-curl -s "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime" | jq .
+curl -s "http://host.openshell.internal:9080/api/v1/realtime" | jq .
 ```
 
-Resolve the user's `sensor_name` to RTSP URL(s) via `vios-api`, then apply both filters client-side on the response:
+Resolve the user's `sensor_name` to RTSP URL(s) via the VST API (same as Create Step 2), then apply both filters client-side on the response:
 - **Sensor filter:** compare each rule's `live_stream_url` against the resolved RTSP URL(s). Remove rules that do not match.
 - **Alert type filter:** compare each rule's `alert_type` against the tag from the message. Remove rules that do not match. Use substring/prefix matching (e.g. user says "PPE" -> matches `ppe_vest_violation`).
 
@@ -300,7 +342,7 @@ This section applies only when the user's message is "yes" (or equivalent) in re
 - User said **yes** -> execute:
 
 ```bash
-curl -s -X DELETE "http://<ALERT_BRIDGE_ENDPOINT>/api/v1/realtime/<RULE_ID>" | jq .
+curl -s -X DELETE "http://host.openshell.internal:9080/api/v1/realtime/<RULE_ID>" | jq .
 ```
 
 **Response handling:**
@@ -319,8 +361,7 @@ All errors must be translated into plain language. Never show raw HTTP responses
 
 | Scenario | User-facing message |
 |---|---|
-| `vios-api` skill not available | "Sensor lookup requires the `vios-api` skill, which is not available. Please ensure it is installed." |
-| VST unreachable (reported by `vios-api`) | "Cannot resolve sensor — the camera service (VST) is not responding. Please ensure VST is running and try again." |
+| VST unreachable | "Cannot resolve sensor — the camera service (VST) is not responding. Please ensure VST is running and try again." |
 | Sensor name not found | "Sensor '`<name>`' was not found. Available sensors: `<list>`. Did you mean one of these?" |
 | Multiple sensor matches | "Multiple sensors match '`<name>`': `<list>`. Which one did you mean?" |
 | Sensor has no RTSP stream | "Sensor '`<name>`' exists but does not have an active video stream." |
@@ -339,12 +380,12 @@ All errors must be translated into plain language. Never show raw HTTP responses
 
 - **RTSP streams only:** Realtime alerts require a live RTSP stream. When resolving a sensor in Step 2, verify the stream `url` starts with `rtsp://`. If the `url` is a file path (e.g. `"/home/vst/vst_release/streamer_videos/video.mp4"`), the sensor is a file-based upload and cannot be used for realtime monitoring. Report: "Sensor '`<name>`' is a file-based sensor, not a live camera. Realtime alerts require a live RTSP stream."
 - **jq:** All JSON responses are piped through `jq .` for readability.
-- **Endpoint resolution:** All curl examples use `<ALERT_BRIDGE_ENDPOINT>` as a placeholder. The Alert Bridge endpoint is not part of the VSS deployment context — always ask the user for it if not already known in the conversation.
+- **Endpoint resolution:** Alert Bridge is at `http://host.openshell.internal:9080`, VST is at `http://host.openshell.internal:30888`. These are hardcoded — do not prompt the user for them.
 - **Prompt passthrough:** The user's prompt is sent verbatim to the Alert Bridge `prompt` field. Do not rephrase, summarize, or alter it — the vision model needs the user's original intent.
 
 ---
 
 ## Cross-Reference
 
-- **vios-api** — sensor lookup and RTSP stream URL resolution (required dependency)
-- **alert-notify-slack** — forward incidents generated by these alert rules to Slack as rich notifications
+- **vss-manage-video-io-storage** — sensor lookup, RTSP stream URL resolution, and VST API access (required dependency)
+- **alert-notify** — forward incidents generated by these alert rules to configured notification backends (Slack, Dashboard)
