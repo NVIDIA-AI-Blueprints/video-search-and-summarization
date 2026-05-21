@@ -10,7 +10,16 @@ through the VSS Orchestrator MCP server.
 
 ---
 
-## Step 1: Confirm the MCP server
+## Step 1: Run AGENTS.md "Every Session", then verify reachability
+
+1. Complete the `AGENTS.md` "Every Session" checklist. In particular Step 1 there runs the exports in `ENV.md`, which the rest of this bootstrap and every skill depends on.
+2. Run the **Orchestrator reachability check** from `TOOLS.md` ("Sandbox host alias" → "HTTP-response curl checks" → "Orchestrator reachability check"). It must print `host alias reachable` before you continue.
+
+`TOOLS.md` also documents the harmless warnings you may see during this step (`oom_score_adj`, `http_proxy` preset) — read it once if you haven't already. Do not re-document any of that here.
+
+---
+
+## Step 2: Confirm the MCP server
 
 Follow the handshake-and-discover procedure in `TOOLS.md` (initialize →
 `notifications/initialized` → `tools/list`), then call the prerequisite-check
@@ -22,7 +31,7 @@ yourself.
 
 ---
 
-## Step 2: Offer Next Steps
+## Step 3: Offer Next Steps
 
 > "Ready. I can bring up one of the VSS Blueprint profiles — base, search, lvs,
 > or alerts — via the orchestrator. Which would you like?"
