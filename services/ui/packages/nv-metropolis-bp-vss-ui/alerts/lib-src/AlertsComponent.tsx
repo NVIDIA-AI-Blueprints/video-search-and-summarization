@@ -237,6 +237,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   // API-provided sensorList rather than accumulating from data.
   const { addFilter, removeFilter, filteredAlerts, uniqueValues } = useFilters({
     alerts,
+    vlmVerified,
     externalFilters: activeFilters,
     onFiltersChange: setActiveFilters,
     sensorList
