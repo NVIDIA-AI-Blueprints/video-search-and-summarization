@@ -26,11 +26,36 @@ RUN npm ci
 # mainly keeps Docker builds aligned with `turbo run build bundle` and validates those tasks.
 RUN npx turbo run build bundle
 
-# Set permissions for __ENV.js files to be writable at runtime
-RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
+# Strip write from all read-only artifacts copied into distroless (see runner COPY --chmod).
+# public/ stays 755 so __ENV.js can be written at runtime.
+RUN chmod -R a-w apps/nv-metropolis-bp-vss-ui/.next/standalone \
+                 apps/nv-metropolis-bp-vss-ui/.next/static \
+                 apps/nemo-agent-toolkit-ui/.next/standalone \
+                 apps/nemo-agent-toolkit-ui/.next/static \
+                 node_modules/next-runtime-env \
+                 node_modules/chalk \
+                 node_modules/ansi-styles \
+                 node_modules/supports-color \
+                 node_modules/color-convert \
+                 node_modules/color-name \
+                 node_modules/has-flag \
+                 custom-server.js && \
+    chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
     chmod -R 755 apps/nemo-agent-toolkit-ui/public && \
-    chown -R ${USER_ID}:${GROUP_ID} apps/nv-metropolis-bp-vss-ui/public && \
-    chown -R ${USER_ID}:${GROUP_ID} apps/nemo-agent-toolkit-ui/public
+    chown -R ${USER_ID}:${GROUP_ID} apps/nv-metropolis-bp-vss-ui/.next/standalone \
+                                  apps/nv-metropolis-bp-vss-ui/.next/static \
+                                  apps/nemo-agent-toolkit-ui/.next/standalone \
+                                  apps/nemo-agent-toolkit-ui/.next/static \
+                                  node_modules/next-runtime-env \
+                                  node_modules/chalk \
+                                  node_modules/ansi-styles \
+                                  node_modules/supports-color \
+                                  node_modules/color-convert \
+                                  node_modules/color-name \
+                                  node_modules/has-flag \
+                                  custom-server.js \
+                                  apps/nv-metropolis-bp-vss-ui/public \
+                                  apps/nemo-agent-toolkit-ui/public
 
 
 # Conditional runner phase
