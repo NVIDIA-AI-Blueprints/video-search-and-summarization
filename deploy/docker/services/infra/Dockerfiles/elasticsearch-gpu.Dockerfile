@@ -37,7 +37,7 @@ FROM docker.elastic.co/elasticsearch/elasticsearch:9.3.3
 ENV ES_HOME=/usr/share/elasticsearch
 ENV LIBCUVS_DIR=/opt/cuvs
 ENV CUDA13_LIBS=/opt/cuda13-libs
-ENV LD_LIBRARY_PATH=${LIBCUVS_DIR}:${CUDA13_LIBS}
+ENV LD_LIBRARY_PATH=${LIBCUVS_DIR}:${CUDA13_LIBS}:${LD_LIBRARY_PATH}
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 ENV ES_SETTING_VECTORS_INDEXING_USE__GPU=true
 
