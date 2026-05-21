@@ -627,24 +627,24 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
           onClose={handleClearUploadProgress}
           onCancel={handleCancelUploads}
         />
+
+        <AddRtspDialog
+          overlay="contained"
+          isOpen={isRtspModalOpen}
+          agentApiUrl={agentApiUrl}
+          onClose={handleRtspDialogClose}
+          onSuccess={handleRtspSuccess}
+        />
+
+        <DeleteConfirmDialog
+          overlay="contained"
+          isOpen={showDeleteConfirm}
+          streams={selectedStreamInfos}
+          isDeleting={isDeleting}
+          onCancel={handleCancelDelete}
+          onConfirm={handleConfirmDelete}
+        />
       </div>
-
-      {/* Add RTSP Dialog */}
-      <AddRtspDialog
-        isOpen={isRtspModalOpen}
-        agentApiUrl={agentApiUrl}
-        onClose={handleRtspDialogClose}
-        onSuccess={handleRtspSuccess}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <DeleteConfirmDialog
-        isOpen={showDeleteConfirm}
-        streams={selectedStreamInfos}
-        isDeleting={isDeleting}
-        onCancel={handleCancelDelete}
-        onConfirm={handleConfirmDelete}
-      />
 
       {/* Video Playback Modal */}
       <VideoModal

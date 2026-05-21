@@ -3,12 +3,20 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
 import type { StreamInfo } from '../types';
 
+const POPUP_OVERLAY_VIEWPORT =
+  'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+/** Covers only the parent `relative` region (e.g. Video Management main pane), not the whole browser window */
+const POPUP_OVERLAY_CONTAINED =
+  'absolute inset-0 z-40 flex items-center justify-center bg-black/50';
+
 interface DeleteConfirmDialogProps {
   isOpen: boolean;
   streams: StreamInfo[];
   isDeleting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  /** `contained` = overlay only the nearest positioned ancestor (Video Management pane). Default `viewport` = full window. */
+  overlay?: 'viewport' | 'contained';
 }
 
 // Cap the preview list so very large selections don't blow out the dialog height.
@@ -20,6 +28,7 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   isDeleting,
   onCancel,
   onConfirm,
+  overlay = 'viewport',
 }) => {
   // Snapshot the streams prop at the moment the dialog opens. The parent may
   // clear its `selectedStreams` set during the delete flow (after the API
@@ -59,19 +68,19 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
     if (!isDeleting) onCancel();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/85" onClick={handleBackdropClick} />
+  const overlayClass =
+    overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
 
-      {/* Dialog panel */}
+  return (
+    <div className={overlayClass} onClick={handleBackdropClick}>
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="delete-confirm-title"
         aria-describedby="delete-confirm-desc"
         data-testid="delete-confirm-dialog"
-        className="relative z-50 rounded-lg shadow-lg border bg-white dark:bg-black border-gray-200 dark:border-gray-600 w-[520px] max-w-[calc(100vw-32px)]"
+        className="relative z-50 mx-4 w-full max-w-[520px] rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-black"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-600">

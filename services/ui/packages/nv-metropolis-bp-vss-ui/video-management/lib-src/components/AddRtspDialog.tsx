@@ -4,11 +4,19 @@ import { Button, TextInput } from '@nvidia/foundations-react-core';
 import { parseApiError } from '../utils';
 import { addRtspStream } from '../rtspStream';
 
+const POPUP_OVERLAY_VIEWPORT =
+  'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+/** Covers only the parent `relative` region (e.g. Video Management main pane), not the whole browser window */
+const POPUP_OVERLAY_CONTAINED =
+  'absolute inset-0 z-40 flex items-center justify-center bg-black/50';
+
 interface AddRtspDialogProps {
   isOpen: boolean;
   agentApiUrl?: string | null;
   onClose: () => void;
   onSuccess?: () => void;
+  /** `contained` = overlay only the nearest positioned ancestor (Video Management pane). Default `viewport` = full window. */
+  overlay?: 'viewport' | 'contained';
 }
 
 export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
@@ -16,6 +24,7 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
   agentApiUrl,
   onClose,
   onSuccess,
+  overlay = 'viewport',
 }) => {
   const [rtspUrl, setRtspUrl] = useState('');
   const [sensorName, setSensorName] = useState('');
@@ -90,15 +99,17 @@ export const AddRtspDialog: React.FC<AddRtspDialogProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/85" onClick={handleClose} />
+  const overlayClass =
+    overlay === 'contained' ? POPUP_OVERLAY_CONTAINED : POPUP_OVERLAY_VIEWPORT;
 
-      {/* Dialog panel */}
+  return (
+    <div className={overlayClass} onClick={handleClose}>
       <div
         data-testid="add-rtsp-dialog"
-        className="relative z-50 rounded-lg shadow-lg border bg-white dark:bg-black border-gray-200 dark:border-gray-600 w-[720px] max-w-[calc(100vw-32px)]"
+        role="dialog"
+        aria-modal="true"
+        className="relative z-50 mx-4 w-full max-w-[720px] rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-black"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-600">
