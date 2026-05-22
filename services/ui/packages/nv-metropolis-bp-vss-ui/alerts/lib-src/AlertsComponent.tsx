@@ -196,6 +196,39 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
 
   const [activeFilters, setActiveFilters] = useSessionFilterState(FILTERS_STORAGE_KEY);
 
+  // Maintain separate alertTypes & alertTriggered filter selections per
+  // vlmVerified state. When the toggle flips, the current selections are saved
+  // into the old bucket and the previously saved selections for the new state
+  // are restored, so tags never leak between the two states.
+  // Done via a synchronous callback (not an effect) to avoid an intermediate
+  // render frame where stale tags from the wrong state are briefly visible.
+  const vlmFiltersRef = React.useRef<{
+    enabled: { alertTypes: Set<string>; alertTriggered: Set<string> };
+    disabled: { alertTypes: Set<string>; alertTriggered: Set<string> };
+  }>({
+    enabled: { alertTypes: new Set(), alertTriggered: new Set() },
+    disabled: { alertTypes: new Set(), alertTriggered: new Set() },
+  });
+  const handleVlmVerifiedChange = React.useCallback((next: boolean) => {
+    setActiveFilters(prev => {
+      const curBucket = vlmVerified
+        ? vlmFiltersRef.current.enabled
+        : vlmFiltersRef.current.disabled;
+      curBucket.alertTypes = new Set(prev.alertTypes);
+      curBucket.alertTriggered = new Set(prev.alertTriggered);
+
+      const newBucket = next
+        ? vlmFiltersRef.current.enabled
+        : vlmFiltersRef.current.disabled;
+      return {
+        ...prev,
+        alertTypes: new Set(newBucket.alertTypes),
+        alertTriggered: new Set(newBucket.alertTriggered),
+      };
+    });
+    setVlmVerified(next);
+  }, [vlmVerified, setActiveFilters, setVlmVerified]);
+
   /** Incremented when "Show more" succeeds so AlertsTable resets column sort but keeps current page. */
   const [loadMoreCompletionCount, setLoadMoreCompletionCount] = React.useState(0);
 
@@ -237,6 +270,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   // API-provided sensorList rather than accumulating from data.
   const { addFilter, removeFilter, filteredAlerts, uniqueValues } = useFilters({
     alerts,
+    vlmVerified,
     externalFilters: activeFilters,
     onFiltersChange: setActiveFilters,
     sensorList
@@ -302,7 +336,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         autoRefreshInterval,
         refreshControlsSuspended: false,
         alertsView,
-        onVlmVerifiedChange: setVlmVerified,
+        onVlmVerifiedChange: handleVlmVerifiedChange,
         onTimeWindowChange: setTimeWindow,
         onRefresh: refetch,
         onAutoRefreshToggle: toggleAutoRefresh,
@@ -323,7 +357,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     refetch,
     toggleAutoRefresh,
     handleAddNewAlertRule,
-    setVlmVerified,
+    handleVlmVerifiedChange,
     setTimeWindow,
     setAlertsView,
     controlsComponent,
@@ -373,7 +407,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
           loading={loading}
           autoRefreshEnabled={autoRefreshEnabled}
           autoRefreshInterval={autoRefreshInterval}
-          onVlmVerifiedChange={setVlmVerified}
+          onVlmVerifiedChange={handleVlmVerifiedChange}
           onVlmVerdictChange={setVlmVerdict}
           onTimeWindowChange={setTimeWindow}
           onCustomTimeValueChange={handleCustomTimeChange}

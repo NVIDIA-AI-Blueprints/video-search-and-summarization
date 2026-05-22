@@ -145,7 +145,8 @@
 		"use_centralize_local_db": false,
 		"max_network_db_connections": 10,
 		"default_file_expiry_minutes": 10080,
-		"download_files_timeout_secs": 120
+		"download_files_timeout_secs": 120,
+		"picture_api_timeout_secs": 20
 	},
 	"notifications":
 	{

@@ -17,7 +17,7 @@ enabled: false
 global: {}
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-vios-streamprocessing
-  tag: "2.1.0-26.05.1"
+  tag: "2.1.0-26.05.2"
   pullPolicy: IfNotPresent
 replicas: 1
 # When true: create StatefulSet named vss-vios-streamprocessing (required for SDR). When false: create Deployment (vss-alerts-vss-vios-streamprocessing).
