@@ -74,10 +74,14 @@ export interface RealtimeAlertRule {
  * Local draft used by the Create Alert Rules editor before a real-time rule has
  * been saved to the server. Once persisted via `POST /realtime` it is
  * replaced by a {@link RealtimeAlertRule} carrying a server-assigned `id`.
+ *
+ * The draft carries `sensor_name` (chosen from the VST live-stream catalog).
+ * `live_stream_url` and `sensor_id` are resolved from VST at save time so the
+ * user never has to paste an RTSP URL.
  */
 export interface RealtimeAlertRuleDraft {
   draftId: string; // local-only id; not sent to the server
-  live_stream_url: string;
+  sensor_name: string;
   alert_type: string;
   prompt: string;
   saving?: boolean;
