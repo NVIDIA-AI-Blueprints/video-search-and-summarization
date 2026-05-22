@@ -51,6 +51,7 @@ export const ChatHeader = ({
       loading,
       messageIsStreaming,
     },
+    onChatVideoUploadComplete,
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
@@ -311,6 +312,7 @@ export const ChatHeader = ({
         onUploadFlowActiveChange={onUploadFlowActiveChange}
         onSendHiddenMessage={onSendHiddenMessage}
         disabled={uploadDisabled}
+        onUploadBatchComplete={onChatVideoUploadComplete}
       >
         {({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers }) => 
           renderHeaderContent({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers })

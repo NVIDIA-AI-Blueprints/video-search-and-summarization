@@ -4,6 +4,7 @@ import { ActionType } from '@/hooks/useCreateReducer';
 
 import { Conversation } from '@/types/chat';
 import type { CallerInfo } from '@/types/chat';
+import type { ChatVideoUploadCompletePayload } from '@/types/chatVideoUpload';
 import { KeyValuePair } from '@/types/data';
 import { FolderType } from '@/types/folder';
 
@@ -33,6 +34,8 @@ export interface HomeContextProps {
   onMessageSubmitted?: () => void;
   /** Optional: called when chat is ready; receives a function the embedder can call to add a query context item to the chat input. */
   onAddQueryContextReady?: (addItem: (item: { id: string; label: string; type: string; data: Record<string, unknown> }) => void) => void;
+  /** Optional: called when a chat video upload batch completes with at least one success. */
+  onChatVideoUploadComplete?: (payload: ChatVideoUploadCompletePayload) => void;
 }
 
 const HomeContext = createContext<HomeContextProps>(undefined!);
