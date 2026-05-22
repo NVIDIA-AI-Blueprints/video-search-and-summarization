@@ -268,6 +268,26 @@ forward_running_for_sandbox() {
         '$1 == name && $3 == port && tolower($NF) == "running" { found = 1 } END { exit found ? 0 : 1 }'
 }
 
+forward_process_running_for_sandbox() {
+  local port="$1"
+  local sandbox_name="$2"
+  local args
+  while IFS= read -r args; do
+    case "$args" in
+      *"openshell forward start ${port} ${sandbox_name}"*|*"openshell forward start --background ${port} ${sandbox_name}"*)
+        return 0
+        ;;
+    esac
+  done < <(ps -eo args= 2>/dev/null || true)
+  return 1
+}
+
+forward_owned_by_sandbox() {
+  local port="$1"
+  local sandbox_name="$2"
+  forward_running_for_sandbox "$port" "$sandbox_name" || forward_process_running_for_sandbox "$port" "$sandbox_name"
+}
+
 dashboard_forward_healthy() {
   local port="$1"
   have curl && curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null \
@@ -284,7 +304,7 @@ ensure_dashboard_forward() {
   log "Refreshing dashboard port-forward on ${port} for sandbox ${NEMOCLAW_SANDBOX_NAME}"
   if dashboard_forward_healthy "$port"; then
     sleep 2
-    if dashboard_forward_healthy "$port" && forward_running_for_sandbox "$port" "$NEMOCLAW_SANDBOX_NAME"; then
+    if dashboard_forward_healthy "$port" && forward_owned_by_sandbox "$port" "$NEMOCLAW_SANDBOX_NAME"; then
       log "Dashboard port-forward on ${port} is already healthy; keeping existing listener"
       return
     fi
@@ -301,7 +321,7 @@ ensure_dashboard_forward() {
   fi
 
   for _attempt in $(seq 1 30); do
-    if forward_running_for_sandbox "$port" "$NEMOCLAW_SANDBOX_NAME" && dashboard_forward_healthy "$port"; then
+    if forward_owned_by_sandbox "$port" "$NEMOCLAW_SANDBOX_NAME" && dashboard_forward_healthy "$port"; then
       log "Dashboard port-forward on ${port} is healthy for sandbox ${NEMOCLAW_SANDBOX_NAME}"
       return
     fi
