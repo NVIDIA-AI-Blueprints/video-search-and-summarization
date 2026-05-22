@@ -58,6 +58,15 @@ infra:
         value: "/phoenix"
   redis:
     enabled: true
+  # SDRC workload controller — replaces vss-vios-sdr + vss-vios-envoy-proxy from the vios umbrella.
+  # Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
+  sdrc:
+    enabled: true
+    configFilePath: configs/sdrc/config-lvs.yml
+    config:
+      configMapName: sdrc-config
+      key: config.yml
+      mountPath: /config.yml
   elasticsearch:
     enabled: true
     persistence:
@@ -135,20 +144,26 @@ vios:
   vss-vios-postgres:
     enabled: true
 
+  # Disabled: replaced by infra.sdrc (SDRC workload controller).
   vss-vios-envoy-proxy:
-    enabled: true
+    enabled: false
 
+  # Disabled: replaced by infra.sdrc (SDRC workload controller).
   vss-vios-sdr:
-    enabled: true
+    enabled: false
 
   vss-vios-sensor:
     enabled: true
+    # Sensor talks to SDRC (replaces vss-vios-envoy-proxy).
+    streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
 
   vss-vios-streamprocessing:
     enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }

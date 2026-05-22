@@ -6,6 +6,7 @@ Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base
 
 ## What's different from `base`
 
+- **SDRC replaces legacy VST SDR/Envoy.** Stream workload routing uses the shared **`sdr-controller`** (SDRC) under `services/infra/sdrc`, not **`vss-vios-sdr`** / **`vss-vios-envoy`**. Config templates live in `deploy/docker/developer-profiles/dev-profile-lvs/sdrc/${MODE}/configs/`.
 - **No standalone VLM NIM service.** The `vlm_local_*_<slug>` compose profile is *not* enabled for LVS. The VLM lives inside the `rtvi-vlm` container.
 - **`rtvi-vlm` (port 8018) is the VLM serving layer.** It can load a VLM checkpoint directly (integrated mode) or proxy to a remote OpenAI-compatible endpoint.
 - **Default integrated checkpoint:** `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208`.
@@ -19,6 +20,7 @@ Long-video summarization. The LLM stack is identical to `base` ([`base.md`](base
 | VSS Agent | mdx-vss-agent-1 | 8000 | Orchestrates tool calls and model inference |
 | VSS UI | mdx-vss-ui-1 | 3000 | Web UI — chat, video upload, views |
 | VST | mdx-vst-1 | 30888 | Video storage + ingest |
+| SDRC (stream router) | sdr-controller | 5003, 8011 | Provisions/routes **vss-vios-streamprocessing** (replaces **vss-vios-sdr** + **vss-vios-envoy**) |
 | LLM NIM | mdx-nim-llm-1 | 30081 | Same options as `base` (Nano 9B v2 default) |
 | **RT-VLM** | **vss-rtvi-vlm** | **8018** | **VLM runner — loads `MODEL_PATH` or proxies remote** |
 | LVS service | vss-lvs | 38111, 38112 | Long-video segmentation + summarization |
