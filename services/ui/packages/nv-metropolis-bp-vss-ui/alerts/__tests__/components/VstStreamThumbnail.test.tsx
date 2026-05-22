@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   VstStreamThumbnail,
   clearSensorListCache,
@@ -136,5 +136,51 @@ describe('VstStreamThumbnail remount cache', () => {
     expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
     expect(screen.queryByText('Loading thumbnail…')).not.toBeInTheDocument();
     expect(vstSensorList.fetchSensorMap).toHaveBeenCalled();
+  });
+});
+
+describe('VstStreamThumbnail broken frame recovery', () => {
+  const vstApiUrl = 'http://vst.example';
+  const sensorA = 'cam-a';
+  const sensorB = 'cam-b';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearVstStreamThumbnailCache();
+    jest.spyOn(vstSensorList, 'fetchSensorMap').mockImplementation(async (url) => {
+      if (url !== vstApiUrl) {
+        return new Map();
+      }
+      return new Map([
+        [sensorA, 'id-a'],
+        [sensorB, 'id-b'],
+      ]);
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('shows a new sensor thumbnail after the prior sensor image failed', async () => {
+    const { rerender } = render(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorA} />,
+    );
+
+    const imgA = await screen.findByTestId('vst-stream-thumbnail');
+    fireEvent.error(imgA);
+    expect(screen.getByText('Frame unavailable')).toBeInTheDocument();
+
+    rerender(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorB} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Frame unavailable')).not.toBeInTheDocument();
+    expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain(
+      '/v1/replay/stream/id-b/picture',
+    );
   });
 });
