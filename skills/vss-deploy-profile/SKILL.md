@@ -63,9 +63,19 @@ docker info 2>/dev/null | grep -i "runtimes"
 
 # 3. NVIDIA runtime works end-to-end
 docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -5
+
+# 4. Edge platforms only — cache cleaner running
+#    DGX-Spark / IGX-Thor / AGX-Thor share unified memory; without
+#    periodic drop_caches the first inference frame OOMs.
+gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
+if echo "$gpu_name" | grep -qiE 'GB10|Thor'; then
+    pgrep -f sys-cache-cleaner.sh >/dev/null \
+        && echo "cache cleaner OK" \
+        || echo "FAIL: cache cleaner not running — see references/edge.md § Cache cleaner"
+fi
 ```
 
-If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisites.md).
+If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisites.md). If check 4 fails, install + start `sys-cache-cleaner.sh` per [`references/edge.md` § Cache cleaner](references/edge.md#cache-cleaner-every-edge-deploy) **before** running the deploy — do NOT proceed without it on edge hardware.
 
 ## Model Selection
 

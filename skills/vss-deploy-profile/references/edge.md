@@ -35,6 +35,54 @@ Two supported paths on edge hardware:
 - `NVIDIA_API_KEY` (agent-side)
 - GPU freed: `docker ps` should show no running VSS or LLM containers before
   starting. Reboot the device if in doubt.
+- **System cache cleaner running** (DGX-Spark / IGX-Thor / AGX-Thor) — see
+  [§ Cache cleaner](#cache-cleaner-every-edge-deploy) below.
+
+### Cache cleaner (every edge deploy)
+
+Edge platforms (DGX-Spark, IGX-Thor, AGX-Thor) share unified memory between CPU
+and GPU. Without periodic `drop_caches`, the kernel's page cache pins enough
+memory that the first inference frame OOMs — most visibly in the alerts
+`MODE=2d_cv` path, where Grounding DINO post-processing fails with
+`AcceleratorError: CUDA error: out of memory` on the very first frame.
+
+This is a platform prerequisite, not a profile-specific one — every profile
+(`base`, `alerts`, `search`, `lvs`, `warehouse`) needs the cleaner running on
+edge hardware.
+
+**Install and start (one-time per host):**
+
+```bash
+sudo tee /usr/local/bin/sys-cache-cleaner.sh << 'EOF'
+#!/bin/bash
+set -e
+echo 0 | tee /proc/sys/vm/nr_hugepages
+echo "Starting cache cleaner"
+while true; do
+  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
+  sleep 3
+done
+EOF
+sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
+sudo -b /usr/local/bin/sys-cache-cleaner.sh
+```
+
+**Verify it's running before any `docker compose up`:**
+
+```bash
+pgrep -f sys-cache-cleaner.sh && echo "cache cleaner OK" || echo "cache cleaner NOT RUNNING — start it before deploying"
+```
+
+If `pgrep` returns nothing after reboot, re-run the `sudo -b` line above. The
+cleaner is intentionally not a systemd unit so a `reboot` resets it; the
+deploy skill's pre-flight checks for the process and starts it if missing.
+
+> **IGX-Thor only — also boost VIC clocks:**
+> ```bash
+> sudo nvpmodel -m 0
+> sudo jetson_clocks
+> sudo su -c 'echo performance > /sys/class/devfreq/8188050000.vic/governor'
+> ```
 
 ### HF_TOKEN verification
 
