@@ -15,7 +15,8 @@
 
 services:
   vss-auto-calibration:
-    image: nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-1
+    image: nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2
+
     container_name: vss-auto-calibration
     profiles: ["auto_calib","bp_wh_auto_calib_2d","bp_wh_auto_calib_3d","bp_wh_auto_calib_mv3dt"]
     network_mode: "host"
