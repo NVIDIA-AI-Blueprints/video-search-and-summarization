@@ -1,9 +1,19 @@
-This project is Apache2 licensed. Code under the services/ui folder is MIT licensed.
+# License
 
-Here is the complete license text for Apache-2.0 license :
+Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-##########################################################################################
+This project is dual-licensed:
 
+- **Apache-2.0** — applies to all code in the repository except the `services/ui/` directory.
+- **MIT** — applies to the original code under the `services/ui/` directory, which is derived from upstream projects (see [MIT appendix](#mit-license-appendix-for-servicesui-upstream-sources) below).
+
+All contributions to this repository are accepted under the Apache-2.0 license. See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution terms and the Developer Certificate of Origin (DCO) sign-off requirement.
+
+---
+
+## Apache License 2.0
+
+```
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -205,11 +215,17 @@ Here is the complete license text for Apache-2.0 license :
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+```
 
-##########################################################################################
+---
 
-MIT License
+## MIT License Appendix (for `services/ui/` upstream sources)
 
+The following MIT licenses cover the original upstream code that the `services/ui/` directory is derived from. Modifications and additions contributed through this repository are licensed under Apache-2.0 per the contribution terms above.
+
+### MIT License
+
+```
 Copyright (c) 2024 Ivan Fioravanti
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -229,9 +245,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
 
-MIT License
+### MIT License
 
+```
 Copyright (c) 2024 Mckay Wrigley
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -251,3 +269,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
