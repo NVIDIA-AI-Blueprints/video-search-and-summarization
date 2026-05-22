@@ -144,6 +144,7 @@
 		"max_network_db_connections": 10,
 		"default_file_expiry_minutes": 10080,
 		"download_files_timeout_secs": 120,
+		"picture_api_timeout_secs": 20,
 		"restore_rtsp_streams_on_startup": true
 	},
 	"notifications":
