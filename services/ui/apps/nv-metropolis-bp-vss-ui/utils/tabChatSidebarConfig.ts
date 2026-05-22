@@ -29,9 +29,17 @@ export function getChatSidebarOpenDefault(): boolean {
 }
 
 const CHAT_SIDEBAR_OPEN_SESSION_KEY = 'nvMetropolis_chatSidebarOpen';
+const CHAT_SIDEBAR_WIDTH_SESSION_KEY = 'nvMetropolis_chatSidebarWidth';
+
+/** Default sidebar width (px) when nothing is stored in session. */
+export const CHAT_SIDEBAR_DEFAULT_WIDTH = 380;
 
 export function getChatSidebarOpenSessionKey(): string {
   return CHAT_SIDEBAR_OPEN_SESSION_KEY;
+}
+
+export function getChatSidebarWidthSessionKey(): string {
+  return CHAT_SIDEBAR_WIDTH_SESSION_KEY;
 }
 
 /** Reads last user-selected sidebar open state. Returns null if unset. */
@@ -46,6 +54,22 @@ export function getChatSidebarOpenFromSession(): boolean | null {
 export function setChatSidebarOpenInSession(open: boolean): void {
   if (typeof window === 'undefined' || !window.sessionStorage) return;
   window.sessionStorage.setItem(CHAT_SIDEBAR_OPEN_SESSION_KEY, String(open));
+}
+
+/** Reads last user-resized sidebar width (px). Returns null if unset or invalid. */
+export function getChatSidebarWidthFromSession(): number | null {
+  if (typeof window === 'undefined' || !window.sessionStorage) return null;
+  const raw = window.sessionStorage.getItem(CHAT_SIDEBAR_WIDTH_SESSION_KEY);
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+export function setChatSidebarWidthInSession(width: number): void {
+  if (typeof window === 'undefined' || !window.sessionStorage) return;
+  if (!Number.isFinite(width) || width <= 0) return;
+  window.sessionStorage.setItem(CHAT_SIDEBAR_WIDTH_SESSION_KEY, String(width));
 }
 
 /** Storage key prefix for legacy per-tab helpers (tests only). */
