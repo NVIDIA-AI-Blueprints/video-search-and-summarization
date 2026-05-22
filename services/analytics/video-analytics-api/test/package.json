@@ -1,0 +1,70 @@
+{
+  "dependencies": {
+    "@elastic/elasticsearch": "9.3.4",
+    "@grpc/grpc-js": "1.13.3",
+    "ajv": "8.20.0",
+    "ajv-errors": "3.0.0",
+    "ajv-formats": "^2.1.1",
+    "change-case": "5.4.4",
+    "cron": "2.4.4",
+    "deepcopy": "1.0.1",
+    "express": "^4.22.1",
+    "form-data": "^4.0.0",
+    "kafkajs": "2.2.4",
+    "moment": "2.30.1",
+    "morgan": "1.10.1",
+    "multer": "2.1.1",
+    "node-cache": "5.1.2",
+    "proto3-json-serializer": "2.0.2",
+    "protobufjs": "7.5.6",
+    "require-dir": "1.2.0",
+    "web-apis": "file:../app",
+    "winston": "3.13.0",
+    "yargs": "17.7.2"
+  },
+  "devDependencies": {
+    "chai": "^4.5.0",
+    "esm": "^3.2.25",
+    "mocha": "^10.7.3",
+    "mocha-junit-reporter": "^2.2.1",
+    "mocha-multi-reporters": "^1.5.1",
+    "nyc": "^17.0.0",
+    "proxyquire": "^2.1.3",
+    "sinon": "^18.0.0",
+    "supertest": "^7.1.4",
+    "xml": "^1.0.1"
+  },
+  "scripts": {
+    "test": "mocha --require coverage-setup.js unit-test/**/*.test.js",
+    "test:json": "node run-test-json.js",
+    "coverage": "nyc --cwd=.. npm run test:json && npm run coverage:summary",
+    "coverage:summary": "nyc report --cwd=..",
+    "ci": "npm run coverage; node check-test-results.js",
+    "check-results": "node check-test-results.js"
+  },
+  "nyc": {
+    "reporter": [
+      "json",
+      "html",
+      "text",
+      "text-summary",
+      "lcov"
+    ],
+    "include": [
+      "src/web-api-core/**/*.js",
+      "src/app/**/*.js"
+    ],
+    "exclude": [
+      "test/**",
+      "**/node_modules/**",
+      "src/web-api-core/schemas/**",
+      "src/web-api-core/queryTemplates/**",
+      "src/app/specification/**",
+      "configs/**"
+    ],
+    "all": true,
+    "sourceMap": false,
+    "instrument": true,
+    "report-dir": "./test/coverage"
+  }
+}

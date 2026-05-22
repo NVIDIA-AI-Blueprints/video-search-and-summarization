@@ -1,0 +1,64 @@
+{
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "sensors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000,
+                        "errorMessage": {
+                            "minLength": "sensor id should have atleast 1 character.",
+                            "maxLength": "sensor id should have atmost 10000 characters."
+                        }
+                    },
+                    "configs": {
+                        "type": "array",
+                        "items": { "$ref": "#/$defs/keyValuePair" }
+                    }
+                },
+                "required": ["id"]
+            }
+        },
+        "app": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/keyValuePair" }
+        },
+        "kafka": { "type": "object" },
+        "redisStream": { "type": "object" },
+        "mqtt": { "type": "object" },
+        "coordinateReferenceSystem": { "type": "object" },
+        "inference": { "type": "object" }
+    },
+    "$defs": {
+        "keyValuePair": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000,
+                    "errorMessage": {
+                        "minLength": "name should have atleast 1 character.",
+                        "maxLength": "name should have atmost 10000 characters."
+                    }
+                },
+                "value": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 999999999,
+                    "errorMessage": {
+                        "maxLength": "value should have atmost 999999999 characters."
+                    }
+                }
+            },
+            "required": ["name", "value"]
+        }
+    }
+}

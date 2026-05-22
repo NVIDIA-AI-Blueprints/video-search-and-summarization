@@ -1,0 +1,7 @@
+{
+  "sensorId": "Camera",
+  "fromTimestamp": "2026-02-14T10:13:51.292Z",
+  "toTimestamp": "2026-02-14T10:17:33.492Z",
+  "queryString": "object.type:Person",
+  "maxResultSize": 25
+}

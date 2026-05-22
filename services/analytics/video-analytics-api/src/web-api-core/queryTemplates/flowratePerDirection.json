@@ -1,0 +1,61 @@
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "range": {
+                        "timestamp": {
+                            "lte": ""
+                        }
+                    }
+                },
+                {
+                    "range": {
+                        "end": {
+                            "gte": ""
+                        }
+                    }
+                },
+                {
+                    "range": {
+                        "timeInterval": {
+                            "gte": "",
+                            "lte": ""
+                        }
+                    }
+                },
+                {
+                    "range": {
+                        "distance": {
+                            "gte": ""
+                        }
+                    }
+                }
+            ]
+        }
+    },
+    "aggs": {
+        "sensors": {
+            "terms": {
+                "field": "sensor.id.keyword",
+                "size": 100
+            },
+            "aggs": {
+                "directions": {
+                    "terms": {
+                        "field": "direction.keyword",
+                        "size": 100
+                    },
+                    "aggs": {
+                        "uniqueObjectCount": {
+                            "cardinality": {
+                                "field": "id.keyword",
+                                "precision_threshold": 40000
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
