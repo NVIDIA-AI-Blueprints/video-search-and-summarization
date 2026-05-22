@@ -8,6 +8,10 @@ import {
   getChatSidebarOpenFromSession,
   setChatSidebarOpenInSession,
   getChatSidebarOpenSessionKey,
+  getChatSidebarWidthFromSession,
+  setChatSidebarWidthInSession,
+  getChatSidebarWidthSessionKey,
+  CHAT_SIDEBAR_DEFAULT_WIDTH,
 } from '../../utils/tabChatSidebarConfig';
 import { setMockEnv, clearMockEnv } from 'next-runtime-env';
 
@@ -145,5 +149,43 @@ describe('getChatSidebarOpenFromSession / setChatSidebarOpenInSession', () => {
   it('returns null for unexpected stored value', () => {
     sessionStorage.setItem('nvMetropolis_chatSidebarOpen', 'maybe');
     expect(getChatSidebarOpenFromSession()).toBe(null);
+  });
+});
+
+describe('CHAT_SIDEBAR_DEFAULT_WIDTH', () => {
+  it('is 380', () => {
+    expect(CHAT_SIDEBAR_DEFAULT_WIDTH).toBe(380);
+  });
+});
+
+describe('getChatSidebarWidthSessionKey', () => {
+  it('returns fixed app key', () => {
+    expect(getChatSidebarWidthSessionKey()).toBe('nvMetropolis_chatSidebarWidth');
+  });
+});
+
+describe('getChatSidebarWidthFromSession / setChatSidebarWidthInSession', () => {
+  it('returns null when nothing is stored', () => {
+    expect(getChatSidebarWidthFromSession()).toBe(null);
+  });
+
+  it('calls setItem with correct key', () => {
+    setChatSidebarWidthInSession(520);
+    expect(setItemSpy).toHaveBeenCalledWith('nvMetropolis_chatSidebarWidth', '520');
+  });
+
+  it('reads stored width', () => {
+    sessionStorage.setItem('nvMetropolis_chatSidebarWidth', '520');
+    expect(getChatSidebarWidthFromSession()).toBe(520);
+  });
+
+  it('returns null for invalid stored value', () => {
+    sessionStorage.setItem('nvMetropolis_chatSidebarWidth', 'not-a-number');
+    expect(getChatSidebarWidthFromSession()).toBe(null);
+  });
+
+  it('does not store invalid width', () => {
+    setChatSidebarWidthInSession(Number.NaN);
+    expect(setItemSpy).not.toHaveBeenCalled();
   });
 });
