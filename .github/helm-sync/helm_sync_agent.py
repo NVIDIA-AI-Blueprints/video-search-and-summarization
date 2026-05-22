@@ -190,10 +190,23 @@ async def run_agent() -> int:
     #   BLOCKED: <other reason>                                   → exit 1
     # Anything else (the agent didn't emit a marker) is treated as a
     # blocker — silence is not success.
+    # Tolerate common LLM formatting around the marker:
+    # backticks (inline code), surrounding whitespace, leading list
+    # bullets ("- ", "* "), and bold (** **). The agent occasionally
+    # parrots the markdown formatting AGENTS.md uses in its prose;
+    # silence-as-failure should not be triggered by cosmetic noise.
+    def _normalize(s: str) -> str:
+        s = s.strip()
+        s = s.lstrip("-*•").strip()
+        s = s.strip("`").strip()
+        if s.startswith("**") and s.endswith("**"):
+            s = s[2:-2].strip()
+        return s
+
     marker = ""
     for line in reversed(final_text):
         for raw in reversed(line.splitlines()):
-            stripped = raw.strip()
+            stripped = _normalize(raw)
             if stripped.startswith(("DONE:", "BLOCKED:")):
                 marker = stripped
                 break
