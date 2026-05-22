@@ -1,6 +1,13 @@
-This project is Apache2 licensed. Code under the services/ui folder is MIT licensed.
+Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-Here is the complete license text for Apache-2.0 license :
+This project is dual-licensed:
+  - Apache-2.0 applies to all code in the repository except the services/ui/ directory.
+  - MIT applies to the original code under the services/ui/ directory, which is
+    derived from upstream projects (see MIT appendix below).
+
+All contributions to this repository are accepted under the Apache-2.0 license.
+See CONTRIBUTING.md for the contribution terms and the Developer Certificate of
+Origin (DCO) sign-off requirement.
 
 ##########################################################################################
 
@@ -208,6 +215,14 @@ Here is the complete license text for Apache-2.0 license :
 
 ##########################################################################################
 
+MIT License Appendix (for services/ui/ upstream sources)
+
+The following MIT licenses cover the original upstream code that the services/ui/
+directory is derived from. Modifications and additions contributed through this
+repository are licensed under Apache-2.0 per the contribution terms above.
+
+------------------------------------------------------------------------------------------
+
 MIT License
 
 Copyright (c) 2024 Ivan Fioravanti
@@ -229,6 +244,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+------------------------------------------------------------------------------------------
 
 MIT License
 
