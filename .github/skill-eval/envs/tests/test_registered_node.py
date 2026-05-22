@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -120,13 +121,22 @@ class CheckInstanceMatchesForRegistered(unittest.TestCase):
         """Registered nodes often have empty `gpu` field — shouldn't fail."""
         inst = {"name": "SPARK", "_registered": True, "gpu": ""}
         # Should not raise
-        brev_env._check_instance_matches(inst, {"gpu_type": "GB10"})
+        asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "GB10"}))
 
     def test_brev_managed_still_checks_gpu(self):
         """Non-registered instances still enforce GPU-name match."""
-        inst = {"name": "test", "gpu": "L40S"}
-        with self.assertRaises(RuntimeError):
-            brev_env._check_instance_matches(inst, {"gpu_type": "H100"})
+        inst = {"name": "test", "gpu": "L40S", "instance_type": "test-l40s"}
+
+        async def fake_catalog_count(instance_type):
+            return 1
+
+        original = brev_env._get_instance_gpu_count_from_catalog
+        brev_env._get_instance_gpu_count_from_catalog = fake_catalog_count
+        try:
+            with self.assertRaises(RuntimeError):
+                asyncio.run(brev_env._check_instance_matches(inst, {"gpu_type": "H100"}))
+        finally:
+            brev_env._get_instance_gpu_count_from_catalog = original
 
 
 class EnsurePrerequisiteCleanup(unittest.IsolatedAsyncioTestCase):
@@ -174,6 +184,96 @@ class EnsurePrerequisiteCleanup(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(calls), 1)
         self.assertIn("cat /tmp/skill-eval/active-deploy.txt", calls[0][1])
+
+
+class UploadDirTarballCopy(unittest.IsolatedAsyncioTestCase):
+
+    async def test_upload_dir_copies_tarball_and_extracts_with_short_command(self):
+        exec_calls = []
+        copy_calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            exec_calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            copy_calls.append((src, dst, timeout))
+            self.assertTrue(Path(src).is_file())
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src_dir = Path(td) / "skills"
+                src_dir.mkdir()
+                (src_dir / "SKILL.md").write_text("test skill\n")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                await env.upload_dir(src_dir, "/skills")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+
+        self.assertEqual(len(copy_calls), 1)
+        copied_src, copied_dst, _ = copy_calls[0]
+        self.assertTrue(copied_src.endswith(".tar.gz"))
+        self.assertFalse(Path(copied_src).exists())
+        self.assertRegex(
+            copied_dst,
+            r"^vss-eval-test:/tmp/skill-eval/uploads/[0-9a-f]+/archive\.tar\.gz$",
+        )
+
+        commands = [call[1] for call in exec_calls]
+        self.assertEqual(len(commands), 2)
+        self.assertIn("mkdir -p /tmp/skill-eval/uploads/", commands[0])
+        extract_cmd = commands[1]
+        self.assertIn("tar -xzf", extract_cmd)
+        self.assertIn("-C /skills", extract_cmd)
+        self.assertIn("rm -f /tmp/skill-eval/uploads/", extract_cmd)
+        self.assertIn("rmdir /tmp/skill-eval/uploads/", extract_cmd)
+        self.assertLess(max(len(command) for command in commands), 1000)
+        self.assertNotIn("base64", "\n".join(commands))
+        self.assertNotIn("echo '", "\n".join(commands))
+
+    async def test_upload_dir_raises_when_tarball_copy_fails(self):
+        exec_calls = []
+        copy_calls = []
+
+        async def fake_run_brev_exec(instance, command, timeout=brev_env.BREV_EXEC_TIMEOUT):
+            exec_calls.append((instance, command, timeout))
+            return brev_env.ExecResult(stdout="", stderr=None, return_code=0)
+
+        async def fake_run_brev_copy(src, dst, timeout=brev_env.BREV_COPY_TIMEOUT):
+            copy_calls.append((src, dst, timeout))
+            return brev_env.ExecResult(stdout="", stderr="copy failed", return_code=1)
+
+        original_exec = brev_env._run_brev_exec
+        original_copy = brev_env._run_brev_copy
+        brev_env._run_brev_exec = fake_run_brev_exec
+        brev_env._run_brev_copy = fake_run_brev_copy
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src_dir = Path(td) / "skills"
+                src_dir.mkdir()
+                (src_dir / "SKILL.md").write_text("test skill\n")
+
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "vss-eval-test"
+                with self.assertRaisesRegex(RuntimeError, "copy failed"):
+                    await env.upload_dir(src_dir, "/skills")
+        finally:
+            brev_env._run_brev_exec = original_exec
+            brev_env._run_brev_copy = original_copy
+
+        self.assertEqual(len(copy_calls), 1)
+        copied_src, _, _ = copy_calls[0]
+        self.assertFalse(Path(copied_src).exists())
+        self.assertEqual(len(exec_calls), 1)
+        self.assertIn("mkdir -p /tmp/skill-eval/uploads/", exec_calls[0][1])
 
 
 class VersionCompareSanity(unittest.TestCase):

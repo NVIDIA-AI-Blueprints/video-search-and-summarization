@@ -29,6 +29,8 @@ import json
 import logging
 import os
 import shlex
+import subprocess
+import tempfile
 import uuid
 from enum import Enum
 from pathlib import Path
@@ -635,25 +637,60 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def upload_dir(self, source_dir: Path | str, target_dir: str) -> None:
         assert self._instance_name
-        # brev copy has broken directory nesting behaviour.  Use tar
-        # piped over brev exec: tar locally, base64-encode, send via
-        # exec, decode+untar on the remote side.
+        # brev copy has broken directory nesting behaviour. Package the
+        # directory locally, copy one archive, then extract remotely. Do
+        # not embed the archive bytes in a brev exec argv: larger skill
+        # bundles can exceed the OS per-argument limit.
         src = str(source_dir).rstrip("/")
-        import subprocess as _sp, base64 as _b64
-        tar_bytes = _sp.check_output(
-            ["tar", "-czf", "-", "-C", src, "."],
-            timeout=60,
+        fd, tar_path_str = tempfile.mkstemp(
+            prefix="brev-upload-", suffix=".tar.gz",
         )
-        encoded = _b64.b64encode(tar_bytes).decode()
-        result = await _run_brev_exec(
-            self._instance_name,
-            f"sudo mkdir -p {shlex.quote(target_dir)} && "
-            f"sudo chown $(whoami):$(id -gn) {shlex.quote(target_dir)} && "
-            f"echo '{encoded}' | base64 -d | tar -xzf - -C {shlex.quote(target_dir)}",
-            timeout=120,
-        )
-        if result.return_code != 0:
-            raise RuntimeError(f"Upload dir failed: {result.stderr}")
+        os.close(fd)
+        tar_path = Path(tar_path_str)
+        remote_upload_dir = f"/tmp/skill-eval/uploads/{uuid.uuid4().hex}"
+        remote_tar = f"{remote_upload_dir}/archive.tar.gz"
+
+        try:
+            subprocess.check_call(
+                ["tar", "-czf", str(tar_path), "-C", src, "."],
+                timeout=60,
+            )
+
+            result = await _run_brev_exec(
+                self._instance_name,
+                f"mkdir -p {shlex.quote(remote_upload_dir)}",
+                timeout=30,
+            )
+            if result.return_code != 0:
+                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+
+            result = await _run_brev_copy(
+                str(tar_path), f"{self._instance_name}:{remote_tar}",
+            )
+            if result.return_code != 0:
+                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+
+            target = shlex.quote(target_dir)
+            remote_archive = shlex.quote(remote_tar)
+            remote_dir = shlex.quote(remote_upload_dir)
+            result = await _run_brev_exec(
+                self._instance_name,
+                f"sudo mkdir -p {target} && "
+                f"sudo chown $(whoami):$(id -gn) {target}; "
+                "status=$?; "
+                "if [ $status -eq 0 ]; then "
+                f"tar -xzf {remote_archive} -C {target}; "
+                "status=$?; "
+                "fi; "
+                f"rm -f {remote_archive}; "
+                f"rmdir {remote_dir} 2>/dev/null || true; "
+                "exit $status",
+                timeout=120,
+            )
+            if result.return_code != 0:
+                raise RuntimeError(f"Upload dir failed: {result.stderr}")
+        finally:
+            tar_path.unlink(missing_ok=True)
 
     async def download_file(self, source_path: str, target_path: Path | str) -> None:
         assert self._instance_name
