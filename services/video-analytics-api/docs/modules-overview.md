@@ -33,7 +33,7 @@
 │   ├── integration-test/             # Integration tests (Docker Compose + HTTP assertions)
 │   ├── coverage-setup.js             # Pre-loads modules for coverage
 │   └── package.json                  # Test dependencies and nyc config
-├── readme-references/                # Additional documentation
+├── docs/                             # Additional documentation
 └── README.md
 ```
 
