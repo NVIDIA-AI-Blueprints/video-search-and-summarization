@@ -1,0 +1,5 @@
+{
+  "place": "building=Warehouse/room=Room-1",
+  "objectType": "Pallet",
+  "maxResultSize": 25
+}

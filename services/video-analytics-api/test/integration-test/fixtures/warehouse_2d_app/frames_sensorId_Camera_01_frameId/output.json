@@ -1,0 +1,174 @@
+{
+  "frames": [
+    {
+      "sensorId": "Camera_01",
+      "version": "4.0",
+      "timestamp": "2026-02-14T10:13:51.292Z",
+      "objects": [
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {},
+          "bbox": {
+            "bottomY": 553,
+            "confidence": 0,
+            "info": {},
+            "leftX": 724,
+            "topY": 443,
+            "embeddings": [],
+            "rightX": 913
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {},
+          "bbox": {
+            "bottomY": 444,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1047,
+            "topY": 367,
+            "embeddings": [],
+            "rightX": 1188
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {},
+          "bbox": {
+            "bottomY": 237,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1172,
+            "topY": 210,
+            "embeddings": [],
+            "rightX": 1246
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {},
+          "bbox": {
+            "bottomY": 262,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1203,
+            "topY": 230,
+            "embeddings": [],
+            "rightX": 1283
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {},
+          "bbox": {
+            "bottomY": 295,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1138,
+            "topY": 256,
+            "embeddings": [],
+            "rightX": 1231
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet"
+        },
+        {
+          "bbox3d": {
+            "coordinates": [],
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {},
+          "bbox": {
+            "bottomY": 587,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 580,
+            "embeddings": [],
+            "rightX": 5
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person"
+        }
+      ],
+      "id": "0"
+    }
+  ]
+}

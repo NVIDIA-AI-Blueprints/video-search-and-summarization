@@ -1,0 +1,353 @@
+{
+    "_index": "mdx-events-2025-12-09",
+    "_id": "70007442bfba8d39df66401d2f55f2263980f452",
+    "_version": 1,
+    "_source": {
+      "locations": {
+        "coordinates": [
+          [
+            4.972194701972838,
+            -18.436129231650476
+          ],
+          [
+            4.976977004537987,
+            -18.435203128440396
+          ],
+          [
+            4.889136125097219,
+            -18.405977126519844
+          ],
+          [
+            4.884614459119863,
+            -18.363316388555106
+          ],
+          [
+            4.818467297010484,
+            -18.36157745512623
+          ],
+          [
+            4.810282598968166,
+            -18.417420710057403
+          ],
+          [
+            4.758983336662369,
+            -18.384891839607835
+          ],
+          [
+            4.704613598520735,
+            -18.442485949077792
+          ]
+        ],
+        "type": "linestring"
+      },
+      "length": 8,
+      "place": {
+        "info": {},
+        "type": "",
+        "id": "",
+        "name": "city=Santa-Clara/building=Warehouse/room=Room-1"
+      },
+      "end": "2025-12-09T07:58:29.438Z",
+      "speed": 2.6037108272141904,
+      "gazes": [],
+      "edges": [],
+      "analyticsModule": {
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": "",
+        "source": "",
+        "info": {}
+      },
+      "type": "mdx-events",
+      "event": {
+        "type": "EXIT",
+        "id": "roi-id-1",
+        "info": {
+          "class": "roi"
+        }
+      },
+      "direction": "Left",
+      "id": "Camera_02 #-# 6371",
+      "bearing": 181.36087557407814,
+      "timeInterval": 0.233333,
+      "object": {
+        "coordinate": {
+          "x": 4.704613598520735,
+          "z": 0,
+          "y": -18.442485949077792
+        },
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "speed": 0,
+        "type": "Person",
+        "dir": [],
+        "bbox": {
+          "topY": 156.71876525878906,
+          "bottomY": 323.53125,
+          "rightX": 1465.341796875,
+          "leftX": 1360.283203125,
+          "embeddings": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "location": {
+          "lon": 0.00015765847761279694,
+          "alt": 0,
+          "lat": 0.0003659823735417001
+        },
+        "id": "6371",
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "confidence": 0.9644556045532227,
+        "info": {}
+      },
+      "timestamp": "2025-12-09T07:58:29.205Z",
+      "poses": [],
+      "distance": 0.2715905024034479,
+      "videoPath": "",
+      "Id": "70007442bfba8d39df66401d2f55f2263980f452",
+      "lipActivities": [],
+      "speedOverTime": [
+        5.824344897828512
+      ],
+      "sensor": {
+        "type": "",
+        "id": "Camera_02",
+        "description": "",
+        "info": {}
+      },
+      "info": {}
+    },
+    "fields": {
+      "analyticsModule.description": [
+        "index = 0"
+      ],
+      "object.coordinate.x": [
+        4.704613598520735
+      ],
+      "object.coordinate.y": [
+        -18.442485949077792
+      ],
+      "object.coordinate.z": [
+        0
+      ],
+      "analyticsModule.source.keyword": [
+        ""
+      ],
+      "type": [
+        "mdx-events"
+      ],
+      "object.bbox.bottomY": [
+        323.53125
+      ],
+      "object.confidence": [
+        0.9644556
+      ],
+      "object.location.lon": [
+        0.00015765847761279694
+      ],
+      "type.keyword": [
+        "mdx-events"
+      ],
+      "id": [
+        "Camera_02 #-# 6371"
+      ],
+      "object.bbox.confidence": [
+        0
+      ],
+      "object.id": [
+        "6371"
+      ],
+      "Id.keyword": [
+        "70007442bfba8d39df66401d2f55f2263980f452"
+      ],
+      "object.bbox.leftX": [
+        1360.283203125
+      ],
+      "object.type": [
+        "Person"
+      ],
+      "bearing": [
+        181.36087
+      ],
+      "object.type.keyword": [
+        "Person"
+      ],
+      "sensor.description": [
+        ""
+      ],
+      "place.id": [
+        ""
+      ],
+      "sensor.type": [
+        ""
+      ],
+      "videoPath": [
+        ""
+      ],
+      "object.speed": [
+        0
+      ],
+      "place.type": [
+        ""
+      ],
+      "event.id.keyword": [
+        "roi-id-1"
+      ],
+      "analyticsModule.source": [
+        ""
+      ],
+      "Id": [
+        "70007442bfba8d39df66401d2f55f2263980f452"
+      ],
+      "object.location.lat": [
+        0.0003659823735417001
+      ],
+      "distance": [
+        0.2715905
+      ],
+      "event.info.class.keyword": [
+        "roi"
+      ],
+      "object.id.keyword": [
+        "6371"
+      ],
+      "sensor.id.keyword": [
+        "Camera_02"
+      ],
+      "event.info.class": [
+        "roi"
+      ],
+      "object.location.alt": [
+        0
+      ],
+      "speed": [
+        2.603711
+      ],
+      "speedOverTime": [
+        5.824344897828512
+      ],
+      "object.bbox3d.confidence": [
+        0
+      ],
+      "object.bbox.topY": [
+        156.71876525878906
+      ],
+      "id.keyword": [
+        "Camera_02 #-# 6371"
+      ],
+      "event.type.keyword": [
+        "EXIT"
+      ],
+      "place.id.keyword": [
+        ""
+      ],
+      "place.name.keyword": [
+        "city=Santa-Clara/building=Warehouse/room=Room-1"
+      ],
+      "sensor.description.keyword": [
+        ""
+      ],
+      "timeInterval": [
+        0.233333
+      ],
+      "end": [
+        "2025-12-09T07:58:29.438Z"
+      ],
+      "sensor.type.keyword": [
+        ""
+      ],
+      "direction": [
+        "Left"
+      ],
+      "sensor.id": [
+        "Camera_02"
+      ],
+      "timestamp": [
+        "2025-12-09T07:58:29.205Z"
+      ],
+      "analyticsModule.id.keyword": [
+        "ROIEvent"
+      ],
+      "place.name": [
+        "city=Santa-Clara/building=Warehouse/room=Room-1"
+      ],
+      "object.bbox.rightX": [
+        1465.341796875
+      ],
+      "analyticsModule.version": [
+        ""
+      ],
+      "length": [
+        8
+      ],
+      "videoPath.keyword": [
+        ""
+      ],
+      "analyticsModule.id": [
+        "ROIEvent"
+      ],
+      "analyticsModule.version.keyword": [
+        ""
+      ],
+      "event.type": [
+        "EXIT"
+      ],
+      "place.type.keyword": [
+        ""
+      ],
+      "analyticsModule.description.keyword": [
+        "index = 0"
+      ],
+      "locations": [
+        {
+          "coordinates": [
+            [
+              4.972194701972838,
+              -18.436129231650476
+            ],
+            [
+              4.976977004537987,
+              -18.435203128440396
+            ],
+            [
+              4.889136125097219,
+              -18.405977126519844
+            ],
+            [
+              4.884614459119863,
+              -18.363316388555106
+            ],
+            [
+              4.818467297010484,
+              -18.36157745512623
+            ],
+            [
+              4.810282598968166,
+              -18.417420710057403
+            ],
+            [
+              4.758983336662369,
+              -18.384891839607835
+            ],
+            [
+              4.704613598520735,
+              -18.442485949077792
+            ]
+          ],
+          "type": "LineString"
+        }
+      ],
+      "event.id": [
+        "roi-id-1"
+      ],
+      "direction.keyword": [
+        "Left"
+      ]
+    }
+  }

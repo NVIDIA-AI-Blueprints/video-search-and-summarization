@@ -1,0 +1,448 @@
+{
+    "_index": "mdx-frames-2025-12-09",
+    "_id": "x_EeApsBGJ5sH1YyFWPx",
+    "_version": 1,
+    "_source": {
+      "timestamp": "2025-12-09T07:58:04.605Z",
+      "rois": [
+        {
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "count": 2,
+          "id": "roi-id-1",
+          "coordinates": [
+            {
+              "x": 5.270462489016971,
+              "z": 0,
+              "y": -14.525858921435589
+            },
+            {
+              "x": 8.018944612149475,
+              "z": 0,
+              "y": -16.299128775997975
+            }
+          ],
+          "type": "Pallet",
+          "objectIds": [
+            "6352",
+            "6354"
+          ]
+        }
+      ],
+      "type": "mdx-frames",
+      "congestions": [],
+      "sensorId": "Camera_02",
+      "version": "4.0",
+      "id": "265446",
+      "fov": [
+        {
+          "info": {},
+          "count": 1,
+          "id": "",
+          "coordinates": [],
+          "type": "Person",
+          "objectIds": []
+        },
+        {
+          "info": {},
+          "count": 2,
+          "id": "",
+          "coordinates": [],
+          "type": "Pallet",
+          "objectIds": []
+        }
+      ],
+      "interactions": [],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "clusters": [],
+        "proximityDetections": 0,
+        "info": {
+          "safetyViolation": "false"
+        }
+      },
+      "objects": [
+        {
+          "info": {},
+          "coordinate": {
+            "x": 3.9115800024945133,
+            "z": 0,
+            "y": -10.841327558303375
+          },
+          "location": {
+            "lon": 0.00016479577997721752,
+            "alt": 0,
+            "lat": 0.0002975719480247304
+          },
+          "id": "6358",
+          "speed": 0,
+          "type": "Person",
+          "dir": [],
+          "confidence": -0.10000000149011612,
+          "bbox": {
+            "topY": 398.07012939453125,
+            "bottomY": 740.0177001953125,
+            "rightX": 1076.876708984375,
+            "leftX": 951.1686401367188,
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          }
+        },
+        {
+          "info": {},
+          "coordinate": {
+            "x": 5.270462489016971,
+            "z": 0,
+            "y": -14.525858921435589
+          },
+          "location": {
+            "lon": 0.00015256583759833852,
+            "alt": 0,
+            "lat": 0.0003307327302929203
+          },
+          "id": "6352",
+          "speed": 0,
+          "type": "Pallet",
+          "dir": [],
+          "confidence": -0.10000000149011612,
+          "bbox": {
+            "topY": 358.58148193359375,
+            "bottomY": 419.0451354980469,
+            "rightX": 1259.2283935546875,
+            "leftX": 1103.6893310546875,
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          }
+        },
+        {
+          "info": {},
+          "coordinate": {
+            "x": 8.018944612149475,
+            "z": 0,
+            "y": -16.299128775997975
+          },
+          "location": {
+            "lon": 0.00012782949848983344,
+            "alt": 0,
+            "lat": 0.0003466921589839818
+          },
+          "id": "6354",
+          "speed": 0,
+          "type": "Pallet",
+          "dir": [],
+          "confidence": -0.10000000149011612,
+          "bbox": {
+            "topY": 248.82789611816406,
+            "bottomY": 295.845947265625,
+            "rightX": 1119.426513671875,
+            "leftX": 1023.7382202148438,
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          }
+        }
+      ],
+      "info": {
+        "place": "city=Santa-Clara/building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "false"
+      }
+    },
+    "fields": {
+      "socialDistancing.info.safetyViolation.keyword": [
+        "false"
+      ],
+      "info.confinedAreaViolation": [
+        "false"
+      ],
+      "sensorId.keyword": [
+        "Camera_02"
+      ],
+      "objects": [
+        {
+          "bbox.rightX": [
+            1076.876708984375
+          ],
+          "location.alt": [
+            0
+          ],
+          "location.lon": [
+            0.00016479577997721752
+          ],
+          "confidence": [
+            -0.1
+          ],
+          "type": [
+            "Person"
+          ],
+          "speed": [
+            0
+          ],
+          "bbox.confidence": [
+            0
+          ],
+          "coordinate.y": [
+            -10.841327558303375
+          ],
+          "coordinate.x": [
+            3.9115800024945133
+          ],
+          "bbox.leftX": [
+            951.1686401367188
+          ],
+          "location.lat": [
+            0.0002975719480247304
+          ],
+          "id.keyword": [
+            "6358"
+          ],
+          "bbox.topY": [
+            398.07012939453125
+          ],
+          "type.keyword": [
+            "Person"
+          ],
+          "coordinate.z": [
+            0
+          ],
+          "id": [
+            "6358"
+          ],
+          "bbox.bottomY": [
+            740.0177001953125
+          ]
+        },
+        {
+          "bbox.rightX": [
+            1259.2283935546875
+          ],
+          "location.alt": [
+            0
+          ],
+          "location.lon": [
+            0.00015256583759833852
+          ],
+          "confidence": [
+            -0.1
+          ],
+          "type": [
+            "Pallet"
+          ],
+          "speed": [
+            0
+          ],
+          "bbox.confidence": [
+            0
+          ],
+          "coordinate.y": [
+            -14.525858921435589
+          ],
+          "coordinate.x": [
+            5.270462489016971
+          ],
+          "bbox.leftX": [
+            1103.6893310546875
+          ],
+          "location.lat": [
+            0.0003307327302929203
+          ],
+          "id.keyword": [
+            "6352"
+          ],
+          "bbox.topY": [
+            358.58148193359375
+          ],
+          "type.keyword": [
+            "Pallet"
+          ],
+          "coordinate.z": [
+            0
+          ],
+          "id": [
+            "6352"
+          ],
+          "bbox.bottomY": [
+            419.0451354980469
+          ]
+        },
+        {
+          "bbox.rightX": [
+            1119.426513671875
+          ],
+          "location.alt": [
+            0
+          ],
+          "location.lon": [
+            0.00012782949848983344
+          ],
+          "confidence": [
+            -0.1
+          ],
+          "type": [
+            "Pallet"
+          ],
+          "speed": [
+            0
+          ],
+          "bbox.confidence": [
+            0
+          ],
+          "coordinate.y": [
+            -16.299128775997975
+          ],
+          "coordinate.x": [
+            8.018944612149475
+          ],
+          "bbox.leftX": [
+            1023.7382202148438
+          ],
+          "location.lat": [
+            0.0003466921589839818
+          ],
+          "id.keyword": [
+            "6354"
+          ],
+          "bbox.topY": [
+            248.82789611816406
+          ],
+          "type.keyword": [
+            "Pallet"
+          ],
+          "coordinate.z": [
+            0
+          ],
+          "id": [
+            "6354"
+          ],
+          "bbox.bottomY": [
+            295.845947265625
+          ]
+        }
+      ],
+      "info.confinedAreaViolation.keyword": [
+        "false"
+      ],
+      "info.place": [
+        "city=Santa-Clara/building=Warehouse/room=Room-1"
+      ],
+      "socialDistancing.proximityDetections": [
+        0
+      ],
+      "type": [
+        "mdx-frames"
+      ],
+      "fov": [
+        {
+          "id.keyword": [
+            ""
+          ],
+          "type.keyword": [
+            "Person"
+          ],
+          "count": [
+            1
+          ],
+          "id": [
+            ""
+          ],
+          "type": [
+            "Person"
+          ]
+        },
+        {
+          "id.keyword": [
+            ""
+          ],
+          "type.keyword": [
+            "Pallet"
+          ],
+          "count": [
+            2
+          ],
+          "id": [
+            ""
+          ],
+          "type": [
+            "Pallet"
+          ]
+        }
+      ],
+      "version": [
+        "4.0"
+      ],
+      "info.place.keyword": [
+        "city=Santa-Clara/building=Warehouse/room=Room-1"
+      ],
+      "sensorId": [
+        "Camera_02"
+      ],
+      "socialDistancing.threshold": [
+        1.8
+      ],
+      "version.keyword": [
+        "4.0"
+      ],
+      "rois": [
+        {
+          "id.keyword": [
+            "roi-id-1"
+          ],
+          "info.restrictedAreaViolation.keyword": [
+            "false"
+          ],
+          "info.restrictedAreaViolation": [
+            "false"
+          ],
+          "type.keyword": [
+            "Pallet"
+          ],
+          "objectIds.keyword": [
+            "6352",
+            "6354"
+          ],
+          "count": [
+            2
+          ],
+          "coordinates.x": [
+            5.270462489016971,
+            8.018944612149475
+          ],
+          "coordinates.y": [
+            -14.525858921435589,
+            -16.299128775997975
+          ],
+          "coordinates.z": [
+            0,
+            0
+          ],
+          "id": [
+            "roi-id-1"
+          ],
+          "type": [
+            "Pallet"
+          ],
+          "objectIds": [
+            "6352",
+            "6354"
+          ]
+        }
+      ],
+      "id.keyword": [
+        "265446"
+      ],
+      "type.keyword": [
+        "mdx-frames"
+      ],
+      "id": [
+        "265446"
+      ],
+      "socialDistancing.info.safetyViolation": [
+        "false"
+      ],
+      "timestamp": [
+        "2025-12-09T07:58:04.605Z"
+      ]
+    }
+  }

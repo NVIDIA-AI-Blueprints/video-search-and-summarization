@@ -1,0 +1,116 @@
+{
+  "tripwireEvents": [
+    {
+      "event": {
+        "info": {
+          "class": "tripwire"
+        },
+        "id": "tripwire-id-1",
+        "type": "IN"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:13.928Z",
+      "distance": 0.23917064514170258,
+      "speed": 2.316062263823724,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "c3e1ec5a195ad88c060dfa45819ee357a476c1bb",
+      "end": "2026-02-14T10:17:14.159Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 296,
+          "confidence": 0,
+          "info": {},
+          "leftX": 709,
+          "topY": 96,
+          "embeddings": [],
+          "rightX": 806
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.000014902325797472903,
+          "lat": 0.00021937557975033488
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 9.4552971335774,
+          "y": -13.263953305592763
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.180892320437841
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "TripEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 11",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 179.5743529178544,
+      "locations": {
+        "coordinates": [
+          [
+            9.694081606934317,
+            -13.265727254477351
+          ],
+          [
+            9.659355691489711,
+            -13.265469272883728
+          ],
+          [
+            9.624837451203085,
+            -13.265212834125405
+          ],
+          [
+            9.5905250286551,
+            -13.264957924403467
+          ],
+          [
+            9.556416588510594,
+            -13.264704530083062
+          ],
+          [
+            9.52275540311228,
+            -13.258389078065841
+          ],
+          [
+            9.488804422554614,
+            -13.264202233913231
+          ],
+          [
+            9.4552971335774,
+            -13.263953305592763
+          ]
+        ],
+        "type": "linestring"
+      }
+    }
+  ]
+}
