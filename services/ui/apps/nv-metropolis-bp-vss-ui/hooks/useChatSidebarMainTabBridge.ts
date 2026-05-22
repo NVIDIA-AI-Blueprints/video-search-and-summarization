@@ -197,11 +197,17 @@ export function useChatSidebarMainTabBridge({
     setChatSidebarHighlight(false);
   }, []);
 
+  /** Orange pulse on the floating Chat icon when sidebar is collapsed (e.g. new context chip). */
+  const highlightSidebarWhenCollapsed = React.useCallback(() => {
+    setChatSidebarHighlight(sidebarCollapsed);
+  }, [sidebarCollapsed]);
+
   return {
     chatSidebarHighlight,
     chatSidebarQueryExecuting,
     searchTabChatSidebarBusy,
     clearChatSidebarHighlight,
+    highlightSidebarWhenCollapsed,
     submitSidebarMessage,
     registerSearchTabChatAnswer,
     registerSearchTabSidebarChatEvents,
