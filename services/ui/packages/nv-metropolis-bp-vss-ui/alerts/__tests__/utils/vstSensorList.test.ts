@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import {
-  clearLiveStreamCatalogCache,
   clearSensorListCache,
   deriveSensorNameFromLiveStreamUrl,
   fetchVstLiveStreamCatalog,
@@ -19,13 +18,11 @@ describe('vstSensorList', () => {
   beforeEach(() => {
     originalFetch = global.fetch;
     clearSensorListCache();
-    clearLiveStreamCatalogCache();
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     clearSensorListCache();
-    clearLiveStreamCatalogCache();
   });
 
   it('derives sensor name from the last RTSP path segment', () => {
@@ -79,6 +76,15 @@ describe('vstSensorList', () => {
         streamId: 'mp4-stream-id',
       },
     ]);
+  });
+
+  it('does not cache the live-stream catalog — back-to-back calls each hit VST', async () => {
+    global.fetch = jest.fn().mockResolvedValue(textResponse([]));
+
+    await fetchVstLiveStreamCatalog('http://vst.test');
+    await fetchVstLiveStreamCatalog('http://vst.test');
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('resolves sensor_name and live_stream_url by sensor name', async () => {

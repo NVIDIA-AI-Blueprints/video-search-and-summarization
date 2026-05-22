@@ -35,13 +35,7 @@ interface SensorMapCacheEntry {
   createdAt: number;
 }
 
-interface LiveStreamCatalogCacheEntry {
-  promise: Promise<VstLiveStream[]>;
-  createdAt: number;
-}
-
 const sensorListCache = new Map<string, SensorMapCacheEntry>();
-const liveStreamCatalogCache = new Map<string, LiveStreamCatalogCacheEntry>();
 
 /** Strip trailing `/` characters in O(n) without regex (Sonar S5852). */
 const stripTrailingSlashes = (value: string): string => {
@@ -71,14 +65,6 @@ export const clearSensorListCache = (vstApiUrl?: string): void => {
     sensorListCache.delete(vstApiUrl);
   } else {
     sensorListCache.clear();
-  }
-};
-
-export const clearLiveStreamCatalogCache = (vstApiUrl?: string): void => {
-  if (vstApiUrl) {
-    liveStreamCatalogCache.delete(vstApiUrl);
-  } else {
-    liveStreamCatalogCache.clear();
   }
 };
 
@@ -151,64 +137,39 @@ export const deriveSensorNameFromLiveStreamUrl = (
 };
 
 /**
- * Live-stream catalog from `GET /v1/live/streams`. The wire shape nests one
- * entry per stream key — `[{<key>: [{name, url, streamId}]}, …]` — so we
- * flatten to a plain `VstLiveStream[]` for callers.
+ * Live-stream catalog from `GET /v1/live/streams`. Not cached — sensors can
+ * be added/removed in VST from another window, and the picker needs to reflect
+ * those changes immediately. The wire shape nests one entry per stream key —
+ * `[{<key>: [{name, url, streamId}]}, …]` — so we flatten to `VstLiveStream[]`.
  */
-export const fetchVstLiveStreamCatalog = (
+export const fetchVstLiveStreamCatalog = async (
   vstApiUrl: string,
-  options?: { forceRefresh?: boolean },
 ): Promise<VstLiveStream[]> => {
-  const now = Date.now();
-  const cached = liveStreamCatalogCache.get(vstApiUrl);
-  if (
-    cached &&
-    !options?.forceRefresh &&
-    now - cached.createdAt < SENSOR_LIST_TTL_MS
-  ) {
-    return cached.promise;
+  const response = await fetch(`${stripTrailingSlashes(vstApiUrl)}/v1/live/streams`);
+  if (!response.ok) {
+    throw new Error(`VST /v1/live/streams returned ${response.status}`);
   }
-
-  const promise = fetch(`${stripTrailingSlashes(vstApiUrl)}/v1/live/streams`)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`VST /v1/live/streams returned ${response.status}`);
-      }
-      // VST returns text/plain content-type but the body is JSON.
-      return response.text();
-    })
-    .then((text) => {
-      const data = JSON.parse(text) as unknown;
-      const result: VstLiveStream[] = [];
-      if (Array.isArray(data)) {
-        for (const item of data) {
-          if (!item || typeof item !== 'object') continue;
-          for (const streams of Object.values(item) as unknown[]) {
-            if (!Array.isArray(streams) || streams.length === 0) continue;
-            const info = streams[0] as Record<string, unknown>;
-            const name = typeof info.name === 'string' ? info.name : undefined;
-            const url = typeof info.url === 'string' ? info.url : undefined;
-            const streamId =
-              typeof info.streamId === 'string' ? info.streamId : undefined;
-            if (name && url && streamId) {
-              result.push({ name, url, streamId });
-            }
-          }
+  // VST returns text/plain content-type but the body is JSON.
+  const text = await response.text();
+  const data = JSON.parse(text) as unknown;
+  const result: VstLiveStream[] = [];
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      if (!item || typeof item !== 'object') continue;
+      for (const streams of Object.values(item) as unknown[]) {
+        if (!Array.isArray(streams) || streams.length === 0) continue;
+        const info = streams[0] as Record<string, unknown>;
+        const name = typeof info.name === 'string' ? info.name : undefined;
+        const url = typeof info.url === 'string' ? info.url : undefined;
+        const streamId =
+          typeof info.streamId === 'string' ? info.streamId : undefined;
+        if (name && url && streamId) {
+          result.push({ name, url, streamId });
         }
       }
-      return result;
-    })
-    .catch((err) => {
-      // Evict failed entry so subsequent renders can retry before TTL.
-      const existing = liveStreamCatalogCache.get(vstApiUrl);
-      if (existing && existing.promise === promise) {
-        liveStreamCatalogCache.delete(vstApiUrl);
-      }
-      throw err;
-    });
-
-  liveStreamCatalogCache.set(vstApiUrl, { promise, createdAt: now });
-  return promise;
+    }
+  }
+  return result;
 };
 
 /**

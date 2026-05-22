@@ -244,7 +244,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   };
 
   const loadLiveStreams = useCallback(
-    async (options?: { forceRefresh?: boolean }) => {
+    async () => {
       if (!vstApiUrl) {
         setLiveStreams([]);
         setLiveStreamsError('VST API URL is not configured');
@@ -253,7 +253,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
       setLiveStreamsLoading(true);
       setLiveStreamsError(null);
       try {
-        const catalog = await fetchVstLiveStreamCatalog(vstApiUrl, options);
+        const catalog = await fetchVstLiveStreamCatalog(vstApiUrl);
         setLiveStreams(catalog);
       } catch (err) {
         setLiveStreams([]);
@@ -813,7 +813,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                           liveStreams={liveStreams}
                           loading={liveStreamsLoading}
                           errorMessage={liveStreamsError}
-                          onRetry={() => loadLiveStreams({ forceRefresh: true })}
+                          onRetry={() => loadLiveStreams()}
                         />
                       </td>
                       <td className="py-2 px-3 align-top">
