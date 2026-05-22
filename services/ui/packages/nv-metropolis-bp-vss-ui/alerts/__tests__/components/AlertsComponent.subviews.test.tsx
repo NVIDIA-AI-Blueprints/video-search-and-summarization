@@ -63,7 +63,15 @@ jest.mock('../../lib-src/hooks/useFilters', () => ({
     addFilter: jest.fn(),
     removeFilter: jest.fn(),
     filteredAlerts: [],
-    uniqueValues: { sensors: [], alertTypes: [], alertTriggered: [] },
+    uniqueValues: {
+      sensors: [],
+      alertTypes: [],
+      alertTriggered: [],
+      byVlmVerified: {
+        enabled: { alertTypes: [], alertTriggered: [] },
+        disabled: { alertTypes: [], alertTriggered: [] },
+      },
+    },
   })),
   createEmptyFilterState: jest.fn(() => ({
     sensors: new Set(),
