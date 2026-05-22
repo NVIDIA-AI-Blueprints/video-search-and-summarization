@@ -70,7 +70,7 @@ describe('useVideoModal', () => {
     expect(calledUrl).toContain('endTime=2024-01-15T09%3A05%3A00');
     expect(calledUrl).toContain('expiryMinutes=60');
     expect(calledUrl).toContain('container=mp4');
-    expect(calledUrl).toContain('disableAudio=true');
+    expect(calledUrl).toContain('disableAudio=false');
   });
 
   it('includes bbox configuration when showObjectsBbox is true and object_ids exist', async () => {
