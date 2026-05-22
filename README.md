@@ -123,4 +123,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branch nami
 
 
 ## License
-Refer to [LICENSE.md](LICENSE.md)
+Refer to [LICENSE](LICENSE)

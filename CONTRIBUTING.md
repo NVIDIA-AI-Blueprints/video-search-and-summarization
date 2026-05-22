@@ -27,7 +27,7 @@ This project uses a dual-license model:
 
 **All contributions to this repository, regardless of which directory they target, are accepted under the Apache-2.0 license.** Even if you are contributing changes to the `services/ui/` directory, your contribution will be licensed under Apache-2.0. The original `services/ui/` code retains its MIT license, but any additions or modifications contributed through this repository are Apache-2.0.
 
-See the [LICENSE.md](LICENSE.md) file for the full license texts.
+See the [LICENSE](LICENSE) file for the full license texts.
 
 ### Signing Your Work — Developer Certificate of Origin (DCO)
 
