@@ -52,11 +52,6 @@ functions:
   video_understanding:
     _type: video_understanding
     vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm # e.g. nim_vlm, openai_vlm
-    max_frames: 30
-    max_fps: 2  # for CR1, max fps is 2
-    min_pixels: 3136
-    max_pixels: 8388608
-    reasoning: false
     video_url_tool: vst_video_clip
     time_format: offset
     vlm_mode: ${VLM_MODE}
@@ -195,6 +190,11 @@ llms:
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 4096
+    max_frames: 30
+    max_fps: 2  # for CR1, max fps is 2
+    min_pixels: 3136
+    max_pixels: 8388608
+    reasoning: false
 
   openai_vlm:
     _type: openai
@@ -202,6 +202,11 @@ llms:
     # uses https://api.openai.com/v1 by default
     temperature: 0.0
     max_tokens: 4096
+    max_frames: 30
+    max_fps: 2  # for CR1, max fps is 2
+    min_pixels: 3136
+    max_pixels: 8388608
+    reasoning: false
 
   vllm_vlm:
     _type: openai
@@ -209,6 +214,11 @@ llms:
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
     max_tokens: 4096
+    max_frames: 30
+    max_fps: 2  # for CR1, max fps is 2
+    min_pixels: 3136
+    max_pixels: 8388608
+    reasoning: false
 
   # RTVI pipeline VLM (search/alerts). Endpoint: ${RTVI_VLM_BASE_URL}; model: ${VLM_NAME}. Keep in sync with config_rag.yml.
   rtvi_vlm:
@@ -216,6 +226,12 @@ llms:
     model_name: ${VLM_NAME}
     base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
+    max_tokens: 4096
+    max_frames: 30
+    max_fps: 2  # for CR1, max fps is 2
+    min_pixels: 3136
+    max_pixels: 8388608
+    reasoning: false
     model_kwargs:
       extra_body:
         num_frames_per_second_or_fixed_frames_chunk: 20
