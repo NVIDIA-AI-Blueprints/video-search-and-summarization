@@ -25,6 +25,7 @@ import { saveFolders } from '@/utils/app/folders';
 import { APPLICATION_NAME } from '@/constants/constants';
 
 import { Conversation, type CallerInfo } from '@/types/chat';
+import type { ChatVideoUploadCompletePayload } from '@/types/chatVideoUpload';
 import { KeyValuePair } from '@/types/data';
 import { FolderInterface, FolderType } from '@/types/folder';
 
@@ -109,6 +110,12 @@ export interface NemoAgentToolkitAppProps {
    */
   onAddQueryContextReady?: (addItem: (item: { id: string; label: string; type: string; data: Record<string, unknown> }) => void) => void;
 
+  /**
+   * Optional: called when a chat video upload batch completes with at least one successful file.
+   * Embedders can forward this to app-level listeners (e.g. refresh Video Management streams).
+   */
+  onChatVideoUploadComplete?: (payload: ChatVideoUploadCompletePayload) => void;
+
   // Other optional props for future extensibility
   className?: string;
   style?: React.CSSProperties;
@@ -128,6 +135,7 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     onSubmitMessageReady,
     onMessageSubmitted,
     onAddQueryContextReady,
+    onChatVideoUploadComplete,
     className = '', 
     style = {} 
   } = props;
@@ -503,6 +511,7 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     onSubmitMessageReady,
     onMessageSubmitted,
     onAddQueryContextReady,
+    onChatVideoUploadComplete,
   }), [
     contextValue,
     storageKeyPrefix,
@@ -517,6 +526,7 @@ const Home = (props: NemoAgentToolkitAppProps = {}) => {
     onSubmitMessageReady,
     onMessageSubmitted,
     onAddQueryContextReady,
+    onChatVideoUploadComplete,
   ]);
 
   return (

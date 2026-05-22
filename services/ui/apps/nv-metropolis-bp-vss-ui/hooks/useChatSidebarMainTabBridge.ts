@@ -8,6 +8,11 @@ import {
   type SidebarMainTabChatEvent,
 } from '../utils/sidebarMainTabChatSubscribers';
 import { hrefForCallerInfoMainTab } from '../utils/callerInfoMainTabHash';
+import {
+  createVssMainTabChatVideoUploadRegistry,
+  type ChatVideoUploadCompletePayload,
+} from '../utils/chatVideoUploadCompleteRegistry';
+import { createMainTabChatVideoUploadRegistrars } from '../utils/mainTabChatVideoUploadRegistrars';
 
 type UseChatSidebarMainTabBridgeParams = {
   activeTab: string;
@@ -44,6 +49,16 @@ export function useChatSidebarMainTabBridge({
   const sidebarMainTabChatRegistry = React.useMemo(
     () => createSidebarMainTabChatSubscriberRegistry(),
     [],
+  );
+
+  const chatVideoUploadCompleteRegistry = React.useMemo(
+    () => createVssMainTabChatVideoUploadRegistry(),
+    [],
+  );
+
+  const mainTabChatVideoUploadRegistrars = React.useMemo(
+    () => createMainTabChatVideoUploadRegistrars(chatVideoUploadCompleteRegistry),
+    [chatVideoUploadCompleteRegistry],
   );
 
   // Stable registration callbacks per tab (answer text + sidebar lifecycle events).
@@ -105,6 +120,14 @@ export function useChatSidebarMainTabBridge({
     (handler: (event: SidebarMainTabChatEvent) => void) =>
       sidebarMainTabChatRegistry.registerEventSubscriber('video-management', handler),
     [sidebarMainTabChatRegistry],
+  );
+
+  /** Sidebar chat only (see Home renderAppSidebarChat — not passed to full-page Chat tab). */
+  const handleSidebarChatVideoUploadComplete = React.useCallback(
+    (payload: ChatVideoUploadCompletePayload) => {
+      chatVideoUploadCompleteRegistry.emit(payload);
+    },
+    [chatVideoUploadCompleteRegistry],
   );
 
   // Chat calls onAnswerComplete before onAnswerCompleteWithContent.
@@ -190,6 +213,9 @@ export function useChatSidebarMainTabBridge({
     registerMapTabSidebarChatEvents,
     registerVideoManagementTabChatAnswer,
     registerVideoManagementTabSidebarChatEvents,
+    /** Pass `registerMainTabChatVideoUploadComplete.<tabId>` into each tab (one line in Home). */
+    registerMainTabChatVideoUploadComplete: mainTabChatVideoUploadRegistrars,
+    handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
