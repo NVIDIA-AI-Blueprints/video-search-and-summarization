@@ -1003,10 +1003,10 @@ function state_up() {
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
     local _brev_base="${BREV_ENV_ID}.brevlab.com"
-    # Brev launchables create secure links with a "0" suffix on the port name
-    # (e.g. port 7777 → "77770-xxx.brevlab.com"). Manual secure links don't add it.
+    # Brev secure links use the port number as the hostname prefix
+    # (e.g. port 7777 -> "7777-xxx.brevlab.com").
     # Override BREV_LINK_PREFIX if the default doesn't match your setup.
-    local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}0}"
+    local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}}"
     local _proxy_https="https://${_link_prefix}-${_brev_base}"
     local _proxy_wss="wss://${_link_prefix}-${_brev_base}"
     echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Routing through proxy at port ${_proxy_port}..."
@@ -1018,8 +1018,8 @@ function state_up() {
     set_env_var "BREV_API_URL"        "${_proxy_https}/api/v1"
     set_env_var "BREV_VST_API_URL"    "${_proxy_https}/vst/api"
     set_env_var "BREV_MDX_URL"        "${_proxy_https}"
-    set_env_var "BREV_KIBANA_URL"     "https://56010-${_brev_base}"  # iframe — separate link OK
-    set_env_var "KIBANA_PUBLIC_URL"   "https://56010-${_brev_base}"
+    set_env_var "BREV_KIBANA_URL"     "https://5601-${_brev_base}"  # iframe — separate link OK
+    set_env_var "KIBANA_PUBLIC_URL"   "https://5601-${_brev_base}"
     set_env_var "BREV_MAP_URL"        "${_proxy_https}"
     # Backend overrides
     set_env_var "VST_EXTERNAL_URL"              "${_proxy_https}"
