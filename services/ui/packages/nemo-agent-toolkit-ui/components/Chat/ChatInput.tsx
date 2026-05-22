@@ -37,6 +37,7 @@ import { compressImage } from '@/utils/app/helper';
 import { Message, QueryDataContext } from '@/types/chat';
 
 import HomeContext from '@/pages/api/home/home.context';
+import { isQueryProcessing } from '@/utils/app/queryProcessing';
 import { ChatFileUpload } from './ChatFileUpload';
 import {
   CustomAgentParams,
@@ -102,6 +103,7 @@ export const ChatInput = ({
   } = useContext(HomeContext);
 
   const workflow = useWorkflowName();
+  const uploadDisabled = chatBlocked || isQueryProcessing(loading, messageIsStreaming);
 
   // Create audio only when the file is present
   const [recordingStartSound, setRecordingStartSound] = useState<Audio | null>(null);
@@ -611,17 +613,17 @@ export const ChatInput = ({
                     fieldsToParams(paramFields),
                   );
                 }}
-                disabled={chatBlocked}
+                disabled={uploadDisabled}
               >
                 {({ triggerUpload }) => (
                   <button
                     onClick={triggerUpload}
                     className={`rounded-sm p-[5px] text-neutral-800 opacity-60 dark:bg-opacity-50 dark:text-neutral-100 ${
-                      chatBlocked
+                      uploadDisabled
                         ? 'text-neutral-400'
                         : 'hover:text-[#76b900] dark:hover:text-neutral-200'
                     }`}
-                    disabled={chatBlocked}
+                    disabled={uploadDisabled}
                   >
                     <IconUpload size={18} />
                   </button>
