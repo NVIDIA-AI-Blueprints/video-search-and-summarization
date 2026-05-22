@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 /**
- * VST (VIOS) sensor list helpers — `GET /v1/sensor/list` maps friendly sensor
- * `name` → `sensorId` for online sensors. Shared by thumbnails and realtime alerts.
+ * VST (VIOS) sensor helpers.
+ *
+ *  - `GET /v1/sensor/list` maps friendly sensor `name` → `sensorId` for online
+ *    sensors. Used by the thumbnail component.
+ *  - `GET /v1/live/streams` returns the live-stream catalog — each entry
+ *    carries `name`, RTSP `url`, and `streamId`. Used by the realtime alert
+ *    creator so users can pick a sensor by name (matching the chat flow in
+ *    `services/agent/.../rtvi_vlm_alert.py`) instead of pasting an RTSP URL.
  */
 
 export interface VstSensorListEntry {
@@ -10,9 +16,15 @@ export interface VstSensorListEntry {
   state?: string;
 }
 
-export interface ResolvedVstSensor {
+export interface VstLiveStream {
+  name: string;
+  url: string;
+  streamId: string;
+}
+
+export interface ResolvedVstStream {
   sensor_name: string;
-  sensor_id: string;
+  live_stream_url: string;
 }
 
 // TTL ensures sensors registered elsewhere appear without a hard reload.
@@ -23,7 +35,13 @@ interface SensorMapCacheEntry {
   createdAt: number;
 }
 
+interface LiveStreamCatalogCacheEntry {
+  promise: Promise<VstLiveStream[]>;
+  createdAt: number;
+}
+
 const sensorListCache = new Map<string, SensorMapCacheEntry>();
+const liveStreamCatalogCache = new Map<string, LiveStreamCatalogCacheEntry>();
 
 /** Strip trailing `/` characters in O(n) without regex (Sonar S5852). */
 const stripTrailingSlashes = (value: string): string => {
@@ -53,6 +71,14 @@ export const clearSensorListCache = (vstApiUrl?: string): void => {
     sensorListCache.delete(vstApiUrl);
   } else {
     sensorListCache.clear();
+  }
+};
+
+export const clearLiveStreamCatalogCache = (vstApiUrl?: string): void => {
+  if (vstApiUrl) {
+    liveStreamCatalogCache.delete(vstApiUrl);
+  } else {
+    liveStreamCatalogCache.clear();
   }
 };
 
@@ -108,8 +134,10 @@ export const fetchSensorMap = (
 /**
  * Last path segment of the RTSP URL, e.g.
  * `rtsp://.../sample-warehouse-ladder.mp4` → `sample-warehouse-ladder.mp4`.
- * Extension is kept — NVStreamer registers sensors with the full filename and
- * VST/alert-bridge lookups match by exact name.
+ * Used only as a thumbnail fallback for legacy rules saved before the server
+ * began returning `sensor_name`. Not safe for live-stream URLs with UUID paths
+ * (`rtsp://host:port/live/<uuid>`) — that's why rule creation goes through the
+ * live-stream catalog instead.
  */
 export const deriveSensorNameFromLiveStreamUrl = (
   liveStreamUrl: string,
@@ -123,26 +151,85 @@ export const deriveSensorNameFromLiveStreamUrl = (
 };
 
 /**
- * Resolve `sensor_name` and `sensor_id` for a live stream URL via VST sensor list.
+ * Live-stream catalog from `GET /v1/live/streams`. The wire shape nests one
+ * entry per stream key — `[{<key>: [{name, url, streamId}]}, …]` — so we
+ * flatten to a plain `VstLiveStream[]` for callers.
  */
-export const resolveSensorForLiveStreamUrl = async (
+export const fetchVstLiveStreamCatalog = (
   vstApiUrl: string,
-  liveStreamUrl: string,
-): Promise<ResolvedVstSensor> => {
-  const sensor_name = deriveSensorNameFromLiveStreamUrl(liveStreamUrl);
-  if (!sensor_name) {
-    throw new Error(
-      'Could not derive sensor name from live_stream_url; check the RTSP path.',
-    );
+  options?: { forceRefresh?: boolean },
+): Promise<VstLiveStream[]> => {
+  const now = Date.now();
+  const cached = liveStreamCatalogCache.get(vstApiUrl);
+  if (
+    cached &&
+    !options?.forceRefresh &&
+    now - cached.createdAt < SENSOR_LIST_TTL_MS
+  ) {
+    return cached.promise;
   }
 
-  const map = await fetchSensorMap(vstApiUrl);
-  const sensor_id = map.get(sensor_name);
-  if (!sensor_id) {
-    throw new Error(
-      `Sensor "${sensor_name}" is not registered with VST (online). Register the stream first.`,
-    );
-  }
+  const promise = fetch(`${stripTrailingSlashes(vstApiUrl)}/v1/live/streams`)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`VST /v1/live/streams returned ${response.status}`);
+      }
+      // VST returns text/plain content-type but the body is JSON.
+      return response.text();
+    })
+    .then((text) => {
+      const data = JSON.parse(text) as unknown;
+      const result: VstLiveStream[] = [];
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          if (!item || typeof item !== 'object') continue;
+          for (const streams of Object.values(item) as unknown[]) {
+            if (!Array.isArray(streams) || streams.length === 0) continue;
+            const info = streams[0] as Record<string, unknown>;
+            const name = typeof info.name === 'string' ? info.name : undefined;
+            const url = typeof info.url === 'string' ? info.url : undefined;
+            const streamId =
+              typeof info.streamId === 'string' ? info.streamId : undefined;
+            if (name && url && streamId) {
+              result.push({ name, url, streamId });
+            }
+          }
+        }
+      }
+      return result;
+    })
+    .catch((err) => {
+      // Evict failed entry so subsequent renders can retry before TTL.
+      const existing = liveStreamCatalogCache.get(vstApiUrl);
+      if (existing && existing.promise === promise) {
+        liveStreamCatalogCache.delete(vstApiUrl);
+      }
+      throw err;
+    });
 
-  return { sensor_name, sensor_id };
+  liveStreamCatalogCache.set(vstApiUrl, { promise, createdAt: now });
+  return promise;
+};
+
+/**
+ * Look up a sensor name in the VST live-stream catalog. Returns `undefined`
+ * when the catalog has no matching entry — callers can decide whether to
+ * forward the name to Alert Bridge anyway (e.g. for a stream that hasn't been
+ * registered yet).
+ */
+export const resolveSensorByName = async (
+  vstApiUrl: string,
+  sensorName: string,
+): Promise<ResolvedVstStream | undefined> => {
+  const trimmed = sensorName.trim();
+  if (!trimmed) return undefined;
+
+  const catalog = await fetchVstLiveStreamCatalog(vstApiUrl);
+  const match = catalog.find((entry) => entry.name === trimmed);
+  if (!match) return undefined;
+
+  return {
+    sensor_name: match.name,
+    live_stream_url: match.url,
+  };
 };
