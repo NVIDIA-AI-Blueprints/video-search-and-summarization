@@ -384,6 +384,20 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     ((item: QueryDataContext) => void) | undefined
   >(undefined);
 
+  /** Passed to tabs with "+ Chat" / add-context controls; only when the floating sidebar is enabled. */
+  const sidebarAddChatQueryContext = deploymentConfig.chatSidebarEnabled
+    ? (item: QueryDataContext) => {
+        appSidebarAddQueryContextRef.current?.(item);
+      }
+    : undefined;
+
+  /** Sidebar chat submit (e.g. Alerts "Generate Report", Search agent queries); only when sidebar is enabled. */
+  const sidebarSubmitChatMessage = deploymentConfig.chatSidebarEnabled
+    ? (message: string) => {
+        submitSidebarMessage(message);
+      }
+    : undefined;
+
   React.useEffect(() => {
     // Only run once on mount to load from sessionStorage
     if (!hasLoadedFromStorage && typeof window !== 'undefined') {
@@ -651,12 +665,8 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.onControlsReady = isActive ? searchControlsReadyCallback : undefined;
       componentProps.registerChatAnswerHandler = registerSearchTabChatAnswer;
       componentProps.registerSidebarChatEventSubscriber = registerSearchTabSidebarChatEvents;
-      componentProps.submitChatMessage = (message: string) => {
-        submitSidebarMessage(message);
-      };
-      componentProps.addChatQueryContext = (item: QueryDataContext) => {
-        appSidebarAddQueryContextRef.current?.(item);
-      };
+      componentProps.submitChatMessage = sidebarSubmitChatMessage;
+      componentProps.addChatQueryContext = sidebarAddChatQueryContext;
       componentProps.chatSidebarCollapsed = deploymentConfig.chatSidebarEnabled
         ? sidebarApi.collapsed
         : true;
@@ -668,9 +678,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.onControlsReady = isActive ? alertsControlsReadyCallback : undefined;
       componentProps.registerChatAnswerHandler = registerAlertsTabChatAnswer;
       componentProps.registerSidebarChatEventSubscriber = registerAlertsTabSidebarChatEvents;
-      componentProps.submitChatMessage = (message: string) => {
-        submitSidebarMessage(message);
-      };
+      componentProps.submitChatMessage = sidebarSubmitChatMessage;
     } else if (componentName === 'DashboardComponent' && dashboardData) {
       componentProps.dashboardData = dashboardData;
       componentProps.serverRenderTime = serverRenderTime;
@@ -694,9 +702,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.registerSidebarChatEventSubscriber = registerVideoManagementTabSidebarChatEvents;
       componentProps.registerChatVideoUploadComplete =
         registerMainTabChatVideoUploadComplete['video-management'];
-      componentProps.addChatQueryContext = (item: QueryDataContext) => {
-        appSidebarAddQueryContextRef.current?.(item);
-      };
+      componentProps.addChatQueryContext = sidebarAddChatQueryContext;
     }
 
     return (
