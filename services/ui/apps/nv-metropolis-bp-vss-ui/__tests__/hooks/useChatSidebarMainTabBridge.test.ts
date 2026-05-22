@@ -55,4 +55,31 @@ describe('useChatSidebarMainTabBridge', () => {
     expect(searchEvents).toEqual([{ type: 'messageSubmitted' }]);
     expect(result.current.searchTabChatSidebarBusy).toBe(true);
   });
+
+  it('highlightSidebarWhenCollapsed sets highlight only when sidebar is collapsed', () => {
+    const { result, rerender } = renderHook(
+      ({ sidebarCollapsed }) =>
+        useChatSidebarMainTabBridge({
+          activeTab: 'search',
+          sidebarCollapsed,
+        }),
+      { initialProps: { sidebarCollapsed: true } },
+    );
+
+    act(() => {
+      result.current.highlightSidebarWhenCollapsed();
+    });
+    expect(result.current.chatSidebarHighlight).toBe(true);
+
+    act(() => {
+      result.current.clearChatSidebarHighlight();
+    });
+    expect(result.current.chatSidebarHighlight).toBe(false);
+
+    rerender({ sidebarCollapsed: false });
+    act(() => {
+      result.current.highlightSidebarWhenCollapsed();
+    });
+    expect(result.current.chatSidebarHighlight).toBe(false);
+  });
 });
