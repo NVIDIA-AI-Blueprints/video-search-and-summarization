@@ -79,7 +79,7 @@ ngcModelsToDownload:
 # NGC *resource* bundle (videos + warehouse models) for profileMode standalone-2d / standalone-3d.
 # Download Job unpacks the .tar.gz onto the shared -models PVC under vss-warehouse-app-data/.
 downloadNgcAppData: false
-ngcAppDataResourceVersion: "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.2.0-04282026"
+ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
 # Required with NGC_CLI_API_KEY: registry org for the resource (e.g. nvstaging for vss-warehouse).
 ngcAppDataOrg: "nvstaging"
 downloadNgcAppDataWaitSeconds: 3600

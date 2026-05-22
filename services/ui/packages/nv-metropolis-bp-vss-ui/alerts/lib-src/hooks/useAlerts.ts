@@ -276,6 +276,12 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
 
+  // Tracks the live vlmVerified value so in-flight fetches (including those
+  // triggered by auto-refresh without an AbortSignal) can detect that the
+  // toggle changed while they were awaiting a response and discard stale data.
+  const currentVlmVerifiedRef = useRef(vlmVerified);
+  currentVlmVerifiedRef.current = vlmVerified;
+
   // Memoize the serialized filters to prevent unnecessary API calls
   // when the filter object reference changes but values remain the same
   const serializedFilters = useMemo(() => serializeFilters(activeFilters), [activeFilters]);
@@ -325,14 +331,19 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
   }, [vstApiUrl]);
 
   /**
-   * Fetches alerts data from the incidents API with time-based filtering
+   * Fetches alerts data from the incidents API with time-based filtering.
+   * Accepts an optional AbortSignal so the automatic effect can cancel
+   * in-flight requests when dependencies change (prevents race conditions
+   * where a stale response overwrites data for the current vlmVerified state).
    */
-  const fetchAlerts = useCallback(async (): Promise<boolean> => {
+  const fetchAlerts = useCallback(async (signal?: AbortSignal): Promise<boolean> => {
     if (!apiUrl) {
       setError('API URL is not configured');
       setLoading(false);
       return false;
     }
+
+    const fetchedForVlmVerified = vlmVerified;
 
     try {
       setLoading(true);
@@ -345,12 +356,15 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
 
       const mdxWebApiIncidents = buildIncidentsUrl(fromTimestamp, toTimestamp);
 
-      const response = await fetch(mdxWebApiIncidents);
+      const response = await fetch(mdxWebApiIncidents, { signal });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
+
+      // Discard stale results if vlmVerified changed while this fetch was in flight
+      if (fetchedForVlmVerified !== currentVlmVerifiedRef.current) return false;
 
       const transformedAlerts = transformIncidentsPayload(data);
       setLastBatchSize(transformedAlerts.length);
@@ -358,10 +372,14 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
 
       return true;
     } catch (err) {
+      if (signal?.aborted) return false;
+      if (fetchedForVlmVerified !== currentVlmVerifiedRef.current) return false;
       setError(err instanceof Error ? err.message : 'Failed to fetch alerts');
       return false;
     } finally {
-      setLoading(false);
+      if (!signal?.aborted && fetchedForVlmVerified === currentVlmVerifiedRef.current) {
+        setLoading(false);
+      }
     }
   }, [apiUrl, timeWindow, buildIncidentsUrl, vlmVerified, vlmVerdict, maxResults]);
 
@@ -423,9 +441,12 @@ export const useAlerts = ({ apiUrl, vstApiUrl, vlmVerified = true, vlmVerdict = 
     fetchSensorList();
   }, [fetchSensorList]);
 
-  // Fetch alerts when dependencies change
+  // Fetch alerts when dependencies change; abort any in-flight request first
+  // so stale responses never overwrite the current state.
   useEffect(() => {
-    fetchAlerts();
+    const controller = new AbortController();
+    fetchAlerts(controller.signal);
+    return () => controller.abort();
   }, [fetchAlerts]);
 
   // Refetch function - only refetches alerts by default, optionally refetches sensor list too
