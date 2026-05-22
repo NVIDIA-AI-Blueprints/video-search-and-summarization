@@ -41,8 +41,9 @@ const AddContextButton: React.FC<{ item: SearchData; onAddContext?: (ctx: QueryD
 
   return (
     <Button
-      kind="tertiary"
+      kind="primary"
       size="small"
+      className="flex-shrink-0 text-xs"
       onClick={handleClick}
       disabled={!onAddContext}
       title="Add sensor context to chat"
@@ -50,10 +51,10 @@ const AddContextButton: React.FC<{ item: SearchData; onAddContext?: (ctx: QueryD
       {addedState === 'success' ? (
         <>
           <IconCheck className="w-2.5 h-2.5 shrink-0" style={{ color: 'inherit' }} />
-          <span className="text-xs">Added</span>
+          <span>Added</span>
         </>
       ) : (
-        <span className="text-xs">+ Chat</span>
+        <span>+ Chat</span>
       )}
     </Button>
   );
