@@ -43,6 +43,7 @@ EXCLUDE_PATTERNS = (
     # UI — original MIT-licensed code; headers will be added incrementally
     "ui/**",
     "services/ui/**",
+    "**/schema_pb.js"
 )
 
 
