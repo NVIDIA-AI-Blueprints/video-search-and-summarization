@@ -358,6 +358,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     chatSidebarQueryExecuting,
     searchTabChatSidebarBusy,
     clearChatSidebarHighlight,
+    highlightSidebarWhenCollapsed,
     submitSidebarMessage,
     registerSearchTabChatAnswer,
     registerSearchTabSidebarChatEvents,
@@ -388,6 +389,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   const sidebarAddChatQueryContext = deploymentConfig.chatSidebarEnabled
     ? (item: QueryDataContext) => {
         appSidebarAddQueryContextRef.current?.(item);
+        highlightSidebarWhenCollapsed();
       }
     : undefined;
 
@@ -395,6 +397,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   const sidebarSubmitChatMessage = deploymentConfig.chatSidebarEnabled
     ? (message: string) => {
         submitSidebarMessage(message);
+        highlightSidebarWhenCollapsed();
       }
     : undefined;
 

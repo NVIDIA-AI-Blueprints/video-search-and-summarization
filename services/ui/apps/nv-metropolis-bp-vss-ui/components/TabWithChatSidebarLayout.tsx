@@ -9,7 +9,7 @@ export type TabWithChatSidebarLayoutProps = {
   mainContent: React.ReactNode;
   sidebarEnabled: boolean;
   sidebarApi: AppChatSidebarApi;
-  /** When true and collapsed, the floating Chat icon shows a highlight (e.g. new answer). */
+  /** When true and collapsed, the floating Chat icon shows an orange highlight (e.g. new context or message). */
   highlightIcon?: boolean;
   /** When true, a spinner is shown on the vertical title bar (e.g. chat query executing). */
   queryExecuting?: boolean;
@@ -79,8 +79,12 @@ export function TabWithChatSidebarLayout({
                   : 'rgba(118, 185, 0, 0.88)',
               }}
               onClick={handleOpenSidebar}
-              aria-label={`Open Chat sidebar (${tabLabel} tab)`}
-              title={highlightIcon ? 'Chat – new message' : 'Chat'}
+              aria-label={
+                highlightIcon
+                  ? `Open Chat sidebar – new context or message (${tabLabel} tab)`
+                  : `Open Chat sidebar (${tabLabel} tab)`
+              }
+              title={highlightIcon ? 'Chat – new context or message' : 'Chat'}
             >
               {queryExecuting ? (
                 <IconLoader2 className="h-9 w-9 shrink-0 animate-spin" stroke={1.5} aria-hidden />
