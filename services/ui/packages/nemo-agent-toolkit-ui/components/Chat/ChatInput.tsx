@@ -99,6 +99,7 @@ export const ChatInput = ({
 
   const {
     state: { selectedConversation, messageIsStreaming, loading, webSocketMode, customAgentParamsJson, chatUploadFileEnabled, chatInputMicEnabled },
+    onChatVideoUploadComplete,
     dispatch: homeDispatch,
   } = useContext(HomeContext);
 
@@ -621,6 +622,7 @@ export const ChatInput = ({
                   );
                 }}
                 disabled={uploadDisabled}
+                onUploadBatchComplete={onChatVideoUploadComplete}
               >
                 {({ triggerUpload }) => (
                   <button

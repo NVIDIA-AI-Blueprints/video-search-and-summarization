@@ -3,7 +3,12 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import type { VideoManagementComponentProps, UploadProgress, StreamInfo } from './types';
 import { useStreams, useStorageTimelines } from './hooks';
 import { filterStreams, isRtspStream } from './utils';
-import { UploadFilesDialog, VideoModal, useVideoModal } from '@nemo-agent-toolkit/ui';
+import {
+  UploadFilesDialog,
+  VideoModal,
+  useVideoModal,
+  useChatVideoUploadCompleteSubscription,
+} from '@nemo-agent-toolkit/ui';
 import { chunkedUpload, notifyUploadComplete } from './chunkedUpload';
 import { createApiEndpoints } from './api';
 import { deleteRtspStream } from './rtspStream';
@@ -29,6 +34,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   onControlsReady,
   isActive = true,
   addChatQueryContext,
+  registerChatVideoUploadComplete,
 }) => {
   const vstApiUrl = videoManagementData?.vstApiUrl;
   const agentApiUrl = videoManagementData?.agentApiUrl;
@@ -136,6 +142,16 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
       refetchTimelinesRef.current();
     }
   }, [isActive]);
+
+  const refreshStreamsAfterChatUpload = useCallback(() => {
+    refetchRef.current();
+    refetchTimelinesRef.current();
+  }, []);
+
+  useChatVideoUploadCompleteSubscription(
+    registerChatVideoUploadComplete,
+    refreshStreamsAfterChatUpload,
+  );
 
   const processUploadQueue = useCallback(async (fileEntries: Array<{ id: string; file: File; formData?: Record<string, any> }>) => {
     const abortController = new AbortController();
