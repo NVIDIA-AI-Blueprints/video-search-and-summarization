@@ -126,11 +126,10 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
   const [state, setState] = useState<ThumbnailState>(() =>
     initialThumbnailState(vstApiUrl, sensorName),
   );
-  const [imageBroken, setImageBroken] = useState(false);
+  /** URL that failed to load; cleared implicitly when `pictureUrl` changes. */
+  const [brokenPictureUrl, setBrokenPictureUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    setImageBroken(false);
-
     if (!sensorName) {
       setState({ kind: 'idle' });
       return;
@@ -195,7 +194,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
     return <Placeholder isDark={isDark} state="unavailable" label={fallbackLabel} />;
   }
 
-  if (imageBroken) {
+  if (brokenPictureUrl === state.pictureUrl) {
     return <Placeholder isDark={isDark} state="unavailable" label="Frame unavailable" />;
   }
 
@@ -208,7 +207,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
       className={`object-cover rounded border ${
         isDark ? 'border-neutral-700' : 'border-gray-300'
       }`}
-      onError={() => setImageBroken(true)}
+      onError={() => setBrokenPictureUrl(state.pictureUrl)}
     />
   );
 };
