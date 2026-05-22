@@ -27,6 +27,8 @@ interface CustomAgentParamsProps {
   fields: ParamField[];
   onFieldsChange: (fields: ParamField[]) => void;
   anchorRef?: React.RefObject<HTMLElement>;
+  /** When true, field values cannot be edited (e.g. while a query is in progress). */
+  valuesChangeDisabled?: boolean;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -42,6 +44,7 @@ export const CustomAgentParams: React.FC<CustomAgentParamsProps> = ({
   fields,
   onFieldsChange,
   anchorRef,
+  valuesChangeDisabled = false,
 }) => {
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
@@ -105,7 +108,7 @@ export const CustomAgentParams: React.FC<CustomAgentParamsProps> = ({
 
   const renderValueInput = useCallback((field: ParamField) => {
     // Check if field is changeable (default: true)
-    const isChangeable = field.changeable !== false;
+    const isChangeable = field.changeable !== false && !valuesChangeDisabled;
     const disabledClass = !isChangeable ? 'opacity-60 cursor-not-allowed' : '';
 
     switch (field.type) {
@@ -167,7 +170,7 @@ export const CustomAgentParams: React.FC<CustomAgentParamsProps> = ({
           />
         );
     }
-  }, [handleFieldChange]);
+  }, [handleFieldChange, valuesChangeDisabled]);
 
   if (!isOpen) return null;
 

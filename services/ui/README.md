@@ -171,10 +171,10 @@ To add new tests:
 
 ## Third-party dependency source archive
 
-To create a timestamped tarball of 3rd-party dependency **source for production only** (no devDependencies)—i.e. only the dependencies used to build and run the production Docker image—run from the repo root:
+To create a timestamped tarball of 3rd-party dependency **source for packages whose JS is executed in production** (after a full build: Next.js standalone traced `node_modules` — production/build-output deps the server interpreter loads — plus root packages used by `custom-server.js`), run:
 
 ```bash
-./create-third-party-deps-tar.sh
+services/ui/create-third-party-deps-tar.sh
 ```
 
-The script copies the repo to a temporary directory, runs `npm ci --omit=dev`, then archives the resulting `node_modules` from root and all workspaces. Output is `third-party-deps-sources-YYYYMMDD-HHMMSS.tar.gz` in the project root (for license/source compliance).
+Requires Docker. The script reads the Node version from `services/ui/.nvmrc` and runs in a matching `node:<version>` container (override with `NODE_IMAGE` if needed). It runs `npm ci` (devDependencies are build-only tools), then `turbo run build bundle`, then archives only standalone traced `node_modules` and `custom-server.js` runtime deps—not the full workspace `node_modules` and not a plain `npm ci --omit=dev` tree (which omits some runtime packages and still includes unused production installs). Output is `services/ui/third-party-deps-sources-YYYYMMDD-HHMMSS.tar.gz`.

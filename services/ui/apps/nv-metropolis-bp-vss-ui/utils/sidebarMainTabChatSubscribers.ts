@@ -7,6 +7,15 @@
 /** Main app tabs that can register for sidebar broadcasts (excludes Chat). */
 export type SidebarMainTabId = 'search' | 'alerts' | 'dashboard' | 'map' | 'video-management';
 
+/** All main tabs that can subscribe to sidebar chat / upload events (excludes Chat). */
+export const SIDEBAR_MAIN_TAB_IDS: SidebarMainTabId[] = [
+  'search',
+  'alerts',
+  'dashboard',
+  'map',
+  'video-management',
+];
+
 /** Lifecycle events other than receiving the full assistant answer text. */
 export type SidebarMainTabChatEvent =
   | { type: 'messageSubmitted' }

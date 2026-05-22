@@ -166,8 +166,13 @@ describe('StreamCard — copy and chat context', () => {
     mockCopyToClipboard.mockImplementation(() => Promise.resolve());
   });
 
-  it('copies JSON to clipboard when + Chat is clicked', async () => {
+  it('does not render + Chat when add-context callback is not provided', () => {
     renderStreamCard();
+    expect(screen.queryByRole('button', { name: /\+\s*chat/i })).not.toBeInTheDocument();
+  });
+
+  it('copies JSON to clipboard when + Chat is clicked', async () => {
+    renderStreamCard({ onAddChatQueryContext: jest.fn() });
 
     fireEvent.click(screen.getByRole('button', { name: /\+\s*chat/i }));
 

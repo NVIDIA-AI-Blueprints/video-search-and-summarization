@@ -59,7 +59,20 @@ export interface NemoAgentToolkitAppProps {
   onMessageSubmitted?: () => void;
   /** Optional: called when chat is ready; receives a function the embedder can call to add a query context item to the chat input. */
   onAddQueryContextReady?: (addItem: (item: { id: string; label: string; type: string; data: Record<string, unknown> }) => void) => void;
+  /** Optional: called when a chat video upload batch completes with at least one success. */
+  onChatVideoUploadComplete?: (payload: ChatVideoUploadCompletePayload) => void;
 }
+
+export type { ChatVideoUploadCompletePayload } from '../types/chatVideoUpload';
+
+export type RegisterChatVideoUploadComplete = (
+  listener: (payload: ChatVideoUploadCompletePayload) => void,
+) => void | (() => void);
+
+export function useChatVideoUploadCompleteSubscription(
+  register: RegisterChatVideoUploadComplete | undefined,
+  onComplete: (payload: ChatVideoUploadCompletePayload) => void,
+): void;
 
 export const NemoAgentToolkitApp: React.ComponentType<NemoAgentToolkitAppProps>;
 

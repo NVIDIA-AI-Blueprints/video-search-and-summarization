@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   VstStreamThumbnail,
   clearSensorListCache,
+  clearVstStreamThumbnailCache,
 } from '../../lib-src/components/VstStreamThumbnail';
+import * as vstSensorList from '../../lib-src/utils/vstSensorList';
 
 const jsonResponse = (body: unknown) =>
   Promise.resolve({
@@ -18,11 +20,13 @@ describe('VstStreamThumbnail picture URL', () => {
   beforeEach(() => {
     originalFetch = global.fetch;
     clearSensorListCache();
+    clearVstStreamThumbnailCache();
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     clearSensorListCache();
+    clearVstStreamThumbnailCache();
   });
 
   it('builds /v1/replay/stream/{id}/picture with startTime 5s before now, URL-encoded', async () => {
@@ -94,5 +98,89 @@ describe('VstStreamThumbnail picture URL', () => {
     const src = img.getAttribute('src') ?? '';
     expect(src.startsWith('http://vst.test/v1/replay/stream/id-1/picture?')).toBe(true);
     expect(src).not.toContain('vst.test//v1');
+  });
+});
+
+describe('VstStreamThumbnail remount cache', () => {
+  const vstApiUrl = 'http://vst.example/';
+  const sensorName = 'warehouse-cam';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearVstStreamThumbnailCache();
+    jest
+      .spyOn(vstSensorList, 'fetchSensorMap')
+      .mockResolvedValue(new Map([[sensorName, 'sensor-42']]));
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('shows cached thumbnail immediately on remount without a loading placeholder', async () => {
+    const { unmount } = render(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorName} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
+    });
+
+    unmount();
+    jest.mocked(vstSensorList.fetchSensorMap).mockClear();
+
+    render(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorName} />,
+    );
+
+    expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
+    expect(screen.queryByText('Loading thumbnail…')).not.toBeInTheDocument();
+    expect(vstSensorList.fetchSensorMap).toHaveBeenCalled();
+  });
+});
+
+describe('VstStreamThumbnail broken frame recovery', () => {
+  const vstApiUrl = 'http://vst.example';
+  const sensorA = 'cam-a';
+  const sensorB = 'cam-b';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    clearVstStreamThumbnailCache();
+    jest.spyOn(vstSensorList, 'fetchSensorMap').mockImplementation(async (url) => {
+      if (url !== vstApiUrl) {
+        return new Map();
+      }
+      return new Map([
+        [sensorA, 'id-a'],
+        [sensorB, 'id-b'],
+      ]);
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('shows a new sensor thumbnail after the prior sensor image failed', async () => {
+    const { rerender } = render(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorA} />,
+    );
+
+    const imgA = await screen.findByTestId('vst-stream-thumbnail');
+    fireEvent.error(imgA);
+    expect(screen.getByText('Frame unavailable')).toBeInTheDocument();
+
+    rerender(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorB} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Frame unavailable')).not.toBeInTheDocument();
+    expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain(
+      '/v1/replay/stream/id-b/picture',
+    );
   });
 });

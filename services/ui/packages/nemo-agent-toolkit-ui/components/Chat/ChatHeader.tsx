@@ -14,6 +14,7 @@ import React, { useContext, useState, useRef, useEffect } from 'react';
 
 import { useWorkflowName, useRightMenuOpenDefault } from '@/contexts/RuntimeConfigContext';
 import ChatFileUpload from '@/components/Chat/ChatFileUpload';
+import { isQueryProcessing } from '@/utils/app/queryProcessing';
 
 import HomeContext from '@/pages/api/home/home.context';
 interface ChatHeaderProps {
@@ -47,9 +48,15 @@ export const ChatHeader = ({
       selectedConversation,
       chatUploadFileEnabled,
       themeChangeButtonEnabled,
+      loading,
+      messageIsStreaming,
     },
+    onChatVideoUploadComplete,
     dispatch: homeDispatch,
   } = useContext(HomeContext);
+
+  const uploadDisabled =
+    chatBlocked || isQueryProcessing(loading, messageIsStreaming);
 
   const handleLogin = () => {
     console.log('Login clicked');
@@ -117,7 +124,7 @@ export const ChatHeader = ({
                   ? 'border-[#76b900] bg-[#76b900]/10 scale-105 shadow-lg shadow-[#76b900]/20' 
                   : 'border-gray-300 dark:border-gray-600 hover:border-[#76b900] hover:bg-gray-50 dark:hover:bg-black/50'
                 }
-                ${uploadProps.isUploading ? 'opacity-50 pointer-events-none' : ''}
+                ${uploadProps.isUploading || uploadDisabled ? 'opacity-50 pointer-events-none' : ''}
               `}
             >
               <div className="flex flex-col items-center gap-4">
@@ -304,7 +311,8 @@ export const ChatHeader = ({
         getActiveConversationId={getActiveConversationId}
         onUploadFlowActiveChange={onUploadFlowActiveChange}
         onSendHiddenMessage={onSendHiddenMessage}
-        disabled={chatBlocked}
+        disabled={uploadDisabled}
+        onUploadBatchComplete={onChatVideoUploadComplete}
       >
         {({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers }) => 
           renderHeaderContent({ triggerFilePicker, fileInputId, isUploading, isDragging, dragHandlers })

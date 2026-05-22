@@ -142,6 +142,27 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     'view',
   );
 
+  // Mount Manage Alerts once the user opens it; keep it mounted afterward so RTSP
+  // thumbnails and draft rows are not torn down on sub-tab switches. Read
+  // sessionStorage synchronously here (unlike `alertsView`) so a restored Manage
+  // Alerts session mounts on the first client paint without waiting for deferred
+  // hydration — the panel stays `display:none` until `alertsView` catches up.
+  const [hasOpenedManageAlerts, setHasOpenedManageAlerts] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const raw = sessionStorage.getItem('alertsTabView');
+      if (raw == null) return false;
+      return (JSON.parse(raw) as AlertsView) === 'create';
+    } catch {
+      return false;
+    }
+  });
+  React.useEffect(() => {
+    if (alertsView === 'create') {
+      setHasOpenedManageAlerts(true);
+    }
+  }, [alertsView]);
+
   // Switch into the create view and append a new draft row. The realtime tab
   // owns its draft list, so we delegate via a module-level bridge. If the tab
   // hasn't mounted yet (sidebar click from View mode), retry on subsequent
@@ -363,34 +384,46 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     controlsComponent,
   ]);
 
-  if (alertsView === 'create') {
-    return (
-      <div
-        data-testid="alerts-component"
-        id={ALERTS_VIEW_PANEL_ID.create}
-        role="tabpanel"
-        aria-labelledby="alerts-tab-create"
-        className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'}`}
-      >
-        <CreateAlertRulesView
-          isDark={isDark}
-          activeKind="real-time"
-          onAddNew={handleAddNewAlertRule}
-          alertsApiUrl={alertsApiUrl}
-          vstApiUrl={vstApiUrl}
-        />
-      </div>
-    );
-  }
+  const panelShellClass = `flex flex-col flex-1 min-h-0 min-w-0 ${
+    isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'
+  }`;
 
   return (
-    <div 
+    <div
       data-testid="alerts-component"
-      id={ALERTS_VIEW_PANEL_ID.view}
-      role="tabpanel"
-      aria-labelledby="alerts-tab-view"
-      className={`flex flex-col h-full max-h-full ${isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'}`}
+      className={`flex flex-col h-full max-h-full ${
+        isDark ? 'bg-black text-neutral-100' : 'bg-gray-50 text-gray-900'
+      }`}
     >
+      {/* Keep both sub-views mounted (display:none when hidden) so Manage Alerts
+          RTSP thumbnails and draft state are not torn down on tab switches. */}
+      {hasOpenedManageAlerts && (
+        <div
+          id={ALERTS_VIEW_PANEL_ID.create}
+          role="tabpanel"
+          aria-labelledby="alerts-tab-create"
+          hidden={alertsView !== 'create'}
+          className={panelShellClass}
+          style={{ display: alertsView === 'create' ? 'flex' : 'none' }}
+        >
+          <CreateAlertRulesView
+            isDark={isDark}
+            activeKind="real-time"
+            onAddNew={handleAddNewAlertRule}
+            alertsApiUrl={alertsApiUrl}
+            vstApiUrl={vstApiUrl}
+          />
+        </div>
+      )}
+
+      <div
+        id={ALERTS_VIEW_PANEL_ID.view}
+        role="tabpanel"
+        aria-labelledby="alerts-tab-view"
+        hidden={alertsView !== 'view'}
+        className={panelShellClass}
+        style={{ display: alertsView === 'view' ? 'flex' : 'none' }}
+      >
       {/* Header with Filters */}
       <div className={`flex-shrink-0 px-6 py-4 border-b ${isDark ? 'bg-black border-neutral-700' : 'bg-white border-gray-200'}`}>
         {/* Filter Controls */}
@@ -489,13 +522,14 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
         />
       </div>
 
-      {/* Video Modal */}
-      <VideoModal
-        isOpen={videoModal.isOpen}
-        videoUrl={videoModal.videoUrl}
-        title={videoModal.title}
-        onClose={closeVideoModal}
-      />
+        {/* Video Modal */}
+        <VideoModal
+          isOpen={videoModal.isOpen}
+          videoUrl={videoModal.videoUrl}
+          title={videoModal.title}
+          onClose={closeVideoModal}
+        />
+      </div>
     </div>
   );
 };
