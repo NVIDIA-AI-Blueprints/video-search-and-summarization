@@ -45,3 +45,4 @@ k8s-workload-streamprocessing:
   ENVOY_ROUTE_URL_PREFIX: /
   ENVOY_REQUEST_TIMEOUT: "30"
   ENVOYROUTEHEADER: streamid
+  WDM_WL_CONFIG_PORT: "30001"

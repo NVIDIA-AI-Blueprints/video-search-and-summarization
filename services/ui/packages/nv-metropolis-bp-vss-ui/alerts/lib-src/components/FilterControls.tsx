@@ -33,6 +33,10 @@ interface FilterControlsProps {
     sensors: string[];
     alertTypes: string[];
     alertTriggered: string[];
+    byVlmVerified: {
+      enabled: { alertTypes: string[]; alertTriggered: string[] };
+      disabled: { alertTypes: string[]; alertTriggered: string[] };
+    };
   };
   loading: boolean;
   autoRefreshEnabled: boolean;
@@ -180,7 +184,7 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
         }}
       >
         <option value="">Alert Type...</option>
-        {uniqueValues.alertTypes
+        {uniqueValues.byVlmVerified[vlmVerified ? 'enabled' : 'disabled'].alertTypes
           .filter(type => type && type.trim() !== '')
           .map(type => (
             <option key={type} value={type}>{type}</option>
@@ -200,7 +204,7 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
         }}
       >
         <option value="">Alert Triggered...</option>
-        {uniqueValues.alertTriggered
+        {uniqueValues.byVlmVerified[vlmVerified ? 'enabled' : 'disabled'].alertTriggered
           .filter(triggered => triggered && triggered.trim() !== '')
           .map(triggered => (
             <option key={triggered} value={triggered}>{triggered}</option>
