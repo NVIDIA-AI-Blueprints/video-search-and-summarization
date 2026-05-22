@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 import React from 'react';
 import {
+  CHAT_SIDEBAR_DEFAULT_WIDTH,
   getChatSidebarOpenDefault,
   getChatSidebarOpenFromSession,
+  getChatSidebarWidthFromSession,
   setChatSidebarOpenInSession,
+  setChatSidebarWidthInSession,
 } from '../utils/tabChatSidebarConfig';
 
 export type AppChatSidebarApi = {
@@ -31,17 +34,24 @@ export function useAppChatSidebar(): AppChatSidebarApi {
     const open = getChatSidebarOpenDefault();
     return {
       collapsed: !open,
-      width: 380,
+      width: CHAT_SIDEBAR_DEFAULT_WIDTH,
     };
   });
 
   React.useEffect(() => {
     setSidebarState((prev) => {
       const sessionOpen = getChatSidebarOpenFromSession();
-      if (sessionOpen === null) return prev;
-      const desiredCollapsed = !sessionOpen;
-      if (prev.collapsed === desiredCollapsed) return prev;
-      return { ...prev, collapsed: desiredCollapsed };
+      const sessionWidth = getChatSidebarWidthFromSession();
+      const desiredCollapsed =
+        sessionOpen === null ? prev.collapsed : !sessionOpen;
+      const desiredWidth = sessionWidth ?? prev.width;
+      if (
+        prev.collapsed === desiredCollapsed &&
+        prev.width === desiredWidth
+      ) {
+        return prev;
+      }
+      return { collapsed: desiredCollapsed, width: desiredWidth };
     });
   }, []);
 
@@ -64,7 +74,8 @@ export function useAppChatSidebar(): AppChatSidebarApi {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       const target = e.currentTarget;
-      const startWidth = startWidthOverride ?? sidebarState.width ?? 380;
+      const startWidth =
+        startWidthOverride ?? sidebarState.width ?? CHAT_SIDEBAR_DEFAULT_WIDTH;
       resizeRef.current = { startX: e.clientX, startWidth };
 
       const onMove = (ev: PointerEvent) => {
@@ -86,6 +97,10 @@ export function useAppChatSidebar(): AppChatSidebarApi {
         target.removeEventListener('pointermove', onMove);
         target.removeEventListener('pointerup', onUp);
         target.removeEventListener('pointercancel', onUp);
+        setSidebarStateRef.current((prev) => {
+          setChatSidebarWidthInSession(prev.width);
+          return prev;
+        });
         try {
           if (target.hasPointerCapture(ev.pointerId)) {
             target.releasePointerCapture(ev.pointerId);
