@@ -39,3 +39,18 @@ package.json            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 go.mod                  @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 Cargo.toml              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 Gemfile                 @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+
+# Dockerfiles.
+# A Dockerfile pins the base image, installs system packages (apt/yum), and
+# pulls in toolchain components that don't show up in language-level manifests.
+# Each of those is a dependency from OSRB's perspective — base-image licenses,
+# distro-package licenses, embedded binaries — so route Dockerfile changes
+# through OSRB the same way language manifests are routed.
+#
+# Patterns cover the three naming variants seen in-tree:
+#   Dockerfile                       (services/{agent,ui,video-analytics-api}/...)
+#   *.Dockerfile                     (deploy/.../Dockerfiles/*.Dockerfile, aarch64.Dockerfile)
+#   Dockerfile.*                     (Dockerfile.base, Dockerfile.dev, etc.)
+Dockerfile              @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+*.Dockerfile            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
+Dockerfile.*            @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
