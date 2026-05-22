@@ -61,7 +61,7 @@ services:
       # MoE backend override (empty by default; code auto-picks triton on B200 for Qwen3.5).
       VLLM_MOE_BACKEND: "${RTVI_VLLM_MOE_BACKEND:-}"
       # vLLM multimodal preprocessor cache size in GiB.
-      VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-1}"
+      VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-0}"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${RTVI_VLM_GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
       VLM_MODEL_TO_USE: "${RTVI_VLM_MODEL_TO_USE:-openai-compat}"
       MODEL_PATH: "${RTVI_VLM_MODEL_PATH:-ngc:nim/nvidia/cosmos-reason2-8b:hf-1208}"
@@ -125,7 +125,7 @@ services:
       # GStreamer rtpjitterbuffer fast-start packet threshold (compose default 2; code default 0 when unset).
       RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS: "${RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS:-2}"
       # Enable GOP-aligned decode optimization.
-      RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
+      RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-false}"
       # vLLM mm_tensor_ipc (passed only when supported).
       VLLM_MM_TENSOR_IPC: "${VLLM_MM_TENSOR_IPC:-}"
       # vLLM multimodal_tensor_ipc (passed only when supported).

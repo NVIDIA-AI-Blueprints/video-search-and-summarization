@@ -188,7 +188,7 @@ env:
     value: "1024"
   # vLLM multimodal preprocessor cache size in GiB.
   - name: VLLM_MM_PROCESSOR_CACHE_GB
-    value: "1"
+    value: "0"
   - name: VLLM_ENABLE_PREFIX_CACHING
     value: "false"
   - name: VLLM_DISABLE_MM_PREPROCESSOR_CACHE
@@ -213,7 +213,7 @@ env:
     value: "2"
   # Enable GOP-aligned decode optimization.
   - name: RTVI_ENABLE_GOP_DECODE_OPT
-    value: "true"
+    value: "false"
   # vLLM mm_tensor_ipc (passed only when supported).
   - name: VLLM_MM_TENSOR_IPC
     value: ""

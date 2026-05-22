@@ -17,8 +17,8 @@
 # These are overridden by the parent nims chart via alias "cosmos".
 
 image:
-  repository: nvcr.io/nim/nvidia/cosmos-reason2-8b
-  tag: "1.6.0"
+  repository: nvcr.io/nvstaging/nim/cosmos-reason2-8b
+  tag: "1.7.1.rc0-49630198"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -55,16 +55,23 @@ tolerations:
 # RTXPRO6000BW: NIM_KVCACHE_PERCENT=0.7
 env:
   NIM_KVCACHE_PERCENT: "0.7"
-  NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7"
+  NIM_MODEL_PROFILE: "e999d69f501fb494993fc4306bdb7e38e49cb3483bed1a9b5768754ec0dea2f7"
+  NIM_PASSTHROUGH_ARGS: "--gpu-memory-utilization 0.7 --kv-cache-dtype fp8"
+  NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+  NIM_MAX_IMAGES_PER_PROMPT: "60"
   NIM_MAX_MODEL_LEN: ""
   NIM_MAX_NUM_SEQS: ""
+  NIM_VIDEO_PRUNING_RATE: "0"
   MAX_JOBS: ""
 # Keys to import from <cosmos-fullname>-nim-env ConfigMap into NIMService.spec.env.
 # Missing keys are skipped due to optional: true.
 envConfigMapKeys:
   - NIM_KVCACHE_PERCENT
+  - NIM_MODEL_PROFILE
   - NIM_PASSTHROUGH_ARGS
   - NIM_DISABLE_MM_PREPROCESSOR_CACHE
+  - NIM_MAX_IMAGES_PER_PROMPT
+  - NIM_VIDEO_PRUNING_RATE
 
 global:
   pullSecretName: "ngc-nim-docker-reg-secret"
