@@ -13,6 +13,31 @@ import { fetchSensorMap } from '../utils/vstSensorList';
 
 export { clearSensorListCache } from '../utils/vstSensorList';
 
+/** Resolved live-picture URLs per VST base + sensor name (survives remounts). */
+const pictureUrlCache = new Map<string, string>();
+
+const pictureCacheKey = (vstApiUrl: string, sensorName: string) =>
+  `${vstApiUrl.replace(/\/+$/, '')}|${sensorName}`;
+
+export const clearVstStreamThumbnailCache = (vstApiUrl?: string, sensorName?: string): void => {
+  if (!vstApiUrl && !sensorName) {
+    pictureUrlCache.clear();
+    return;
+  }
+  if (vstApiUrl && sensorName) {
+    pictureUrlCache.delete(pictureCacheKey(vstApiUrl, sensorName));
+    return;
+  }
+  const prefix = vstApiUrl ? `${vstApiUrl.replace(/\/+$/, '')}|` : undefined;
+  for (const key of pictureUrlCache.keys()) {
+    if (prefix && key.startsWith(prefix)) {
+      pictureUrlCache.delete(key);
+    } else if (sensorName && key.endsWith(`|${sensorName}`)) {
+      pictureUrlCache.delete(key);
+    }
+  }
+};
+
 interface VstStreamThumbnailProps {
   vstApiUrl?: string;
   /** Friendly sensor name as registered with VST (`name` in `/v1/sensor/list`). */
@@ -69,18 +94,38 @@ const Placeholder: React.FC<{
   );
 };
 
+type ThumbnailState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; pictureUrl: string }
+  | { kind: 'unavailable'; reason: string };
+
+const initialThumbnailState = (
+  vstApiUrl: string | undefined,
+  sensorName: string,
+): ThumbnailState => {
+  if (!sensorName) {
+    return { kind: 'idle' };
+  }
+  if (!vstApiUrl) {
+    return { kind: 'unavailable', reason: 'VST URL not configured' };
+  }
+  const cachedUrl = pictureUrlCache.get(pictureCacheKey(vstApiUrl, sensorName));
+  if (cachedUrl) {
+    return { kind: 'ready', pictureUrl: cachedUrl };
+  }
+  return { kind: 'loading' };
+};
+
 export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
   vstApiUrl,
   sensorName,
   isDark,
   fallbackLabel,
 }) => {
-  const [state, setState] = useState<
-    | { kind: 'idle' }
-    | { kind: 'loading' }
-    | { kind: 'ready'; pictureUrl: string }
-    | { kind: 'unavailable'; reason: string }
-  >({ kind: 'idle' });
+  const [state, setState] = useState<ThumbnailState>(() =>
+    initialThumbnailState(vstApiUrl, sensorName),
+  );
   const [imageBroken, setImageBroken] = useState(false);
 
   useEffect(() => {
@@ -95,14 +140,22 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
       return;
     }
 
+    const cacheKey = pictureCacheKey(vstApiUrl, sensorName);
+    const cachedUrl = pictureUrlCache.get(cacheKey);
+    if (cachedUrl) {
+      setState({ kind: 'ready', pictureUrl: cachedUrl });
+    } else {
+      setState({ kind: 'loading' });
+    }
+
     let cancelled = false;
-    setState({ kind: 'loading' });
 
     fetchSensorMap(vstApiUrl)
       .then((map) => {
         if (cancelled) return;
         const sensorId = map.get(sensorName);
         if (!sensorId) {
+          pictureUrlCache.delete(cacheKey);
           setState({
             kind: 'unavailable',
             reason: `Sensor "${sensorName}" not registered with VST`,
@@ -115,10 +168,12 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
         const pictureUrl = `${baseUrl}/v1/replay/stream/${encodeURIComponent(
           sensorId,
         )}/picture?startTime=${encodeURIComponent(startTime)}`;
+        pictureUrlCache.set(cacheKey, pictureUrl);
         setState({ kind: 'ready', pictureUrl });
       })
       .catch((err) => {
         if (cancelled) return;
+        pictureUrlCache.delete(cacheKey);
         setState({
           kind: 'unavailable',
           reason: err instanceof Error ? err.message : 'VST unavailable',
