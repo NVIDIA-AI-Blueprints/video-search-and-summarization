@@ -16,7 +16,7 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 | Service | Container | Port | Image |
 |---|---|---|---|
-| AMC MS | `vss-auto-calibration` | `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`, host network) | `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-1` |
+| AMC MS | `vss-auto-calibration` | `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`, host network) | `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2` |
 | AMC UI | `vss-auto-calibration-ui` | `${VSS_AUTO_CALIBRATION_UI_PORT}` (default `5000`) | `nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui:3.2.0-2` |
 
 ## Env recipe
@@ -165,7 +165,7 @@ echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 
 | Issue | Symptoms | Solution |
 |---|---|---|
-| NGC pull fails (401 Unauthorized) | `docker compose up` returns 401 on `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-1` | Re-run NGC login: `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`. Confirm the user has access to the `vss-core` namespace. |
+| NGC pull fails (401 Unauthorized) | `docker compose up` returns 401 on `nvcr.io/nvstaging/vss-core/vss-auto-calibration:3.2.0-2` | Re-run NGC login: `echo "$NGC_CLI_API_KEY" \| docker login nvcr.io --username '$oauthtoken' --password-stdin`. Confirm the user has access to the `vss-core` namespace. |
 | `vss-auto-calibration` stays `(starting)` for >10 min | Healthcheck not green; MS not responding on `/v1/ready` | Check logs: `docker logs vss-auto-calibration`. Common cause: missing GPU access. Verify `runtime: nvidia` works: `docker run --rm --gpus all ubuntu:22.04 nvidia-smi` |
 | UI loads but shows **"Failed to connect to the server"** | Browser dev-tools → Network tab shows the UI fetching `http://${HOST_IP}:${VSS_AUTO_CALIBRATION_PORT}/v1/...` and failing (ERR_CONNECTION_REFUSED / timeout / CORS) | (a) `HOST_IP` unset or `localhost`: `grep ^HOST_IP industry-profiles/warehouse-operations/.env` and set to the host's reachable IP. (b) `HOST_IP` is correct but `${VSS_AUTO_CALIBRATION_PORT}` isn't reachable from the browser (corp firewall blocks the port, the browser is on a different network, etc.): the UI on `:5000` still loads because that port is allowed, but the AJAX call to the MS port fails. Fix by either: (i) moving the MS to a port the browser can reach — set `VSS_AUTO_CALIBRATION_PORT=8080` (or another allowed port) in the env, regenerate `resolved.yml`, and `up -d`; (ii) SSH-tunnelling and overriding `VSS_AUTO_CALIBRATION_MS_API_URL=http://localhost:${VSS_AUTO_CALIBRATION_PORT}/v1`; or (iii) fronting the MS with a reverse proxy on an allowed port and pointing `VSS_AUTO_CALIBRATION_MS_API_URL` at it. |
 | Port already in use | `docker compose up` errors with `address already in use` for 8010 or 5000 | Pick a different port: edit `VSS_AUTO_CALIBRATION_PORT` or `VSS_AUTO_CALIBRATION_UI_PORT` in `industry-profiles/warehouse-operations/.env`, re-run dry-run + up. |
