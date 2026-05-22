@@ -104,6 +104,13 @@ export const ChatInput = ({
 
   const workflow = useWorkflowName();
   const uploadDisabled = chatBlocked || isQueryProcessing(loading, messageIsStreaming);
+  const paramsChangeDisabled = uploadDisabled;
+
+  useEffect(() => {
+    if (paramsChangeDisabled) {
+      setShowCustomParams(false);
+    }
+  }, [paramsChangeDisabled]);
 
   // Create audio only when the file is present
   const [recordingStartSound, setRecordingStartSound] = useState<Audio | null>(null);
@@ -637,11 +644,18 @@ export const ChatInput = ({
             <div className="absolute right-10 top-2">
               <button
                 ref={settingsButtonRef}
-                className={`rounded-sm p-1 text-neutral-800 opacity-60 hover:text-[#76b900] dark:bg-opacity-50 dark:text-neutral-100 dark:hover:text-neutral-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                className={`rounded-sm p-1 text-neutral-800 opacity-60 dark:bg-opacity-50 dark:text-neutral-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                   showCustomParams ? 'text-[#76b900] dark:text-[#76b900]' : ''
+                } ${
+                  paramsChangeDisabled
+                    ? 'text-neutral-400'
+                    : 'hover:text-[#76b900] dark:hover:text-neutral-200'
                 }`}
-                onClick={() => setShowCustomParams(!showCustomParams)}
-                disabled={chatBlocked}
+                onClick={() => {
+                  if (paramsChangeDisabled) return;
+                  setShowCustomParams(!showCustomParams);
+                }}
+                disabled={paramsChangeDisabled}
                 title="Agent Parameters"
               >
                 <IconBrain size={18} />
@@ -652,6 +666,7 @@ export const ChatInput = ({
                 fields={paramFields}
                 onFieldsChange={setParamFields}
                 anchorRef={settingsButtonRef}
+                valuesChangeDisabled={paramsChangeDisabled}
               />
             </div>
           )}
