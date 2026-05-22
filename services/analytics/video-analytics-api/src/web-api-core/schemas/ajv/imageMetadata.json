@@ -1,0 +1,57 @@
+{
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "images": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "sensorId":{
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000,
+                        "errorMessage": {
+                            "minLength": "sensorId should have atleast 1 character.",
+                            "maxLength": "sensorId should have atmost 10000 characters."
+                        }
+                    },
+                    "place": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000,
+                        "errorMessage": {
+                            "minLength": "place should have atleast 1 character.",
+                            "maxLength": "place should have atmost 10000 characters."
+                        }
+                    },
+                    "fileName":{
+                        "type":"string",
+                        "minLength": 1,
+                        "maxLength": 10000,
+                        "errorMessage": {
+                            "minLength": "fileName should have atleast 1 character.",
+                            "maxLength": "fileName should have atmost 10000 characters."
+                        }
+                    },
+                    "view":{
+                        "type": "string",
+                        "enum":[
+                            "camera-view",
+                            "warped-camera-view",
+                            "plan-view"
+                        ]
+                    }
+                },
+                "required":["fileName","view"],
+                "oneOf":[
+                    { "required": ["sensorId"]} ,
+                    { "required": ["place"]}
+                ]
+            }
+        }
+    },
+    "required":["images"]
+}

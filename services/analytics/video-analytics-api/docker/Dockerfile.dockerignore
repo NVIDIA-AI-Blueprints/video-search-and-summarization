@@ -1,0 +1,4 @@
+.git*
+Jenkins*
+src/app/files/
+src/app/specification/openapi-governance.json
