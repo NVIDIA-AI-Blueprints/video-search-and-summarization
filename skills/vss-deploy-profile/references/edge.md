@@ -73,9 +73,12 @@ sudo -b /usr/local/bin/sys-cache-cleaner.sh
 pgrep -f sys-cache-cleaner.sh && echo "cache cleaner OK" || echo "cache cleaner NOT RUNNING — start it before deploying"
 ```
 
-If `pgrep` returns nothing after reboot, re-run the `sudo -b` line above. The
-cleaner is intentionally not a systemd unit so a `reboot` resets it; the
-deploy skill's pre-flight checks for the process and starts it if missing.
+The cleaner is intentionally not a systemd unit, so a `reboot` resets it.
+This skill's pre-flight check (SKILL.md § Pre-flight check, check 4) detects
+edge hardware, installs the script if missing, and starts it in the
+background — agents driving deploys typically don't need to run the
+install/start manually. The install + verify block above is the canonical
+reference for manual setup and for inspecting what the pre-flight does.
 
 > **IGX-Thor only — also boost VIC clocks:**
 > ```bash
