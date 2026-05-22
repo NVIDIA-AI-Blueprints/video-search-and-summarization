@@ -153,7 +153,7 @@ export const fetchVideoUrlFromVst = async (
     endTime,
     expiryMinutes: '60',
     container: 'mp4',
-    disableAudio: 'true',
+    disableAudio: 'false',
   });
 
   if (hasObjectIds) {
