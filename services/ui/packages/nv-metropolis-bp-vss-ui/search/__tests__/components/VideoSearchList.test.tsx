@@ -70,6 +70,15 @@ describe('VideoSearchList', () => {
     expect(screen.getByText('clip-b.mp4')).toBeInTheDocument();
     expect(screen.getByText('0.95')).toBeInTheDocument();
     expect(screen.getByText('0.80')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /\+\s*chat/i })).not.toBeInTheDocument();
+  });
+
+  it('renders + Chat when onAddContext is provided', () => {
+    const data = [makeItem({ video_name: 'clip-a.mp4' })];
+    render(
+      <VideoSearchList {...defaultProps} data={data} onAddContext={jest.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: /\+\s*chat/i })).toBeInTheDocument();
   });
 
   it('displays formatted time from start and end times', () => {

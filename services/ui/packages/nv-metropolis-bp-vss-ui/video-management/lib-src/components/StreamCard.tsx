@@ -164,24 +164,26 @@ export const StreamCard: React.FC<StreamCardProps> = ({
         >
           {stream.name}
         </p>
-        <Button
-          kind="primary"
-          size="small"
-          className="flex-shrink-0 text-xs"
-          onClick={handleCopyContext}
-          title="Add sensor context to chat"
-        >
-          {copyState === 'success' ? (
-            <>
-              <IconCheck className="w-2.5 h-2.5 shrink-0" style={{ color: 'inherit' }} />
-              <span>Added</span>
-            </>
-          ) : copyState === 'error' ? (
-            <span>Failed</span>
-          ) : (
-            <span>+ Chat</span>
-          )}
-        </Button>
+        {onAddChatQueryContext ? (
+          <Button
+            kind="primary"
+            size="small"
+            className="flex-shrink-0 text-xs"
+            onClick={handleCopyContext}
+            title="Add sensor context to chat"
+          >
+            {copyState === 'success' ? (
+              <>
+                <IconCheck className="w-2.5 h-2.5 shrink-0" style={{ color: 'inherit' }} />
+                <span>Added</span>
+              </>
+            ) : copyState === 'error' ? (
+              <span>Failed</span>
+            ) : (
+              <span>+ Chat</span>
+            )}
+          </Button>
+        ) : null}
       </div>
 
       <div
