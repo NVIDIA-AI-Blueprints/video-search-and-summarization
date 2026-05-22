@@ -1,0 +1,451 @@
+{
+    "_index": "mdx-behavior-2025-12-09",
+    "_id": "901ed84aad3af174e6de52a9e8572c8cee2193be",
+    "_version": 7,
+    "_source": {
+      "locations": {
+        "coordinates": [
+          [
+            12.796024651537673,
+            -12.86179317899823,
+            0
+          ],
+          [
+            12.746413977249958,
+            -12.84275254493534,
+            0
+          ],
+          [
+            12.859574261997325,
+            -12.890936033368607,
+            0
+          ],
+          [
+            12.712306366610894,
+            -12.834828523969845,
+            0
+          ],
+          [
+            12.75117905913079,
+            -12.834550516651497,
+            0
+          ],
+          [
+            12.7036463313205,
+            -12.83419921478879,
+            0
+          ],
+          [
+            12.66916252241456,
+            -12.810253276135606,
+            0
+          ],
+          [
+            12.637787977522418,
+            -12.81193091739923,
+            0
+          ]
+        ],
+        "type": "linestring"
+      },
+      "length": 8,
+      "place": {
+        "info": {},
+        "type": "",
+        "id": "",
+        "name": "city=Santa-Clara/building=Warehouse/room=Room-1"
+      },
+      "end": "2025-12-09T07:59:20.108Z",
+      "speed": 1.5908690938744094,
+      "gazes": [],
+      "edges": [],
+      "analyticsModule": {
+        "id": "",
+        "description": "",
+        "version": "",
+        "source": "",
+        "info": {}
+      },
+      "type": "mdx-behavior",
+      "direction": "Left",
+      "id": "Camera_02 #-# 6411",
+      "bearing": 162.5097393545517,
+      "smoothLocations": {
+        "coordinates": [
+          [
+            12.796024651537673,
+            -12.86179317899823,
+            0
+          ],
+          [
+            12.746413977249958,
+            -12.84275254493534,
+            0
+          ],
+          [
+            12.859574261997325,
+            -12.890936033368607,
+            0
+          ],
+          [
+            12.712306366610894,
+            -12.834828523969845,
+            0
+          ],
+          [
+            12.75117905913079,
+            -12.834550516651497,
+            0
+          ],
+          [
+            12.7036463313205,
+            -12.83419921478879,
+            0
+          ],
+          [
+            12.66916252241456,
+            -12.810253276135606,
+            0
+          ],
+          [
+            12.637787977522418,
+            -12.81193091739923,
+            0
+          ]
+        ],
+        "type": "linestring"
+      },
+      "timeInterval": 0.23332,
+      "object": {
+        "coordinate": {
+          "x": 12.637787977522418,
+          "z": 0,
+          "y": -12.81193091739923
+        },
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "dir": [],
+        "bbox": {
+          "topY": 92.20912170410156,
+          "bottomY": 271.8472900390625,
+          "rightX": 670.1618041992188,
+          "leftX": 615.5504760742188,
+          "embeddings": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "location": {
+          "lon": 0.00008625990820114821,
+          "alt": 0,
+          "lat": 0.00031530737825659306
+        },
+        "id": "6411",
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "confidence": -0.10000000149011612,
+        "info": {}
+      },
+      "timestamp": "2025-12-09T07:59:19.875Z",
+      "poses": [],
+      "distance": 0.16593273712427567,
+      "videoPath": "frameId-267711",
+      "Id": "901ed84aad3af174e6de52a9e8572c8cee2193be",
+      "lipActivities": [],
+      "speedOverTime": [
+        3.5586787108514217
+      ],
+      "sensor": {
+        "type": "",
+        "id": "Camera_02",
+        "description": "",
+        "info": {}
+      },
+      "info": {
+        "cluster.index": "2",
+        "cluster.modelVersion": "directionBasedModel"
+      }
+    },
+    "fields": {
+      "analyticsModule.description": [
+        ""
+      ],
+      "object.coordinate.x": [
+        12.637787977522418
+      ],
+      "object.coordinate.y": [
+        -12.81193091739923
+      ],
+      "object.coordinate.z": [
+        0
+      ],
+      "analyticsModule.source.keyword": [
+        ""
+      ],
+      "type": [
+        "mdx-behavior"
+      ],
+      "object.bbox.bottomY": [
+        271.8472900390625
+      ],
+      "object.confidence": [
+        -0.1
+      ],
+      "object.location.lon": [
+        0.00008625990820114821
+      ],
+      "type.keyword": [
+        "mdx-behavior"
+      ],
+      "id": [
+        "Camera_02 #-# 6411"
+      ],
+      "object.bbox.confidence": [
+        0
+      ],
+      "object.id": [
+        "6411"
+      ],
+      "Id.keyword": [
+        "901ed84aad3af174e6de52a9e8572c8cee2193be"
+      ],
+      "object.bbox.leftX": [
+        615.5504760742188
+      ],
+      "object.type": [
+        "Forklift"
+      ],
+      "bearing": [
+        162.50974
+      ],
+      "object.type.keyword": [
+        "Forklift"
+      ],
+      "sensor.description": [
+        ""
+      ],
+      "info.cluster.modelVersion.keyword": [
+        "directionBasedModel"
+      ],
+      "place.id": [
+        ""
+      ],
+      "sensor.type": [
+        ""
+      ],
+      "videoPath": [
+        "frameId-267711"
+      ],
+      "object.speed": [
+        0
+      ],
+      "place.type": [
+        ""
+      ],
+      "smoothLocations": [
+        {
+          "coordinates": [
+            [
+              12.796024651537673,
+              -12.86179317899823,
+              0
+            ],
+            [
+              12.746413977249958,
+              -12.84275254493534,
+              0
+            ],
+            [
+              12.859574261997325,
+              -12.890936033368607,
+              0
+            ],
+            [
+              12.712306366610894,
+              -12.834828523969845,
+              0
+            ],
+            [
+              12.75117905913079,
+              -12.834550516651497,
+              0
+            ],
+            [
+              12.7036463313205,
+              -12.83419921478879,
+              0
+            ],
+            [
+              12.66916252241456,
+              -12.810253276135606,
+              0
+            ],
+            [
+              12.637787977522418,
+              -12.81193091739923,
+              0
+            ]
+          ],
+          "type": "LineString"
+        }
+      ],
+      "analyticsModule.source": [
+        ""
+      ],
+      "Id": [
+        "901ed84aad3af174e6de52a9e8572c8cee2193be"
+      ],
+      "object.location.lat": [
+        0.00031530737825659306
+      ],
+      "distance": [
+        0.16593273
+      ],
+      "object.id.keyword": [
+        "6411"
+      ],
+      "sensor.id.keyword": [
+        "Camera_02"
+      ],
+      "object.location.alt": [
+        0
+      ],
+      "speed": [
+        1.5908691
+      ],
+      "info.cluster.index.keyword": [
+        "2"
+      ],
+      "speedOverTime": [
+        3.5586787108514217
+      ],
+      "object.bbox3d.confidence": [
+        0
+      ],
+      "object.bbox.topY": [
+        92.20912170410156
+      ],
+      "id.keyword": [
+        "Camera_02 #-# 6411"
+      ],
+      "place.id.keyword": [
+        ""
+      ],
+      "place.name.keyword": [
+        "city=Santa-Clara/building=Warehouse/room=Room-1"
+      ],
+      "sensor.description.keyword": [
+        ""
+      ],
+      "timeInterval": [
+        0.23332
+      ],
+      "end": [
+        "2025-12-09T07:59:20.108Z"
+      ],
+      "sensor.type.keyword": [
+        ""
+      ],
+      "direction": [
+        "Left"
+      ],
+      "sensor.id": [
+        "Camera_02"
+      ],
+      "timestamp": [
+        "2025-12-09T07:59:19.875Z"
+      ],
+      "analyticsModule.id.keyword": [
+        ""
+      ],
+      "place.name": [
+        "city=Santa-Clara/building=Warehouse/room=Room-1"
+      ],
+      "object.bbox.rightX": [
+        670.1618041992188
+      ],
+      "analyticsModule.version": [
+        ""
+      ],
+      "length": [
+        8
+      ],
+      "info.cluster.modelVersion": [
+        "directionBasedModel"
+      ],
+      "videoPath.keyword": [
+        "frameId-267711"
+      ],
+      "analyticsModule.id": [
+        ""
+      ],
+      "analyticsModule.version.keyword": [
+        ""
+      ],
+      "info.cluster.index": [
+        "2"
+      ],
+      "place.type.keyword": [
+        ""
+      ],
+      "analyticsModule.description.keyword": [
+        ""
+      ],
+      "locations": [
+        {
+          "coordinates": [
+            [
+              12.796024651537673,
+              -12.86179317899823,
+              0
+            ],
+            [
+              12.746413977249958,
+              -12.84275254493534,
+              0
+            ],
+            [
+              12.859574261997325,
+              -12.890936033368607,
+              0
+            ],
+            [
+              12.712306366610894,
+              -12.834828523969845,
+              0
+            ],
+            [
+              12.75117905913079,
+              -12.834550516651497,
+              0
+            ],
+            [
+              12.7036463313205,
+              -12.83419921478879,
+              0
+            ],
+            [
+              12.66916252241456,
+              -12.810253276135606,
+              0
+            ],
+            [
+              12.637787977522418,
+              -12.81193091739923,
+              0
+            ]
+          ],
+          "type": "LineString"
+        }
+      ],
+      "direction.keyword": [
+        "Left"
+      ]
+    }
+  }

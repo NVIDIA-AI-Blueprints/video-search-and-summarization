@@ -1,0 +1,131 @@
+{
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "sceneUrl":{
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "errorMessage": {
+                "minLength": "sceneUrl should have atleast 1 character.",
+                "maxLength": "sceneUrl should have atmost 10000 characters."
+            }
+        },
+        "assets":{
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "usdPath":{
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000,
+                        "errorMessage": {
+                            "minLength": "usdPath should have atleast 1 character.",
+                            "maxLength": "usdPath should have atmost 10000 characters."
+                        }
+                    },
+                    "primType":{
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 10000,
+                        "errorMessage": {
+                            "minLength": "primType should have atleast 1 character.",
+                            "maxLength": "primType should have atmost 10000 characters."
+                        }
+                    },
+                    "properties":{
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 10000,
+                                    "errorMessage": {
+                                        "minLength": "properties' name should have atleast 1 character.",
+                                        "maxLength": "properties' name should have atmost 10000 characters."
+                                    }
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "minLength": 0,
+                                    "maxLength": 999999999,
+                                    "errorMessage": {
+                                        "minLength": "properties' value can be blank.",
+                                        "maxLength": "properties' value should have atmost 999999999 characters."
+                                    }
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "value"
+                            ]
+                        }
+                    },
+                    "bbox":{
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "dimension":{
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "x":{
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "maximum": 999999,
+                                        "errorMessage": {
+                                            "minimum": "x can have a minimum value of 0.",
+                                            "maximum": "x can have a maximum value of 999999."
+                                        }
+                                    },
+                                    "y":{
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "maximum": 999999,
+                                        "errorMessage": {
+                                            "minimum": "y can have a minimum value of 0.",
+                                            "maximum": "y can have a maximum value of 999999."
+                                        }
+                                    },
+                                    "z":{
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "maximum": 999999,
+                                        "errorMessage": {
+                                            "minimum": "z can have a minimum value of 0.",
+                                            "maximum": "z can have a maximum value of 999999."
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "x",
+                                    "y",
+                                    "z"
+                                ]
+                            }
+                        },
+                        "required":[
+                            "dimension"
+                        ]
+
+                    }
+                },
+                "required":[
+                    "usdPath",
+                    "primType",
+                    "properties",
+                    "bbox"
+                ]
+            }
+        }
+    },
+    "required":[
+        "sceneUrl",
+        "assets"
+    ]
+}

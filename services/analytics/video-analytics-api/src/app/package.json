@@ -1,0 +1,23 @@
+{
+    "name": "web-apis",
+    "version": "3.2.0",
+    "description": "This project creates Web-APIs for applications of mdx",
+    "main": "index.js",
+    "dependencies": {
+        "change-case": "5.4.4",
+        "deepcopy": "1.0.1",
+        "express": "^4.22.1",
+        "morgan": "1.10.1",
+        "node-cache": "5.1.2",
+        "require-dir": "1.2.0",
+        "winston": "3.13.0",
+        "yargs": "17.7.2"
+    },
+    "scripts": {
+        "start": "node index.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": "",
+    "author": "NVIDIA CORPORATION",
+    "license": "Apache-2.0"
+}

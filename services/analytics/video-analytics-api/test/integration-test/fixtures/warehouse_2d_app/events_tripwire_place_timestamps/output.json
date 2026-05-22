@@ -1,0 +1,340 @@
+{
+  "tripwireEvents": [
+    {
+      "event": {
+        "info": {
+          "class": "tripwire"
+        },
+        "id": "tripwire-id-1",
+        "type": "IN"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:13.988Z",
+      "distance": 0.24028226846025902,
+      "speed": 2.2583908302919826,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "364c21c290616f618c4b2117de395ff0ccd83f2b",
+      "end": "2026-02-14T10:17:14.226Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 335,
+          "confidence": 0,
+          "info": {},
+          "leftX": 725,
+          "topY": 120,
+          "embeddings": [],
+          "rightX": 841
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00011497792650943773,
+          "lat": 0.00031682041962504174
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 9.446897054410842,
+          "y": -12.980046625004634
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.051884783913348
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "TripEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 11",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 179.62564689736394,
+      "locations": {
+        "coordinates": [
+          [
+            9.687102400204374,
+            -12.981616075613616
+          ],
+          [
+            9.649779177714564,
+            -12.977921591512136
+          ],
+          [
+            9.612664386103432,
+            -12.974247739192055
+          ],
+          [
+            9.575756284264703,
+            -12.97059434630787
+          ],
+          [
+            9.560140321654176,
+            -12.986963049449413
+          ],
+          [
+            9.523480628820598,
+            -12.983284502015064
+          ],
+          [
+            9.48702396027429,
+            -12.979626326668233
+          ],
+          [
+            9.446897054410842,
+            -12.980046625004634
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "tripwire"
+        },
+        "id": "tripwire-id-1",
+        "type": "IN"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:13.928Z",
+      "distance": 0.23917064514170258,
+      "speed": 2.316062263823724,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "c3e1ec5a195ad88c060dfa45819ee357a476c1bb",
+      "end": "2026-02-14T10:17:14.159Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 296,
+          "confidence": 0,
+          "info": {},
+          "leftX": 709,
+          "topY": 96,
+          "embeddings": [],
+          "rightX": 806
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.000014902325797472903,
+          "lat": 0.00021937557975033488
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 9.4552971335774,
+          "y": -13.263953305592763
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.180892320437841
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "TripEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 11",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 179.5743529178544,
+      "locations": {
+        "coordinates": [
+          [
+            9.694081606934317,
+            -13.265727254477351
+          ],
+          [
+            9.659355691489711,
+            -13.265469272883728
+          ],
+          [
+            9.624837451203085,
+            -13.265212834125405
+          ],
+          [
+            9.5905250286551,
+            -13.264957924403467
+          ],
+          [
+            9.556416588510594,
+            -13.264704530083062
+          ],
+          [
+            9.52275540311228,
+            -13.258389078065841
+          ],
+          [
+            9.488804422554614,
+            -13.264202233913231
+          ],
+          [
+            9.4552971335774,
+            -13.263953305592763
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "tripwire"
+        },
+        "id": "tripwire-id-1",
+        "type": "IN"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:13.928Z",
+      "distance": 0.24329578048695835,
+      "speed": 2.3560089316125397,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "720fa1190899494bcea58926f598e0b0e7875983",
+      "end": "2026-02-14T10:17:14.159Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 332,
+          "confidence": 0,
+          "info": {},
+          "leftX": 826,
+          "topY": 148,
+          "embeddings": [],
+          "rightX": 925
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.00008501291819703943,
+          "lat": 0.00012212124627781465
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 9.445879799665683,
+          "y": -13.569027364201625
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.270250619481355
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "TripEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 11",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 180.74714224770136,
+      "locations": {
+        "coordinates": [
+          [
+            9.689154894951344,
+            -13.565854854704261
+          ],
+          [
+            9.650602609224945,
+            -13.572324934813542
+          ],
+          [
+            9.609659169497528,
+            -13.57283968045782
+          ],
+          [
+            9.604380903106087,
+            -13.561012240976657
+          ],
+          [
+            9.56634755451397,
+            -13.567456364523531
+          ],
+          [
+            9.525935004941193,
+            -13.567983377768279
+          ],
+          [
+            9.488393834719245,
+            -13.574364242226306
+          ],
+          [
+            9.445879799665683,
+            -13.569027364201625
+          ]
+        ],
+        "type": "linestring"
+      }
+    }
+  ]
+}
