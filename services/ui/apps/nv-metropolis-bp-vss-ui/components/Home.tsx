@@ -369,6 +369,8 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     registerMapTabSidebarChatEvents,
     registerVideoManagementTabChatAnswer,
     registerVideoManagementTabSidebarChatEvents,
+    registerMainTabChatVideoUploadComplete,
+    handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
@@ -500,6 +502,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           onAddQueryContextReady={(addItem) => {
             appSidebarAddQueryContextRef.current = addItem;
           }}
+          onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
         />
       </RuntimeConfigProvider>
     ),
@@ -513,6 +516,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       handleSidebarAnswerCompleteWithContent,
       handleSidebarSubmitMessageReady,
       handleSidebarMessageSubmitted,
+      handleSidebarChatVideoUploadComplete,
     ],
   );
 
@@ -688,6 +692,8 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       componentProps.onControlsReady = isActive ? videoManagementControlsReadyCallback : undefined;
       componentProps.registerChatAnswerHandler = registerVideoManagementTabChatAnswer;
       componentProps.registerSidebarChatEventSubscriber = registerVideoManagementTabSidebarChatEvents;
+      componentProps.registerChatVideoUploadComplete =
+        registerMainTabChatVideoUploadComplete['video-management'];
       componentProps.addChatQueryContext = (item: QueryDataContext) => {
         appSidebarAddQueryContextRef.current?.(item);
       };

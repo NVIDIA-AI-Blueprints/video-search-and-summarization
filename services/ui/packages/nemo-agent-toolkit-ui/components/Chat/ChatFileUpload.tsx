@@ -14,6 +14,7 @@ import {
 export type { UploadFileConfigTemplate, UploadFileFieldConfig } from '@aiqtoolkit-ui/common';
 
 import HomeContext from '@/pages/api/home/home.context';
+import type { ChatVideoUploadCompletePayload } from '@/types/chatVideoUpload';
 
 // Upload status for each file
 type FileUploadStatus = 'pending' | 'uploading' | 'success' | 'error' | 'cancelled';
@@ -285,6 +286,8 @@ interface ChatFileUploadProps {
   onUploadFlowActiveChange?: (sourceId: string, active: boolean) => void;
   /** Callback when upload completes successfully */
   onUploadSuccess?: (result: FileUploadResult) => void;
+  /** Called once per batch when at least one file uploaded successfully */
+  onUploadBatchComplete?: (payload: ChatVideoUploadCompletePayload) => void;
   /** Callback when upload fails */
   onUploadError?: (error: Error) => void;
   /** Returns the conversation id active when upload starts (for stale prompt checks). */
@@ -316,6 +319,7 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   uploadFlowSourceId,
   onUploadFlowActiveChange,
   onUploadSuccess,
+  onUploadBatchComplete,
   onUploadError,
   getActiveConversationId,
   onSendHiddenMessage,
@@ -353,6 +357,8 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
   onSendHiddenMessageRef.current = onSendHiddenMessage;
   const onUploadSuccessRef = useRef(onUploadSuccess);
   onUploadSuccessRef.current = onUploadSuccess;
+  const onUploadBatchCompleteRef = useRef(onUploadBatchComplete);
+  onUploadBatchCompleteRef.current = onUploadBatchComplete;
   const onUploadErrorRef = useRef(onUploadError);
   onUploadErrorRef.current = onUploadError;
 
@@ -677,6 +683,13 @@ export const ChatFileUpload: React.FC<ChatFileUploadProps> = ({
       if (successes.length > 0) {
         successes.forEach(({ result }) => {
           if (result) onUploadSuccessRef.current?.(result);
+        });
+
+        onUploadBatchCompleteRef.current?.({
+          results: successes.filter(
+            (entry): entry is { filename: string; result: FileUploadResult } =>
+              !!entry.result,
+          ),
         });
 
         // Send hidden message to chat API with the uploaded video filenames
