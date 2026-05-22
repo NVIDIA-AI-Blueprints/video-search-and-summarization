@@ -22,10 +22,8 @@ export interface CreateRealtimeRuleInput {
   live_stream_url: string;
   alert_type: string;
   prompt: string;
-  /** VST sensor name (`name` in `/v1/sensor/list`). */
+  /** Friendly sensor name (VST `name`). Alert Bridge resolves the stream from this. */
   sensor_name: string;
-  /** VST sensor id (`sensorId` in `/v1/sensor/list`). */
-  sensor_id: string;
 }
 
 const REALTIME_PATH = '/realtime';
@@ -146,7 +144,6 @@ export const useRealtimeAlertRules = ({
           alert_type: input.alert_type,
           prompt: input.prompt,
           sensor_name: input.sensor_name,
-          sensor_id: input.sensor_id,
           status: 'active',
           created_at: body?.created_at,
         };

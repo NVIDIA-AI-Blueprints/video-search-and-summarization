@@ -2,13 +2,14 @@
 import {
   clearSensorListCache,
   deriveSensorNameFromLiveStreamUrl,
-  resolveSensorForLiveStreamUrl,
+  fetchVstLiveStreamCatalog,
+  resolveSensorByName,
 } from '../../lib-src/utils/vstSensorList';
 
-const jsonResponse = (body: unknown) =>
+const textResponse = (body: unknown) =>
   Promise.resolve({
     ok: true,
-    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
   } as Response);
 
 describe('vstSensorList', () => {
@@ -37,26 +38,84 @@ describe('vstSensorList', () => {
     ).toBe('sample.mp4');
   });
 
-  it('resolves sensor_id from VST sensor list for an online sensor', async () => {
+  it('flattens the nested VST /v1/live/streams payload', async () => {
     global.fetch = jest.fn().mockResolvedValue(
-      jsonResponse([
-        { name: 'sample.mp4', sensorId: 'id-1', state: 'online' },
-        { name: 'offline.mp4', sensorId: 'id-2', state: 'offline' },
+      textResponse([
+        {
+          'stream-key-1': [
+            {
+              name: 'warehouse-cam-1',
+              url: 'rtsp://10.24.142.82:30554/live/8c7338ec-2266-4eea-aeb4-c568d8944b05',
+              streamId: '8c7338ec-2266-4eea-aeb4-c568d8944b05',
+            },
+          ],
+        },
+        {
+          'stream-key-2': [
+            {
+              name: 'sample.mp4',
+              url: 'rtsp://10.24.142.82:30554/sample.mp4',
+              streamId: 'mp4-stream-id',
+            },
+          ],
+        },
+      ]),
+    );
+
+    const catalog = await fetchVstLiveStreamCatalog('http://vst.test');
+    expect(global.fetch).toHaveBeenCalledWith('http://vst.test/v1/live/streams');
+    expect(catalog).toEqual([
+      {
+        name: 'warehouse-cam-1',
+        url: 'rtsp://10.24.142.82:30554/live/8c7338ec-2266-4eea-aeb4-c568d8944b05',
+        streamId: '8c7338ec-2266-4eea-aeb4-c568d8944b05',
+      },
+      {
+        name: 'sample.mp4',
+        url: 'rtsp://10.24.142.82:30554/sample.mp4',
+        streamId: 'mp4-stream-id',
+      },
+    ]);
+  });
+
+  it('does not cache the live-stream catalog — back-to-back calls each hit VST', async () => {
+    global.fetch = jest.fn().mockResolvedValue(textResponse([]));
+
+    await fetchVstLiveStreamCatalog('http://vst.test');
+    await fetchVstLiveStreamCatalog('http://vst.test');
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves sensor_name and live_stream_url by sensor name', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      textResponse([
+        {
+          'stream-key-1': [
+            {
+              name: 'warehouse-cam-1',
+              url: 'rtsp://10.24.142.82:30554/live/8c7338ec-2266-4eea-aeb4-c568d8944b05',
+              streamId: '8c7338ec-2266-4eea-aeb4-c568d8944b05',
+            },
+          ],
+        },
       ]),
     );
 
     await expect(
-      resolveSensorForLiveStreamUrl('http://vst.test', 'rtsp://host/sample.mp4'),
-    ).resolves.toEqual({ sensor_name: 'sample.mp4', sensor_id: 'id-1' });
-
-    expect(global.fetch).toHaveBeenCalledWith('http://vst.test/v1/sensor/list');
+      resolveSensorByName('http://vst.test', 'warehouse-cam-1'),
+    ).resolves.toEqual({
+      sensor_name: 'warehouse-cam-1',
+      live_stream_url:
+        'rtsp://10.24.142.82:30554/live/8c7338ec-2266-4eea-aeb4-c568d8944b05',
+    });
   });
 
-  it('rejects when the sensor is not registered online', async () => {
-    global.fetch = jest.fn().mockResolvedValue(jsonResponse([]));
+  it('returns undefined when the sensor is not in the VST live-stream catalog', async () => {
+    global.fetch = jest.fn().mockResolvedValue(textResponse([]));
 
     await expect(
-      resolveSensorForLiveStreamUrl('http://vst.test', 'rtsp://host/unknown.mp4'),
-    ).rejects.toThrow(/not registered with VST/i);
+      resolveSensorByName('http://vst.test', 'unknown-sensor'),
+    ).resolves.toBeUndefined();
   });
 });
