@@ -23,7 +23,7 @@
 services:
 
   vss-behavior-analytics-base:
-    image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:3.2-26.05.17
+    image: nvcr.io/nvstaging/vss-core/vss-behavior-analytics:3.2-26.05.23
     network_mode: "host"
     restart: always
     volumes:
