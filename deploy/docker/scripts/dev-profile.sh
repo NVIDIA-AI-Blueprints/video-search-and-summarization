@@ -1140,6 +1140,8 @@ function state_up() {
   # 77770-<id>.brevlab.com; that form is legacy. Point HAProxy and browser-facing compose vars at the
   # current-form host with https/wss; keep URL templates in profile .env
   # (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
+  # VST_INGRESS_ENDPOINT intentionally omits the scheme because the VST stream-processing service
+  # prepends http:// when generating /picture/url and clip URLs.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
     echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port})..."
@@ -1148,6 +1150,7 @@ function state_up() {
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
     set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
     set_env_var "VSS_PUBLIC_PORT" "443"
+    set_env_var "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
