@@ -352,6 +352,54 @@ network_policies:
           - 172.17.0.0/16
           - 172.18.0.0/16
           - 172.20.0.0/16
+      # HAProxy ingress (7777, browser-facing proxy for Brev / warehouse UI),
+      # RT-CV health (9000, alerts MODE=2d_cv perception probe),
+      # alert-notify webhook relay (9090, local notification fanout server),
+      # Milvus vector DB (19530, vss-generate-video-report-rag knowledge retrieval),
+      # LLM NIM (30081), VLM NIM (30082) — both referenced by the deploy + report
+      # skills for /v1/models probes and RTVI_VLM_BASE_URL defaults.
+      - host: host.openshell.internal
+        port: 7777
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 9000
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 9090
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 19530
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 30081
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 30082
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
     binaries:
       - { path: /usr/bin/curl }
       - { path: /usr/local/bin/node }
