@@ -52,6 +52,18 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --json baseRefName --jq '.baseRefName // ""' 2>/dev/null || true)"
           target="${target:-${DEFAULT_BRANCH}}"
+          # Release branches (dev/*, release/*) accept only curated content
+          # that already passed License Diff on its develop-targeted PR. Running
+          # the diff again here just floods every cherry-pick / release-train
+          # PR with noise, so short-circuit and skip the rest of the workflow.
+          case "${target}" in
+            dev/*|release/*)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Skipping License Diff: PR targets release branch '${target}' — diff already enforced on the develop-targeted PR."
+              exit 0
+              ;;
+          esac
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           git fetch --no-tags origin "+refs/heads/${target}:refs/remotes/origin/${target}"
           merge_base=$(git merge-base HEAD "origin/${target}" || git rev-parse "origin/${target}")
           echo "base=${merge_base}" >> "$GITHUB_OUTPUT"
@@ -60,6 +72,7 @@ jobs:
 
       - name: Generate license diff CSV
         id: gen
+        if: steps.ctx.outputs.skip != 'true'
         run: |
           set -euo pipefail
           python .github/scripts/license_diff_csv.py \
@@ -73,7 +86,7 @@ jobs:
 
       - name: Upload CSV artifact
         id: upload
-        if: always()
+        if: always() && steps.ctx.outputs.skip != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: license-diff
@@ -82,7 +95,7 @@ jobs:
 
       - name: Render markdown table
         id: render
-        if: always() && steps.gen.outputs.rows != ''
+        if: always() && steps.ctx.outputs.skip != 'true' && steps.gen.outputs.rows != ''
         run: |
           set -euo pipefail
           python3 - <<'PY' > diff-table.md
@@ -103,6 +116,7 @@ jobs:
       - name: Write step summary
         if: always()
         env:
+          SKIP: ${{ steps.ctx.outputs.skip }}
           ROWS: ${{ steps.gen.outputs.rows }}
           BASE: ${{ steps.ctx.outputs.base }}
         run: |
@@ -110,7 +124,10 @@ jobs:
           {
             echo "## License Diff for OSRB"
             echo
-            if [[ ! -f license-diff.csv ]]; then
+            if [[ "${SKIP}" == "true" ]]; then
+              echo "Skipped: PR targets a release branch (\`dev/*\` or \`release/*\`)."
+              echo "License Diff already enforced on the develop-targeted PR; running again here only adds noise."
+            elif [[ ! -f license-diff.csv ]]; then
               echo "No CSV produced."
             elif [[ "${ROWS:-0}" -le 0 ]]; then
               echo "No package version or license changes detected."
@@ -123,7 +140,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post or update PR comment
-        if: always() && steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
+        if: always() && steps.ctx.outputs.skip != 'true' && steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -165,7 +182,7 @@ jobs:
           fi
 
       - name: Fail when license diff is non-empty
-        if: steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
+        if: steps.ctx.outputs.skip != 'true' && steps.gen.outputs.rows != '' && steps.gen.outputs.rows != '0'
         env:
           ROWS: ${{ steps.gen.outputs.rows }}
         run: |
