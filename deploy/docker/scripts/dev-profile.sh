@@ -1341,7 +1341,8 @@ function state_up() {
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
   fi
-  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi (alerts does not use rtvi)
+  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
+  # (alerts defaults to VLM_MODEL_TYPE=rtvi via its source .env, so it does not need this override)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
   fi
