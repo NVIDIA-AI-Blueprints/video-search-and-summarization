@@ -74,7 +74,7 @@ If videos < camera count and `HARDWARE_PROFILE.mv3dt.max_streams_supported` < ca
 
 ## Step 1 — Env recipe
 
-Edit `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env`. The shipped `.env` already defaults to MV3DT — most users only need to set `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `NGC_CLI_API_KEY`. Confirm the rest:
+Edit `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/.env`. The shipped `.env` defaults to **2D** (`MODE=2d`, `BP_PROFILE=bp_wh`, `HARDWARE_PROFILE=H100`, paths as placeholders, `NGC_CLI_API_KEY=''`) — you must change at least `MODE`, `BP_PROFILE`, paths, `HOST_IP`, and `NGC_CLI_API_KEY` for MV3DT. Confirm every key below:
 
 ```bash
 # Deployment selectors (line refs are against industry-profiles/warehouse-operations/.env)
@@ -134,7 +134,7 @@ sudo chmod -R a+rX /path/to/vss-warehouse-app-data
 # Then point VSS_DATA_DIR at /path/to/vss-warehouse-app-data
 ```
 
-> **Known bad-tarball gotcha (2026-05).** The shipped `warehouse-4cams-20mx20m-synthetic/` directory in the tarball ships **only 2 of 4 cameras** (`Camera.mp4` and `Camera_01.mp4`). On RTXA6000 this is masked by the 2-stream cap; on a 4-stream-capable GPU the missing cameras become a deploy issue. If you need all 4, source `Camera_02.mp4` / `Camera_03.mp4` separately.
+> **Known bad-tarball gotcha (2026-05).** Some published versions of `vss-warehouse-app-data` ship `warehouse-4cams-20mx20m-synthetic/` with **fewer videos than the dataset name implies** (e.g. 2 of 4 cameras present). Whether this matters depends on your GPU's `mv3dt` cap (see SKILL.md Prerequisites §3) — if the cap is at or below the present video count, the configurator's `keep_count` op masks the missing files. On a GPU with a higher cap, the missing files become a real deploy issue. Always verify the video count before deploy (the pre-flight check above prints it) and source any missing cams separately if needed.
 
 ### `SAMPLE_VIDEO_DATASET` slug
 

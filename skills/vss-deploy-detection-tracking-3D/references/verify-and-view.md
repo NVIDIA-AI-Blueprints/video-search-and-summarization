@@ -60,7 +60,7 @@ For ongoing monitoring:
 docker logs -f vss-rtvi-cv-mv3dt 2>&1 | grep -i fps
 ```
 
-Target FPS depends on `HARDWARE_PROFILE` — see the per-GPU `max_streams_supported` table in `SKILL.md` Prerequisites §3 (anchored at `blueprint_config.yml`). On H100 with 4 streams, expect ~30 FPS / camera; on L40S, ~30 FPS; on L4 / RTXA6000, ~15–30 FPS at the 2-stream cap.
+Target FPS depends on `HARDWARE_PROFILE` — see the per-GPU `max_streams_supported` table in `SKILL.md` Prerequisites §3 (anchored at `blueprint_config.yml`). Roughly: ~30 FPS / camera on datacenter-class GPUs running at or below their cap; lower on edge platforms or when running at the cap. Confirm against the canonical table in `blueprint_config.yml` for your GPU before reporting "low FPS" — you may simply be at expected throughput.
 
 **Stream count check.** If perception logs report fewer FPS lines than `NUM_STREAMS`, you've hit the per-GPU cap silently (see [`configure-cameras.md`](configure-cameras.md) Step 2). Compare:
 
@@ -147,7 +147,7 @@ The VST UI loads over TCP/30888, but video playback uses **WebRTC**. The browser
 
 1. **TCP/30888** — UI itself.
 2. **Outbound STUN** — VST's `vst_config.json` defaults `stunurl_list` to `stun.l.google.com:19302`. Corp / VPN networks often block this.
-3. **Inbound UDP** on a wide port range — VST's `webrtc_port_range` defaults to random UDP (`{min: 0, max: 0}`). Upstream firewalls that block arbitrary UDP (e.g. `cl1-trx40-22`'s upstream — see this project's host memory) will make WebRTC fail at ICE negotiation.
+3. **Inbound UDP** on a wide port range — VST's `webrtc_port_range` defaults to random UDP (`{min: 0, max: 0}`). Corp / cloud / on-prem firewalls that don't pass arbitrary UDP will make WebRTC fail at ICE negotiation. This is the most common reason "VST UI loads but playback fails" on hosts that are otherwise healthy.
 
 **Symptom of WebRTC failure:** UI loads fine, but clicking play on a sensor shows `Playback Error: Error 22: Failed to create Video Source` — even when the data pipeline is healthy (`mdx-raw` / `mdx-bev` offsets growing, `vss-vios-streamprocessing` is recording chunks).
 

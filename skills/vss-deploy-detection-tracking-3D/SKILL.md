@@ -121,7 +121,7 @@ Pick from `nvidia-smi --query-gpu=name --format=csv,noheader`:
 | IGX Thor | `IGX-THOR` | 7 |
 | DGX Spark | `DGX-SPARK` | 4 |
 
-**The per-GPU MV3DT cap is enforced silently at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and runs a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` — meaning **extra `.mp4` files get deleted** (sorted lexicographically, last N kept). On an RTX A6000 with the 4-camera sample, you'll get only 2 streams in perception / `mdx-raw` / `mdx-bev` with no error logged. If the host can't support your camera count, either pick a more capable GPU or accept the cap explicitly.
+**The per-GPU MV3DT cap is enforced silently at deploy time.** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported)` and runs a `keep_count` file-management op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` — **extra `.mp4` files get deleted** (sorted lexicographically, last N kept). If your GPU's `mv3dt` cap (above table) is below your camera count, perception / `mdx-raw` / `mdx-bev` will run with only the cap's worth of streams and no error gets logged. Either pick a GPU with a higher cap or accept the cap explicitly and surface the trade-off to the user.
 
 ### 4. App data on disk
 
@@ -142,9 +142,9 @@ test -d "${DATA_DIR}/videos/${DATASET}" \
   || { echo "ERROR: ${DATA_DIR}/videos/${DATASET} missing — wrong slug or app-data not extracted"; exit 1; }
 
 # Sanity: video count should match calibration count.
-# Shipped sample tarball is known to ship with only 2 of 4 cameras present
-# (Camera.mp4 + Camera_01.mp4; Camera_02.mp4 + Camera_03.mp4 missing). If you
-# need the full 4 streams on a capable GPU, source the missing files separately.
+# Some published app-data tarballs are known to ship the sample dataset with
+# fewer videos than the dataset name implies — verify and source any missing
+# cams separately if your GPU's mv3dt cap is high enough to use them all.
 ls "${DATA_DIR}/videos/${DATASET}/"*.mp4 2>/dev/null | wc -l
 ```
 
@@ -158,7 +158,7 @@ If any check fails, fix before continuing — don't proceed to deploy.
 
 ### 6. Browser reachability (cloud / corp-VPN hosts only)
 
-If the user will view the VST video wall through a browser on a different network than the host (cloud VM, corp VPN, ssh-tunnelled session), check whether `cl1-trx40-22`-style firewall rules will block VST WebRTC. See [`references/verify-and-view.md#browser-reachability`](references/verify-and-view.md). Also: the AMC microservice defaults to TCP/8010, which is **upstream-blocked on `cl1-trx40-22`** (per the host's project memory); pick a different port if relevant.
+If the user will view the VST video wall through a browser on a different network than the deploy host (cloud VM, corp VPN, ssh-tunnelled session), upstream firewall rules may block VST WebRTC (STUN to `stun.l.google.com:19302`, plus random UDP for media). See [`references/verify-and-view.md#browser-reachability`](references/verify-and-view.md) for symptoms and workarounds. Also: some hosts block the AMC microservice's default port (TCP/8010); if the user reports the AMC UI on `:5000` works but its data calls fail, retry with a different `VSS_AUTO_CALIBRATION_PORT`.
 
 ## How it fits together
 

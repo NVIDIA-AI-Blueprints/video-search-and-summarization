@@ -8,11 +8,11 @@ Parent: [`../SKILL.md`](../SKILL.md). MV3DT-specific failure modes. For broader 
 
 **Symptom:** You set `NUM_STREAMS=4` but `mdx-raw` only shows 2 sensors, perception logs 2 FPS lines, the VST sensor list has 2 entries. No error in any log.
 
-**Cause:** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)` and runs a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` — silently deleting `.mp4` files beyond the cap (lex-sorted, last N kept). Per-GPU caps live in `blueprint-configurator/blueprint_config.yml:592-642` — RTXA6000 / L4 cap mv3dt at **2**, RTXA6000ADA at **6**, L40S at **7**, H100 at **13**, RTXPRO6000BW at **18**.
+**Cause:** `vss-configurator-mv3dt` computes `final_stream_count = min(NUM_STREAMS, max_streams_supported[HARDWARE_PROFILE].mv3dt)` and runs a `keep_count` op against `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}/` — silently deleting `.mp4` files beyond the cap (lex-sorted, last N kept). Per-GPU caps live in `blueprint-configurator/blueprint_config.yml:592-642`; see the table in `SKILL.md` Prerequisites §3.
 
 Two common variants of this trap:
-- User has `HARDWARE_PROFILE=A6000` (not a valid slug — falls back to defaults), Ampere A6000 host. Should be `RTXA6000` (cap 2).
-- User has a 4-cam dataset on an `L4` or `RTXA6000` host — silently cropped to 2.
+- User set `HARDWARE_PROFILE` to an invalid slug (e.g. `A6000` instead of `RTXA6000`) — the configurator falls back to defaults and may apply an unintended cap.
+- User has more cameras than the GPU's `mv3dt` cap supports — the configurator silently crops the dataset to the cap and never emits a warning.
 
 **Diagnose:**
 ```bash
@@ -151,7 +151,7 @@ curl -sf "http://localhost:30888/vst/api/v1/sensor/list"   # from the host itsel
 
 **Cause:** WebRTC negotiation fails between the browser and VST. Two specific things VST needs that often get blocked:
 - **Outbound STUN** to `stun.l.google.com:19302` (VST's default `stunurl_list`). Corp / VPN blocks Google STUN frequently.
-- **Inbound UDP** on a random port range (VST's default `webrtc_port_range: {min:0, max:0}`). Upstream firewalls that don't pass arbitrary UDP — e.g. `cl1-trx40-22`'s upstream blocks this — make ICE fail.
+- **Inbound UDP** on a random port range (VST's default `webrtc_port_range: {min:0, max:0}`). Corp / cloud / on-prem firewalls that don't pass arbitrary UDP make ICE negotiation fail.
 
 **Cosmetic red herring.** While WebRTC is broken, `GET /vst/api/v1/sensor/list` may report `state: "offline"` and `url: null` for each sensor. That status is misleading — if `streamprocessing` is actively recording chunks, the pipeline is fine. Don't chase the offline-status.
 
