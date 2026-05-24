@@ -35,6 +35,57 @@ Two supported paths on edge hardware:
 - `NVIDIA_API_KEY` (agent-side)
 - GPU freed: `docker ps` should show no running VSS or LLM containers before
   starting. Reboot the device if in doubt.
+- **System cache cleaner running** (DGX-Spark / IGX-Thor / AGX-Thor) — see
+  [§ Cache cleaner](#cache-cleaner-every-edge-deploy) below.
+
+### Cache cleaner (every edge deploy)
+
+Edge platforms (DGX-Spark, IGX-Thor, AGX-Thor) share unified memory between CPU
+and GPU. Without periodic `drop_caches`, the kernel's page cache pins enough
+memory that the first inference frame OOMs — most visibly in the alerts
+`MODE=2d_cv` path, where Grounding DINO post-processing fails with
+`AcceleratorError: CUDA error: out of memory` on the very first frame.
+
+This is a platform prerequisite, not a profile-specific one — every profile
+(`base`, `alerts`, `search`, `lvs`, `warehouse`) needs the cleaner running on
+edge hardware.
+
+**Install and start (one-time per host):**
+
+```bash
+sudo tee /usr/local/bin/sys-cache-cleaner.sh << 'EOF'
+#!/bin/bash
+set -e
+echo 0 | tee /proc/sys/vm/nr_hugepages
+echo "Starting cache cleaner"
+while true; do
+  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
+  sleep 3
+done
+EOF
+sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
+sudo -b /usr/local/bin/sys-cache-cleaner.sh
+```
+
+**Verify it's running before any `docker compose up`:**
+
+```bash
+pgrep -f sys-cache-cleaner.sh && echo "cache cleaner OK" || echo "cache cleaner NOT RUNNING — start it before deploying"
+```
+
+The cleaner is intentionally not a systemd unit, so a `reboot` resets it.
+This skill's pre-flight check (SKILL.md § Pre-flight check, check 4) detects
+edge hardware, installs the script if missing, and starts it in the
+background — agents driving deploys typically don't need to run the
+install/start manually. The install + verify block above is the canonical
+reference for manual setup and for inspecting what the pre-flight does.
+
+> **IGX-Thor only — also boost VIC clocks:**
+> ```bash
+> sudo nvpmodel -m 0
+> sudo jetson_clocks
+> sudo su -c 'echo performance > /sys/class/devfreq/8188050000.vic/governor'
+> ```
 
 ### HF_TOKEN verification
 

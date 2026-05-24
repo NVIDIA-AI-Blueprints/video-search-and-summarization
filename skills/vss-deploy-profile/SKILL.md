@@ -63,9 +63,40 @@ docker info 2>/dev/null | grep -i "runtimes"
 
 # 3. NVIDIA runtime works end-to-end
 docker run --rm --gpus all ubuntu:22.04 nvidia-smi 2>&1 | head -5
+
+# 4. Edge platforms only — cache cleaner running (auto-start if missing).
+#    DGX-Spark / IGX-Thor / AGX-Thor share unified memory; without
+#    periodic drop_caches the first inference frame OOMs.
+gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
+if echo "$gpu_name" | grep -qiE 'GB10|Thor'; then
+    if pgrep -f sys-cache-cleaner.sh >/dev/null; then
+        echo "cache cleaner OK"
+    else
+        echo "cache cleaner not running — starting it now"
+        # Install the script if it's missing (idempotent — no-op if already installed).
+        if [ ! -x /usr/local/bin/sys-cache-cleaner.sh ]; then
+            sudo tee /usr/local/bin/sys-cache-cleaner.sh >/dev/null << 'EOF'
+#!/bin/bash
+set -e
+echo 0 | tee /proc/sys/vm/nr_hugepages
+echo "Starting cache cleaner"
+while true; do
+  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
+  sleep 3
+done
+EOF
+            sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
+        fi
+        sudo -b /usr/local/bin/sys-cache-cleaner.sh
+        sleep 1
+        pgrep -f sys-cache-cleaner.sh >/dev/null \
+            && echo "cache cleaner OK" \
+            || { echo "FAIL: cache cleaner failed to start — see references/edge.md § Cache cleaner" >&2; exit 1; }
+    fi
+fi
 ```
 
-If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisites.md).
+If check 2 or 3 fails, see [`references/prerequisites.md`](references/prerequisites.md). Check 4 self-heals on edge hardware — it installs `sys-cache-cleaner.sh` if missing and starts it in the background. If `sudo` isn't available or the start still fails, the script exits non-zero; install + start manually per [`references/edge.md` § Cache cleaner](references/edge.md#cache-cleaner-every-edge-deploy) before retrying.
 
 ## Model Selection
 

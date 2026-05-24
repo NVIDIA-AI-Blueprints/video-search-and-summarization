@@ -597,28 +597,7 @@ sudo bash -c "printf '%s\n' \
 sudo sysctl --system
 ```
 
-**DGX-SPARK / IGX-THOR only** — cache cleaner:
-```bash
-sudo tee /usr/local/bin/sys-cache-cleaner.sh << 'EOF'
-#!/bin/bash
-set -e
-echo 0 | tee /proc/sys/vm/nr_hugepages
-echo "Starting cache cleaner"
-while true; do
-  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
-  sleep 3
-done
-EOF
-sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
-sudo -b /usr/local/bin/sys-cache-cleaner.sh
-```
-
-**IGX-THOR only** — boost VIC clocks:
-```bash
-sudo nvpmodel -m 0
-sudo jetson_clocks
-sudo su -c 'echo performance > /sys/class/devfreq/8188050000.vic/governor'
-```
+**DGX-SPARK / IGX-THOR / AGX-THOR only** — system cache cleaner and (IGX-Thor) VIC clock boost. These are platform prerequisites that apply to every profile on edge hardware, not just warehouse. Canonical install + verify block lives in [`edge.md` § Cache cleaner (every edge deploy)](edge.md#cache-cleaner-every-edge-deploy).
 
 #### 2.5 IPv6 Localhost Entry
 
