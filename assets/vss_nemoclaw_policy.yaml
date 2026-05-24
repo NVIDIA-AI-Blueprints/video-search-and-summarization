@@ -1,338 +1,360 @@
-version: 2
+# VSS NemoClaw preset — applied with `nemoclaw <sandbox> policy-add --from-file`.
+# Merges into the live sandbox policy instead of replacing it, so the base
+# OpenShell filesystem / landlock / process rules stay intact.
 
-filesystem_policy:
-  include_workdir: true
-  read_only:
-  - /usr
-  - /lib
-  - /proc
-  - /dev/urandom
-  - /app
-  - /etc
-  - /var/log
-  - /sandbox
-  read_write:
-  - /sandbox/.nemoclaw
-  - /sandbox/.openclaw
-  - /tmp
-  - /dev/null
-  - /sandbox/.openclaw-data
-
-landlock:
-  compatibility: best_effort
-
-process:
-  run_as_user: sandbox
-  run_as_group: sandbox
+preset:
+  name: vss
+  description: "VSS network access (NVIDIA endpoints, OpenClaw infra, VSS backend, optional channels)"
 
 network_policies:
   claude_code:
     name: claude_code
     endpoints:
-    - host: api.anthropic.com
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
-    - host: statsig.anthropic.com
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
-    - host: sentry.io
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
+      - host: statsig.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
+      - host: sentry.io
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
     binaries:
-    - {path: /usr/local/bin/claude}
+      - { path: /usr/local/bin/claude }
 
   nvidia:
     name: nvidia
     endpoints:
-    - host: integrate.api.nvidia.com
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      allowed_ips:
-      - 10.0.0.0/8
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
-    - host: inference-api.nvidia.com
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      allowed_ips:
-      - 10.0.0.0/8
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
+      - host: integrate.api.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        allowed_ips:
+          - 10.0.0.0/8
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
+      - host: inference-api.nvidia.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        allowed_ips:
+          - 10.0.0.0/8
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
     binaries:
-    - {path: /usr/local/bin/claude}
-    - {path: /usr/local/bin/openclaw}
-    - {path: /usr/local/bin/node}
-
+      - { path: /usr/local/bin/claude }
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
 
   github:
     name: github
     endpoints:
-    - host: github.com
-      port: 443
-      access: full
-    - host: api.github.com
-      port: 443
-      access: full
+      - host: github.com
+        port: 443
+        access: full
+      - host: api.github.com
+        port: 443
+        access: full
     binaries:
-    - {path: /usr/bin/gh}
-    - {path: /usr/bin/git}
+      - { path: /usr/bin/gh }
+      - { path: /usr/bin/git }
 
   clawhub:
     name: clawhub
     endpoints:
-    - host: clawhub.ai
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
+      - host: clawhub.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
     binaries:
-    - {path: /usr/local/bin/openclaw}
-    - {path: /usr/local/bin/node}
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
 
   openclaw_api:
     name: openclaw_api
     endpoints:
-    - host: openclaw.ai
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
+      - host: openclaw.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
     binaries:
-    - {path: /usr/local/bin/openclaw}
-    - {path: /usr/local/bin/node}
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/node }
 
   openclaw_docs:
     name: openclaw_docs
     endpoints:
-    - host: docs.openclaw.ai
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
+      - host: docs.openclaw.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
     binaries:
-    - {path: /usr/local/bin/openclaw}
+      - { path: /usr/local/bin/openclaw }
 
   npm_registry:
     name: npm_registry
     endpoints:
-    - host: registry.npmjs.org
-      port: 443
-      access: full
+      - host: registry.npmjs.org
+        port: 443
+        access: full
     binaries:
-    - {path: /usr/local/bin/openclaw}
-    - {path: /usr/local/bin/npm}
-    - {path: /usr/local/bin/node}
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/local/bin/npm }
+      - { path: /usr/local/bin/node }
 
   telegram:
     name: telegram
     endpoints:
-    - host: api.telegram.org
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/bot*/**"}
-      - allow: {method: POST, path: "/bot*/**"}
+      - host: api.telegram.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/bot*/**" }
+          - allow: { method: POST, path: "/bot*/**" }
     binaries:
-    - {path: /usr/local/bin/node}
+      - { path: /usr/local/bin/node }
 
   discord:
     name: discord
     endpoints:
-    - host: discord.com
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
-    - host: gateway.discord.gg
-      port: 443
-      access: full
-    - host: cdn.discordapp.com
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
+      - host: discord.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
+      - host: gateway.discord.gg
+        port: 443
+        access: full
+      - host: cdn.discordapp.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
     binaries:
-    - {path: /usr/local/bin/node}
+      - { path: /usr/local/bin/node }
 
   pypi:
     name: pypi
     endpoints:
-    - host: pypi.org
-      port: 443
-      access: full
-    - host: files.pythonhosted.org
-      port: 443
-      access: full
+      - host: pypi.org
+        port: 443
+        access: full
+      - host: files.pythonhosted.org
+        port: 443
+        access: full
     binaries:
-    - {path: /usr/bin/python3}
-    - {path: /usr/bin/python3.13}
-    - {path: /usr/bin/pip}
-    - {path: /usr/bin/pip3}
-    - {path: /usr/bin/curl}
-    - {path: /usr/local/bin/node}
+      - { path: /usr/bin/python3 }
+      - { path: /usr/bin/python3.13 }
+      - { path: /usr/bin/pip }
+      - { path: /usr/bin/pip3 }
+      - { path: /usr/bin/curl }
+      - { path: /usr/local/bin/node }
 
   slack:
     name: slack
     endpoints:
-    - host: slack.com
-      port: 443
-      protocol: rest
-      enforcement: enforce
-      tls: terminate
-      rules:
-      - allow: {method: GET, path: "/**"}
-      - allow: {method: POST, path: "/**"}
+      - host: slack.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: "/**" }
+          - allow: { method: POST, path: "/**" }
     binaries:
-    - {path: /usr/bin/python3}
-    - {path: /usr/bin/python3.13}
-    - {path: /usr/bin/curl}
-    - {path: /usr/local/bin/node}
+      - { path: /usr/bin/python3 }
+      - { path: /usr/bin/python3.13 }
+      - { path: /usr/bin/curl }
+      - { path: /usr/local/bin/node }
 
   vss-backend:
     name: vss-backend-readwrite
+    # Keep this scoped to Docker bridge CIDRs used by supported OpenShell /
+    # NemoClaw drivers. Do not use the full 172.16.0.0/12 private range.
     endpoints:
-    - host: host.openshell.internal
-      port: 8000
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 30888
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 5601
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9200
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 8081
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9080
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9988
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 18789
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    # Agent UI (3000), Auto-Calibration UI (5000), Phoenix (6006), VST MCP (8001),
-    # Auto-Calibration MS (8010), RT-Embed (8017), RT-VLM (8018), Kafka (9092),
-    # VA-MCP (9901), NvStreamer UI (31000), LVS REST (38111), LVS MCP (38112).
-    - host: host.openshell.internal
-      port: 3000
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 5000
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 6006
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 8001
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 8010
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 8017
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 8018
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9092
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 9901
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 31000
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 38111
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
-    - host: host.openshell.internal
-      port: 38112
-      access: full
-      allowed_ips:
-      - 172.17.0.0/24
+      - host: host.openshell.internal
+        port: 8000
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 30888
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 5601
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 9200
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 8081
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 9080
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 9988
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 18789
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      # Agent UI (3000), Auto-Calibration UI (5000), Phoenix (6006), VST MCP (8001),
+      # Auto-Calibration MS (8010), RT-Embed (8017), RT-VLM (8018), Kafka (9092),
+      # VA-MCP (9901), NvStreamer UI (31000), LVS REST (38111), LVS MCP (38112).
+      - host: host.openshell.internal
+        port: 3000
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 5000
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 6006
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 8001
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 8010
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 8017
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 8018
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 9092
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 9901
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 31000
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 38111
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
+      - host: host.openshell.internal
+        port: 38112
+        access: full
+        allowed_ips:
+          - 172.17.0.0/16
+          - 172.18.0.0/16
+          - 172.20.0.0/16
     binaries:
-    - {path: /usr/bin/curl}
-    - {path: /usr/local/bin/node}
-    - {path: /usr/local/bin/openclaw}
-    - {path: /usr/bin/python3}
-    - {path: /usr/bin/python3.13}
+      - { path: /usr/bin/curl }
+      - { path: /usr/local/bin/node }
+      - { path: /usr/local/bin/openclaw }
+      - { path: /usr/bin/python3 }
+      - { path: /usr/bin/python3.13 }
