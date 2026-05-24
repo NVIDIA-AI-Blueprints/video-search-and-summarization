@@ -129,6 +129,7 @@ The skill writes these env vars to `dev-profile-alerts/generated.env` itself; th
 |---|---|---|
 | RT-VLM shares GPU with LLM (`VLM_MODE=local_shared`) | any | **0.35** |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | DGX-SPARK or L40S | **0.8** |
+| RT-VLM on its own GPU (`VLM_MODE=local`) | RTX PRO 4500 BW (32 GB) — pass `HARDWARE_PROFILE=OTHER` | **0.8** — also set `RTVI_VLM_MAX_MODEL_LEN=20480` to fit the smaller VRAM (see [FAQ](https://metromind.gitlab-master-pages.nvidia.com/met-blueprint-src/met-blueprint-docs/vss/latest/faq.html#faq-rtvi-vlm-rtx-4500)) |
 | RT-VLM on its own GPU (`VLM_MODE=local`) | H100 / RTXPRO6000BW | leave blank → RT-VLM's hardcoded 0.7 fallback applies |
 | RT-VLM on its own GPU on edge | OTHER / IGX-THOR / AGX-THOR | leave blank |
 
@@ -177,6 +178,24 @@ With RT-VLM at 0.35 and a 15% framework reservation, the LLM gets:
 | H200 | 141 GB | 49 GB | 21 GB | 71 GB | **0.50** |
 | RTX PRO 6000 (Blackwell) | 96 GB | 34 GB | 14 GB | 48 GB | **0.50** |
 | L40S | 48 GB | 17 GB | 7 GB | 24 GB | **0.50** (tight — Nano 9B at 23.4 GB barely fits) |
+| RTX PRO 4500 (Blackwell) — `HARDWARE_PROFILE=OTHER` | 32 GB | 11 GB | 5 GB | 16 GB | shared mode won't fit Nano 9B (23.4 GB) — use `LLM_MODE=remote` and run RT-VLM only (see [§ RTX PRO 4500](#rtx-pro-4500-blackwell-32-gb)) |
+
+### RTX PRO 4500 Blackwell (32 GB)
+
+The 4500 is **not a recognized `HARDWARE_PROFILE`** in `dev-profile.sh` — the script's allowlist is `H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER` (see `get_detected_hardware_profile()` and the validation at `dev-profile.sh:665,680`). Pass `HARDWARE_PROFILE=OTHER`; the script's auto-detect also resolves a 4500 to `OTHER`, so the strict detect-vs-requested check passes.
+
+32 GB VRAM is too little to host the default Cosmos-Reason2-8B RT-VLM **and** a local Nano 9B LLM together. The supported layout is RT-VLM local, LLM remote:
+
+```env
+# In dev-profile-alerts/.env (or the equivalent generated.env)
+HARDWARE_PROFILE=OTHER
+LLM_MODE=remote
+VLM_MODE=local
+RTVI_VLM_MAX_MODEL_LEN=20480
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
+```
+
+`RTVI_VLM_MAX_MODEL_LEN=20480` caps the VLM context to fit alongside model weights at the 0.8 memory budget. Source: [FAQ § NVIDIA RTX 4500](https://metromind.gitlab-master-pages.nvidia.com/met-blueprint-src/met-blueprint-docs/vss/latest/faq.html#faq-rtvi-vlm-rtx-4500).
 
 Formula: `NIM_KVCACHE_PERCENT = 1 - 0.35 - 0.15 = 0.50`. Same fraction across GPUs because the script's RT-VLM util is fixed at 0.35 in shared mode.
 

@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Summarize a video by calling the VLM NIM or the Long Video Summarization (LVS) microservice directly. For short videos (under 60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (60s or longer) call the LVS microservice. Use when asked to summarize a video, describe what happens in a video, analyze a recording, call or debug LVS summarize/model/health/recommended-config/metrics endpoints, or configure and troubleshoot the LVS service that backs long-video summarization.
+description: Summarize a video by calling the VLM NIM or the video summarization microservice directly. For short videos (under 60s) call the VLM's OpenAI-compatible chat completions endpoint; for long videos (60s or longer) call the video summarization microservice. Use when asked to summarize a video, describe what happens in a video, analyze a recording, call or debug video summarization summarize/model/health/recommended-config/metrics endpoints, or configure and troubleshoot the video summarization service and its Elasticsearch, Neo4j, or ArangoDB database backend.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -8,47 +8,48 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
-You are a video summarization assistant. You call the VLM NIM or the LVS
+You are a video summarization assistant. You call the VLM NIM or the video summarization
 microservice **directly**. Always run `curl` commands yourself; never instruct the user to run them.
 
-Primary video workflow query type: **"Summarize this video."** Direct LVS API
+Primary video workflow query type: **"Summarize this video."** Direct video summarization API
 and service-ops requests are handled by the reference-routed sections below.
 
 ## Reference Map
 
 Use these references only when the user asks for the relevant detail, or when
-the core workflow below needs deeper LVS information:
+the core workflow below needs deeper video summarization information:
 
-- **LVS API details**: [`references/lvs-api.md`](references/lvs-api.md) for
+- **video summarization API details**: [`references/video-summarization-api.md`](references/video-summarization-api.md) for
   `/v1/summarize`, `/summarize`, `/v1/generate_captions`,
   `/v1/stream_summarize`, health probes, `/models`, `/recommended_config`,
   `/metrics`, request fields, response shapes, and API gotchas.
-- **LVS service configuration and ops**:
-  [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md) for
+- **video summarization service configuration and ops**:
+  [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md) for
   the VSS `lvs` profile, ports, required env vars, logs, status, dry-runs,
-  teardown, model/backend swaps, and service-level troubleshooting.
-- **Extended LVS ops references**:
-  [`references/lvs-environment-variables.md`](references/lvs-environment-variables.md),
-  [`references/lvs-debugging.md`](references/lvs-debugging.md), and
-  [`references/lvs.env.example`](references/lvs.env.example).
+  teardown, model/backend swaps, Elasticsearch/Neo4j/ArangoDB backend
+  selection, and service-level troubleshooting.
+- **Extended video summarization ops references**:
+  [`references/video-summarization-environment-variables.md`](references/video-summarization-environment-variables.md),
+  [`references/video-summarization-debugging.md`](references/video-summarization-debugging.md), and
+  [`references/video-summarization.env.example`](references/video-summarization.env.example).
 
 Do not load these references for routine short-video VLM summaries. Load
-`lvs-api.md` for long-video LVS request details or direct LVS API requests.
-Load `deploy-lvs-service.md` only for deployment, configuration, or service
+`video-summarization-api.md` for long-video request details or direct video summarization API requests.
+Load `video-summarization-deployment.md` only for deployment, configuration, or service
 operations.
 
-## LVS API And Service Ops Requests
+## Video Summarization API And Service Ops Requests
 
-If the user asks to call or debug LVS endpoints directly, answer from
-[`references/lvs-api.md`](references/lvs-api.md) instead of running the
-end-to-end video summarization workflow. Examples: list LVS models, check
+If the user asks to call or debug video summarization endpoints directly, answer from
+[`references/video-summarization-api.md`](references/video-summarization-api.md) instead of running the
+end-to-end video summarization workflow. Examples: list video summarization models, check
 readiness, get recommended chunking config, inspect metrics, explain a 422
 response, or build a `/v1/summarize` request body.
 
 If the user asks to configure, deploy, restart, tear down, or troubleshoot the
-LVS service, prefer the `vss-deploy-profile` skill for full VSS profile
-deployment and use [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md)
-for LVS-specific service details.
+video summarization service, prefer the `vss-deploy-profile` skill for full VSS profile
+deployment and use [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md)
+for video summarization-specific service details.
 
 ## Routing
 
@@ -58,14 +59,14 @@ skill, then do the math — see Step 1):
 | Video duration | Backend | Endpoint |
 |---|---|---|
 | `< 60s` (short) | **VLM / RT-VLM** (OpenAI-compatible) | `POST ${VLM_BASE_URL}/v1/chat/completions` |
-| `>= 60s` (long), LVS available | **LVS microservice** | `POST ${LVS_BACKEND_URL}/v1/summarize` |
-| `>= 60s`, LVS **not** reachable | **VLM / RT-VLM** + tell the user | `POST ${VLM_BASE_URL}/v1/chat/completions` |
+| `>= 60s` (long), video summarization service available | **video summarization microservice** | `POST ${LVS_BACKEND_URL}/v1/summarize` |
+| `>= 60s`, video summarization service **not** reachable | **VLM / RT-VLM** + tell the user | `POST ${VLM_BASE_URL}/v1/chat/completions` |
 
-Fallback message when LVS is unreachable for a long video (copy verbatim
+Fallback message when the video summarization service is unreachable for a long video (copy verbatim
 into the response, before the summary):
 
 > ⚠️ **Note:** Input video `<name>` is `<N>`s long.
-> Long Video Summarization (LVS) is not deployed, so this summary was
+> The video summarization service is not deployed, so this summary was
 > produced by the VLM alone. Deploy the `lvs` profile for higher-quality
 > long-video summaries.
 
@@ -73,18 +74,18 @@ into the response, before the summary):
 
 This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. Before any request:
 
-1. Probe the LVS microservice:
+1. Probe the video summarization microservice:
    ```bash
-   LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
-   curl -sf --max-time 5 "$LVS/v1/ready" >/dev/null
+   VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+   curl -sf --max-time 5 "$VIDEO_SUMMARIZATION_URL/v1/ready" >/dev/null
    ```
-   (Port 38111 is LVS. HTTP 200 → ready; 503 → still warming, retry in a moment.)
+   (Port 38111 is the video summarization service. HTTP 200 → ready; 503 → still warming, retry in a moment.)
 
 2. **If the probe fails**, ask the user:
    > *"The VSS `lvs` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`?"*
 
    - If yes → hand off to the `/vss-deploy-profile` skill. Return here once it succeeds.
-   - If no → stop. Long-video summarization without LVS falls back to VLM-only, which is a different (lower-quality) path — confirm with the user before substituting.
+   - If no → stop. Long-video summarization without the video summarization service falls back to VLM-only, which is a different (lower-quality) path — confirm with the user before substituting.
 
    (If your caller has granted explicit pre-authorization to deploy
    autonomously — e.g. the request says "pre-authorized to deploy
@@ -102,7 +103,7 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 
 - VLM / RT-VLM: `${VLM_BASE_URL}` — default
   `${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}` for the `lvs` profile
-- LVS MS: `${LVS_BACKEND_URL}` — default `http://${HOST_IP:-localhost}:38111`
+- Video summarization service: `${LVS_BACKEND_URL}` — default `http://${HOST_IP:-localhost}:38111`
 - VIOS: owned by the `vss-manage-video-io-storage` skill; refer there.
 
 **Endpoint resolution order:**
@@ -119,13 +120,13 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
 by RT-VLM's `/v1/models`. Do not substitute the friendly model name
 `nvidia/cosmos-reason2-8b` unless the endpoint actually advertises that id.
 
-For full LVS endpoint schemas, optional request fields, response envelopes, and
-error handling, read [`references/lvs-api.md`](references/lvs-api.md).
+For full video summarization endpoint schemas, optional request fields, response envelopes, and
+error handling, read [`references/video-summarization-api.md`](references/video-summarization-api.md).
 
 **Availability checks** (run both before routing):
 
 **Readiness is determined by the HTTP status code only.** Do not parse
-or inspect the response body — LVS's `/v1/ready` can legitimately return
+or inspect the response body — the video summarization service's `/v1/ready` can legitimately return
 `200` with an empty body. Do not treat empty stdout from `curl` as
 "unavailable."
 
@@ -138,28 +139,28 @@ vlm_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 \
   "$VLM/v1/models")
 [ "$vlm_code" = "200" ] && echo "VLM OK" || echo "VLM not reachable (HTTP $vlm_code)"
 
-# LVS: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
-LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
-lvs_code=000
+# Video summarization service: 200 on /v1/ready, with retry on 503 (warmup) for up to ~30s
+VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+video_sum_code=000
 for i in $(seq 1 10); do
-  lvs_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$LVS/v1/ready")
-  case "$lvs_code" in
-    200) echo "LVS OK"; break ;;
+  video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$VIDEO_SUMMARIZATION_URL/v1/ready")
+  case "$video_sum_code" in
+    200) echo "video summarization OK"; break ;;
     503) sleep 3 ;;                 # warming up; keep polling
     *)   break ;;                   # any other code = not reachable, stop retrying
   esac
 done
-[ "$lvs_code" = "200" ] || echo "LVS not reachable (HTTP $lvs_code)"
+[ "$video_sum_code" = "200" ] || echo "video summarization service not reachable (HTTP $video_sum_code)"
 ```
 
 **How to interpret the results:**
 
-- `vlm_code = 200` and `lvs_code = 200` → normal routing (Step 2a for
+- `vlm_code = 200` and `video_sum_code = 200` → normal routing (Step 2a for
   `<60s`, Step 2b for `>=60s`).
 - `vlm_code != 200` → fail; summarization cannot run without the VLM.
-- `vlm_code = 200`, `lvs_code != 200` → LVS is truly unavailable; use
+- `vlm_code = 200`, `video_sum_code != 200` → the video summarization service is truly unavailable; use
   the VLM fallback path described above for long videos.
-- A non-200 LVS code after the retry loop is the ONLY signal that LVS
+- A non-200 video summarization service code after the retry loop is the ONLY signal that the service
   is unavailable. Empty stdout, missing JSON fields, or a "weird"
   response body are NOT "unavailable."
 
@@ -185,7 +186,7 @@ From `vss-manage-video-io-storage`, collect exactly three values:
    `endTime - startTime` is the duration that drives the routing decision
    below. Always compute; never assume.
 3. **Temporary MP4 clip URL** - the `/storage/file/<streamId>/url` variant
-   with `container=mp4`. The VLM and LVS both need an HTTP(S) URL they can
+   with `container=mp4`. The VLM and video summarization service both need an HTTP(S) URL they can
    `GET`; the `/url` variant is preferred over streaming bytes through the
    summarization client. Response field: `.videoUrl`.
 
@@ -246,16 +247,16 @@ are applied server-side; no client-side prep is required when you pass a
 
 ---
 
-## Step 2b — Long video (>= 60s) → LVS microservice direct
+## Step 2b — Long video (>= 60s) → video summarization microservice direct
 
 This section contains the narrow long-video summarization path. For advanced
-LVS fields such as `media_info`, `schema`, structured output, stream
+video summarization fields such as `media_info`, `schema`, structured output, stream
 captioning, metrics, or recommended config, read
-[`references/lvs-api.md`](references/lvs-api.md).
+[`references/video-summarization-api.md`](references/video-summarization-api.md).
 
 ### HITL: collect scenario and events first (REQUIRED — do not skip)
 
-Full scenario/events collection walk-through lives in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run this step before calling LVS.
+Full scenario/events collection walk-through lives in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run this step before calling the video summarization service.
 
 **Autonomous-mode defaults.** When HITL is bypassed (caller said "run
 autonomously without prompting for confirmation") and the original
@@ -272,14 +273,14 @@ exposes `/summarize` as a compatibility alias, but new examples should use
 `/v1/summarize`.
 
 ```bash
-LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'
 EVENTS_JSON='["notable activity"]'
 OBJECTS_JSON=''  # '' to omit, else '["forklifts","pallets","workers"]'
 
-curl -s -X POST "$LVS/v1/summarize" \
+curl -s -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
   -H "Content-Type: application/json" \
   -d "$(jq -n --arg url "<clip_url_from_vss_manage_video_io_storage>" \
         --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
@@ -363,7 +364,7 @@ into `$SCENARIO`, `$EVENTS_JSON`, and `$OBJECTS_JSON` below. Do not run
 the curl without that reply.
 
 ```bash
-LVS=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
+VIDEO_SUMMARIZATION_URL=${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}
 
 # From HITL reply:
 SCENARIO='warehouse monitoring'            # or whatever the user gave
@@ -371,15 +372,15 @@ EVENTS_JSON='["notable activity"]'         # jq-compatible JSON array
 OBJECTS_JSON=''                            # '' to omit, else '["cars","trucks"]'
 
 # Readiness = HTTP 200 on /v1/ready. Body may be empty — do not inspect it.
-# Retry on 503 (warmup) for up to ~30s before concluding LVS is unavailable.
-lvs_code=000
+# Retry on 503 (warmup) for up to ~30s before concluding the service is unavailable.
+video_sum_code=000
 for i in $(seq 1 10); do
-  lvs_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$LVS/v1/ready")
-  case "$lvs_code" in 200) break ;; 503) sleep 3 ;; *) break ;; esac
+  video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$VIDEO_SUMMARIZATION_URL/v1/ready")
+  case "$video_sum_code" in 200) break ;; 503) sleep 3 ;; *) break ;; esac
 done
 
-if [ "$lvs_code" = "200" ]; then
-  curl -s -X POST "$LVS/v1/summarize" \
+if [ "$video_sum_code" = "200" ]; then
+  curl -s -X POST "$VIDEO_SUMMARIZATION_URL/v1/summarize" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg url "$CLIP" \
           --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
@@ -397,7 +398,7 @@ if [ "$lvs_code" = "200" ]; then
     } + (if $objects == null then {} else {objects_of_interest: $objects} end)')" \
     | jq -r '.choices[0].message.content' | jq '{video_summary, events}'
 else
-  echo "⚠️ Note: video is ${DURATION}s long. LVS returned HTTP $lvs_code; falling back to VLM."
+  echo "⚠️ Note: video is ${DURATION}s long. The video summarization service returned HTTP $video_sum_code; falling back to VLM."
   # Fall back to the short-video VLM flow above (which itself requires
   # the Step 2a HITL confirmation before calling the VLM).
 fi
@@ -409,15 +410,15 @@ fi
 
 - **VLM** returns an OpenAI chat-completion envelope; the summary string is
   `choices[0].message.content`.
-- **LVS** returns the same envelope but `content` is a JSON string — run
+- **Video summarization service** returns the same envelope but `content` is a JSON string — run
   `jq -r '.choices[0].message.content' | jq` to reach `{video_summary, events}`.
-- **Errors** from VLM/LVS surface as HTTP non-2xx plus JSON `{error: ...}`.
-  `503` from LVS typically means it is still warming up — wait and retry
+- **Errors** from VLM/video summarization service surface as HTTP non-2xx plus JSON `{error: ...}`.
+  `503` from video summarization service typically means it is still warming up — wait and retry
   `v1/ready`.
 
 ### Presenting the output to the user (IMPORTANT — do not rewrite)
 
-The VLM and LVS responses are the final user-facing product. Surface
+The VLM and video summarization responses are the final user-facing product. Surface
 them with minimal transformation; do not paraphrase, re-voice, add
 emojis, or re-format into bullets/tables that weren't in the source.
 
@@ -441,7 +442,7 @@ Use `<duration>` formatted as `Ns` for durations under 60 seconds (e.g.
 `25s`) and `Mm Ss` for durations ≥60 seconds (e.g. `3m 30s`). Never
 include the same header twice in different formats.
 
-**LVS output:**
+**Video summarization output:**
 
 - **`video_summary`** (string) — render **verbatim** as the narrative
   summary. It is already a polished, tone-controlled "Observational
@@ -464,7 +465,7 @@ assistant reply — render it verbatim. If the model produced
 block and show the `<answer>` content (or the whole content if the
 tags are absent).
 
-**Fallback warning**, when applicable, goes **above** the LVS/VLM
+**Fallback warning**, when applicable, goes **above** the video summarization/VLM
 output, not mixed into it.
 
 ## Tips
@@ -472,7 +473,7 @@ output, not mixed into it.
 - **HITL is not optional.** Every summarization starts with the HITL
   message (Step 2a or 2b). Skipping it to "be efficient" is the single
   most common failure mode of this skill — do not do it.
-- **LVS readiness = HTTP 200 on `/v1/ready`. Nothing else.** The body is
+- **video summarization readiness = HTTP 200 on `/v1/ready`. Nothing else.** The body is
   often empty (`size=0`). Do NOT pipe the readiness check through
   `head`, `jq`, `grep`, or any other command — bash will report the
   pipeline's last exit code, not curl's, and an empty body will look
@@ -483,18 +484,18 @@ output, not mixed into it.
 - **`vss-manage-video-io-storage` is a sub-task, not the final answer.** Step 1 returns
   ingredients ($CLIP, $DURATION); the deliverable is the Step 2 summary.
   Do not end your turn after Step 1 - continue to Step 2a / 2b and render
-  the LVS or VLM output. Returning the clip URL as your final answer is
-  the single most common failure mode of the LVS path.
+  the video summarization service or VLM output. Returning the clip URL as
+  your final answer is the single most common failure mode of the long-video path.
 - **Duration is authoritative.** Don't route on filename or user hints;
   compute from the timeline returned by `vss-manage-video-io-storage`.
-- **`jq` twice for LVS.** First unwraps the OpenAI-style envelope, second
+- **`jq` twice for video summarization.** First unwraps the OpenAI-style envelope, second
   parses the JSON string inside `content`.
 - **Prefer `/v1/summarize` for 3.2 GA.** `/summarize` exists as a
   compatibility route but should not be the default in new examples.
 - **Use the exact VLM model id advertised by the serving endpoint.** The
   default VSS `lvs` profile uses `nim_nvidia_cosmos-reason2-8b_hf-1208`.
-- **Do not set or depend on development-only LVS API switches in GA workflows.**
-- **Do not rewrite LVS / VLM output.** The `video_summary` from LVS and
+- **Do not set or depend on development-only video summarization API switches in GA workflows.**
+- **Do not rewrite video summarization / VLM output.** The `video_summary` from the video summarization service and
   `choices[0].message.content` from VLM are the deliverables. Render
   them verbatim; don't paraphrase into your own voice or reformat. See
   *Responses → Presenting the output to the user*.
@@ -504,9 +505,9 @@ output, not mixed into it.
 
 ## Cross-reference
 
-- **vss-deploy-profile** — bring up the `base` (VLM only) or `lvs` (VLM + LVS MS) profile
+- **vss-deploy-profile** — bring up the `base` (VLM only) or `lvs` (VLM + video summarization service) profile
 - **vss-manage-video-io-storage** (VIOS API) — upload videos, list streams, get clip URLs
 - **vss-search-archive** — semantic search across the archive (different profile)
 - **vss-query-analytics** — query incidents/events from Elasticsearch
-- **LVS API reference** — [`references/lvs-api.md`](references/lvs-api.md)
-- **LVS service ops reference** — [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md)
+- **video summarization API reference** — [`references/video-summarization-api.md`](references/video-summarization-api.md)
+- **video summarization service ops reference** — [`references/video-summarization-deployment.md`](references/video-summarization-deployment.md)

@@ -11,31 +11,24 @@ import socket
 import subprocess
 import sys
 
-
-DEFAULT_CONTAINER = "openshell-cluster-nemoclaw"
-DEFAULT_NAMESPACE = "openshell"
 DEFAULT_CONFIG_PATH = "/sandbox/.openclaw/openclaw.json"
 DEFAULT_WORKSPACE_DIR = "/sandbox/.openclaw/workspace"
 RED_BOLD = "\033[1;31m"
 RESET = "\033[0m"
 
 
-def run_kubectl_exec(
-    container: str,
-    namespace: str,
+def sandbox_exec(
     sandbox_name: str,
     remote_args: list[str],
     capture_output: bool = False,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess:
+    """Exec a command inside an OpenShell sandbox."""
     cmd = [
-        "sudo",
-        "docker",
-        "exec",
-        container,
-        "kubectl",
+        "openshell",
+        "sandbox",
         "exec",
         "-n",
-        namespace,
         sandbox_name,
         "--",
         *remote_args,
@@ -45,11 +38,8 @@ def run_kubectl_exec(
         check=True,
         text=True,
         capture_output=capture_output,
+        input=input_text,
     )
-
-
-def shell_quote_multiline(text: str) -> str:
-    return text
 
 
 def read_etc_environment() -> dict[str, str]:
@@ -94,14 +84,10 @@ def get_brev_env_id() -> str:
 
 
 def read_remote_file(
-    container: str,
-    namespace: str,
     sandbox_name: str,
     config_path: str,
 ) -> str:
-    result = run_kubectl_exec(
-        container,
-        namespace,
+    result = sandbox_exec(
         sandbox_name,
         ["cat", config_path],
         capture_output=True,
@@ -110,59 +96,60 @@ def read_remote_file(
 
 
 def write_remote_file(
-    container: str,
-    namespace: str,
     sandbox_name: str,
     config_path: str,
     content: str,
 ) -> None:
-    shell_cmd = f"cat > {shlex.quote(config_path)} <<'EOF'\n{content}EOF"
-    run_kubectl_exec(
-        container,
-        namespace,
+    # The OpenShell exec API rejects newline characters inside argv. Stream
+    # file content over stdin, then validate and atomically swap it into place.
+    tmp_path = f"{config_path}.tmp"
+    shell_cmd = f"cat > {shlex.quote(tmp_path)}"
+    sandbox_exec(
         sandbox_name,
         ["sh", "-c", shell_cmd],
+        input_text=content,
     )
+    validate_and_move_cmd = (
+        "python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "
+        f"{shlex.quote(tmp_path)} && mv {shlex.quote(tmp_path)} {shlex.quote(config_path)}"
+    )
+    sandbox_exec(sandbox_name, ["sh", "-lc", validate_and_move_cmd])
 
 
 def backup_remote_file(
-    container: str,
-    namespace: str,
     sandbox_name: str,
     config_path: str,
     backup_path: str,
 ) -> None:
-    run_kubectl_exec(
-        container,
-        namespace,
+    sandbox_exec(
         sandbox_name,
         ["cp", config_path, backup_path],
     )
 
 
 def chmod_and_chown(
-    container: str,
-    namespace: str,
     sandbox_name: str,
     config_path: str,
 ) -> None:
-    run_kubectl_exec(
-        container,
-        namespace,
-        sandbox_name,
-        ["chmod", "644", config_path],
-    )
-    run_kubectl_exec(
-        container,
-        namespace,
-        sandbox_name,
-        ["chown", "sandbox:sandbox", config_path],
-    )
+    try:
+        sandbox_exec(sandbox_name, ["chmod", "644", config_path])
+    except subprocess.CalledProcessError:
+        # Docker-driver exec runs as the sandbox user. If an old root-owned file
+        # remains from a legacy driver, the config update already succeeded and
+        # permissions cleanup should not mask the useful result.
+        pass
+    try:
+        sandbox_exec(
+            sandbox_name,
+            ["chown", "sandbox:sandbox", config_path],
+        )
+    except subprocess.CalledProcessError:
+        # Docker-driver exec runs as the sandbox user, not root. The file is
+        # normally already owned by sandbox:sandbox, so chown is best-effort.
+        pass
 
 
 def get_dashboard_token(
-    container: str,
-    namespace: str,
     sandbox_name: str,
 ) -> str | None:
     try:
@@ -179,11 +166,9 @@ def get_dashboard_token(
         pass
 
     try:
-        result = run_kubectl_exec(
-            container,
-            namespace,
+        result = sandbox_exec(
             sandbox_name,
-            ["sh", "-lc", 'su - sandbox -c "openclaw dashboard"'],
+            ["sh", "-lc", "openclaw dashboard"],
             capture_output=True,
         )
     except subprocess.CalledProcessError:
@@ -240,23 +225,13 @@ def update_mcp_server(data: dict, *, name: str, url: str) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Safely update openclaw.json inside a sandbox pod."
+        description="Safely update openclaw.json inside an OpenShell sandbox."
     )
     parser.add_argument(
         "sandbox_name",
         nargs="?",
         default="demo",
-        help="Sandbox pod name (default: demo)",
-    )
-    parser.add_argument(
-        "--container",
-        default=DEFAULT_CONTAINER,
-        help=f"Docker container name (default: {DEFAULT_CONTAINER})",
-    )
-    parser.add_argument(
-        "--namespace",
-        default=DEFAULT_NAMESPACE,
-        help=f"Kubernetes namespace (default: {DEFAULT_NAMESPACE})",
+        help="Sandbox name (default: demo)",
     )
     parser.add_argument(
         "--config-path",
@@ -313,12 +288,7 @@ def main() -> int:
         port = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
         origin = f"http://127.0.0.1:{port}"
 
-    raw = read_remote_file(
-        args.container,
-        args.namespace,
-        args.sandbox_name,
-        args.config_path,
-    )
+    raw = read_remote_file(args.sandbox_name, args.config_path)
 
     data = json.loads(raw)
     gateway = data.setdefault("gateway", {})
@@ -335,6 +305,7 @@ def main() -> int:
     agents_defaults = data.setdefault("agents", {}).setdefault("defaults", {})
     if agents_defaults.get("workspace") != DEFAULT_WORKSPACE_DIR:
         agents_defaults["workspace"] = DEFAULT_WORKSPACE_DIR
+        changed = True
     if update_hooks_config(
         data,
         enabled=args.enable_hooks,
@@ -360,39 +331,17 @@ def main() -> int:
         print(json.dumps(updated_json, indent=2) + "\n")
         return 0
 
-    if args.backup_path:
-        backup_remote_file(
-            args.container,
-            args.namespace,
-            args.sandbox_name,
-            args.config_path,
-            args.backup_path,
-        )
-        print(f"Backup created at {args.backup_path}")
-
     if changed:
-        write_remote_file(
-            args.container,
-            args.namespace,
-            args.sandbox_name,
-            args.config_path,
-            updated_json,
-        )
+        backup_path = args.backup_path or f"{args.config_path}.bak"
+        backup_remote_file(args.sandbox_name, args.config_path, backup_path)
+        print(f"Backup created at {backup_path}")
+        write_remote_file(args.sandbox_name, args.config_path, updated_json)
         print(f"Updated {args.config_path}")
     else:
         print(f"No JSON change needed in {args.config_path}")
 
-    chmod_and_chown(
-        args.container,
-        args.namespace,
-        args.sandbox_name,
-        args.config_path,
-    )
-    dashboard_token = get_dashboard_token(
-        args.container,
-        args.namespace,
-        args.sandbox_name,
-    )
+    chmod_and_chown(args.sandbox_name, args.config_path)
+    dashboard_token = get_dashboard_token(args.sandbox_name)
 
     if env_id:
         print(f"Brev instance ID: {env_id}")
