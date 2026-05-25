@@ -19,6 +19,7 @@ helpers and ``ServiceConfig`` are tested in ``test_rtsp_ingest.py`` since they
 live in ``vss_agents.api.rtsp_ingest``.
 """
 
+from unittest.mock import ANY
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -101,6 +102,39 @@ class TestDeleteStreamEndpoint:
 
         assert response.status == "success"
         assert response.name == "camera-1"
+
+    @pytest.mark.asyncio
+    @patch("vss_agents.api.rtsp_delete.cleanup_vst_sensor")
+    @patch("vss_agents.api.rtsp_delete.cleanup_rtvi_vlm_stream")
+    @patch("vss_agents.api.rtsp_delete.get_stream_info_by_name")
+    @patch("vss_agents.api.rtsp_delete.httpx.AsyncClient")
+    async def test_delete_calls_rtvi_vlm_cleanup_when_only_vlm_configured(
+        self,
+        mock_client_class,
+        mock_get_stream_info,
+        mock_cleanup_rtvi_vlm,
+        mock_cleanup_vst_sensor,
+    ):
+        """rtvi-vlm cleanup must run whenever ``rtvi_vlm_url`` is configured."""
+        router = create_rtsp_delete_router(
+            ServiceConfig(
+                vst_internal_url="http://vst:30888",
+                rtvi_vlm_base_url="http://rtvi-vlm:8018",
+                delete_vst_storage_on_stream_remove=False,
+            )
+        )
+
+        mock_client = MagicMock()
+        mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_class.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        mock_get_stream_info.return_value = (True, "OK", "sensor-123", "rtsp://vst:554/sensor-123")
+        mock_cleanup_rtvi_vlm.return_value = (True, "OK")
+        mock_cleanup_vst_sensor.return_value = (True, "OK")
+
+        await router.routes[0].endpoint(name="camera-1")
+
+        mock_cleanup_rtvi_vlm.assert_awaited_once_with(mock_client, ANY, "sensor-123")
 
     @pytest.mark.asyncio
     @patch("vss_agents.api.rtsp_delete.cleanup_vst_storage")
