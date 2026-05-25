@@ -71,15 +71,10 @@ infra:
         value: "/phoenix"
   redis:
     enabled: true
-  # SDRC workload controller — replaces vss-vios-sdr + vss-vios-envoy-proxy from the vios umbrella.
-  # Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
+  # Base profile uses direct streamprocessing (sensor → vss-vios-streamprocessing:30001),
+  # mirroring docker dev-profile-base (.env: VST_NGINX_MODE=vst-direct, no SDR/Envoy/SDRC router).
   sdrc:
-    enabled: true
-    configFilePath: configs/sdrc/config-base.yml
-    config:
-      configMapName: sdrc-config
-      key: config.yml
-      mountPath: /config.yml
+    enabled: false
 
 # VIOS / VST shared charts (helm/services/vios umbrella). Per-service values: vios.<chart-key>.*
 # Required: vios.enabled — parent Chart.yaml condition: vios.enabled. If this is missing/false, Helm installs no VIOS subcharts (no postgres, sensor, ingress, …).
@@ -102,18 +97,18 @@ vios:
     enabled: true
     # storage.data.size / storageClass: see subchart or override
 
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-search / dev-profile-alerts.
+  # Disabled: base profile uses direct streamprocessing (matches docker dev-profile-base).
   vss-vios-envoy-proxy:
     enabled: false
 
-  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-search / dev-profile-alerts.
+  # Disabled: base profile uses direct streamprocessing (matches docker dev-profile-base).
   vss-vios-sdr:
     enabled: false
 
   vss-vios-sensor:
     enabled: true
-    # Sensor talks to SDRC (replaces vss-vios-envoy-proxy) — same pattern as dev-profile-search / dev-profile-alerts.
-    streamProcessorService: sdrc
+    # Direct streamprocessing — sensor talks straight to vss-vios-streamprocessing:30001 (no SDR/Envoy/SDRC router).
+    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
