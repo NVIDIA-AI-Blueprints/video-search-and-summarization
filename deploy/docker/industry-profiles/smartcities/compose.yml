@@ -78,7 +78,7 @@ services:
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
-      - $VSS_APPS_DIR/engines/:/opt/engines/
+      - $VSS_DATA_DIR/engines/:/opt/engines/
       - $VSS_APPS_DIR/industry-profiles/smartcities/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
 
     environment:
