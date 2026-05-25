@@ -15,7 +15,7 @@ For chart internals (templates, values), see `charts/rtvi-embed/`.
 - **`ngc-image-pull-secret`** (or equivalent) if your cluster requires pull secrets for private images (`imagePullSecrets` in `overrides_rtvi_embed.yaml`). Base `values.yaml` defaults to **`ngc-docker-reg-secret`** instead—use one name consistently.
 - On **MicroK8s / GPU Operator** clusters, GPU scheduling may require extra node setup (device plugin, `nvidia.com/gpu` allocatable); this chart version does not expose `runtimeClassName` in `templates/deployment.yaml`.
 
-Default image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:3.2.0-26.05.2` (see `Chart.yaml` / `values.yaml`).
+Default image: `nvcr.io/nvstaging/vss-core/vss-rt-embed:<tag>` (see `Chart.yaml` / `values.yaml` for image `tag`).
 
 ---
 
@@ -143,8 +143,10 @@ kubectl logs -f deployment/vss-rtvi-embed -n "${NAMESPACE}" --tail=100
 HTTP readiness: **`GET /v1/ready`** on port **8000**. Port-forward and probe:
 
 ```bash
-kubectl port-forward -n "${NAMESPACE}" svc/vss-rtvi-embed 8000:8000
+kubectl port-forward -n "${NAMESPACE}" svc/vss-rtvi-embed 8000:8000 &
+sleep 2
 curl -sS "http://127.0.0.1:8000/v1/ready"
+kill %1  # stop the port-forward when done
 ```
 
 ---
@@ -177,7 +179,7 @@ Default PVC names:
 
 ```bash
 kubectl delete pvc vss-rtvi-embed-rtvi-ngc-cache vss-rtvi-embed-rtvi-hf-cache \
-  -n "${NAMESPACE}" --wait=true
+  -n "${NAMESPACE}" --wait=true --ignore-not-found
 ```
 
 If the PVC name differs (prefix / override), list first:
