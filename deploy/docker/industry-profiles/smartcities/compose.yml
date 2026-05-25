@@ -29,7 +29,7 @@ services:
   nvstreamer-smartcities:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
     user: "0:0"
-    profiles: ["bp_smartcities_2d_cv", "bp_smartcities_2d_vlm"]
+    profiles: ["bp_smartcities_2d_cv"]
     entrypoint: [ '/bin/bash', '-c', 'if [ "$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES" = "true" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst' ]
     environment:
       - NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=${NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES}
@@ -102,7 +102,7 @@ services:
       context: $VSS_APPS_DIR/industry-profiles/smartcities
       dockerfile: $VSS_APPS_DIR/industry-profiles/smartcities/Dockerfiles/kibana-dashboard.Dockerfile
     network_mode: "host"
-    profiles: ["bp_smartcities_2d_cv", "bp_smartcities_2d_vlm"]
+    profiles: ["bp_smartcities_2d_cv"]
     container_name: vss-kibana-init
     command: bash /opt/mdx/init-scripts/kibana-import-dashboard.sh
     depends_on:
@@ -113,7 +113,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/analytics/video-analytics-api/compose.yml
       service: vss-video-analytics-api
-    profiles: ["bp_smartcities_2d_cv", "bp_smartcities_2d_vlm"]
+    profiles: ["bp_smartcities_2d_cv"]
     container_name: vss-video-analytics-api-smc
     volumes:
       - $VSS_APPS_DIR/industry-profiles/smartcities/smc-app/vss-video-analytics-api:/opt/mdx/vss-video-analytics-api
