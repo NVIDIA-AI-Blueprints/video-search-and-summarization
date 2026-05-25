@@ -5,7 +5,7 @@ import { VideoModalTooltip } from '@aiqtoolkit-ui/common';
 import { SearchByImageFrameData } from '../types';
 
 interface SearchByImageOverlayInfoProps {
-  frameData: SearchByImageFrameData;
+  frameData?: SearchByImageFrameData | null;
   selectedObjectId: string | null;
   onConfirm: (objectId: string) => void;
   onCancel: () => void;
@@ -13,15 +13,15 @@ interface SearchByImageOverlayInfoProps {
 }
 
 export const SearchByImageOverlayInfo: React.FC<SearchByImageOverlayInfoProps> = ({
-  frameData,
+  frameData = null,
   selectedObjectId,
   onConfirm,
   onCancel,
   isDark = false,
 }) => {
-  const selectedObj = frameData.objects.find((o) => o.id === selectedObjectId);
+  const selectedObj = frameData?.objects?.find((o) => o.id === selectedObjectId);
   const selectedTypeLabel = selectedObj?.type?.trim() || 'Unknown';
-  const hasBoxes = frameData.objects.length > 0;
+  const hasBoxes = (frameData?.objects?.length ?? 0) > 0;
   const containerClassName = isDark
     ? 'flex items-center justify-between gap-3 border-y border-gray-700 bg-slate-900 px-4 py-2 text-sm text-gray-100'
     : 'flex items-center justify-between gap-3 border-y border-gray-200 bg-white px-4 py-2 text-sm text-gray-900';
