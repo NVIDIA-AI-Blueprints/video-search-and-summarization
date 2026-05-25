@@ -2,23 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Harbor environment provider for Brev GPU instances.
 
-Two modes:
-
-1. **Reuse an existing instance** (BREV_INSTANCE env var):
-   Validate the instance's GPU meets the task's requirements
-   (gpu_type, gpu_count, min_vram_gb_per_gpu from task.toml [metadata])
-   and fail early if not.
-
-2. **Auto-provision** (no BREV_INSTANCE):
-   Query `brev search --json` for a matching instance type, create
-   one, wait for ready.  The instance is stopped (not deleted) on
-   trial completion so subsequent trials can reuse it.
+Connects to a pre-existing operator-managed `vss-eval-*` pool member
+resolved via the `BREV_INSTANCE` env var (or `brev_instance` in
+task.toml [metadata]). Validates that the resolved instance is
+reachable and that its GPU meets the task's requirements; raises if
+no instance is resolved. The harness does NOT auto-provision — see
+AGENTS.md § 5a for the fleet-selection algorithm the skill-eval
+agent uses to pick a pool member.
 
 Task.toml [metadata] fields consumed:
     gpu_type              — e.g. "L40S", "H100", "RTX PRO 6000"
     gpu_count             — 1 or 2
     min_vram_gb_per_gpu   — e.g. 48, 80
-    brev_search           — (optional) substring override for brev search
+    min_root_disk_gb      — root-disk floor enforced post-resolve
+    min_gpu_driver_version — driver floor enforced post-resolve
     brev_instance         — (optional) explicit instance name override
 """
 
@@ -125,7 +122,6 @@ class BrevEnvironment(BaseEnvironment):
             "gpu_type": meta.get("gpu_type"),
             "gpu_count": int(meta.get("gpu_count", 1)),
             "min_vram_gb_per_gpu": int(meta.get("min_vram_gb_per_gpu", 0)),
-            "brev_search": meta.get("brev_search") or meta.get("gpu_type"),
             "min_root_disk_gb": int(meta.get("min_root_disk_gb", 0)),
             "min_gpu_driver_version": meta.get("min_gpu_driver_version"),
         }

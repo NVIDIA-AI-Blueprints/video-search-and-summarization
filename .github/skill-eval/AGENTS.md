@@ -364,20 +364,33 @@ template is in § Harbor invocation below.
    BEFORE releasing that flock, reset its deployment state:
 
    ```bash
-   brev exec "$INSTANCE_NAME" 'docker rm -f $(docker ps -aq) 2>/dev/null; \
-                               docker network prune -f; \
-                               docker volume prune -af; \
+   brev exec "$INSTANCE_NAME" 'docker ps -aq | xargs -r docker rm -f >/dev/null && \
+                               docker network prune -f >/dev/null && \
+                               docker volume prune -af >/dev/null && \
                                rm -f /tmp/skill-eval/active-deploy.txt'
    ```
+
+   `&&` chaining is load-bearing: if any prune step exits non-zero
+   (daemon hiccup, a container still holding a volume from an
+   incomplete `docker rm`, pre-23.0 Docker without `volume prune
+   -a`), the chain short-circuits and the marker is left intact,
+   so the next worker sees the stale-deploy state instead of an
+   empty marker that lies about a partially-dirty box. `xargs -r`
+   makes the "no containers" case a clean no-op (vs. `docker rm -f`
+   with empty argv). Same idiom as the in-process reconcile path
+   at `envs/brev_env.py::_ensure_prerequisite_deployed`.
 
    Run this once per locked box at the end of the run (after § 6
    posts the final comment), regardless of trial outcome — `DONE`,
    `BLOCKED`, or partial. The docker image cache, repo clone, and
    sample-data extract survive (they're slow to rebuild and carry
    no trial state); containers, volumes, networks, and the marker
-   are dropped. Then close the lock FD (or `flock -u $LFD`) so the
-   next worker can grab the box. You never `brev stop` / `brev
-   delete`. Pool lifecycle is strictly an operator concern.
+   are dropped. If the chain exits non-zero, the box stays flagged
+   for operator attention (marker still set, containers / volumes
+   partially live) — log the failure but do not retry. Then close
+   the lock FD (or `flock -u $LFD`) so the next worker can grab the
+   box. You never `brev stop` / `brev delete`. Pool lifecycle is
+   strictly an operator concern.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec

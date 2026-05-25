@@ -222,9 +222,10 @@ The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker i
 
 Process this PR per AGENTS.md: diff → detect changed skills → update or create the
 adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset → acquire
-a Brev lock for the target platform(s) → run harbor trials → gather results →
-post ONE comment per (PR, spec) batch → release the lock → stop/delete any Brev
-instance you brought online.
+a per-box flock on a `vss-eval-*` pool member matching the target platform(s) →
+run harbor trials → gather results → post ONE comment per (PR, spec) batch →
+reset deployment state on each locked box per § 7 → release the flock. Never
+`brev stop` / `brev delete` any pool member — pool lifecycle is operator-managed.
 
 When done, emit a one-line final summary starting with `DONE:` so the workflow
 can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a

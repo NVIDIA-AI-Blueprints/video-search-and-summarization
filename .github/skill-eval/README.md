@@ -23,18 +23,18 @@ The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill
 - **Python 3** — for the adapters.
 - **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file.
 
-### GPU targets (provisioned on demand, not on the runner)
+### GPU targets (operator-managed `vss-eval-*` pool)
 
-The runner has no GPU. Eval trials run on per-platform Brev instances the agent provisions (and the workflow tears down):
+The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev instances that the **operator** provisions ahead of time with `brev create`; the skill-eval agent only locks, drives, and resets them — never creates, stops, or deletes pool members. Default pool today:
 
-| Platform | Instance type | Lifecycle |
+| Platform | Pool member(s) | Instance type |
 |---|---|---|
-| `l40s` | `massedcompute_L40Sx2` (2× L40S 48 GB) | `brev delete` after trials complete (MC is non-stoppable) |
-| `h100` | `dmz.h100x2.pcie` (2× H100 80 GB) | `brev delete` after trials complete |
-| `rtx` | `g7e.12xlarge` (RTX PRO 6000) | `brev stop` after trials complete |
-| `spark` | BYOH DGX Spark node | no-op — stays online across runs |
+| `l40s` | `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2` | `massedcompute_L40S` / `massedcompute_L40Sx2` |
+| `h100` | `vss-eval-h100` (when needed) | launchpad `dmz.h100x2.pcie` preferred |
+| `rtx` | `vss-eval-rtx-1g`, `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g` | AWS `g7e.4xlarge` / `g7e.12xlarge` (RTX PRO Server 6000) |
+| `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
-Fallback chains and matrix constraints live in [`AGENTS.md § Platform topology`](AGENTS.md).
+Per-CI-run hygiene (containers, named volumes, and the deploy marker are wiped on every locked box at the end of each run, while image cache / repo clone / sample-data extract survive) is documented in [`AGENTS.md § 7`](AGENTS.md). Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
@@ -250,7 +250,7 @@ disown
 
 **`AddTestsDirError` / `DownloadVerifierDirError`.** File upload/download to the Brev instance failed. Check `brev exec <instance> "echo ok"` works manually. Clear `/tests /logs /skills` on the instance and retry.
 
-**Instance creation fails.** Some Brev providers have capacity issues. Harbor's fallback chain (see [`AGENTS.md § Platform topology`](AGENTS.md)) cycles through alternatives. If all are exhausted, the agent posts a `csp_unavailable` blocker.
+**Pool exhausted for `<platform>`.** No `vss-eval-*` pool member matches the trial's `gpu_type` after the 28800s wait window (`brev ls` polled every 5 min). The agent emits `BLOCKED: pool exhausted for <platform>` and exits. Provisioning new pool members is the operator's job — `brev create vss-eval-<name>` with the matching instance type, then bring it online; the next CI run picks it up automatically via the `^vss-eval-*` fleet scan.
 
 **Brev auth expired mid-run.** The CI run emits `BLOCKED: brev auth expired`. The `brev-keepalive.timer` systemd user unit keeps the access token warm, but only an interactive `brev login --auth nvidia` can refresh a fully-expired refresh token.
 
