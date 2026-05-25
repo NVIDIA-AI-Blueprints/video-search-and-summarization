@@ -31,10 +31,6 @@ service:
   type: ClusterIP
   # RTSP server port (live streams). Service exposes this so vss-rtvi-vlm (or other in-cluster clients) can connect to rtsp://<release>-vss-vios-streamprocessing:30554/live/<uuid>.
   rtspPort: 30554
-metrics:
-  enabled: false
-  port: 8080
-  path: /metrics
 # Compose parity: entrypoint, healthcheck, env and volumes
 command: ["/bin/bash", "-c"]
 args: ["if [ \"$VST_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && exec /home/vst/vst_release/launch_vst"]
