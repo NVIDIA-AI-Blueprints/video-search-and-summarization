@@ -88,18 +88,20 @@ This skill requires the VSS **lvs** profile running on the host at `$HOST_IP`. B
    (Port 38111 is the video summarization service. HTTP 200 → ready; 503 → still warming, retry in a moment.)
 
 2. **If the probe fails**, ask the user:
-   > *"The VSS `lvs` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`?"*
+   > *"The VSS `lvs` profile isn't running on `$HOST_IP`. Shall I deploy it now using the `/vss-deploy-profile` skill with `-p lvs`? Reply `no` to summarize with the VLM-only fallback instead (lower quality, no scenario/events targeting)."*
 
    - If yes → hand off to the `/vss-deploy-profile` skill. Return here once it succeeds.
-   - If no → stop. Long-video summarization without the video summarization service falls back to VLM-only, which is a different (lower-quality) path — confirm with the user before substituting.
+   - If no → proceed directly to **Step 2 fallback (VLM with default prompt)**. Do not ask again, and do not run scenario/events HITL — the user already chose the fallback. Prepend the Routing fallback note to the response so they see what they got.
 
    (If your caller has granted explicit pre-authorization to deploy
    autonomously — e.g. the request says "pre-authorized to deploy
    prerequisites", or you are running in a non-interactive evaluation
    harness with that permission — skip the confirmation and invoke
-   `/vss-deploy-profile` directly.)
+   `/vss-deploy-profile` directly. If the caller has explicitly
+   pre-authorized the VLM fallback instead — e.g. "skip lvs, just use
+   the VLM" — go straight to Step 2 fallback without prompting.)
 
-3. If the probe passes, proceed.
+3. If the probe passes, proceed to **Step 2 (LVS + HITL)**.
 
 ---
 
