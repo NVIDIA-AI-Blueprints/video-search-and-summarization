@@ -86,6 +86,7 @@ function get_detected_hardware_profile() {
   case "${_gpu_lower}" in
     *h100*) echo "H100" ;;
     *l40s*) echo "L40S" ;;
+    *rtx*4500*) echo "RTX4500" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
@@ -307,15 +308,23 @@ function get_rtvi_vllm_gpu_memory_utilization() {
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
       DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
-      L40S) echo "0.8" ;;
+      L40S|RTX4500) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
     return
   fi
 
   case "${_hardware_profile}" in
-    L40S) echo "0.8" ;;
+    L40S|RTX4500) echo "0.8" ;;
     *) echo "0.7" ;;
+  esac
+}
+
+function get_rtvi_vlm_max_model_len() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTX4500) echo "20480" ;;
+    *) echo "" ;;
   esac
 }
 
@@ -366,6 +375,7 @@ function usage() {
   echo "                                   • One of:"
   echo "                                     - H100"
   echo "                                     - L40S"
+  echo "                                     - RTX4500"
   echo "                                     - RTXPRO6000BW"
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
@@ -661,9 +671,9 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'L40S' 'RTX4500' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTX4500, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
@@ -1324,6 +1334,11 @@ function state_up() {
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      local _rtvi_vlm_max_model_len
+      _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+      if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
+        set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_rtvi_vlm_max_model_len}"
+      fi
     fi
     # RT_VLM_DEVICE_ID: mirrors NIM compose device_ids pattern.
     # local → VLM_DEVICE_ID; local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
