@@ -47,7 +47,9 @@ Exit codes:
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -310,8 +312,124 @@ line starting with `BLOCKED:` followed by the reason.
 
 
 # ---------------------------------------------------------------------------
-# Cleanup
+# Failsafe deployment-state reset
 # ---------------------------------------------------------------------------
+#
+# AGENTS.md § 7 commits the agent to reset deployment state on every box it
+# locked before releasing the flock. That covers the happy-path exit, but
+# several CI paths bypass § 7 entirely: max-turns exit (rc=3 before the
+# step runs), agent crash, cancel-in-progress SIGTERM from GitHub when a
+# fresh push lands on the same `concurrency.group`, KeyboardInterrupt
+# (^C in local dev). The kernel releases the flock automatically on
+# process death — but the docker containers / named volumes / marker
+# don't, so the next worker grabs a free lock on a contaminated box.
+#
+# The agent appends each `vss-eval-*` instance it locks (per AGENTS.md
+# § 5b) to a touched-boxes ledger; this module reads the ledger and
+# runs the same § 7 reset command from `atexit` and a SIGTERM/SIGINT
+# handler. Idempotent vs. agent-side cleanup: both run the same
+# `xargs -r docker rm -f && … && rm -f marker` chain, post-reset is a
+# no-op. NOT caught: SIGKILL (the 8h workflow timeout-minutes terminator);
+# that needs an operator-side periodic sweep, out of scope here.
+
+
+def _touched_boxes_path() -> Path:
+    run_id = os.environ.get("GITHUB_RUN_ID") or f"local-{int(time.time())}"
+    return Path(f"/tmp/skill-eval/touched-boxes-{run_id}.txt")
+
+
+# Mirrors AGENTS.md § 7's reset chain verbatim. `xargs -r` makes the
+# "no containers" case a no-op; `&&` chaining ensures the marker is
+# only wiped if every prune step succeeded — so a partial cleanup
+# failure leaves the box flagged for operator attention instead of
+# handing it to the next worker with a lying marker.
+_RESET_CMD = (
+    "docker ps -aq | xargs -r docker rm -f >/dev/null && "
+    "docker network prune -f >/dev/null && "
+    "docker volume prune -af >/dev/null && "
+    "rm -f /tmp/skill-eval/active-deploy.txt"
+)
+
+
+_failsafe_already_ran = False
+
+
+def _failsafe_reset_touched_boxes() -> None:
+    """Read the touched-boxes ledger and run § 7 reset on each box.
+
+    Best-effort and idempotent: per-box failures are logged and the loop
+    continues (a single stuck box must not block cleanup of the others),
+    and the reset command is itself safe to repeat. Re-entry-guarded so
+    atexit + signal-handler firing both is harmless."""
+    global _failsafe_already_ran
+    if _failsafe_already_ran:
+        return
+    _failsafe_already_ran = True
+
+    ledger = _touched_boxes_path()
+    if not ledger.exists():
+        return
+    try:
+        raw = ledger.read_text()
+    except OSError as exc:
+        print(f"[failsafe] cannot read {ledger}: {exc}", file=sys.stderr)
+        return
+
+    boxes = sorted({
+        line.strip() for line in raw.splitlines()
+        if line.strip().startswith("vss-eval-")
+    })
+    if not boxes:
+        return
+
+    print(
+        f"[failsafe] resetting deployment state on {len(boxes)} box(es): "
+        f"{', '.join(boxes)}",
+        file=sys.stderr,
+    )
+    for box in boxes:
+        try:
+            result = subprocess.run(
+                ["brev", "exec", box, "--", _RESET_CMD],
+                timeout=180, capture_output=True, text=True,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"[failsafe] {box}: brev exec timed out after 180s",
+                  file=sys.stderr)
+            continue
+        except OSError as exc:
+            print(f"[failsafe] {box}: brev exec failed to start: {exc}",
+                  file=sys.stderr)
+            continue
+        if result.returncode != 0:
+            stderr_tail = (result.stderr or "")[-300:]
+            print(f"[failsafe] {box}: reset returned rc={result.returncode}; "
+                  f"stderr tail: {stderr_tail!r}", file=sys.stderr)
+        else:
+            print(f"[failsafe] {box}: reset OK", file=sys.stderr)
+
+
+def _install_failsafe() -> None:
+    """Wire `_failsafe_reset_touched_boxes` into `atexit` + SIGTERM +
+    SIGINT. `atexit` catches normal exits and uncaught exceptions;
+    SIGTERM catches GitHub's `concurrency.cancel-in-progress`; SIGINT
+    catches local ^C. SIGKILL (workflow `timeout-minutes` hit) is
+    unreachable from Python and is not covered."""
+    atexit.register(_failsafe_reset_touched_boxes)
+
+    def _handle(signum: int, _frame: object) -> None:
+        # Run cleanup synchronously, then restore the default disposition
+        # and re-raise so the runner records the cancellation with the
+        # correct exit code (128 + signum). Calling `sys.exit()` here
+        # would shadow the signal and make GitHub Actions log the job as
+        # a normal failure instead of a cancellation.
+        _failsafe_reset_touched_boxes()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    signal.signal(signal.SIGTERM, _handle)
+    signal.signal(signal.SIGINT, _handle)
+
 
 # ---------------------------------------------------------------------------
 # Main
@@ -320,6 +438,7 @@ line starting with `BLOCKED:` followed by the reason.
 def main() -> int:
     _disable_server_thinking()
     _ensure_sdk()
+    _install_failsafe()
     try:
         rc = asyncio.run(run_agent())
     except KeyboardInterrupt:

@@ -316,6 +316,14 @@ template is in § Harbor invocation below.
       ```bash
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
       flock -w 28800 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
+      # Record the box in the touched-boxes ledger so the Python
+      # harness's failsafe (atexit + SIGTERM handler) can reset its
+      # deployment state if the agent never reaches § 7 (max-turns
+      # exit, crash, cancel-in-progress, etc.). Append (not
+      # overwrite) — multiple locked boxes per run are normal across
+      # spec×platform tuples.
+      mkdir -p /tmp/skill-eval
+      echo "$INSTANCE_NAME" >> /tmp/skill-eval/touched-boxes-"${GITHUB_RUN_ID}".txt
       # ... trials ...
       exec {LFD}>&-        # release on exit; trap so SIGINT doesn't strand it
       ```
@@ -391,6 +399,18 @@ template is in § Harbor invocation below.
    the lock FD (or `flock -u $LFD`) so the next worker can grab the
    box. You never `brev stop` / `brev delete`. Pool lifecycle is
    strictly an operator concern.
+
+   **You are the primary path; the harness is the backstop.** The
+   Python harness (`skills_eval_agent.py`) reads the touched-boxes
+   ledger you appended to in § 5b and runs this same reset chain
+   from `atexit` + a SIGTERM/SIGINT handler. That covers the cases
+   where you never reach § 7 — max-turns exit, crash,
+   `cancel-in-progress` on a fresh push — but it does NOT cover
+   SIGKILL (the 8h `timeout-minutes` terminator). Running § 7
+   yourself on every locked box is still required: it executes
+   while the trials' results are fresh and lets you log a per-box
+   failure into the run summary, which the post-mortem failsafe
+   only logs to stderr.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec

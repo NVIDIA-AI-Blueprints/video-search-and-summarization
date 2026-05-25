@@ -62,8 +62,13 @@ permissions:
   pull-requests: write
 
 # Only one eval runs per PR (or per manual sweep) at a time. A fresh push
-# cancels the in-flight run (lock on /tmp/brev/<id>.lock will be released
-# by the agent's trap).
+# cancels the in-flight run via SIGTERM; the Python harness's signal
+# handler in skills_eval_agent.py runs § 7 deployment-state reset on
+# every box recorded in /tmp/skill-eval/touched-boxes-<run_id>.txt
+# before re-raising the signal, so the next worker on those boxes
+# doesn't inherit stale containers / volumes / marker. The per-box
+# flock (/tmp/brev/<INSTANCE_NAME>.lock) is released by the kernel
+# when the agent process dies — no userspace trap needed for that.
 concurrency:
   group: skills-eval-${{ github.ref }}
   cancel-in-progress: true
