@@ -122,4 +122,6 @@ nodePort: {{ .nodePort | int }}
   value: {{ required "service.envoyAdmin.port is required" .Values.service.envoyAdmin.port | quote }}
 - name: ROUTER_PORT
   value: {{ required "service.controller.port is required" .Values.service.controller.port | quote }}
+- name: WDM_CLUSTER_TYPE
+  value: {{ required "runtimeEnv.WDM_CLUSTER_TYPE is required" (get $env "WDM_CLUSTER_TYPE") | quote }}
 {{- end -}}
