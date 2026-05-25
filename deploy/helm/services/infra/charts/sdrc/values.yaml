@@ -38,6 +38,7 @@ runtimeEnv:
   KUBERNETES_PORT: "443"
   WDM_CONTROLLER_HOST: "127.0.0.1"
   HOST_IP: "127.0.0.1" # TODO
+  WDM_CLUSTER_TYPE: "k8s-headless"
 
 serviceAccount:
   create: true
