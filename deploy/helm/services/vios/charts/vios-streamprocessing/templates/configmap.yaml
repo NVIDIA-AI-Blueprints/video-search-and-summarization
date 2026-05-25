@@ -33,7 +33,10 @@ data:
 {{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "http://%s:9200/mdx-raw*" $esH) }}
 {{- $cloudStorage := .Values.cloudStorageEndpoint | default "http://127.0.0.1:9000" }}
 {{- $mqttAddr := .Values.mqttBrokerAddress | default "tcp://172.17.0.1:1883" }}
-{{ .Files.Get "configs/vst_config.json" | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | indent 4 }}
+{{- $metrics := .Values.metrics | default dict }}
+{{- $prometheusEnabled := ternary "true" "false" ($metrics.enabled | default false) }}
+{{- $prometheusPort := ($metrics.port | default 8080 | toString) }}
+{{ .Files.Get "configs/vst_config.json" | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__PROMETHEUS_ENABLED__" $prometheusEnabled | replace "__PROMETHEUS_PORT__" $prometheusPort | indent 4 }}
   adaptor_config.json: |
 {{ .Files.Get "configs/adaptor_config.json" | indent 4 }}
   vst_storage.json: |

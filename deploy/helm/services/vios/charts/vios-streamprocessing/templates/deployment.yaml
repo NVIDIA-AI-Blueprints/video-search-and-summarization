@@ -58,6 +58,11 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
+            {{- $metrics := .Values.metrics | default dict }}
+            {{- if ($metrics.enabled | default false) }}
+            - name: metrics
+              containerPort: {{ $metrics.port | default 8080 }}
+            {{- end }}
           env:
             {{- toYaml .Values.env | nindent 12 }}
             - name: CENTRALIZE_DB_HOSTADDR

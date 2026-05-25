@@ -42,6 +42,13 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-vios-streamprocessing
     app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- $metrics := .Values.metrics | default dict }}
+  {{- if ($metrics.enabled | default false) }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ ($metrics.port | default 8080) | quote }}
+    prometheus.io/path: {{ ($metrics.path | default "/metrics") | quote }}
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -53,6 +60,12 @@ spec:
       targetPort: {{ .Values.service.rtspPort | default 30554 }}
       protocol: TCP
       name: rtsp
+    {{- if ($metrics.enabled | default false) }}
+    - port: {{ $metrics.port | default 8080 }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     app.kubernetes.io/name: vss-vios-streamprocessing
     app.kubernetes.io/instance: {{ .Release.Name }}
