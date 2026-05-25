@@ -438,7 +438,7 @@ MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 **NGC (`ngc:` scheme)** — downloads from the NGC model registry on first startup:
 ```bash
 NGC_API_KEY=<your-ngc-api-key>
-MODEL_PATH=ngc:nvstaging/tao/models/cosmos-embed1:v1.0
+MODEL_PATH=ngc:nvidia/tao/cosmos-embed1:v1.0
 ```
 Generate an NGC API key at https://ngc.nvidia.com → **Org** → **API Keys**. The model is
 downloaded once and cached in `NGC_MODEL_CACHE` (default: `/opt/nvidia/rtvi/.rtvi/ngc_model_cache/`).

@@ -155,12 +155,11 @@ kill_processes() {
 
 check_rtvi_process_status() {
     process_pid=$!
-    if [ $? -eq 0 ]; then
-        echo $process_pid >> "$PID_FILE"
-    else
+    if [ -z "$process_pid" ]; then
         echo "Failed to start rtvi_server"
         exit 1
     fi
+    echo $process_pid >> "$PID_FILE"
 
     # Wait for rtvi_server to come up
     while true; do
