@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG DS_VERSION=9.0
-ARG PW
-
 ARG BASE_IMAGE="nvcr.io/nvstaging/vss-core/vss-rt-cv:3.2.0-26.05.1"
 FROM ${BASE_IMAGE}
 
