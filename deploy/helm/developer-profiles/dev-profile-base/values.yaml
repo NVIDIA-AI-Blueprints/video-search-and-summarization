@@ -93,15 +93,16 @@ vios:
     enabled: true
     # storage.data.size / storageClass: see subchart or override
 
+  # Disabled: base uses direct streamprocessing (:30001), no SDR/Envoy/SDRC router.
   vss-vios-envoy-proxy:
-    enabled: true
+    enabled: false
 
   vss-vios-sdr:
-    enabled: true
-    # clusterType: kubernetes (default) uses K8s API; no Docker socket. Set to "docker" only if mounting host docker.sock.
+    enabled: false
 
   vss-vios-sensor:
     enabled: true
+    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -109,6 +110,8 @@ vios:
 
   vss-vios-streamprocessing:
     enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
     # Video upload media info (duration/codec) needs libav/ffmpeg in the image. Subchart sets VST_INSTALL_ADDITIONAL_PACKAGES=true so user_additional_install.sh runs at startup if present in image; override env if needed.
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video / -vst-streamer-videos (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:

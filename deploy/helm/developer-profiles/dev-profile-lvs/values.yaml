@@ -135,20 +135,24 @@ vios:
   vss-vios-postgres:
     enabled: true
 
+  # Disabled: LVS uses direct streamprocessing (:30001), no SDR/Envoy/SDRC router.
   vss-vios-envoy-proxy:
-    enabled: true
+    enabled: false
 
   vss-vios-sdr:
-    enabled: true
+    enabled: false
 
   vss-vios-sensor:
     enabled: true
+    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
 
   vss-vios-streamprocessing:
     enabled: true
+    useSdrEnvoyStyleHeadless: false
+    headlessServiceName: ""
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
