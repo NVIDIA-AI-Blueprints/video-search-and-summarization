@@ -30,14 +30,20 @@ exit_with_msg(){
 ##############################
 import_calibration(){
     echo -e "Importing Calibration JSON File"
-    curl -X POST localhost:8081/config/upload-file/calibration \
-	--form configFiles=@"/opt/mdx/calibration/sample-data/calibration.json" || exit_with_msg "Curl command to import calibration file failed with error code $?."
+    until curl -X POST --fail localhost:8081/config/upload-file/calibration \
+	--form configFiles=@"/opt/mdx/calibration/sample-data/calibration.json"; do
+        echo "Curl command to import calibration file failed with error code $?. Retrying in 5 seconds..."
+        sleep 5
+    done
 }
 
 import_road_network(){
     echo -e "Importing Road Network JSON File"
-    curl -X POST localhost:8081/config/upload-file/road-network \
-	--form configFiles=@"/opt/mdx/calibration/sample-data/road-network.json" || exit_with_msg "Curl command to import road-network file failed with error code $?."
+    until curl -X POST --fail localhost:8081/config/upload-file/road-network \
+	--form configFiles=@"/opt/mdx/calibration/sample-data/road-network.json"; do
+        echo "Curl command to import road-network file failed with error code $?. Retrying in 5 seconds..."
+        sleep 5
+    done
 }
 
 fetchstatus() {
