@@ -286,10 +286,14 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
     collected_text: list[str] = []
     cost_usd = 0.0
     saw_result = False
+    result_is_error = False
+    result_subtype: str | None = None
+    result_stop_reason: str | None = None
     retry_attempted = False
 
     async def _run() -> None:
         nonlocal cost_usd, saw_result, retry_attempted
+        nonlocal result_is_error, result_subtype, result_stop_reason
         async with ClaudeSDKClient(options=options) as client:
             await client.query(_assemble_judge_prompt(check, traj_path))
             async for message in client.receive_response():
@@ -298,8 +302,16 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
                         if isinstance(block, TextBlock) and block.text:
                             collected_text.append(block.text)
                 elif isinstance(message, ResultMessage):
-                    cost_usd += getattr(message, "total_cost_usd", 0.0) or 0.0
+                    # `total_cost_usd` on ResultMessage is cumulative for
+                    # the SDK session (same field that carries cumulative
+                    # `num_turns`), so re-assign on every ResultMessage
+                    # rather than accumulating — the last value is the
+                    # whole-session total.
+                    cost_usd = getattr(message, "total_cost_usd", 0.0) or 0.0
                     saw_result = True
+                    result_is_error = bool(getattr(message, "is_error", False))
+                    result_subtype = getattr(message, "subtype", None)
+                    result_stop_reason = getattr(message, "stop_reason", None)
                     break
 
             # Retry once if the first response ended cleanly but didn't
@@ -310,8 +322,15 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
             # the right evidence but never emitted the {"pass": ...} JSON.
             # The follow-up uses the same session so prior tool results
             # stay in context — no re-investigation cost.
+            #
+            # Gate retry on `not result_is_error`: when the SDK flagged the
+            # first response as an error (rate limit, content policy,
+            # tool-use abort, max-turns exhaustion surfaced via is_error),
+            # re-prompting in the same session won't recover and just
+            # buries the real failure cause under a second-pass rationale.
             if (
                 saw_result
+                and not result_is_error
                 and collected_text
                 and _parse_verdict_json("\n".join(collected_text)) is None
             ):
@@ -323,7 +342,10 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
                             if isinstance(block, TextBlock) and block.text:
                                 collected_text.append(block.text)
                     elif isinstance(message, ResultMessage):
-                        cost_usd += getattr(message, "total_cost_usd", 0.0) or 0.0
+                        cost_usd = getattr(message, "total_cost_usd", 0.0) or 0.0
+                        result_is_error = bool(getattr(message, "is_error", False))
+                        result_subtype = getattr(message, "subtype", None)
+                        result_stop_reason = getattr(message, "stop_reason", None)
                         break
 
     try:
@@ -352,13 +374,21 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
         # Common causes: ran out of turns mid-analysis without emitting the
         # final {"pass": ...} object; SDK closed the stream early
         # (saw_result=False); or the agent returned only tool-use blocks.
-        # `retry_attempted` distinguishes "judge never tried to format"
-        # from "judge tried twice and still wandered" — the latter is a
-        # spec-prompt issue, the former is an LLM noncompliance flake.
+        # `is_error`/`subtype`/`stop_reason` carry the SDK's own
+        # termination reason: triage `is_error=True` as an SDK/model
+        # failure (rate-limit, content-policy, tool-use abort) rather
+        # than a "judge wandered into prose" issue. `retry_attempted`
+        # distinguishes "judge never tried to format" (`False`) from
+        # "judge tried twice and still wandered" (`True`); the latter
+        # points at a spec-prompt issue, the former at an LLM
+        # noncompliance flake or SDK-side error.
         head = full_text[:600]
         tail = full_text[-400:] if len(full_text) > 1000 else ""
         signals = (
             f"saw_result_message={saw_result} "
+            f"is_error={result_is_error} "
+            f"subtype={result_subtype!r} "
+            f"stop_reason={result_stop_reason!r} "
             f"text_chars={len(full_text)} "
             f"text_blocks={len(collected_text)} "
             f"retry_attempted={retry_attempted}"
