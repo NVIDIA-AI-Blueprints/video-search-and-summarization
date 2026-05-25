@@ -126,11 +126,11 @@ The script also honors these environment variables:
 Successful runs usually include log lines like:
 
 ```text
-[init_nvidia_remote] Start installing/onboarding NemoClaw
-[init_nvidia_remote] Finished installing/onboarding NemoClaw
-[init_nvidia_remote] Applying custom policy file /home/ubuntu/video-search-and-summarization/assets/vss_nemoclaw_policy.yaml to sandbox demo
-[init_nvidia_remote] VSS skills installed
-[init_nvidia_remote] Updating OpenClaw config for sandbox demo using script /home/ubuntu/video-search-and-summarization/deploy/docker/scripts/nemoclaw/update_openclaw_config.py
+[init_nemoclaw] Start installing/onboarding NemoClaw
+[init_nemoclaw] Finished installing/onboarding NemoClaw
+[init_nemoclaw] Applying custom policy file /home/ubuntu/video-search-and-summarization/assets/vss_nemoclaw_policy.yaml to sandbox demo
+[init_nemoclaw] VSS skills installed
+[init_nemoclaw] Updating OpenClaw config for sandbox demo using script /home/ubuntu/video-search-and-summarization/deploy/docker/scripts/nemoclaw/update_openclaw_config.py
 OpenClaw UI at https://18789-<brev-id>.brevlab.com/#token=<token>
 ```
 
