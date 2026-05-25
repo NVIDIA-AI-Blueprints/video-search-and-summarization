@@ -150,6 +150,7 @@ services:
       ENVOY_ADMIN_PORT: 9902
       PORT: 5003
       ROUTER_PORT: 5003
+      WDM_CLUSTER_TYPE: "docker"
     volumes:
       - ./log:/logs
       - /var/run/docker.sock:/var/run/docker.sock
