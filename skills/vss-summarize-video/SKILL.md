@@ -202,19 +202,23 @@ Step 2, not the clip URL from Step 1.**
 
 ## Step 2a — Short video (< 60s) → VLM direct
 
-### HITL: confirm the VLM prompt first (REQUIRED — do not skip)
-
-Full prompt-confirmation walk-through (questions to ask the user, examples, refusal handling) lives in [`references/hitl-prompts.md`](references/hitl-prompts.md). Always run this step before calling the VLM.
 ### Call the VLM
 
-Once the user confirms a prompt, send it as the `text` part of the VLM
-message. OpenAI-compatible chat completions with the video URL embedded in
+Use the default VLM prompt below as the `text` part of the request.
+OpenAI-compatible chat completions with the video URL embedded in
 the message content:
 
 ```bash
 VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
-PROMPT='<confirmed_prompt_from_hitl>'
+PROMPT='Describe in detail what is happening in this video,
+including all visible people, vehicles, equipments, objects,
+actions, and environmental conditions.
+OUTPUT REQUIREMENTS:
+[timestamp-timestamp] Description of what is happening.
+EXAMPLE:
+[0.0s-4.0s] <description of the first event>
+[4.0s-12.0s] <description of the second event>'
 
 curl -s -X POST "$VLM/v1/chat/completions" \
   -H "Content-Type: application/json" \
@@ -325,11 +329,6 @@ contract from Step 1.
 
 ### Short video (`$DURATION < 60`)
 
-**HITL (required, before the curl):** post the Step 2a message, wait for
-`Submit` (or a `/generate` / `/refine` round-trip that ends in `Submit`),
-then set `PROMPT` to the confirmed text. Do not run the curl below until
-that confirmation has arrived.
-
 ```bash
 VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
 VLM="${VLM%/v1}"
@@ -399,8 +398,7 @@ if [ "$video_sum_code" = "200" ]; then
     | jq -r '.choices[0].message.content' | jq '{video_summary, events}'
 else
   echo "⚠️ Note: video is ${DURATION}s long. The video summarization service returned HTTP $video_sum_code; falling back to VLM."
-  # Fall back to the short-video VLM flow above (which itself requires
-  # the Step 2a HITL confirmation before calling the VLM).
+  # Fall back to the short-video VLM flow above.
 fi
 ```
 
@@ -422,15 +420,15 @@ The VLM and video summarization responses are the final user-facing product. Sur
 them with minimal transformation; do not paraphrase, re-voice, add
 emojis, or re-format into bullets/tables that weren't in the source.
 
-**Exactly one backend call, exactly one rendering.** A single confirmed
-prompt (Step 2a) or a single confirmed scenario/events set (Step 2b)
-corresponds to exactly one `POST /v1/chat/completions` or `POST
+**Exactly one backend call, exactly one rendering.** The Step 2a VLM
+call (short video) or a single confirmed scenario/events set in Step 2b
+(LVS) corresponds to exactly one `POST /v1/chat/completions` or `POST
 /v1/summarize` request, and exactly one block of output to the user. Do
 NOT fan out parallel calls to hedge (e.g., one call for "full scene"
 plus another for "anomalies"), and do NOT render the same response
-twice with different headers. If the user wants a second pass (e.g.,
-"now with a safety-incident focus"), that's a new HITL round → a new
-single call → a new single rendering.
+twice with different headers. If the user wants a second pass on a long
+video (e.g., "now with a safety-incident focus"), that's a new Step 2b
+scenario/events HITL round → a new single call → a new single rendering.
 
 **Header line format.** Start the response with exactly one header:
 
@@ -470,9 +468,11 @@ output, not mixed into it.
 
 ## Tips
 
-- **HITL is not optional.** Every summarization starts with the HITL
-  message (Step 2a or 2b). Skipping it to "be efficient" is the single
-  most common failure mode of this skill — do not do it.
+- **HITL is not optional for long videos.** Every Step 2b (LVS) call
+  starts with the scenario/events HITL message. Skipping it to "be
+  efficient" is the single most common failure mode of this skill on
+  long videos — do not do it. Step 2a (short-video VLM) uses the
+  default prompt directly without an HITL round.
 - **video summarization readiness = HTTP 200 on `/v1/ready`. Nothing else.** The body is
   often empty (`size=0`). Do NOT pipe the readiness check through
   `head`, `jq`, `grep`, or any other command — bash will report the
@@ -499,9 +499,10 @@ output, not mixed into it.
   `choices[0].message.content` from VLM are the deliverables. Render
   them verbatim; don't paraphrase into your own voice or reformat. See
   *Responses → Presenting the output to the user*.
-- **One call, one render.** One confirmed HITL → one backend request →
-  one block of output. No parallel hedging, no duplicate renderings
-  with different headers.
+- **One call, one render.** Each Step 2 invocation (a short-video VLM
+  call, or a confirmed long-video scenario/events round) → one backend
+  request → one block of output. No parallel hedging, no duplicate
+  renderings with different headers.
 
 ## Cross-reference
 
