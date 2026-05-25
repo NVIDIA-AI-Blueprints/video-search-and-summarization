@@ -237,13 +237,24 @@ LOG=${LOG:-/tmp/warehouse-blueprint.log}
 
 ### Lifecycle: Tear down
 
+Hard teardown — removes all containers, the project network, and all volume belonging to this stack.
+
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+
+# Hard teardown — `-v` ensures named volumes are also removed.
+# Containers + network + project's named volumes all go.
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+
+# Sweep any leftover anonymous/dangling volumes from prior partial runs.
 docker volume prune -f
+
+# Reclaim disk: stopped containers, dangling images, unused networks.
 docker system prune -f
 
-# Pass the SAME env file you used with `docker compose --env-file ...`
+# Wipe bind-mounted state under $VSS_DATA_DIR/data_log/* AND revert
+# blueprint-configurator backups. Resolves VSS_DATA_DIR from the env file,
+# so pass the SAME env you used with `docker compose --env-file ...`.
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
 ```
 
