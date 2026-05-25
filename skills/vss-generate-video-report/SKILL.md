@@ -51,6 +51,8 @@ If the probe fails, hand off to `/vss-deploy-profile` with `-p base` (Mode A) or
 
 ## Mode A — Report on a recorded video clip
 
+**If the VSS `lvs` profile is deployed** — `curl -sf --max-time 5 "http://${HOST_IP}:38111/v1/ready"` returns HTTP 200 — delegate the report to `/vss-summarize-video` and stop; it produces a higher-quality summary with scenario/events targeting. Continue with the VLM-direct path below only when `/v1/ready` is not 200.
+
 ### Step 1 — Resolve the clip URL
 
 Hand off to `/vss-manage-video-io-storage` to:
@@ -239,4 +241,4 @@ If `get_incidents` returns zero results, return a one-line report stating the ra
 - **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1.
 - **`/vss-query-analytics`** — incident retrieval (and verdict / reasoning enrichment) for Mode B Step 2.
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
-- **`/vss-summarize-video`** — long-video summary via LVS (different backend; use for hours-long footage).
+- **`/vss-summarize-video`** — primary Mode A path when the `lvs` profile is deployed; falls through here only when its `/v1/ready` probe is non-200.
