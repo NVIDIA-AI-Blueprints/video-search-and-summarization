@@ -159,6 +159,7 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+        required: false
       init-dirs:
         condition: service_completed_successfully
       render-config:
