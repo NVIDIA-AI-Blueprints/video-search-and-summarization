@@ -506,7 +506,7 @@ agent:
       - name: LVS_BACKEND_URL
         value: ''
       - name: RTVI_CV_BASE_URL
-        value: '{{- if and (hasKey .Values "rtviCvEnabled") (not .Values.rtviCvEnabled) }}{{- else if (trim (.Values.rtviCvBaseUrl | default "")) }}{{ trim .Values.rtviCvBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $cvPort := (.Values.rtviCvPort | default "9000") | toString }}{{- $cvHost := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx }}{{- printf "http://%s:%s" $cvHost $cvPort -}}{{- end }}'
+        value: '{{- if not .Values.rtviCvEnabled }}{{- else if (trim (.Values.rtviCvBaseUrl | default "")) }}{{ trim .Values.rtviCvBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $cvPort := (.Values.rtviCvPort | default "9000") | toString }}{{- $cvHost := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx }}{{- printf "http://%s:%s" $cvHost $cvPort -}}{{- end }}'
       - name: VSS_ES_PORT
         value: ''
       - name: VST_BASE_URL
@@ -518,9 +518,9 @@ agent:
       - name: OPENAI_API_KEY
         value: ''
       - name: RTVI_EMBED_BASE_URL
-        value: '{{- if and (hasKey .Values "rtviEmbedEnabled") (not .Values.rtviEmbedEnabled) }}{{- else if (trim (.Values.rtviEmbedBaseUrl | default "")) }}{{ trim .Values.rtviEmbedBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- printf "http://%s:%s" $embedHost $embedPort -}}{{- end }}'
+        value: '{{- if not .Values.rtviEmbedEnabled }}{{- else if (trim (.Values.rtviEmbedBaseUrl | default "")) }}{{ trim .Values.rtviEmbedBaseUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- printf "http://%s:%s" $embedHost $embedPort -}}{{- end }}'
       - name: COSMOS_EMBED_ENDPOINT
-        value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- $def := printf "http://%s:%s" $embedHost $embedPort }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}'
+        value: '{{- if not .Values.rtviEmbedEnabled }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $embedPort := (.Values.rtviEmbedPort | default "8000") | toString }}{{- $embedHost := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}{{- $def := printf "http://%s:%s" $embedHost $embedPort }}{{ coalesce .Values.cosmosEmbedEndpoint $def }}{{- end }}'
       - name: ELASTIC_SEARCH_ENDPOINT
         value: '{{- if (trim (.Values.elasticsearchUrl | default "")) }}{{ trim .Values.elasticsearchUrl }}{{- else }}{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $h := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}{{- printf "http://%s:9200" $h -}}{{- end }}'
       - name: ELASTIC_SEARCH_INDEX
