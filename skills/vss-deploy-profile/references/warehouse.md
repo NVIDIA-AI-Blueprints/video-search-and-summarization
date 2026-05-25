@@ -239,7 +239,7 @@ LOG=${LOG:-/tmp/warehouse-blueprint.log}
 
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
 docker volume prune -f
 docker system prune -f
 
