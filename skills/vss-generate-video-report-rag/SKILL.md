@@ -259,3 +259,4 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
 - `enable_interactive_extensions: true` must be set in the frag config for HTTP HITL to work
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
+
