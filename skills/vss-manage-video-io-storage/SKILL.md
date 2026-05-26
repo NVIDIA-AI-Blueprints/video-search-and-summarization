@@ -17,7 +17,7 @@ This skill bundles three reference files under `references/`. Read whichever app
 | File | Purpose | Audience |
 |---|---|---|
 | [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this when invoking any VIOS API operation.** | Operational users + this skill itself |
-| [`references/integrate-vios-service.md`](references/integrate-vios-service.md) | The **integration contract** — how VIOS plugs into other VSS microservices. Documents required peer services (RT-VLM, ELK, Kafka, Redis, SDR, Envoy), the structured `component_services:` block consumed by the `vss-build-vision-agent` skill's Step 4, integration inputs/outputs (Kafka topics, REST endpoints, file paths), environment variables, network requirements, and known integration constraints (e.g. the `/url`-variant double-`http://` bug, the four-service VIOS quartet patching requirement). **Read this when authoring a skill that talks to VIOS as a peer, when composing a new VSS deployment, or when debugging caption-pipeline wiring.** | Skill authors, deployment composers, pair-file maintainers |
+| [`references/integrate-vios-service.md`](references/integrate-vios-service.md) | The **integration contract** — how VIOS plugs into other VSS microservices. Documents required peer services (RT-VLM, ELK, Kafka, Redis, `sdr-controller` / SDRC), the structured `component_services:` block consumed by the `vss-build-vision-agent` skill's Step 4, integration inputs/outputs (Kafka topics, REST endpoints, file paths), environment variables, network requirements, and known integration constraints (e.g. the `/url`-variant double-`http://` bug, the VIOS + SDRC patching requirement). **Read this when authoring a skill that talks to VIOS as a peer, when composing a new VSS deployment, or when debugging caption-pipeline wiring.** | Skill authors, deployment composers, pair-file maintainers |
 | [`references/deploy-vios-service.md`](references/deploy-vios-service.md) | The **deployment contract** — what it takes to bring VIOS up. Documents container images and tags (`nvcr.io/nvstaging/vss-core/vss-vios-*:2.1.0-26.05.2`), GPU / CPU / memory / storage requirements, startup behavior + healthcheck tuning, required environment variables (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true` for the libav apt-install step that gates uploads), known deployment issues (volume drift, libav missing, 502 from leftover containers), prerequisites, dry-run, verify-deployment, and tear-down commands. **Read this when VIOS isn't running and you (or your caller) need to deploy it standalone, when debugging container-startup failures, or when authoring a deploy skill that wraps VIOS.** | Operators, deploy-skill authors |
 
 ## Deployment prerequisite — VIOS MUST be running
@@ -70,9 +70,20 @@ full failure-mode catalogue and remediation steps.
 
 The `/vss-deploy-profile` skill's Step 0 teardown grep was extended to cover the
 full set (`sensor-ms-*`, `vst-ingress-*`, `centralizedb-*`,
-`storage-ms-*`, `sdr-*`, `envoy-*`, `rtspserver-ms-*`, etc.), so
+`storage-ms-*`, `sdr-*`, `envoy-*`, `sdr-controller`, `sdrc-*`,
+`rtspserver-ms-*`, etc.), so
 fresh deploys via `/vss-deploy-profile` should not hit this. If you inherit a
 host without re-deploying and see 502s, re-run `/vss-deploy-profile` to clean.
+
+> **Note on the current deploy contract:** SDR (`vss-vios-sdr`) and Envoy
+> (`vss-vios-envoy`) have been replaced by a single `sdr-controller` workload
+> (SDRC) from
+> [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
+> The `sdr-*` / `envoy-*` patterns in the teardown grep above are retained only
+> to clean up stale hosts that ran an older `develop` — a fresh deploy off the
+> current contract runs only `sdr-controller` alongside the VIOS trio, so the
+> 502 failure mode this section describes no longer occurs on freshly-bootstrapped
+> hosts.
 
 Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
 snapshot, `storage/file/*/url` clip extraction) are unaffected.
