@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  imagePullSecrets:
+    - name: ngc-docker-reg-secret
+  storageClass: ""
+  useReleaseNamePrefix: false
+
+rtvi:
+  enabled: true
+  vss-rtvi-cv:
+    enabled: true
+    profileMode: standalone-3d
+    replicas: 1
+    image:
+      repository: nvcr.io/nvstaging/vss-core/vss-rt-cv
+      tag: "3.2.0-26.05.1"
+      pullPolicy: IfNotPresent
+    httpPort: 9000
+    downloadNgcAppData: true
+    downloadModelsFromNgc: false
+    ngcApiKeySecretName: ngc-api
+    ngcApiKeySecretKey: NGC_CLI_API_KEY
+    ngcAppDataOrg: nvstaging
+    ngcAppDataResourceVersion: "<vss-warehouse-app-data-resource>"
+    standaloneWarehouse:
+      streamType: none
+    persistence:
+      storageClass: ""
+      models:
+        size: 80Gi
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1

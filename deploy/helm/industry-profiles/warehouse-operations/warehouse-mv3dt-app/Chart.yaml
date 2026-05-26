@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: warehouse-mv3dt-app
+description: NVIDIA Metropolis warehouse operations MV3DT standalone app profile
+type: application
+version: 26.04.2
+appVersion: "26.02.3"
+keywords:
+  - metropolis
+  - warehouse
+  - rtvi
+  - mv3dt
+maintainers:
+  - name: NVIDIA
+dependencies:
+  - name: infra
+    version: 26.04.2
+    repository: "file://../../../services/infra"
+    condition: infra.enabled
+  - name: rtvi
+    version: 26.04.2
+    repository: "file://../../../services/rtvi"
+    condition: rtvi.enabled

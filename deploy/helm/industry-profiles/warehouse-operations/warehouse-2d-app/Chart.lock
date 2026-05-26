@@ -1,0 +1,6 @@
+dependencies:
+- name: rtvi
+  repository: file://../../../services/rtvi
+  version: 26.04.2
+digest: sha256:6d1c670913382c40bfce25b19b0322734f8435b4e72728a39738c2072a7ba7d7
+generated: "2026-05-26T12:49:52.19618631-07:00"

@@ -1,0 +1,9 @@
+dependencies:
+- name: infra
+  repository: file://../../../services/infra
+  version: 26.04.2
+- name: rtvi
+  repository: file://../../../services/rtvi
+  version: 26.04.2
+digest: sha256:438eea8af1b7b24d9678096e1a915ad136ad9cedeec2f83c45a87301049bcb4d
+generated: "2026-05-26T12:49:50.612453142-07:00"

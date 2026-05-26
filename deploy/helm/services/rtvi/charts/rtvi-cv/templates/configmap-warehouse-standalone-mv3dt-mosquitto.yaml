@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") .Values.standaloneWarehouse.mv3dt.mosquitto.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-mv3dt-mosquitto
+  labels:
+    {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
+    vss-rtvi-cv.profileMode: standalone-mv3dt
+data:
+  mosquitto.conf: |
+{{ .Files.Get "files/warehouse-standalone-mv3dt/mosquitto/mosquitto.conf" | nindent 4 }}
+{{- end }}

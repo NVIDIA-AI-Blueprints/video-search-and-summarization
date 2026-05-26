@@ -1,0 +1,8 @@
+{{- $rtviCv := index (index .Subcharts "rtvi").Subcharts "vss-rtvi-cv" -}}
+Warehouse 2D app profile rendered.
+
+Main workload:
+  StatefulSet: {{ include "vss-rtvi-cv.fullname" $rtviCv }}
+  Profile: standalone-2d
+
+Set rtvi.vss-rtvi-cv.ngcAppDataResourceVersion to the target NGC warehouse app-data resource before installing.

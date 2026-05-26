@@ -1,0 +1,11 @@
+{{- $rtviCv := index (index .Subcharts "rtvi").Subcharts "vss-rtvi-cv" -}}
+{{- $name := include "vss-rtvi-cv.fullname" $rtviCv -}}
+Warehouse MV3DT app profile rendered.
+
+Main workloads:
+  StatefulSet: {{ $name }}
+  Fusion Deployment: {{ $name }}-mv3dt-fusion
+  Mosquitto Deployment: {{ $name }}-mosquitto
+  Profile: standalone-mv3dt
+
+Set rtvi.vss-rtvi-cv.ngcAppDataResourceVersion to the target NGC warehouse app-data resource before installing.
