@@ -21,8 +21,6 @@ Accelerated long video summarization and insight extraction microservice. Video 
 processes video content using Vision-Language Models (VLMs) and returns timestamped captions,
 structured event detections, and aggregated summaries via a REST API.
 
-For development steps, refer to [README.dev.md](README.dev.md)
-
 ## Architecture
 
 Video Summarization is composed of the following services:
@@ -107,24 +105,24 @@ LVS_MCP_PORT=38112
 
 ### Start Video Summarization using Docker Compose
 
-The Blueprint Builder generated compose file is available at
-[compose/BlueprintBuilderGenerated/docker-compose.yml](compose/BlueprintBuilderGenerated/docker-compose.yml).
+The compose file is available at
+[docker/deploy/compose.yaml](docker/deploy/compose.yaml).
 
 ```sh
 # If exporting env variables or if .env is in the current directory:
-docker compose -f compose/BlueprintBuilderGenerated/docker-compose.yml up
+docker compose -f docker/deploy/compose.yaml up
 
 # If .env is not in the current directory:
-docker compose -f compose/BlueprintBuilderGenerated/docker-compose.yml --env-file=<path/to/.env> up
+docker compose -f docker/deploy/compose.yaml --env-file=<path/to/.env> up
 
 # With RT-VLM (local VLM inference):
-docker compose -f compose/BlueprintBuilderGenerated/docker-compose.yml --profile rtvi up
+docker compose -f docker/deploy/compose.yaml --profile rtvi up
 
 # With Kafka streaming pipeline:
-docker compose -f compose/BlueprintBuilderGenerated/docker-compose.yml --profile kafka up
+docker compose -f docker/deploy/compose.yaml --profile kafka up
 
 # Both RT-VLM and Kafka:
-docker compose -f compose/BlueprintBuilderGenerated/docker-compose.yml --profile rtvi --profile kafka up
+docker compose -f docker/deploy/compose.yaml --profile rtvi --profile kafka up
 ```
 
 Logs will show the ports the services are running at. The LVS API defaults to port `38111`.
