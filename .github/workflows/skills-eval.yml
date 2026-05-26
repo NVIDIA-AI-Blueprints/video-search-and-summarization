@@ -62,8 +62,15 @@ permissions:
   pull-requests: write
 
 # Only one eval runs per PR (or per manual sweep) at a time. A fresh push
-# cancels the in-flight run (lock on /tmp/brev/<id>.lock will be released
-# by the agent's trap).
+# cancels the in-flight run; the per-box flocks (/tmp/brev/<INSTANCE_NAME>.lock)
+# release automatically when the agent process dies (POSIX flock(2) semantics —
+# no userspace trap needed). Any stale containers / volumes / marker that the
+# cancelled run left on a box are reconciled by the NEXT run's
+# `BrevEnvironment._ensure_prerequisite_deployed`: the active-deploy marker
+# carries `<profile_tag>|<run_id>`, so a marker from this run never matches
+# the next run's desired marker and the next run always tears down + redeploys.
+# Same path handles SIGKILL (the 8h timeout-minutes terminator) and host reboots
+# — there's no exit-side cleanup machinery to bypass.
 concurrency:
   group: skills-eval-${{ github.ref }}
   cancel-in-progress: true
