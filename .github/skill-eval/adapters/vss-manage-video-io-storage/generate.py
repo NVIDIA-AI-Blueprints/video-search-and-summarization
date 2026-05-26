@@ -225,6 +225,17 @@ def generate_task(platform: str, spec: dict, output_root: Path,
             # default for JUDGE_MODEL would bake it in and short-circuit
             # the cascade — the proxy 401s the literal default outright.
             'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+            # JUDGE_MAX_TURNS bumped from the generic_judge.py:276 default
+            # of 25 because VIOS step trajectories run 6+ MB on a full
+            # 13-step thread (upload + sensor probes + replay + record).
+            # Checks that need to resolve a placeholder (e.g. <streamId>)
+            # from deep in the trajectory before issuing a live probe
+            # have been observed to exhaust the 25-turn budget — see the
+            # step-2 check 1 fail on PR #516's first eval run. 50 turns
+            # gives the per-check judge enough headroom to navigate the
+            # trajectory and emit a verdict without changing other
+            # skills' defaults.
+            'JUDGE_MAX_TURNS = "50"',
             "",
             "[metadata]",
             'skill = "vss-manage-video-io-storage"',
