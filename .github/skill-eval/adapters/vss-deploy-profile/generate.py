@@ -170,11 +170,11 @@ def deploy_profile(eval_profile: str) -> str:
 _DEFAULT_MIN_ROOT_DISK_GB = 220        # base stack ~80GB + 2 local NIMs ~70GB each
 _DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
 # Caveats — both defaults are enforced unconditionally by
-# `envs/brev_env.py::_check_live_resources` / `_find_cheapest_matching_type`:
+# `envs/brev_env.py::_check_live_resources` on the resolved pool box:
 # - The disk default would reject otherwise-eligible smaller-root
-#   providers (e.g. some launchpad boxes) for trials that end up
-#   running fully remote and would actually fit on <220GB. Acceptable
-#   today because every `vss-eval-*` pool member has ≥220GB.
+#   pool members for trials that end up running fully remote and would
+#   actually fit on <220GB. Acceptable today because every `vss-eval-*`
+#   pool member has ≥220GB.
 # - The driver default is skipped when `nvidia-smi` is absent (the
 #   resource check warns instead of erroring), so CPU-only boxes still
 #   pass; don't tighten that branch to a hard error without revisiting
@@ -270,27 +270,26 @@ def generate_test_script(spec_name: str, profile: str) -> str:
     /logs/verifier/reward.txt.
 
     On a full-pass (reward == 1.0), OVERWRITES the canonical active
-    marker `/tmp/skill-eval/active-deploy.txt` with this trial's
-    `<underlying_profile>` (plus `-<deploy_mode>` only for alerts) so
-    dependent trials (vss-manage-video-io-storage, video-*) reading the marker via
+    marker `/tmp/skill-eval/active-deploy.txt` with
+    `<profile_tag>|<run_id>` so dependent trials reading the marker via
     `BrevEnvironment._ensure_prerequisite_deployed` see what is currently
-    RUNNING on the box. See specs/stale-marker.spec.
+    RUNNING on the box AND which CI run owns it. See specs/stale-marker.spec.
 
-    Marker format:
-      - `base`, `lvs`, `search` — profile name only (placement is
-        env-driven, not a marker dimension).
-      - `alerts-verification`, `alerts-real-time` — alerts has two
-        distinct stacks (`/vss-deploy-profile -m verification` vs `-m real-time`)
-        so the mode is part of the marker.
+    Marker format is `<profile_tag>|<run_id>`:
+      - `<profile_tag>` is the profile (`base`, `lvs`, `search`) or
+        `<profile>-<deploy_mode>` for alerts (`alerts-verification`,
+        `alerts-real-time` — alerts has two distinct stacks).
+      - `<run_id>` is `$GITHUB_RUN_ID` (forwarded by brev_env.py into
+        ~/.eval_env; falls back to `local-<pid>` outside CI).
 
-    Consumer (`_ensure_prerequisite_deployed`) builds its desired
-    marker the same way: `profile + ("-" + prerequisite_deploy_mode if
-    set else "")`. Non-alerts downstream adapters declare just
-    `profile`; the alerts downstream case additionally declares
-    `prerequisite_deploy_mode`."""
+    Consumer (`_ensure_prerequisite_deployed`) builds its desired marker
+    the same way. A marker from a prior run never matches the current
+    run's desired marker, so the next worker always reconciles
+    (tear-down + redeploy from its own `PR_HEAD_SHA`) regardless of how
+    the prior run ended."""
     underlying_profile = deploy_profile(profile)
     deploy_mode_token = PROFILES[profile].get("deploy_mode")
-    marker_token = (
+    profile_tag = (
         f"{underlying_profile}-{deploy_mode_token}"
         if deploy_mode_token
         else underlying_profile
@@ -310,13 +309,16 @@ def generate_test_script(spec_name: str, profile: str) -> str:
         f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
         "\n"
         "# On full pass, overwrite the canonical active-deploy marker so\n"
-        "# downstream trials (vss-manage-video-io-storage/vss-*) reuse the running deployment\n"
-        "# instead of re-running /vss-deploy-profile. Overwrite, never append — the\n"
-        "# marker is what is currently RUNNING, not a deploy log.\n"
+        "# downstream trials (vss-manage-video-io-storage/vss-*) in THIS run\n"
+        "# reuse the running deployment instead of re-running /vss-deploy-profile.\n"
+        "# Marker format is `<profile_tag>|<run_id>` — `<run_id>` (from\n"
+        "# $GITHUB_RUN_ID, forwarded by brev_env.py) is what makes the\n"
+        "# next run's reconcile always tear down and redeploy regardless\n"
+        "# of how this run ended.\n"
         'reward="$(cat /logs/verifier/reward.txt 2>/dev/null || echo 0)"\n'
         f'if [ "$reward" = "1.0" ] || [ "$reward" = "1" ]; then\n'
         f'  mkdir -p /tmp/skill-eval && '
-        f"printf '%s\\n' '{marker_token}' "
+        f"printf '%s|%s\\n' '{profile_tag}' \"${{GITHUB_RUN_ID:-local-$$}}\" "
         f"> /tmp/skill-eval/active-deploy.txt\n"
         "fi\n"
         "exit 0\n"
