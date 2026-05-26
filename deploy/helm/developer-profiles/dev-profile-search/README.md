@@ -281,7 +281,6 @@ This single chart deploys all application components:
 ### Disabling the Critic Agent
 
 The critic agent (VLM-based verification of search results) is **enabled by default**. With NVIDIA Build Endpoint (Option A), it uses the hosted VLM endpoint and local Cosmos NIM is not deployed. With Local NIMs (Option B), its backing **Cosmos Reason2 8B** NIM is enabled by default.
-
 For NVIDIA Build Endpoint or another remote VLM endpoint, disable critic verification with:
 
 ```bash
