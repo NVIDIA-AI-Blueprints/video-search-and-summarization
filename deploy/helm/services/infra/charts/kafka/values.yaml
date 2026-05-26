@@ -82,6 +82,8 @@ topicJob:
   enabled: true
   ttlSecondsAfterFinished: 300
   backoffLimit: 10
+  # Empty: inherits kafka.nodeSelector from the Job template coalesce.
+  nodeSelector: {}
 
 # Prometheus kafka-exporter sidecar deployment
 exporter:
