@@ -103,6 +103,8 @@ For a development cluster only, you can temporarily relax disk watermarks and
 then clear read-only index blocks:
 
 ```bash
+ES_URL="${ES_URL:-http://${HOST_IP:-localhost}:9200}"
+
 curl -sS -X PUT "$ES_URL/_cluster/settings" \
   -H 'Content-Type: application/json' \
   --data-binary '{
