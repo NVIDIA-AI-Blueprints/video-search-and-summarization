@@ -45,19 +45,20 @@ NUM_SENSORS="${NUM_SENSORS:-$NUM_STREAMS}"
 # docker-workload-alerts-2d). Comma boundaries on both sides prevent partial
 # matches like "bp_wh_2d_extra".
 #
-# Skipped entirely when COMPOSE_PROFILES is not present in the environment
-# (e.g. callers who invoked `docker compose --profile ...` without exporting
-# the env var) — in that case ALERTS_2D_ENABLE is left as the caller set it,
-# or unset if they didn't, rather than being defaulted to a wrong value.
-# A pre-set ALERTS_2D_ENABLE is also left untouched so callers can force one.
+# A pre-set ALERTS_2D_ENABLE is left untouched so callers can force one, and
+# the derivation is skipped when COMPOSE_PROFILES is not present (e.g. callers
+# who invoked `docker compose --profile ...` without exporting the env var, or
+# direct host invocations as documented in the header). The fallback below
+# then guarantees envsubst always receives a well-formed boolean, so the
+# rendered template never emits `enable: ` (null) for the 2D-alerts workload.
 if [ -n "${COMPOSE_PROFILES:-}" ] && [ -z "${ALERTS_2D_ENABLE:-}" ]; then
   case ",${COMPOSE_PROFILES}," in
     *,bp_wh_2d,*) ALERTS_2D_ENABLE=true ;;
     *)            ALERTS_2D_ENABLE=false ;;
   esac
 fi
-export NUM_STREAMS NUM_SENSORS
-[ -n "${ALERTS_2D_ENABLE:-}" ] && export ALERTS_2D_ENABLE
+ALERTS_2D_ENABLE="${ALERTS_2D_ENABLE:-false}"
+export NUM_STREAMS NUM_SENSORS ALERTS_2D_ENABLE
 
 if ! command -v envsubst >/dev/null 2>&1; then
   if command -v apk >/dev/null 2>&1; then
