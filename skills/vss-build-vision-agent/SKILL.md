@@ -7,10 +7,10 @@ description: >
   my base deployment", "integrate my third-party camera system with VSS"). The skill
   reads per-microservice reference files (`integrate-<microservice>.md`,
   `deploy-<microservice>.md`) as ground truth, invents a unique compose-profile flag
-  per generation, patches build-output copies of the relevant upstream service
-  composes (never upstream itself), and outputs a validated, self-contained Docker
-  Compose deployment under `build-output/` along with a generated per-deployment
-  deploy skill.
+  per generation, patches local copies of the relevant upstream service composes
+  (never upstream itself), and outputs a validated, self-contained Docker Compose
+  deployment under `_builds/<build-name>/` (at the repository root) along with a
+  generated per-deployment deploy skill.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -34,7 +34,9 @@ For Phase 1a (v0.1) the skill supports **IN-1 — streaming and on-demand video 
 - **Profile combination**: "Combine the Search Profile and Alerts Profile"
 - **Helm output (post-v1)**: "Convert my dev-profile-alerts compose to a Helm chart"
 
-If the user asks to **deploy** a generated compose, the skill will create (or update) a per-deployment deploy skill in Step 6 and prompt to invoke it in Step 8 — see those steps below. If the user asks to **call** a service's API (RT-VLM endpoints, VIOS endpoints, etc.), hand off to the relevant upstream skill (`vss-deploy-dense-captioning`, `vss-manage-video-io-storage`, `vss-setup-video-analytics-api`, etc.) — those are bundled into `build-output/skills/` in Step 6.
+If the user asks to **deploy** a generated compose, the skill will create (or update) a per-deployment deploy skill in Step 6 and prompt to invoke it in Step 8 — see those steps below. If the user asks to **call** a service's API (RT-VLM endpoints, VIOS endpoints, etc.), hand off to the relevant upstream skill (`vss-deploy-dense-captioning`, `vss-manage-video-io-storage`, `vss-setup-video-analytics-api`, etc.) — those are bundled into `<BUILD_DIR>/skills/` in Step 6.
+
+> **`<BUILD_DIR>` convention.** All generated assets land under a single per-generation build directory chosen in Step 0. The default location is `_builds/<build-name>/` at the repository root (where `_builds/` is `.gitignore`d); the user can override at Step 0 (new under `_builds/`, overwrite an existing build folder, or supply a custom path). Throughout the rest of this document, paths written as `<BUILD_DIR>/compose.yml`, `<BUILD_DIR>/.env`, `<BUILD_DIR>/patched/`, etc. refer to file paths INSIDE that chosen directory. (Earlier revisions of this skill emitted to `skills/vss-build-vision-agent/build-output/`; any `build-output/` references that remain in prose below should be read as `<BUILD_DIR>/`.)
 
 ## How it Works
 
@@ -63,7 +65,33 @@ Read the user's prompt. Identify:
 - **Existing deployment** (optional) — path to a Docker Compose file or Helm chart to extend or merge with. If the user provided one, parse it and inventory existing services, images, ports, volumes, and shared infrastructure.
 - **Third-party descriptor** (optional) — API base URL, OpenAPI / JSON schema file path, Kafka broker address and topic list, service / DB endpoint list, message bus type. Indicates a 3P integration scenario.
 - **Output target** — `compose` (default) or `helm` (post-v1; report as not-yet-supported if requested).
-- **Output path** — where to write the generated artifact. Default: `./build-output/`.
+- **Output path (`<BUILD_DIR>`)** — captured via the interactive prompt below; do NOT silently default to a fixed path. See `#### Choose the build directory (`<BUILD_DIR>`)` immediately below for the three-option prompt and resolution rules.
+
+#### Choose the build directory (`<BUILD_DIR>`)
+
+All generated assets land under a single per-generation directory referred to throughout this document as `<BUILD_DIR>`. The canonical home for builds is `_builds/` at the repository root (gitignored). Before doing any other Step 0 work, list `_builds/` and prompt the user with three options:
+
+```
+Where should generated assets go?
+  (a) New build folder under _builds/  [default]
+  (b) Overwrite an existing build folder under _builds/
+  (c) Custom path (anywhere on disk)
+
+Existing builds under _builds/:
+  - <existing-folder-1>/   (last modified <ts>, profile <flag>)
+  - <existing-folder-2>/   (last modified <ts>, profile <flag>)
+  (none yet)
+```
+
+Resolve based on the user's choice:
+
+- **(a) New build under `_builds/`** (default when the user does not specify). Resolve `<BUILD_DIR> = <repo-root>/_builds/<build-name>/`. The `<build-name>` is **deferred** to Step 6, where it is derived from the invented compose-profile flag — strip the `bp_developer_` prefix and replace remaining underscores with hyphens (e.g. `bp_developer_in_1` → `in-1`, so `<BUILD_DIR> = <repo-root>/_builds/in-1/`). If a folder with that name already exists under `_builds/`, **stop and confirm with the user** — do not silently overwrite. Offer to append a suffix (`in-1-2`, `in-1-3`, ...) or to switch to option (b). In autonomous mode, auto-append the next suffix.
+- **(b) Overwrite an existing build folder.** Show the list of existing `_builds/*/` folders with their last-modified timestamp and the compose-profile flag from each folder's `MANIFEST.md` (if present). Ask which to overwrite. Confirm the choice and warn that the existing contents will be replaced — note that Docker volumes and model caches (`mdx_rtvi-hf-cache`, `mdx_rtvi-ngc-model-cache`, `mdx_cosmos_reason2_8b_cache`, etc.) survive because they are managed by Docker, not bind-mounted into `<BUILD_DIR>`. Resolve `<BUILD_DIR>` to the chosen path.
+- **(c) Custom path.** Accept any absolute path, or a path relative to the repository root (resolve relative paths against `<repo-root>`). Validate that the parent directory exists and is writable; refuse to write to a path inside `deploy/docker/` (would risk modifying upstream composes — see `[[build-output-self-contained]]`). If the path already exists and contains a previous build (i.e. has a `compose.yml`), confirm overwrite the same way option (b) does.
+
+After resolving, record `<BUILD_DIR>` in the in-session context. Every subsequent step writes only inside this directory. Step 6 also writes `<BUILD_DIR>/MANIFEST.md` recording the resolution choice (which option was picked, the resolved absolute path, and the compose-profile flag) so a future re-invocation against option (b) can identify the prior generation.
+
+> *Autonomous mode:* if the user's request says "deploy autonomously" or the skill is running in a non-interactive eval harness, **default to option (a)** and let Step 6 derive the `<build-name>` from the invented flag. Auto-append a numeric suffix on collision instead of asking.
 
 #### Enumerate ALL `.env` files in the source repo
 
@@ -72,7 +100,7 @@ VSS spreads its environment configuration across **multiple `.env` files** by co
 Run a recursive `.env` discovery against the source repo and record every file found:
 
 ```bash
-find <repo>/deployments -type f -name '.env' -not -path '*/build-output/*' | sort
+find <repo>/deploy -type f -name '.env' -not -path '*/_builds/*' -not -path '*/build-output/*' | sort
 ```
 
 For the current upstream, the canonical set is **10 core `.env` files** (4 developer profiles, 1 industry profile, 5 service-internal) plus a NIM hardware-tier set selected per host architecture (see below the table):
@@ -509,7 +537,7 @@ The autonomous-mode exception from Step 4 applies here too: when the user's orig
 ```
 skills/vss-build-vision-agent/
 ├── SKILL.md
-├── CONTRIBUTING.md                                    # how to add a new microservice (see Phase 0 deliverables)
+├── CONTRIBUTING.md                                    # (planned) how to add a new microservice (see Phase 0 deliverables)
 ├── eval/
 │   ├── in-1-streaming-dense-captioning.json      # priority eval — gates Phase 4 rollout
 │   ├── in-2-person-detection-rt-detr.json        # priority eval — extensibility test
