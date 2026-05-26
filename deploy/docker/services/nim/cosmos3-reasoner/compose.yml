@@ -12,24 +12,37 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# RC NIM: Cosmos3 Reasoner staging image. Opt in via
+#   VLM_NAME=nvidia/cosmos3-reasoner
+#   VLM_NAME_SLUG=cosmos3-reasoner
+# in dev-profile-base/.env. NIM_MODEL_SIZE selects nano (default) or super.
 
 services:
-  llama-3.3-nemotron-super-49b-v1.5:
-    image: nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:1
-    container_name: llama-3.3-nemotron-super-49b-v1.5
+  cosmos3-reasoner:
+    image: nvcr.io/nvstaging/nim/cosmos3-reasoner:1.7.1.rc0-51870194
+    container_name: nvidia-cosmos3-reasoner
     profiles:
-    - llm_local_llama-3.3-nemotron-super-49b-v1.5
+    - vlm_local_cosmos3-reasoner
     runtime: nvidia
-    shm_size: 16GB
+    shm_size: 32gb
     ports:
-     - ${LLM_PORT:-30081}:8000
+     - ${VLM_PORT:-30082}:8000
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
+      NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
+      VLM_NIM_KVCACHE_PERCENT: "${VLM_NIM_KVCACHE_PERCENT}"
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/llama-3.3-nemotron-super-49b-v1.5/hw-${HARDWARE_PROFILE}.env
-      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
-      - llama_3.3_nemotron_super_49b_v1.5_cache:/opt/nim/.cache
+      - cosmos3_reasoner_cache:/opt/nim/.cache
+      - type: bind
+        source: ${VLM_CUSTOM_WEIGHTS:-}
+        target: ${VLM_CUSTOM_WEIGHTS:-/nan}
+        bind:
+          create_host_path: false
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:
@@ -39,29 +52,37 @@ services:
               - gpu
               driver: nvidia
               device_ids:
-              - "${LLM_DEVICE_ID:-0}"
+              - "${VLM_DEVICE_ID:-0}"
     restart: always
     healthcheck:
       test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
       timeout: 650s
       retries: 2
-  llama-3.3-nemotron-super-49b-v1.5-shared-gpu:
-    image: nvcr.io/nim/nvidia/llama-3.3-nemotron-super-49b-v1.5:1
-    container_name: llama-3.3-nemotron-super-49b-v1.5
+
+  cosmos3-reasoner-shared-gpu:
+    image: nvcr.io/nvstaging/nim/cosmos3-reasoner:1.7.1.rc0-51870194
+    container_name: nvidia-cosmos3-reasoner
     profiles:
-    - llm_local_shared_llama-3.3-nemotron-super-49b-v1.5
+    - vlm_local_shared_cosmos3-reasoner
     runtime: nvidia
-    shm_size: 16GB
+    shm_size: 32gb
     ports:
-     - ${LLM_PORT:-30081}:8000
+     - ${VLM_PORT:-30082}:8000
     environment:
       NGC_API_KEY: "${NGC_CLI_API_KEY}"
+      NIM_MODEL_NAME: "${VLM_CUSTOM_WEIGHTS:-}"
+      NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/llama-3.3-nemotron-super-49b-v1.5/hw-${HARDWARE_PROFILE}-shared.env
-      - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
+      - ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}-shared.env
+      - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
-      - llama_3.3_nemotron_super_49b_v1.5_cache:/opt/nim/.cache
+      - cosmos3_reasoner_cache:/opt/nim/.cache
+      - type: bind
+        source: ${VLM_CUSTOM_WEIGHTS:-}
+        target: ${VLM_CUSTOM_WEIGHTS:-/nan}
+        bind:
+          create_host_path: false
     user: "${UID:-1000}:${GID:-1000}"
     deploy:
       resources:
@@ -71,31 +92,13 @@ services:
               - gpu
               driver: nvidia
               device_ids:
-              - "${SHARED_LLM_VLM_DEVICE_ID:-${LLM_DEVICE_ID:-0}}"
+              - "${SHARED_LLM_VLM_DEVICE_ID:-${VLM_DEVICE_ID:-0}}"
     restart: always
+
     healthcheck:
       test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
       timeout: 650s
       retries: 2
-    depends_on:
-      cosmos-reason2-8b-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos3-reasoner-shared-gpu:
-        condition: service_healthy
-        required: false
-      cosmos-reason1-7b-shared-gpu:
-        condition: service_healthy
-        required: false
-      qwen3-vl-8b-instruct-shared-gpu:
-        condition: service_healthy
-        required: false
-      rtvi-vlm:
-        condition: service_healthy
-        required: false
-      rtvi-embed:
-        condition: service_healthy
-        required: false
 volumes:
-  llama_3.3_nemotron_super_49b_v1.5_cache:
+  cosmos3_reasoner_cache:
