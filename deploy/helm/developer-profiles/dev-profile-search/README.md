@@ -231,8 +231,6 @@ helm upgrade --install vss-search ./dev-profile-search \
   --wait=false
 ```
 
-
-
 ### Option B: Deploy with Local NIMs
 
 Runs all LLM/VLM NIMs on-cluster via the NIM Operator. Requires additional GPUs for Nemotron and Cosmos (unless `ENABLE_CRITIC` is `false`). See [GPU Requirements](#with-local-nims-option-b).
