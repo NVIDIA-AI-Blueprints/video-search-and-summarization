@@ -84,7 +84,6 @@ _MAX_RETAINED_COMPOSE_SPECS = 500
 _COMPOSE_UP_POLL_INTERVAL_S: Final[int] = 60
 _COMPOSE_DOWN_POLL_INTERVAL_S: Final[int] = 10
 _MAX_DOCKER_LOG_RESPONSE_BYTES: Final[int] = 1024 * 1024
-_DEEP_CLEAN_VOLUME_PRUNE_TIMEOUT_S: Final[int] = 120
 _DEEP_CLEAN_RM_TIMEOUT_S: Final[int] = 300
 
 
@@ -567,35 +566,13 @@ class ComposeDownOperationInput(ComposeOperationInput):
 
 
 def _run_deep_clean(mdx_data_dir: Path, append_op_log: Callable[[str], None]) -> None:
-    """prune dangling volumes and rm -rf data dir.
+    """rm -rf the bind-mounted data dir after a successful compose down.
 
-    Runs after a successful compose down when deep_clean=True. Container-written files under
-    mdx_data_dir are typically root-owned, so 'sudo -n' is used when not already root.
+    Runs after a successful compose down when deep_clean=True. The preceding
+    `compose down -v` already removes this project's named and anonymous volumes;
+    deep_clean only handles the bind-mounted host data dir, whose container-written
+    files are typically root-owned (so 'sudo -n' is used when not already root).
     """
-    append_op_log("[deep-clean] Pruning dangling docker volumes (docker volume prune -f)...")
-    try:
-        result = subprocess.run(
-            ["docker", "volume", "prune", "-f"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=_DEEP_CLEAN_VOLUME_PRUNE_TIMEOUT_S,
-        )
-    except FileNotFoundError:
-        append_op_log("[deep-clean] docker command not found; skipping volume prune.")
-    except subprocess.TimeoutExpired as exc:
-        append_op_log(
-            f"[deep-clean] docker volume prune timed out after {_DEEP_CLEAN_VOLUME_PRUNE_TIMEOUT_S}s; "
-            "the Docker daemon may be unresponsive."
-        )
-        raise RuntimeError(f"docker volume prune timed out after {_DEEP_CLEAN_VOLUME_PRUNE_TIMEOUT_S}s") from exc
-    else:
-        for line in (result.stdout + result.stderr).splitlines():
-            if line.strip():
-                append_op_log(f"[deep-clean] {line}")
-        if result.returncode != 0:
-            raise RuntimeError(f"docker volume prune exited with code {result.returncode}")
-
     append_op_log(f"[deep-clean] Deleting data directory: {mdx_data_dir}...")
     if not mdx_data_dir.is_dir():
         append_op_log("[deep-clean] Data directory does not exist, skipping.")
