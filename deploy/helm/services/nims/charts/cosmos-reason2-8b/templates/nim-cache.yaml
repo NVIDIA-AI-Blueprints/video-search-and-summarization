@@ -29,6 +29,11 @@ spec:
   nodeSelector:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  source:
   source:
     ngc:
       modelPuller: {{ .Values.image.repository }}:{{ .Values.image.tag }}
