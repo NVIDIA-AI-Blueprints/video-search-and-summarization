@@ -254,7 +254,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   ]);
 
   const searchByImageFooterElement = React.useMemo(() => {
-    if (!searchByImageActive || !searchByImageFrameData) return undefined;
+    if (!searchByImageActive) return undefined;
 
     return (
       <SearchByImageOverlayInfo
