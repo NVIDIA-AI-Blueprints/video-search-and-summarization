@@ -16,7 +16,7 @@
 imagePullSecrets:
   - name: ngc-docker-reg-secret
 
-replicas: 2
+replicas: 1
 image:
   repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
   tag: "3.2.0-26.05.2"
@@ -24,6 +24,11 @@ image:
 port: 8000
 service:
   type: ClusterIP
+
+# Pin a specific GPU device id (e.g. "1") to set NVIDIA_VISIBLE_DEVICES on
+# the container. Leave empty to let the container see whatever GPUs the
+# pod's resource request exposed (runtime default).
+gpuDeviceId: ""
 
 # Stream-affinity routing via HAProxy consistent-hash on an HTTP header.
 # When enabled, the rendered Service carries haproxy.org/* annotations

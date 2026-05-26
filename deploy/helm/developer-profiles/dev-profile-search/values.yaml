@@ -243,7 +243,7 @@ rtvi:
         effect: NoSchedule
   vss-rtvi-embed:
     enabled: true
-    replicas: 2
+    replicas: 1
     image:
       repository: nvcr.io/nvstaging/vss-core/vss-rt-embed
       tag: "3.2.0-26.05.2"
@@ -251,6 +251,10 @@ rtvi:
     port: 8000
     service:
       type: ClusterIP
+    # Pin a specific GPU device id (e.g. "1") to set NVIDIA_VISIBLE_DEVICES on
+    # the container. Leave empty to let the container see whatever GPUs the
+    # pod's resource request exposed (runtime default).
+    gpuDeviceId: ''
     dshm:
       enabled: true
       sizeLimit: 16Gi

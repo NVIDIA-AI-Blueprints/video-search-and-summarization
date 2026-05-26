@@ -135,6 +135,16 @@ spec:
               containerPort: {{ .Values.port }}
               protocol: TCP
           env:
+            {{- /*
+              NVIDIA_VISIBLE_DEVICES is only emitted when gpuDeviceId is set,
+              so the empty chart default leaves the container's runtime default
+              intact (whichever GPUs the pod's resource request exposed).
+              Set .Values.gpuDeviceId to e.g. "1" to pin a specific device.
+            */}}
+            {{- with .Values.gpuDeviceId }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: {{ . | quote }}
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
             - name: MODEL_IMPLEMENTATION_PATH
