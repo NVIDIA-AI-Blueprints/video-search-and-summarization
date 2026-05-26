@@ -23,6 +23,10 @@ metadata:
   labels:
     {{- include "cosmos.labels" . | nindent 4 }}
 spec:
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- with .Values.tolerations }}
   tolerations:
     {{- toYaml . | nindent 4 }}
