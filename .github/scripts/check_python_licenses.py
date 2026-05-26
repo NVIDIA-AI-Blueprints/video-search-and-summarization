@@ -136,8 +136,16 @@ def resolve_license_pep639(name: str, csv_license: str) -> str:
     classifiers = md.get_all("Classifier") or []
     osi = [c for c in classifiers if c.startswith("License :: OSI Approved ::")]
     if osi:
-        # Drop the "License :: OSI Approved ::" prefix so the allowlist regex
-        # sees the bare license name (the classifier's last `::` segment).
+        # Trove classifiers form a taxonomy from general to specific:
+        # e.g. "License :: OSI Approved" (vague) →
+        # "License :: OSI Approved :: MIT License" (specific). The longest
+        # entry is the most specific, which is the actual license name we
+        # want to compare against the allowlist. Multi-classifier packages
+        # (dual-licensed) are uncommon enough that one-name-wins is fine —
+        # if it ever matters, an entry in license_allowlist_overrides.txt
+        # covers it.
+        # Drop the "License :: OSI Approved ::" prefix so the allowlist
+        # regex sees the bare license name (the last `::` segment).
         return max(osi, key=len).rsplit("::", 1)[-1].strip()
     return csv_license
 
