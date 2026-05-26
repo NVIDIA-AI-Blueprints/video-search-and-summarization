@@ -1,70 +1,10 @@
 # Video Summarization — HITL Prompt Walkthroughs
 
-### HITL: confirm the VLM prompt first (REQUIRED — do not skip)
-
-**Before any call to the VLM, you MUST show the default prompt to the
-user verbatim and wait for their response.** Do not proceed on silence
-and do not assume defaults.
-
-You MAY reuse a confirmed prompt from earlier in the same chat **only
-if** the user is asking to re-summarize the **same video** (same
-`streamId` / clip URL) — in that case, remind the user what prompt
-you're about to reuse and offer them the chance to change it before
-calling. For any **different video**, re-run the HITL from scratch.
-
-Post the message as follows (literal template — fill the `{video_name}`
-placeholder):
-
-> I'm about to summarize **{video_name}** with this VLM prompt. Reply
-> `Submit` to use it as-is, paste replacement text, `/generate <desc>`
-> to rewrite it from a description, `/refine <instr>` to tweak it, or
-> `/cancel` to stop.
->
-> ```
-> <default VLM prompt below>
-> ```
-
-**Default VLM prompt** (copy verbatim from the base profile):
-
-```
-Describe in detail what is happening in this video,
-including all visible people, vehicles, equipments, objects,
-actions, and environmental conditions.
-OUTPUT REQUIREMENTS:
-[timestamp-timestamp] Description of what is happening.
-EXAMPLE:
-[0.0s-4.0s] <description of the first event>
-[4.0s-12.0s] <description of the second event>
-```
-
-**User response handling:**
-
-| User input | Effect |
-|---|---|
-| `Submit` (or empty) | Approve the current prompt and call the VLM |
-| Any other free text | Treat as a full replacement prompt; echo it back and ask for `Submit` before calling |
-| `/generate <description>` | You (the assistant) write a new prompt from the description, show it back, and wait for `Submit` |
-| `/refine <instructions>` | You (the assistant) refine the current prompt per the instructions, show it back, and wait for `Submit` |
-| `/cancel` | Cancel summarization |
-
-Rules:
-
-- You MAY call the VLM **only** after receiving `Submit` (or an empty
-  confirmation) on a prompt that is currently visible in the chat.
-- `/generate` and `/refine` are not terminal — they produce a new prompt
-  that itself needs `Submit`.
-- When handling `/generate` and `/refine`, preserve the
-  `[Xs-Ys] <description>` output-format requirement from the default
-  prompt.
-- If the user just says "go" / "ok" / "yes" without having seen the
-  prompt, show the prompt first, then wait for `Submit`.
-
-
 ### HITL: collect scenario and events first (REQUIRED — do not skip)
 
 **Before any call to `POST /v1/summarize`, you MUST ask the user for
 `scenario`, `events`, and `objects_of_interest`, and wait for their
-response.** Do not call LVS with defaults silently — if the user wants
+response.** Do not call the video summarization service with defaults silently — if the user wants
 defaults, they must say so explicitly (e.g., "use the generic
 defaults").
 
@@ -78,7 +18,7 @@ video**, re-run the HITL from scratch.
 Post the message as follows (literal template — fill the `{video_name}`
 and `{duration}` placeholders):
 
-> I'm about to send **{video_name}** ({duration}s) to LVS. I need three
+> I'm about to send **{video_name}** ({duration}s) to the video summarization service. I need three
 > parameters first:
 >
 > 1. **`scenario`** — one-line context, e.g. `"warehouse monitoring"`,
@@ -93,7 +33,7 @@ and `{duration}` placeholders):
 > `events=["notable activity"]`, no objects. Reply `/cancel` to stop.
 
 Only after the user replies with values (or `defaults`) may you build
-and send the LVS request.
+and send the video summarization request.
 
 **Required parameters:**
 
