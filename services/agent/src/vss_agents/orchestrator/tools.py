@@ -1382,8 +1382,8 @@ async def vss_orchestrator(
             (appends -v when remove_volumes=True (default),
              appends --remove-orphans when remove_orphans=True (default))
 
-            When deep_clean=True, after a successful compose down the operation also runs
-            'docker volume prune -f' and recursively deletes mdx_data_dir.
+            When deep_clean=True, after a successful compose down the operation
+            also recursively deletes mdx_data_dir.
 
             Requires that artifacts for the docker_compose_id already exist.
 
