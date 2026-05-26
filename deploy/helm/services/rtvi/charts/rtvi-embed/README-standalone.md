@@ -108,12 +108,13 @@ helm upgrade --install "${RELEASE}" . \
   --set vss-rtvi-embed.kafkaTopic=mdx-embed \
   --set vss-rtvi-embed.hfTokenSecret.name=hf-token-secret \
   --set vss-rtvi-embed.hfTokenSecret.key=HF_TOKEN \
+  --set-json 'vss-rtvi-embed.imagePullSecrets=[{"name":"ngc-image-pull-secret"}]' \
   --wait --timeout 45m
 ```
 
 Notes:
 
-- Ensure **`hf-token-secret`** exists in **`${NAMESPACE}`** (umbrella install does not create secrets). For image pull, either create **`ngc-docker-reg-secret`** (default in subchart `values.yaml`) or add `--set-json 'vss-rtvi-embed.imagePullSecrets=[{"name":"ngc-image-pull-secret"}]'` to match section 2.
+- Ensure **`hf-token-secret`** and **`ngc-image-pull-secret`** exist in **`${NAMESPACE}`** (umbrella install does not create secrets). The **`--set-json`** line above wires image pull to the secret from section 2; without it the chart defaults to **`ngc-docker-reg-secret`** and pods may hit **ImagePullBackOff**.
 - **`kafkaTopic`** defaults to **`mdx-embed`** in `values.yaml`; standalone overrides keep the same topic for later Kafka integration.
 - The Deployment sets **`ERROR_MESSAGE_TOPIC=vision-embed-errors`** (hardcoded env today); output topic for Kafka is **`KAFKA_TOPIC`** / **`kafkaTopic`**.
 - First startup can take **many minutes** (HF model download + Triton model repo; `startupProbe` in `values.yaml` allows a long initial delay).
