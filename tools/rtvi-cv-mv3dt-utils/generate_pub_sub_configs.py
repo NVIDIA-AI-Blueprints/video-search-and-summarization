@@ -81,21 +81,35 @@ def load_and_process_camera_matrices(cam_info_path):
 
 def get_overlap_of_2_masks(mask1, mask2):
     overlap = np.logical_and(mask1, mask2)
-    overlap_count = np.sum(overlap)
-    mask1_ratio = overlap_count / np.sum(mask1)
-    mask2_ratio = overlap_count / np.sum(mask2)
+    overlap_count = int(np.sum(overlap))
+    mask1_size = int(np.sum(mask1))
+    mask2_size = int(np.sum(mask2))
+    # Treat an empty mask as zero overlap (avoids NaN poisoning top_N selection).
+    mask1_ratio = overlap_count / mask1_size if mask1_size > 0 else 0.0
+    mask2_ratio = overlap_count / mask2_size if mask2_size > 0 else 0.0
     return mask1_ratio, mask2_ratio, overlap_count
 
 
-def get_overlap_matrix(cam_matrices, minimum_object_size, range_of_interest):
+def get_overlap_matrix(cam_matrices, minimum_object_size, range_of_interest, cam_names=None):
     overlap_matrix = {}
     masks = {}
-    
+
     # Generate masks for all cameras
     for cam in tqdm.tqdm(cam_matrices, desc="Generating masks"):
         mask = get_camera_fov_mask(cam_matrices[cam], num_pix=minimum_object_size, range_of_interest=range_of_interest)
         masks[cam] = mask
-    
+
+    # Surface empty-mask cameras as misconfiguration (no visible world-plane samples).
+    empty_cams = [cam for cam, m in masks.items() if int(np.sum(m)) == 0]
+    if empty_cams:
+        empty_names = [cam_names[c] if cam_names else str(c) for c in empty_cams]
+        print(
+            f"WARNING: {len(empty_cams)} camera(s) produced an empty FOV mask "
+            f"and will have no vision neighbors: {empty_names}. "
+            f"Check --range_of_interest, --minimum_object_size, and the "
+            f"camInfo projection matrices for these cameras."
+        )
+
     # Calculate overlap ratios for all camera pairs
     for cam1 in tqdm.tqdm(cam_matrices, desc="Calculating overlaps"):
         overlap_matrix[cam1] = {}
@@ -105,7 +119,7 @@ def get_overlap_matrix(cam_matrices, minimum_object_size, range_of_interest):
             mask2 = masks[cam2]
             mask1_ratio, mask2_ratio, _ = get_overlap_of_2_masks(mask1, mask2)
             overlap_matrix[cam1][cam2] = mask1_ratio
-    
+
     return overlap_matrix
 
 
@@ -216,7 +230,7 @@ if __name__ == '__main__':
         max_y = max([pose[1][0] for pose in cam_poses])
         range_of_interest_ov = np.array([min_x - range_padding, min_y - range_padding, max_x + range_padding, max_y + range_padding], dtype=float)
 
-    overlap_matrix = get_overlap_matrix(cam_matrices, args.minimum_object_size, range_of_interest_ov)
+    overlap_matrix = get_overlap_matrix(cam_matrices, args.minimum_object_size, range_of_interest_ov, cam_names=cam_names)
     subscription_map = get_subscription_map(overlap_matrix, args.neighbor_criteria)
 
     num_neighbors = np.mean([len(subscription_map[cam]) for cam in subscription_map])

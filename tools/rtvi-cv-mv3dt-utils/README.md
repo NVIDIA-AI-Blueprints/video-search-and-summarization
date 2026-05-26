@@ -51,6 +51,7 @@ python utils/generate_cam_info_configs.py \
 # 2. Generate the MQTT pub/sub topology from those camInfo files
 python utils/generate_pub_sub_configs.py \
     --cam_info_path ./camInfo \
+    --mqtt_brokers  localhost:1883 \
     --output_path   .
 ```
 
