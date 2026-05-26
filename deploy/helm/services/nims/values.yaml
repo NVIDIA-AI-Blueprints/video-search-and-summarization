@@ -140,6 +140,8 @@ nemotron:
     type: ClusterIP
     port: 8000
 
+  nodeSelector: {}
+
   tolerations:
     - key: "nvidia.com/gpu"
       operator: "Exists"
@@ -183,6 +185,8 @@ cosmos:
   service:
     type: ClusterIP
     port: 8000
+
+  nodeSelector: {}
 
   tolerations:
     - key: "nvidia.com/gpu"

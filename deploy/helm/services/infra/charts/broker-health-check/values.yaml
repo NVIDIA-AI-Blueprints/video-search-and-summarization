@@ -29,3 +29,6 @@ image:
 
 maxRetries: "60"
 retryInterval: "2"
+
+nodeSelector: {}
+tolerations: []

@@ -31,6 +31,14 @@ spec:
         app.kubernetes.io/component: kafka-topics-init
     spec:
       restartPolicy: OnFailure
+      {{- with (coalesce .Values.topicJob.nodeSelector .Values.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: kafka-topics-init
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
