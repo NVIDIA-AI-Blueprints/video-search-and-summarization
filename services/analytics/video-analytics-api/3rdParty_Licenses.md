@@ -1308,9 +1308,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **License Type:** MIT
 
 ```
-    MIT License
-
-    Copyright (c) Microsoft Corporation.
+    This project is licensed under the MIT license.
+    Copyrights are respective of each contributor listed at the beginning of each definition file.
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -1339,9 +1338,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **License Type:** MIT
 
 ```
-    MIT License
-
-    Copyright (c) Microsoft Corporation.
+    This project is licensed under the MIT license.
+    Copyrights are respective of each contributor listed at the beginning of each definition file.
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -1370,9 +1368,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **License Type:** MIT
 
 ```
-    MIT License
-
-    Copyright (c) Microsoft Corporation.
+    This project is licensed under the MIT license.
+    Copyrights are respective of each contributor listed at the beginning of each definition file.
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -1401,9 +1398,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **License Type:** MIT
 
 ```
-    MIT License
-
-    Copyright (c) Microsoft Corporation.
+    This project is licensed under the MIT license.
+    Copyrights are respective of each contributor listed at the beginning of each definition file.
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -1432,9 +1428,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **License Type:** MIT
 
 ```
-    MIT License
-
-    Copyright (c) Microsoft Corporation.
+    This project is licensed under the MIT license.
+    Copyrights are respective of each contributor listed at the beginning of each definition file.
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -9760,6 +9755,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
 ```
 
 ---
@@ -10927,7 +10923,7 @@ THE SOFTWARE.
 
 ## @argparse:2.0.1
 
-**License Type:** Other (Please describe in Comments)
+**License Type:** Python-2.0
 
 ```
 A. HISTORY OF THE SOFTWARE
@@ -11768,7 +11764,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## @caniuse-lite:1.0.30001782
 
-**License Type:** Other (Please describe in Comments)
+**License Type:** CC-BY-4.0
 
 ```
 Attribution 4.0 International
