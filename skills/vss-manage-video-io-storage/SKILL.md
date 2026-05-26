@@ -8,31 +8,43 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
+# VIOS Operations
+
 You are a VIOS API assistant. Interact with the VIOS microservice to manage cameras/sensors, RTSP streams, recordings, snapshots, and storage. Use when asked to: add a camera, add an RTSP stream, list sensors, show configured sensors/cameras/streams, check stream status, get a snapshot, download a clip, upload a video file, or manage video storage. Always query the VIOS API directly using curl — do not navigate the UI.
 
-## Deployment prerequisite
+## Reference contracts shipped with this skill
 
-This skill requires any VSS profile that brings up VIOS / VST — **base** (recommended), or any of `lvs` / `search` / `alerts`. Before any request:
+This skill bundles three reference files under `references/`. Read whichever applies to the task in front of you:
 
-1. Probe VIOS:
+| File | Purpose | Audience |
+|---|---|---|
+| [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this when invoking any VIOS API operation.** | Operational users + this skill itself |
+| [`references/integrate-vios-service.md`](references/integrate-vios-service.md) | The **integration contract** — how VIOS plugs into other VSS microservices. Documents required peer services (RT-VLM, ELK, Kafka, Redis, `sdr-controller` / SDRC), the structured `component_services:` block consumed by the `vss-build-vision-agent` skill's Step 4, integration inputs/outputs (Kafka topics, REST endpoints, file paths), environment variables, network requirements, and known integration constraints (e.g. the `/url`-variant double-`http://` bug, the VIOS + SDRC patching requirement). **Read this when authoring a skill that talks to VIOS as a peer, when composing a new VSS deployment, or when debugging caption-pipeline wiring.** | Skill authors, deployment composers, pair-file maintainers |
+| [`references/deploy-vios-service.md`](references/deploy-vios-service.md) | The **deployment contract** — what it takes to bring VIOS up. Documents container images and tags (`nvcr.io/nvstaging/vss-core/vss-vios-*:2.1.0-26.05.2`), GPU / CPU / memory / storage requirements, startup behavior + healthcheck tuning, required environment variables (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true` for the libav apt-install step that gates uploads), known deployment issues (volume drift, libav missing, 502 from leftover containers), prerequisites, dry-run, verify-deployment, and tear-down commands. **Read this when VIOS isn't running and you (or your caller) need to deploy it standalone, when debugging container-startup failures, or when authoring a deploy skill that wraps VIOS.** | Operators, deploy-skill authors |
+
+## Deployment prerequisite — VIOS MUST be running
+
+This skill is primarily an API client and assumes VIOS is already up and reachable at the VST ingress (default `http://${HOST_IP}:30888`). It does not deploy VIOS itself, but when VIOS is unreachable it coordinates a deploy using its bundled deployment runbook ([`references/deploy-vios-service.md`](references/deploy-vios-service.md)) or hands off to the full-stack `/vss-deploy-profile` skill. Before doing any work:
+
+1. **Probe VIOS:**
    ```bash
-   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/list" >/dev/null
+   curl -sf --max-time 5 "http://${HOST_IP}:30888/vst/api/v1/sensor/version" >/dev/null
    ```
 
-2. **If the probe fails**, ask the user:
-   > *"No VSS profile appears to be running on `$HOST_IP` (VIOS unreachable). Shall I deploy `base` using the `/vss-deploy-profile` skill? If you'd like a different profile, say which."*
+2. **If the probe fails, VIOS is not deployed.** Offer two paths forward:
 
-   - If yes → hand off to `/vss-deploy-profile -p base` (or the profile the user names). Return here once it succeeds.
-   - If no → stop. VIOS operations require the VST backend to be up.
+   > *"VIOS is not reachable at `http://${HOST_IP}:30888` — no deployment is currently up. You have two options:*
+   > *(a) Bring up VIOS standalone using this skill's bundled [`references/deploy-vios-service.md`](references/deploy-vios-service.md) runbook — image tags, env vars (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true`), host directories, NGC login, bring-up command, healthcheck loop, and known deployment issues are all documented there. This is the right path if you only need VIOS itself (no RT-VLM / ELK / etc.) or if you're composing a custom profile.*
+   > *(b) Deploy a full VSS profile that includes VIOS via the `/vss-deploy-profile` skill — `base` (recommended), `lvs`, `search`, or `alerts` all bring VIOS up alongside other components. This is the right path if you want a complete VSS stack.*
+   > *Which would you like?"*
 
-   (If your caller has granted explicit pre-authorization to deploy
-   autonomously — e.g. the request says "pre-authorized to deploy
-   prerequisites", or you are running in a non-interactive evaluation
-   harness with that permission — skip the confirmation and invoke
-   `/vss-deploy-profile -p base` directly. Prefer `base` unless the request names
-   another profile.)
+   - If the user picks (a) → walk them through `references/deploy-vios-service.md` step by step. Pay particular attention to its `§ Environment Variables — Required for Upload-to-Caption Path` and `§ Known Deployment Issues` sections — the libav-missing failure (`VST_INSTALL_ADDITIONAL_PACKAGES=true`) and the volume-drift hang (`docker compose up --yes` or `docker volume rm` first) are the two most common bring-up blockers. After deploy succeeds and the probe in step 1 passes, return here.
+   - If the user picks (b) → hand off to `/vss-deploy-profile -p <profile>` (default `base`). Return here once it succeeds.
+   - If the user declines both → **stop**. VIOS operations require the VST backend to be up; do not attempt to fabricate responses or proceed with a degraded mode.
 
-3. If the probe passes, proceed.
+   *Pre-authorized autonomous mode:* if your caller has granted explicit pre-authorization to deploy prerequisites (e.g. the request says "pre-authorized to deploy prerequisites", or you are running in a non-interactive evaluation harness with that permission), skip the confirmation and prefer path (a) — bring up VIOS standalone via this skill's bundled `references/deploy-vios-service.md` — unless the request explicitly asks for a full VSS profile, in which case invoke `/vss-deploy-profile -p base`.
+
+3. **If the probe passes, proceed.** VIOS is up; all operations below are safe to execute.
 
 ---
 
@@ -54,13 +66,35 @@ binding the same host ports (30000 for `sensor-ms`, 30888 for
 teardown if the teardown grep doesn't catch them — and one
 sensor-ms loses the port-bind race, returning 502 to anything that
 proxies through `vst-ingress`. See
-[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151).
+[issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151)
+and `references/deploy-vios-service.md § Known Deployment Issues` for the
+full failure-mode catalogue and remediation steps.
 
 The `/vss-deploy-profile` skill's Step 0 teardown grep was extended to cover the
 full set (`sensor-ms-*`, `vst-ingress-*`, `centralizedb-*`,
-`storage-ms-*`, `sdr-*`, `envoy-*`, `rtspserver-ms-*`, etc.), so
+`storage-ms-*`, `sdr-*`, `envoy-*`, `sdr-controller`, `sdrc-*`,
+`rtspserver-ms-*`, etc.), so
 fresh deploys via `/vss-deploy-profile` should not hit this. If you inherit a
 host without re-deploying and see 502s, re-run `/vss-deploy-profile` to clean.
+
+> **Note on the current deploy contract:** SDR (`vss-vios-sdr`) and Envoy
+> (`vss-vios-envoy`) have been replaced. The current deploy modes are:
+>
+> - **Direct routing** (`base` profile): sensor → streamprocessing on `:30001`
+>   via `nginx-vst-direct.conf` (`STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001`,
+>   `VST_NGINX_MODE=vst-direct`). No SDR, no SDRC. See
+>   [`dev-profile-base/.env:222-224`](../../deploy/docker/developer-profiles/dev-profile-base/.env)
+>   and the `nginx-vst-direct.conf` template under `services/vios/configs/`.
+> - **SDRC routing** (`lvs`, `search`, `alerts_2d_cv`, `alerts_2d_vlm`, and all
+>   warehouse profiles): sensor → `sdr-controller`'s Envoy listener on `:10000` →
+>   streamprocessing on `:30001`. The combined WDM controller + Envoy router lives at
+>   [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
+>
+> The legacy `sdr-streamprocessing` + `envoy-streamprocessing` services still
+> exist in the tree (gated to the dead `bp_developer_sdr_envoy_disabled` profile)
+> but are not invoked by any active deploy. The `sdr-*` / `envoy-*` patterns in
+> the teardown grep above are retained to clean up stale hosts that ran an
+> older `develop`.
 
 Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
 snapshot, `storage/file/*/url` clip extraction) are unaffected.
@@ -81,7 +115,7 @@ snapshot, `storage/file/*/url` clip extraction) are unaffected.
   ```bash
   curl -sf --connect-timeout 5 http://<VST_ENDPOINT>/vst/api/v1/sensor/version
   ```
-- If the backend is unavailable (non-zero exit code or connection error), fail gracefully and report the error to the user.
+- If the backend is unavailable (non-zero exit code or connection error), fail gracefully and report the error to the user. See the **Deployment prerequisite** section above for the deploy-or-stop branch.
 
 **Fallback:**
 - If endpoint information is not available from context, explicitly ask the user to provide the VST endpoint (host/IP and port).
@@ -107,207 +141,25 @@ If a sensor has only one stream, `sensorId` and `streamId` are equal and can be 
 
 ## Service Map
 
-| Capability | URL prefix |
-|---|---|
-| Version / health check | `/vst/api/v1/sensor/version` |
-| Sensor list / info / status / add / delete | `/vst/api/v1/sensor/` |
-| Sensor streams | `/vst/api/v1/sensor/streams`, `/vst/api/v1/sensor/{id}/streams` |
-| Network scan | `/vst/api/v1/sensor/scan` |
-| Recording timelines | `/vst/api/v1/storage/` |
-| Video clip download / URL | `/vst/api/v1/storage/` |
-| File upload / delete | `/vst/api/v1/storage/` |
-| Live streams / snapshot (picture) | `/vst/api/v1/live/` |
-| Replay streams / historical snapshot | `/vst/api/v1/replay/` |
+| Capability | URL prefix | Authoritative reference |
+|---|---|---|
+| Version / health check | `/vst/api/v1/sensor/version` | `references/api-reference.md` |
+| Sensor list / info / status / add / delete | `/vst/api/v1/sensor/` | `references/api-reference.md` |
+| Sensor streams | `/vst/api/v1/sensor/streams`, `/vst/api/v1/sensor/{id}/streams` | `references/api-reference.md` |
+| Network scan | `/vst/api/v1/sensor/scan` | `references/api-reference.md` |
+| Recording timelines | `/vst/api/v1/storage/` | `references/api-reference.md` |
+| Video clip download / URL | `/vst/api/v1/storage/` | `references/api-reference.md` (operations) + `references/integrate-vios-service.md § Known Integration Constraints` (Finding 8: `/url` double-`http://` bug — prefer binary direct endpoints) |
+| File upload / delete | `/vst/api/v1/storage/` | `references/api-reference.md` (PUT v2 + legacy v1 endpoints) + `references/deploy-vios-service.md § Known Deployment Issues` (Finding 9: libav-missing failure mode) |
+| Live streams / snapshot (picture) | `/vst/api/v1/live/` | `references/api-reference.md` |
+| Replay streams / historical snapshot | `/vst/api/v1/replay/` | `references/api-reference.md` (operations) + `references/integrate-vios-service.md § Known Integration Constraints` (Finding 8) |
 
 ---
 
 ## Operations
 
-Full API reference for the eight VIOS REST operations (version/health, sensor list, timelines, clip extraction, snapshot/picture, add sensor/stream, delete sensor, file upload/delete) lives in [`references/api-reference.md`](references/api-reference.md). Read that file when invoking any operation.
-# expiryMinutes is optional; default is 10080 (7 days)
-curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true&expiryMinutes=<expiryMinutes>" | jq .
-```
-Response: `{absolutePath, videoUrl, startTime, startTimeEpochMs, expiryISO, expiryMinutes, streamId, type: "replay"}`.
-Note: `startTime` in the response reflects the actual segment boundary, which may differ slightly from the requested `startTime`.
+The full VIOS REST API reference — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, and service discovery — lives in [`references/api-reference.md`](references/api-reference.md). Read that file when invoking any operation.
 
-**Query parameters for clip download/URL:**
-
-| Parameter | Required | Description |
-|---|---|---|
-| `startTime` | Yes | ISO 8601 UTC. Use user-provided value, or fetch timelines first to get a valid range. |
-| `endTime` | Yes | ISO 8601 UTC. Must fall within the same recorded segment as `startTime`. |
-| `container` | No | `mp4` (default: `mp2t`/TS) |
-| `disableAudio` | No | Always pass `true` — VIOS does not support audio for files with B-frames; disabled by default to avoid failures |
-| `transcode` | No | `none` (default, fastest) or `full` (re-encode) |
-| `fullLength` | No | boolean; if true, snaps to full segment boundaries |
-| `expiryMinutes` | No (URL only) | minutes until URL expires, default 10080 (7 days) |
-
----
-
-### 5. Snapshot / Picture
-
-#### Live snapshot (most recent frame from sensor)
-```bash
-# width and height are optional; omit to use native sensor resolution (max 8000x4000)
-curl -s "http://<VST_ENDPOINT>/vst/api/v1/live/stream/<streamId>/picture?width=<width>&height=<height>" \
-  -H "streamId: <streamId>" \
-  -o snapshot.jpg
-```
-
-**Get temporary URL for live snapshot** (no download, returns URL):
-```bash
-curl -s "http://<VST_ENDPOINT>/vst/api/v1/live/stream/<streamId>/picture/url" \
-  -H "streamId: <streamId>" | jq .
-```
-Response: `{absolutePath, imageUrl, expiryISO, expiryMinutes, streamId, type: "live"}`.
-
-#### Historical snapshot (frame at a specific timestamp from recordings)
-
-> **startTime:** Use the value provided by the user. If not provided, first fetch timelines to find a valid range:
-> ```bash
-> curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/<streamId>/timelines" | jq .
-> ```
-> Pick any timestamp within a returned `{startTime, endTime}` range.
-
-```bash
-# startTime is ISO 8601 UTC — the frame closest to this timestamp is returned
-curl -s "http://<VST_ENDPOINT>/vst/api/v1/replay/stream/<streamId>/picture?startTime=<startTime>" \
-  -H "streamId: <streamId>" \
-  -o snapshot_recorded.jpg
-```
-
-Optional: `width`, `height` query parameters (string format, e.g. `width=<width>`).
-
-**Get temporary URL for historical snapshot:**
-```bash
-curl -s "http://<VST_ENDPOINT>/vst/api/v1/replay/stream/<streamId>/picture/url?startTime=<startTime>" \
-  -H "streamId: <streamId>" | jq .
-```
-
-> **Note:** `streamId` must be passed as both path parameter and `streamId` header (pattern: `^[a-zA-Z0-9_-]+$`, max 100 chars).
-
----
-
-### 6. Add Sensor / Stream
-
-**Add sensor by IP (ONVIF):**
-```bash
-# sensorIp: camera IP address; name/location are optional labels
-curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/add" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sensorIp": "<sensorIp>",
-    "username": "<username>",
-    "password": "<password>",
-    "name": "<name>",
-    "location": "<location>"
-  }' | jq .
-```
-Response: `{"sensorId": "<uuid>"}`.
-
-**Add sensor by RTSP URL:**
-```bash
-# sensorUrl: full RTSP URL with credentials embedded, e.g. rtsp://<username>:<password>@<ip>:<port>/<path>
-# username/password are part of the URL — do not include them separately in the body
-# name: use the last segment of the RTSP URL path as the default (e.g. for rtsp://.../live/cam1, use "cam1")
-curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/add" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sensorUrl": "<sensorUrl>",
-    "name": "<name>"
-  }' | jq .
-```
-
-Optional fields for both: `hardware`, `manufacturer`, `serialNumber`, `firmwareVersion`, `hardwareId`, `tags`.
-
-**Trigger network scan for sensors:**
-```bash
-curl -s -X POST "http://<VST_ENDPOINT>/vst/api/v1/sensor/scan" | jq .
-```
-
----
-
-### 7. Delete Sensor (RTSP / non-file sensors)
-
-Use this to delete sensors that are **not** uploaded files (e.g. RTSP streams added to VIOS):
-```bash
-# Returns true on success
-curl -s -X DELETE "http://<VST_ENDPOINT>/vst/api/v1/sensor/<sensorId>" | jq .
-```
-This removes the sensor from all VIOS APIs but does **not** delete recordings from disk.
-
-> **RTSP full cleanup:** Calling only `DELETE /sensor/<sensorId>` leaves orphaned recordings on disk. See the delete guidance in Section 8 for the complete two-step RTSP removal flow.
-
----
-
-### 8. File Upload / Delete
-
-There are two PUT upload APIs. Use the new API (v2) for most cases.
-
-#### PUT Upload — New API (v2): `PUT /storage/file/{filename}`
-
-Filename in path, timestamp and sensorId as query params.
-
-```bash
-# filename: must not contain whitespace
-# timestamp: ISO 8601 UTC, e.g. 2025-01-01T00:00:00.000Z — default when user has not specified: 2025-01-01T00:00:00.000Z
-# sensorId: optional — if omitted, server generates a UUID; if provided and already exists, file is added as a sub-stream of that sensor
-curl -s -X PUT "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<filename>?timestamp=<timestamp>&sensorId=<sensorId>" \
-  -H "Content-Type: application/octet-stream" \
-  -H "Content-Length: <file_size_in_bytes>" \
-  --upload-file /path/to/video.mp4 | jq .
-```
-
-Key behavior:
-- Returns **409 Conflict** if a file with the same name already exists — does NOT auto-rename
-- `sensorId` query param: if provided, used as the sensorId (allows grouping under an existing sensor as a sub-stream); if omitted, a new random UUID is generated
-- `Content-Length` header is required
-
----
-
-#### PUT Upload — Legacy API (v1): `PUT /storage/file/{filename}/{timestamp}`
-
-Both filename and timestamp in the path. No query params.
-
-```bash
-# filename: must not contain whitespace
-# timestamp: ISO 8601 UTC, e.g. 2025-01-01T00:00:00.000Z — default when user has not specified: 2025-01-01T00:00:00.000Z
-curl -s -X PUT "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<filename>/<timestamp>" \
-  -H "Content-Type: application/octet-stream" \
-  -H "Content-Length: <file_size_in_bytes>" \
-  --upload-file /path/to/video.mp4 | jq .
-```
-
-Key behavior:
-- If a file with the same name already exists, **auto-generates a unique filename** (no 409)
-- sensorId is **always a newly generated random UUID** — there is no way to specify or reuse an existing sensorId; the `sensorId` query param is ignored even if passed
-
----
-
-**Response (both APIs):** `{id, filename, bytes, sensorId, streamId, filePath, timestamp, created_at}`.
-- `id` — unique file identifier
-- `sensorId` / `streamId` — assigned sensor and stream (auto-generated UUID if not provided)
-- `filePath` — absolute path on disk where the file is stored
-- `created_at` — epoch ms when file was uploaded
-- 413 if payload too large; 422 if codec unsupported; 507 if disk full
-
-**Delete an uploaded file** (removes physical file from disk AND removes sensor from all APIs):
-```bash
-# streamId: use the streamId returned in the upload response (or from sensor/{sensorId}/streams)
-# startTime / endTime: use the timeline range for this streamId (fetch from /storage/<streamId>/timelines)
-# Returns {spaceSaved: <MB>}
-curl -s -X DELETE "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<streamId>?startTime=<startTime>&endTime=<endTime>" | jq .
-```
-
-> **Identify sensor type before deleting:** call `GET /sensor/<sensorId>/streams` and check the `url` field.
-> - If `url` starts with `rtsp://` → RTSP/IP sensor
-> - If `url` is a file path (e.g. `/home/vst/.../video.mp4`) → uploaded file sensor
->
-> **Which delete to use:**
-> - **Uploaded file sensor** — use ONLY `DELETE /storage/file/<streamId>?startTime=...&endTime=...`. This deletes the physical file and removes the sensor from all APIs. Do NOT use `DELETE /sensor/<sensorId>` alone — it removes the sensor from APIs but leaves the physical file on disk.
-> - **RTSP sensor** — use BOTH in order: first `DELETE /sensor/<sensorId>` (stops recording, removes from APIs), then `DELETE /storage/file/<streamId>?startTime=...&endTime=...` (deletes recordings from disk). Using only the storage delete on an RTSP sensor erases existing recordings but the sensor stays active and keeps recording.
-
-> **File sensor timeline times:** Uploaded file sensors report timelines relative to the timestamp provided at upload time, not the upload wall-clock time. If the default was used, timelines start at `2025-01-01T00:00:00.000Z`. Always fetch the timeline first before building the delete command — never assume times based on upload time.
+For integration- and deployment-time questions about how VIOS interacts with other microservices or how it's brought up, defer to [`references/integrate-vios-service.md`](references/integrate-vios-service.md) and [`references/deploy-vios-service.md`](references/deploy-vios-service.md) respectively (see the **Reference contracts** table above for what each covers).
 
 ---
 
@@ -331,7 +183,7 @@ When the user has a sensor name or IP but needs a clip or snapshot:
    ```bash
    curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/<streamId>/timelines" | jq .
    ```
-4. Download clip or snapshot using the `streamId`.
+4. Download clip or snapshot using the `streamId`. Prefer the **binary direct endpoints** (`/storage/file/<streamId>?startTime=...&endTime=...`, `/replay/stream/<streamId>/picture?startTime=...`, `/storage/stream/<streamId>/picture?startTime=...`) over the `/url` JSON envelope variants — see `references/integrate-vios-service.md § Known Integration Constraints` Finding 8 (the `/url` variants return double-`http://` URLs in 2.1.0-26.05.2 and require client-side stripping).
 
 ---
 
@@ -353,6 +205,10 @@ When the user has a sensor name or IP but needs a clip or snapshot:
 
 Common codes: `VMSInternalError`, `VMSNotFound`, `VMSInvalidParameter`.
 
+If you see `InvalidParameterError: Failed to get media information` on a PUT upload, this is the libav-missing failure mode — VIOS was deployed without `VST_INSTALL_ADDITIONAL_PACKAGES=true`. See `references/deploy-vios-service.md § Known Deployment Issues` Finding 9 for the fix.
+
+If you see double-`http://` prefixes in `imageUrl` or `videoUrl` fields on `/url`-variant responses, that's Finding 8 — strip the leading `http://` client-side or switch to binary direct endpoints.
+
 ---
 
 ## Tips
@@ -360,7 +216,8 @@ Common codes: `VMSInternalError`, `VMSNotFound`, `VMSInvalidParameter`.
 - **jq:** All JSON responses are piped through `jq .` for readability. Binary responses (clip download, snapshot) are not — they use `-o <file>` instead.
 - **Time format:** Always ISO 8601 UTC, e.g. `2026-04-10T10:30:00Z` or `2026-04-10T10:30:00.000Z`.
 - **streamId header:** Live/replay/recorder endpoints require `streamId` as BOTH a path parameter AND a request header — include both.
-- **Large clips:** Use the `/url` variant to get a temporary download link rather than streaming bytes through curl.
+- **Large clips:** Use the binary direct `/storage/file/<id>?...&container=mp4` endpoint with `-o clip.mp4` for direct streaming. The `/url` envelope variant has the Finding 8 double-`http://` defect — avoid until upstream fixes it or use client-side prefix stripping.
 - **Sensor vs stream ID:** `sensorId` identifies a camera; `streamId` identifies a specific video stream from that camera (a sensor can have a main stream and sub-streams).
 - **Identifying sensor type (RTSP vs uploaded file):** Call `GET /sensor/<sensorId>/streams` and inspect the `url` field of each stream. If `url` starts with `rtsp://` it is a live RTSP/IP camera stream. If `url` is a file path (e.g. `"/home/vst/vst_release/streamer_videos/TruckAccident.mp4"`) it is an uploaded file sensor. This determines which delete flow to use — see Section 8.
+- **Upload timestamp is honored for the recorded timeline:** When uploading a file via `PUT /vst/api/v1/storage/file/<filename>?timestamp=<iso>`, the timeline returned by `GET /storage/<streamId>/timelines` is anchored at the supplied timestamp, not the upload wall-clock time. Subsequent snapshot / clip queries MUST use timestamps within this range — fetch the timeline first. See `references/api-reference.md § 8` and `references/integrate-vios-service.md § Integration Interfaces > Inputs > Upload video file` for the authoritative contract.
 - **Endpoint resolution:** The VST endpoint is provided by the VSS deployment context. Do not attempt manual IP/port discovery. If unavailable, ask the user. All curl examples use `<VST_ENDPOINT>` as a placeholder — substitute the resolved endpoint before executing.

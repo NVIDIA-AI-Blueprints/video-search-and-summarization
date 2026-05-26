@@ -128,50 +128,34 @@ PROFILES = {
 
 An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/vss-deploy-profile -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
 
-### Worked example — `skills/vss-manage-video-io-storage/eval/base_profile_ops.json`
+### Worked example — `skills/vss-manage-video-io-storage/eval/vios_ops.json`
 
-Three-step thread against a deployed VSS base: upload video → snapshot URL → clip URL. Produces 3 chained tasks on the targeted platform.
+13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. The spec **omits the `profile` field** so the agent stands VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook — there is no `/vss-deploy-profile` prerequisite. Produces 13 chained tasks on the targeted platform.
 
 ```json
 {
   "skills": ["vss-manage-video-io-storage"],
-  "resources": {"platforms": {"L40S": {"modes": ["remote-all"]}}},
-  "env": "A **full-remote deployed VSS base profile** (deploy mode = `remote-all` — LLM and VLM both via remote launchpad endpoints, no local NIMs). Run on ONE platform only — the vss-manage-video-io-storage skill exercises VIOS / VST which is GPU-independent, so there's no benefit to fanning out. Required: VST reachable at http://localhost:30888/vst/api/v1 AND the Brev secure-link env vars set (BREV_ENV_ID from /etc/environment, BREV_LINK_PREFIX defaulting to 7777). Without BREV_ENV_ID the returned media URLs will be raw http://localhost:... and the Brev-link checks will fail.",
+  "resources": {"platforms": {"L40S": {"gpu_count": 1}}},
+  "env": "**No VSS profile is pre-deployed.** VIOS may or may not be running on the host; the agent must probe http://localhost:30888/vst/api/v1/sensor/version first and, if it fails, stand VIOS up standalone via this skill's bundled references/deploy-vios-service.md runbook (the deploy is pre-authorized via SKILL.md § Pre-authorized autonomous mode). Required env vars: NGC_CLI_API_KEY, HOST_IP, VSS_DATA_DIR, VSS_APPS_DIR, plus the Brev secure-link env vars.",
   "expects": [
     {
       "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.",
       "checks": [
-        "The upload API call (PUT /vst/api/v1/storage/file/<filename>?timestamp=...) returns HTTP 2xx",
-        "The response JSON contains both a sensorId and a streamId (non-empty UUIDs)",
+        "The upload PUT to /vst/api/v1/storage/file/<filename>?timestamp=... either returns HTTP 2xx OR returns the VST sensor-cap error",
         "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem"
       ]
     },
-    {
-      "query": "Extract a snapshot from 5 seconds into the uploaded video and return a shareable URL.",
-      "checks": [
-        "GET /vst/api/v1/replay/stream/<streamId>/picture/url?startTime=2025-01-01T00:00:05.000Z returns a JSON object with a non-empty imageUrl field",
-        "The returned imageUrl matches the Brev secure-link pattern: https://<BREV_LINK_PREFIX>-<BREV_ENV_ID>.brevlab.com/... (NOT http://localhost:... and NOT http://<internal-ip>:...)",
-        "curl -sfI <imageUrl> returns HTTP 200"
-      ]
-    },
-    {
-      "query": "Extract a video clip from 3 to 5 seconds (mp4 container) from the uploaded video and return a shareable URL.",
-      "checks": [
-        "GET /vst/api/v1/storage/file/<streamId>/url?startTime=2025-01-01T00:00:03.000Z&endTime=2025-01-01T00:00:05.000Z&container=mp4&disableAudio=true returns a JSON object with a non-empty videoUrl field",
-        "curl -sfI <videoUrl> returns HTTP 200",
-        "The response Content-Length is greater than 10000 bytes"
-      ]
-    }
+    // ... 12 more entries ...
   ]
 }
 ```
 
-Source: [`skills/vss-manage-video-io-storage/eval/base_profile_ops.json`](../../skills/vss-manage-video-io-storage/eval/base_profile_ops.json)
+Source: [`skills/vss-manage-video-io-storage/eval/vios_ops.json`](../../skills/vss-manage-video-io-storage/eval/vios_ops.json)
 
 What the agent derives from this spec:
-- `env` says **"full-remote deployed VSS base profile"** → inject a `vss-deploy-profile` task with `mode=remote-all` + `profile=base` ahead of the `vss-manage-video-io-storage` tasks.
-- `resources.platforms` is `{L40S: [remote-all]}` → one dataset, one platform. No fan-out.
-- `expects[]` has 3 entries → 3 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
+- `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
+- `resources.platforms` is `{L40S: {gpu_count: 1}}` → one dataset, one platform. No fan-out.
+- `expects[]` has 13 entries → 13 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
 - `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.
 
 ## Running a trial by hand
@@ -197,8 +181,8 @@ export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
 
 uvx harbor run \
   --environment-import-path "envs.brev_env:BrevEnvironment" \
-  -p /tmp/skill-eval/datasets/vss-manage-video-io-storage/base_profile_ops \
-  --include-task-name "l40s-remote-all" \
+  -p /tmp/skill-eval/datasets/vss-manage-video-io-storage/vios_ops \
+  --include-task-name "l40s" \
   -a claude-code \
   --model "$ANTHROPIC_MODEL" \
   --ak api_base="$ANTHROPIC_BASE_URL/v1" \
