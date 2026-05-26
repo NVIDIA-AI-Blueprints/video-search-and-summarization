@@ -31,14 +31,14 @@ Create a virtual environment and install the pinned dependencies:
 ```bash
 python -m venv ~/venv
 source ~/venv/bin/activate
-pip install -r utils/requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Sample commands
 
 ```bash
 # 1. Generate per-camera YAMLs from an Omniverse-style calibration.json
-python utils/generate_cam_info_configs.py \
+python generate_cam_info_configs.py \
     --calibration-json /path/to/calibration.json \
     --output-dir       ./camInfo \
     --class 0 1.60 0.3 \
@@ -49,7 +49,7 @@ python utils/generate_cam_info_configs.py \
     --class 5 2.2  0.9
 
 # 2. Generate the MQTT pub/sub topology from those camInfo files
-python utils/generate_pub_sub_configs.py \
+python generate_pub_sub_configs.py \
     --cam_info_path ./camInfo \
     --mqtt_brokers  localhost:1883 \
     --output_path   .
@@ -80,7 +80,7 @@ once per class.
 **Usage**
 
 ```bash
-python utils/generate_cam_info_configs.py \
+python generate_cam_info_configs.py \
     --calibration-json CALIBRATION_JSON \
     --output-dir       OUTPUT_DIR \
     --class CLASS_ID HEIGHT RADIUS [--class ...]
@@ -155,7 +155,7 @@ stem.
 **Usage**
 
 ```bash
-python utils/generate_pub_sub_configs.py \
+python generate_pub_sub_configs.py \
     [--cam_info_path        CAM_INFO_PATH] \
     [--mqtt_brokers         HOST:PORT[,HOST:PORT,...]] \
     [--minimum_object_size  PIXELS] \

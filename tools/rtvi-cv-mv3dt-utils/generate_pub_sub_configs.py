@@ -20,7 +20,6 @@ import yaml
 import os
 import cv2
 import glob
-import re
 from os.path import join
 
 def get_camera_fov_mask(cam_calib, num_pix, range_of_interest=None):
@@ -28,7 +27,6 @@ def get_camera_fov_mask(cam_calib, num_pix, range_of_interest=None):
     cx, cy = K[0, 2], K[1, 2]
     cam_h, cam_w = int(cy * 2), int(cx * 2)
     limits_ov = range_of_interest
-    # print ("range_of_interests", limits_ov[0, 0, 0], limits_ov[1, 0, 0], limits_ov[0, 0, 1], limits_ov[1, 0, 1])
     x_ov = np.arange(np.round(limits_ov[0]), np.round(limits_ov[2]))
     y_ov = np.arange(np.round(limits_ov[1]), np.round(limits_ov[3]))
     xy_ov = np.array(np.meshgrid(x_ov, y_ov), dtype=float).reshape(2, -1)
@@ -44,7 +42,7 @@ def get_camera_fov_mask(cam_calib, num_pix, range_of_interest=None):
     mask3 = np.linalg.norm(xyh_cam - xy0_cam, ord=np.inf, axis=0) > num_pix # object size: OK
     mask4 = ((xy_ov.T - pos.T) @ (end - pos)).flatten() > 0                   # direction: OK
     # Update the mask
-    mask = mask1 & mask2 & mask3 & mask4 
+    mask = mask1 & mask2 & mask3 & mask4
     return mask
 
 def load_and_process_camera_matrices(cam_info_path):
@@ -73,8 +71,6 @@ def load_and_process_camera_matrices(cam_info_path):
         # Point 3 world units (meters) in front of the camera, used to define
         # the camera's forward direction for FOV culling.
         end = pos + R[-1:, :2].T * (3 / np.linalg.norm(R[-1, :2]))
-        # pos_px = cv2.perspectiveTransform(pos.reshape(1, 1, 2), T_ov2px).reshape(2)
-        # end_px = cv2.perspectiveTransform(end.reshape(1, 1, 2), T_ov2px).reshape(2)
         cam_matrices[cam] = P, Q, K, R, t, pos, end, height
     return cam_matrices, cam_names
 
@@ -124,25 +120,36 @@ def get_overlap_matrix(cam_matrices, minimum_object_size, range_of_interest, cam
 
 
 def get_subscription_map(overlap_matrix, criteria):
-    criteria_type, value = criteria.split(':')
+    if ':' not in criteria:
+        raise ValueError(
+            f"Unknown --neighbor_criteria '{criteria}'. "
+            f"Expected 'top_N:<int>' or 'overlap_threshold:<float>'."
+        )
+    criteria_type, value = criteria.split(':', 1)
     subscription_map = {}
     if criteria_type == 'top_N':
         N = int(value)
+        if N < 0:
+            raise ValueError(f"top_N must be non-negative, got {N}.")
         for cam in overlap_matrix:
-            subscription_map[cam] = []
             neighbors = list(overlap_matrix[cam].keys())
             k = min(N, len(neighbors))
+            if k == 0:
+                subscription_map[cam] = []
+                continue
             top_cam_idxs = np.argpartition([overlap_matrix[cam][nei] for nei in neighbors], -k)[-k:].tolist()
             top_cams = [neighbors[i] for i in top_cam_idxs]
-            subscription_map[cam] = top_cams
+            # Sort for deterministic output (np.argpartition is not stable).
+            subscription_map[cam] = sorted(top_cams)
 
     elif criteria_type == 'overlap_threshold':
         threshold = float(value)
         for cam in overlap_matrix:
-            subscription_map[cam] = []
-            for neighbor in overlap_matrix[cam]:
-                if overlap_matrix[cam][neighbor] >= threshold:
-                    subscription_map[cam].append(neighbor)
+            subscription_map[cam] = sorted(
+                neighbor
+                for neighbor, ratio in overlap_matrix[cam].items()
+                if ratio >= threshold
+            )
 
     else:
         raise ValueError(
@@ -166,8 +173,8 @@ def parse_args():
         '--mqtt_brokers',
         type=str,
         default='127.0.0.1:1883',
-        help='Comma-separated MQTT broker addresses, one per DS instance (e.g. 127.0.0.1:1884,127.0.0.1:1885). '
-             'Cameras are distributed evenly across instances in sorted order.'
+        help='Comma-separated MQTT broker host:port list. For a Docker Compose deployment a single entry is sufficient; '
+             'if multiple entries are provided, cameras (sorted by filename) are distributed evenly across the brokers.'
     )
 
     parser.add_argument(
