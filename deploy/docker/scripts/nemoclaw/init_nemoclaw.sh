@@ -289,6 +289,38 @@ configure_ngc_credential_provider() {
   fi
 }
 
+# Install the NGC CLI inside the running sandbox so `ngc registry resource
+# download-version …` works from openclaw. Uses `pip3 install --user ngcsdk`,
+# which fits the existing `pypi` policy block (binaries=/usr/bin/pip3,
+# hosts=pypi.org + files.pythonhosted.org). After install, copies the binary
+# to /usr/local/bin/ngc to match the path the `ngc` policy block allows.
+# Best-effort: logs and continues on failure rather than aborting the deploy.
+configure_ngc_cli_in_sandbox() {
+  if ! have nemoclaw; then
+    log "nemoclaw not available; skipping in-sandbox NGC CLI install"
+    return
+  fi
+  log "Installing NGC CLI inside sandbox ${NEMOCLAW_SANDBOX_NAME} (pip3 install --user ngcsdk)"
+  if ! nemoclaw sandbox exec -n "$NEMOCLAW_SANDBOX_NAME" --no-tty -- bash -c '
+    set -e
+    if command -v ngc >/dev/null 2>&1 && ngc --version >/dev/null 2>&1; then
+      echo "ngc already installed: $(ngc --version 2>&1 | head -1)"
+      exit 0
+    fi
+    python3 -m pip install --user --quiet --break-system-packages ngcsdk 2>/dev/null \
+      || python3 -m pip install --user --quiet ngcsdk
+    if [ ! -e /usr/local/bin/ngc ] && [ -e "$HOME/.local/bin/ngc" ]; then
+      sudo install -m 0755 "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
+        || cp "$HOME/.local/bin/ngc" /usr/local/bin/ngc 2>/dev/null \
+        || true
+    fi
+    /usr/local/bin/ngc --version 2>/dev/null \
+      || "$HOME/.local/bin/ngc" --version
+  '; then
+    log "In-sandbox NGC CLI install failed; ngc registry calls inside the sandbox will not work"
+  fi
+}
+
 # `nemoclaw onboard` creates the dashboard port-forward (default 18789) that exposes the in-pod
 # openclaw-gateway (and its /hooks endpoint) to the host. When the sandbox already exists we skip
 # onboard, and the forward can also die independently between runs — so refresh it unconditionally.
@@ -655,6 +687,7 @@ main() {
   update_openclaw_allowed_origin
   # Policy/config updates can briefly flap gateway readiness before plugin install.
   wait_for_sandbox_ready "${NEMOCLAW_POST_CONFIG_READY_TIMEOUT:-60}"
+  configure_ngc_cli_in_sandbox
   install_vss_openclaw_plugin
 
   log "To use nemoclaw in your current shell, run:"
