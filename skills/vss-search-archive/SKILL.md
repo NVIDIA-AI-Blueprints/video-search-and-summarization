@@ -1,6 +1,6 @@
 ---
 name: vss-search-archive
-description: Search video archives using natural language — find events, objects, actions, and people across recorded video using fusion search (Cosmos Embed1 semantic search + CV attribute search). Also handles ingestion for search — uploading a video file or adding an RTSP stream through the agent backend so it ends up in the search index. Use when asked to search for something in video, find actions and events, locate objects and people, query video archives, ingest a video for search, or add an RTSP stream for search. For search questions, default to this top-level fusion search unless user specifies otherwise. Requires the search profile to be deployed.
+description: Use when asked to search for something in video, find actions and events, locate objects and people, query video archives, ingest a video for search, or add an RTSP stream for search. For search questions, default to this top-level fusion search unless user specifies otherwise. Requires the search profile to be deployed.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -57,7 +57,7 @@ This skill requires the VSS **search** profile running on the host at `$HOST_IP`
 
 For a source to be searchable it must be ingested **through the VSS agent backend**, not through VIOS alone. The agent's ingest routes own the VIOS upload + RTVI-CV register + RTVI-embed pipeline as one transaction; a bare VIOS PUT only stores the bytes and never wires them into Elasticsearch.
 
-Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is missing, ingest it with one of the recipes below before firing `/generate`. Reuse the registered `sensorId` you get back for the search query.
+Confirm the source exists in VIOS first (Mandatory workflow Step 2). If it is missing, ingest it with one of the recipes below before firing `/generate`. After ingest succeeds, the source appears in `sensor/list` under the name you provided and can be referenced from the natural-language query the agent forwards to its search-tool decomposer — you do NOT need to construct a structured `video_sources` payload yourself.
 
 ### File upload — universal three-step flow
 
@@ -97,7 +97,7 @@ curl -s -X POST "http://${HOST_IP}:8000/api/v1/rtsp-streams/add" \
   }' | jq .
 ```
 
-The endpoint adds the stream to VST, registers it with RTVI-CV and RTVI-embed, and kicks off embedding generation in one shot. On any step's failure earlier steps roll back, so a 2xx is the green light to search the stream.
+The response shape is `{status, message, error}` — no `sensorId` (the agent keys the stream by the `name` you provided). On any step's failure earlier steps roll back. The `start_embedding_generation` step is fire-and-verify: a 2xx confirms the request was accepted and the embedding pipeline is running in the background, **not** that the stream is searchable yet. Search hits will start appearing only after enough chunks land in Elasticsearch — poll with a low-`top_k` query a few seconds in if you need a readiness signal.
 
 ---
 
