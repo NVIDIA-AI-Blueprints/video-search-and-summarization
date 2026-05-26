@@ -76,14 +76,23 @@ fresh deploys via `/vss-deploy-profile` should not hit this. If you inherit a
 host without re-deploying and see 502s, re-run `/vss-deploy-profile` to clean.
 
 > **Note on the current deploy contract:** SDR (`vss-vios-sdr`) and Envoy
-> (`vss-vios-envoy`) have been replaced by a single `sdr-controller` workload
-> (SDRC) from
-> [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
-> The `sdr-*` / `envoy-*` patterns in the teardown grep above are retained only
-> to clean up stale hosts that ran an older `develop` — a fresh deploy off the
-> current contract runs only `sdr-controller` alongside the VIOS trio, so the
-> 502 failure mode this section describes no longer occurs on freshly-bootstrapped
-> hosts.
+> (`vss-vios-envoy`) have been replaced. The current deploy modes are:
+>
+> - **Direct routing** (`base` profile): sensor → streamprocessing on `:30001`
+>   via `nginx-vst-direct.conf` (`STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:30001`,
+>   `VST_NGINX_MODE=vst-direct`). No SDR, no SDRC. See
+>   [`dev-profile-base/.env:222-224`](../../deploy/docker/developer-profiles/dev-profile-base/.env)
+>   and the `nginx-vst-direct.conf` template under `services/vios/configs/`.
+> - **SDRC routing** (`lvs`, `search`, `alerts_2d_cv`, `alerts_2d_vlm`, and all
+>   warehouse profiles): sensor → `sdr-controller`'s Envoy listener on `:10000` →
+>   streamprocessing on `:30001`. The combined WDM controller + Envoy router lives at
+>   [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../deploy/docker/services/infra/sdrc/docker-compose.yaml).
+>
+> The legacy `sdr-streamprocessing` + `envoy-streamprocessing` services still
+> exist in the tree (gated to the dead `bp_developer_sdr_envoy_disabled` profile)
+> but are not invoked by any active deploy. The `sdr-*` / `envoy-*` patterns in
+> the teardown grep above are retained to clean up stale hosts that ran an
+> older `develop`.
 
 Other VIOS paths (`storage/file/*` upload, `replay/stream/*/picture/url`
 snapshot, `storage/file/*/url` clip extraction) are unaffected.

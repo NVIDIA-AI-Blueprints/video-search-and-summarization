@@ -153,7 +153,7 @@ An empty or absent `profile` means the dict key *is* the deploy profile (the `ba
 Source: [`skills/vss-manage-video-io-storage/eval/vios_ops.json`](../../skills/vss-manage-video-io-storage/eval/vios_ops.json)
 
 What the agent derives from this spec:
-- `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (SDRC-based) when it finds VIOS missing.
+- `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
 - `resources.platforms` is `{L40S: {gpu_count: 1}}` → one dataset, one platform. No fan-out.
 - `expects[]` has 13 entries → 13 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
 - `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.

@@ -370,7 +370,8 @@ def main() -> None:
         print("Note: this spec OMITS `profile`. The trial runs on a bare Brev")
         print("instance — no /vss-deploy-profile prerequisite is injected. The agent is")
         print("expected to stand VIOS up standalone via the skill's bundled")
-        print("references/deploy-vios-service.md runbook (SDRC-based) before")
+        print("references/deploy-vios-service.md runbook (documents both")
+        print("direct-routing and SDRC-routed modes — either is acceptable) before")
         print("exercising the API.")
 
 
