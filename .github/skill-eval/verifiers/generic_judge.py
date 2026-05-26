@@ -182,6 +182,24 @@ When done, output a single JSON object on its own line:
 """
 
 
+# Follow-up nudge for when the judge ran to completion (saw_result=True)
+# but its prose never closed with the required {"pass": ...} JSON. Common
+# enough on rubric-style checks where the model drifts into investigation
+# mode. Re-uses the open session so we don't pay for re-running tool calls;
+# the model still has all prior context. Conservative — one retry only,
+# and only when we've already seen a clean stream end.
+_VERDICT_NUDGE = (
+    "Stop investigating. Based ONLY on the evidence you have already "
+    "gathered above, emit the verdict JSON now. Do not call any tools. "
+    "Do not gather more evidence. Output a single line containing the "
+    "JSON object and nothing else:\n"
+    '{"pass": <true|false>, "matched": "<evidence-snippet-or-null>", '
+    '"rationale": "<one or two sentences>"}\n'
+    "If your prior analysis was inconclusive, emit pass=false with that "
+    "as the rationale."
+)
+
+
 def _assemble_judge_prompt(check: str, traj_path: str | None) -> str:
     if traj_path:
         try:
@@ -268,9 +286,14 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
     collected_text: list[str] = []
     cost_usd = 0.0
     saw_result = False
+    result_is_error = False
+    result_subtype: str | None = None
+    result_stop_reason: str | None = None
+    retry_attempted = False
 
     async def _run() -> None:
-        nonlocal cost_usd, saw_result
+        nonlocal cost_usd, saw_result, retry_attempted
+        nonlocal result_is_error, result_subtype, result_stop_reason
         async with ClaudeSDKClient(options=options) as client:
             await client.query(_assemble_judge_prompt(check, traj_path))
             async for message in client.receive_response():
@@ -279,9 +302,51 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
                         if isinstance(block, TextBlock) and block.text:
                             collected_text.append(block.text)
                 elif isinstance(message, ResultMessage):
+                    # `total_cost_usd` on ResultMessage is cumulative for
+                    # the SDK session (same field that carries cumulative
+                    # `num_turns`), so re-assign on every ResultMessage
+                    # rather than accumulating — the last value is the
+                    # whole-session total.
                     cost_usd = getattr(message, "total_cost_usd", 0.0) or 0.0
                     saw_result = True
+                    result_is_error = bool(getattr(message, "is_error", False))
+                    result_subtype = getattr(message, "subtype", None)
+                    result_stop_reason = getattr(message, "stop_reason", None)
                     break
+
+            # Retry once if the first response ended cleanly but didn't
+            # close with a parseable verdict. The judge LLM (sonnet) drifts
+            # into "I'll investigate..." prose surprisingly often on rubric
+            # checks — observed live on vss-generate-video-report
+            # base_profile_report step-1 check 2, where the model gathered
+            # the right evidence but never emitted the {"pass": ...} JSON.
+            # The follow-up uses the same session so prior tool results
+            # stay in context — no re-investigation cost.
+            #
+            # Gate retry on `not result_is_error`: when the SDK flagged the
+            # first response as an error (rate limit, content policy,
+            # tool-use abort, max-turns exhaustion surfaced via is_error),
+            # re-prompting in the same session won't recover and just
+            # buries the real failure cause under a second-pass rationale.
+            if (
+                saw_result
+                and not result_is_error
+                and collected_text
+                and _parse_verdict_json("\n".join(collected_text)) is None
+            ):
+                retry_attempted = True
+                await client.query(_VERDICT_NUDGE)
+                async for message in client.receive_response():
+                    if isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if isinstance(block, TextBlock) and block.text:
+                                collected_text.append(block.text)
+                    elif isinstance(message, ResultMessage):
+                        cost_usd = getattr(message, "total_cost_usd", 0.0) or 0.0
+                        result_is_error = bool(getattr(message, "is_error", False))
+                        result_subtype = getattr(message, "subtype", None)
+                        result_stop_reason = getattr(message, "stop_reason", None)
+                        break
 
     try:
         await asyncio.wait_for(_run(), timeout=timeout_s)
@@ -309,12 +374,24 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
         # Common causes: ran out of turns mid-analysis without emitting the
         # final {"pass": ...} object; SDK closed the stream early
         # (saw_result=False); or the agent returned only tool-use blocks.
+        # `is_error`/`subtype`/`stop_reason` carry the SDK's own
+        # termination reason: triage `is_error=True` as an SDK/model
+        # failure (rate-limit, content-policy, tool-use abort) rather
+        # than a "judge wandered into prose" issue. `retry_attempted`
+        # distinguishes "judge never tried to format" (`False`) from
+        # "judge tried twice and still wandered" (`True`); the latter
+        # points at a spec-prompt issue, the former at an LLM
+        # noncompliance flake or SDK-side error.
         head = full_text[:600]
         tail = full_text[-400:] if len(full_text) > 1000 else ""
         signals = (
             f"saw_result_message={saw_result} "
+            f"is_error={result_is_error} "
+            f"subtype={result_subtype!r} "
+            f"stop_reason={result_stop_reason!r} "
             f"text_chars={len(full_text)} "
-            f"text_blocks={len(collected_text)}"
+            f"text_blocks={len(collected_text)} "
+            f"retry_attempted={retry_attempted}"
         )
         rationale = (
             f"judge returned no compliant verdict ({signals}); "
