@@ -222,9 +222,10 @@ The coordinator host is vss-skill-validator; Brev CLI is authenticated, Docker i
 
 Process this PR per AGENTS.md: diff → detect changed skills → update or create the
 adapter under `.github/skill-eval/adapters/<skill>/` → generate the dataset → acquire
-a Brev lock for the target platform(s) → run harbor trials → gather results →
-post ONE comment per (PR, spec) batch → release the lock → stop/delete any Brev
-instance you brought online.
+a per-box flock on a `vss-eval-*` pool member matching the target platform(s) →
+run harbor trials → gather results → post ONE comment per (PR, spec) batch →
+reset deployment state on each locked box per § 7 → release the flock. Never
+`brev stop` / `brev delete` any pool member — pool lifecycle is operator-managed.
 
 When done, emit a one-line final summary starting with `DONE:` so the workflow
 can grep for it. On blocker (missing_probe, env issue, nothing to eval), emit a
@@ -309,12 +310,18 @@ line starting with `BLOCKED:` followed by the reason.
 
 
 # ---------------------------------------------------------------------------
-# Cleanup
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+#
+# No process-side cleanup here by design — the box's deployment state is
+# reset on the NEXT run's lock acquisition, not on this run's exit. See
+# `envs/brev_env.py::_ensure_prerequisite_deployed`: the active-deploy
+# marker carries `<profile_tag>|<run_id>`, and a run id mismatch always
+# triggers tear-down + redeploy. That makes every exit path equivalent
+# from the next run's perspective — happy path, max-turns, cancel-in-
+# progress SIGTERM, agent crash, SIGKILL, host reboot — so we don't need
+# atexit / signal handlers / a touched-boxes ledger to chase the cases
+# where end-of-run cleanup might be skipped.
 
 def main() -> int:
     _disable_server_thinking()

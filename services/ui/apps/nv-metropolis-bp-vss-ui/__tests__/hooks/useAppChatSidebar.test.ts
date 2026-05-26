@@ -6,14 +6,19 @@ import { useAppChatSidebar } from '../../hooks/useAppChatSidebar';
 import * as sidebarConfig from '../../utils/tabChatSidebarConfig';
 
 jest.mock('../../utils/tabChatSidebarConfig', () => ({
+  CHAT_SIDEBAR_DEFAULT_WIDTH: 380,
   getChatSidebarOpenDefault: jest.fn(),
   getChatSidebarOpenFromSession: jest.fn(),
+  getChatSidebarWidthFromSession: jest.fn(),
   setChatSidebarOpenInSession: jest.fn(),
+  setChatSidebarWidthInSession: jest.fn(),
 }));
 
 const getChatSidebarOpenDefaultMock = jest.mocked(sidebarConfig.getChatSidebarOpenDefault);
 const getChatSidebarOpenFromSessionMock = jest.mocked(sidebarConfig.getChatSidebarOpenFromSession);
+const getChatSidebarWidthFromSessionMock = jest.mocked(sidebarConfig.getChatSidebarWidthFromSession);
 const setChatSidebarOpenInSessionMock = jest.mocked(sidebarConfig.setChatSidebarOpenInSession);
+const setChatSidebarWidthInSessionMock = jest.mocked(sidebarConfig.setChatSidebarWidthInSession);
 
 /** jsdom often lacks PointerEvent; the hook only reads clientX / pointerId on native listeners. */
 function dispatchPointerCompat(
@@ -35,29 +40,44 @@ describe('useAppChatSidebar', () => {
   it('initializes from env default before applying session value', () => {
     getChatSidebarOpenDefaultMock.mockReturnValue(true);
     getChatSidebarOpenFromSessionMock.mockReturnValue(false);
+    getChatSidebarWidthFromSessionMock.mockReturnValue(null);
 
     const { result } = renderHook(() => useAppChatSidebar());
 
     expect(getChatSidebarOpenDefaultMock).toHaveBeenCalledTimes(1);
     expect(getChatSidebarOpenFromSessionMock).toHaveBeenCalledTimes(1);
+    expect(getChatSidebarWidthFromSessionMock).toHaveBeenCalledTimes(1);
     expect(getChatSidebarOpenDefaultMock.mock.invocationCallOrder[0]).toBeLessThan(
       getChatSidebarOpenFromSessionMock.mock.invocationCallOrder[0],
     );
     expect(result.current.collapsed).toBe(true);
   });
 
+  it('restores sidebar width from session after mount', () => {
+    getChatSidebarOpenDefaultMock.mockReturnValue(true);
+    getChatSidebarOpenFromSessionMock.mockReturnValue(null);
+    getChatSidebarWidthFromSessionMock.mockReturnValue(520);
+
+    const { result } = renderHook(() => useAppChatSidebar());
+
+    expect(result.current.effectiveWidth).toBe(520);
+  });
+
   it('uses env default when session state is not available', () => {
     getChatSidebarOpenDefaultMock.mockReturnValue(false);
     getChatSidebarOpenFromSessionMock.mockReturnValue(null);
+    getChatSidebarWidthFromSessionMock.mockReturnValue(null);
 
     const { result } = renderHook(() => useAppChatSidebar());
 
     expect(result.current.collapsed).toBe(true);
+    expect(result.current.effectiveWidth).toBe(380);
   });
 
   it('persists open state when collapsed changes', () => {
     getChatSidebarOpenDefaultMock.mockReturnValue(true);
     getChatSidebarOpenFromSessionMock.mockReturnValue(null);
+    getChatSidebarWidthFromSessionMock.mockReturnValue(null);
 
     const { result } = renderHook(() => useAppChatSidebar());
 
@@ -72,6 +92,7 @@ describe('useAppChatSidebar', () => {
   it('resizes sidebar width using pointer capture (pointermove over iframe-safe path)', () => {
     getChatSidebarOpenDefaultMock.mockReturnValue(true);
     getChatSidebarOpenFromSessionMock.mockReturnValue(null);
+    getChatSidebarWidthFromSessionMock.mockReturnValue(null);
 
     const { result } = renderHook(() => useAppChatSidebar());
 
@@ -113,11 +134,13 @@ describe('useAppChatSidebar', () => {
     });
 
     expect(separator.releasePointerCapture).toHaveBeenCalledWith(1);
+    expect(setChatSidebarWidthInSessionMock).toHaveBeenCalledWith(500);
   });
 
   it('does not start resize drag on non-primary mouse button', () => {
     getChatSidebarOpenDefaultMock.mockReturnValue(true);
     getChatSidebarOpenFromSessionMock.mockReturnValue(null);
+    getChatSidebarWidthFromSessionMock.mockReturnValue(null);
 
     const { result } = renderHook(() => useAppChatSidebar());
 

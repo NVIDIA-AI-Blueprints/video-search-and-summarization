@@ -116,10 +116,6 @@
 			"value": "1.0"
 		},
 		{
-			"name": "spaceAnalyticsCalibSensorsOnly",
-			"value": "false"
-		},
-		{
 			"name": "spaceAnalyticsGridSize",
 			"value": "0.2"
 		},

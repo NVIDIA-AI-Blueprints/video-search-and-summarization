@@ -5,6 +5,8 @@
 import { env } from 'next-runtime-env';
 
 const KIBANA_BASE_URL = env('NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL') || process?.env?.NEXT_PUBLIC_DASHBOARD_TAB_KIBANA_BASE_URL;
+const ENABLE_DASHBOARD_TAB =
+  (env('NEXT_PUBLIC_ENABLE_DASHBOARD_TAB') || process?.env?.NEXT_PUBLIC_ENABLE_DASHBOARD_TAB) !== 'false';
 
 const FETCH_TIMEOUT_MS = 5000; // 5 seconds timeout
 
@@ -42,8 +44,16 @@ async function fetchKibanaDashboards() {
 }
 
 export async function fetchDashboardData() {
+  if (!ENABLE_DASHBOARD_TAB) {
+    return {
+      systemStatus: 'operational',
+      kibanaBaseUrl: null,
+      dashboards: [],
+    };
+  }
+
   const dashboards = await fetchKibanaDashboards();
-  
+
   return {
     systemStatus: 'operational',
     kibanaBaseUrl: KIBANA_BASE_URL || null,

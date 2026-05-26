@@ -113,6 +113,8 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
               <div className="relative">
                 <Button
                   kind="primary"
+                  size="small"
+                  className="flex-shrink-0 text-xs"
                   onClick={handleGenerateReport}
                   onMouseEnter={() => setShowTooltip(true)}
                   onMouseLeave={() => setShowTooltip(false)}
@@ -120,12 +122,12 @@ export const MetadataSection: React.FC<MetadataSectionProps> = ({
                 >
                   {isReportSent ? (
                     <>
-                      <IconCheck className={`w-3 h-3 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
+                      <IconCheck className="w-2.5 h-2.5 shrink-0" style={{ color: 'inherit' }} />
                       <span>Sent</span>
                     </>
                   ) : (
                     <>
-                      <IconSend className="w-3 h-3" />
+                      <IconSend className="w-2.5 h-2.5 shrink-0" style={{ color: 'inherit' }} />
                       <span>Generate Report</span>
                     </>
                   )}

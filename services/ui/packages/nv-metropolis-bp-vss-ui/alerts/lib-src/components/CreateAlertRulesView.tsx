@@ -7,8 +7,7 @@
  * the configured alerts API base URL (which carries the API version prefix).
  * Users supply only `live_stream_url`, `alert_type`, and `prompt`.
  *
- * The "Alert Verification" tab is rendered as a disabled placeholder; its
- * implementation is not yet wired up.
+ * The "Alert Verification" sub-view is hidden until its implementation is wired up.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,7 +20,7 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconBolt,
-  IconShieldCheck,
+  // IconShieldCheck, // Alert Verification tab (coming soon) — hidden from UI
   IconDeviceFloppy,
   IconAlertCircle,
   IconLoader2,
@@ -34,7 +33,9 @@ import { useRealtimeAlertRules } from '../hooks/useRealtimeAlertRules';
 import { VstStreamThumbnail } from './VstStreamThumbnail';
 import {
   deriveSensorNameFromLiveStreamUrl,
-  resolveSensorForLiveStreamUrl,
+  fetchVstLiveStreamCatalog,
+  resolveSensorByName,
+  VstLiveStream,
 } from '../utils/vstSensorList';
 
 interface CreateAlertRulesViewProps {
@@ -58,13 +59,14 @@ const KIND_TABS: Array<{
   disabledReason?: string;
 }> = [
   { id: 'real-time', label: 'Real-time Alerts', icon: <IconBolt size={14} /> },
-  {
-    id: 'verification',
-    label: 'Alert Verification',
-    icon: <IconShieldCheck size={14} />,
-    disabled: true,
-    disabledReason: 'Coming soon',
-  },
+  // Alert Verification sub-view — not yet implemented; hidden from Manage Rules UI.
+  // {
+  //   id: 'verification',
+  //   label: 'Alert Verification',
+  //   icon: <IconShieldCheck size={14} />,
+  //   disabled: true,
+  //   disabledReason: 'Coming soon',
+  // },
 ];
 
 const generateDraftId = () =>
@@ -98,9 +100,8 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   }`;
 
   // --- kind tabs -------------------------------------------------------------
-  // Decorative only: there's only one enabled kind right now (`real-time`)
-  // and the verification placeholder is permanently disabled. Tabs are not
-  // interactive — selected state reflects `activeKind` for visual continuity.
+  // Decorative only: only `real-time` is shown today. Tabs are not interactive —
+  // selected state reflects `activeKind` for visual continuity.
   const kindTabs = (
     <div
       className={`flex-shrink-0 px-6 pt-4 border-b ${
@@ -201,6 +202,11 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
     useRealtimeAlertRules({ alertsApiUrl });
 
   const [drafts, setDrafts] = useState<RealtimeAlertRuleDraft[]>([]);
+  // VST live-stream catalog used to populate the sensor picker in draft rows.
+  // Fetched lazily the first time a draft exists; refetched on demand.
+  const [liveStreams, setLiveStreams] = useState<VstLiveStream[]>([]);
+  const [liveStreamsLoading, setLiveStreamsLoading] = useState(false);
+  const [liveStreamsError, setLiveStreamsError] = useState<string | null>(null);
   const [streamFilter, setStreamFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -236,31 +242,58 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
     );
   };
 
+  const loadLiveStreams = useCallback(
+    async () => {
+      if (!vstApiUrl) {
+        setLiveStreams([]);
+        setLiveStreamsError('VST API URL is not configured');
+        return;
+      }
+      setLiveStreamsLoading(true);
+      setLiveStreamsError(null);
+      try {
+        const catalog = await fetchVstLiveStreamCatalog(vstApiUrl);
+        setLiveStreams(catalog);
+      } catch (err) {
+        setLiveStreams([]);
+        setLiveStreamsError(
+          err instanceof Error ? err.message : 'Failed to load VST live streams',
+        );
+      } finally {
+        setLiveStreamsLoading(false);
+      }
+    },
+    [vstApiUrl],
+  );
+
   const addDraft = useCallback(() => {
     setDrafts((prev) => [
       ...prev,
       {
         draftId: generateDraftId(),
-        live_stream_url: '',
+        sensor_name: '',
         alert_type: '',
         prompt: '',
       },
     ]);
-  }, []);
+    // Fire-and-forget; the picker shows a loading hint while it resolves.
+    void loadLiveStreams();
+  }, [loadLiveStreams]);
 
   const duplicateAsDraft = useCallback(
-    (source: { live_stream_url: string; alert_type: string; prompt: string }) => {
+    (source: { sensor_name: string; alert_type: string; prompt: string }) => {
       setDrafts((prev) => [
         ...prev,
         {
           draftId: generateDraftId(),
-          live_stream_url: source.live_stream_url,
+          sensor_name: source.sensor_name,
           alert_type: source.alert_type,
           prompt: source.prompt,
         },
       ]);
+      void loadLiveStreams();
     },
-    [],
+    [loadLiveStreams],
   );
 
   // Expose `addDraft` to the rest of the app via a module-level ref so the
@@ -287,33 +320,33 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
     async (draftId: string) => {
       const draft = drafts.find((d) => d.draftId === draftId);
       if (!draft) return;
-      const live_stream_url = draft.live_stream_url.trim();
+      const sensorName = draft.sensor_name.trim();
       const alert_type = draft.alert_type.trim();
       const prompt = draft.prompt.trim();
-      if (!live_stream_url || !alert_type || !prompt) {
+      if (!sensorName || !alert_type || !prompt) {
         updateDraft(draftId, {
-          error: 'live_stream_url, alert_type, and prompt are required.',
+          error: 'sensor, alert_type, and prompt are required.',
         });
         return;
       }
       if (!vstApiUrl) {
         updateDraft(draftId, {
-          error: 'VST API URL is not configured; cannot resolve sensor_id and sensor_name.',
+          error: 'VST API URL is not configured; cannot resolve live stream URL.',
         });
         return;
       }
       updateDraft(draftId, { saving: true, error: undefined });
       try {
-        const { sensor_name, sensor_id } = await resolveSensorForLiveStreamUrl(
-          vstApiUrl,
-          live_stream_url,
-        );
+        // Resolver returns undefined if the sensor isn't in VST's live-stream
+        // catalog yet — we still forward the name so users can create alert
+        // rules for streams that will be registered later. Alert Bridge is the
+        // source of truth on whether that's accepted.
+        const resolved = await resolveSensorByName(vstApiUrl, sensorName);
         await createRule({
-          live_stream_url,
+          live_stream_url: resolved?.live_stream_url ?? '',
           alert_type,
           prompt,
-          sensor_name,
-          sensor_id,
+          sensor_name: resolved?.sensor_name ?? sensorName,
         });
         // Drop the draft on success — the rule shows up in the rules list.
         setDrafts((prev) => prev.filter((d) => d.draftId !== draftId));
@@ -588,7 +621,13 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                           type="button"
                           onClick={() =>
                             duplicateAsDraft({
-                              live_stream_url: rule.live_stream_url,
+                              // Prefer the server-side `sensor_name`. Fall back
+                              // to deriving from the URL for older rules that
+                              // pre-date the sensor_name field.
+                              sensor_name:
+                                rule.sensor_name ??
+                                deriveSensorNameFromLiveStreamUrl(rule.live_stream_url) ??
+                                '',
                               alert_type: rule.alert_type,
                               prompt: rule.prompt,
                             })
@@ -724,7 +763,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                             type="button"
                             onClick={() =>
                               duplicateAsDraft({
-                                live_stream_url: draft.live_stream_url,
+                                sensor_name: draft.sensor_name,
                                 alert_type: draft.alert_type,
                                 prompt: draft.prompt,
                               })
@@ -759,20 +798,21 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
                         <VstStreamThumbnail
                           isDark={isDark}
                           vstApiUrl={vstApiUrl}
-                          sensorName={
-                            deriveSensorNameFromLiveStreamUrl(draft.live_stream_url) ?? ''
-                          }
+                          sensorName={draft.sensor_name}
                         />
                       </td>
                       <td className="py-2 px-3 align-top">
-                        <input
-                          type="text"
-                          placeholder="rtsp://host:port/path"
-                          value={draft.live_stream_url}
-                          onChange={(e) =>
-                            updateDraft(draft.draftId, { live_stream_url: e.target.value })
+                        <SensorPicker
+                          isDark={isDark}
+                          inputClass={inputClass}
+                          value={draft.sensor_name}
+                          onChange={(name) =>
+                            updateDraft(draft.draftId, { sensor_name: name })
                           }
-                          className={inputClass}
+                          liveStreams={liveStreams}
+                          loading={liveStreamsLoading}
+                          errorMessage={liveStreamsError}
+                          onRetry={() => loadLiveStreams()}
                         />
                       </td>
                       <td className="py-2 px-3 align-top">
@@ -858,6 +898,187 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
         </div>
       </div>
     </>
+  );
+};
+
+// =============================================================================
+// SensorPicker — sensor dropdown for draft rows
+// =============================================================================
+// Mirrors the chat flow (services/agent/.../rtvi_vlm_alert.py): the user picks
+// a friendly sensor name, and the live-stream URL is resolved from VST at save
+// time. Removes the URL-parsing path that broke for `rtsp://host:port/live/<uuid>`
+// inputs where the last path segment is a UUID, not the sensor name.
+
+interface SensorPickerProps {
+  isDark: boolean;
+  inputClass: string;
+  value: string;
+  onChange: (sensorName: string) => void;
+  liveStreams: VstLiveStream[];
+  loading: boolean;
+  errorMessage: string | null;
+  onRetry: () => void;
+}
+
+const SensorPicker: React.FC<SensorPickerProps> = ({
+  isDark,
+  inputClass,
+  value,
+  onChange,
+  liveStreams,
+  loading,
+  errorMessage,
+  onRetry,
+}) => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+
+  const selectedStream = liveStreams.find((s) => s.name === value);
+  const trimmed = value.trim();
+  const isCustom = trimmed.length > 0 && !selectedStream;
+
+  // Filter suggestions by substring match. If the input matches a catalog entry
+  // exactly, don't filter — show the full list so the user can pick a different
+  // sensor without having to clear first.
+  const suggestions = useMemo(() => {
+    if (!trimmed || selectedStream) return liveStreams;
+    const needle = trimmed.toLowerCase();
+    return liveStreams.filter((s) => s.name.toLowerCase().includes(needle));
+  }, [liveStreams, trimmed, selectedStream]);
+
+  // Close on outside click. Bound on `open` so we don't keep a listener around
+  // when the panel is hidden.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const commit = (name: string) => {
+    onChange(name);
+    setOpen(false);
+    setHighlight(-1);
+  };
+
+  const panelClass = isDark
+    ? 'bg-neutral-900 border border-neutral-700 text-neutral-100'
+    : 'bg-white border border-gray-300 text-gray-800';
+  const itemBaseClass = 'px-3 py-1.5 text-sm cursor-pointer truncate';
+  const itemHoverClass = isDark ? 'hover:bg-neutral-800' : 'hover:bg-gray-100';
+  const itemActiveClass = isDark ? 'bg-neutral-800' : 'bg-gray-100';
+
+  return (
+    <div ref={containerRef} className="relative flex flex-col gap-1">
+      <input
+        type="text"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        data-testid="realtime-alert-draft-sensor"
+        placeholder={
+          loading
+            ? 'Loading sensors…'
+            : liveStreams.length === 0
+            ? 'Type sensor name'
+            : 'Pick or type a sensor name'
+        }
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+          setHighlight(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setOpen(true);
+            setHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlight((h) => Math.max(h - 1, 0));
+          } else if (e.key === 'Enter') {
+            if (open && highlight >= 0 && suggestions[highlight]) {
+              e.preventDefault();
+              commit(suggestions[highlight].name);
+            }
+          } else if (e.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+        className={inputClass}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      {open && suggestions.length > 0 && (
+        <ul
+          role="listbox"
+          data-testid="realtime-alert-draft-sensor-list"
+          className={`absolute z-20 top-full left-0 right-0 mt-1 max-h-56 overflow-auto rounded-md shadow-lg ${panelClass}`}
+        >
+          {suggestions.map((stream, i) => (
+            <li
+              key={stream.streamId}
+              role="option"
+              aria-selected={i === highlight}
+              // onMouseDown fires before input blur, so the click registers
+              // before the panel closes itself.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                commit(stream.name);
+              }}
+              onMouseEnter={() => setHighlight(i)}
+              className={`${itemBaseClass} ${
+                i === highlight ? itemActiveClass : itemHoverClass
+              }`}
+              title={stream.url}
+            >
+              {stream.name}
+            </li>
+          ))}
+        </ul>
+      )}
+      {selectedStream && (
+        <span
+          className={`text-xs break-all ${
+            isDark ? 'text-neutral-400' : 'text-gray-500'
+          }`}
+          title={selectedStream.url}
+        >
+          {selectedStream.url}
+        </span>
+      )}
+      {isCustom && (
+        <span
+          className={`text-xs ${isDark ? 'text-neutral-400' : 'text-gray-500'}`}
+        >
+          Not in VST catalog — will be created against this sensor name.
+        </span>
+      )}
+      {errorMessage && (
+        <span
+          className={`text-xs flex items-start gap-1 ${
+            isDark ? 'text-red-300' : 'text-red-600'
+          }`}
+        >
+          <IconAlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <span className="flex-1 break-all">{errorMessage}</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className={`underline ${isDark ? 'text-red-200' : 'text-red-700'}`}
+          >
+            Retry
+          </button>
+        </span>
+      )}
+    </div>
   );
 };
 

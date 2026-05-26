@@ -1118,4 +1118,4 @@ already pinned by the user query. Typical fully-specified deploys load only
 
 ## License
 
-Apache License, Version 2.0. See [`LICENSE`](LICENSE).
+Apache License, Version 2.0. See [`LICENSE`](../../../LICENSE).

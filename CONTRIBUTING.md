@@ -29,26 +29,69 @@ This project uses a dual-license model:
 
 See the [LICENSE](LICENSE) file for the full license texts.
 
-### Developer Certificate of Origin (DCO)
+### Signing Your Work — Developer Certificate of Origin (DCO)
 
-All contributions must include a DCO sign-off. By adding a `Signed-off-by` line to your commit messages, you certify that you wrote (or otherwise have the right to submit) the contribution, and that you are licensing it under the Apache-2.0 license.
+We require that all contributors "sign off" on their commits. This certifies that the contribution is your original work, or that you have rights to submit it under the same license, or a compatible license. Any contribution which contains commits that are not Signed-Off will not be accepted.
 
-To sign off, add the `-s` flag when committing:
+To sign off on a commit you simply use the `--signoff` (or `-s`) option when committing your changes:
 
 ```bash
-git commit -s -m "Your commit message"
+git commit -s -m "Add cool feature."
 ```
 
-This appends a line like:
+This will append the following to your commit message:
 
 ```
-Signed-off-by: Your Name <your.email@example.com>
+Signed-off-by: Your Name <your@email.com>
 ```
 
 If you have already made commits without a sign-off, you can amend the most recent one:
 
 ```bash
 git commit --amend -s --no-edit
+```
+
+By adding a `Signed-off-by` line you are certifying that the contribution complies with the Developer Certificate of Origin (DCO) reproduced below.
+
+#### Full text of the DCO
+
+Source: <https://developercertificate.org/>
+
+```
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same open source license (unless I am
+    permitted to submit under a different license), as indicated
+    in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project or the open source license(s) involved.
 ```
 
 **Pull requests with unsigned commits will not be merged.**

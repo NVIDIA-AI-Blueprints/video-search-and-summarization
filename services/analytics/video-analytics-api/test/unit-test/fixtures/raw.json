@@ -1,0 +1,154 @@
+{
+    "_index": "mdx-raw-2025-12-09",
+    "_id": "hfEfApsBGJ5sH1YyAo1-",
+    "_version": 1,
+    "_source": {
+      "timestamp": "2025-12-09T07:59:05.208Z",
+      "rois": [],
+      "type": "mdx-raw",
+      "congestions": [],
+      "sensorId": "Camera_02",
+      "version": "4.0",
+      "id": "267264",
+      "fov": [],
+      "interactions": [],
+      "objects": [
+        {
+          "info": {},
+          "id": "6401",
+          "speed": 0,
+          "type": "Pallet",
+          "dir": [],
+          "confidence": 0.9813821911811829,
+          "bbox": {
+            "topY": 358.3447265625,
+            "bottomY": 418.8740234375,
+            "rightX": 1258.359375,
+            "leftX": 1104.140625,
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          }
+        },
+        {
+          "info": {},
+          "id": "6402",
+          "speed": 0,
+          "type": "Pallet",
+          "dir": [],
+          "confidence": 0.9600626826286316,
+          "bbox": {
+            "topY": 248.7080078125,
+            "bottomY": 295.8232421875,
+            "rightX": 1120.60546875,
+            "leftX": 1026.26953125,
+            "embeddings": [],
+            "confidence": 0,
+            "info": {}
+          }
+        }
+      ],
+      "info": {}
+    },
+    "fields": {
+      "version.keyword": [
+        "4.0"
+      ],
+      "id.keyword": [
+        "267264"
+      ],
+      "sensorId.keyword": [
+        "Camera_02"
+      ],
+      "type.keyword": [
+        "mdx-raw"
+      ],
+      "objects": [
+        {
+          "bbox.leftX": [
+            1104.140625
+          ],
+          "bbox.rightX": [
+            1258.359375
+          ],
+          "id.keyword": [
+            "6401"
+          ],
+          "bbox.topY": [
+            358.3447265625
+          ],
+          "type.keyword": [
+            "Pallet"
+          ],
+          "confidence": [
+            0.9813822
+          ],
+          "id": [
+            "6401"
+          ],
+          "type": [
+            "Pallet"
+          ],
+          "bbox.bottomY": [
+            418.8740234375
+          ],
+          "speed": [
+            0
+          ],
+          "bbox.confidence": [
+            0
+          ]
+        },
+        {
+          "bbox.leftX": [
+            1026.26953125
+          ],
+          "bbox.rightX": [
+            1120.60546875
+          ],
+          "id.keyword": [
+            "6402"
+          ],
+          "bbox.topY": [
+            248.7080078125
+          ],
+          "type.keyword": [
+            "Pallet"
+          ],
+          "confidence": [
+            0.9600627
+          ],
+          "id": [
+            "6402"
+          ],
+          "type": [
+            "Pallet"
+          ],
+          "bbox.bottomY": [
+            295.8232421875
+          ],
+          "speed": [
+            0
+          ],
+          "bbox.confidence": [
+            0
+          ]
+        }
+      ],
+      "id": [
+        "267264"
+      ],
+      "type": [
+        "mdx-raw"
+      ],
+      "version": [
+        "4.0"
+      ],
+      "sensorId": [
+        "Camera_02"
+      ],
+      "timestamp": [
+        "2025-12-09T07:59:05.208Z"
+      ]
+    }
+  }

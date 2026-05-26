@@ -1,0 +1,2804 @@
+{
+  "roiEvents": [
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:32.761Z",
+      "distance": 0.44916925085770487,
+      "speed": 4.349630580145603,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "8b5b30f4f2ea531b2c440b5accd647060fcce3a3",
+      "end": "2026-02-14T10:17:32.992Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 440,
+          "confidence": 0,
+          "info": {},
+          "leftX": 680,
+          "topY": 197,
+          "embeddings": [],
+          "rightX": 765
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00012968237308122758,
+          "lat": 0.00030180649245749156
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 7.8130696575664675,
+          "y": -11.31183249527684
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        9.729862629950906
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 345.21855182086176,
+      "locations": {
+        "coordinates": [
+          [
+            7.378781069549155,
+            -11.197238922673465
+          ],
+          [
+            7.412388937365453,
+            -11.207360902281248
+          ],
+          [
+            7.4633191289196015,
+            -11.222699999755367
+          ],
+          [
+            7.503414616510568,
+            -11.226957887276201
+          ],
+          [
+            7.572928194244823,
+            -11.247828789516216
+          ],
+          [
+            7.6465539166868215,
+            -11.265962405618781
+          ],
+          [
+            7.733648525701659,
+            -11.296083798611594
+          ],
+          [
+            7.8130696575664675,
+            -11.31183249527684
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:32.461Z",
+      "distance": 0.15064225705467882,
+      "speed": 1.4587778809346028,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "8de9a9756f04701a55f9ba125555827cb6fef4e2",
+      "end": "2026-02-14T10:17:32.692Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 467,
+          "confidence": 0,
+          "info": {},
+          "leftX": 694,
+          "topY": 212,
+          "embeddings": [],
+          "rightX": 788
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00013419328745918605,
+          "lat": 0.0003008005601883205
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 7.311856948909502,
+          "y": -11.200062243146721
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        3.2631985929778504
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 34.534508771607875,
+      "locations": {
+        "coordinates": [
+          [
+            7.188574939759842,
+            -11.28490099077292
+          ],
+          [
+            7.208353688326448,
+            -11.264157285918227
+          ],
+          [
+            7.222481432701575,
+            -11.249340283791259
+          ],
+          [
+            7.250091087538184,
+            -11.242567539425877
+          ],
+          [
+            7.26141620643985,
+            -11.230689930995885
+          ],
+          [
+            7.275572655391158,
+            -11.215842867679129
+          ],
+          [
+            7.30334582035151,
+            -11.208988555856738
+          ],
+          [
+            7.311856948909502,
+            -11.200062243146721
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:32.428Z",
+      "distance": 0.2568482365262338,
+      "speed": 2.4872471611038676,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "ed999aad4a61610b3a338f7da8930028a51fb96d",
+      "end": "2026-02-14T10:17:32.659Z",
+      "direction": "Down",
+      "object": {
+        "bbox": {
+          "bottomY": 388,
+          "confidence": 0,
+          "info": {},
+          "leftX": 442,
+          "topY": 159,
+          "embeddings": [],
+          "rightX": 576
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00003596785255315655,
+          "lat": 0.00020192713364465962
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 7.114683049624577,
+          "y": -11.325237071628846
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.5638226645596855
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 281.5968099848742,
+      "locations": {
+        "coordinates": [
+          [
+            7.0631838104226965,
+            -11.074281406033998
+          ],
+          [
+            7.082875703965176,
+            -11.093028225947918
+          ],
+          [
+            7.080779288207534,
+            -11.144958438063878
+          ],
+          [
+            7.07887345940947,
+            -11.192167629933094
+          ],
+          [
+            7.076777051811359,
+            -11.24409763992971
+          ],
+          [
+            7.096163797956176,
+            -11.272744028819647
+          ],
+          [
+            7.094635601192731,
+            -11.31059853791308
+          ],
+          [
+            7.114683049624577,
+            -11.325237071628846
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:32.128Z",
+      "distance": 0.5022282815079127,
+      "speed": 4.863439532624719,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "45009a538452e1b04c02614b10bb9d256b0f9b6f",
+      "end": "2026-02-14T10:17:32.359Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 401,
+          "confidence": 0,
+          "info": {},
+          "leftX": 416,
+          "topY": 168,
+          "embeddings": [],
+          "rightX": 538
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00003825175157867963,
+          "lat": 0.00020030210148211088
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 6.860916491234259,
+          "y": -11.144677942456765
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        10.87922242810954
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 15.018943800062914,
+      "locations": {
+        "coordinates": [
+          [
+            6.376848487421035,
+            -11.274555127529327
+          ],
+          [
+            6.4114172150282105,
+            -11.283893162119918
+          ],
+          [
+            6.482692499100391,
+            -11.271970034798514
+          ],
+          [
+            6.55556496553831,
+            -11.250951609832446
+          ],
+          [
+            6.6111008701811675,
+            -11.23382824173262
+          ],
+          [
+            6.686413385932925,
+            -11.207636144976645
+          ],
+          [
+            6.7630665840918684,
+            -11.180977787294742
+          ],
+          [
+            6.860916491234259,
+            -11.144677942456765
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:31.928Z",
+      "distance": 0.1973224873830366,
+      "speed": 1.9108162983835926,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "36b3cc03e36741f1df2f8c7df428c18ed2652d43",
+      "end": "2026-02-14T10:17:32.159Z",
+      "direction": "Down",
+      "object": {
+        "bbox": {
+          "bottomY": 425,
+          "confidence": 0,
+          "info": {},
+          "leftX": 402,
+          "topY": 180,
+          "embeddings": [],
+          "rightX": 536
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.000042297245064546305,
+          "lat": 0.00020155503845907928
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 6.4114172150282105,
+          "y": -11.283893162119918
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        4.2743814105061935
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 310.4288841439206,
+      "locations": {
+        "coordinates": [
+          [
+            6.295867378366776,
+            -11.1482611554023
+          ],
+          [
+            6.295172657664368,
+            -11.165476617246336
+          ],
+          [
+            6.311892267968455,
+            -11.174169622933562
+          ],
+          [
+            6.310151793557856,
+            -11.217298929291893
+          ],
+          [
+            6.3262406753741836,
+            -11.243407877993075
+          ],
+          [
+            6.342572439223685,
+            -11.265296154293958
+          ],
+          [
+            6.376848487421035,
+            -11.274555127529327
+          ],
+          [
+            6.4114172150282105,
+            -11.283893162119918
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:31.661Z",
+      "distance": 0.5979724596390363,
+      "speed": 5.7905996271209785,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "d87840965bf7415d929d5daa119e524c437aa5bc",
+      "end": "2026-02-14T10:17:31.892Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 503,
+          "confidence": 0,
+          "info": {},
+          "leftX": 773,
+          "topY": 238,
+          "embeddings": [],
+          "rightX": 856
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00014181733713071188,
+          "lat": 0.0003020564716075152
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 6.4647403187477455,
+          "y": -11.339607956390573
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        12.953223929892003
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 340.9056521887284,
+      "locations": {
+        "coordinates": [
+          [
+            5.8999886547478955,
+            -11.144107549424396
+          ],
+          [
+            5.973644554253534,
+            -11.167101869061346
+          ],
+          [
+            6.058652747707788,
+            -11.197606786548297
+          ],
+          [
+            6.1458081643887414,
+            -11.228882228201153
+          ],
+          [
+            6.232631411246371,
+            -11.26364489955462
+          ],
+          [
+            6.321704493546335,
+            -11.299308369863574
+          ],
+          [
+            6.407408240914301,
+            -11.322756576363675
+          ],
+          [
+            6.4647403187477455,
+            -11.339607956390573
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:31.588Z",
+      "distance": 0.6270058835327121,
+      "speed": 5.893170340796913,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "e90fee83e66bf235fbfb75596c381e9b301c71e7",
+      "end": "2026-02-14T10:17:31.826Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 433,
+          "confidence": 0,
+          "info": {},
+          "leftX": 367,
+          "topY": 189,
+          "embeddings": [],
+          "rightX": 515
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.000043476132813011736,
+          "lat": 0.00019998619216939322
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 6.280429687421621,
+          "y": -11.109576907710357
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        13.182668462142248
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 0",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 15.275422770820171,
+      "locations": {
+        "coordinates": [
+          [
+            5.676797147964679,
+            -11.27443380785655
+          ],
+          [
+            5.750851171328555,
+            -11.259749435223652
+          ],
+          [
+            5.795594285046952,
+            -11.260496574877747
+          ],
+          [
+            5.8720144585354355,
+            -11.245438935207641
+          ],
+          [
+            5.966121464648586,
+            -11.217882319844545
+          ],
+          [
+            6.046331088428762,
+            -11.193708011345885
+          ],
+          [
+            6.17853569318554,
+            -11.143807377636959
+          ],
+          [
+            6.280429687421621,
+            -11.109576907710357
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:31.361Z",
+      "distance": 0.31204964184822365,
+      "speed": 3.021802276346171,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "61993a4e685434600fd5d08dd7b6d97e955c6fe8",
+      "end": "2026-02-14T10:17:31.592Z",
+      "direction": "Down",
+      "object": {
+        "bbox": {
+          "bottomY": 471,
+          "confidence": 0,
+          "info": {},
+          "leftX": 337,
+          "topY": 206,
+          "embeddings": [],
+          "rightX": 510
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00004890882566814109,
+          "lat": 0.00020146990427070895
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 5.676797147964679,
+          "y": -11.27443380785655
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        6.759590384049804
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 310.05119149607845,
+      "locations": {
+        "coordinates": [
+          [
+            5.513995261916436,
+            -11.080765747089709
+          ],
+          [
+            5.525563162859507,
+            -11.139079823459072
+          ],
+          [
+            5.523363852367135,
+            -11.193600071396359
+          ],
+          [
+            5.536230789908164,
+            -11.221026494284885
+          ],
+          [
+            5.549146877936209,
+            -11.248557683520321
+          ],
+          [
+            5.562270396890883,
+            -11.272277590857067
+          ],
+          [
+            5.604486687131287,
+            -11.280956929503194
+          ],
+          [
+            5.676797147964679,
+            -11.27443380785655
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:31.228Z",
+      "distance": 0.49444075373952373,
+      "speed": 4.788027271299092,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "f3e4fc58ce80205e3eec3906af07e521c1036047",
+      "end": "2026-02-14T10:17:31.459Z",
+      "direction": "Down",
+      "object": {
+        "bbox": {
+          "bottomY": 426,
+          "confidence": 0,
+          "info": {},
+          "leftX": 431,
+          "topY": 214,
+          "embeddings": [],
+          "rightX": 569
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.00005062695091021898,
+          "lat": 0.00010347830225111272
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 5.625216767799816,
+          "y": -11.497589139012524
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        10.710529724259791
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 301.55468931231786,
+      "locations": {
+        "coordinates": [
+          [
+            5.366536491660674,
+            -11.076364313483364
+          ],
+          [
+            5.407749963838746,
+            -11.063405652204914
+          ],
+          [
+            5.427773542057404,
+            -11.108266803146046
+          ],
+          [
+            5.471825265044421,
+            -11.206961001183835
+          ],
+          [
+            5.515876783028315,
+            -11.305654739929292
+          ],
+          [
+            5.553921110856999,
+            -11.390889871959098
+          ],
+          [
+            5.601130184651268,
+            -11.443625098143741
+          ],
+          [
+            5.625216767799816,
+            -11.497589139012524
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:31.061Z",
+      "distance": 0.5794218118813974,
+      "speed": 5.610960293809408,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "5f5be3ed3dad850fd3a5ddb89a257883a58cf47b",
+      "end": "2026-02-14T10:17:31.292Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 427,
+          "confidence": 0,
+          "info": {},
+          "leftX": 401,
+          "topY": 215,
+          "embeddings": [],
+          "rightX": 508
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.00004884996187853522,
+          "lat": 0.00009997440122831441
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 5.427773542057404,
+          "y": -11.108266803146046
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        12.551381519634019
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 35.52740729471816,
+      "locations": {
+        "coordinates": [
+          [
+            4.989972069423092,
+            -11.420863638627958
+          ],
+          [
+            5.051410120261354,
+            -11.369653930721393
+          ],
+          [
+            5.127423471402454,
+            -11.298907942176674
+          ],
+          [
+            5.191469173197925,
+            -11.245454834536517
+          ],
+          [
+            5.284920254270677,
+            -11.152324934989666
+          ],
+          [
+            5.366536491660674,
+            -11.076364313483364
+          ],
+          [
+            5.407749963838746,
+            -11.063405652204914
+          ],
+          [
+            5.427773542057404,
+            -11.108266803146046
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:30.861Z",
+      "distance": 0.3400512764128917,
+      "speed": 3.292962347441792,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "0fe9f4e08ae053c2887f44a2a46bea0276e5a5fe",
+      "end": "2026-02-14T10:17:31.092Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 449,
+          "confidence": 0,
+          "info": {},
+          "leftX": 370,
+          "topY": 224,
+          "embeddings": [],
+          "rightX": 503
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.00004546269108237032,
+          "lat": 0.00010232688537649252
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 5.051410120261354,
+          "y": -11.369653930721393
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "0",
+        "info": {}
+      },
+      "speedOverTime": [
+        7.3661591934864425
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 0",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 3.3482582773622767,
+      "locations": {
+        "coordinates": [
+          [
+            4.750927058163282,
+            -11.387233615499332
+          ],
+          [
+            4.776640077972595,
+            -11.444839045717579
+          ],
+          [
+            4.808986320950233,
+            -11.472700283611763
+          ],
+          [
+            4.8537763812673935,
+            -11.483232123450605
+          ],
+          [
+            4.907761122075518,
+            -11.46792914059235
+          ],
+          [
+            4.942290828710866,
+            -11.453421278748483
+          ],
+          [
+            4.989972069423092,
+            -11.420863638627958
+          ],
+          [
+            5.051410120261354,
+            -11.369653930721393
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:26.888Z",
+      "distance": 0.422225157030116,
+      "speed": 3.9064481088706478,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "d9f0061330eff59e2327eac021c1eeb6e7e00f5f",
+      "end": "2026-02-14T10:17:27.126Z",
+      "direction": "Up",
+      "object": {
+        "bbox": {
+          "bottomY": 337,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1335,
+          "topY": 180,
+          "embeddings": [],
+          "rightX": 1447
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00015752721821628545,
+          "lat": 0.0003606785822724871
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 4.719197975911796,
+          "y": -17.853175808054115
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "36",
+        "info": {}
+      },
+      "speedOverTime": [
+        8.738490032657108
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 1",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 36",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 132.9627947039462,
+      "locations": {
+        "coordinates": [
+          [
+            4.992666573355784,
+            -18.119845949909454
+          ],
+          [
+            4.9641850511703485,
+            -18.10568767375765
+          ],
+          [
+            4.939829829674553,
+            -18.087453486022078
+          ],
+          [
+            4.899416064262282,
+            -18.043027576990784
+          ],
+          [
+            4.8594545518196,
+            -17.99909881909305
+          ],
+          [
+            4.8160389231025915,
+            -17.959745669582098
+          ],
+          [
+            4.765346767408537,
+            -17.887344982971594
+          ],
+          [
+            4.719197975911796,
+            -17.853175808054115
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:26.854Z",
+      "distance": 0.305971853739711,
+      "speed": 2.830866776902841,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "0e5a3786a47705aff63852e26426a9f6ffca949f",
+      "end": "2026-02-14T10:17:27.092Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 701,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1120,
+          "topY": 445,
+          "embeddings": [],
+          "rightX": 1226
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.00004257267222329293,
+          "lat": 0.00016409369936486284
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 4.730296913694365,
+          "y": -18.23263326276254
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "36",
+        "info": {}
+      },
+      "speedOverTime": [
+        6.332479127925041
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 36",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 172.84214802972542,
+      "locations": {
+        "coordinates": [
+          [
+            5.071756228298634,
+            -18.27551443577252
+          ],
+          [
+            4.99486181788946,
+            -18.270561175032825
+          ],
+          [
+            4.929411051417991,
+            -18.267018421469416
+          ],
+          [
+            4.892451655936176,
+            -18.264633592084994
+          ],
+          [
+            4.872297323836515,
+            -18.25932946448576
+          ],
+          [
+            4.841680047345889,
+            -18.25006447144209
+          ],
+          [
+            4.800875007551776,
+            -18.23693246533975
+          ],
+          [
+            4.756268035469966,
+            -18.233558664898627
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:26.828Z",
+      "distance": 0.4633866374918964,
+      "speed": 4.487307813294904,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "144499975c94fd8b8a43b798479e0e513a1317cd",
+      "end": "2026-02-14T10:17:27.059Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 523,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1271,
+          "topY": 297,
+          "embeddings": [],
+          "rightX": 1380
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.000057589553087188875,
+          "lat": 0.0002633773959376993
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 4.7122718791775435,
+          "y": -18.153043993077702
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "36",
+        "info": {}
+      },
+      "speedOverTime": [
+        10.037838339871902
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 36",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 162.55542131247626,
+      "locations": {
+        "coordinates": [
+          [
+            5.154297404512521,
+            -18.291944179059513
+          ],
+          [
+            5.061417716010667,
+            -18.259680169024083
+          ],
+          [
+            4.95822639648465,
+            -18.222749577588377
+          ],
+          [
+            4.882719507121991,
+            -18.197605016771806
+          ],
+          [
+            4.845429245937532,
+            -18.18891939233885
+          ],
+          [
+            4.808539637798052,
+            -18.180327087763846
+          ],
+          [
+            4.76006344022235,
+            -18.166588524537342
+          ],
+          [
+            4.7122718791775435,
+            -18.153043993077702
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:18.754Z",
+      "distance": 0.17488645109386472,
+      "speed": 1.6180581255465019,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "3de4a12306d1ad1a00f07ac1c103d7d75e179575",
+      "end": "2026-02-14T10:17:18.992Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 497,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1242,
+          "topY": 272,
+          "embeddings": [],
+          "rightX": 1339
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.000054601614527086046,
+          "lat": 0.00026226020956764086
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 5.044265052520789,
+          "y": -18.028912174182317
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "36",
+        "info": {}
+      },
+      "speedOverTime": [
+        3.619498943359992
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 36",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 348.4853089535678,
+      "locations": {
+        "coordinates": [
+          [
+            4.853450381679174,
+            -17.9900395365383
+          ],
+          [
+            4.853747461983617,
+            -17.9826735861278
+          ],
+          [
+            4.85389600216806,
+            -17.978990610123653
+          ],
+          [
+            4.866346176025093,
+            -17.980266881378004
+          ],
+          [
+            4.878692263658616,
+            -17.985244050229042
+          ],
+          [
+            4.903818010787988,
+            -17.98783316005058
+          ],
+          [
+            4.929126679360955,
+            -17.990441119210356
+          ],
+          [
+            4.992605655137954,
+            -18.012074391574398
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:18.688Z",
+      "distance": 0.22934492164203138,
+      "speed": 2.155591718562713,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "872920f204a389aa4cc8cf56e80949a43ed549cf",
+      "end": "2026-02-14T10:17:18.926Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 518,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1012,
+          "topY": 200,
+          "embeddings": [],
+          "rightX": 1212
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00015704533804796703,
+          "lat": 0.00031548356844765324
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 4.772740216844264,
+          "y": -12.831507605294801
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        4.8219293389216755
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 11",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 179.0730103812133,
+      "locations": {
+        "coordinates": [
+          [
+            5.002007879119645,
+            -12.835217255298573
+          ],
+          [
+            4.967018366742119,
+            -12.833576556402253
+          ],
+          [
+            4.932289919591372,
+            -12.831948099157799
+          ],
+          [
+            4.9058930744608675,
+            -12.84071450714268
+          ],
+          [
+            4.874183461839929,
+            -12.836342760006394
+          ],
+          [
+            4.84011908084968,
+            -12.834719127479165
+          ],
+          [
+            4.8063055863594535,
+            -12.833107453116753
+          ],
+          [
+            4.772740216844264,
+            -12.831507605294801
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:18.688Z",
+      "distance": 0.3595924655361953,
+      "speed": 3.3797763439350286,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "ec9b91fb7e0be4fd328f28d120976f9ba83c7dd7",
+      "end": "2026-02-14T10:17:18.926Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 334,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1312,
+          "topY": 176,
+          "embeddings": [],
+          "rightX": 1405
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00015494829946613732,
+          "lat": 0.00035909273549660463
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 5.00574450370294,
+          "y": -17.67697061073385
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "36",
+        "info": {}
+      },
+      "speedOverTime": [
+        7.560356894802023
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 36",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 37.04332801790855,
+      "locations": {
+        "coordinates": [
+          [
+            4.722929570065005,
+            -17.890422454355367
+          ],
+          [
+            4.776911874262903,
+            -17.83383676881988
+          ],
+          [
+            4.823183068092579,
+            -17.785334074051626
+          ],
+          [
+            4.87331086910381,
+            -17.732788781168086
+          ],
+          [
+            4.911871193285613,
+            -17.6923688248376
+          ],
+          [
+            4.954811436932768,
+            -17.688744176689458
+          ],
+          [
+            4.978011880923488,
+            -17.66442498887343
+          ],
+          [
+            5.00574450370294,
+            -17.67697061073385
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:18.588Z",
+      "distance": 0.22807985101239053,
+      "speed": 2.1437014366540206,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "e9e8ee4cca2a2c17654551ee283b0d65c62411e7",
+      "end": "2026-02-14T10:17:18.826Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 520,
+          "confidence": 0,
+          "info": {},
+          "leftX": 491,
+          "topY": 230,
+          "embeddings": [],
+          "rightX": 697
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.00004288628130558759,
+          "lat": 0.00012270370953760854
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 4.765142367284778,
+          "y": -13.633745504178727
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        4.795331491708845
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 11",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 178.81975540456847,
+      "locations": {
+        "coordinates": [
+          [
+            4.993147399709527,
+            -13.638442879416603
+          ],
+          [
+            4.9602568053621265,
+            -13.638825570299346
+          ],
+          [
+            4.925967946721032,
+            -13.635474838735297
+          ],
+          [
+            4.895273050559062,
+            -13.63958167370772
+          ],
+          [
+            4.861521714845672,
+            -13.636254869775124
+          ],
+          [
+            4.829686092764449,
+            -13.636640195226633
+          ],
+          [
+            4.798104674462388,
+            -13.63702244389875
+          ],
+          [
+            4.765142367284778,
+            -13.633745504178727
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:18.561Z",
+      "distance": 0.23662012675850172,
+      "speed": 2.2913637504379345,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "e07db04e00f3b23b93ffd9a995a4b26e662aeb3d",
+      "end": "2026-02-14T10:17:18.792Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 537,
+          "confidence": 0,
+          "info": {},
+          "leftX": 525,
+          "topY": 207,
+          "embeddings": [],
+          "rightX": 734
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00005725868511417318,
+          "lat": 0.00021858489281313329
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 4.7490349872957385,
+          "y": -13.176099201459252
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.125643227904633
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 11",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 179.14711079157837,
+      "locations": {
+        "coordinates": [
+          [
+            4.98561723692771,
+            -13.179621159871031
+          ],
+          [
+            4.949037187991017,
+            -13.179621631093871
+          ],
+          [
+            4.912698949206442,
+            -13.183234230330115
+          ],
+          [
+            4.889073643912294,
+            -13.176022981171553
+          ],
+          [
+            4.853512573827605,
+            -13.176042336362888
+          ],
+          [
+            4.818322947405564,
+            -13.176061489384736
+          ],
+          [
+            4.783641864528617,
+            -13.172537120891752
+          ],
+          [
+            4.7490349872957385,
+            -13.176099201459252
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:18.528Z",
+      "distance": 0.3469966206588562,
+      "speed": 3.360219136868493,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "fd0a25fd1c687fefae6d753a9aa6b46c180acd34",
+      "end": "2026-02-14T10:17:18.759Z",
+      "direction": "Right",
+      "object": {
+        "bbox": {
+          "bottomY": 665,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1086,
+          "topY": 414,
+          "embeddings": [],
+          "rightX": 1181
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.000044346189777240105,
+          "lat": 0.0001615684951891348
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 4.927354419688447,
+          "y": -17.952055021014974
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "36",
+        "info": {}
+      },
+      "speedOverTime": [
+        7.5166085960266065
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 36",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 321.83901694090787,
+      "locations": {
+        "coordinates": [
+          [
+            4.658634792909441,
+            -17.74088967549861
+          ],
+          [
+            4.741374627332838,
+            -17.764440191551543
+          ],
+          [
+            4.837049334188876,
+            -17.791981058486673
+          ],
+          [
+            4.8669554236406,
+            -17.83789854982354
+          ],
+          [
+            4.887191365448561,
+            -17.88322694768021
+          ],
+          [
+            4.910887406856521,
+            -17.915168984858745
+          ],
+          [
+            4.919754263479343,
+            -17.93503070460839
+          ],
+          [
+            4.927354419688447,
+            -17.952055021014974
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:13.988Z",
+      "distance": 0.24028226846025902,
+      "speed": 2.2583908302919826,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "aba6b36c7b1639d96b37ee095d2d859d35fab0b2",
+      "end": "2026-02-14T10:17:14.226Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 335,
+          "confidence": 0,
+          "info": {},
+          "leftX": 725,
+          "topY": 120,
+          "embeddings": [],
+          "rightX": 841
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00011497792650943773,
+          "lat": 0.00031682041962504174
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 9.446897054410842,
+          "y": -12.980046625004634
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.051884783913348
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 11",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 179.62564689736394,
+      "locations": {
+        "coordinates": [
+          [
+            9.687102400204374,
+            -12.981616075613616
+          ],
+          [
+            9.649779177714564,
+            -12.977921591512136
+          ],
+          [
+            9.612664386103432,
+            -12.974247739192055
+          ],
+          [
+            9.575756284264703,
+            -12.97059434630787
+          ],
+          [
+            9.560140321654176,
+            -12.986963049449413
+          ],
+          [
+            9.523480628820598,
+            -12.983284502015064
+          ],
+          [
+            9.48702396027429,
+            -12.979626326668233
+          ],
+          [
+            9.446897054410842,
+            -12.980046625004634
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:13.928Z",
+      "distance": 0.23917064514170258,
+      "speed": 2.316062263823724,
+      "sensor": {
+        "info": {},
+        "id": "Camera",
+        "type": "",
+        "description": ""
+      },
+      "Id": "c3692f4122975c3e6a813686f804f99833835c12",
+      "end": "2026-02-14T10:17:14.159Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 296,
+          "confidence": 0,
+          "info": {},
+          "leftX": 709,
+          "topY": 96,
+          "embeddings": [],
+          "rightX": 806
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.000014902325797472903,
+          "lat": 0.00021937557975033488
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 9.4552971335774,
+          "y": -13.263953305592763
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.180892320437841
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera #-# 11",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 179.5743529178544,
+      "locations": {
+        "coordinates": [
+          [
+            9.694081606934317,
+            -13.265727254477351
+          ],
+          [
+            9.659355691489711,
+            -13.265469272883728
+          ],
+          [
+            9.624837451203085,
+            -13.265212834125405
+          ],
+          [
+            9.5905250286551,
+            -13.264957924403467
+          ],
+          [
+            9.556416588510594,
+            -13.264704530083062
+          ],
+          [
+            9.52275540311228,
+            -13.258389078065841
+          ],
+          [
+            9.488804422554614,
+            -13.264202233913231
+          ],
+          [
+            9.4552971335774,
+            -13.263953305592763
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "ENTRY"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:13.928Z",
+      "distance": 0.24329578048695835,
+      "speed": 2.3560089316125397,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "a7f192a4afdf7fd3cc9445c7a0238eb0d75575e4",
+      "end": "2026-02-14T10:17:14.159Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 332,
+          "confidence": 0,
+          "info": {},
+          "leftX": 826,
+          "topY": 148,
+          "embeddings": [],
+          "rightX": 925
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.00008501291819703943,
+          "lat": 0.00012212124627781465
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Forklift",
+        "coordinate": {
+          "z": 0,
+          "x": 9.445879799665683,
+          "y": -13.569027364201625
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "11",
+        "info": {}
+      },
+      "speedOverTime": [
+        5.270250619481355
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 11",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 180.74714224770136,
+      "locations": {
+        "coordinates": [
+          [
+            9.689154894951344,
+            -13.565854854704261
+          ],
+          [
+            9.650602609224945,
+            -13.572324934813542
+          ],
+          [
+            9.609659169497528,
+            -13.57283968045782
+          ],
+          [
+            9.604380903106087,
+            -13.561012240976657
+          ],
+          [
+            9.56634755451397,
+            -13.567456364523531
+          ],
+          [
+            9.525935004941193,
+            -13.567983377768279
+          ],
+          [
+            9.488393834719245,
+            -13.574364242226306
+          ],
+          [
+            9.445879799665683,
+            -13.569027364201625
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:03.388Z",
+      "distance": 0.4950886146437604,
+      "speed": 4.653292124542914,
+      "sensor": {
+        "info": {},
+        "id": "Camera_01",
+        "type": "",
+        "description": ""
+      },
+      "Id": "76690e3c0af1675740fb6260263fe846f0792a5c",
+      "end": "2026-02-14T10:17:03.626Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 659,
+          "confidence": 0,
+          "info": {},
+          "leftX": 969,
+          "topY": 385,
+          "embeddings": [],
+          "rightX": 1052
+        },
+        "location": {
+          "alt": 0,
+          "lon": -0.000041981914607327065,
+          "lat": 0.00015511866792399328
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 4.664657178587622,
+          "y": -17.235407547110366
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "35",
+        "info": {}
+      },
+      "speedOverTime": [
+        10.409135285075028
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_01 #-# 35",
+      "timeInterval": 0.238,
+      "videoPath": "",
+      "bearing": 193.75512474226772,
+      "locations": {
+        "coordinates": [
+          [
+            5.145532827966782,
+            -17.11769243666154
+          ],
+          [
+            5.134410261662201,
+            -17.11818582366863
+          ],
+          [
+            5.0658142585960455,
+            -17.14001118642605
+          ],
+          [
+            4.933322743366215,
+            -17.182166344932646
+          ],
+          [
+            4.830198831939769,
+            -17.206804993725807
+          ],
+          [
+            4.753440141508371,
+            -17.215192788834987
+          ],
+          [
+            4.708700179037106,
+            -17.225379512693404
+          ],
+          [
+            4.664657178587622,
+            -17.235407547110366
+          ]
+        ],
+        "type": "linestring"
+      }
+    },
+    {
+      "event": {
+        "info": {
+          "class": "roi"
+        },
+        "id": "roi-id-1",
+        "type": "EXIT"
+      },
+      "length": 8,
+      "place": {
+        "name": "building=Warehouse/room=Room-1"
+      },
+      "timestamp": "2026-02-14T10:17:03.361Z",
+      "distance": 0.34682436511199793,
+      "speed": 3.358551061877198,
+      "sensor": {
+        "info": {},
+        "id": "Camera_02",
+        "type": "",
+        "description": ""
+      },
+      "Id": "946f8ecd7916c1b6d5ddfec3b6cfcd78ea129591",
+      "end": "2026-02-14T10:17:03.592Z",
+      "direction": "Left",
+      "object": {
+        "bbox": {
+          "bottomY": 358,
+          "confidence": 0,
+          "info": {},
+          "leftX": 1303,
+          "topY": 180,
+          "embeddings": [],
+          "rightX": 1403
+        },
+        "location": {
+          "alt": 0,
+          "lon": 0.00015707966210911948,
+          "lat": 0.0003528740768883123
+        },
+        "embedding": {
+          "info": {},
+          "vector": []
+        },
+        "speed": 0,
+        "type": "Person",
+        "coordinate": {
+          "z": 0,
+          "x": 4.768926432264553,
+          "y": -16.98600854314581
+        },
+        "bbox3d": {
+          "coordinates": [],
+          "confidence": 0,
+          "info": {}
+        },
+        "dir": [],
+        "confidence": 0,
+        "id": "35",
+        "info": {}
+      },
+      "speedOverTime": [
+        7.51287721235558
+      ],
+      "analyticsModule": {
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "description": "index = 0",
+        "version": ""
+      },
+      "id": "Camera_02 #-# 35",
+      "timeInterval": 0.231,
+      "videoPath": "",
+      "bearing": 161.28129488045556,
+      "locations": {
+        "coordinates": [
+          [
+            5.068490328334375,
+            -17.087514341901837
+          ],
+          [
+            5.016088080359196,
+            -17.142446993118686
+          ],
+          [
+            4.959423313291629,
+            -17.163065829804065
+          ],
+          [
+            4.883184236448214,
+            -17.05213330466127
+          ],
+          [
+            4.834740000786578,
+            -16.990793978546982
+          ],
+          [
+            4.801650746123547,
+            -16.9517021377424
+          ],
+          [
+            4.787106569730037,
+            -16.96694946771743
+          ],
+          [
+            4.768926432264553,
+            -16.98600854314581
+          ]
+        ],
+        "type": "linestring"
+      }
+    }
+  ]
+}

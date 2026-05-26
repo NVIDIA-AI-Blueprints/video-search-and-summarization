@@ -6,6 +6,11 @@ export { default as nextI18nConfig } from './next-i18next.config';
 // Main app export
 export { default as NemoAgentToolkitApp } from './pages/api/home/home';
 export type { NemoAgentToolkitAppProps, ChatSidebarControlHandlers } from './pages/api/home/home';
+export type { ChatVideoUploadCompletePayload } from '../types/chatVideoUpload';
+export {
+  useChatVideoUploadCompleteSubscription,
+  type RegisterChatVideoUploadComplete,
+} from './hooks/useChatVideoUploadCompleteSubscription';
 
 // Individual components
 export { Chat } from './components/Chat/Chat';

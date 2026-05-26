@@ -53,7 +53,6 @@ The warehouse blueprint boots the **full VSS stack** (agent + UI + VST + RTVI be
 | `vss-behavior-analytics` | Behavior analytics — ROI, tripwire, proximity events |
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
-| `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
 ### MV3DT CV core (`bp_wh_kafka_mv3dt` / `bp_wh_redis_mv3dt`)
 
@@ -70,11 +69,10 @@ MV3DT adds MQTT-based cross-camera messaging and BEV Fusion on top of per-camera
 | `vss-behavior-analytics-mv3dt` | Behavior analytics — 3D spatial analytics |
 | `kafka` or `redis` (`STREAM_TYPE`) | Message broker for CV metadata and control bus |
 | `vss-broker-health-check` | Waits for broker readiness before starting dependent services |
-| `vss-auto-calibration` (+ `vss-auto-calibration-ui`) | Camera auto-calibration |
 
 ### Warehouse Auto-Calibration (`bp_wh_auto_calib`)
 
-Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check.
+Deploys only the minimum services needed for camera calibration — no perception, no behavior analytics, no agent stack. Available for all modes (`bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt`). Skips broker health check. These are the only warehouse profiles that start `vss-auto-calibration` and `vss-auto-calibration-ui`; regular `bp_wh`, `bp_wh_kafka`, and `bp_wh_redis` profiles do not.
 
 | Container | Purpose |
 |---|---|
@@ -164,7 +162,7 @@ RTVI VLM has no equivalent mode setting — it is always deployed locally on `RT
 | Service | URL | Profile |
 |---|---|---|
 | NvStreamer UI | `http://<HOST_IP>:31000` | All |
-| Auto-Calibration UI | `http://<HOST_IP>:5000` | All |
+| Auto-Calibration UI | `http://<HOST_IP>:5000` | `auto_calib`, `bp_wh_auto_calib_2d`, `bp_wh_auto_calib_3d`, `bp_wh_auto_calib_mv3dt` |
 | Elasticsearch API | `http://<HOST_IP>:9200` | `bp_wh`, or kafka/redis extended |
 | VSS Agent API (direct) | `http://<HOST_IP>:8000` | `bp_wh` only (prefer `/api` via HAProxy) |
 | VST MCP (direct) | `http://<HOST_IP>:8001` | All |
@@ -239,13 +237,24 @@ LOG=${LOG:-/tmp/warehouse-blueprint.log}
 
 ### Lifecycle: Tear down
 
+Hard teardown — removes all containers, the project network, and all volume belonging to this stack.
+
 ```bash
 cd <repo>/deploy/docker
-docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down
+
+# Hard teardown — `-v` ensures named volumes are also removed.
+# Containers + network + project's named volumes all go.
+docker compose -f compose.yml --env-file industry-profiles/warehouse-operations/.env down -v
+
+# Sweep any leftover anonymous/dangling volumes from prior partial runs.
 docker volume prune -f
+
+# Reclaim disk: stopped containers, dangling images, unused networks.
 docker system prune -f
 
-# Pass the SAME env file you used with `docker compose --env-file ...`
+# Wipe bind-mounted state under $VSS_DATA_DIR/data_log/* AND revert
+# blueprint-configurator backups. Resolves VSS_DATA_DIR from the env file,
+# so pass the SAME env you used with `docker compose --env-file ...`.
 bash ./scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
 ```
 
@@ -278,9 +287,9 @@ docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
 **Stack is ready when these show `Up`** (same container names in 2D and 3D; MV3DT uses `-mv3dt` suffix):
 
-- 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
+- 2D / 3D profiles: `vss-vios-nvstreamer`, `vss-rtvi-cv`, `vss-configurator`, `vss-behavior-analytics`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus the `vss-vios-*` VST stack
 - 3D extra: `vss-rtvi-cv-config-adaptor`
-- MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, `vss-auto-calibration`, `vss-auto-calibration-ui`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
+- MV3DT profiles: `vss-vios-nvstreamer-mv3dt`, `vss-rtvi-cv-mv3dt`, `vss-rtvi-cv-bev-fusion`, `mosquitto`, `vss-configurator-mv3dt`, `vss-behavior-analytics-mv3dt`, broker (`kafka` / `redis`), `vss-broker-health-check`, plus VST stack
 - `bp_wh` extra: `vss-rtvi-vlm`, `vss-alert-bridge`, `vss-agent`, `vss-agent-ui`, `vss-va-mcp`, `vss-haproxy-ingress`, `phoenix`, plus the LLM NIM container (named after `LLM_NAME_SLUG`) when `LLM_MODE=local` / `local_shared`
 - Extended extra (kafka/redis, any mode): `vss-haproxy-ingress`, `logstash`, `kibana`, `vss-video-analytics-api` (MV3DT uses `vss-video-analytics-api-mv3dt`)
 - `elasticsearch`: `BP_PROFILE=bp_wh` (always), **or** kafka/redis with `MINIMAL_PROFILE=""` (extended, any mode)
@@ -383,6 +392,7 @@ Valid values: `H100, L40, L40S, L4, A6000, RTXA6000, RTXA6000ADA, RTXPRO6000BW, 
 | Discrete GPU (typical `nvidia-smi` name) | HARDWARE_PROFILE |
 |---|---|
 | RTX PRO 6000 Blackwell | `RTXPRO6000BW` |
+| RTX PRO 4500 Blackwell | `OTHER` — 32 GB; no dedicated profile, see [alerts.md § RTX PRO 4500](alerts.md#rtx-pro-4500-blackwell-32-gb) for the required `LLM_MODE=remote` env |
 | H100 (NVL, SXM HBM3) | `H100` |
 | RTX A6000 Ada Generation | `RTXA6000ADA` |
 | RTX A6000 (Ampere) | `RTXA6000` |
@@ -599,28 +609,7 @@ sudo bash -c "printf '%s\n' \
 sudo sysctl --system
 ```
 
-**DGX-SPARK / IGX-THOR only** — cache cleaner:
-```bash
-sudo tee /usr/local/bin/sys-cache-cleaner.sh << 'EOF'
-#!/bin/bash
-set -e
-echo 0 | tee /proc/sys/vm/nr_hugepages
-echo "Starting cache cleaner"
-while true; do
-  sync && echo 3 | tee /proc/sys/vm/drop_caches > /dev/null
-  sleep 3
-done
-EOF
-sudo chmod +x /usr/local/bin/sys-cache-cleaner.sh
-sudo -b /usr/local/bin/sys-cache-cleaner.sh
-```
-
-**IGX-THOR only** — boost VIC clocks:
-```bash
-sudo nvpmodel -m 0
-sudo jetson_clocks
-sudo su -c 'echo performance > /sys/class/devfreq/8188050000.vic/governor'
-```
+**DGX-SPARK / IGX-THOR / AGX-THOR only** — system cache cleaner and (IGX-Thor) VIC clock boost. These are platform prerequisites that apply to every profile on edge hardware, not just warehouse. Canonical install + verify block lives in [`edge.md` § Cache cleaner (every edge deploy)](edge.md#cache-cleaner-every-edge-deploy).
 
 #### 2.5 IPv6 Localhost Entry
 

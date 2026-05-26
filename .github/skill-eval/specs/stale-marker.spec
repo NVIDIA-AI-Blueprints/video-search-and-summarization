@@ -44,24 +44,34 @@ concurrency rework — it stays serial.
 
 Replace the per-profile flag fan-out with **one canonical file per Brev
 instance** at `/tmp/skill-eval/active-deploy.txt`. Holds what is
-currently RUNNING on the box. Writes are **overwrite, never append**.
-Empty / missing means "nothing is up."
+currently RUNNING on the box AND which CI run owns it. Writes are
+**overwrite, never append**. Empty / missing means "nothing is up."
 
-Marker format:
-- `base`, `lvs`, `search` — profile name only. Placement (LLM/VLM
-  local vs remote) is decided at deploy time from the env the
-  `/vss-deploy-profile` skill sees; it is NOT part of the marker.
-- `alerts-verification`, `alerts-real-time` — alerts has two distinct
-  stacks (`/vss-deploy-profile -m verification` runs CV + VLM-verifier; `-m
-  real-time` runs continuous-VLM). Downstream trials that need a
-  specific variant cannot share a box running the other one, so the
-  alerts mode is part of the marker.
+Marker format: `<profile_tag>|<run_id>`.
+
+- `<profile_tag>`:
+  - `base`, `lvs`, `search` — profile name only. Placement (LLM/VLM
+    local vs remote) is decided at deploy time from the env the
+    `/vss-deploy-profile` skill sees; it is NOT part of the marker.
+  - `alerts-verification`, `alerts-real-time` — alerts has two distinct
+    stacks (`/vss-deploy-profile -m verification` runs CV + VLM-verifier; `-m
+    real-time` runs continuous-VLM). Downstream trials that need a
+    specific variant cannot share a box running the other one, so the
+    alerts mode is part of the profile tag.
+- `<run_id>`: `$GITHUB_RUN_ID` (or `local-<pid>` outside CI). Tagging
+  the marker with the owning run id is what makes between-run
+  isolation a pull-side reconcile: a marker from a prior run never
+  matches the current run's desired marker, so the next worker
+  always tears down + redeploys regardless of how the prior run
+  ended (happy path, cancel-in-progress, max-turns, SIGKILL, host
+  reboot). Within one run, multiple trials with the same profile
+  still hot-skip on a full match.
 
 Single owner: whoever last successfully ran `/vss-deploy-profile` on the box. Two
 write paths in practice — the harness pre-deploy hook (when called) and
 the vss-deploy-profile/* trial's `test.sh` (its scored task IS running /vss-deploy-profile) —
-both overwrite the same file with the same token. Equivalent semantics;
-pick one or both, just never `touch` per-flag.
+both overwrite the same file with the same `<profile_tag>|<run_id>` token.
+Equivalent semantics; pick one or both, just never `touch` per-flag.
 
 ### 2. Pre-deploy hook reconciles box state with task metadata
 

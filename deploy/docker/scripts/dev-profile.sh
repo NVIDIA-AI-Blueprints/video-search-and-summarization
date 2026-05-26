@@ -86,6 +86,7 @@ function get_detected_hardware_profile() {
   case "${_gpu_lower}" in
     *h100*) echo "H100" ;;
     *l40s*) echo "L40S" ;;
+    *rtx*pro*4500*blackwell*) echo "RTXPRO4500BW" ;;
     *rtx*pro*6000*blackwell*) echo "RTXPRO6000BW" ;;
     *gb10*) echo "DGX-SPARK" ;;
     *thor*) echo "THOR" ;;
@@ -130,6 +131,7 @@ function get_vlm_slug() {
   case "${_name}" in
     nvidia/cosmos-reason1-7b) echo "cosmos-reason1-7b" ;;
     nvidia/cosmos-reason2-8b) echo "cosmos-reason2-8b" ;;
+    nvidia/cosmos3-reasoner) echo "cosmos3-reasoner" ;;
     Qwen/Qwen3-VL-8B-Instruct) echo "qwen3-vl-8b-instruct" ;;
     *) echo "" ;;
   esac
@@ -307,15 +309,23 @@ function get_rtvi_vllm_gpu_memory_utilization() {
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
       DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
-      L40S) echo "0.8" ;;
+      L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
     return
   fi
 
   case "${_hardware_profile}" in
-    L40S) echo "0.8" ;;
+    L40S|RTXPRO4500BW) echo "0.8" ;;
     *) echo "0.7" ;;
+  esac
+}
+
+function get_rtvi_vlm_max_model_len() {
+  local _hardware_profile="${1}"
+  case "${_hardware_profile}" in
+    RTXPRO4500BW) echo "20480" ;;
+    *) echo "" ;;
   esac
 }
 
@@ -366,6 +376,7 @@ function usage() {
   echo "                                   • One of:"
   echo "                                     - H100"
   echo "                                     - L40S"
+  echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
   echo "                                     - DGX-SPARK"
   echo "                                     - IGX-THOR"
@@ -402,6 +413,7 @@ function usage() {
   echo "                                   • One of (local):"
   echo "                                     - nvidia/cosmos-reason1-7b"
   echo "                                     - nvidia/cosmos-reason2-8b"
+  echo "                                     - nvidia/cosmos3-reasoner          (set NIM_MODEL_SIZE=nano|super)"
   echo "                                     - Qwen/Qwen3-VL-8B-Instruct"
   echo "                                   • Not accepted for profile=alerts or base on IGX-THOR or AGX-THOR"
   echo "                                   • When --use-remote-vlm is passed, any model name can be passed"
@@ -661,9 +673,9 @@ function process_args() {
       fi
 
       # Validate hardware profile value (from profile .env or --hardware-profile)
-      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
+      _valid_hardware_profiles=('H100' 'L40S' 'RTXPRO4500BW' 'RTXPRO6000BW' 'DGX-SPARK' 'IGX-THOR' 'AGX-THOR' 'OTHER')
       if ! contains_element "${hardware_profile}" "${_valid_hardware_profiles[@]}"; then
-        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
+        echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
 
@@ -937,7 +949,7 @@ function process_args() {
         fi
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
-            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, Qwen/Qwen3-VL-8B-Instruct"
+            echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos-reason1-7b, nvidia/cosmos-reason2-8b, nvidia/cosmos3-reasoner, Qwen/Qwen3-VL-8B-Instruct"
             ((_all_good++))
           fi
         fi
@@ -1140,6 +1152,8 @@ function state_up() {
   # 77770-<id>.brevlab.com; that form is legacy. Point HAProxy and browser-facing compose vars at the
   # current-form host with https/wss; keep URL templates in profile .env
   # (${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}, etc.) so one origin is used.
+  # VST_INGRESS_ENDPOINT intentionally omits the scheme because the VST stream-processing service
+  # prepends http:// when generating /picture/url and clip URLs.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
     echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to secure-link host (port ${_proxy_port}, prefix ${_proxy_port})..."
@@ -1148,6 +1162,7 @@ function state_up() {
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
     set_env_var "VSS_PUBLIC_HOST" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com'
     set_env_var "VSS_PUBLIC_PORT" "443"
+    set_env_var "VST_INGRESS_ENDPOINT" '${PROXY_PORT:-7777}-${BREV_ENV_ID}.brevlab.com/vst'
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"
@@ -1321,6 +1336,11 @@ function state_up() {
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
       set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      local _rtvi_vlm_max_model_len
+      _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
+      if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
+        set_env_var "RTVI_VLM_MAX_MODEL_LEN" "${_rtvi_vlm_max_model_len}"
+      fi
     fi
     # RT_VLM_DEVICE_ID: mirrors NIM compose device_ids pattern.
     # local → VLM_DEVICE_ID; local_shared → SHARED_LLM_VLM_DEVICE_ID (fall back to vlm_device_id).
@@ -1341,7 +1361,8 @@ function state_up() {
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
   fi
-  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi (alerts does not use rtvi)
+  # Base profile only on IGX-THOR or AGX-THOR: set VLM_MODEL_TYPE to rtvi
+  # (alerts defaults to VLM_MODEL_TYPE=rtvi via its source .env, so it does not need this override)
   if ([[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]) && [[ "${profile}" == "base" ]]; then
     set_env_var "VLM_MODEL_TYPE" "rtvi"
   fi
@@ -1562,6 +1583,42 @@ function state_down() {
   if [[ "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
     _sudo="sudo"
   fi
+
+  # Clean up sdrc runtime artifacts (logs and rendered wdm env files) created
+  # at compose-up time and bind-mounted into containers; often root-owned
+  # because containers write to them as root.
+  local _sdrc_dir="${deployment_directory}/services/infra/sdrc"
+  echo "[INFO] Cleaning up sdrc runtime artifacts in ${_sdrc_dir}..."
+  local _sdrc_artifact
+  for _sdrc_artifact in "${_sdrc_dir}/log" "${_sdrc_dir}/.wdm-env"; do
+    if [[ -d "${_sdrc_artifact}" ]]; then
+      if [[ "${dry_run}" == "true" ]]; then
+        echo "[DRY-RUN] ${_sudo:+sudo }rm -rf ${_sdrc_artifact}"
+      else
+        $_sudo rm -rf "${_sdrc_artifact}"
+        echo "[INFO] Deleted ${_sdrc_artifact}"
+      fi
+    fi
+  done
+
+  # Delete render-service generated sdrc config files. Every rendered file in
+  # */sdrc/configs/ has a sibling *.tmpl template; remove the rendered sibling
+  # so the next run regenerates it cleanly from the template.
+  local _tmpl _rendered
+  while IFS= read -r _tmpl; do
+    [[ -z "${_tmpl}" ]] && continue
+    _rendered="${_tmpl%.tmpl}"
+    if [[ -f "${_rendered}" ]]; then
+      if [[ "${dry_run}" == "true" ]]; then
+        echo "[DRY-RUN] ${_sudo:+sudo }rm -f ${_rendered}"
+      else
+        $_sudo rm -f "${_rendered}"
+        echo "[INFO] Deleted rendered sdrc config: ${_rendered}"
+      fi
+    fi
+  done < <(find "${deployment_directory}" -type f \( -path '*/sdrc/configs/*.tmpl' -o -path '*/sdrc/*/configs/*.tmpl' \) 2>/dev/null)
+
+  echo "[INFO] Deleting data directory: ${data_directory}..."
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] ${_sudo:+sudo }rm -rf ${data_directory}"
   else

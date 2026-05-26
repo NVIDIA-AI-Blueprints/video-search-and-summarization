@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 /**
- * Live still frame for a registered VST sensor. Resolves `sensorName` to a
+ * Recent still frame for a registered VST sensor. Resolves `sensorName` to a
  * VST stream id via `/v1/sensor/list` (cached per `vstApiUrl`), then renders
- * `/v1/live/stream/{id}/picture` as an `<img>`.
+ * `/v1/replay/stream/{id}/picture` with a short lookback as an `<img>`. The
+ * replay endpoint is used instead of `/v1/live/...` to avoid hitting the live
+ * pipeline for what is effectively a preview.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -10,6 +12,31 @@ import { IconCamera, IconAlertTriangle, IconLoader2 } from '@tabler/icons-react'
 import { fetchSensorMap } from '../utils/vstSensorList';
 
 export { clearSensorListCache } from '../utils/vstSensorList';
+
+/** Resolved live-picture URLs per VST base + sensor name (survives remounts). */
+const pictureUrlCache = new Map<string, string>();
+
+const pictureCacheKey = (vstApiUrl: string, sensorName: string) =>
+  `${vstApiUrl.replace(/\/+$/, '')}|${sensorName}`;
+
+export const clearVstStreamThumbnailCache = (vstApiUrl?: string, sensorName?: string): void => {
+  if (!vstApiUrl && !sensorName) {
+    pictureUrlCache.clear();
+    return;
+  }
+  if (vstApiUrl && sensorName) {
+    pictureUrlCache.delete(pictureCacheKey(vstApiUrl, sensorName));
+    return;
+  }
+  const prefix = vstApiUrl ? `${vstApiUrl.replace(/\/+$/, '')}|` : undefined;
+  for (const key of pictureUrlCache.keys()) {
+    if (prefix && key.startsWith(prefix)) {
+      pictureUrlCache.delete(key);
+    } else if (sensorName && key.endsWith(`|${sensorName}`)) {
+      pictureUrlCache.delete(key);
+    }
+  }
+};
 
 interface VstStreamThumbnailProps {
   vstApiUrl?: string;
@@ -20,6 +47,14 @@ interface VstStreamThumbnailProps {
 }
 
 const THUMBNAIL_BOX_STYLE: React.CSSProperties = { width: '128px', height: '72px' };
+
+// Short lookback for the replay snapshot. Far enough back that the segment is
+// reliably written to storage, short enough that the preview still looks fresh.
+// NOTE: startTime is computed once per effect invocation (i.e., per prop change).
+// The thumbnail does not auto-refresh; it always shows the frame from ~5 s
+// before the sensor-list fetch resolved. Re-mount or a prop change is required
+// to get a newer frame.
+const THUMBNAIL_LOOKBACK_MS = 5_000;
 
 const Placeholder: React.FC<{
   isDark: boolean;
@@ -59,23 +94,42 @@ const Placeholder: React.FC<{
   );
 };
 
+type ThumbnailState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; pictureUrl: string }
+  | { kind: 'unavailable'; reason: string };
+
+const initialThumbnailState = (
+  vstApiUrl: string | undefined,
+  sensorName: string,
+): ThumbnailState => {
+  if (!sensorName) {
+    return { kind: 'idle' };
+  }
+  if (!vstApiUrl) {
+    return { kind: 'unavailable', reason: 'VST URL not configured' };
+  }
+  const cachedUrl = pictureUrlCache.get(pictureCacheKey(vstApiUrl, sensorName));
+  if (cachedUrl) {
+    return { kind: 'ready', pictureUrl: cachedUrl };
+  }
+  return { kind: 'loading' };
+};
+
 export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
   vstApiUrl,
   sensorName,
   isDark,
   fallbackLabel,
 }) => {
-  const [state, setState] = useState<
-    | { kind: 'idle' }
-    | { kind: 'loading' }
-    | { kind: 'ready'; pictureUrl: string }
-    | { kind: 'unavailable'; reason: string }
-  >({ kind: 'idle' });
-  const [imageBroken, setImageBroken] = useState(false);
+  const [state, setState] = useState<ThumbnailState>(() =>
+    initialThumbnailState(vstApiUrl, sensorName),
+  );
+  /** URL that failed to load; cleared implicitly when `pictureUrl` changes. */
+  const [brokenPictureUrl, setBrokenPictureUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    setImageBroken(false);
-
     if (!sensorName) {
       setState({ kind: 'idle' });
       return;
@@ -85,27 +139,40 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
       return;
     }
 
+    const cacheKey = pictureCacheKey(vstApiUrl, sensorName);
+    const cachedUrl = pictureUrlCache.get(cacheKey);
+    if (cachedUrl) {
+      setState({ kind: 'ready', pictureUrl: cachedUrl });
+    } else {
+      setState({ kind: 'loading' });
+    }
+
     let cancelled = false;
-    setState({ kind: 'loading' });
 
     fetchSensorMap(vstApiUrl)
       .then((map) => {
         if (cancelled) return;
         const sensorId = map.get(sensorName);
         if (!sensorId) {
+          pictureUrlCache.delete(cacheKey);
           setState({
             kind: 'unavailable',
             reason: `Sensor "${sensorName}" not registered with VST`,
           });
           return;
         }
-        const pictureUrl = `${vstApiUrl.replace(/\/+$/, '')}/v1/live/stream/${encodeURIComponent(
+        const startTime = new Date(Date.now() - THUMBNAIL_LOOKBACK_MS).toISOString();
+        let baseUrl = vstApiUrl;
+        while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+        const pictureUrl = `${baseUrl}/v1/replay/stream/${encodeURIComponent(
           sensorId,
-        )}/picture`;
+        )}/picture?startTime=${encodeURIComponent(startTime)}`;
+        pictureUrlCache.set(cacheKey, pictureUrl);
         setState({ kind: 'ready', pictureUrl });
       })
       .catch((err) => {
         if (cancelled) return;
+        pictureUrlCache.delete(cacheKey);
         setState({
           kind: 'unavailable',
           reason: err instanceof Error ? err.message : 'VST unavailable',
@@ -127,7 +194,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
     return <Placeholder isDark={isDark} state="unavailable" label={fallbackLabel} />;
   }
 
-  if (imageBroken) {
+  if (brokenPictureUrl === state.pictureUrl) {
     return <Placeholder isDark={isDark} state="unavailable" label="Frame unavailable" />;
   }
 
@@ -135,12 +202,12 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
     <img
       data-testid="vst-stream-thumbnail"
       src={state.pictureUrl}
-      alt={`Live VST thumbnail for ${sensorName}`}
+      alt={`Recent thumbnail for ${sensorName}`}
       style={THUMBNAIL_BOX_STYLE}
       className={`object-cover rounded border ${
         isDark ? 'border-neutral-700' : 'border-gray-300'
       }`}
-      onError={() => setImageBroken(true)}
+      onError={() => setBrokenPictureUrl(state.pictureUrl)}
     />
   );
 };

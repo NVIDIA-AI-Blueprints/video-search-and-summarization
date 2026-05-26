@@ -1,0 +1,84 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+'use strict';
+
+/** 
+ * Class which defines MessageBroker
+ * @memberof mdxWebApiCore.Utils
+ * */
+
+class MessageBroker {
+    #name;
+    #client;
+    #configs;
+
+    /** 
+     * Constructor is passed a destructured object as param.
+     * @param {Object} input - Input object.
+     * @param {string} input.name
+     * @param {Object} input.client - Message Broker client
+     * @param {Map} input.configs
+     */
+    constructor({ name, client, configs} = {}) {
+        this.#name = name;
+        this.#client = client;
+        this.#configs = configs;
+    }
+
+    /** 
+     * returns the message broker name.
+     * @public
+     * @returns {string}
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const kafka = new mdx.Utils.Kafka({brokers: ["kafka-broker-url"]}, kafkaConfigMap);
+     * let messageBrokerName = kafka.getName();
+     */
+    getName(){
+        return this.#name;
+    }
+
+    /** 
+     * returns the message broker configs.
+     * @public
+     * @returns {Map}
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const kafka = new mdx.Utils.Kafka({brokers: ["kafka-broker-url"]}, kafkaConfigMap);
+     * let messageBrokerConfigs = kafka.getConfigs();
+     */
+    getConfigs(){
+        return this.#configs;
+    }
+
+    /** 
+     * returns the message broker client.
+     * @public
+     * @returns {Object}
+     * @example
+     * const mdx = require("@nvidia-mdx/web-api-core");
+     * const kafka = new mdx.Utils.Kafka({brokers: ["kafka-broker-url"]}, kafkaConfigMap);
+     * let messageBrokerClient = kafka.getClient();
+     */
+    getClient(){
+        return this.#client;
+    }
+
+}
+
+module.exports = MessageBroker;

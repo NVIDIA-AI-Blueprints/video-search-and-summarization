@@ -1,0 +1,52 @@
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "range": {
+                        "timestamp": {
+                            "lte": ""
+                        }
+                    }
+                },
+                {
+                    "range": {
+                        "end": {
+                            "gte": ""
+                        }
+                    }
+                },
+                {
+                    "range": {
+                        "timeInterval": {
+                            "gte": "",
+                            "lte": ""
+                        }
+                    }
+                },
+                {
+                    "range": {
+                        "distance": {
+                            "gte": ""
+                        }
+                    }
+                }
+            ]
+        }
+    },
+    "aggs": {
+        "directions": {
+            "terms": {
+                "field": "direction.keyword",
+                "size": 100
+            },
+            "aggs": {
+                "averageSpeed": {
+                    "avg": {
+                        "field": "speed"
+                    }
+                }
+            }
+        }
+    }
+}

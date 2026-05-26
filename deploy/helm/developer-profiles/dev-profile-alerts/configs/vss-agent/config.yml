@@ -224,6 +224,16 @@ llms:
     temperature: 0.0
     max_tokens: 1024
 
+  # Use this profile when VLM is served via RTVI-VLM (FastAPI-wrapped vLLM).
+  # Must be _type: openai, not nim — the langchain-nvidia NIM client leaks
+  # verify_ssl into the request body, which RTVI-VLM rejects with 422.
+  rtvi_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${RTVI_VLM_BASE_URL}/v1
+    temperature: 0.0
+    max_tokens: 1024
+
   openai_vlm:
     _type: openai
     model_name: ${VLM_NAME}

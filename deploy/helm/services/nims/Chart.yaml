@@ -33,3 +33,9 @@ dependencies:
     repository: "file://./charts/cosmos-reason2-8b"
     alias: cosmos
     condition: cosmos.enabled
+
+  - name: cosmos3-reasoner
+    version: 26.04.2
+    repository: "file://./charts/cosmos3-reasoner"
+    alias: cosmos3
+    condition: cosmos3.enabled

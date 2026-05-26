@@ -333,7 +333,10 @@ repo evolves.
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
 - The driver (`helm_sync_agent.py`) parses your **final line** to
-  decide the workflow exit code. It must be exactly one of:
+  decide the workflow exit code. **Emit it as plain text on its own
+  line — no backticks, no bold, no list bullet, no surrounding
+  prose.** The line must start with `DONE:` or `BLOCKED:` at column
+  0 and be exactly one of:
   - `DONE: in sync` — no drift, exit 0, source PR gets no comment.
   - `DONE: no deploy/ changes` — only the harness changed (or no
     in-scope `deploy/` paths after filtering); nothing to check.

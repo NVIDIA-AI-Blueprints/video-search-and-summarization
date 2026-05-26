@@ -1,0 +1,3254 @@
+{
+  "roiEvents": [
+    {
+      "distance": 0.5872106779287478,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00008925285162599999,
+          "alt": 0,
+          "lon": -0.00002413051704000732
+        },
+        "confidence": 0.937971293926239,
+        "id": "2",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.916983514,
+          "x": 2.68116856,
+          "z": -0.011803984499999975
+        },
+        "bbox3d": {
+          "confidence": 0.937971293926239,
+          "info": {},
+          "coordinates": [
+            2.68116856,
+            -9.916983514,
+            0.931859732,
+            0.909661829,
+            0.963921905,
+            1.887327433,
+            0,
+            0,
+            -0.879856348
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        9.602430856992155
+      ],
+      "timestamp": "2026-02-23T10:13:21.247Z",
+      "id": "bev-sensor-1 #-# 2",
+      "end": "2026-02-23T10:13:21.553Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 4.292663574790631,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            3.098443988,
+            -9.505151658
+          ],
+          [
+            3.065715316,
+            -9.544871716
+          ],
+          [
+            3.02518535,
+            -9.577470689
+          ],
+          [
+            2.98323274,
+            -9.624739079
+          ],
+          [
+            2.931251768,
+            -9.683403878
+          ],
+          [
+            2.88208032,
+            -9.740028291
+          ],
+          [
+            2.83865166,
+            -9.79266706
+          ],
+          [
+            2.803967956,
+            -9.813098102
+          ],
+          [
+            2.751216415,
+            -9.868835597
+          ],
+          [
+            2.68116856,
+            -9.916983514
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 224.6238252568475,
+      "Id": "1e83abeaab7d6beca1c469beea6523f659fcd9e5"
+    },
+    {
+      "distance": 0.2822927323840988,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016301450290500001,
+          "alt": 0,
+          "lon": -0.000045272424492045806
+        },
+        "confidence": 0.9564822912216187,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.112722545,
+          "x": 5.030269388,
+          "z": -0.023894607999999984
+        },
+        "bbox3d": {
+          "confidence": 0.9564822912216187,
+          "info": {},
+          "coordinates": [
+            5.030269388,
+            -18.112722545,
+            0.867224574,
+            0.924352944,
+            0.935329795,
+            1.782238364,
+            0,
+            0,
+            -2.155073166
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        4.616224714630642
+      ],
+      "timestamp": "2026-02-23T10:13:20.047Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:13:20.353Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 2.063633675749301,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.280915502,
+            -18.241654067
+          ],
+          [
+            5.267101053,
+            -18.232109694
+          ],
+          [
+            5.251540426,
+            -18.223659663
+          ],
+          [
+            5.22893453,
+            -18.210241942
+          ],
+          [
+            5.20312095,
+            -18.199337153
+          ],
+          [
+            5.170274023,
+            -18.178983359
+          ],
+          [
+            5.140166048,
+            -18.158950953
+          ],
+          [
+            5.107562784,
+            -18.146024852
+          ],
+          [
+            5.067705396,
+            -18.130866675
+          ],
+          [
+            5.030269388,
+            -18.112722545
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 152.77886190643108,
+      "Id": "a8b6819b491eb7134c4c56da29ba01d6574541d3"
+    },
+    {
+      "distance": 0.0987901186302957,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Fourier_GR1_T2_Humanoid",
+        "location": {
+          "lat": 0.00016402347268200003,
+          "alt": 0,
+          "lon": 0.000005123830824005249
+        },
+        "confidence": 0.9659111499786377,
+        "id": "3674",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.224830298,
+          "x": -0.569314536,
+          "z": 0.0030238630000000155
+        },
+        "bbox3d": {
+          "confidence": 0.9659111499786377,
+          "info": {},
+          "coordinates": [
+            -0.569314536,
+            -18.224830298,
+            0.815353036,
+            0.627441347,
+            0.56393075,
+            1.624658346,
+            0,
+            0,
+            0.006451361
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        1.647786434307492
+      ],
+      "timestamp": "2026-02-23T10:13:15.222Z",
+      "id": "bev-sensor-1 #-# 3674",
+      "end": "2026-02-23T10:13:15.519Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.7366252265628456,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -0.480342541,
+            -18.184073596
+          ],
+          [
+            -0.489281845,
+            -18.184166102
+          ],
+          [
+            -0.512667124,
+            -18.185731559
+          ],
+          [
+            -0.519785215,
+            -18.184189944
+          ],
+          [
+            -0.524140988,
+            -18.185327678
+          ],
+          [
+            -0.539793391,
+            -18.190876155
+          ],
+          [
+            -0.540169094,
+            -18.193376212
+          ],
+          [
+            -0.536316973,
+            -18.203136592
+          ],
+          [
+            -0.536427673,
+            -18.207589297
+          ],
+          [
+            -0.569314536,
+            -18.224830298
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 202.91899218029747,
+      "Id": "bdc95c02fdad05ff376ddd4eb92c0a489373b7d6"
+    },
+    {
+      "distance": 0.08238878918230859,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Agility_Digit_Humanoid",
+        "location": {
+          "lat": 0.00008747971191,
+          "alt": 0,
+          "lon": 0.000015259024827004446
+        },
+        "confidence": 0.9436392188072205,
+        "id": "3",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.71996799,
+          "x": -1.695447203,
+          "z": -0.03068262300000002
+        },
+        "bbox3d": {
+          "confidence": 0.9436392188072205,
+          "info": {},
+          "coordinates": [
+            -1.695447203,
+            -9.71996799,
+            0.848062158,
+            1.032359123,
+            0.722893834,
+            1.757489562,
+            0,
+            0,
+            0.056087583
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        1.3337995279001267
+      ],
+      "timestamp": "2026-02-23T10:13:13.747Z",
+      "id": "bev-sensor-1 #-# 3",
+      "end": "2026-02-23T10:13:14.053Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.5962607525906491,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -1.682985899,
+            -9.64532414
+          ],
+          [
+            -1.690509435,
+            -9.666900067
+          ],
+          [
+            -1.69476318,
+            -9.676073222
+          ],
+          [
+            -1.696059224,
+            -9.680810122
+          ],
+          [
+            -1.694457885,
+            -9.686423926
+          ],
+          [
+            -1.691087004,
+            -9.689640431
+          ],
+          [
+            -1.689531681,
+            -9.693807511
+          ],
+          [
+            -1.688896057,
+            -9.69682899
+          ],
+          [
+            -1.689954516,
+            -9.70601788
+          ],
+          [
+            -1.695447203,
+            -9.71996799
+          ]
+        ]
+      },
+      "direction": "Down",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 260.9392130134223,
+      "Id": "de53ac1994f9dfa34024c8a14939515163cb0f96"
+    },
+    {
+      "distance": 1.0709005161802474,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016864220227500002,
+          "alt": 0,
+          "lon": 0.0000422928206640458
+        },
+        "confidence": 0.1382436454296112,
+        "id": "3756",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.738022475,
+          "x": -4.699202296,
+          "z": -0.01012450450000002
+        },
+        "bbox3d": {
+          "confidence": 0.1382436454296112,
+          "info": {},
+          "coordinates": [
+            -4.699202296,
+            -18.738022475,
+            0.927874744,
+            0.590028465,
+            0.54891175,
+            1.875998497,
+            0,
+            0,
+            -1.144868851
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        17.336904900356643
+      ],
+      "timestamp": "2026-02-23T10:13:08.647Z",
+      "id": "bev-sensor-1 #-# 3756",
+      "end": "2026-02-23T10:13:08.953Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 7.750277119796079,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -4.507795569,
+            -17.801052241
+          ],
+          [
+            -4.582519766,
+            -17.872206359
+          ],
+          [
+            -4.662015673,
+            -17.946727424
+          ],
+          [
+            -4.74329209,
+            -18.032776504
+          ],
+          [
+            -4.821044203,
+            -18.12630239
+          ],
+          [
+            -4.798067805,
+            -18.23581758
+          ],
+          [
+            -4.776454207,
+            -18.348666339
+          ],
+          [
+            -4.739744422,
+            -18.474469333
+          ],
+          [
+            -4.687518355,
+            -18.610958247
+          ],
+          [
+            -4.699202296,
+            -18.738022475
+          ]
+        ]
+      },
+      "direction": "Down",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 255.36333658906452,
+      "Id": "98910806bda3c177195104808336897972ebb15b"
+    },
+    {
+      "distance": 0.49201833640825593,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.000165636407277,
+          "alt": 0,
+          "lon": -0.00004961239317005183
+        },
+        "confidence": 0.9549088478088379,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.404045253,
+          "x": 5.51248813,
+          "z": -0.02926206600000003
+        },
+        "bbox3d": {
+          "confidence": 0.9549088478088379,
+          "info": {},
+          "coordinates": [
+            5.51248813,
+            -18.404045253,
+            0.874944508,
+            0.98374474,
+            0.943406045,
+            1.808413148,
+            0,
+            0,
+            0.858304024
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        8.20670276951602
+      ],
+      "timestamp": "2026-02-23T10:13:06.622Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:13:06.919Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 3.6687183248169464,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.116460088,
+            -18.100519328
+          ],
+          [
+            5.135411504,
+            -18.11067739
+          ],
+          [
+            5.166467431,
+            -18.122978358
+          ],
+          [
+            5.200247529,
+            -18.148213534
+          ],
+          [
+            5.239211324,
+            -18.17672935
+          ],
+          [
+            5.289699319,
+            -18.212945609
+          ],
+          [
+            5.333382371,
+            -18.258110671
+          ],
+          [
+            5.386424306,
+            -18.303724437
+          ],
+          [
+            5.456542734,
+            -18.363314776
+          ],
+          [
+            5.51248813,
+            -18.404045253
+          ]
+        ]
+      },
+      "direction": "Right",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 324.1501479052533,
+      "Id": "f8a8b1d6d75c9df3da81db6c0cdb1fe76dd81166"
+    },
+    {
+      "distance": 0.4828187868892388,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.000162071682831,
+          "alt": 0,
+          "lon": -0.00004265955379804267
+        },
+        "confidence": 0.9328849911689758,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.007964759,
+          "x": 4.739950422,
+          "z": -0.013027131999999941
+        },
+        "bbox3d": {
+          "confidence": 0.9328849911689758,
+          "info": {},
+          "coordinates": [
+            4.739950422,
+            -18.007964759,
+            0.855482399,
+            0.798746645,
+            0.867126226,
+            1.737019062,
+            0,
+            0,
+            -1.879781246
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        7.8953503262474864
+      ],
+      "timestamp": "2026-02-23T10:12:54.147Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:12:54.453Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 3.5295315592941634,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.155669931,
+            -18.232525496
+          ],
+          [
+            5.115745309,
+            -18.226333766
+          ],
+          [
+            5.070335153,
+            -18.222329287
+          ],
+          [
+            5.0290463,
+            -18.212323337
+          ],
+          [
+            4.972210172,
+            -18.186998515
+          ],
+          [
+            4.905904535,
+            -18.151905684
+          ],
+          [
+            4.852487806,
+            -18.114650874
+          ],
+          [
+            4.823477987,
+            -18.081134944
+          ],
+          [
+            4.798989061,
+            -18.04921165
+          ],
+          [
+            4.739950422,
+            -18.007964759
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 151.62324976971058,
+      "Id": "07a1ac1a989159a50f4da4fecda4c3d97cde60a2"
+    },
+    {
+      "distance": 0.1003559495378925,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Agility_Digit_Humanoid",
+        "location": {
+          "lat": 0.00008670411147600001,
+          "alt": 0,
+          "lon": 0.0000036630112320010478
+        },
+        "confidence": 0.9493395686149597,
+        "id": "3",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.633790164,
+          "x": -0.407001248,
+          "z": -0.028452456000000015
+        },
+        "bbox3d": {
+          "confidence": 0.9493395686149597,
+          "info": {},
+          "coordinates": [
+            -0.407001248,
+            -9.633790164,
+            0.847159207,
+            0.925722301,
+            0.68076098,
+            1.751223326,
+            0,
+            0,
+            2.990923882
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        1.6739039748442448
+      ],
+      "timestamp": "2026-02-23T10:12:44.456Z",
+      "id": "bev-sensor-1 #-# 3",
+      "end": "2026-02-23T10:12:44.753Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.7483007925309775,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -0.408380038,
+            -9.743162541
+          ],
+          [
+            -0.411702975,
+            -9.723047881
+          ],
+          [
+            -0.415919987,
+            -9.711891322
+          ],
+          [
+            -0.414486781,
+            -9.702495484
+          ],
+          [
+            -0.411930598,
+            -9.69036427
+          ],
+          [
+            -0.409967616,
+            -9.682207017
+          ],
+          [
+            -0.407698388,
+            -9.662979512
+          ],
+          [
+            -0.408124322,
+            -9.659361272
+          ],
+          [
+            -0.408347665,
+            -9.657336621
+          ],
+          [
+            -0.408522595,
+            -9.640976338
+          ]
+        ]
+      },
+      "direction": "Up",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 89.27774575678751,
+      "Id": "af4d3c7425080a822834b925510f2c30817ad28f"
+    },
+    {
+      "distance": 0.5062158599396274,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016519153393799999,
+          "alt": 0,
+          "lon": -0.00004761839607304948
+        },
+        "confidence": 0.9561215043067932,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.354614882,
+          "x": 5.290932897,
+          "z": -0.01849257949999994
+        },
+        "bbox3d": {
+          "confidence": 0.9561215043067932,
+          "info": {},
+          "coordinates": [
+            5.290932897,
+            -18.354614882,
+            0.870444536,
+            0.918189883,
+            1.008600354,
+            1.777874231,
+            0,
+            0,
+            0.916681767
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        8.52880076382209
+      ],
+      "timestamp": "2026-02-23T10:12:40.322Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:12:40.619Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 3.8127087735129637,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            4.887463335,
+            -18.048891692
+          ],
+          [
+            4.918462041,
+            -18.068262248
+          ],
+          [
+            4.957059148,
+            -18.100484996
+          ],
+          [
+            5.001418832,
+            -18.139282851
+          ],
+          [
+            5.055304292,
+            -18.173751025
+          ],
+          [
+            5.113950971,
+            -18.22041574
+          ],
+          [
+            5.147856954,
+            -18.249734073
+          ],
+          [
+            5.184453729,
+            -18.286815314
+          ],
+          [
+            5.238304857,
+            -18.333622603
+          ],
+          [
+            5.290932897,
+            -18.354614882
+          ]
+        ]
+      },
+      "direction": "Right",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 322.8475004428963,
+      "Id": "24e756e4e23aaa6db23b932a4829cca7554e02e7"
+    },
+    {
+      "distance": 0.13201203985134174,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Fourier_GR1_T2_Humanoid",
+        "location": {
+          "lat": 0.00016343678559600002,
+          "alt": 0,
+          "lon": 0.0000015667939890015934
+        },
+        "confidence": 0.9704379439353943,
+        "id": "1690",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.159642844,
+          "x": -0.174088221,
+          "z": 0.004246771499999968
+        },
+        "bbox3d": {
+          "confidence": 0.9704379439353943,
+          "info": {},
+          "coordinates": [
+            -0.174088221,
+            -18.159642844,
+            0.805659056,
+            0.578798592,
+            0.429316074,
+            1.602824569,
+            0,
+            0,
+            -3.00022769
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        2.158742224229133
+      ],
+      "timestamp": "2026-02-23T10:12:38.847Z",
+      "id": "bev-sensor-1 #-# 1690",
+      "end": "2026-02-23T10:12:39.153Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.9650425242649033,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -0.297709626,
+            -18.196220546
+          ],
+          [
+            -0.273822722,
+            -18.200785785
+          ],
+          [
+            -0.259695899,
+            -18.203729777
+          ],
+          [
+            -0.24131855,
+            -18.189754157
+          ],
+          [
+            -0.219702315,
+            -18.189422755
+          ],
+          [
+            -0.209713813,
+            -18.183632045
+          ],
+          [
+            -0.205812615,
+            -18.183471827
+          ],
+          [
+            -0.184620362,
+            -18.17807117
+          ],
+          [
+            -0.176197749,
+            -18.166796832
+          ],
+          [
+            -0.174088221,
+            -18.159642844
+          ]
+        ]
+      },
+      "direction": "Right",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 16.482687875297188,
+      "Id": "7e4997a41357d9fe21d5c43d4ce868fe27368b31"
+    },
+    {
+      "distance": 0.40892909389750864,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.000085165426872,
+          "alt": 0,
+          "lon": -0.000021334395681005897
+        },
+        "confidence": 0.9431853294372559,
+        "id": "2",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.462825208,
+          "x": 2.370488409,
+          "z": -0.02238243799999995
+        },
+        "bbox3d": {
+          "confidence": 0.9431853294372559,
+          "info": {},
+          "coordinates": [
+            2.370488409,
+            -9.462825208,
+            0.929900527,
+            0.604135334,
+            0.734425485,
+            1.90456593,
+            0,
+            0,
+            2.951120377
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        6.687060534072487
+      ],
+      "timestamp": "2026-02-23T10:12:28.647Z",
+      "id": "bev-sensor-1 #-# 2",
+      "end": "2026-02-23T10:12:28.953Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 2.9893785859578204,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            2.447459224,
+            -9.860708623
+          ],
+          [
+            2.442131046,
+            -9.837797313
+          ],
+          [
+            2.430431131,
+            -9.820753722
+          ],
+          [
+            2.414063457,
+            -9.790673404
+          ],
+          [
+            2.395461324,
+            -9.73627439
+          ],
+          [
+            2.38611317,
+            -9.677352576
+          ],
+          [
+            2.376591686,
+            -9.636265664
+          ],
+          [
+            2.367759231,
+            -9.589626937
+          ],
+          [
+            2.360472444,
+            -9.530777364
+          ],
+          [
+            2.370488409,
+            -9.462825208
+          ]
+        ]
+      },
+      "direction": "Up",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 100.94866617822737,
+      "Id": "12a12646bd6de4f65de3219599f1556b8046c7f0"
+    },
+    {
+      "distance": 0.32535538836020894,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016293388213800002,
+          "alt": 0,
+          "lon": -0.00004523192527504572
+        },
+        "confidence": 0.9496908187866211,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.103764682,
+          "x": 5.025769475,
+          "z": -0.024576961499999994
+        },
+        "bbox3d": {
+          "confidence": 0.9496908187866211,
+          "info": {},
+          "coordinates": [
+            5.025769475,
+            -18.103764682,
+            0.887044907,
+            0.700674295,
+            0.682659745,
+            1.823243737,
+            0,
+            0,
+            -2.113830566
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        5.481636401299483
+      ],
+      "timestamp": "2026-02-23T10:12:27.822Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:12:28.119Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 2.4505066748770568,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.320958379,
+            -18.237754493
+          ],
+          [
+            5.309000734,
+            -18.227375178
+          ],
+          [
+            5.296122793,
+            -18.222630649
+          ],
+          [
+            5.278622869,
+            -18.220075278
+          ],
+          [
+            5.249710802,
+            -18.204155593
+          ],
+          [
+            5.215373281,
+            -18.186363368
+          ],
+          [
+            5.167773965,
+            -18.171133666
+          ],
+          [
+            5.120422128,
+            -18.149592547
+          ],
+          [
+            5.076813463,
+            -18.129425673
+          ],
+          [
+            5.025769475,
+            -18.103764682
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 155.58612783888987,
+      "Id": "60b7d136096fc788382fd2451eadd5b5a0b86bf7"
+    },
+    {
+      "distance": 0.08530717245484297,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Agility_Digit_Humanoid",
+        "location": {
+          "lat": 0.00008731325402099999,
+          "alt": 0,
+          "lon": 0.000015286875813004438
+        },
+        "confidence": 0.9432411789894104,
+        "id": "3",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.701472669,
+          "x": -1.698541757,
+          "z": -0.02914100900000005
+        },
+        "bbox3d": {
+          "confidence": 0.9432411789894104,
+          "info": {},
+          "coordinates": [
+            -1.698541757,
+            -9.701472669,
+            0.848343372,
+            0.993328512,
+            0.708649814,
+            1.754968762,
+            0,
+            0,
+            0.067704998
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        1.3810454975250068
+      ],
+      "timestamp": "2026-02-23T10:12:16.647Z",
+      "id": "bev-sensor-1 #-# 3",
+      "end": "2026-02-23T10:12:16.953Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.617381555841912,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -1.691464182,
+            -9.631355672
+          ],
+          [
+            -1.694987651,
+            -9.638618379
+          ],
+          [
+            -1.696168419,
+            -9.645131259
+          ],
+          [
+            -1.694903251,
+            -9.658893971
+          ],
+          [
+            -1.699859616,
+            -9.6823031
+          ],
+          [
+            -1.706632372,
+            -9.692778497
+          ],
+          [
+            -1.71030378,
+            -9.701324134
+          ],
+          [
+            -1.708065268,
+            -9.705461888
+          ],
+          [
+            -1.700193402,
+            -9.699294715
+          ],
+          [
+            -1.698541757,
+            -9.701472669
+          ]
+        ]
+      },
+      "direction": "Down",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 264.3094556039547,
+      "Id": "dfe9b8bf4ba72996f1219e0ebe8a592673e0d0e2"
+    },
+    {
+      "distance": 0.48350085228333983,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016551161803799998,
+          "alt": 0,
+          "lon": -0.00004973860719905188
+        },
+        "confidence": 0.9431511759757996,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.390179782,
+          "x": 5.526511911,
+          "z": -0.021148025999999986
+        },
+        "bbox3d": {
+          "confidence": 0.9431511759757996,
+          "info": {},
+          "coordinates": [
+            5.526511911,
+            -18.390179782,
+            0.875032425,
+            0.810107112,
+            0.807464778,
+            1.792360902,
+            0,
+            0,
+            0.927525878
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        8.064633957472283
+      ],
+      "timestamp": "2026-02-23T10:12:14.389Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:12:14.686Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 3.6052079883556476,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.096258882,
+            -18.131612449
+          ],
+          [
+            5.134145978,
+            -18.14142385
+          ],
+          [
+            5.169087175,
+            -18.146308093
+          ],
+          [
+            5.196248773,
+            -18.159482627
+          ],
+          [
+            5.233234647,
+            -18.185703902
+          ],
+          [
+            5.284030679,
+            -18.214879184
+          ],
+          [
+            5.339355234,
+            -18.248642592
+          ],
+          [
+            5.400435689,
+            -18.291694789
+          ],
+          [
+            5.456650976,
+            -18.336350112
+          ],
+          [
+            5.526511911,
+            -18.390179782
+          ]
+        ]
+      },
+      "direction": "Right",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 329.9836515426091,
+      "Id": "e71ad1d0bbf6d0c66e8febd32a2aa16e4e9b6fc4"
+    },
+    {
+      "distance": 0.539125076586875,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00008856427063500001,
+          "alt": 0,
+          "lon": -0.000027679884228008268
+        },
+        "confidence": 0.9475622773170471,
+        "id": "2",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.840474515,
+          "x": 3.075542692,
+          "z": -0.019809842499999952
+        },
+        "bbox3d": {
+          "confidence": 0.9475622773170471,
+          "info": {},
+          "coordinates": [
+            3.075542692,
+            -9.840474515,
+            0.923825085,
+            0.96546185,
+            1.003800869,
+            1.887269855,
+            0,
+            0,
+            -0.853796482
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        9.083260183784368
+      ],
+      "timestamp": "2026-02-23T10:12:12.089Z",
+      "id": "bev-sensor-1 #-# 2",
+      "end": "2026-02-23T10:12:12.386Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 4.060573901751664,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            3.500617031,
+            -9.509526401
+          ],
+          [
+            3.442259553,
+            -9.564456134
+          ],
+          [
+            3.390078786,
+            -9.610264926
+          ],
+          [
+            3.339832071,
+            -9.636340289
+          ],
+          [
+            3.300879482,
+            -9.6639885
+          ],
+          [
+            3.24571276,
+            -9.695232301
+          ],
+          [
+            3.182036403,
+            -9.740480571
+          ],
+          [
+            3.129680637,
+            -9.790186791
+          ],
+          [
+            3.092157606,
+            -9.817117362
+          ],
+          [
+            3.075542692,
+            -9.840474515
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 217.9030858479668,
+      "Id": "043a3c8d6a5810f268db0f4753b656d0a16fbcb7"
+    },
+    {
+      "distance": 0.10477662841657817,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Fourier_GR1_T2_Humanoid",
+        "location": {
+          "lat": 0.000163853291889,
+          "alt": 0,
+          "lon": 0.00000289540604700296
+        },
+        "confidence": 0.9639496803283691,
+        "id": "1690",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.205921321,
+          "x": -0.321711783,
+          "z": -0.026750088000000005
+        },
+        "bbox3d": {
+          "confidence": 0.9639496803283691,
+          "info": {},
+          "coordinates": [
+            -0.321711783,
+            -18.205921321,
+            0.791284561,
+            0.702203393,
+            0.812791467,
+            1.636069298,
+            0,
+            0,
+            -0.073024154
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        1.7652923568546242
+      ],
+      "timestamp": "2026-02-23T10:12:11.322Z",
+      "id": "bev-sensor-1 #-# 1690",
+      "end": "2026-02-23T10:12:11.619Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.7891549871049846,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -0.229590472,
+            -18.166913657
+          ],
+          [
+            -0.253698897,
+            -18.168198733
+          ],
+          [
+            -0.263583553,
+            -18.1718823
+          ],
+          [
+            -0.261675191,
+            -18.175730376
+          ],
+          [
+            -0.283758771,
+            -18.181362777
+          ],
+          [
+            -0.302151937,
+            -18.188018947
+          ],
+          [
+            -0.305383612,
+            -18.1903688
+          ],
+          [
+            -0.302326035,
+            -18.192005782
+          ],
+          [
+            -0.317160082,
+            -18.203396468
+          ],
+          [
+            -0.321711783,
+            -18.205921321
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 202.94964564640532,
+      "Id": "5694334bce7c7310fd2cbb9669bfe9d4b0a0aeec"
+    },
+    {
+      "distance": 0.17191030286170791,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Fourier_GR1_T2_Humanoid",
+        "location": {
+          "lat": 0.000162583959006,
+          "alt": 0,
+          "lon": -0.00001737880042501749
+        },
+        "confidence": 0.8021673560142517,
+        "id": "1690",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.064884334,
+          "x": 1.930977825,
+          "z": -0.01589471100000006
+        },
+        "bbox3d": {
+          "confidence": 0.8021673560142517,
+          "info": {},
+          "coordinates": [
+            1.930977825,
+            -18.064884334,
+            0.806876242,
+            0.70142442,
+            0.58632046,
+            1.645541906,
+            0,
+            0,
+            3.132276058
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        2.811183207118781
+      ],
+      "timestamp": "2026-02-23T10:12:03.947Z",
+      "id": "bev-sensor-1 #-# 1690",
+      "end": "2026-02-23T10:12:04.253Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 1.2567092577891141,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            1.848521474,
+            -18.202764182
+          ],
+          [
+            1.832183364,
+            -18.20849338
+          ],
+          [
+            1.873419765,
+            -18.212410121
+          ],
+          [
+            1.853065256,
+            -18.215530066
+          ],
+          [
+            1.842716697,
+            -18.191587119
+          ],
+          [
+            1.83852363,
+            -18.186464457
+          ],
+          [
+            1.910139802,
+            -18.143628745
+          ],
+          [
+            1.89670277,
+            -18.138324408
+          ],
+          [
+            1.919291738,
+            -18.099778323
+          ],
+          [
+            1.930977825,
+            -18.064884334
+          ]
+        ]
+      },
+      "direction": "Up",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 59.119290177845244,
+      "Id": "15bafe2eeecf2d3052cb8b6915bcdc22b4534701"
+    },
+    {
+      "distance": 0.4117262798339771,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Fourier_GR1_T2_Humanoid",
+        "location": {
+          "lat": 0.00016397887506299996,
+          "alt": 0,
+          "lon": -0.000016424635680016818
+        },
+        "confidence": 0.7814605236053467,
+        "id": "1690",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.219875007,
+          "x": 1.82495952,
+          "z": -0.01638907150000002
+        },
+        "bbox3d": {
+          "confidence": 0.7814605236053467,
+          "info": {},
+          "coordinates": [
+            1.82495952,
+            -18.219875007,
+            0.8112849,
+            0.670862496,
+            0.632477283,
+            1.655347943,
+            0,
+            0,
+            0.014319907
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        6.867457879033898
+      ],
+      "timestamp": "2026-02-23T10:12:03.556Z",
+      "id": "bev-sensor-1 #-# 1690",
+      "end": "2026-02-23T10:12:03.853Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 3.0700232813727224,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            1.80615187,
+            -17.862910895
+          ],
+          [
+            1.807047847,
+            -17.965911536
+          ],
+          [
+            1.757575515,
+            -18.062878756
+          ],
+          [
+            1.836903814,
+            -18.022090106
+          ],
+          [
+            1.811166767,
+            -18.076277881
+          ],
+          [
+            1.917765859,
+            -18.203475146
+          ],
+          [
+            1.896630052,
+            -18.212000041
+          ],
+          [
+            1.877934936,
+            -18.223179488
+          ],
+          [
+            1.859344009,
+            -18.231513648
+          ],
+          [
+            1.843991998,
+            -18.221720366
+          ]
+        ]
+      },
+      "direction": "Down",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 273.0159992266363,
+      "Id": "7e50d0493886540c3cbb3c3b545b562a40bcfcb6"
+    },
+    {
+      "distance": 0.2938503043555568,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016312906112400002,
+          "alt": 0,
+          "lon": -0.00004536430623904597
+        },
+        "confidence": 0.9527890086174011,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.125451236,
+          "x": 5.040478471,
+          "z": -0.025956214000000033
+        },
+        "bbox3d": {
+          "confidence": 0.9527890086174011,
+          "info": {},
+          "coordinates": [
+            5.040478471,
+            -18.125451236,
+            0.861770093,
+            0.877137363,
+            0.860313952,
+            1.775452614,
+            0,
+            0,
+            -2.200457096
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        4.950834018783847
+      ],
+      "timestamp": "2026-02-23T10:12:01.889Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:12:02.186Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 2.2132171711283477,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.288841012,
+            -18.274120002
+          ],
+          [
+            5.274144891,
+            -18.247317462
+          ],
+          [
+            5.255674604,
+            -18.228541999
+          ],
+          [
+            5.23438907,
+            -18.218017249
+          ],
+          [
+            5.209287885,
+            -18.208031802
+          ],
+          [
+            5.184633497,
+            -18.182440906
+          ],
+          [
+            5.155020956,
+            -18.169688373
+          ],
+          [
+            5.123011354,
+            -18.155931144
+          ],
+          [
+            5.080578092,
+            -18.129753261
+          ],
+          [
+            5.040478471,
+            -18.125451236
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 149.09543935535112,
+      "Id": "13e8a82c8969c4cf759f87e19ef0baf4f531c3ac"
+    },
+    {
+      "distance": 0.43533195899551347,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016418305339199998,
+          "alt": 0,
+          "lon": -0.00005104249981205239
+        },
+        "confidence": 0.9461798667907715,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.242561488,
+          "x": 5.671388868,
+          "z": -0.03003221750000007
+        },
+        "bbox3d": {
+          "confidence": 0.9461798667907715,
+          "info": {},
+          "coordinates": [
+            5.671388868,
+            -18.242561488,
+            0.864743948,
+            0.92939508,
+            1.078536749,
+            1.789552331,
+            0,
+            0,
+            0.895099044
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        7.334538164884655
+      ],
+      "timestamp": "2026-02-23T10:11:48.422Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:11:48.719Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 3.278826506247219,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.302075628,
+            -18.02740541
+          ],
+          [
+            5.342318777,
+            -18.065175204
+          ],
+          [
+            5.397112134,
+            -18.103742747
+          ],
+          [
+            5.446263555,
+            -18.143360763
+          ],
+          [
+            5.499459508,
+            -18.178605227
+          ],
+          [
+            5.567517045,
+            -18.222541957
+          ],
+          [
+            5.617337945,
+            -18.245019107
+          ],
+          [
+            5.644136671,
+            -18.249065547
+          ],
+          [
+            5.658703569,
+            -18.250692515
+          ],
+          [
+            5.671388868,
+            -18.242561488
+          ]
+        ]
+      },
+      "direction": "Right",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 329.7755958542747,
+      "Id": "b9718ce9acff8873b7d77de1664996aea0500169"
+    },
+    {
+      "distance": 0.10196028985483929,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Agility_Digit_Humanoid",
+        "location": {
+          "lat": 0.000086818822047,
+          "alt": 0,
+          "lon": 0.0000036342690300010433
+        },
+        "confidence": 0.9464215040206909,
+        "id": "3",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.646535783,
+          "x": -0.40380767,
+          "z": -0.016830622999999933
+        },
+        "bbox3d": {
+          "confidence": 0.9464215040206909,
+          "info": {},
+          "coordinates": [
+            -0.40380767,
+            -9.646535783,
+            0.860496879,
+            0.926810503,
+            0.689744771,
+            1.754655004,
+            0,
+            0,
+            3.05845809
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        1.7006638395648326
+      ],
+      "timestamp": "2026-02-23T10:11:47.589Z",
+      "id": "bev-sensor-1 #-# 3",
+      "end": "2026-02-23T10:11:47.886Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.7602635026262807,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -0.401724522,
+            -9.742155223
+          ],
+          [
+            -0.401860796,
+            -9.712988286
+          ],
+          [
+            -0.403669345,
+            -9.705512195
+          ],
+          [
+            -0.404223523,
+            -9.700906901
+          ],
+          [
+            -0.403265235,
+            -9.6885325
+          ],
+          [
+            -0.403101817,
+            -9.679503589
+          ],
+          [
+            -0.40166148,
+            -9.680391459
+          ],
+          [
+            -0.404920184,
+            -9.672351747
+          ],
+          [
+            -0.407555735,
+            -9.661204963
+          ],
+          [
+            -0.40380767,
+            -9.646535783
+          ]
+        ]
+      },
+      "direction": "Up",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 93.20283100328959,
+      "Id": "02225d08b8433a9f278a992f0c543dcd82152722"
+    },
+    {
+      "distance": 0.11369458453534663,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Fourier_GR1_T2_Humanoid",
+        "location": {
+          "lat": 0.000163425241368,
+          "alt": 0,
+          "lon": 8.826945750008978e-7
+        },
+        "confidence": 0.9625518918037415,
+        "id": "1690",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.158360152,
+          "x": -0.098077175,
+          "z": 0.003120780000000045
+        },
+        "bbox3d": {
+          "confidence": 0.9625518918037415,
+          "info": {},
+          "coordinates": [
+            -0.098077175,
+            -18.158360152,
+            0.805457175,
+            0.623280227,
+            0.467356324,
+            1.60467279,
+            0,
+            0,
+            -3.011871099
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        1.8406118682298758
+      ],
+      "timestamp": "2026-02-23T10:11:36.313Z",
+      "id": "bev-sensor-1 #-# 1690",
+      "end": "2026-02-23T10:11:36.619Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 0.8228257656574944,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            -0.2180552,
+            -18.190488963
+          ],
+          [
+            -0.209063452,
+            -18.18917623
+          ],
+          [
+            -0.191829648,
+            -18.190495162
+          ],
+          [
+            -0.172950682,
+            -18.18894115
+          ],
+          [
+            -0.1622318,
+            -18.188979297
+          ],
+          [
+            -0.152124729,
+            -18.179517894
+          ],
+          [
+            -0.13820633,
+            -18.177189498
+          ],
+          [
+            -0.134517428,
+            -18.175501494
+          ],
+          [
+            -0.13631266,
+            -18.170081763
+          ],
+          [
+            -0.117035505,
+            -18.162490516
+          ]
+        ]
+      },
+      "direction": "Right",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 14.991443119290011,
+      "Id": "9b7a2618b82475174a7881156801d65fd79bcac1"
+    },
+    {
+      "distance": 0.27927071067969417,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.000162900798696,
+          "alt": 0,
+          "lon": -0.00004529855993404577
+        },
+        "confidence": 0.9536958932876587,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.100088744,
+          "x": 5.033173326,
+          "z": -0.024399817499999976
+        },
+        "bbox3d": {
+          "confidence": 0.9536958932876587,
+          "info": {},
+          "coordinates": [
+            5.033173326,
+            -18.100088744,
+            0.86816287,
+            0.982892811,
+            0.986568809,
+            1.785125375,
+            0,
+            0,
+            -2.132758141
+          ]
+        }
+      },
+      "event": {
+        "type": "ENTRY",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        4.521138685952364
+      ],
+      "timestamp": "2026-02-23T10:11:35.547Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:11:35.853Z",
+      "analyticsModule": {
+        "description": "index = 1",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.306,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 2.0211264879488784,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.276398424,
+            -18.230137019
+          ],
+          [
+            5.260359052,
+            -18.222832351
+          ],
+          [
+            5.246339086,
+            -18.211183219
+          ],
+          [
+            5.221884016,
+            -18.20275846
+          ],
+          [
+            5.202093366,
+            -18.194032817
+          ],
+          [
+            5.176965002,
+            -18.168175845
+          ],
+          [
+            5.140241865,
+            -18.149297385
+          ],
+          [
+            5.108425382,
+            -18.143448501
+          ],
+          [
+            5.074287656,
+            -18.121913104
+          ],
+          [
+            5.033173326,
+            -18.100088744
+          ]
+        ]
+      },
+      "direction": "Left",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 152.95644527312697,
+      "Id": "c6599271678dac23747e6e67aad0a884f7c9a477"
+    },
+    {
+      "distance": 0.4706251073558526,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00016443065347199998,
+          "alt": 0,
+          "lon": -0.00004865602043705009
+        },
+        "confidence": 0.951489269733429,
+        "id": "5",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -18.270072608,
+          "x": 5.406224493,
+          "z": -0.023040235500000006
+        },
+        "bbox3d": {
+          "confidence": 0.951489269733429,
+          "info": {},
+          "coordinates": [
+            5.406224493,
+            -18.270072608,
+            0.867248654,
+            0.895949066,
+            1.039021254,
+            1.780577779,
+            0,
+            0,
+            0.944259048
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        7.929162424048019
+      ],
+      "timestamp": "2026-02-23T10:11:21.989Z",
+      "id": "bev-sensor-1 #-# 5",
+      "end": "2026-02-23T10:11:22.286Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 3.544646894439734,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            5.00566459,
+            -18.027292876
+          ],
+          [
+            5.046018365,
+            -18.046643882
+          ],
+          [
+            5.092746023,
+            -18.078264861
+          ],
+          [
+            5.135046247,
+            -18.120060592
+          ],
+          [
+            5.18001819,
+            -18.157667785
+          ],
+          [
+            5.235439542,
+            -18.192379146
+          ],
+          [
+            5.291646722,
+            -18.229958682
+          ],
+          [
+            5.353248361,
+            -18.26323667
+          ],
+          [
+            5.391090158,
+            -18.277316718
+          ],
+          [
+            5.406224493,
+            -18.270072608
+          ]
+        ]
+      },
+      "direction": "Right",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 328.779907292634,
+      "Id": "30ce0e1daf7058e6dbd6e23a2060c802b67c8794"
+    },
+    {
+      "distance": 0.29160577300180945,
+      "length": 10,
+      "object": {
+        "bbox": {
+          "confidence": 0,
+          "embeddings": [],
+          "bottomY": 0,
+          "leftX": 0,
+          "info": {},
+          "topY": 0,
+          "rightX": 0
+        },
+        "type": "Person",
+        "location": {
+          "lat": 0.00008518512501000001,
+          "alt": 0,
+          "lon": -0.000024086520225006654
+        },
+        "confidence": 0.9342647790908813,
+        "id": "2",
+        "speed": 0,
+        "info": {},
+        "embedding": {
+          "vector": [],
+          "info": {}
+        },
+        "dir": [],
+        "coordinate": {
+          "y": -9.46501389,
+          "x": 2.676280025,
+          "z": -0.025820016499999987
+        },
+        "bbox3d": {
+          "confidence": 0.9342647790908813,
+          "info": {},
+          "coordinates": [
+            2.676280025,
+            -9.46501389,
+            0.926990867,
+            0.758972943,
+            0.803494573,
+            1.905621767,
+            0,
+            0,
+            2.868404627
+          ]
+        }
+      },
+      "event": {
+        "type": "EXIT",
+        "info": {
+          "class": "roi"
+        },
+        "id": "hazard_zone_1"
+      },
+      "speedOverTime": [
+        4.863887639575894
+      ],
+      "timestamp": "2026-02-23T10:11:20.456Z",
+      "id": "bev-sensor-1 #-# 2",
+      "end": "2026-02-23T10:11:20.753Z",
+      "analyticsModule": {
+        "description": "index = 0",
+        "source": "",
+        "info": {},
+        "id": "ROIEvent",
+        "version": ""
+      },
+      "timeInterval": 0.297,
+      "place": {
+        "name": "room=SURF Booth/region=region-1"
+      },
+      "speed": 2.174348726195559,
+      "locations": {
+        "type": "linestring",
+        "coordinates": [
+          [
+            2.678421739,
+            -9.77860847
+          ],
+          [
+            2.687331203,
+            -9.748159318
+          ],
+          [
+            2.689196113,
+            -9.726763396
+          ],
+          [
+            2.701527837,
+            -9.712633758
+          ],
+          [
+            2.708471063,
+            -9.694694667
+          ],
+          [
+            2.707595828,
+            -9.678311496
+          ],
+          [
+            2.699575189,
+            -9.649256616
+          ],
+          [
+            2.696283105,
+            -9.616279273
+          ],
+          [
+            2.688801053,
+            -9.576972871
+          ],
+          [
+            2.675831321,
+            -9.531638293
+          ]
+        ]
+      },
+      "direction": "Up",
+      "videoPath": "",
+      "sensor": {
+        "description": "",
+        "type": "",
+        "info": {},
+        "id": "bev-sensor-1"
+      },
+      "bearing": 90.39129906297416,
+      "Id": "a1b3524ad61a9618705a028eb11e54dba000c34c"
+    }
+  ]
+}
