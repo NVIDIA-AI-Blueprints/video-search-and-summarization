@@ -54,8 +54,8 @@ export const ThumbnailButton: React.FC<ThumbnailButtonProps> = ({
     if (showObjectsBbox && Array.isArray(objectIds) && objectIds.length > 0) {
       const overlay = {
         bbox: {
-          showAll: false, 
-          showObjId: true, 
+          showAll: false,
+          showObjId: true,
           objectId: objectIds
         },
         color: 'red',
