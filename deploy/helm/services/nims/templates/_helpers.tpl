@@ -73,3 +73,18 @@ ConfigMaps rendered here match the names the NIMService envFrom references.
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{- define "nims.cosmos3.fullname" -}}
+{{- if .Values.cosmos3.fullnameOverride }}
+{{- .Values.cosmos3.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $short := "nvidia-cosmos3-reasoner" }}
+{{- $g := .Values.global | default dict }}
+{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- if $pfx }}
+{{- printf "%s-%s" .Release.Name $short | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $short }}
+{{- end }}
+{{- end }}
+{{- end }}
