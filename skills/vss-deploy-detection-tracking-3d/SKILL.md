@@ -1,5 +1,5 @@
 ---
-name: vss-deploy-detection-tracking-3D
+name: vss-deploy-detection-tracking-3d
 description: >
   Deploy and operate the RTVI-CV-3D stack (also known as MV3DT, Multi-View 3D
   Tracking, or RTVI-CV-MV3DT) — per-camera DeepStream perception plus BEV
