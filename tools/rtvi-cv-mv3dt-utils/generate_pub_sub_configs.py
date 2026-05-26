@@ -144,7 +144,7 @@ def parse_args():
     parser.add_argument(
         '--cam_info_path',
         type=str,
-        default=join(os.getenv("PWD"), "camInfo"),
+        default=join(os.getcwd(), "camInfo"),
         help='Directory containing camera calibration info (intrinsic & extrinsic params)'
     )
 
