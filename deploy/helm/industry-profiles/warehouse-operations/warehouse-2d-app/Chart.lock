@@ -1,6 +1,15 @@
 dependencies:
+- name: vios
+  repository: file://../../../services/vios
+  version: 26.04.2
+- name: infra
+  repository: file://../../../services/infra
+  version: 26.04.2
 - name: rtvi
   repository: file://../../../services/rtvi
   version: 26.04.2
-digest: sha256:6d1c670913382c40bfce25b19b0322734f8435b4e72728a39738c2072a7ba7d7
+- name: analytics
+  repository: file://../../../services/analytics
+  version: 26.04.2
+digest: sha256:48fa8ee689d5d787ce57777fe195257c903e8b6b8a17beeabed359e1b59d90f3
 generated: "2026-05-26T12:49:52.19618631-07:00"

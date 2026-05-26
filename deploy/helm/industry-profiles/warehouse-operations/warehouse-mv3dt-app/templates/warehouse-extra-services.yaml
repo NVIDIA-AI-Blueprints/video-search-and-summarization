@@ -1,0 +1,222 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $warehouse := .Values.warehouse | default dict }}
+{{- $mode := $warehouse.mode | default "warehouse" }}
+{{- $bp := $warehouse.bpConfigurator | default dict }}
+{{- if ($bp.enabled | default false) }}
+{{- $image := $bp.image | default dict }}
+{{- $bpName := $bp.name | default (printf "bp-configurator-%s" $mode) }}
+{{- $bpData := $bp.data | default dict }}
+{{- $bpInit := $bp.init | default dict }}
+{{- $bpInitImage := $bpInit.image | default dict }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $bpName }}
+  labels:
+    app.kubernetes.io/name: {{ $bpName }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: bp-configurator
+spec:
+  replicas: {{ $bp.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $bpName }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: bp-configurator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $bpName }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: bp-configurator
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if ($bpInit.enabled | default true) }}
+      initContainers:
+        - name: wait-for-broker
+          image: "{{ $bpInitImage.repository | default "busybox" }}:{{ $bpInitImage.tag | default "1.37.0" }}"
+          imagePullPolicy: {{ $bpInitImage.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              stream_type={{ $bpInit.streamType | default "kafka" | quote }}
+              max_retries={{ $bpInit.maxRetries | default 60 }}
+              retry_interval={{ $bpInit.retryIntervalSeconds | default 2 }}
+              if [ "${stream_type}" = "redis" ]; then
+                host={{ $bpInit.redisHost | default "redis" | quote }}
+                port={{ $bpInit.redisPort | default "6379" | quote }}
+              else
+                host={{ $bpInit.kafkaHost | default "kafka-kafka" | quote }}
+                port={{ $bpInit.kafkaPort | default "9092" | quote }}
+              fi
+              i=0
+              until nc -z "${host}" "${port}"; do
+                i=$((i + 1))
+                if [ "${i}" -ge "${max_retries}" ]; then
+                  echo "Timed out waiting for ${stream_type} at ${host}:${port}"
+                  exit 1
+                fi
+                sleep "${retry_interval}"
+              done
+      {{- end }}
+      containers:
+        - name: bp-configurator
+          image: "{{ required "warehouse.bpConfigurator.image.repository is required" $image.repository }}:{{ required "warehouse.bpConfigurator.image.tag is required" $image.tag }}"
+          imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          {{- with $bp.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $bp.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $bp.port | default 5001 }}
+              protocol: TCP
+          env:
+            {{- range ($bp.env | default list) }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ $bp.readinessPath | default "/readyz" }}
+              port: http
+            initialDelaySeconds: {{ $bp.readinessInitialDelaySeconds | default 20 }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          {{- if or ($bp.configMounts | default list) ($bpData.existingClaim | default "") }}
+          volumeMounts:
+            {{- range ($bp.configMounts | default list) }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- if ($bpData.existingClaim | default "") }}
+            - name: warehouse-data
+              mountPath: {{ $bpData.mountPath | default "/opt/data" }}
+            {{- end }}
+          {{- end }}
+      {{- if or ($bp.configMounts | default list) ($bpData.existingClaim | default "") }}
+      volumes:
+        {{- range ($bp.configMounts | default list) }}
+        - name: {{ .name }}
+          configMap:
+            name: {{ .configMapName }}
+            optional: {{ .optional | default false }}
+        {{- end }}
+        {{- if ($bpData.existingClaim | default "") }}
+        - name: warehouse-data
+          persistentVolumeClaim:
+            claimName: {{ $bpData.existingClaim }}
+        {{- end }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $bpName }}
+  labels:
+    app.kubernetes.io/name: {{ $bpName }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: bp-configurator
+spec:
+  type: {{ $bp.serviceType | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ $bp.port | default 5001 }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ $bpName }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: bp-configurator
+---
+{{- end }}
+{{- $import := $warehouse.calibrationImport | default dict }}
+{{- if ($import.enabled | default false) }}
+{{- $image := $import.image | default dict }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $import.name | default (printf "import-calibration-output-%s" $mode) }}
+  labels:
+    app.kubernetes.io/name: {{ $import.name | default (printf "import-calibration-output-%s" $mode) }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: calibration-import
+spec:
+  ttlSecondsAfterFinished: {{ $import.ttlSecondsAfterFinished | default 600 }}
+  backoffLimit: {{ $import.backoffLimit | default 5 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $import.name | default (printf "import-calibration-output-%s" $mode) }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: calibration-import
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: calibration-import
+          image: "{{ $image.repository | default "alpine" }}:{{ $image.tag | default "3.23.4" }}"
+          imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              apk add --no-cache bash curl jq >/dev/null
+              api_url={{ $import.apiUrl | default "http://vss-video-analytics-api:8081" | quote }}
+              calibration_file={{ $import.calibrationFile | default "/opt/vss/calibration.json" | quote }}
+              images_dir={{ $import.imagesDir | default "/opt/vss/images" | quote }}
+              max_retries={{ $import.maxRetries | default 120 }}
+              i=0
+              until [ "$(curl -o /dev/null --silent --head --write-out '%{http_code}' "${api_url}/livez" || true)" = "200" ]; do
+                i=$((i + 1))
+                if [ "${i}" -ge "${max_retries}" ]; then
+                  echo "Timed out waiting for ${api_url}/livez"
+                  exit 1
+                fi
+                sleep 2
+              done
+              if [ -f "${calibration_file}" ]; then
+                curl -X POST "${api_url}/config/upload-file/calibration" --form configFiles=@"${calibration_file}"
+              else
+                echo "Skipping calibration JSON import; ${calibration_file} not found"
+              fi
+              metadata_file="${images_dir}/imageMetadata.json"
+              if [ -f "${metadata_file}" ]; then
+                form_args=""
+                for file_name in $(jq -r '.images[].fileName' "${metadata_file}"); do
+                  if [ -f "${images_dir}/${file_name}" ]; then
+                    form_args="${form_args} --form images=@${images_dir}/${file_name}"
+                  fi
+                done
+                if [ -n "${form_args}" ]; then
+                  sh -c "curl -X POST ${api_url}/config/calibration/images ${form_args} --form imageMetadata=@${metadata_file}"
+                fi
+              else
+                echo "Skipping calibration image import; ${metadata_file} not found"
+              fi
+          volumeMounts:
+            - name: calibration-data
+              mountPath: {{ $import.mountPath | default "/opt/vss" }}
+              readOnly: true
+      volumes:
+        - name: calibration-data
+          persistentVolumeClaim:
+            claimName: {{ required "warehouse.calibrationImport.existingClaim is required when enabled" $import.existingClaim }}
+{{- end }}
