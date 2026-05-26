@@ -317,7 +317,9 @@ template is in § Harbor invocation below.
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
       flock -w 28800 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
       # ... trials ...
-      exec {LFD}>&-        # release on exit; trap so SIGINT doesn't strand it
+      exec {LFD}>&-        # release on exit; the kernel also releases
+                           # automatically on process death (no userspace
+                           # trap needed for cancel-in-progress / SIGKILL).
       ```
       8-hour max hold (matches the job timeout). If another worker
       already holds the lock for this box, wait up to 8 h; beyond
@@ -328,8 +330,9 @@ template is in § Harbor invocation below.
       below — **do not improvise flags**. Before the `uvx harbor run`
       call, `export BREV_INSTANCE=<name>` to the instance you
       resolved in step 5a; the canonical snippet has the line —
-      omitting it causes a fresh `harbor-*` to be provisioned per
-      trial and wastes the pre-warmed box. If a trial fails, read the
+      omitting it makes `BrevEnvironment.start()` raise immediately
+      ("no instance resolved, harness does not auto-provision") and
+      the trial fails before harbor invokes the agent. If a trial fails, read the
       trial log, fix the adapter (not the flags), rerun. While a
       trial is running, do NOT babysit the remote box (no
       `brev exec` polling, no `Monitor` on remote logs); harbor has
@@ -348,12 +351,26 @@ template is in § Harbor invocation below.
    front — comments carry results, not intent.
 
 7. **Release all locks. DO NOT tear down any Brev instance.** The
-   `vss-eval-*` boxes are a long-running pool managed by the operator;
-   they stay up across runs (warm caches, pre-deployed VSS profiles,
-   docker layer reuse). You release the per-box flock so the next
-   worker can grab it; you never `brev stop` / `brev delete`. The
-   wrapper script no longer runs cleanup either — pool lifecycle is
-   strictly an operator concern.
+   `vss-eval-*` boxes are a long-running pool managed by the
+   operator; instances stay up across runs, and so do the slow
+   caches (docker image layers, repo clone, sample-data extract).
+   Close each lock FD (`exec {LFD}>&-`) so the next worker can
+   grab the box. You never `brev stop` / `brev delete`. Pool
+   lifecycle is strictly an operator concern.
+
+   **You do NOT reset deployment state on exit.** Each box's
+   running containers, named volumes, and the active-deploy marker
+   stay as you left them; cleanup is the *next* run's job. The
+   active-deploy marker is tagged `<profile_tag>|<run_id>`, so the
+   next run's `BrevEnvironment._ensure_prerequisite_deployed` sees
+   a run-id mismatch and always reconciles (tear-down + redeploy
+   from its own `PR_HEAD_SHA`) — regardless of how this run ended
+   (happy path, `BLOCKED`, cancel-in-progress, max-turns, agent
+   crash, SIGKILL, host reboot). No `atexit`, no signal handler,
+   no end-of-run docker cleanup — the pull-side reconcile handles
+   every exit path uniformly. Within this run, multiple trials with
+   the same profile still hot-skip because both profile and run id
+   match.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -385,12 +402,15 @@ template is in § Harbor invocation below.
 - **Never touch pool-instance lifecycle.** No `brev create`,
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
   any `vss-eval-*` box. The pool is operator-managed; instances stay
-  running across runs. The agent only reads (`brev ls`, `brev exec
-  -- cat …`) and acquires the per-box flock. If no hardware-matching
-  pool member exists for the trial's platform, follow the wait-for-
-  pool path in § 5a (5-min `brev ls` poll, 28800s budget, then
-  `BLOCKED: pool exhausted for <platform>`) — provisioning is the
-  operator's job.
+  running across runs. The agent's `brev` surface is limited to
+  `brev ls`, `brev exec` (read-only — inspecting markers, peeking
+  at containers; deployment-state reset is the pull-side
+  reconcile in `_ensure_prerequisite_deployed`, not anything you
+  run from this agent), and acquiring/releasing the per-box flock.
+  If no hardware-matching pool member exists for the trial's
+  platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
+  poll, 28800s budget, then `BLOCKED: pool exhausted for
+  <platform>`) — provisioning is the operator's job.
 - **Never dispatch code from non-mirror branches.** You only ever
   process `pull-request/<N>` SHAs; those are CPR-bot vetted. If you
   notice the PR head on github.com is ahead of the mirror, note it
@@ -423,21 +443,34 @@ even though it shows up in `brev ls`.
 matching the trial's platform; score by (active-deploy marker match,
 free-lock, name) per § 5a; pick the best free candidate; export
 `BREV_INSTANCE` to it before the `uvx harbor run` call (§ Harbor
-invocation). Without the export, BrevEnvironment auto-provisions a
-fresh `harbor-*` per trial regardless of what the snapshot showed.
+invocation). The export is mandatory: BrevEnvironment no longer
+auto-provisions, so without `BREV_INSTANCE` set (or `brev_instance`
+in the task's `task.toml [metadata]`) the harness raises at
+`start()` and the trial fails before harbor runs. If no
+hardware-matching `^vss-eval-*` candidate exists, follow the
+wait-for-pool path in § 5a — do not `brev create` one yourself.
 
 The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
-records the box's *deployment state* — what VSS profile is
-currently up and live on that box. It is NOT an occupancy
-signal — a marker can read `base` whether or not a
+records the box's *deployment state* + *owning run* in the form
+`<profile_tag>|<run_id>` — what VSS profile is currently up on
+that box and which CI run deployed it. It is NOT an occupancy
+signal — a marker can read `base|26500001234` whether or not a
 trial is currently driving traffic against the stack. Occupancy
 (is some other worker using this box right now?) is the
 runner-side **flock** on `/tmp/brev/<INSTANCE_NAME>.lock`,
 checked separately via `flock -n` in step 5a. The two together
 let the scoring pick a warm-and-free box first, then fall back
 to warm-but-busy (queue on `flock -w`) or cold-and-free (redeploy).
-See `specs/stale-marker.spec` for verifying the marker against
-the actual running containers.
+Tagging the marker with `<run_id>` (`$GITHUB_RUN_ID`) is what
+makes between-run isolation a pull-side reconcile rather than a
+push-side cleanup: a marker left by a prior run never matches
+the current run's desired `<profile_tag>|<this_run_id>`, so
+`BrevEnvironment._ensure_prerequisite_deployed` always
+tears down + redeploys from the current run's `PR_HEAD_SHA`
+regardless of how the prior run ended. Within one run, multiple
+trials with the same profile still hot-skip (same profile, same
+run id, full match). See `specs/stale-marker.spec` for verifying
+the marker against the actual running containers.
 
 With fleet=1, selection collapses to a single candidate. With
 fleet>1, two concurrent workflow runs land on different boxes
@@ -491,11 +524,11 @@ a file path).
 export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
 
 # CRITICAL: point the environment at the box you selected in step 5a.
-# BrevEnvironment reads BREV_INSTANCE at module import time; without
-# this export it falls through to the auto-provision branch and spawns
-# a fresh harbor-* per trial (≈20 min provision overhead each, wastes
-# the pre-warmed box, and — on massedcompute L40S — may run multiple
-# harbor-* in parallel on the same lock).
+# BrevEnvironment reads BREV_INSTANCE at module import time; if it's
+# unset and task.toml [metadata].brev_instance is also absent,
+# BrevEnvironment.start() raises immediately — the harness no longer
+# auto-provisions, so the trial fails before harbor invokes the
+# agent. The export is the only path to a successful run.
 #
 # $INSTANCE_NAME comes from the fleet-selection algorithm in step 5a:
 # the chosen ^vss-eval-* candidate scored by (active-deploy marker

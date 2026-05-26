@@ -6,11 +6,10 @@ Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../work
 
 1. Diffs the PR against its base branch and picks out changed skills with an eval spec at `skills/<skill>/evals/<name>.json` or legacy `skills/<skill>/eval/<name>.json`.
 2. Generates Harbor datasets per `(skill, profile, platform, mode)` via the adapter at [`adapters/<skill>/generate.py`](adapters/).
-3. Acquires a per-instance `flock` on a Brev GPU host, reusing one that matches the target platform or creating one via the fallback chain in [`AGENTS.md`](AGENTS.md).
+3. Acquires a per-instance `flock` on an operator-managed `vss-eval-*` pool member matching the target platform, per the fleet-selection algorithm in [`AGENTS.md`](AGENTS.md) § 5a. The harness does **not** auto-provision — if no pool member matches, the run blocks until one appears (or times out).
 4. Runs `uvx harbor run` against each dataset, one trial at a time, with the canonical invocation captured in [`AGENTS.md § Harbor invocation`](AGENTS.md).
 5. Verifies each trial (containers running, endpoints healthy, trajectory / response / rubric checks — see `verifiers/generic_judge.py`) and scores 0.0–1.0.
 6. Posts one Markdown results summary per `(PR, eval-spec)` batch as a PR comment, with trace URLs served by `harbor view`.
-7. Leaves instance IDs in `/tmp/brev/started-by-<run_id>.txt`; the workflow wrapper deletes / stops them after a 5-min cooldown.
 
 The whole thing runs inside the 8-hour GitHub Actions job timeout. The `.github/skill-eval/AGENTS.md` file **is** the agent's system prompt — keep it readable.
 
@@ -24,18 +23,18 @@ The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill
 - **Python 3** — for the adapters.
 - **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file.
 
-### GPU targets (provisioned on demand, not on the runner)
+### GPU targets (operator-managed `vss-eval-*` pool)
 
-The runner has no GPU. Eval trials run on per-platform Brev instances the agent provisions (and the workflow tears down):
+The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev instances that the **operator** provisions ahead of time with `brev create`; the skill-eval agent only locks, drives, and resets them — never creates, stops, or deletes pool members. Default pool today:
 
-| Platform | Instance type | Lifecycle |
+| Platform | Pool member(s) | Instance type |
 |---|---|---|
-| `l40s` | `massedcompute_L40Sx2` (2× L40S 48 GB) | `brev delete` after trials complete (MC is non-stoppable) |
-| `h100` | `dmz.h100x2.pcie` (2× H100 80 GB) | `brev delete` after trials complete |
-| `rtx` | `g7e.12xlarge` (RTX PRO 6000) | `brev stop` after trials complete |
-| `spark` | BYOH DGX Spark node | no-op — stays online across runs |
+| `l40s` | `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2` | `massedcompute_L40S` / `massedcompute_L40Sx2` |
+| `h100` | `vss-eval-h100` (when needed) | launchpad `dmz.h100x2.pcie` preferred |
+| `rtx` | `vss-eval-rtx-1g`, `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g` | AWS `g7e.4xlarge` / `g7e.12xlarge` (RTX PRO Server 6000) |
+| `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
-Fallback chains and matrix constraints live in [`AGENTS.md § Platform topology`](AGENTS.md).
+Per-CI-run hygiene is pull-side: the active-deploy marker on each box carries `<profile_tag>|<run_id>`, and each new run's `BrevEnvironment._ensure_prerequisite_deployed` reconciles by tearing down + redeploying whenever the marker's run id doesn't match its own — so a prior run's leftover state (containers, named volumes, marker) is wiped on the next run's lock acquisition, not on the prior run's exit. That handles every exit path uniformly (happy path, cancel-in-progress, max-turns, SIGKILL, host reboot). Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
@@ -251,10 +250,10 @@ disown
 
 **`AddTestsDirError` / `DownloadVerifierDirError`.** File upload/download to the Brev instance failed. Check `brev exec <instance> "echo ok"` works manually. Clear `/tests /logs /skills` on the instance and retry.
 
-**Instance creation fails.** Some Brev providers have capacity issues. Harbor's fallback chain (see [`AGENTS.md § Platform topology`](AGENTS.md)) cycles through alternatives. If all are exhausted, the agent posts a `csp_unavailable` blocker.
+**Pool exhausted for `<platform>`.** No `vss-eval-*` pool member matches the trial's `gpu_type` after the 28800s wait window (`brev ls` polled every 5 min). The agent emits `BLOCKED: pool exhausted for <platform>` and exits. Provisioning new pool members is the operator's job — `brev create vss-eval-<name>` with the matching instance type, then bring it online; the next CI run picks it up automatically via the `^vss-eval-*` fleet scan.
 
 **Brev auth expired mid-run.** The CI run emits `BLOCKED: brev auth expired`. The `brev-keepalive.timer` systemd user unit keeps the access token warm, but only an interactive `brev login --auth nvidia` can refresh a fully-expired refresh token.
 
 **Agent deployment fails with "pull access denied".** `NGC_CLI_API_KEY` missing or invalid — the agent needs it to pull VSS NIM containers from `nvcr.io`.
 
-**Cancelled run leaves orphan Brev instances.** A cancelled CI job never gets to the cooldown teardown step. Clean up by listing owned instances in `/tmp/brev/started-by-<run_id>.txt` on the runner host and `brev delete` them manually.
+**Orphan `harbor-*` Brev instances.** The harness no longer auto-provisions — every trial must use a `vss-eval-*` pool member. If you see `harbor-*` instances in `brev ls`, they're stragglers from before this change (or from someone running `uvx harbor` manually without `BREV_INSTANCE` set). Clean them up with `brev delete <name>`.
