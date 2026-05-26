@@ -24,7 +24,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/smartcities/smc-app/vss-behavior-analytics/configs/vss-behavior-analytics-kafka-config.json:/resources/vss-behavior-analytics-config.json
       - $VSS_APPS_DIR/industry-profiles/smartcities/smc-app/calibration/sample-data/calibration.json:/resources/calibration.json
     container_name: vss-behavior-analytics
-    command: python3 apps/its/main_its_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    command: python3 apps/smart_city/main_smart_city_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
 
   nvstreamer-smartcities:
     image: nvcr.io/nvstaging/vss-core/vss-vios-nvstreamer:${NVSTREAMER_IMAGE_TAG}
