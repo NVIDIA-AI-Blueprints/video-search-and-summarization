@@ -316,16 +316,10 @@ template is in § Harbor invocation below.
       ```bash
       exec {LFD}>/tmp/brev/"$INSTANCE_NAME".lock
       flock -w 28800 "$LFD" || { echo "BLOCKED: lock timeout"; exit 1; }
-      # Record the box in the touched-boxes ledger so the Python
-      # harness's failsafe (atexit + SIGTERM handler) can reset its
-      # deployment state if the agent never reaches § 7 (max-turns
-      # exit, crash, cancel-in-progress, etc.). Append (not
-      # overwrite) — multiple locked boxes per run are normal across
-      # spec×platform tuples.
-      mkdir -p /tmp/skill-eval
-      echo "$INSTANCE_NAME" >> /tmp/skill-eval/touched-boxes-"${GITHUB_RUN_ID}".txt
       # ... trials ...
-      exec {LFD}>&-        # release on exit; trap so SIGINT doesn't strand it
+      exec {LFD}>&-        # release on exit; the kernel also releases
+                           # automatically on process death (no userspace
+                           # trap needed for cancel-in-progress / SIGKILL).
       ```
       8-hour max hold (matches the job timeout). If another worker
       already holds the lock for this box, wait up to 8 h; beyond
@@ -356,61 +350,27 @@ template is in § Harbor invocation below.
    --body-file …`. Do NOT post a planning / "refresh" comment up
    front — comments carry results, not intent.
 
-7. **Reset each locked box, then release its lock. DO NOT tear down
-   any Brev instance.** The `vss-eval-*` boxes are a long-running
-   pool managed by the operator; instances stay up across runs, and
-   so do the bandwidth-expensive caches (docker image layers, the
-   repo clone, the sample-data extract on the host filesystem). But
-   the *deployment state* — running containers, the named volumes
-   that hold their data (postgres / ES / kafka), the docker networks
-   that wire them, and the `/tmp/skill-eval/active-deploy.txt`
-   marker — is per-CI-run: warm reuse within a run amortises deploy
-   across `(spec, task, trial)` tuples on the same box, but between
-   runs each PR must redeploy from its own `PR_HEAD_SHA` against
-   empty data stores so it doesn't inherit a stale stack OR stale
-   row state. So for each `vss-eval-*` box you held a flock on,
-   BEFORE releasing that flock, reset its deployment state:
+7. **Release all locks. DO NOT tear down any Brev instance.** The
+   `vss-eval-*` boxes are a long-running pool managed by the
+   operator; instances stay up across runs, and so do the slow
+   caches (docker image layers, repo clone, sample-data extract).
+   Close each lock FD (`exec {LFD}>&-`) so the next worker can
+   grab the box. You never `brev stop` / `brev delete`. Pool
+   lifecycle is strictly an operator concern.
 
-   ```bash
-   brev exec "$INSTANCE_NAME" 'docker ps -aq | xargs -r docker rm -f >/dev/null && \
-                               docker network prune -f >/dev/null && \
-                               docker volume prune -af >/dev/null && \
-                               rm -f /tmp/skill-eval/active-deploy.txt'
-   ```
-
-   `&&` chaining is load-bearing: if any prune step exits non-zero
-   (daemon hiccup, a container still holding a volume from an
-   incomplete `docker rm`, pre-23.0 Docker without `volume prune
-   -a`), the chain short-circuits and the marker is left intact,
-   so the next worker sees the stale-deploy state instead of an
-   empty marker that lies about a partially-dirty box. `xargs -r`
-   makes the "no containers" case a clean no-op (vs. `docker rm -f`
-   with empty argv). Same idiom as the in-process reconcile path
-   at `envs/brev_env.py::_ensure_prerequisite_deployed`.
-
-   Run this once per locked box at the end of the run (after § 6
-   posts the final comment), regardless of trial outcome — `DONE`,
-   `BLOCKED`, or partial. The docker image cache, repo clone, and
-   sample-data extract survive (they're slow to rebuild and carry
-   no trial state); containers, volumes, networks, and the marker
-   are dropped. If the chain exits non-zero, the box stays flagged
-   for operator attention (marker still set, containers / volumes
-   partially live) — log the failure but do not retry. Then close
-   the lock FD (or `flock -u $LFD`) so the next worker can grab the
-   box. You never `brev stop` / `brev delete`. Pool lifecycle is
-   strictly an operator concern.
-
-   **You are the primary path; the harness is the backstop.** The
-   Python harness (`skills_eval_agent.py`) reads the touched-boxes
-   ledger you appended to in § 5b and runs this same reset chain
-   from `atexit` + a SIGTERM/SIGINT handler. That covers the cases
-   where you never reach § 7 — max-turns exit, crash,
-   `cancel-in-progress` on a fresh push — but it does NOT cover
-   SIGKILL (the 8h `timeout-minutes` terminator). Running § 7
-   yourself on every locked box is still required: it executes
-   while the trials' results are fresh and lets you log a per-box
-   failure into the run summary, which the post-mortem failsafe
-   only logs to stderr.
+   **You do NOT reset deployment state on exit.** Each box's
+   running containers, named volumes, and the active-deploy marker
+   stay as you left them; cleanup is the *next* run's job. The
+   active-deploy marker is tagged `<profile_tag>|<run_id>`, so the
+   next run's `BrevEnvironment._ensure_prerequisite_deployed` sees
+   a run-id mismatch and always reconciles (tear-down + redeploy
+   from its own `PR_HEAD_SHA`) — regardless of how this run ended
+   (happy path, `BLOCKED`, cancel-in-progress, max-turns, agent
+   crash, SIGKILL, host reboot). No `atexit`, no signal handler,
+   no end-of-run docker cleanup — the pull-side reconcile handles
+   every exit path uniformly. Within this run, multiple trials with
+   the same profile still hot-skip because both profile and run id
+   match.
 
 8. **Exit.** Print a last line starting with `DONE:` summarizing
    outcomes (e.g. `DONE: 3/3 specs passed; 0 blockers`). If any spec
@@ -443,9 +403,11 @@ template is in § Harbor invocation below.
   `brev start`, `brev stop`, `brev reset`, or `brev delete` against
   any `vss-eval-*` box. The pool is operator-managed; instances stay
   running across runs. The agent's `brev` surface is limited to
-  `brev ls`, `brev exec` (reads + the end-of-run deployment-state
-  reset documented in § 7), and acquiring/releasing the per-box
-  flock. If no hardware-matching pool member exists for the trial's
+  `brev ls`, `brev exec` (read-only — inspecting markers, peeking
+  at containers; deployment-state reset is the pull-side
+  reconcile in `_ensure_prerequisite_deployed`, not anything you
+  run from this agent), and acquiring/releasing the per-box flock.
+  If no hardware-matching pool member exists for the trial's
   platform, follow the wait-for-pool path in § 5a (5-min `brev ls`
   poll, 28800s budget, then `BLOCKED: pool exhausted for
   <platform>`) — provisioning is the operator's job.
@@ -489,22 +451,26 @@ hardware-matching `^vss-eval-*` candidate exists, follow the
 wait-for-pool path in § 5a — do not `brev create` one yourself.
 
 The marker file (`/tmp/skill-eval/active-deploy.txt` on each box)
-records the box's *deployment state* — what VSS profile is
-currently up and live on that box. It is NOT an occupancy
-signal — a marker can read `base` whether or not a
+records the box's *deployment state* + *owning run* in the form
+`<profile_tag>|<run_id>` — what VSS profile is currently up on
+that box and which CI run deployed it. It is NOT an occupancy
+signal — a marker can read `base|26500001234` whether or not a
 trial is currently driving traffic against the stack. Occupancy
 (is some other worker using this box right now?) is the
 runner-side **flock** on `/tmp/brev/<INSTANCE_NAME>.lock`,
 checked separately via `flock -n` in step 5a. The two together
 let the scoring pick a warm-and-free box first, then fall back
 to warm-but-busy (queue on `flock -w`) or cold-and-free (redeploy).
-The marker is *per-CI-run state*, not per-pool-instance state:
-§ 7's end-of-run cleanup wipes it (along with all containers,
-volumes, and networks) before releasing the flock, so the next
-run on the same box starts with an empty marker, empty data
-stores, and redeploys from its own `PR_HEAD_SHA`. See
-`specs/stale-marker.spec` for verifying the marker against the
-actual running containers.
+Tagging the marker with `<run_id>` (`$GITHUB_RUN_ID`) is what
+makes between-run isolation a pull-side reconcile rather than a
+push-side cleanup: a marker left by a prior run never matches
+the current run's desired `<profile_tag>|<this_run_id>`, so
+`BrevEnvironment._ensure_prerequisite_deployed` always
+tears down + redeploys from the current run's `PR_HEAD_SHA`
+regardless of how the prior run ended. Within one run, multiple
+trials with the same profile still hot-skip (same profile, same
+run id, full match). See `specs/stale-marker.spec` for verifying
+the marker against the actual running containers.
 
 With fleet=1, selection collapses to a single candidate. With
 fleet>1, two concurrent workflow runs land on different boxes

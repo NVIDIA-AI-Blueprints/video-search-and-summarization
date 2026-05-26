@@ -245,6 +245,13 @@ class BrevEnvironment(BaseEnvironment):
             # the renamed release/3.2.0 container names while the eval
             # deployed feat/skills's old names).
             "PR_HEAD_SHA", "PR_REPO",
+            # Tag the active-deploy marker with the run id so the next
+            # run's `_ensure_prerequisite_deployed` always reconciles
+            # against a prior run's leftover state, regardless of how
+            # the prior run ended. Consumed by the vss-deploy-profile
+            # adapter's test.sh when it writes the marker on
+            # reward=1.0.
+            "GITHUB_RUN_ID",
         ):
             val = os.environ.get(key)
             if val:
@@ -298,43 +305,57 @@ class BrevEnvironment(BaseEnvironment):
     async def _ensure_prerequisite_deployed(self, meta: dict) -> None:
         """Reconcile the Brev box's deployment state with what this
         trial's task.toml [metadata] declares. Reads a single canonical
-        marker that records what is currently RUNNING on the box — not
-        a deploy log. See specs/stale-marker.spec.
+        marker that records what is currently RUNNING on the box AND
+        which CI run owns it — not a deploy log. See
+        specs/stale-marker.spec.
+
+        Marker format is `<profile_tag>|<run_id>`:
+          - `<profile_tag>` is `<profile>` or `<profile>-<deploy_mode>`
+            (only alerts splits this way: `alerts-verification`,
+            `alerts-real-time`).
+          - `<run_id>` is `$GITHUB_RUN_ID` (or `local-<pid>` outside CI).
+
+        Tagging the marker with the run id makes "fresh between runs"
+        a pull-side reconcile rather than a push-side cleanup: a
+        marker from a prior run NEVER matches the current run's
+        desired marker, so the next worker always reconciles
+        (tear-down + redeploy from its own `PR_HEAD_SHA`) regardless
+        of how the prior run ended — happy path, cancel-in-progress,
+        max-turns, SIGKILL, host reboot. Within a single run, multiple
+        trials with the same profile still hot-skip because both
+        profile and run id match.
 
         Three regimes, derived from `profile` + `prerequisite_deploy_mode`:
 
         1. `profile` set (downstream needs a deployed VSS stack):
-            desired = `<profile>` (e.g. `base`, `lvs`, `search`),
-                  or `<profile>-<deploy_mode>` for alerts variants
-                  (`alerts-verification`, `alerts-real-time`).
-            If marker == desired → hot, no-op.
-            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]` via
-                  `claude --print`. On success OVERWRITE marker.
+            desired = `<profile_tag>|<run_id>`.
+            If marker == desired → hot, no-op (same profile, same run).
+            Else → run `/vss-deploy-profile -p <profile> [-m <mode>]`
+                  via `claude --print`. On success OVERWRITE marker
+                  with the new `<profile_tag>|<run_id>`.
 
         2. `profile` absent (trial needs a clean box, no VSS running):
             desired = `""` (empty marker).
             Always tear down all containers (`docker rm -f $(docker
-                  ps -aq)`) + prune networks; OVERWRITE marker to empty.
-                  An empty marker does not prove a prior standalone
-                  profile-less trial cleaned up every container it started.
-                  Preserves anything `docker rm -f` doesn't touch:
-                  docker image cache, named volumes (postgres / ES /
-                  kafka data), repo clone, and sample-data extract —
-                  the slow caches that make warm reuse valuable for
-                  the next deploy trial. Cleanup failures fail loud:
-                  if either docker command exits non-zero the marker
-                  is NOT overwritten, so the next trial re-attempts
-                  the reconcile instead of running against a
-                  partially-dirty box that pretends to be clean.
+                  ps -aq)`) + prune networks + prune volumes;
+                  OVERWRITE marker to empty. An empty marker does not
+                  prove a prior standalone profile-less trial cleaned
+                  up every container it started. Preserves anything
+                  `docker rm -f` doesn't touch: docker image cache,
+                  repo clone, and sample-data extract — the slow
+                  caches that make warm reuse valuable for the next
+                  deploy trial. Cleanup failures fail loud: if any
+                  docker command exits non-zero the marker is NOT
+                  overwritten, so the next trial re-attempts the
+                  reconcile instead of running against a partially-
+                  dirty box that pretends to be clean.
 
         vss-deploy-profile/* trials don't set `profile` in their task.toml
         [metadata], so they fall into the `desired=""` box-clean branch
         above — wipes containers/networks/volumes and clears the marker
         before the trial deploys from scratch. Their test.sh writes the
-        marker on reward=1.0 for downstream warm-reuse. (Earlier the
-        adapter emitted `profile = "<X>"` here, which mistakenly fired
-        the prereq reconcile below before the trial — see commit
-        history on `adapters/vss-deploy-profile/generate.py`.)
+        marker (tagged with the trial's `$GITHUB_RUN_ID`) on reward=1.0
+        for downstream warm-reuse within the same run.
 
         claude-code is expected on the box from a prior vss-deploy-profile/* trial's
         harbor agent setup; persists across trials on the reused
@@ -343,11 +364,14 @@ class BrevEnvironment(BaseEnvironment):
         profile = meta.get("profile")
         deploy_mode = meta.get("prerequisite_deploy_mode")
         if profile and deploy_mode:
-            desired = f"{profile}-{deploy_mode}"
+            profile_tag = f"{profile}-{deploy_mode}"
         elif profile:
-            desired = profile
+            profile_tag = profile
         else:
-            desired = ""
+            profile_tag = ""
+
+        run_id = os.environ.get("GITHUB_RUN_ID") or f"local-{os.getpid()}"
+        desired = f"{profile_tag}|{run_id}" if profile_tag else ""
 
         marker_path = "/tmp/skill-eval/active-deploy.txt"
         probe = await _run_brev_exec(
@@ -357,10 +381,9 @@ class BrevEnvironment(BaseEnvironment):
         )
         current = (probe.stdout or "").strip()
         if current == desired and desired:
-            state = desired or "<clean>"
             logger.info(
-                "prerequisite %s already current on %s; skipping reconcile",
-                state, self._instance_name,
+                "prerequisite %s already current on %s (run %s); skipping reconcile",
+                profile_tag, self._instance_name, run_id,
             )
             return
         logger.info(

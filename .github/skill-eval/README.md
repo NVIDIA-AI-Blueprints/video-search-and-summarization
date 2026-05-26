@@ -34,7 +34,7 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 | `rtx` | `vss-eval-rtx-1g`, `vss-eval-rtx-1g-2`, `vss-eval-rtx-2g` | AWS `g7e.4xlarge` / `g7e.12xlarge` (RTX PRO Server 6000) |
 | `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
-Per-CI-run hygiene (containers, named volumes, and the deploy marker are wiped on every locked box at the end of each run, while image cache / repo clone / sample-data extract survive) is documented in [`AGENTS.md § 7`](AGENTS.md). Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
+Per-CI-run hygiene is pull-side: the active-deploy marker on each box carries `<profile_tag>|<run_id>`, and each new run's `BrevEnvironment._ensure_prerequisite_deployed` reconciles by tearing down + redeploying whenever the marker's run id doesn't match its own — so a prior run's leftover state (containers, named volumes, marker) is wiped on the next run's lock acquisition, not on the prior run's exit. That handles every exit path uniformly (happy path, cancel-in-progress, max-turns, SIGKILL, host reboot). Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
