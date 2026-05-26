@@ -58,6 +58,15 @@ infra:
         value: "/phoenix"
   redis:
     enabled: true
+  # SDRC workload controller — replaces vss-vios-sdr + vss-vios-envoy-proxy from the vios umbrella.
+  # Config file is rendered into the `sdrc-config` ConfigMap by templates/sdrc-configmap.yaml.
+  sdrc:
+    enabled: true
+    configFilePath: configs/sdrc/config-lvs.yml
+    config:
+      configMapName: sdrc-config
+      key: config.yml
+      mountPath: /config.yml
   elasticsearch:
     enabled: true
     persistence:
@@ -135,16 +144,18 @@ vios:
   vss-vios-postgres:
     enabled: true
 
-  # Disabled: LVS uses direct streamprocessing (:30001), no SDR/Envoy/SDRC router.
+  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-search / dev-profile-alerts.
   vss-vios-envoy-proxy:
     enabled: false
 
+  # Disabled: replaced by infra.sdrc (SDRC workload controller) — same pattern as dev-profile-search / dev-profile-alerts.
   vss-vios-sdr:
     enabled: false
 
   vss-vios-sensor:
     enabled: true
-    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
+    # Sensor talks to SDRC (replaces vss-vios-envoy-proxy) — same pattern as dev-profile-search / dev-profile-alerts.
+    streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }

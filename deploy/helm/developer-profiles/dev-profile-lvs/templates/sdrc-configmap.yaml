@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $infra := index .Values "infra" | default dict }}
+{{- $sdrc := index $infra "sdrc" | default dict }}
+{{- $config := index $sdrc "config" | default dict }}
+{{- $infraEnabled := index $infra "enabled" | default false }}
+{{- $sdrcEnabled := index $sdrc "enabled" | default false }}
+{{- if and $infraEnabled $sdrcEnabled }}
+{{- $configPath := get $sdrc "configFilePath" | default "configs/sdrc/config-lvs.yml" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ required "infra.sdrc.config.configMapName is required" (get $config "configMapName") }}
+  labels:
+    app.kubernetes.io/name: sdrc
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  {{ get $config "key" | default "config.yml" }}: |
+{{ required (printf "%s is required when infra.sdrc.enabled=true" $configPath) (tpl (.Files.Get $configPath) .) | nindent 4 }}
+{{- end }}
