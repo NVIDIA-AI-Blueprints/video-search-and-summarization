@@ -2,17 +2,59 @@
 
 ## Overview
 
-ELK is the Elasticsearch + Logstash + Kibana stack used by VSS as the indexing and search layer. Elasticsearch holds caption text, embeddings, frame metadata, alerts, and incidents; Logstash consumes records from Kafka or Redis and writes them to Elasticsearch; Kibana provides the dashboarding surface (`SEARCH_PUBLICBASEURL` configurable). Source-of-truth definitions live in `deploy/docker/services/infra/compose.yml`. IN-1 includes ELK so that RT-VLM dense captions published to the `vision-llm-messages` Kafka topic are decoded by Logstash, indexed in Elasticsearch, and become queryable.
+ELK is the Elasticsearch + Logstash + Kibana stack used by VSS as the indexing and search layer. Elasticsearch holds caption text, embeddings, frame metadata, alerts, and incidents; Logstash consumes records from Kafka or Redis and writes them to Elasticsearch; Kibana provides the dashboarding surface (`SEARCH_PUBLICBASEURL` configurable). Source-of-truth definitions live in `deploy/docker/services/infra/compose.yml`. VSS 3.2 splits the Kafka-side Logstash configuration into **two pipelines**: `mdx-kafka` (subscribes to `mdx-{alerts,events,incidents,vlm-alerts,vlm-incidents,frames,mtmc,embed-filtered,...}` — generic-shape ES docs) and `mdx-lvs` (subscribes to `mdx-vlm-captions` + `mdx-structured-events-summary` — via-ctx-rag-shaped ES docs, indices named `<collection>_<id>`). IN-1 includes ELK so RT-VLM dense captions published to `mdx-vlm-captions` are decoded by the `mdx-lvs` pipeline and indexed.
 
 ELK is treated as a **first-class catalog entry** with its own reference files. Cross-deployment sharing/isolation strategy (single-vs-multi ES instance across profiles) lives separately in `shared-infrastructure.md`; this file documents the per-service contract.
 
 ## Required Peer Services
 
-- **Kafka** — required when `STREAM_TYPE=kafka` (IN-1). Logstash consumes the configured Kafka topics. Brought up by `deploy/docker/services/infra/compose.yml`.
-- **Redis** — required when `STREAM_TYPE=redis`. Alternate transport for Logstash; IN-1 uses Kafka.
-- **`broker-health-check`** — required. Logstash `depends_on` it with `service_completed_successfully` to ensure Kafka or Redis is responsive before Logstash starts consuming.
-- **`elasticsearch-init-container`** — required (sidecar). Runs on stack startup to create ILM policies, index templates, and ingest pipelines. Logstash and Kibana both wait on it indirectly through Elasticsearch readiness.
-- **Producer of indexed records** (varies by deployment): for IN-1, RT-VLM is the producer publishing to `${RTVI_VLM_KAFKA_TOPIC}` (default `vision-llm-messages`).
+### Peer microservices (cross-skill)
+
+- **Producer of indexed records** — varies by deployment. For IN-1, RT-VLM is the producer publishing to `${RTVI_VLM_KAFKA_TOPIC}`. **The skill emits `mdx-vlm-captions`** (the VSS-3.2 upstream-subscribed topic). The raw rtvi-vlm-compose default `vision-llm-messages` is unsubscribed; the pre-3.2 `mdx-vlm` is also unsubscribed in current upstream — do not use either.
+
+Notes on the structured block below:
+
+- Kafka, Redis, and `broker-health-check` are NOT cross-skill peers — they ship as part of the foundational ELK / infra stack defined in `services/infra/compose.yml` and are therefore declared under ELK's own `component_services:` rather than as peer microservices.
+- `STREAM_TYPE=kafka` (default) wires Logstash to the Kafka transport; `STREAM_TYPE=redis` switches to the Redis transport. Both transport containers are unconditionally part of the ELK component set; the toggle only changes which Logstash pipeline subscribes.
+
+### Structured component_services (consumed by `vss-build-vision-agent` Step 4)
+
+See `references/component-services-schema.md` for the schema.
+
+```yaml
+component_services:
+  - key: elasticsearch
+    file: services/infra/compose.yml
+    role: Document store for caption and incident records.
+  - key: elasticsearch-init-container
+    file: services/infra/compose.yml
+    role: One-shot init container that creates default templates and pipelines.
+  - key: kibana
+    file: services/infra/compose.yml
+    role: Dashboard UI over Elasticsearch indices.
+  - key: logstash
+    file: services/infra/compose.yml
+    role: Kafka -> Elasticsearch ingest pipeline with NvSchema protobuf decoders.
+  - key: kafka
+    file: services/infra/compose.yml
+    role: Message bus for KAFKA_TOPIC, KAFKA_INCIDENT_TOPIC, sensor lifecycle events.
+  - key: kafka-topic-init-container
+    file: services/infra/compose.yml
+    role: One-shot init that pre-creates topics Logstash subscribes to.
+  - key: redis
+    file: services/infra/compose.yml
+    role: Cache plus alternate message bus for sensor.event and optional VLM error stream.
+  - key: broker-health-check
+    file: services/infra/compose.yml
+    role: "Smoke endpoint other services depend on via depends_on with required:false."
+  - key: phoenix
+    file: services/infra/compose.yml
+    role: OpenTelemetry trace sink for VSS internals.
+  - key: mosquitto
+    file: services/infra/compose.yml
+    role: MQTT broker for alert republishing.
+    required: false
+```
 
 ## Integration Interfaces
 
@@ -21,7 +63,7 @@ ELK is treated as a **first-class catalog entry** with its own reference files. 
 - **Method:** Kafka topic consumption (Logstash, when `STREAM_TYPE=kafka`)
   **Pipeline config:** `deploy/docker/services/infra/elk/logstash/pipelines/kafka/mdx-logstash.conf` (mounted as `/usr/share/logstash/pipeline/logstash.conf` via the `${STREAM_TYPE}` substitution).
   **Schema:** NvSchema protobuf — decoded with `logstash-codec-protobuf` using descriptors at `/opt/logstash-data-libs/logstash/pb_definitions/descriptors/{ext.desc, schema.desc}`. The protobuf definitions are the same ones RT-VLM produces against, so the schema is consistent producer-to-consumer.
-  **Topics consumed:** all topics that downstream consumers index. The foundational `kafka-topic-init-container` creates a canonical list (see `mdx-foundational.yml`): `mdx-raw`, `mdx-bev`, `mdx-space-utilization`, `mdx-alerts`, `mdx-behavior`, `mdx-behavior-plus`, `mdx-frames`, `mdx-mtmc`, `mdx-rtls`, `mdx-rtls-region-1`, `mdx-amr`, `mdx-vlm-alerts`, `mdx-notification`, `mdx-events`, `mdx-incidents`, `mdx-vlm-incidents`, `mdx-vlm`, `mdx-embed`, `mdx-embed-filtered`. RT-VLM's compose-default topics (`vision-llm-messages`, `vision-llm-events-incidents`, `vision-llm-errors`) must either be remapped to the foundational `mdx-vlm-*` topics via `RTVI_VLM_KAFKA_*` overrides, or the Logstash pipeline config must be extended to subscribe to the `vision-llm-*` names directly. IN-1's wiring choice is documented in `vss-compose-patterns.md` and the eval test fixture.
+  **Topics consumed:** all topics that downstream consumers index. The foundational `kafka-topic-init-container` creates a canonical list (see `mdx-foundational.yml`): `mdx-raw`, `mdx-bev`, `mdx-space-utilization`, `mdx-alerts`, `mdx-behavior`, `mdx-behavior-plus`, `mdx-frames`, `mdx-mtmc`, `mdx-rtls`, `mdx-rtls-region-1`, `mdx-amr`, `mdx-vlm-alerts`, `mdx-notification`, `mdx-events`, `mdx-incidents`, `mdx-vlm-incidents`, `mdx-vlm`, `mdx-embed`, `mdx-embed-filtered`. RT-VLM's compose-default topics (`vision-llm-messages`, `vision-llm-events-incidents`, `vision-llm-errors`) are NOT subscribed by either pipeline in VSS 3.2 — the skill MUST override `RTVI_VLM_KAFKA_TOPIC=mdx-vlm-captions` so captions flow into the `mdx-lvs` pipeline. `RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents` and the error topic remap are similarly required for alert + error paths. The `mdx-kafka-topics` init container creates all canonical `mdx-*` topics (including `mdx-vlm-captions`, `mdx-structured-events-summary`, `mdx-vlm-incidents`) so producers and consumers align.
   **Authentication:** none in default deployments (PLAINTEXT Kafka).
 
 - **Method:** Redis stream consumption (Logstash, when `STREAM_TYPE=redis`)

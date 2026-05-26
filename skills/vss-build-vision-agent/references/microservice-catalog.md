@@ -7,14 +7,15 @@ Index of every VSS microservice that has reference files the `build-vision-agent
 1. Parse the user's capability description.
 2. Tag-match against the `Capability tags` column to identify candidate services.
 3. For each candidate, follow `Skill folder` → `integrate-<microservice>.md` to read the integration contract, then `deploy-<microservice>.md` for deployment requirements.
-4. Cross-reference declared peer services in each candidate's `Required Peer Services` section to compose the full service list.
+4. Cross-reference declared peer services in each candidate's `Required Peer Services` section to compose the full service list. Each `integrate-<microservice>.md § Required Peer Services` declares a structured `component_services:` block listing the upstream compose service-keys that microservice owns; the skill unions those blocks across confirmed candidates to produce the per-generation allow-list that drives Step 6.5.
 
 **How to register a new microservice:**
 
 1. Create `skills/<your-skill-folder>/references/integrate-<your-microservice>.md` and `deploy-<your-microservice>.md` per the schemas in `integrate-microservice-schema.md` and `deploy-microservice-schema.md`.
-2. Run `scripts/validate-references.py` to confirm the files pass schema validation.
-3. Add a row to the table below with the microservice name, skill folder path, and capability tags.
-4. Open a PR — the CI workflow re-runs validation on every reference file.
+2. Include a `component_services:` block in `§ Required Peer Services` declaring the upstream compose service-keys this microservice brings into a deployment (and any variant choices the skill must surface to the user).
+3. Run `scripts/validate-references.py` to confirm the files pass schema validation.
+4. Add a row to the table below with the microservice name, skill folder path, and capability tags.
+5. Open a PR — the CI workflow re-runs validation on every reference file.
 
 ---
 
@@ -36,7 +37,7 @@ Index of every VSS microservice that has reference files the `build-vision-agent
 
 | Microservice | Skill folder | Integration ref (current ⇢ target) | Deployment ref (current ⇢ target) | Capability tags |
 |---|---|---|---|---|
-| VIOS (Video Storage) | `skills/vss-manage-video-io-storage/` | — ⇢ `integrate-vios.md` *(pending; upstream `references/` has only `api-reference.md`)* | — ⇢ `deploy-vios.md` *(pending; no deploy doc upstream)* | `video-storage`, `rtsp-ingestion`, `video-upload`, `clip-extraction`, `snapshot`, `sensor-management` |
+| VIOS (Video Storage) | `skills/vss-manage-video-io-storage/` | `integrate-vios-service.md` ✓ | `deploy-vios-service.md` ✓ | `video-storage`, `rtsp-ingestion`, `video-upload`, `clip-extraction`, `snapshot`, `sensor-management` |
 | RT-VLM | `skills/vss-deploy-dense-captioning/` | — ⇢ `integrate-rt-vlm.md` *(pending)* | `deploy-rt-vlm-service.md` ⇢ `deploy-rt-vlm.md` *(rename — upstream uses `-service.md` suffix; also has `kafka-workflows.md` worth folding into the integrate doc)* | `dense-captioning`, `vlm`, `vision-language`, `streaming-inference`, `on-demand-inference`, `alert-detection` |
 | ELK (Elasticsearch + Logstash + Kibana) | `skills/vss-build-vision-agent/` | `integrate-elk.md` ✓ | `deploy-elk.md` ✓ | `indexing`, `search`, `caption-storage`, `dashboard`, `kafka-ingestion`, `redis-ingestion` |
 
