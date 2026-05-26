@@ -256,6 +256,39 @@ configure_openshell_provider() {
   openshell inference get || true
 }
 
+# Inject NGC_CLI_API_KEY into the sandbox env so `ngc registry resource
+# download-version nvidia/vss-developer/dev-profile-sample-data:3.1.0` (and
+# the equivalent TAO model downloads) can authenticate from inside the
+# sandbox. Uses `--type generic` (the catch-all in the
+# `claude/opencode/codex/copilot/generic/openai/anthropic/nvidia/gitlab/github/outlook`
+# list) so the credential is exposed as a plain env var without binding to
+# an inference-provider semantic.
+configure_ngc_credential_provider() {
+  if ! have openshell; then
+    log "OpenShell not available yet; skipping NGC credential provider setup"
+    return
+  fi
+
+  local ngc_api_key="${NGC_CLI_API_KEY:-}"
+  if [ -z "$ngc_api_key" ]; then
+    log "NGC_CLI_API_KEY not set in operator env; skipping NGC credential provider setup. Sandbox-side `ngc registry …` calls will fail until this is exported and init re-run."
+    return
+  fi
+
+  local action provider_args
+  if openshell provider get ngc >/dev/null 2>&1; then
+    action="update"
+    provider_args=(provider update --credential NGC_CLI_API_KEY ngc)
+  else
+    action="create"
+    provider_args=(provider create --name ngc --type generic --credential NGC_CLI_API_KEY)
+  fi
+  log "Configuring NGC credential provider (action=${action})"
+  if ! NGC_CLI_API_KEY="$ngc_api_key" openshell "${provider_args[@]}"; then
+    log "NGC provider ${action} failed; sandbox-side ngc calls will be missing NGC_CLI_API_KEY"
+  fi
+}
+
 # `nemoclaw onboard` creates the dashboard port-forward (default 18789) that exposes the in-pod
 # openclaw-gateway (and its /hooks endpoint) to the host. When the sandbox already exists we skip
 # onboard, and the forward can also die independently between runs — so refresh it unconditionally.
@@ -617,6 +650,7 @@ main() {
   wait_for_sandbox_ready
   refresh_path
   ensure_dashboard_forward
+  configure_ngc_credential_provider
   apply_vss_policy
   update_openclaw_allowed_origin
   # Policy/config updates can briefly flap gateway readiness before plugin install.
