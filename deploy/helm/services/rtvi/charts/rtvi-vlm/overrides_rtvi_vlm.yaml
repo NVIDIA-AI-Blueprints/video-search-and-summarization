@@ -53,9 +53,9 @@ env:
     value: "cosmos-reason2"
   - name: KAFKA_ENABLED
     value: "false"
-  # Match Compose: docker-compose-out-alert-realtime.yaml (mdx-vlm, mdx-vlm-incidents)
+  # Match Compose: docker-compose-out-alert-realtime.yaml
   - name: KAFKA_TOPIC
-    value: "mdx-vlm"
+    value: "mdx-vlm-captions"
   - name: KAFKA_INCIDENT_TOPIC
     value: "mdx-vlm-incidents"
   - name: ERROR_MESSAGE_TOPIC

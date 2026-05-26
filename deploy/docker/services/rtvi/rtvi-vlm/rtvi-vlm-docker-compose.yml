@@ -182,6 +182,12 @@ services:
       cosmos-reason2-8b-shared-gpu:
         condition: service_healthy
         required: false
+      cosmos3-reasoner:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner-shared-gpu:
+        condition: service_healthy
+        required: false
       qwen3-vl-8b-instruct:
         condition: service_healthy
         required: false
