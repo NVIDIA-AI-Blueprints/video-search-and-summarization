@@ -558,9 +558,8 @@ class ComposeDownOperationInput(ComposeOperationInput):
     deep_clean: bool = Field(
         default=False,
         description=(
-            "When true, after the compose down completes successfully, also run "
-            "'docker volume prune -f' to remove dangling volumes and recursively delete the "
-            "configured mdx_data_dir."
+            "When true, after the compose down completes successfully, also recursively "
+            "delete the configured mdx_data_dir."
         ),
     )
 
