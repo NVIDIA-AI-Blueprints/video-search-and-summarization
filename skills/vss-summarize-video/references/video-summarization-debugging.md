@@ -35,6 +35,7 @@ Common causes:
 | `/v1/ready` returns 503 | LLM, RT-VLM, ES, or another dependency is warming/unreachable. | Check dependency logs and endpoint URLs. |
 | `curl` to the video summarization service works on host but not in an agent sandbox | Network namespace or sandbox visibility differs. | Use host-visible shell/deployment context. |
 | Summarize returns 503 | The video summarization service is busy processing another file. | Wait and retry. |
+| HTTP 200 with empty `events` / `video_summary` even though RT-VLM processed chunks | Elasticsearch could not read back per-video event docs, often because flood-stage disk watermark marked indices read-only or left shards unavailable. | Check ES health, watermarks, index blocks, and free disk; clear read-only blocks after restoring ES health. |
 | Empty or weak event output | Scenario/events too narrow or no matching content. | Re-run with broader events or scenario. |
 
 ## Model Id Mismatch
@@ -52,6 +53,98 @@ nim_nvidia_cosmos-reason2-8b_hf-1208
 ```
 
 Do not use `nvidia/cosmos-reason2-8b` unless the endpoint advertises that id.
+
+## Elasticsearch Flood-Stage Watermark / Empty Aggregation
+
+If `/v1/summarize` returns HTTP 200 but the response has an empty `events` list or
+empty `video_summary`, first confirm whether RT-VLM actually produced chunk output.
+If RT-VLM processed chunks and LVS logs show Elasticsearch readback errors, the
+failure is likely in the storage/aggregation path rather than VLM inference.
+
+Common log indicators:
+
+```text
+ApiError(503, 'search_phase_execution_exception')
+NoShardAvailableActionException
+flood stage disk watermark ... exceeded
+all indices on this node will be marked read-only
+```
+
+Check Elasticsearch health and allocation:
+
+```bash
+ES_URL="${ES_URL:-http://${HOST_IP:-localhost}:9200}"
+
+curl -sf "$ES_URL/_cluster/health?pretty"
+curl -sf "$ES_URL/_cat/allocation?v"
+curl -sf "$ES_URL/_cat/indices/default_*?v"
+```
+
+For a Helm/Kubernetes profile, also check the data path seen by Elasticsearch:
+
+```bash
+NAMESPACE="${NAMESPACE:-vss-lvs}"
+
+kubectl logs -n "$NAMESPACE" statefulset/elasticsearch --tail=200 | \
+  grep -Ei 'flood stage|watermark|read-only|NoShard|search_phase_execution' || true
+
+kubectl exec -n "$NAMESPACE" elasticsearch-0 -- \
+  df -h /usr/share/elasticsearch/data
+```
+
+Elasticsearch can enter flood-stage protection when its data path has too little
+free space. On hostPath-backed Kubernetes storage, the PVC size may say `10Gi`,
+but Elasticsearch may still see the underlying host filesystem usage. A mostly
+full host disk can therefore trigger flood-stage protection even when the ES
+index data itself is small.
+
+Preferred recovery is to free disk or give Elasticsearch more usable storage.
+For a development cluster only, you can temporarily relax disk watermarks and
+then clear read-only index blocks:
+
+```bash
+curl -sS -X PUT "$ES_URL/_cluster/settings" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{
+    "transient": {
+      "cluster.routing.allocation.disk.watermark.low": "97%",
+      "cluster.routing.allocation.disk.watermark.high": "98%",
+      "cluster.routing.allocation.disk.watermark.flood_stage": "99%",
+      "cluster.routing.allocation.disk.watermark.flood_stage.max_headroom": "50GB"
+    }
+  }'
+
+curl -sS -X PUT "$ES_URL/_all/_settings?expand_wildcards=all" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"index.blocks.read_only_allow_delete": null}'
+```
+
+After recovery, rerun:
+
+```bash
+curl -sf "$ES_URL/_cluster/health?pretty"
+```
+
+After the test is complete and disk pressure is actually resolved, remove the
+temporary transient watermark override unless the values are intentionally managed
+for that development cluster:
+
+```bash
+curl -sS -X PUT "$ES_URL/_cluster/settings" \
+  -H 'Content-Type: application/json' \
+  --data-binary '{
+    "transient": {
+      "cluster.routing.allocation.disk.watermark.low": null,
+      "cluster.routing.allocation.disk.watermark.high": null,
+      "cluster.routing.allocation.disk.watermark.flood_stage": null,
+      "cluster.routing.allocation.disk.watermark.flood_stage.max_headroom": null
+    }
+  }'
+```
+
+The cluster should be green or at least have the per-video `default_<uuid>`
+indices searchable before using an empty summary as evidence of a model or prompt
+quality issue.
 
 ## Kafka / Logstash Path
 
