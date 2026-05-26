@@ -34,7 +34,6 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   source:
-  source:
     ngc:
       modelPuller: {{ .Values.image.repository }}:{{ .Values.image.tag }}
       pullSecret: {{ .Values.global.pullSecretName | quote }}
