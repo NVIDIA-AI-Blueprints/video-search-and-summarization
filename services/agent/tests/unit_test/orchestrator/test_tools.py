@@ -209,7 +209,7 @@ def test_run_deep_clean_skips_sudo_when_root(tmp_path: Path):
     assert "sudo" not in rm_cmd
 
 
-def test_run_deep_clean_logs_failure_when_rm_returns_nonzero(tmp_path: Path):
+def test_run_deep_clean_raises_when_rm_returns_nonzero(tmp_path: Path):
     data_dir = tmp_path / "data-dir"
     data_dir.mkdir()
     logs: list[str] = []
@@ -225,11 +225,104 @@ def test_run_deep_clean_logs_failure_when_rm_returns_nonzero(tmp_path: Path):
         patch("vss_agents.orchestrator.tools.os.geteuid", return_value=1000),
         patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
     ):
-        _run_deep_clean(data_dir, logs.append)
+        with pytest.raises(RuntimeError, match="Failed to delete data directory"):
+            _run_deep_clean(data_dir, logs.append)
 
     assert data_dir.exists()
-    assert any("Failed to delete data directory" in line for line in logs)
-    assert any("root-owned" in line for line in logs)
+    assert any("root-owned" in line for line in logs) or any("Permission denied" in line for line in logs)
+
+
+def test_run_deep_clean_raises_when_volume_prune_returns_nonzero(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        if cmd[:1] == ["docker"]:
+            return _make_completed(returncode=1, stderr="Error: dangling volumes in use\n")
+        raise AssertionError("rm should not be invoked when volume prune fails")
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        with pytest.raises(RuntimeError, match="docker volume prune exited with code 1"):
+            _run_deep_clean(data_dir, logs.append)
+
+    assert data_dir.exists()
+
+
+def test_run_deep_clean_raises_when_volume_prune_times_out(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        if cmd[:1] == ["docker"]:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=120)
+        raise AssertionError("rm should not be invoked when volume prune times out")
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        with pytest.raises(RuntimeError, match="docker volume prune timed out"):
+            _run_deep_clean(data_dir, logs.append)
+
+    assert data_dir.exists()
+    assert any("timed out" in line and "Docker daemon" in line for line in logs)
+
+
+def test_run_deep_clean_raises_when_rm_times_out(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    def fake_run(cmd, *_args, **_kwargs):
+        if cmd[:1] == ["docker"]:
+            return _make_completed(stdout="")
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=300)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        with pytest.raises(RuntimeError, match=r"rm -rf .* timed out"):
+            _run_deep_clean(data_dir, logs.append)
+
+    assert data_dir.exists()
+    assert any("timed out" in line and "slow or hung mount" in line for line in logs)
+
+
+def test_run_deep_clean_passes_timeouts_to_subprocess(tmp_path: Path):
+    data_dir = tmp_path / "data-dir"
+    data_dir.mkdir()
+    logs: list[str] = []
+
+    captured_timeouts: list[tuple[str, object]] = []
+
+    def fake_run(cmd, *_args, **kwargs):
+        tag = "docker" if cmd[:1] == ["docker"] else "rm"
+        captured_timeouts.append((tag, kwargs.get("timeout")))
+        if tag == "rm":
+            import shutil as _sh
+
+            _sh.rmtree(data_dir, ignore_errors=True)
+        return _make_completed(returncode=0)
+
+    with (
+        patch("vss_agents.orchestrator.tools.subprocess.run", side_effect=fake_run),
+        patch("vss_agents.orchestrator.tools.os.geteuid", return_value=0),
+        patch("vss_agents.orchestrator.tools.shutil.which", return_value=None),
+    ):
+        _run_deep_clean(data_dir, logs.append)
+
+    timeouts = dict(captured_timeouts)
+    assert timeouts["docker"] == 120
+    assert timeouts["rm"] == 300
 
 
 def test_run_deep_clean_handles_missing_docker_binary(tmp_path: Path):
