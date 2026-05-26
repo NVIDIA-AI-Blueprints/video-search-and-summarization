@@ -43,15 +43,21 @@ NUM_SENSORS="${NUM_SENSORS:-$NUM_STREAMS}"
 # Auto-derive ALERTS_2D_ENABLE from COMPOSE_PROFILES: true iff the active
 # profile set contains "bp_wh_2d" (the only variant that runs
 # docker-workload-alerts-2d). Comma boundaries on both sides prevent partial
-# matches like "bp_wh_2d_extra". A pre-set ALERTS_2D_ENABLE is left untouched
-# so callers can force a value.
-if [ -z "${ALERTS_2D_ENABLE:-}" ]; then
-  case ",${COMPOSE_PROFILES:-}," in
+# matches like "bp_wh_2d_extra".
+#
+# Skipped entirely when COMPOSE_PROFILES is not present in the environment
+# (e.g. callers who invoked `docker compose --profile ...` without exporting
+# the env var) — in that case ALERTS_2D_ENABLE is left as the caller set it,
+# or unset if they didn't, rather than being defaulted to a wrong value.
+# A pre-set ALERTS_2D_ENABLE is also left untouched so callers can force one.
+if [ -n "${COMPOSE_PROFILES:-}" ] && [ -z "${ALERTS_2D_ENABLE:-}" ]; then
+  case ",${COMPOSE_PROFILES}," in
     *,bp_wh_2d,*) ALERTS_2D_ENABLE=true ;;
     *)            ALERTS_2D_ENABLE=false ;;
   esac
 fi
-export NUM_STREAMS NUM_SENSORS ALERTS_2D_ENABLE
+export NUM_STREAMS NUM_SENSORS
+[ -n "${ALERTS_2D_ENABLE:-}" ] && export ALERTS_2D_ENABLE
 
 if ! command -v envsubst >/dev/null 2>&1; then
   if command -v apk >/dev/null 2>&1; then
