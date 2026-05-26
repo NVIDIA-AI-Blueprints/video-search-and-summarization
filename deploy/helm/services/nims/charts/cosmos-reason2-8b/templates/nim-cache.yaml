@@ -25,6 +25,10 @@ metadata:
   annotations:
     "helm.sh/resource-policy": keep
 spec:
+  {{- with .Values.nodeSelector }}
+  nodeSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   source:
     ngc:
       modelPuller: {{ .Values.image.repository }}:{{ .Values.image.tag }}

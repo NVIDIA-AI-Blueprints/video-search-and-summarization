@@ -42,6 +42,8 @@ tolerations: []
 
 init:
   enabled: false
+  # Empty: inherits kibana.nodeSelector from the Job template coalesce.
+  nodeSelector: {}
   # Selects packaged NDJSON under configs/objects/{alerts,search,lvs}.ndjson
   objectsBundle: ""
   image:
