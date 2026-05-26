@@ -129,9 +129,13 @@ curl -sf "$ES_URL/_cluster/health?pretty"
 
 After the test is complete and disk pressure is actually resolved, remove the
 temporary transient watermark override unless the values are intentionally managed
-for that development cluster:
+for that development cluster. Note: transient settings are also cleared automatically
+on an Elasticsearch cluster restart, so an explicit reset is not needed if the
+cluster will be restarted anyway.
 
 ```bash
+ES_URL="${ES_URL:-http://${HOST_IP:-localhost}:9200}"
+
 curl -sS -X PUT "$ES_URL/_cluster/settings" \
   -H 'Content-Type: application/json' \
   --data-binary '{
