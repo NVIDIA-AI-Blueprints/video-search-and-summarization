@@ -65,6 +65,21 @@ network_policies:
       - { path: /usr/local/bin/openclaw }
       - { path: /usr/local/bin/node }
 
+  ngc:
+    # Hosts verified by `ngc --debug registry resource download-version
+    # nvidia/vss-developer/dev-profile-sample-data:3.1.0` — only api.ngc and
+    # authn.nvidia are contacted; file payloads stream over api.ngc.nvidia.com.
+    name: ngc
+    endpoints:
+      - host: api.ngc.nvidia.com
+        port: 443
+        access: full
+      - host: authn.nvidia.com
+        port: 443
+        access: full
+    binaries:
+      - { path: /usr/local/bin/ngc }
+
   github:
     name: github
     endpoints:
