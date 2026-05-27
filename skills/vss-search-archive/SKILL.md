@@ -231,4 +231,3 @@ find someone wearing a red jacket
 ```
 
 Results include timestamped clips with similarity scores.
-
