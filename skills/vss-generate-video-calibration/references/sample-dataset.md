@@ -2,7 +2,7 @@
 
 Load this reference when the user wants to **verify a fresh AMC install** by running calibration on the bundled sample dataset (`sdg_08_2_sample_data_010926.zip`, 4 synthetic warehouse cameras with ground truth). Useful before throwing real data at it.
 
-For your own pre-recorded MP4s, see [`videos.md`](videos.md). For live RTSP streams, see [`rtsp.md`](rtsp.md).
+For your own pre-recorded MP4s, see `videos.md`. For live RTSP streams, see `rtsp.md`.
 
 The sample includes GT, so the run produces evaluation metrics (L2 distance, reprojection error) — no calibration parameter tuning needed.
 
@@ -19,7 +19,7 @@ The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SK
 
 **"launch AMC and test sample dataset" (or similar):**
 
-1. Walk [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) first to bring up the AMC stack.
+1. Walk `deploy-auto-calibration-service.md` first to bring up the AMC stack.
 2. Wait for `/v1/ready` to return OK.
 3. Extract sample data (snippet below) — idempotent, safe to re-run.
 4. Run the inline block in [Run Inline (No File Written)](#run-inline-no-file-written). Do **not** save it as a `.py` file — pipe via heredoc so the user's repo stays clean.
@@ -28,7 +28,7 @@ The shared AMC microservice prereq comes from the SKILL.md [Prerequisites](../SK
 **"test sample dataset" (MS already running):**
 
 1. Detect backend: scan ports 8000–8009 (and 8010) for a `/v1/ready` response.
-2. If none → walk [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) first.
+2. If none → walk `deploy-auto-calibration-service.md` first.
 3. Extract sample data if not already cached.
 4. Run the inline block (heredoc-piped Python — no file written).
 5. Report metrics.
@@ -332,6 +332,6 @@ docker logs -f vss-auto-calibration
 | Sample not extracted | `unzip <repo_root>/assets/sdg_08_2_sample_data_010926.zip -d <repo_root>/assets/.cache/sdg_08_2_sample_data_010926/` |
 | `cam_*.mp4` glob finds 0 files | Check wrapper-folder depth: `find <sample_dir> -name "cam_*.mp4"`. |
 | Upload returns 413 | Raise server upload limit, or split files (sample files are <200 MB total so this is unusual). |
-| Port scan finds no backend | Backend not running — walk [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) first. |
+| Port scan finds no backend | Backend not running — walk `deploy-auto-calibration-service.md` first. |
 
 See the [Cross-cutting Troubleshooting](../SKILL.md#cross-cutting-troubleshooting) table in SKILL.md for issues that span all modes.

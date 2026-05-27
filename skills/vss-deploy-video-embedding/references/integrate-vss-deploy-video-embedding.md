@@ -49,11 +49,11 @@ The service exposes a v1 REST API. Set `BASE_URL=http://<host>:${RTVI_EMBED_PORT
 - **Metadata / NIM-compatible** — `GET /v1/metadata`, `GET /v1/version`, `GET /v1/license`, `GET /v1/manifest`.
 - **Metrics** — `GET /v1/metrics` (Prometheus text format).
 
-**Examples** (all worked curl recipes are in [`api.md`](api.md)):
+**Examples** (all worked `curl` recipes are in `rest-api.md`):
 
-- Embed an uploaded video — see [api.md § Upload + embed](api.md#1-upload).
-- Embed a text query — see [api.md § Text embeddings](api.md).
-- Register and embed a live RTSP stream — see [api.md § Add stream + SSE embed](api.md#add-the-stream).
+- Embed an uploaded video — see [`rest-api` § Upload + embed](rest-api.md#1-upload).
+- Embed a text query — see `rest-api.md` § Text embeddings.
+- Register and embed a live RTSP stream — see [`rest-api` § Add stream + SSE embed](rest-api.md#add-the-stream).
   Live-stream requests **require** `stream: true` and `chunk_duration > 0`; a
   synchronous call returns `400 BadParameters: "Only streaming output is
   supported for live-streams"` and an unset/zero `chunk_duration` returns
@@ -61,7 +61,7 @@ The service exposes a v1 REST API. Set `BASE_URL=http://<host>:${RTVI_EMBED_PORT
   `Accept: text/event-stream` with `curl -N` so SSE events stream immediately.
 
 ```bash
-# Start embedding the stream (SSE) — see api.md for the full flow including streams/add.
+# Start embedding the stream (SSE) — see rest-api.md for the full flow including streams/add.
 curl -N -X POST "$BASE_URL/v1/generate_video_embeddings" \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \

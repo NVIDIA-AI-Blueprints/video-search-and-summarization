@@ -47,7 +47,7 @@ if [ "$video_sum_code" = "200" ]; then
 else
   # ── Fallback path: VLM with the default prompt, no HITL ──
   # Prepend the Routing fallback note to the response so the user knows.
-  echo "⚠️ Note: the video summarization service returned HTTP $video_sum_code; falling back to VLM with the default prompt."
+  echo "⚠ Note: the video summarization service returned HTTP $video_sum_code; falling back to VLM with the default prompt."
   VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
   VLM="${VLM%/v1}"
   PROMPT='Describe in detail what is happening in this video,

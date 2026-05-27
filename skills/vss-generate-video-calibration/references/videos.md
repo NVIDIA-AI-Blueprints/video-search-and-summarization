@@ -2,7 +2,7 @@
 
 Load this reference when the user has **local MP4 files** to calibrate. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once videos + alignment + layout are uploaded.
 
-For live RTSP streams, see [`rtsp.md`](rtsp.md). For verifying the install with the bundled sample, see [`sample-dataset.md`](sample-dataset.md).
+For live RTSP streams, see `rtsp.md`. For verifying the install with the bundled sample, see `sample-dataset.md`.
 
 ## What to Ask the User
 
@@ -31,7 +31,7 @@ See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-p
 ### Optional
 5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
 6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
-7. **Run VGGT refinement?** — only if VGGT model is staged (see [`deploy-auto-calibration-service.md`](deploy-auto-calibration-service.md) Step 2).
+7. **Run VGGT refinement?** — only if VGGT model is staged (see `deploy-auto-calibration-service.md` Step 2).
 
 Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
 

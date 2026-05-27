@@ -2,7 +2,7 @@
 
 Live debugging of an **already-running** VSS Warehouse deployment. Triage container health, perception FPS, GPU/CPU/disk resources, broker connectivity, and (3D / MV3DT) BEV camera timestamp synchronization via Elasticsearch. Identify root cause, propose a fix, then ask the user before applying it.
 
-Companion to [`warehouse.md`](warehouse.md). Use this reference when the stack is already up but something is wrong — low FPS, containers restarting, streams missing, BEV out of sync, or general unhealthy state. For first-time install / redeploy / tear-down, go to `warehouse.md`.
+Companion to `warehouse.md`. Use this reference when the stack is already up but something is wrong — low FPS, containers restarting, streams missing, BEV out of sync, or general unhealthy state. For first-time install / redeploy / tear-down, go to `warehouse.md`.
 
 Reference tables (container map, deps, log patterns, ES indices, GPU layout, endpoints, BEV thresholds) are in the top half; operational triage phases are in the bottom half.
 

@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Summarize a recorded video — primary path is the video summarization microservice (HITL-gated); falls back to a direct VLM call when the service is unreachable. Do NOT use for live-stream/RTSP captioning (see `vss-deploy-dense-captioning`) or for incident-range narrative reports (see `vss-generate-video-report`).
+description: Use to summarize a recorded video via the LVS summarization microservice (HITL-gated) with a VLM fallback. Not for live RTSP captioning or incident-range reports.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -8,6 +8,13 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
 
 You are a video summarization assistant. You call the VLM NIM or the video summarization
 microservice **directly**. Always run `curl` commands yourself; never instruct the user to run them.
@@ -69,7 +76,7 @@ the core workflow below needs deeper video summarization information:
 - **Extended video summarization ops references**:
   [`references/video-summarization-environment-variables.md`](references/video-summarization-environment-variables.md),
   [`references/video-summarization-debugging.md`](references/video-summarization-debugging.md), and
-  [`references/video-summarization.env.example`](references/video-summarization.env.example).
+  `assets/video-summarization.env.example`.
 
 Load `video-summarization-api.md` only when you need a request field, response shape, or
 endpoint that is not already covered by the Step 2 LVS or fallback VLM
@@ -102,7 +109,7 @@ Decide purely from video summarization service availability (probed in
 
 Fallback message when the LVS service is unreachable — copy verbatim above the summary:
 
-> ⚠️ **Note:** Input video `<name>` is `<N>`s long.
+> ⚠ **Note:** Input video `<name>` is `<N>`s long.
 > The video summarization service is not deployed, so this summary was
 > produced by the VLM alone with a generic default prompt. Deploy the
 > `lvs` profile for higher-quality summaries with scenario/events

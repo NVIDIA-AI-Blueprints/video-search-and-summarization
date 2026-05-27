@@ -1,6 +1,6 @@
 ---
 name: vss-manage-alerts
-description: Manage VSS alerts — real-time monitoring, subscription rules via Alert Bridge, Slack webhook notifications, incident queries, camera onboarding, VLM verifier prompts. Routes by deployed mode (CV verification vs VLM real-time) and user intent.
+description: Use for VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, Slack notifications, incident queries, camera onboarding. Not for non-alert analytics.
 license: Apache-2.0
 metadata:
   version: "3.2.0"
@@ -8,6 +8,35 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+## Purpose
+
+Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, Slack notifications, queries, camera onboarding, verifier-prompt customization).
+
+## Prerequisites
+
+- Active VSS deployment reachable on `$HOST_IP` (see `vss-deploy-profile` and `references/`).
+- NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
+- `curl`, `jq`, and Docker available on the caller.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
+
+## Troubleshooting
+
+- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-deploy-profile` or the matching `vss-deploy-*` skill.
+- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
+- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
 # VSS Alert Management
 
@@ -170,31 +199,23 @@ If the user asks for a static-CV-pipeline alert on a VLM-only deployment, that i
 
 ## Workflow B — VLM Real-time Monitoring (CV or VLM mode)
 
-Generic start/stop intents through the VSS Agent. Use when the user names a
-sensor but does **not** provide a detection condition; if both are present,
-route to Workflow D. `rtvi-vlm` runs in both modes.
+Generic start / stop intents through the VSS Agent for a named sensor
+without a detection condition (if a condition is present, route to
+Workflow D). `rtvi-vlm` runs in both modes.
 
 ```bash
-# Generic start (uses default detection prompt)
+# start: input_message = "Start real-time alert for sensor <id>"
+# stop:  input_message = "Stop real-time alert for sensor <id>"
 curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Start real-time alert for sensor warehouse_sample"}' | jq .
-
-# Stop
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Stop real-time alert for sensor warehouse_sample"}' | jq .
+  -d '{"input_message": "<start|stop> real-time alert for sensor <id>"}' | jq .
 ```
 
-**Under the hood:** the agent calls `rtvi_prompt_gen` (default prompt when no
-condition is given, otherwise builds `Detect for <condition>. Answer in Yes
-or No`) then `rtvi_vlm_alert action="start"`, which registers the stream with
-`rtvi-vlm` via Alert Bridge.
-
-**Alert semantics:** every chunk is captioned; a chunk whose VLM response
-contains `yes` or `true` (case-insensitive) publishes an incident to
-`mdx-vlm-incidents`. Prompts must force a Yes/No answer.
-
-If the user asks for a static-CV-pipeline alert on a VLM-only deployment, that
-is a mode mismatch — see the routing table.
+Under the hood the agent calls `rtvi_prompt_gen` then
+`rtvi_vlm_alert action="start"`. Alert semantics: every chunk is
+captioned; a chunk whose VLM response contains `yes` / `true`
+(case-insensitive) publishes an incident to `mdx-vlm-incidents`.
+Prompts must force a Yes/No answer. A static-CV-pipeline request on a
+VLM-only deployment is a mode mismatch — see the routing table.
 
 ---
 
@@ -237,23 +258,13 @@ Load and follow `references/alert-notify.md`. Code lives in
 
 ## Workflow C — Query / List Alerts (works on either mode)
 
-Both CV- and VLM-generated alerts land in Elasticsearch and are queryable via the agent's `video_analytics_mcp.get_incidents` tool.
-
-```bash
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Show me recent alerts for sensor warehouse_sample"}' | jq .
-
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "List confirmed alerts from the last hour"}' | jq .
-
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Were there any PPE violations today on Camera_02?"}' | jq .
-
-curl -s -X POST "$AGENT/generate" -H "Content-Type: application/json" \
-  -d '{"input_message": "Show collision incidents from Camera_02 between 2026-04-23T00:00:00.000Z and 2026-04-23T23:59:59.000Z"}' | jq .
-```
-
-For richer / non-natural-language filtering (sensor-level, time-series, counts): use the **`vss-query-analytics` skill** (VA-MCP on port 9901).
+Both CV- and VLM-generated alerts land in Elasticsearch and are
+queryable via the agent's `video_analytics_mcp.get_incidents` tool. POST
+natural-language requests to `$AGENT/generate` — "Show me recent alerts
+for sensor X", "List confirmed alerts from the last hour", "Show
+collision incidents from Camera_02 between `<ISO>` and `<ISO>`". For
+richer / non-natural-language filtering (sensor-level, time-series,
+counts) use the **`vss-query-analytics` skill** (VA-MCP on port 9901).
 
 ### Verdict interpretation (CV mode only)
 
@@ -265,43 +276,32 @@ Verified alerts carry an extended `info` block:
 | `rejected` | VLM determined it is a false positive |
 | `unverified` | Verification could not complete (error) |
 
-Check `verification_response_code` (200 = success) and `reasoning` for the VLM's explanation. VLM-mode incidents are always "confirmed" at source (the trigger itself is a Yes/No VLM answer), so there is no separate verdict field.
+Check `verification_response_code` (200 = success) and `reasoning` for
+the VLM's explanation. VLM-mode incidents are always "confirmed" at
+source (the trigger itself is a Yes/No VLM answer), so there is no
+separate verdict field.
 
 ---
 
 ## Customize CV Verifier Prompts (CV mode only)
 
-CV-path verifier prompts live in:
+CV-path verifier prompts live in
+`deployments/developer-workflow/dev-profile-alerts/vlm-as-verifier/configs/alert_type_config.json`.
+Each entry maps a CV `alert_type` (the `category` field emitted by
+Behavior Analytics) to the VLM `system` / `user` / optional
+`enrichment` prompts.
 
-```
-deployments/developer-workflow/dev-profile-alerts/vlm-as-verifier/configs/alert_type_config.json
-```
+Key rules:
 
-Each entry maps a CV `alert_type` (the `category` field emitted by Behavior Analytics) to the VLM prompts used for verification:
+- `alert_type` must match the `category` emitted by Behavior Analytics.
+- `output_category` is the display name in Elasticsearch / UI.
+- `enrichment` triggers a second VLM call for a richer description;
+  requires `alert_agent.enrichment.enabled: true`.
+- Edits require an `alert-bridge` container restart to take effect.
 
-```json
-{
-  "version": "1.0",
-  "alerts": [
-    {
-      "alert_type": "FOV Count Violation",
-      "output_category": "Ladder PPE Violation",
-      "prompts": {
-        "system": "You are a helpful assistant.",
-        "user": "Is anyone on the ladder without a hardhat and safety vest? Answer yes or no.",
-        "enrichment": "Describe the PPE violation in detail..."
-      }
-    }
-  ]
-}
-```
-
-- **`alert_type`** must match the `category` emitted by Behavior Analytics.
-- **`output_category`** is the display name in Elasticsearch / UI.
-- **`enrichment`** (optional) triggers a second VLM call for a richer description; requires `alert_agent.enrichment.enabled: true`.
-- **Changes require a restart** of the `alert-bridge` (vlm-as-verifier) container.
-
-**VLM real-time prompts are not configured in a file** — they are per-request, shaped by `rtvi_prompt_gen` from the user's natural-language detection description.
+VLM real-time prompts are not configured in a file — they are
+per-request, shaped by `rtvi_prompt_gen` from the user's
+natural-language detection description.
 
 ---
 

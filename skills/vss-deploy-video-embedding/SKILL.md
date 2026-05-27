@@ -1,17 +1,30 @@
 ---
 name: vss-deploy-video-embedding
-description: >
-  Deploy, operate, and integrate the VSS 3.2 GA RT-Embed Video Embedding
-  microservice. Covers Docker Compose bring-up, 
-  GPU and storage prerequisites, the `/v1` REST API (file uploads,
-  text and video embeddings, live RTSP streams, health and metrics),
-  Redis/Kafka/OTel integration, common failure modes, and teardown.
+description: Use to deploy and operate the RT-Embed video-embedding microservice (Compose bring-up, /v1 REST, Redis/Kafka/OTel). Not for dense captioning or search.
 license: Apache-2.0
 metadata:
+  author: "NVIDIA Video Search and Summarization team"
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
+## Purpose
+
+Stand up the RT-Embed video-embedding microservice, exercise its REST surface, and integrate it with Redis/Kafka/OTel.
+
+## Instructions
+
+Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
+
+## Examples
+
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+
+## Limitations
+
+- Requires the matching VSS profile / microservice to be deployed and reachable from the caller.
+- NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
+- Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
 
 # VSS Video Embedding (RT-Embed)
 
@@ -135,7 +148,7 @@ curl -fsS "$BASE_URL/v1/streams/get-stream-info"
 curl -fsS -X DELETE "$BASE_URL/v1/generate_video_embeddings/$STREAM_ID"
 ```
 
-See `references/api.md` for the full endpoint catalog, SSE streaming, and single-stream control-plane patterns.
+See `references/rest-api.md` for the full endpoint catalog, SSE streaming, and single-stream control-plane patterns.
 
 ## Logs, Metrics, And Status
 

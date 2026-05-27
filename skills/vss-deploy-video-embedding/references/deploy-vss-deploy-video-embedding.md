@@ -61,7 +61,7 @@ The named volumes `rtvi-hf-cache`, `rtvi-ngc-model-cache`, and `rtvi-triton-mode
 
 ## Known Deployment Issues
 
-See [`troubleshooting.md`](troubleshooting.md) for the consolidated symptom →
+See `troubleshooting.md` for the consolidated symptom →
 root cause → fix table covering startup, model/cache, runtime, and GPU
 visibility issues.
 

@@ -38,7 +38,7 @@ container, applies all required config edits, and starts the app.
 - For `eglsink` display output: X11 server with `$DISPLAY` set on the host.
 
 For full secret, mount, env-var, and GPU-selection detail see
-[`environment.md`](environment.md).
+`environment.md`.
 
 ---
 
@@ -93,7 +93,7 @@ Anything *not* pinned by the user query is asked via the Step 2 `AskQuestion`
 | Mode         | Trigger phrases                                                       | Goes to                                                                                       |
 |--------------|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
 | **DEPLOY**   | `deploy`, `run`, `launch`, `start`, `set up`, `bring up`              | Step 0 → Steps 1–6 below.                                                                     |
-| **TEARDOWN** | `stop`, `tear down`, `shutdown`, `kill`, `cleanup`, `remove container` | [`teardown-flow.md`](teardown-flow.md).                                            |
+| **TEARDOWN** | `stop`, `tear down`, `shutdown`, `kill`, `cleanup`, `remove container` | `teardown-flow.md`.                                            |
 
 If the user's intent is clearly deploy or teardown, do not ask — proceed
 directly to the matching flow. Only ask via `AskQuestion` when ambiguous.
@@ -102,22 +102,22 @@ directly to the matching flow. Only ask via `AskQuestion` when ambiguous.
 
 ## Deployment Workflow (high-level map)
 
-The skill renders progress as a 10-task list (see [`task-list.md`](task-list.md))
+The skill renders progress as a 10-task list (see `task-list.md`)
 and walks through six logical steps. Each step links to the file with the
 detailed bash and decision logic.
 
 | Step | What it does                                              | Reference                                                               |
 |------|-----------------------------------------------------------|-------------------------------------------------------------------------|
-| 0    | Build the full task list upfront via `TodoWrite`.         | [`task-list.md`](task-list.md)                               |
-| 1    | Confirm use case, platform, image, NGC creds, resources.  | [`usecases.md`](usecases.md), [`platforms.md`](platforms.md), [`ngc-setup.md`](ngc-setup.md), [`resource-plan.md`](resource-plan.md) |
-| 2    | Pipeline configuration: batch size, streams, sink.        | [`pipeline-config.md`](pipeline-config.md)                   |
-| 3    | Launch (or reuse / restart / parallel) the container.     | [`container-reuse.md`](container-reuse.md)                   |
-| 4    | Apply config inside the container (path sub, batch, sink, sources, engine cache lookup). | [`apply-config.md`](apply-config.md) |
-| 5    | Start the perception app + capture metrics + write log.   | [`start-app.md`](start-app.md)                              |
-| 6    | Next steps: stream lifecycle, metrics, REST examples.     | [`next-steps.md`](next-steps.md)                             |
+| 0    | Build the full task list upfront via `TodoWrite`.         | `task-list.md`                               |
+| 1    | Confirm use case, platform, image, NGC creds, resources.  | `usecases.md`, `platforms.md`, `ngc-setup.md`, `resource-plan.md` |
+| 2    | Pipeline configuration: batch size, streams, sink.        | `pipeline-config.md`                   |
+| 3    | Launch (or reuse / restart / parallel) the container.     | `container-reuse.md`                   |
+| 4    | Apply config inside the container (path sub, batch, sink, sources, engine cache lookup). | `apply-config.md` |
+| 5    | Start the perception app + capture metrics + write log.   | `start-app.md`                              |
+| 6    | Next steps: stream lifecycle, metrics, REST examples.     | `next-steps.md`                             |
 
 **Teardown** is a separate 5-step flow (discover → select → method → cleanup
-scope → execute) — see [`teardown-flow.md`](teardown-flow.md).
+scope → execute) — see `teardown-flow.md`.
 NGC credentials are always preserved.
 
 ### Startup contract — first response after invocation
@@ -263,7 +263,7 @@ exist for the use case:**
 Model and Videos options. If the user picks "Custom local …" for an asset,
 no NGC ref is needed for that asset.
 
-**[`deploy-defaults.yml`](deploy-defaults.yml) is
+**[`deploy-defaults.yml`](../assets/deploy-defaults.yml) is
 the SINGLE SOURCE OF TRUTH for every default value the skill suggests** —
 docker image tag, NGC resource ref, ONNX basename, in-resource path, video
 set name, in-image config paths. The agent reads these via
@@ -378,7 +378,7 @@ finished:**
 3. Destructive action about to run (cleanup wipe, force rebuild ≥ 10 min).
 4. Credentials missing on first run — API key must come from the user.
 
-Everything else runs without asking. See [`ux-conventions.md`](ux-conventions.md)
+Everything else runs without asking. See `ux-conventions.md`
 for the full visibility / `AskQuestion` contract.
 
 ### User-facing announcements — never include substep notation
@@ -576,7 +576,7 @@ returns a clean multi-line `docker run …` with the actual mounts /
 GPU / network / user env in effect. **Never** show a truncated
 `docker start <name>` — the user must be able to reproduce the
 deployment context from the log alone. Full Step 3 detail lives in
-[`container-reuse.md`](container-reuse.md).
+`container-reuse.md`.
 
 **Step 4 box content rule.** Render the apply-config receipt as a
 **sectioned** layout — Model, Batch size, Output sink, Stream sources,
@@ -610,7 +610,7 @@ back to and they're banned:**
 
 The complete per-use-case key list **with the canonical
 plain-English annotation per key** lives in
-[`apply-config.md`](apply-config.md) § "Per-use-case complete
+`apply-config.md` § "Per-use-case complete
 edit list". The agent reads that table for the active use case +
 chosen settings, then emits one annotated row per key.
 
@@ -654,7 +654,7 @@ Stream-addition section shows "no REST call" + the camera ids; for
   it'll run". The user doesn't — the plan box is the user's preview.
 
 Full templates + per-mode rows live in
-[`start-app.md`](start-app.md) § "Step 5.c — Step 5 plan and
+`start-app.md` § "Step 5.c — Step 5 plan and
 result boxes". The Results box is the only post-launch receipt — do
 NOT add a second "deployment summary" box; the Results box already
 carries every value (use case, container, image, batch/sink, FPS,
@@ -663,7 +663,7 @@ GPU, log path, REST endpoints).
 **Step 6 — post-deploy AskQuestion is REQUIRED, never free-form
 bullets.** Right after the "Perception Application — Results" box,
 the agent MUST issue the Step 6 `AskQuestion` from
-[`next-steps.md`](next-steps.md) § "11.c". The user picks
+`next-steps.md` § "11.c". The user picks
 one of these buckets:
 
 | Bucket                  | What it does                                                                                            |
@@ -685,7 +685,7 @@ one of these buckets:
 
 If the user picks `Stop the deployment → Full teardown`, the skill
 jumps to the Teardown Flow at
-[`teardown-flow.md`](teardown-flow.md).
+`teardown-flow.md`.
 
 Per-step exit template (title centered, 96 wide, NGC source rows shown):
 
@@ -890,7 +890,7 @@ between rows, the rule was broken — re-render before sending.
 The Results box is the only post-launch receipt — it carries the
 full row set (use case, container, image, batch/sink, streams, FPS,
 GPU, log path, REST endpoints). Templates live in
-[`start-app.md`](start-app.md) §"Step 5.c — Result box".
+`start-app.md` §"Step 5.c — Result box".
 There is no separate deployment-summary box.
 
 **Hard rules:**
@@ -954,7 +954,7 @@ launch. Secrets in the docker / app commands (`NGC_API_KEY`, `Authorization`,
 Stored at `~/.ngc/config` with mode `0600`. The skill enforces the mode each
 deploy and re-prompts only if the file is missing or authentication fails.
 The container itself never receives a `~/.ngc` mount — see
-[`environment.md`](environment.md) for the full data-flow.
+`environment.md` for the full data-flow.
 
 ---
 

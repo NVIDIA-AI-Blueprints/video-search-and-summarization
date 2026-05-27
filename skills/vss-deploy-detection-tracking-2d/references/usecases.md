@@ -7,7 +7,7 @@ All paths below are **inside the RTVI-CV container** unless marked "(host)".
 > **Local-path alternative (NGC is not required).** Every NGC reference
 > shown below can be swapped for a local path on the host — the user
 > picks the source per asset in Step 1.d (see
-> [`resource-plan.md`](resource-plan.md)). When the user chooses
+> `resource-plan.md`). When the user chooses
 > `local`, `fetch_resources.sh` `cp`s the file/directory into
 > `$HOME/rtvicv-storage/resources/local-<role>/`, and the container
 > sees it at `/opt/storage/resources/local-<role>/`. The
@@ -210,7 +210,7 @@ Smart city 2D detection using **RT-DETR** (TrafficCamNet), 5 classes.
 
 ### NGC resources
 
-See [`ngc-setup.md`](ngc-setup.md) for the canonical download commands
+See `ngc-setup.md` for the canonical download commands
 (`<RTDETR_MODEL_NGC>`, `<SMARTCITY_APP_DATA_NGC>` resolution + tar
 extraction). The ReID model for NvDCF tracker is fetched separately via the
 stable URL documented there.

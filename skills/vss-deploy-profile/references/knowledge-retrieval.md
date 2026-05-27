@@ -39,7 +39,7 @@ Three patches per retriever you want to add. They can be layered on top of any p
 2. Pick the adapter(s) to add: `frag_api`, `es_caption`, or both.
 3. For each retriever to add, apply Patches 1, 2, 3 below.
 4. Save as a new file in the profile's `configs/` directory (convention: `config_rag.yml` if it adds frag), then repoint `VSS_AGENT_CONFIG_FILE` in the profile's `.env`.
-5. Hand off to the [vss-deploy-profile skill](../SKILL.md) with the new config path.
+5. Hand off to the `vss-deploy-profile skill` (see `../SKILL.md`) with the new config path.
 
 ### Patch 1 — register a function block
 
