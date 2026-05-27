@@ -546,7 +546,7 @@ uvx harbor run \
   --ak api_base="$ANTHROPIC_BASE_URL/v1" \
   --ae CLAUDE_CODE_DISABLE_THINKING=1 \
   --environment-build-timeout-multiplier 3.0 \
-  --agent-timeout-multiplier 3.0 \
+  --agent-timeout-multiplier 6.0 \
   --verifier-timeout-multiplier 3.0 \
   --max-retries 0 -n 1 --yes \
   -o /tmp/skill-eval/results/"$GITHUB_RUN_ID"
@@ -597,7 +597,7 @@ Notes that have burned prior runs:
       --ak api_base="$ANTHROPIC_BASE_URL/v1" \
       --ae CLAUDE_CODE_DISABLE_THINKING=1 \
       --environment-build-timeout-multiplier 3.0 \
-      --agent-timeout-multiplier 3.0 \
+      --agent-timeout-multiplier 6.0 \
       --verifier-timeout-multiplier 3.0 \
       --max-retries 0 -n 1 --yes \
       -o "$RESULTS"
@@ -643,26 +643,27 @@ Notes that have burned prior runs:
   `harbor/trial/trial.py::_start_environment_with_retry` on a fresh
   box. Our internal `_wait_for_running` polls to 2400s, but the
   outer harbor wrapper is what actually trips first.
-- `--agent-timeout-multiplier 3.0` raises the per-trial agent-exec
+- `--agent-timeout-multiplier 6.0` raises the per-trial agent-exec
   ceiling (the one that bounds the `claude --print` subprocess
-  harbor spawns) by the same factor. `/vss-deploy-profile` on a cold box —
-  especially `lvs` / `alerts_*` which pull multiple local NIMs — can
-  legitimately need 20+ min of `docker pull` + NGC auth + container
-  start; the stock ceiling SIGTERMs it mid-pull and harbor records a
-  `NonZeroAgentExitCodeError` (exit 124). Mirrors the env-build
-  multiplier so trials don't trip on cold-box runtime cost the same
-  way they don't trip on cold-box provision cost.
+  harbor spawns) from the task default (600s) to 3600s — one hour
+  per trial. `/vss-deploy-profile` on a cold box — especially `lvs`
+  / `alerts_*` which pull multiple local NIMs — can legitimately
+  need 20+ min of `docker pull` + NGC auth + container start;
+  combined with adapter work that follows (ingest, multi-step
+  specs), the prior 30-min ceiling SIGTERM'd long trials mid-run
+  and harbor recorded `NonZeroAgentExitCodeError` (exit 124). One
+  hour gives margin for the longest observed cold-box trials
+  without uncapping retries.
 - `--verifier-timeout-multiplier 3.0` raises harbor's verifier
   execution ceiling from the 600s default to 1800s. Our
   `generic_judge.py` spawns a claude-agent-sdk judge **per check**
   with `Bash` + `Read` + `Grep` tools — specs like `vss-manage-video-io-storage` carry 4-6
   checks, each potentially probing the live stack, so the aggregate
   verify pass compounds past 600s and harbor raises
-  `VerifierTimeoutError`. This is the third of three timeout
-  multipliers we lift for cold-box + LLM-judge realities: env-build
-  (provision), agent (runtime), verifier (judge). All three match
-  at 3.0 so any one bumped individually doesn't become the new
-  bottleneck.
+  `VerifierTimeoutError`. Of the three multipliers, only the agent
+  one is at 6.0 (the trial-work budget) — env-build and verifier
+  stay at 3.0 because provisioning and judging haven't shown the
+  same cold-box runtime pressure as the agent step.
 - Output goes to `/tmp/skill-eval/results/$GITHUB_RUN_ID/<date>/<trial>/`.
   Then migrate to the viewer (see § Harbor viewer).
 
