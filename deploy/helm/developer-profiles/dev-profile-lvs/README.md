@@ -19,6 +19,17 @@ See the License for the specific language governing permissions and limitations 
 
 Helm chart for deploying **VSS LVS (Long Video Summarization) Developer Profile** on Kubernetes.
 
+## Deployment mode at a glance
+
+By default this profile is an **in-cluster** deployment:
+
+| Component | Default behavior | Default model name |
+|-----------|------------------|--------------------|
+| LLM | Deploys the **`nvidia-nemotron-nano-9b-v2`** NIM through the **`nims`** umbrella chart (`NIMCache` / `NIMService`). | `nvidia/nvidia-nemotron-nano-9b-v2` |
+| VLM / RT-VLM | Deploys **`vss-rtvi-vlm`** in this release. The RT-VLM pod loads the integrated Cosmos Reason2 checkpoint; the profile does **not** deploy a separate Cosmos VLM NIM by default. | `nim_nvidia_cosmos-reason2-8b_hf-1208` |
+
+Switch to **external-service mode** only when the model endpoints already run outside this release. Setting **`global.llmBaseUrl`** or **`global.vlmBaseUrl`** (or the matching **`agent.vss-agent.*BaseUrl`** / **`vss-summarization.*BaseUrl`** overrides) makes those workloads call the supplied external service instead of the default in-cluster service. When both LLM and VLM are external, set **`nims.enabled=false`** and set **`rtvi.vss-rtvi-vlm.useSharedNim=true`** so RT-VLM proxies the external VLM instead of loading the integrated checkpoint.
+
 ## GPU requirements
 
 With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-summarization`**, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **4 GPUs** (`nvidia.com/gpu: 1` each). Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
@@ -33,12 +44,24 @@ With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-
 
 To run the RTVI-VLM against a shared/remote VLM endpoint instead of the integrated checkpoint, set `rtvi.vss-rtvi-vlm.useSharedNim=true` and configure the target VLM endpoint/model values.
 
+### NIM GPU profile guidance
+
+The chart requests **one GPU per enabled NIM**, but the repo does **not** encode an exact minimum GPU memory size for each profile. Treat the **`nims.gpuType`** values as tuning profiles, not a certified capacity statement. Use only a profile that matches the GPU class you have validated on the cluster.
+
+| `nims.gpuType` | `nemotron` tuning for `nvidia/nvidia-nemotron-nano-9b-v2` | Notes |
+|----------------|-----------------------------------------------------------|-------|
+| `H100` | `NIM_KVCACHE_PERCENT=0.8`, `NIM_GPU_MEM_FRACTION=0.8`, `NIM_MAX_MODEL_LEN=128000`, `NIM_MAX_NUM_SEQS=4`, `NIM_LOW_MEMORY_MODE=1` | Chart default in `values.yaml`. |
+| `L40S` | `NIM_KVCACHE_PERCENT=0.8`, `NIM_GPU_MEM_FRACTION=0.8`, `NIM_MAX_MODEL_LEN=128000`, `NIM_MAX_NUM_SEQS=4`, `NIM_LOW_MEMORY_MODE=1` | Use only for L40S deployments you have capacity-tested. |
+| `RTXPRO6000BW` | `NIM_KVCACHE_PERCENT=0.4`, `NIM_GPU_MEM_FRACTION=0.4`, `NIM_MAX_MODEL_LEN=128000`, `NIM_MAX_NUM_SEQS=4`, `NIM_LOW_MEMORY_MODE=1` | More conservative memory fraction; sample `values-lvs.yaml` uses this profile. |
+
+For non-H100 GPUs, prefer the matching non-H100 profile if it exists. If your GPU is not **`L40S`** or **`RTXPRO6000BW`**, this chart has no generic, validated Helm NIM profile for it; use external LLM/VLM endpoints or add a new **`nims.gpuProfiles`** entry and validate it before treating it as supported. If `nvidia/nvidia-nemotron-nano-9b-v2` starts but fails with a KV-cache memory error, reduce the active profile's **`NIM_MAX_MODEL_LEN`** and/or **`NIM_MAX_NUM_SEQS`**; exact values are hardware and workload dependent.
+
 ## RTVI-VLM integration (always on)
 
 The LVS profile always deploys **`vss-rtvi-vlm`**. VLM calls from both clients are routed through this in-cluster service:
 
 - **`vss-agent`**: `video_understanding` picks the `rtvi_vlm` LLM profile (`configs/vss-agent/config.yml`) because `VLM_MODEL_TYPE=rtvi`. `RTVI_VLM_BASE_URL` resolves to the in-cluster `vss-rtvi-vlm` Service via `agent.vss-agent.rtviVlmServiceName` (default `vss-rtvi-vlm`).
-- **`vss-summarization`**: receives `RTVI_VLM_URL=http://<release>-vss-rtvi-vlm:8000`, `RTVI_VLM_URL_PASSTHROUGH=true` via `vss-summarization.extraEnv` — LVS backend forwards `/generate_captions` to the RTVI pod.
+- **`vss-summarization`**: receives `RTVI_VLM_URL=http://vss-rtvi-vlm:8000` by default (`http://<release>-vss-rtvi-vlm:8000` only when `global.useReleaseNamePrefix=true`), plus `RTVI_VLM_URL_PASSTHROUGH=true` via `vss-summarization.extraEnv` — LVS backend forwards `/generate_captions` to the RTVI pod.
 
 Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` list):
 
@@ -71,8 +94,9 @@ Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmB
     - **580.65.06** (x86 hosts with Ubuntu 22.04)
 
 - **NVIDIA NIM Operator**
-  - Required when **`nims`** subcharts are enabled (`NIMCache` / `NIMService`). LVS deploys the LLM NIM by default; the Cosmos VLM NIM is optional because RT-VLM loads its integrated checkpoint unless you enable a shared VLM NIM.
+  - Required **before deploying this profile with defaults**. The default **`nims.enabled: true`** path creates **`NIMCache`** and **`NIMService`** custom resources for the LLM NIM, so the NIM Operator and its CRDs must already exist on the cluster before `helm upgrade --install`.
   - Install **after** the GPU Operator. See [NIM Operator installation](https://docs.nvidia.com/nim-operator/latest/install.html).
+  - If you intentionally run with **`nims.enabled=false`** and all LLM/VLM traffic goes to external endpoints, the NIM CRDs are not created by this chart.
 
 - **Volume provisioner (e.g. local-path)**
   - A **StorageClass** must exist on the cluster (VST, Elasticsearch, and related volumes). Set **`global.storageClass`** in your Helm values override to that class’s **`metadata.name`** (see [Prepare the values file](#1-prepare-the-values-file)).
@@ -94,6 +118,35 @@ Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmB
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
 - **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above—**Volume provisioner**).
 
+### Required NGC secrets
+
+With defaults, the chart creates the two Kubernetes secrets when **`ngc.createSecrets=true`** and **`ngc.apiKey`** is non-empty:
+
+| Secret | Type | Used for | Default reference |
+|--------|------|----------|-------------------|
+| **`ngc-api`** | `Opaque` with **`NGC_API_KEY`** and **`NGC_CLI_API_KEY`** | NIM Operator resources and RT-VLM NGC access. | **`global.ngcApiSecret.name`** / **`global.ngcApiSecret.key`** |
+| **`ngc-secret`** | `kubernetes.io/dockerconfigjson` for **`nvcr.io`** | Image pulls from NGC. | **`global.imagePullSecrets`** |
+
+If **`ngc.createSecrets=false`**, create both secrets yourself in the release namespace before installing, then keep **`global.ngcApiSecret`** and **`global.imagePullSecrets`** aligned with the names and keys you chose.
+
+```bash
+export NAMESPACE='<NAMESPACE>'
+export NGC_CLI_API_KEY='<your NGC API key>'
+
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create secret generic ngc-api \
+  -n "$NAMESPACE" \
+  --from-literal=NGC_API_KEY="$NGC_CLI_API_KEY" \
+  --from-literal=NGC_CLI_API_KEY="$NGC_CLI_API_KEY"
+
+kubectl create secret docker-registry ngc-secret \
+  -n "$NAMESPACE" \
+  --docker-server=nvcr.io \
+  --docker-username='$oauthtoken' \
+  --docker-password="$NGC_CLI_API_KEY"
+```
+
 ## Quick start
 
 ### 1. Prepare the values file
@@ -111,7 +164,7 @@ Edit **`values-lvs.yaml`** and set at least:
 | **`llmNameSlug`** | Replace the placeholder with the subchart name of the **LLM** NIM you enable under **`services/nims/charts/`** (e.g. `nvidia-nemotron-nano-9b-v2`). Keep **`agent.vss-agent.llmName`** / **`global.llmName`** in **`values.yaml`** aligned with the same NGC model. |
 | **`vlmNameSlug`** | Use **`none`** for the default LVS flow; RT-VLM loads the integrated checkpoint instead of deploying a VLM NIM subchart. |
 | **`nims`** | **`nims.enabled`**: umbrella for all NIM subcharts. Use **`nims.gpuType`** to select model tuning from **`gpuProfiles`** and **`nims.nemotron.enabled`** / **`nims.cosmos.enabled`** to choose the models to deploy. **`nims.cosmos.enabled`** is **`false`** by default because LVS uses the integrated RT-VLM checkpoint. Set **`nims.enabled`** to **`false`** when using [remote LLM/VLM](#remote-llm-and-vlm) only. |
-| **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) base URLs when LLM/VLM are **not** deployed by this chart. Use with **`nims.enabled: false`**. Shared by **vss-agent** and **vss-summarization**; must be reachable from those pods. Leave **`""`** for in-cluster **NIM** services. |
+| **`global.llmBaseUrl`** / **`global.vlmBaseUrl`** (remote) | HTTP(S) service-root base URLs when LLM/VLM are **not** deployed by this chart, for example **`http://host:31081`** without a trailing **`/v1`**. Use with **`nims.enabled: false`**. Shared by **vss-agent** and **vss-summarization**; must be reachable from those pods. Leave **`""`** for in-cluster **NIM** services. |
 | **`global.llmName`** / **`global.vlmName`** (remote) | NGC-style model ids for **both** **vss-agent** and **vss-summarization**; must match remote endpoints. Defaults in **`values-lvs.yaml`** match common NGC models. |
 | **`vssIngress`** (optional) | Set **`vssIngress.enabled`** to **`true`** to create a Kubernetes **`Ingress`** for UI, agent, VST, and (when enabled) **Kibana** and **Phoenix** on **`kibana.<host>`** / **`phoenix.<host>`**. Requires an existing **IngressClass** (see [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress)). **`global.externalHost`** must be set unless **`vssIngress.host`** is set. Sample **`values-lvs.yaml`** enables this by default. |
 
@@ -140,8 +193,8 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`global.externalHost`** | **`""`** | Hostname or IP clients use in the browser (e.g. **`vss.YOUR_IP.nip.io`**). |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs; use **`""`** so URLs omit **`:port`** when using default 80/443. Set only for non-default ports (e.g. **`8080`**). |
 | **`global.kibanaPublicUrl`** | **`""`** | Public Kibana base URL (no **`/kibana`** path suffix). Prefer this over duplicating **`infra.kibana.kibanaPublicUrl`** unless Kibana must use a different host than the main UI. |
-| **`global.llmBaseUrl`** | **`""`** | **Single place** for remote LLM base URL shared by **vss-agent** and **vss-summarization** ( **`LLM_BASE_URL`**, **`LVS_LLM_BASE_URL`** ). LVS often needs **`/v1`** on the path (e.g. **`http://host:31081/v1`**). Subchart **`agent.vss-agent.llmBaseUrl`** or **`vss-summarization.llmBaseUrl`** overrides when set. |
-| **`global.vlmBaseUrl`** | **`""`** | Same for VLM (**`VLM_BASE_URL`**, **`VIA_VLM_ENDPOINT`**). |
+| **`global.llmBaseUrl`** | **`""`** | **Single place** for remote LLM base URL shared by **vss-agent** and **vss-summarization** ( **`LLM_BASE_URL`**, **`LVS_LLM_BASE_URL`** ). Use the service root without trailing **`/v1`** (e.g. **`http://host:31081`**): **vss-agent** appends **`/v1`** in its config, and **vss-summarization** adds **`/v1`** when missing. Subchart **`agent.vss-agent.llmBaseUrl`** or **`vss-summarization.llmBaseUrl`** overrides when set. |
+| **`global.vlmBaseUrl`** | **`""`** | Same for VLM (**`VLM_BASE_URL`**, **`VIA_VLM_ENDPOINT`**). Use the same service-root convention without trailing **`/v1`** for compatibility with **vss-agent** and RT-VLM proxying. |
 | **`global.llmName`** | **`nvidia/nvidia-nemotron-nano-9b-v2`** | NGC model id for **both** **vss-agent** (**`LLM_NAME`**) and **vss-summarization** (**`LVS_LLM_MODEL_NAME`**). Override with **`agent.vss-agent.llmName`** or **`vss-summarization.llmName`** when a workload needs a different id (e.g. remote NIM). |
 | **`global.vlmName`** | **`nim_nvidia_cosmos-reason2-8b_hf-1208`** | Same for VLM (**`VLM_NAME`**, **`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
 | **`global.storageClass`** | unset in repo **`values.yaml`** | Set in **`values-lvs.yaml`**; used for **Elasticsearch**, **`vios.vstStorage`** PVCs, and other subcharts that inherit **`global.storageClass`**. |
@@ -224,7 +277,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 
 ### Remote LLM and VLM
 
-When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`false`** and configure **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** in **`values-lvs.yaml`** (or **`--set`**). **vss-summarization** and **vss-agent** both consume these globals unless overridden with **`vss-summarization.llmBaseUrl`**, **`agent.vss-agent.llmBaseUrl`**, etc. Endpoints must be reachable from pods in the release namespace. LVS often expects a **`/v1`** path on the LLM URL when talking to OpenAI-compatible NIM APIs.
+When LLM and VLM run **outside** this release, set **`nims.enabled`** to **`false`** and configure **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`**, and **`global.vlmName`** in **`values-lvs.yaml`** (or **`--set`**). Use service-root base URLs without a trailing **`/v1`**; **vss-agent** appends **`/v1`** in its config, and the LVS/RT-VLM templates add **`/v1`** where their containers require it. **vss-summarization** and **vss-agent** both consume these globals unless overridden with **`vss-summarization.llmBaseUrl`**, **`agent.vss-agent.llmBaseUrl`**, etc. Endpoints must be reachable from pods in the release namespace.
 
 ### 2. Install
 
@@ -257,8 +310,8 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
 
 # OR — LVS with remote LLM/VLM (no NIM subcharts); URLs must be reachable from vss-agent and vss-summarization pods
 # (reuse NGC_CLI_API_KEY, STORAGE_CLASS, EXTERNAL_HOST from the example above)
-export LLM_BASE_URL='<REMOTE LLM ENDPOINT>'
-export VLM_BASE_URL='<REMOTE VLM ENDPOINT>'
+export LLM_BASE_URL='<REMOTE LLM SERVICE ROOT, no trailing /v1>'
+export VLM_BASE_URL='<REMOTE VLM SERVICE ROOT, no trailing /v1>'
 
 helm upgrade --install vss-lvs ./dev-profile-lvs \
   -f dev-profile-lvs/values-lvs.yaml \
@@ -270,8 +323,46 @@ helm upgrade --install vss-lvs ./dev-profile-lvs \
   --set-string global.llmBaseUrl="$LLM_BASE_URL" \
   --set-string global.vlmBaseUrl="$VLM_BASE_URL" \
   --set-string global.llmName="nvidia/nvidia-nemotron-nano-9b-v2" \
-  --set-string global.vlmName="nvidia/cosmos-reason2-8b" \
+  --set-string global.vlmName="nim_nvidia_cosmos-reason2-8b_hf-1208" \
   --set rtvi.vss-rtvi-vlm.useSharedNim=true
+```
+
+### 3. Post-deploy validation
+
+Wait for pods first:
+
+```bash
+kubectl get pods -n <NAMESPACE>
+kubectl get pods -n <NAMESPACE> -w
+```
+
+With default **`global.useReleaseNamePrefix=false`**, use these services for direct checks. If you set **`global.useReleaseNamePrefix=true`**, prefix each service name with **`<RELEASE_NAME>-`**. If the NIM Operator creates a differently named Service in your environment, discover it with **`kubectl get svc -n <NAMESPACE> | grep nemotron`** and use that service name for the NIM port-forward.
+
+Run the port-forwards in separate terminals:
+
+```bash
+kubectl port-forward -n <NAMESPACE> svc/vss-summarization 38111:38111
+kubectl port-forward -n <NAMESPACE> svc/vss-rtvi-vlm 8018:8000
+kubectl port-forward -n <NAMESPACE> svc/nvidia-nemotron-nano-9b-v2 30081:8000
+```
+
+Then validate:
+
+```bash
+# LVS readiness
+curl -f http://127.0.0.1:38111/v1/ready
+
+# RT-VLM readiness
+curl -f http://127.0.0.1:8018/v1/health/ready
+
+# NIM readiness (skip this when nims.enabled=false and the LLM is external)
+curl -f http://127.0.0.1:30081/v1/health/ready
+
+# LVS model list
+curl -f http://127.0.0.1:38111/models
+
+# NIM model list (skip this when nims.enabled=false and the LLM is external)
+curl -f http://127.0.0.1:30081/v1/models
 ```
 
 
@@ -348,6 +439,38 @@ helm upgrade --install haproxy-kubernetes-ingress haproxytech/kubernetes-ingress
 kubectl apply -f vss-ingress-example.yaml -f vss-ingress-example-rewrites.yaml -n <NAMESPACE>
 ```
 
+## Troubleshooting
+
+### NIM `CrashLoopBackOff`: no available memory for cache blocks
+
+Symptom:
+
+```bash
+kubectl get pods -n <NAMESPACE>
+kubectl logs -n <NAMESPACE> <NIM_POD_NAME> --previous
+```
+
+The NIM pod enters **`CrashLoopBackOff`** and logs include **`No available memory for the cache blocks`**.
+
+Fix:
+
+Reduce the active NIM profile's model length and/or sequence count, then upgrade the release. The exact values are hardware and workload dependent; the repo does not define a universal minimum GPU memory target.
+
+```yaml
+nims:
+  gpuType: RTXPRO6000BW
+  gpuProfiles:
+    RTXPRO6000BW:
+      nemotron:
+        NIM_MAX_MODEL_LEN: "65536"
+        NIM_MAX_NUM_SEQS: "2"
+```
+
+Use the key that matches your active **`nims.gpuType`**. Apply the override through **`values-lvs.yaml`** or another Helm values file, then run:
+
+```bash
+helm upgrade <RELEASE_NAME> ./dev-profile-lvs -f dev-profile-lvs/values-lvs.yaml -n <NAMESPACE>
+```
 
 ## Upgrade and uninstall
 
