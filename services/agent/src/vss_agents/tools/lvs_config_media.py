@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 GENERATE_CAPTIONS_ENDPOINT = "/v1/generate_captions"
+REGISTER_STREAM_ENDPOINT = "/v1/streams/add"
 CAPTION_GENERATION_STARTED_MESSAGE = "Caption generation started. Please try again later."
 
 
@@ -115,6 +116,10 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
     """Configuration for the LVS media configuration tool."""
 
     lvs_backend_url: str = Field(..., description="The URL of the LVS backend service.")
+    rtvi_vlm_url: str | None = Field(
+        default=None,
+        description="Optional RTVI VLM URL used to register live streams before requesting LVS captions.",
+    )
     vst_internal_url: str = Field(..., description="Internal VST URL used to resolve live stream RTSP URLs.")
     model: str = Field(default="gpt-4o", description="VLM model to use for LVS media processing.")
     conn_timeout_ms: int = Field(default=5000, description="Connection timeout in milliseconds.")
@@ -200,6 +205,82 @@ class LVSConfigMediaOutput(BaseModel):
 @register_function(config_type=LVSConfigMediaConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGenerator[FunctionInfo]:
     """Configure media for LVS summarization."""
+
+    async def _ensure_rtvi_stream_registered(media_id: str, media_name: str, media_url: str) -> tuple[bool, str, Any]:
+        if not config.rtvi_vlm_url:
+            return True, "", None
+
+        payload = {
+            "streams": [
+                {
+                    "id": media_id,
+                    "sensor_name": media_name,
+                    "liveStreamUrl": media_url,
+                    "description": media_name,
+                }
+            ]
+        }
+        request_url = f"{config.rtvi_vlm_url.rstrip('/')}{REGISTER_STREAM_ENDPOINT}"
+        logger.info(
+            "RTVI VLM %s request: media=%r media_id=%s url=%s payload=%s",
+            REGISTER_STREAM_ENDPOINT,
+            media_name,
+            media_id,
+            request_url,
+            payload,
+        )
+
+        timeout = aiohttp.ClientTimeout(connect=config.conn_timeout_ms / 1000, total=config.read_timeout_ms / 1000)
+        try:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.post(request_url, json=payload, headers={"x-stream-id": media_id}) as response,
+            ):
+                response_text = await response.text()
+                logger.info(
+                    "RTVI VLM %s response: media=%r media_id=%s status=%d body=%s",
+                    REGISTER_STREAM_ENDPOINT,
+                    media_name,
+                    media_id,
+                    response.status,
+                    response_text,
+                )
+
+                already_registered = False
+                if response.status not in (200, 201, 202):
+                    already_registered = "already" in response_text.casefold() and "exist" in response_text.casefold()
+                    if not already_registered:
+                        return (
+                            False,
+                            f"RTVI VLM {REGISTER_STREAM_ENDPOINT} failed with status {response.status}: {response_text}",
+                            response_text,
+                        )
+
+                try:
+                    registration_response: Any | None = json.loads(response_text) if response_text else None
+                except json.JSONDecodeError:
+                    registration_response = response_text
+
+                if isinstance(registration_response, dict):
+                    errors = registration_response.get("errors")
+                    if errors and not already_registered:
+                        return (
+                            False,
+                            f"RTVI VLM {REGISTER_STREAM_ENDPOINT} returned errors: {errors}",
+                            registration_response,
+                        )
+
+                return True, "", registration_response
+        except aiohttp.ClientError as e:
+            logger.error(
+                "RTVI VLM %s connection error: media=%r media_id=%s url=%s error=%s",
+                REGISTER_STREAM_ENDPOINT,
+                media_name,
+                media_id,
+                request_url,
+                e,
+            )
+            return False, f"Failed to connect to RTVI VLM {REGISTER_STREAM_ENDPOINT}: {e}", None
 
     async def _collect_hitl_parameters(
         current_params: tuple[str, list[str], list[str]] | None = None,
@@ -344,6 +425,22 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
                     message="Media configuration was cancelled by user.",
                 )
             break
+
+        registered, registration_error, registration_response = await _ensure_rtvi_stream_registered(
+            media_id,
+            media_name,
+            media_url,
+        )
+        if not registered:
+            return LVSConfigMediaOutput(
+                status=LVSMediaStatus.FAILED,
+                media_type=lvs_input.media_type,
+                media_name=media_name,
+                media_id=media_id,
+                configured=False,
+                message=f"Failed to register stream '{media_name}' with RTVI before LVS caption generation: {registration_error}",
+                lvs_backend_response=registration_response,
+            )
 
         payload: dict[str, Any] = {
             "id": media_id,
