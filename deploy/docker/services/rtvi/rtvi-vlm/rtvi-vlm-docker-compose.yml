@@ -18,7 +18,7 @@
 services:
   rtvi-vlm:
     # for release, change this to the versioned image from the registry
-    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.3}
+    image: nvcr.io/nvstaging/vss-core/vss-rt-vlm:${RTVI_VLM_IMAGE_TAG:-3.2.0-26.05.4}
     container_name: vss-rtvi-vlm
     user: "1001:1001"
     shm_size: '16gb'
