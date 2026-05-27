@@ -113,16 +113,17 @@ per-use-case table below, given the user's chosen settings.
 
 | Use case + settings                                     | Section row counts                                                              |
 |---------------------------------------------------------|---------------------------------------------------------------------------------|
-| `warehouse-2d` + eglsink + static + N=4 + cache HIT     | Model 1 · Batch 6 · Sink 4 · Sources 6 · Engine 2 · Backups 1                   |
-| `warehouse-2d` + filedump + static + N=4 + cache HIT    | Model 1 · Batch 6 · Sink 10 (4 base + 6 filedump-only) · Sources 6 · Engine 2   |
-| `warehouse-3d` + eglsink + static + N=4 + cache HIT     | Model 4 · Batch 6 (incl. `num_sensors`, `network-input-shape`) · Sink 6 (4 base + 2 `generate_3d_bbox`) · Sources 6 · Engine 2 · Backups 1 |
-| `smartcity-rtdetr` + eglsink + static + N=4 + cache HIT | Model 1 · Batch 7 · Sink 4 · Sources 6 · Engine 2 · Backups 1                   |
-| `smartcity-gdino` + eglsink + static + N=4 + cache HIT  | Model 2 (Triton `model.onnx` + `model.plan`) · Batch 10 (incl. 4 Triton pbtxts) · Sink 4 · Sources 6 · Engine 2 · Backups 1 |
+| `warehouse-2d` + eglsink + static + N=4 + cache HIT     | Model 1 · Batch 6 · Sink 5 · Sources 6 · Engine 2 · Backups 1                   |
+| `warehouse-2d` + filedump + static + N=4 + cache HIT    | Model 1 · Batch 6 · Sink 11 (5 base + 6 filedump-only) · Sources 6 · Engine 2   |
+| `warehouse-3d` + eglsink + static + N=4 + cache HIT     | Model 4 · Batch 6 (incl. `num_sensors`, `network-input-shape`) · Sink 7 (5 base + 2 `generate_3d_bbox`) · Sources 6 · Engine 2 · Backups 1 |
+| `smartcity-rtdetr` + eglsink + static + N=4 + cache HIT | Model 1 · Batch 7 · Sink 5 · Sources 6 · Engine 2 · Backups 1                   |
+| `smartcity-gdino` + eglsink + static + N=4 + cache HIT  | Model 2 (Triton `model.onnx` + `model.plan`) · Batch 10 (incl. 4 Triton pbtxts) · Sink 5 · Sources 6 · Engine 2 · Backups 1 |
 
 (Sink count assumes the warehouse-2d / smartcity table below where
 `[sink0]` enable + type are folded into one row when both are written
-together. Either form is fine — the agent picks one row per logical
-edit.)
+together, and `[sink0] nvdslogger=1` is rendered as its own row since
+it's a perf-measurement signal, not part of the sink-mode triple.
+Either form is fine — the agent picks one row per logical edit.)
 
 If the agent's box doesn't have the exact row count, it collapsed —
 re-render with one row per key.
@@ -161,9 +162,10 @@ that row.
 | `ds-main-config.txt`               | `[sink0] enable=1 type=2`  (eglsink — display)        | turn on EGL display sink       |
 | `ds-main-config.txt`               | `[sink0] enable=1 type=1`  (fakesink — bench)         | turn on fakesink (no output)   |
 | `ds-main-config.txt`               | `[sink0] enable=0`         (filedump — disable sink0) | sink0 off — file-dump owns out |
+| `ds-main-config.txt`               | `[sink0] nvdslogger=1`     (all sink modes)           | make /api/v1/metrics report FPS (dormant when sink0 disabled) |
 | `ds-main-config.txt`               | `[sink2] enable=0`         (fakesink/eglsink)         | disable file-dump sink         |
 | `ds-main-config.txt`               | `[sink2] enable=1`         (filedump)                 | enable file-dump sink          |
-| `ds-main-config.txt`               | `[tiled-display] enable=<0\|1>`                       | show / hide tile grid          |
+| `ds-main-config.txt`               | `[tiled-display] enable=<3\|1\|1>` (fakesink / eglsink / filedump) | fakesink: perf-only tiler (per-source FPS to metrics, no compositing); eglsink/filedump: composite the tile grid |
 | `ds-main-config.txt`               | `[osd] enable=<0\|1>`                                 | draw / hide bbox + labels      |
 
 For `filedump` ALSO (6 extra rows):
@@ -295,8 +297,9 @@ flow goes through `setup_gdino.sh` (file copy + engine build):
 │  Output sink  (eglsink — display)                                                                                            │
 │     ds-main-config.txt                                                                                                       │
 │         ✔ [sink0]  enable=1   type=2                       — turn on EGL display sink                                        │
+│         ✔ [sink0]  nvdslogger=1                            — emit per-stream FPS to /api/v1/metrics                          │
 │         ✔ [sink2]  enable=0                                — disable file-dump sink                                          │
-│         ✔ [tiled-display] enable=1                         — show tile grid                                                  │
+│         ✔ [tiled-display] enable=1                         — show tile grid (composite)                                      │
 │         ✔ [osd]    enable=1                                — draw bbox / labels                                              │
 │                                                                                                                              │
 │  Stream sources  (static, 3)                                                                                                 │
@@ -549,7 +552,15 @@ Sink configuration spans four config sections (`[sink0]`, `[sink2]`, `[tiled-dis
 
 ### Note on `[tiled-display] enable`
 
-Some shipped reference-configs use `enable=3` as the default, which happens to work for both display and fakesink modes (DeepStream treats non-zero as "enabled"). But the canonical values are **0 (off)** and **1 (on)** — the skill writes these explicit values so the config is readable and predictable, and matches what any human or downstream tool would expect.
+DeepStream's `nvmultistreamtiler` recognizes three meaningful values:
+
+| Value | Meaning                                                                  | Used by skill for |
+|-------|--------------------------------------------------------------------------|-------------------|
+| `0`   | Element absent from the pipeline.                                        | (not used)        |
+| `1`   | Element present, composes all sources into a single tiled buffer.        | `eglsink`, `filedump` (display / file-write paths need the composited buffer) |
+| `3`   | Element present in **perf-only** mode — no compositing, but per-source perf samples still flow to `nvdslogger`. | `fakesink` (benchmark path — want per-stream FPS in `/api/v1/metrics` without paying the compositing cost) |
+
+The skill writes one of these three values explicitly so the config is readable and predictable. Some shipped reference-configs default to `3`; that happens to work for display too (DS treats any non-zero as "enabled"), but it makes the config ambiguous about intent — the explicit `1` for display vs `3` for perf-only path makes the agent's output sink choice legible at a glance.
 
 ### Tile grid (rows × columns)
 
