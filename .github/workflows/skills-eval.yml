@@ -34,21 +34,32 @@ on:
   workflow_dispatch:
     inputs:
       skills:
-        description: "Which skill to eval (single-select). Pick `*` to sweep every skill under skills/. Keep this list in sync with .github/skill-eval/adapters/."
+        # `type: string` rather than `type: choice` because the skills/
+        # tree has more than 10 entries — GitHub caps `choice` options
+        # at 10. The scope-resolution step below sanity-checks the value
+        # before passing it to the agent.
+        #
+        # Valid values (skills/<name>/ on develop):
+        #   *  (sweep every skill)
+        #   vss-ask-video
+        #   vss-deploy-dense-captioning
+        #   vss-deploy-detection-tracking-2d
+        #   vss-deploy-profile
+        #   vss-deploy-video-embedding
+        #   vss-generate-video-calibration
+        #   vss-generate-video-report
+        #   vss-generate-video-report-rag
+        #   vss-manage-alerts
+        #   vss-manage-video-io-storage
+        #   vss-query-analytics
+        #   vss-search-archive
+        #   vss-setup-behavior-analytics
+        #   vss-setup-video-analytics-api
+        #   vss-summarize-video
+        description: "Which skill to eval (single-select). `*` sweeps every skill. Otherwise type the bare skill dir name (e.g. `vss-deploy-profile`). Keep aligned with .github/skill-eval/adapters/."
         required: false
         default: "*"
-        type: choice
-        options:
-          - "*"
-          - vss-ask-video
-          - vss-deploy-dense-captioning
-          - vss-deploy-profile
-          - vss-deploy-video-embedding
-          - vss-generate-video-report
-          - vss-manage-alerts
-          - vss-manage-video-io-storage
-          - vss-search-archive
-          - vss-summarize-video
+        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment, gh pr create, git push of eval-bot/* branches). The agent
@@ -168,13 +179,11 @@ jobs:
           # by pointing gh at a per-run scratch dir with no hosts.yml.
           GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}
           # Route the workflow_dispatch input through env: instead of
-          # ${{ inputs.skills }} inline in the run: script. `type: choice`
-          # already enum-validates the value (no free-form attacker input
-          # possible today), but env-passthrough is the defense-in-depth
-          # pattern GH Actions docs recommend for any user-controllable
-          # input — keeps the run: body free of templated user data so
-          # future input additions don't accidentally reintroduce a
-          # shell-injection vector.
+          # ${{ inputs.skills }} inline in the run: script. The input is
+          # now `type: string` (free-form) so this matters more — the
+          # run: body sanity-checks INPUT_SKILLS below before passing it
+          # to the agent, keeping any user-controllable string out of the
+          # templated shell context.
           INPUT_SKILLS: ${{ inputs.skills }}
         run: |
           mkdir -p "$GH_CONFIG_DIR"
@@ -195,6 +204,20 @@ jobs:
           # $GITHUB_STEP_SUMMARY instead of `gh pr comment`. All specs on
           # the chosen skill(s) run — no spec-level filter knob.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Sanity-check INPUT_SKILLS now that the input is `type: string`
+            # (free-form). Either `*`, blank, or a bare skill-dir name
+            # — reject anything with slashes / dots that could escape the
+            # skills/ scope.
+            if [ "${INPUT_SKILLS}" != "*" ] && [ -n "${INPUT_SKILLS}" ]; then
+              if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
+                echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
+                exit 1
+              fi
+              if [ ! -d "skills/${INPUT_SKILLS}" ]; then
+                echo "::error::skills/${INPUT_SKILLS}/ does not exist on this ref."
+                exit 1
+              fi
+            fi
             export MANUAL_FULL_SWEEP=1
             export MANUAL_SKILLS_FILTER="${INPUT_SKILLS}"
           fi
