@@ -441,7 +441,11 @@ agent:
     videoAnalysisMcpUrl: ''
     template:
       name: ''
+<<<<<<< HEAD
     vssAgentVersion: 3.2.0-26.05.2-55c5b59b8690
+=======
+    vssAgentVersion: 3.2.0-26.05.2-b5a9f37d1a0a
+>>>>>>> 01b59122 (chore(release): bump VSS_AGENT_VERSION to 3.2.0-26.05.2-b5a9f37d1a0a)
     # Copied from rtvi.* defaults (vss-agent subchart env tpl only sees agent.vss-agent; keep in sync with rtvi.vss-rtvi-embed.port / vss-rtvi-cv.httpPort).
     rtviEmbedPort: '8000'
     rtviCvPort: '9000'
@@ -541,7 +545,11 @@ agent:
       - name: RTVI_EMBED_MODEL
         value: '{{ .Values.rtviEmbedModelName | default "cosmos-embed1-448p-anomaly-detection" }}'
       - name: VSS_AGENT_VERSION
+<<<<<<< HEAD
         value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-55c5b59b8690" }}'
+=======
+        value: '{{ .Values.vssAgentVersion | default "3.2.0-26.05.2-b5a9f37d1a0a" }}'
+>>>>>>> 01b59122 (chore(release): bump VSS_AGENT_VERSION to 3.2.0-26.05.2-b5a9f37d1a0a)
 
 vss-agent-ui:
   enabled: true

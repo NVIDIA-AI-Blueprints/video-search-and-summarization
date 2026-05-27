@@ -199,7 +199,11 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`agent.vss-agent.vstInternalUrl`** | **`""`** | In-cluster **VST** URL for the agent when the default wiring is insufficient. |
 | **`agent.vss-agent.vstInternalIp`** | **`""`** | In-cluster **VST** host/IP override when defaults are insufficient. |
 | **`agent.vss-agent.vssAgentExternalUrl`** | **`""`** | External **vss-agent** URL override for browser / callbacks when **`global.external*`** is not enough. |
+<<<<<<< HEAD
 | **`agent.vss-agent.vssAgentVersion`** | **`3.2.0-26.05.2-e45835c52c4a`** | Optional version label / env; adjust per release. |
+=======
+| **`agent.vss-agent.vssAgentVersion`** | **`3.2.0-26.05.2-b5a9f37d1a0a`** | Optional version label / env; adjust per release. |
+>>>>>>> 01b59122 (chore(release): bump VSS_AGENT_VERSION to 3.2.0-26.05.2-b5a9f37d1a0a)
 | **`agent.vss-agent.llmName`** | **`""`** | Optional **vss-agent-only** override of **`global.llmName`** (**`LLM_NAME`**). |
 | **`agent.vss-agent.vlmName`** | **`""`** | Optional **vss-agent-only** override of **`global.vlmName`** (**`VLM_NAME`**). |
 | **`agent.vss-agent.llmBaseUrl`** | **`""`** | Optional **vss-agent-only** override of **`global.llmBaseUrl`**. |
