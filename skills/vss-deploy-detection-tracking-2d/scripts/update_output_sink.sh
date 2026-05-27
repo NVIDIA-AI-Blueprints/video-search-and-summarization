@@ -56,20 +56,21 @@
 # What it writes (all via update_ds_config from common.sh):
 #
 #   fakesink:
-#     [sink0]         enable=1  type=1
+#     [sink0]         enable=1  type=1  nvdslogger=1
 #     [sink2]         enable=0
-#     [tiled-display] enable=0
+#     [tiled-display] enable=3   (perf-only — emits per-source FPS for
+#                                 /api/v1/metrics without rendering)
 #     [osd]           enable=0
 #
 #   eglsink (display):
-#     [sink0]         enable=1  type=2
+#     [sink0]         enable=1  type=2  nvdslogger=1
 #     [sink2]         enable=0
 #     [tiled-display] enable=1  (rows/columns set by update_batch_size.sh)
 #     [osd]           enable=1
 #     (warehouse-3d only) config.yaml generate_3d_bbox: True
 #
 #   filedump (file):
-#     [sink0]         enable=0  (so DS uses sink2 instead)
+#     [sink0]         enable=0  nvdslogger=1  (key written but dormant — sink0 disabled)
 #     [sink2]         enable=1  type=3  enc-type=1  codec=1
 #                     container=<auto-from-extension>  output-file=<output-file>
 #     [tiled-display] enable=1
@@ -83,6 +84,26 @@
 #     /opt/storage/.user_additional_install.done from a previous partial
 #     install cannot cause silent "Failed to create sink_sub_bin_encoder1"
 #     pipeline-build errors. On success the marker is (re)written.
+#
+# Why nvdslogger=1 on [sink0] in every mode:
+#   /api/v1/metrics returns real per-stream FPS only when an `nvdslogger`
+#   element is attached to an enabled sink. None of the shipped reference
+#   configs set this on [sink0] (warehouse-2d/3d have it only on [sink1]
+#   kafka; smartcity-rtdetr has it commented out). Writing it here means
+#   the metrics API works out-of-the-box for fakesink/eglsink (the
+#   common cases) and the log-parse fallback in collect_metrics.sh stays
+#   only as a safety net. For filedump the key is dormant (sink0
+#   enable=0) — no behavior change for that mode.
+#
+# Why [tiled-display] enable=3 for fakesink:
+#   The tiler has three modes — 0=disabled, 1=enabled (composite into a
+#   tiled buffer for display), 3=perf-only (no compositing; just emit
+#   per-source perf samples that nvdslogger picks up). For fakesink
+#   benchmarks there is no display, so we want the perf signals without
+#   paying the compositing cost — enable=3 gives the metrics API real
+#   per-source FPS while keeping the bench path lean. eglsink stays at 1
+#   (compositing required to draw the grid) and filedump stays at 1
+#   (the file-write path consumes the composited buffer).
 #
 # Every edit is verified at the end; the script exits non-zero if any key
 # didn't land. Prints "SINK_UPDATE_OK <usecase> <sink_mode>" on success.
@@ -243,7 +264,9 @@ case "$SINK_MODE" in
     fakesink)
         SINK0_ENABLE=1; SINK0_TYPE=1
         SINK2_ENABLE=0
-        TILE_ENABLE=0
+        # 3 = tiler perf-only: skips compositing but still emits per-source
+        # perf samples that nvdslogger forwards to /api/v1/metrics.
+        TILE_ENABLE=3
         OSD_ENABLE=0
         ;;
     eglsink)
@@ -265,8 +288,12 @@ case "$SINK_MODE" in
 esac
 
 # ── [sink0] ────────────────────────────────────────────────────
-update_ds_config "$MAIN" "[sink0]"         enable "$SINK0_ENABLE"
-update_ds_config "$MAIN" "[sink0]"         type   "$SINK0_TYPE"
+update_ds_config "$MAIN" "[sink0]"         enable     "$SINK0_ENABLE"
+update_ds_config "$MAIN" "[sink0]"         type       "$SINK0_TYPE"
+# nvdslogger=1 is what makes /api/v1/metrics report real FPS. Write
+# unconditionally (idempotent via update_ds_config) — dormant when sink0
+# is disabled (filedump), active for fakesink/eglsink.
+update_ds_config "$MAIN" "[sink0]"         nvdslogger 1
 
 # ── [sink2] (file dump) ────────────────────────────────────────
 update_ds_config "$MAIN" "[sink2]"         enable "$SINK2_ENABLE"
@@ -326,9 +353,10 @@ _check() {
         fail=1
     fi
 }
-_check "sink0.enable"         "[sink0]"         enable "$SINK0_ENABLE"
-_check "sink0.type"           "[sink0]"         type   "$SINK0_TYPE"
-_check "sink2.enable"         "[sink2]"         enable "$SINK2_ENABLE"
+_check "sink0.enable"         "[sink0]"         enable     "$SINK0_ENABLE"
+_check "sink0.type"           "[sink0]"         type       "$SINK0_TYPE"
+_check "sink0.nvdslogger"     "[sink0]"         nvdslogger 1
+_check "sink2.enable"         "[sink2]"         enable     "$SINK2_ENABLE"
 if [[ "$SINK_MODE" == "filedump" ]]; then
     _check "sink2.container"  "[sink2]"         container "$CONTAINER_CODE"
     _check "sink2.enc-type"   "[sink2]"         enc-type  1
