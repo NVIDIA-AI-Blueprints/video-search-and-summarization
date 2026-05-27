@@ -18,9 +18,14 @@ set -e
 
 git config core.abbrev 7
 
-cd $(git rev-parse --show-toplevel)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SERVICE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+GIT_ROOT="$(git rev-parse --show-toplevel)"
+REL_SERVICE_ROOT="$(realpath --relative-to="$GIT_ROOT" "$SERVICE_ROOT")"
 
-BASE_DIRS="docker/base LICENSE.3rdparty"
+cd "$GIT_ROOT"
+
+BASE_DIRS="$REL_SERVICE_ROOT/docker/base $REL_SERVICE_ROOT/LICENSE.3rdparty"
 
 ls ${BASE_DIRS} >/dev/null
 
